@@ -17,29 +17,104 @@ export function extractLeaseDocumentStyles(html: string): string {
 
 /**
  * Prefix lease document CSS so it can be embedded in the portal without leaking `body` / `html` rules.
- * Prefer an isolated iframe editor when possible; this helper is for tests and narrow fallbacks.
+ * Every selector (including those nested in `@media`) is prefixed with `scopeSelector`; `body`, `html`
+ * and `*`-only roots become the scope itself. With `dropRootLayout`, a root rule keeps its typography
+ * and colour but loses `max-width` / `margin` / `padding`, so the document look can be applied to a
+ * fragment (a clause body) instead of a whole printed page.
  */
-export function scopeLeaseDocumentStyles(css: string, scopeSelector: string): string {
+export function scopeLeaseDocumentStyles(
+  css: string,
+  scopeSelector: string,
+  options: { dropRootLayout?: boolean } = {},
+): string {
   const trimmed = css.trim();
   if (!trimmed) return "";
 
-  const scopeSelectors = (selectors: string): string =>
-    selectors
-      .split(",")
-      .map((raw) => {
-        const selector = raw.trim();
-        if (!selector) return selector;
-        if (selector === "body" || selector === "html") return scopeSelector;
-        if (selector.startsWith("body ") || selector.startsWith("html ")) {
-          return `${scopeSelector} ${selector.replace(/^(body|html)\s+/, "")}`;
-        }
-        return `${scopeSelector} ${selector}`;
-      })
-      .join(", ");
+  const isRoot = (selector: string) => selector === "body" || selector === "html";
+  const scopeOne = (raw: string): string => {
+    const selector = raw.trim();
+    if (!selector) return selector;
+    if (isRoot(selector)) return scopeSelector;
+    if (selector.startsWith("body ") || selector.startsWith("html ")) {
+      return `${scopeSelector} ${selector.replace(/^(body|html)\s+/, "")}`;
+    }
+    return `${scopeSelector} ${selector}`;
+  };
 
-  return trimmed.replace(/(^|})\s*([^@{}][^{]*)\{/g, (_match, before: string, selectors: string) => {
-    return `${before} ${scopeSelectors(selectors)} {`;
-  });
+  const walk = (source: string): string => {
+    let out = "";
+    let i = 0;
+    const n = source.length;
+    while (i < n) {
+      const open = source.indexOf("{", i);
+      if (open === -1) break;
+      const prelude = source.slice(i, open).trim();
+      let depth = 1;
+      let j = open + 1;
+      while (j < n && depth > 0) {
+        if (source[j] === "{") depth += 1;
+        else if (source[j] === "}") depth -= 1;
+        j += 1;
+      }
+      const inner = source.slice(open + 1, depth === 0 ? j - 1 : j);
+      i = j;
+      if (prelude.startsWith("@")) {
+        // @media / @supports nest rules; every other at-rule (@font-face, @page, @keyframes, @import)
+        // is global by nature and has no place in an embedded fragment.
+        if (/^@(media|supports)\b/i.test(prelude)) out += `${prelude} { ${walk(inner)} } `;
+        continue;
+      }
+      const selectors = prelude.split(",").map((part) => part.trim()).filter(Boolean);
+      if (!selectors.length) continue;
+      let declarations = inner.trim();
+      if (options.dropRootLayout && selectors.some(isRoot)) {
+        declarations = declarations
+          .split(";")
+          .filter((decl) => decl.trim() && !/^\s*(max-width|margin|padding)\b/i.test(decl))
+          .join(";");
+        if (declarations) declarations += ";";
+      }
+      if (!declarations) continue;
+      out += `${selectors.map(scopeOne).join(", ")} { ${declarations} } `;
+    }
+    return out;
+  };
+
+  return walk(trimmed).trim();
+}
+
+/**
+ * Drop the document shell (`<!doctype>`, `<html>`, `<head>`, `<title>`, `<style>`, `<script>`, `<body>`
+ * tags) from lease HTML before it is placed in the portal's own DOM. A `<style>` that survives
+ * injection applies to the whole page, which is how the lease's serif / uppercase / underlined look
+ * reached the step rail and every other surface around the editor. The document's rules reach the
+ * editor only through {@link scopeLeaseDocumentStyles}.
+ */
+export function stripLeaseDocumentShell(fragment: string): string {
+  let out = fragment;
+  let previous: string;
+  let passes = 0;
+  do {
+    previous = out;
+    out = out
+      .replace(/<(style|script|title|head)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
+      .replace(/<!doctype[^>]*>/gi, "")
+      .replace(/<\/?(?:html|body)\b[^>]*>/gi, "")
+      .replace(/<\/?(?:style|script|head)\b[^>]*>?/gi, "");
+    passes += 1;
+  } while (out !== previous && passes < 10);
+  return out;
+}
+
+/**
+ * Lease HTML made safe to drop into the portal's own DOM (never an iframe): every `<style>` block is
+ * re-emitted scoped under `scopeSelector` and the document shell is removed. Display only - callers
+ * hash and persist the original string, never this one.
+ */
+export function leaseHtmlForScopedDomDisplay(html: string, scopeSelector: string, options?: { dropRootLayout?: boolean }): string {
+  const css = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)].map((m) => m[1] ?? "").join("\n");
+  const scoped = css.trim() ? scopeLeaseDocumentStyles(css, scopeSelector, options) : "";
+  return `${scoped ? `<style>${scoped}</style>` : ""}${stripLeaseDocumentShell(html)}`;
 }
 
 function stripHtmlTags(value: string): string {

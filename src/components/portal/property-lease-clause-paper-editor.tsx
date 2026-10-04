@@ -19,11 +19,19 @@ import {
   removeLeaseHtmlSection,
   renameLeaseHtmlSectionTitle,
   scopeLeaseDocumentStyles,
+  stripLeaseDocumentShell,
   type LeaseHtmlSection,
 } from "@/lib/lease-html-sections";
 import { cn } from "@/lib/utils";
 
 const HEADER_ID = "lease-document-header";
+
+/**
+ * The only element class the lease document's own stylesheet is scoped under. It sits on the
+ * document content (header and clause bodies) and never on the editor chrome around it, so the
+ * toolbar, titles and buttons keep the standard portal fonts and tokens.
+ */
+export const LEASE_CLAUSE_DOC_SCOPE = "lease-clause-doc";
 
 type Props = {
   html: string;
@@ -45,7 +53,7 @@ export function PropertyLeaseClausePaperEditor({ html, onChange, className, dete
   const sections = useMemo(() => parseLeaseHtmlSections(html), [html]);
   const scopedCss = useMemo(() => {
     const raw = extractLeaseDocumentStyles(html);
-    return raw ? scopeLeaseDocumentStyles(raw, ".lease-clause-paper") : "";
+    return raw ? scopeLeaseDocumentStyles(raw, `.${LEASE_CLAUSE_DOC_SCOPE}`, { dropRootLayout: true }) : "";
   }, [html]);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -80,7 +88,7 @@ export function PropertyLeaseClausePaperEditor({ html, onChange, className, dete
           ) : (
             <h2
               className="flex-1 text-sm font-semibold text-foreground"
-              dangerouslySetInnerHTML={{ __html: section.headingHtml || section.title }}
+              dangerouslySetInnerHTML={{ __html: stripLeaseDocumentShell(section.headingHtml) || section.title }}
             />
           )}
           <div className="flex shrink-0 items-center gap-1 opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
@@ -150,12 +158,12 @@ export function PropertyLeaseClausePaperEditor({ html, onChange, className, dete
             if (node) bodyRefs.current.set(section.id, node);
             else bodyRefs.current.delete(section.id);
           }}
-          className="lease-clause-body min-h-[2rem] rounded-md px-1 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-primary/30"
+          className="lease-clause-body lease-clause-doc min-h-[2rem] rounded-md px-1 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-primary/30"
           contentEditable
           suppressContentEditableWarning
           data-attr="lease-clause-body"
           data-lease-section-id={section.id}
-          dangerouslySetInnerHTML={{ __html: section.bodyHtml }}
+          dangerouslySetInnerHTML={{ __html: stripLeaseDocumentShell(section.bodyHtml) }}
           onInput={(e) => patchBody(section.id, (e.currentTarget as HTMLDivElement).innerHTML)}
         />
         <button
@@ -192,7 +200,11 @@ export function PropertyLeaseClausePaperEditor({ html, onChange, className, dete
         </p>
       ) : null}
       {headerSection ? (
-        <div className="mb-4 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: headerSection.bodyHtml }} />
+        <div
+          className={cn(LEASE_CLAUSE_DOC_SCOPE, "mb-4 text-sm leading-relaxed")}
+          data-attr="lease-clause-header"
+          dangerouslySetInnerHTML={{ __html: stripLeaseDocumentShell(headerSection.bodyHtml) }}
+        />
       ) : null}
       <div className="space-y-1">{clauseSections.map((section) => renderClause(section))}</div>
       <button
