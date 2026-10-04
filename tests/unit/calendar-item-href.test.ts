@@ -4,7 +4,9 @@ import {
   calendarTourBucket,
   meetingRecordHref,
   meetingRecordTarget,
+  workOrderRecordBucket,
 } from "@/lib/calendar-item-href";
+import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 
 const NOW = Date.parse("2026-10-04T12:00:00Z");
@@ -78,5 +80,23 @@ describe("meetingRecordHref", () => {
 
   it("personal Google busy time has no record", () => {
     expect(meetingRecordTarget(meeting({ googleCalendarPrivate: true, kind: "tour" }), {}, NOW)).toBeNull();
+  });
+});
+
+describe("workOrderRecordBucket - the Services list's own stage, not a stale status", () => {
+  const wo = (over: Partial<DemoManagerWorkOrderRow>): DemoManagerWorkOrderRow =>
+    ({ id: "wo1", propertyName: "P", unit: "-", title: "Leak", priority: "Medium", status: "Open", bucket: "open", description: "", scheduled: "-", cost: "", ...over }) as DemoManagerWorkOrderRow;
+
+  it("a service finished since it was booked opens under Completed", () => {
+    const row = wo({ bucket: "scheduled", scheduledAtIso: "2026-10-08T16:00:00Z", automationStatus: "vendor_marked_done", vendorId: "v1", vendorName: "Dana" });
+    expect(workOrderRecordBucket(row)).toBe("completed");
+    const m = meeting({ id: "manager-service-wo1", source: "external", sourceId: "wo1", kind: "service" });
+    expect(meetingRecordHref("/portal", m, { workOrderBucket: () => workOrderRecordBucket(row) }, NOW)).toBe("/portal/services/work-orders/completed/wo1");
+  });
+
+  it("follows the row through Scheduled and Assigned", () => {
+    expect(workOrderRecordBucket(wo({ bucket: "scheduled", scheduledAtIso: "2026-10-08T16:00:00Z" }))).toBe("scheduled");
+    expect(workOrderRecordBucket(wo({ bucket: "completed" }))).toBe("completed");
+    expect(workOrderRecordBucket(wo({ vendorId: "v1", vendorName: "Dana" }))).toBe("assigned");
   });
 });

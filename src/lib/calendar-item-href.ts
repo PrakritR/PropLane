@@ -12,6 +12,8 @@
  * null so the caller keeps the quick-look dialog rather than building a dead link.
  */
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
+import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
+import { workOrderServiceStage } from "@/lib/service-lifecycle";
 import {
   bookingRecordHref,
   managerTaskDetailHref,
@@ -44,6 +46,18 @@ export function calendarRecordHref(basePath: string, target: CalendarRecordTarge
     case "booking":
       return bookingRecordHref(basePath, target.id);
   }
+}
+
+/**
+ * The Services tab a work order sits on RIGHT NOW: the same stage the Services list files it under
+ * (`workOrderServiceStage`), never the status a meeting was created with. A service finished since
+ * the visit was booked is Completed, so its calendar item opens `/completed/<id>`, not `/scheduled/<id>`.
+ */
+export function workOrderRecordBucket(
+  row: DemoManagerWorkOrderRow,
+  data: Parameters<typeof workOrderServiceStage>[1] = { bids: [], offers: [] },
+): WorkOrderBucketId {
+  return workOrderServiceStage(row, data);
 }
 
 /** The bucket of a record, read from its own row. Every lookup is optional and may answer undefined. */

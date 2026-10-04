@@ -55,7 +55,7 @@ import {
   useGoogleCalendarBusyMeetings,
 } from "@/hooks/use-google-calendar-busy";
 import { listManagerServiceCalendarMeetings } from "@/lib/manager-service-calendar";
-import { meetingRecordHref } from "@/lib/calendar-item-href";
+import { meetingRecordHref, workOrderRecordBucket } from "@/lib/calendar-item-href";
 import { managerTaskStage } from "@/lib/manager-task-stage";
 import { readManagerTasksLocal } from "@/lib/manager-tasks";
 import { readAllServiceRequests } from "@/lib/service-requests-storage";
@@ -75,7 +75,6 @@ import {
   calendarViewHref,
   managerTourDetailHref,
   parseCalendarViewTab,
-  parseWorkOrderBucket,
   toursHubHref,
   type CalendarViewTabId,
   type ManagerTaskListTabId,
@@ -657,7 +656,7 @@ function PortalCalendarManager({
       return meetingRecordHref(MANAGER_PORTAL_BASE, meeting, {
         workOrderBucket: (id) => {
           const row = readManagerWorkOrderRows().find((r) => r.id === id);
-          return row ? parseWorkOrderBucket(row.bucket) : undefined;
+          return row ? workOrderRecordBucket(row) : undefined;
         },
         serviceRequestBucket: (id) => {
           const req = readAllServiceRequests().find((r) => r.id === id);
