@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Info } from "lucide-react";
+import { Check, ChevronDown, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   FIELD_SELECT_CHEVRON_CELL_CLASS,
@@ -38,6 +38,7 @@ import {
   fieldSelectMenuZIndex,
   useFieldSelectMenu,
 } from "@/components/ui/field-select-menu";
+import { PhoneBottomSheet, PhoneSheetRow, usePhoneSheetPresentation } from "@/components/ui/phone-bottom-sheet";
 
 export { FIELD_SELECT_MENU_VISIBLE_ITEMS };
 
@@ -91,6 +92,48 @@ function triggerClassForVariant(variant: FieldSelectVariant, hideLabel: boolean,
   return cn(base, extra);
 }
 
+/**
+ * The option list of a select that opened as the shared phone sheet: grouped rows, 48px
+ * minimum, the chosen option marked by a check, the blue bar and bold text, long labels
+ * wrapping. Picks are handled by the caller's `useFieldSelectListboxPointerPick` ref.
+ */
+function PhoneSelectList({
+  listRef,
+  label,
+  multi,
+  empty,
+  groups,
+  flat,
+  renderRow,
+}: {
+  listRef: (list: HTMLDivElement | null) => void;
+  label: string;
+  multi: boolean;
+  empty: string | null;
+  groups: CheckboxMultiSelectGroup[] | null;
+  flat: CheckboxMultiSelectOption[];
+  renderRow: (option: CheckboxMultiSelectOption) => ReactNode;
+}) {
+  return (
+    <div ref={listRef} role="listbox" aria-label={label} aria-multiselectable={multi || undefined} className="py-1">
+      {empty ? (
+        <p className="px-3 py-3 text-sm text-muted">{empty}</p>
+      ) : groups ? (
+        groups.map((group, groupIndex) => (
+          <div key={`${group.label}-${groupIndex}`}>
+            {group.label ? (
+              <p className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{group.label}</p>
+            ) : null}
+            {group.options.map((option) => renderRow(option))}
+          </div>
+        ))
+      ) : (
+        flat.map((option) => renderRow(option))
+      )}
+    </div>
+  );
+}
+
 /** Compact multi-select dropdown with checkboxes (opaque menu). */
 export function CheckboxMultiSelect({
   label,
@@ -139,6 +182,7 @@ export function CheckboxMultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const phoneSheet = usePhoneSheetPresentation();
   // A cell (the listing wizard's card rows) opens and sizes like a pill: the
   // trigger is narrow, so the menu grows to its longest option instead of
   // wrapping every label onto two lines.
@@ -256,7 +300,7 @@ export function CheckboxMultiSelect({
     : filteredOptions.length > 0;
 
   const menu =
-    open && menuRect && isClient && portalHost ? (
+    open && !phoneSheet && menuRect && isClient && portalHost ? (
       <div
         id={listId}
         {...{ [FIELD_SELECT_MENU_DATA_ATTR]: "" }}
@@ -322,6 +366,70 @@ export function CheckboxMultiSelect({
       </div>
     ) : null;
 
+  const renderPhoneCheckboxOption = (opt: CheckboxMultiSelectOption) => {
+    const checked = selected.includes(opt.value);
+    const optionDisabled = Boolean(disabled || readOnly || opt.disabled);
+    return (
+      <PhoneSheetRow
+        key={opt.value}
+        current={checked}
+        aria-selected={checked}
+        aria-disabled={optionDisabled || undefined}
+        disabled={optionDisabled}
+        {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
+        glyph={
+          <span
+            className={`grid size-[18px] place-items-center rounded border ${checked ? "border-primary bg-primary text-white" : "border-border"}`}
+          >
+            {checked ? <Check className="size-3" strokeWidth={3} /> : null}
+          </span>
+        }
+      >
+        {opt.label}
+        {opt.info ? (
+          <span className="ml-1.5 inline-flex align-middle text-muted" title={opt.info} aria-label={opt.info} role="img">
+            <Info className="size-3.5" strokeWidth={2} aria-hidden />
+          </span>
+        ) : null}
+        {opt.hint ? <span className="mt-0.5 block text-xs font-normal text-muted">{opt.hint}</span> : null}
+      </PhoneSheetRow>
+    );
+  };
+
+  const phoneSheetNode =
+    open && phoneSheet && isClient ? (
+      <PhoneBottomSheet
+        open
+        id={listId}
+        title={label}
+        triggerRef={buttonRef}
+        onClose={() => setOpenAndReset(false)}
+        toolbar={
+          showSearch ? (
+            <FieldSelectMenuSearch
+              query={query}
+              onQueryChange={setQuery}
+              placeholder={searchPlaceholder}
+              dataAttr={dataAttr ? `${dataAttr}-search` : undefined}
+            />
+          ) : undefined
+        }
+        footer={
+          menuFooter ? (typeof menuFooter === "function" ? menuFooter(() => setOpenAndReset(false)) : menuFooter) : undefined
+        }
+      >
+        <PhoneSelectList
+          listRef={listRef}
+          label={label}
+          multi
+          empty={flatOptions.length === 0 ? emptyMenuText : !hasVisibleOptions ? "No matches" : null}
+          groups={groups?.length ? (filteredGroups ?? []) : null}
+          flat={filteredOptions}
+          renderRow={renderPhoneCheckboxOption}
+        />
+      </PhoneBottomSheet>
+    ) : null;
+
   return (
     <div ref={wrapRef} className={`relative ${pill ? "w-auto shrink-0" : /\bw-/.test(wrapperClassName) ? "" : "w-full"} ${wrapperClassName}`.trim()}>
       {!hideLabel && !pill ? (
@@ -347,6 +455,7 @@ export function CheckboxMultiSelect({
       </button>
 
       {menu && portalHost ? createPortal(menu, portalHost) : null}
+      {phoneSheetNode}
     </div>
   );
 }
@@ -396,6 +505,7 @@ export function FieldSingleSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const phoneSheet = usePhoneSheetPresentation();
   const pill = variant === "pill";
   const cell = variant === "cell";
   const partitioned = partitionFieldSelectClasses(className);
@@ -514,7 +624,7 @@ export function FieldSingleSelect({
   };
 
   const menu =
-    open && menuRect && isClient && portalHost ? (
+    open && !phoneSheet && menuRect && isClient && portalHost ? (
       <div
         id={listId}
         {...{ [FIELD_SELECT_MENU_DATA_ATTR]: "" }}
@@ -586,6 +696,63 @@ export function FieldSingleSelect({
       </div>
     ) : null;
 
+  const renderPhoneOption = (opt: CheckboxMultiSelectOption) => {
+    const active = opt.value === value;
+    const optionDisabled = Boolean(disabled || opt.disabled);
+    return (
+      <PhoneSheetRow
+        key={opt.value}
+        current={active}
+        aria-selected={active}
+        aria-disabled={optionDisabled || undefined}
+        disabled={optionDisabled}
+        {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
+        glyph={active ? <Check className="size-4 text-primary" strokeWidth={2.5} /> : null}
+        trailing={
+          opt.attention ? (
+            <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" role="img" aria-label="Needs attention" />
+          ) : null
+        }
+      >
+        {opt.label}
+      </PhoneSheetRow>
+    );
+  };
+
+  const phoneSheetNode =
+    open && phoneSheet && isClient ? (
+      <PhoneBottomSheet
+        open
+        id={listId}
+        title={label}
+        triggerRef={buttonRef}
+        onClose={() => setOpenAndReset(false)}
+        toolbar={
+          showSearch ? (
+            <FieldSelectMenuSearch
+              query={query}
+              onQueryChange={setQuery}
+              placeholder={searchPlaceholder}
+              dataAttr={dataAttr ? `${dataAttr}-search` : undefined}
+            />
+          ) : undefined
+        }
+        footer={
+          menuFooter ? (typeof menuFooter === "function" ? menuFooter(() => setOpenAndReset(false)) : menuFooter) : undefined
+        }
+      >
+        <PhoneSelectList
+          listRef={listRef}
+          label={label}
+          multi={false}
+          empty={flatOptions.length === 0 ? "No options" : !hasVisibleOptions ? "No matches" : null}
+          groups={groups?.length ? (filteredGroups ?? []) : null}
+          flat={filteredOptions}
+          renderRow={renderPhoneOption}
+        />
+      </PhoneBottomSheet>
+    ) : null;
+
   // Toolbar Selects often pass `w-auto shrink-0` via className → wrapperClassName.
   // Do not force `w-full` on top of that — it crushed sibling search fields (PRP-376).
   const defaultWidthClass = pill
@@ -616,6 +783,7 @@ export function FieldSingleSelect({
       </button>
 
       {menu && portalHost ? createPortal(menu, portalHost) : null}
+      {phoneSheetNode}
     </div>
   );
 }

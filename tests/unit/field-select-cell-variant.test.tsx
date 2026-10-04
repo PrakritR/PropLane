@@ -4,14 +4,17 @@
 // 36px, same radius as the text inputs beside them, dashed and grey while
 // they still follow the "every row" default — and they open the very same
 // white portaled menu as every 44px form field.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Select } from "@/components/ui/input";
 import { RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const FLOORS = [
   { value: "basement", label: "Basement" },
@@ -48,6 +51,13 @@ describe("FieldSingleSelect cell variant", () => {
   });
 
   it("opens the shared white menu and picks a value", () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("pointer: fine"),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => true,
+  }));
     let picked = "";
     render(
       <FieldSingleSelect variant="cell" label="Floor for Room 1" value="" placeholder="Floor…" onChange={(v) => (picked = v)} options={FLOORS} />,

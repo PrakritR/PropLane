@@ -6,13 +6,15 @@
  * than hidden, and the before/after timing rows never clobber each other.
  */
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubDesktopPointer } from "../helpers/desktop-pointer";
 import {
   ReminderSendViaField,
   ReminderTimingMultiSelect,
   TourReminderTimingSelect,
 } from "@/components/portal/reminder-settings-shared";
 
+beforeEach(stubDesktopPointer);
 afterEach(cleanup);
 
 function openMenu(name: string) {

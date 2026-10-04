@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { useState } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { stubDesktopPointer } from "../helpers/desktop-pointer";
 import { ReminderScheduleChips } from "@/components/portal/payment-schedule-ui";
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
@@ -14,6 +15,7 @@ import {
   summarizeReminderSchedule,
 } from "@/lib/payment-reminder-presets";
 
+beforeEach(stubDesktopPointer);
 afterEach(cleanup);
 
 function Harness({

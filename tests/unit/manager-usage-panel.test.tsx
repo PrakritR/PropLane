@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubDesktopPointer } from "../helpers/desktop-pointer";
 import type { ReactNode } from "react";
 
 const native = vi.hoisted(() => ({ value: false }));
@@ -65,6 +66,7 @@ beforeEach(() => {
   ];
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ clientSecret: "cs_test", purchaseId: "p1" })));
 });
+beforeEach(stubDesktopPointer);
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();

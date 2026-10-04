@@ -7,7 +7,8 @@
  * The properties menu has no Select all / Clear footer.
  */
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubDesktopPointer } from "../helpers/desktop-pointer";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 const mockSelect = vi.fn().mockResolvedValue(undefined);
@@ -72,6 +73,7 @@ function Harness({
   );
 }
 
+beforeEach(stubDesktopPointer);
 afterEach(() => {
   cleanup();
   mockSelect.mockClear();

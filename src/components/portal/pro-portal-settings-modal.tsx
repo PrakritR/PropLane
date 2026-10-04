@@ -21,7 +21,7 @@ import {
 } from "@/components/portal/settings-module-page";
 import { getSettingsEntryPointForTab } from "@/components/portal/settings-entry-points";
 import { MANAGER_PORTAL_SETTINGS_TABS, managerSettingsProfilePath } from "@/lib/portal-settings-section";
-import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
+import { SettingsSectionPicker } from "@/components/portal/settings-section-picker";
 import {
   FormAutomationPaneSwitch,
   type FormAutomationPane,
@@ -341,19 +341,11 @@ export function ProPortalSettingsModal({
       {/* A scoped dialog is already ON its one section, so a switcher would only offer the manager
           a way to wander out of it. */}
       {scoped ? null : (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {MANAGER_PORTAL_SETTINGS_TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={tab === item.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
-              data-attr={`manager-settings-tab-${item.id}`}
-              onClick={() => void selectTab(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <SettingsSectionPicker
+          items={MANAGER_PORTAL_SETTINGS_TABS}
+          activeId={tab}
+          onSelect={(id) => void selectTab(id as ManagerPortalSettingsTab)}
+        />
       )}
 
       {isFormAutomationTab(tab) ? (

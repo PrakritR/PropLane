@@ -11,7 +11,8 @@
  * stop another's save, and a rejection keeps the dialog open with the error
  * surfaced instead of silently discarding the edit.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubDesktopPointer } from "../helpers/desktop-pointer";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
@@ -119,6 +120,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+beforeEach(stubDesktopPointer);
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
