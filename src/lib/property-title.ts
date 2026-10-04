@@ -22,3 +22,14 @@ export function composePropertyTitle(buildingName: string | null | undefined, un
   if (ROOM_COUNT_TAIL.test(building) && ROOM_COUNT_TAIL.test(unit)) return building;
   return `${building} · ${unit}`;
 }
+
+/**
+ * The title to RENDER for a listing. A property saved before `composePropertyTitle` existed
+ * carries a stored `title` of "Magnolia House — 5 rooms · 5 rooms"; recomposing from the
+ * building name and unit label gives every renderer the same single title.
+ */
+export function displayPropertyTitle(property: { title?: string | null; buildingName?: string | null; unitLabel?: string | null }): string {
+  const building = String(property.buildingName ?? "").trim();
+  if (!building) return String(property.title ?? "").trim();
+  return composePropertyTitle(building, property.unitLabel);
+}

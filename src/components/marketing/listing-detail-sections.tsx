@@ -1,5 +1,6 @@
 "use client";
 
+import { displayPropertyTitle } from "@/lib/property-title";
 import Link from "next/link";
 import { Heart, Mail, MessageSquareText, Share2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -426,7 +427,7 @@ export function ListingDetailSections({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl md:text-[2.125rem] md:leading-tight">
-                  {property.title}
+                  {displayPropertyTitle(property)}
                 </h1>
                 {addressLine ? <p className="mt-1 text-sm text-muted sm:text-[0.9375rem]">{addressLine}</p> : null}
               </div>
