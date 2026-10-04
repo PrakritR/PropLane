@@ -60,7 +60,7 @@ import {
 } from "@/lib/household-charges";
 import { residentVisibleCharges } from "@/lib/household-charge-visibility";
 import { syncManagerApplicationsFromServer, MANAGER_APPLICATIONS_EVENT, readManagerApplicationRows } from "@/lib/manager-applications-storage";
-import { ResidentTermTabs, useResidentTermTab } from "@/components/portal/resident-term-tabs";
+import { ResidentTermBandFilter, useResidentTermTab } from "@/components/portal/resident-term-tabs";
 import {
   countByResidentTerm,
   parseResidentTermParam,
@@ -446,6 +446,7 @@ export function ResidentPaymentsPanel({
     [charges, termByApplication],
   );
   const showPaymentTerms = residentHasShortTermRecords(chargeTermCounts);
+  const [paymentsQuery, setPaymentsQuery] = useState("");
   const [paymentsTerm, setPaymentsTerm] = useResidentTermTab(
     chargeTermCounts,
     parseResidentTermParam(searchParams.get("term")),
@@ -669,10 +670,11 @@ export function ResidentPaymentsPanel({
   );
   const paidRows = useMemo(() => rows.filter((c) => c.status === "paid"), [rows]);
   const rowsForBucket = useMemo(() => {
-    if (bucket === "overdue") return overdueRows;
-    if (bucket === "pending") return upcomingPendingRows;
-    return paidRows;
-  }, [bucket, overdueRows, upcomingPendingRows, paidRows]);
+    const inBucket = bucket === "overdue" ? overdueRows : bucket === "pending" ? upcomingPendingRows : paidRows;
+    const needle = paymentsQuery.trim().toLowerCase();
+    if (!needle) return inBucket;
+    return inBucket.filter((row) => [row.title, row.propertyLabel].some((part) => part?.toLowerCase().includes(needle)));
+  }, [bucket, overdueRows, upcomingPendingRows, paidRows, paymentsQuery]);
 
   const detailCharge = chargeIdProp ? charges.find((c) => c.id === chargeIdProp) : undefined;
   const detailMoveInGroup =
@@ -1278,7 +1280,7 @@ export function ResidentPaymentsPanel({
   );
 
   const paymentGroupedItems = useMemo((): ResidentPortalGroupableRow<HouseholdCharge>[] => {
-    const showPropertyInMeta = RESIDENT_PORTAL_DEFAULT_GROUP_MODE !== "house";
+    const showPropertyInMeta = true;
     return rowsForBucket.map((row) => {
       const moveInGroup = moveInGroupForRow(row);
       return {
@@ -1758,11 +1760,6 @@ export function ResidentPaymentsPanel({
         title="Payments"
         hideTitleOnMobileNav
         compactFilterRow
-        filterRow={
-          showPaymentTerms ? (
-            <ResidentTermTabs section="payments" term={paymentsTerm} counts={chargeTermCounts} onChange={setPaymentsTerm} />
-          ) : undefined
-        }
       >
         <PortalListControlStack
           className={paymentsLockedEmpty ? "mb-0" : "mb-2 max-lg:mb-1.5"}
@@ -1782,7 +1779,12 @@ export function ResidentPaymentsPanel({
           }
           activeDestinationId={simplifyPaymentsHeader ? undefined : bucket}
           destinationAriaLabel="Payment status"
-          actions={paymentsCommandActions ?? undefined}
+          search={{ value: paymentsQuery, onChange: setPaymentsQuery, placeholder: "Search payments", dataAttr: "resident-payments-search" }}
+          actions={
+            showPaymentTerms ? (
+              <ResidentTermBandFilter section="payments" term={paymentsTerm} counts={chargeTermCounts} onChange={setPaymentsTerm} />
+            ) : (paymentsCommandActions ?? undefined)
+          }
         />
         {managerStripeConnectBlocked ? (
           <div

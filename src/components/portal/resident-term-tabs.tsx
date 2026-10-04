@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ManagerPortalFilterRow } from "@/components/portal/portal-metrics";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { RecordBandFilter } from "@/components/portal/record-list-band";
 import {
   RESIDENT_TERM_LABELS,
   RESIDENT_TERM_ORDER,
@@ -47,5 +48,38 @@ export function ResidentTermTabs({
         ariaLabel="Stay length"
       />
     </ManagerPortalFilterRow>
+  );
+}
+
+/**
+ * The same Long term / Short term choice as a Filter icon inside a list's band, so a resident with
+ * both kinds of stay still sees ONE band card (the manager Properties format), not a second tab bar.
+ * Long term is the unfiltered entry; nothing is drawn when the resident has no short-term record.
+ */
+export function ResidentTermBandFilter({
+  section,
+  term,
+  counts,
+  onChange,
+}: {
+  section: "applications" | "lease" | "payments";
+  term: ResidentTerm;
+  counts: Record<ResidentTerm, number>;
+  onChange: (term: ResidentTerm) => void;
+}) {
+  return (
+    <RecordBandFilter
+      dataAttr={`resident-${section}`}
+      fields={[
+        {
+          id: "stay-length",
+          label: "Stay length",
+          anyLabel: `${RESIDENT_TERM_LABELS.long_term} · ${counts.long_term}`,
+          value: term === "short_term" ? "short_term" : "",
+          options: [{ value: "short_term", label: `${RESIDENT_TERM_LABELS.short_term} · ${counts.short_term}` }],
+          onChange: (value) => onChange(value === "short_term" ? "short_term" : "long_term"),
+        },
+      ]}
+    />
   );
 }

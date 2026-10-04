@@ -1,31 +1,35 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { DataList, type DataListColumn, type DataListRow } from "@/components/ui/data-list";
+import type { LucideIcon } from "lucide-react";
+import type { DataListColumn, DataListRow } from "@/components/ui/data-list";
+import { ResidentRecordCardRow } from "@/components/portal/resident-record-card-row";
 
-/** Resident portal lists — Payments-style card rows at every breakpoint. */
+/**
+ * Resident portal lists: one shared record card per row at every breakpoint (the manager
+ * Properties format). `columns` is kept so existing callers compile; the card ignores it.
+ */
 export function ResidentPortalDataList<T>({
   rows,
-  columns,
-  selectable = false,
   emptyState,
   className,
+  tileIcon,
+  dataAttr,
 }: {
   rows: DataListRow<T>[];
-  columns: DataListColumn<T>[];
+  columns?: DataListColumn<T>[];
   selectable?: boolean;
   emptyState?: ReactNode;
   className?: string;
+  tileIcon?: LucideIcon;
+  dataAttr?: string;
 }) {
+  if (rows.length === 0) return <>{emptyState ?? null}</>;
   return (
-    <DataList
-      variant="resident"
-      hideColumnHeaders
-      rows={rows}
-      columns={columns}
-      selectable={selectable}
-      emptyState={emptyState}
-      className={className}
-    />
+    <div className={className}>
+      {rows.map((row) => (
+        <ResidentRecordCardRow key={row.id} row={row} tileIcon={tileIcon} dataAttr={dataAttr} />
+      ))}
+    </div>
   );
 }

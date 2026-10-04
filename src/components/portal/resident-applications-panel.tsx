@@ -12,22 +12,13 @@ import { GroupShareCallout } from "@/components/marketing/rental-application-fin
 import { PublicApplyAccountPrompt } from "@/components/marketing/public-apply-account-prompt";
 import { SignedInResidentAccountPrompt } from "@/components/marketing/signed-in-resident-account-prompt";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
-import {
-  ManagerPortalFilterRow,
-  ManagerPortalPageShell,
-} from "@/components/portal/portal-metrics";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
-import { PortalApplicantRecordRow, PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -148,7 +139,6 @@ function parseResidentApplicationDetailTab(raw: string | undefined | null): Resi
   }
   return "overview";
 }
-import { buildResidentApplicationWorkspaceState } from "@/lib/rental-application/resident-application-workspace";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 
 const APPLICATION_FEE_CHARGE_STATUS_LABEL: Partial<Record<HouseholdCharge["status"], string>> = {
@@ -647,10 +637,6 @@ export function ResidentApplicationsPanel({
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [pickerOpen, term, tick]);
 
-  const workspace = useMemo(
-    () => buildResidentApplicationWorkspaceState(rows, applyTarget),
-    [rows, applyTarget],
-  );
 
   const openPropertyPicker = () => {
     setPickedPropertyId(null);

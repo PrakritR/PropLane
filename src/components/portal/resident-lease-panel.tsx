@@ -18,7 +18,7 @@ import { useResidentAtSigning } from "@/hooks/use-resident-at-signing";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { AT_SIGNING_UNPAID_MESSAGE } from "@/lib/lease-at-signing";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { ResidentTermTabs, useResidentTermTab } from "@/components/portal/resident-term-tabs";
+import { ResidentTermBandFilter, useResidentTermTab } from "@/components/portal/resident-term-tabs";
 import {
   parseResidentTermParam,
   residentHasShortTermRecords,
@@ -161,6 +161,7 @@ export function ResidentLeasePanel({
     [everyLeaseRow.length, pipelineTerm],
   );
   const showLeaseTerms = residentHasShortTermRecords(leaseTermCounts);
+  const [leaseQuery, setLeaseQuery] = useState("");
   const [leaseTerm, setLeaseTerm] = useResidentTermTab(
     leaseTermCounts,
     parseResidentTermParam(searchParams.get("term")),
@@ -680,11 +681,6 @@ export function ResidentLeasePanel({
           title="Lease"
           hideTitleOnMobileNav
           compactFilterRow
-          filterRow={
-            showLeaseTerms ? (
-              <ResidentTermTabs section="lease" term={leaseTerm} counts={leaseTermCounts} onChange={setLeaseTerm} />
-            ) : undefined
-          }
         >
           <PortalListControlStack
             className="mb-2 max-lg:mb-1.5"
@@ -698,6 +694,12 @@ export function ResidentLeasePanel({
             }))}
             activeDestinationId={bucket}
             destinationAriaLabel="Lease status"
+            search={{ value: leaseQuery, onChange: setLeaseQuery, placeholder: "Search leases", dataAttr: "resident-lease-search" }}
+            actions={
+              showLeaseTerms ? (
+                <ResidentTermBandFilter section="lease" term={leaseTerm} counts={leaseTermCounts} onChange={setLeaseTerm} />
+              ) : undefined
+            }
           />
           {atSigningCard ? <div className="mb-3 max-lg:mb-2.5">{atSigningCard}</div> : null}
           {signingFeeCard ? <div className="mb-3 max-lg:mb-2.5">{signingFeeCard}</div> : null}
@@ -742,6 +744,7 @@ export function ResidentLeasePanel({
               basePath={basePath}
               bucket={bucket}
               term={showLeaseTerms ? leaseTerm : undefined}
+              query={leaseQuery}
               detailHref={residentLeaseDetailHref}
               groupMode={RESIDENT_PORTAL_DEFAULT_GROUP_MODE}
               selectable={axisResolved && Boolean(email)}

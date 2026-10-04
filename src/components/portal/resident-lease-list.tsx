@@ -212,11 +212,14 @@ export function ResidentLeaseListTable({
   groupMode = "house",
   propertyFilters = [],
   term,
+  query = "",
 }: {
   basePath: string;
   bucket?: ResidentLeaseBucketId;
   /** Long term / Short term section: a lease in the other section is not listed. */
   term?: ResidentTerm;
+  /** The band's search box: a lease whose home or status does not contain it is not listed. */
+  query?: string;
   detailHref: (basePath: string, bucket: ResidentLeaseBucketId, leaseDetailId: string) => string;
   emptyMessage?: string;
   routePendingToLeaseSection?: boolean;
@@ -242,8 +245,15 @@ export function ResidentLeaseListTable({
         : bucket
           ? filterResidentLeaseDocumentRows(rows, bucket)
           : rows;
-    return filterLeaseRowsByProperty(filtered, pipelineRow, propertyFilters);
-  }, [bucket, pipelineRow, propertyFilters, statusFilter, term]);
+    const byProperty = filterLeaseRowsByProperty(filtered, pipelineRow, propertyFilters);
+    const needle = query.trim().toLowerCase();
+    if (!needle) return byProperty;
+    return byProperty.filter((entry) =>
+      [RESIDENT_LEASE_LIST_LABEL, entry.status, leaseDocumentPropertyFields(entry, pipelineRow).propertyLabel].some((part) =>
+        part?.toLowerCase().includes(needle),
+      ),
+    );
+  }, [bucket, pipelineRow, propertyFilters, query, statusFilter, term]);
 
   const leaseDetailPath = useCallback(
     (entry: ResidentLeaseDocumentRow) =>
@@ -308,7 +318,7 @@ export function ResidentLeaseListTable({
       const statusLabel = entry.status;
       const metaLabel = residentLeaseDetailSubtitle(statusLabel, safeFormatDateTime(entry.signedAt));
       const { propertyId, propertyLabel } = leaseDocumentPropertyFields(entry, pipelineRow);
-      const showPropertyInMeta = groupMode !== "house";
+      const showPropertyInMeta = true;
       return {
         id: entry.id,
         propertyId,
@@ -318,12 +328,11 @@ export function ResidentLeaseListTable({
           data: entry,
           primary: RESIDENT_LEASE_LIST_LABEL,
           meta: [showPropertyInMeta ? propertyLabel : null, metaLabel].filter(Boolean).join(" · "),
-          trailing: <span className="text-xs text-muted">{statusLabel}</span>,
           onClick: () => openLease(entry),
         },
       };
     });
-  }, [documentRows, groupMode, openLease, pipelineRow]);
+  }, [documentRows, openLease, pipelineRow]);
 
   if (documentRows.length === 0) {
     const bucketLabel = bucket === "signed" ? "signed" : "pending";
@@ -358,7 +367,6 @@ export function ResidentLeaseListTable({
                 data: entry,
                 primary: RESIDENT_LEASE_LIST_LABEL,
                 meta: [propertyLabel, metaLabel].filter(Boolean).join(" · "),
-                trailing: <span className="text-xs font-medium text-muted">{statusLabel}</span>,
                 selected: activeSelectedIds?.has(entry.id) ?? false,
                 onSelectedChange: () => activeToggleSelected?.(entry.id),
                 onClick: () => openLease(entry),

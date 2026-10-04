@@ -9,7 +9,6 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useNativeCamera } from "@/lib/native/use-native-camera";
 import type { ManagerDocumentDTO } from "@/lib/documents/manager-documents";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
 import {
   residentDocumentsDownloadAction,
@@ -21,6 +20,7 @@ import { addUploadedOwnLease, type UploadedOwnLease } from "@/lib/resident-lease
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
 import {
   PORTAL_DATA_TABLE_WRAP,
+  PortalDataTableEmpty,
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
@@ -428,14 +428,15 @@ export function ResidentOtherDocumentsTable({
   uploads,
   loading,
   onRemove,
-  onAdd,
   demo = false,
+  query = "",
 }: {
   uploads: UploadedOwnLease[];
   loading: boolean;
   onRemove: (id: string) => void;
-  onAdd?: () => void;
   demo?: boolean;
+  /** The band's search box. */
+  query?: string;
 }) {
   const { showToast } = useAppUi();
   const [sharedDocs, setSharedDocs] = useState<ManagerDocumentDTO[]>([]);
@@ -479,8 +480,11 @@ export function ResidentOtherDocumentsTable({
       dateIso: d.createdAt,
       doc: d,
     }));
-    return [...own, ...shared].sort((a, b) => String(b.dateIso).localeCompare(String(a.dateIso)));
-  }, [uploads, sharedDocs]);
+    const needle = query.trim().toLowerCase();
+    return [...own, ...shared]
+      .filter((row) => !needle || row.name.toLowerCase().includes(needle) || row.kind.toLowerCase().includes(needle))
+      .sort((a, b) => String(b.dateIso).localeCompare(String(a.dateIso)));
+  }, [uploads, sharedDocs, query]);
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
   const { selectedIds, toggleSelected, clearSelection } = useResidentDocumentSelection(rowIds);
@@ -558,18 +562,9 @@ export function ResidentOtherDocumentsTable({
         </div>
       );
     }
-    if (!onAdd) return null;
     return (
       <div className={PORTAL_LIST_PAGE_BODY}>
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label="Upload"
-            ariaLabel="Upload document"
-            icon={PORTAL_LIST_ADD_ICONS.lease}
-            onClick={onAdd}
-            dataAttr="resident-documents-list-add"
-          />
-        </div>
+        <PortalDataTableEmpty icon="default" message={query.trim() ? "No matches" : "No documents yet"} />
       </div>
     );
   }

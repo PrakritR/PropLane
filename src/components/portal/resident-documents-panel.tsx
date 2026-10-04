@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import { Input } from "@/components/ui/input";
@@ -169,7 +170,7 @@ function RentReceiptDateRangeFilter({
 }
 
 /** Documents › Application — the resident's applications as selectable rows. */
-function ApplicationDocumentsTable({ basePath, bucket }: { basePath: string; bucket: ResidentDocumentTab }) {
+function ApplicationDocumentsTable({ basePath, bucket, query = "" }: { basePath: string; bucket: ResidentDocumentTab; query?: string }) {
   const session = usePortalSession();
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
@@ -193,10 +194,11 @@ function ApplicationDocumentsTable({ basePath, bucket }: { basePath: string; buc
         (row) =>
           residentOwnsApplicationRow(row, { email, userId }) &&
           !isWithdrawnApplicationRow(row) &&
-          residentDocumentTabForApplication(row.bucket) === bucket,
+          residentDocumentTabForApplication(row.bucket) === bucket &&
+          (!query.trim() || [row.property, row.id].some((part) => part?.toLowerCase().includes(query.trim().toLowerCase()))),
       ),
     );
-  }, [email, userId, tick, bucket]);
+  }, [email, userId, tick, bucket, query]);
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
   const { selectedIds, toggleSelected } = useResidentDocumentSelection(rowIds);
@@ -240,9 +242,6 @@ function ApplicationDocumentsTable({ basePath, bucket }: { basePath: string; buc
             data: row,
             primary: "Rental application",
             meta: [row.property || "—", applicationStatusLabel(row.bucket)].join(" · "),
-            trailing: (
-              <span className="text-xs font-medium text-muted">{applicationStatusLabel(row.bucket)}</span>
-            ),
             selected: selectedIds.has(row.id),
             onSelectedChange: () => toggleSelected(row.id),
             onClick: () => openApplication(row),
@@ -675,9 +674,11 @@ function RentReceiptsTab({
   basePath,
   range,
   paymentsTab = false,
+  query = "",
 }: {
   basePath: string;
   range: ReceiptDateRange;
+  query?: string;
   /** Documents › Payments — show total charged line when the ledger carries it. */
   paymentsTab?: boolean;
 }) {
@@ -720,8 +721,13 @@ function RentReceiptsTab({
   }, [range.from, range.to, loadReceipts]);
 
   const receipts = useMemo<ReceiptRow[]>(
-    () => buildReceiptRows(ledgerReport?.rows ?? []),
-    [ledgerReport],
+    () => {
+      const needle = query.trim().toLowerCase();
+      return buildReceiptRows(ledgerReport?.rows ?? []).filter(
+        (row) => !needle || receiptRowLabel(row.description).toLowerCase().includes(needle) || row.date.toLowerCase().includes(needle),
+      );
+    },
+    [ledgerReport, query],
   );
 
   const openReceipt = useCallback(
@@ -834,9 +840,11 @@ function RentReceiptsTab({
 function SignedLeaseDocumentsTable({
   basePath,
   statusFilter,
+  query = "",
 }: {
   basePath: string;
   statusFilter: ResidentLeaseStatusFilter;
+  query?: string;
 }) {
   return (
     <ResidentLeaseListTable
@@ -844,6 +852,7 @@ function SignedLeaseDocumentsTable({
       detailHref={(base, _bucket, leaseDetailId) => residentDocumentsLeaseDetailHref(base, leaseDetailId)}
       routePendingToLeaseSection
       statusFilter={statusFilter}
+      query={query}
       documentsListSurface
       emptyMessage="Your signed lease will appear here once it's signed."
     />
@@ -875,6 +884,7 @@ export function ResidentDocumentsPanel({
   const email = session.email?.trim().toLowerCase() ?? "";
 
   const [addOpen, setAddOpen] = useState(false);
+  const [documentQuery, setDocumentQuery] = useState("");
   const [uploads, setUploads] = useState<UploadedOwnLease[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
   const [receiptRange, setReceiptRange] = useState<ReceiptDateRange>(() => residentLedgerReceiptRange());
@@ -962,6 +972,14 @@ export function ResidentDocumentsPanel({
         }))}
         activeDestinationId={activeBucket}
         destinationAriaLabel="Documents"
+        search={{ value: documentQuery, onChange: setDocumentQuery, placeholder: "Search documents", dataAttr: "resident-documents-search" }}
+        primary={
+          <PortalPrimaryIconAction
+            label={portalListAddPrimaryLabel("document")}
+            onClick={openAdd}
+            data-attr="resident-documents-add"
+          />
+        }
         actions={
           <div className="flex items-center gap-1.5">
             <PortalFilterSortSheet
@@ -991,19 +1009,19 @@ export function ResidentDocumentsPanel({
         }
       />
       {showKind("application") && activeBucket !== "signed" ? (
-        <ApplicationDocumentsTable basePath={basePath} bucket={activeBucket} />
+        <ApplicationDocumentsTable basePath={basePath} bucket={activeBucket} query={documentQuery} />
       ) : null}
 
       {showKind("lease") && activeBucket !== "archived" ? (
-        <SignedLeaseDocumentsTable basePath={basePath} statusFilter={leaseStatusFilter} />
+        <SignedLeaseDocumentsTable basePath={basePath} statusFilter={leaseStatusFilter} query={documentQuery} />
       ) : null}
 
       {showKind("receipts") && activeBucket === "payments" ? (
-        <RentReceiptsTab basePath={basePath} range={receiptRange} paymentsTab />
+        <RentReceiptsTab basePath={basePath} range={receiptRange} paymentsTab query={documentQuery} />
       ) : null}
 
       {showKind("receipts") && activeBucket === "archived" ? (
-        <RentReceiptsTab basePath={basePath} range={receiptRange} />
+        <RentReceiptsTab basePath={basePath} range={receiptRange} query={documentQuery} />
       ) : null}
 
       {showKind("other") && activeBucket === "archived" ? (
@@ -1012,18 +1030,18 @@ export function ResidentDocumentsPanel({
             uploads={uploads}
             loading={uploadsLoading}
             onRemove={onRemoveUpload}
-            onAdd={openAdd}
             demo={isDemoModeActive()}
-          />
-          <ResidentAddDocumentModal
-            key={addOpen ? "open" : "closed"}
-            open={addOpen}
-            email={email}
-            onClose={() => setAddOpen(false)}
-            onAdded={onDocumentAdded}
+            query={documentQuery}
           />
         </>
       ) : null}
+      <ResidentAddDocumentModal
+        key={addOpen ? "open" : "closed"}
+        open={addOpen}
+        email={email}
+        onClose={() => setAddOpen(false)}
+        onAdded={onDocumentAdded}
+      />
     </ManagerPortalPageShell>
   );
 }
