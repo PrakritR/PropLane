@@ -277,4 +277,26 @@ describe("RecordCommunicationSection", () => {
     );
     await screen.findByText(/No messages about this vendor yet — write the first one below/i);
   });
+
+  it("fill mode renders the Communication page's thread pane: header icons, short empty label, schedule clock, pinned composer", async () => {
+    threadRows = [];
+    render(
+      <RecordCommunicationSection
+        fill
+        role="manager"
+        recordRef={{ kind: "vendor", id: "vendor-1", label: "Acme Plumbing" }}
+        contactIds={["vendor@example.com"]}
+        contactPhone="5550100"
+      />,
+    );
+
+    await screen.findByText("No messages yet.");
+    expect(screen.queryByText(/write the first one below/i)).toBeNull();
+    expect(document.querySelector('[data-attr="portal-inbox-two-pane"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="record-communication-call"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Full screen" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Schedule for later" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Write a reply…")).toBeInTheDocument();
+    expect(screen.getByText(/Vendor · .*vendor@example\.com/)).toBeInTheDocument();
+  });
 });

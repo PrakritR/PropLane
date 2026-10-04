@@ -3076,6 +3076,8 @@ export function InboxTwoPane({
    * only the three Communication pages want two cards.
    */
   panes = "joined",
+  /** A thread-only pane (`listHidden`) that still offers Full screen — a record page's Communication section. */
+  fullScreenable = false,
 }: {
   list: ReactNode;
   thread: ReactNode;
@@ -3088,6 +3090,7 @@ export function InboxTwoPane({
   fillViewport?: boolean;
   fillParent?: boolean;
   panes?: "joined" | "split";
+  fullScreenable?: boolean;
 }) {
   const split = panes === "split";
   const rootRef = useRef<HTMLDivElement>(null);
@@ -3096,7 +3099,7 @@ export function InboxTwoPane({
   // Full screen: Communication only (split), only with a thread open, only on a
   // wide viewport. The pane is pinned over the portal content area (under the
   // top bar) so the list and every bit of page chrome above it step aside.
-  const canFullScreen = split && threadOpen && !listHidden;
+  const canFullScreen = split && threadOpen && (!listHidden || fullScreenable);
   const [storedFullScreen, setStoredFullScreen] = useInboxFullScreen();
   const [fullScreenRect, setFullScreenRect] = useState<{
     top: number;
