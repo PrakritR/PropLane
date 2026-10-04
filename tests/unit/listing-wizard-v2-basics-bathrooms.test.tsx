@@ -124,4 +124,21 @@ describe("bathrooms come from Basics", () => {
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
     expect(document.querySelector('[data-attr="listing-v2-add-bathroom-first"]')).toBeNull();
   });
+
+  it("Floors: the minus stops at the highest floor a record sits on and never moves a record; raising is free", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    const base = createDefaultListingSubmission();
+    render(<Editor initial={{ ...base, listingStoriesId: "3", rooms: [{ ...base.rooms[0]!, floor: "2nd floor" }] }} onChange={(s) => seen.push(s)} />);
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-basics"]')!);
+    const fewer = () => screen.getByRole("button", { name: "Fewer floors" }) as HTMLButtonElement;
+    expect(fewer().disabled).toBe(false);
+    fireEvent.click(fewer());
+    expect(seen.at(-1)!.listingStoriesId).toBe("2");
+    // the room is on the 2nd floor, so the minus is now disabled and nothing moved
+    expect(fewer().disabled).toBe(true);
+    expect(seen.at(-1)!.rooms[0]!.floor).toBe("2nd floor");
+    fireEvent.click(screen.getByRole("button", { name: "More floors" }));
+    expect(seen.at(-1)!.listingStoriesId).toBe("3");
+    expect(seen.at(-1)!.rooms[0]!.floor).toBe("2nd floor");
+  });
 });

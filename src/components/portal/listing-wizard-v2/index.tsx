@@ -37,7 +37,6 @@ import {
   type ListingV2StepId,
 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence, type ListingPersistenceResult } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
-import { syncListingBasicsFromLists } from "@/lib/listing-basics-sync";
 import { fillRoomsFollowingDefaults, houseDefaultsForSubmission } from "@/lib/listing-house-defaults";
 import {
   applyListingBathroomSlots,
@@ -176,10 +175,11 @@ export function ListingWizardV2({
     // Fill such followers from the Default room once, on open; the pre-sync
     // fingerprint below makes the repair dirty, so autosave persists it.
     const rooms = fillRoomsFollowingDefaults(loaded.rooms ?? [], houseDefaultsForSubmission(loaded));
-    // The counters on Basics follow the lists, so a saved listing with a stale count is repaired
-    // BEFORE the count is applied (applying "1" to three bathroom cards would try to remove two).
-    const base = syncListingBasicsFromLists(rooms === loaded.rooms ? loaded : { ...loaded, rooms: [...rooms] });
-    if (!(base.listingTotalBathroomsId ?? "").trim()) return base;
+    const base = rooms === loaded.rooms ? loaded : { ...loaded, rooms: [...rooms] };
+    // Basics shows the counts its lists add up to (see listing-basics-sync.ts), but opening a
+    // saved listing never rewrites the stored ones: that would mark it unsaved with no edit.
+    // With bathroom cards on disk the cards are the truth, so the stored count is not applied.
+    if ((base.bathrooms ?? []).length > 0 || !(base.listingTotalBathroomsId ?? "").trim()) return base;
     const withBaths = applyListingBathroomSlots(base);
     return withBaths.ok ? withBaths.sub : base;
   });

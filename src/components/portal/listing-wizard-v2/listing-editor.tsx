@@ -68,8 +68,8 @@ import {
   basicsBathroomCount,
   basicsFloorCount,
   cleanSharedSpaceName,
+  highestFloorInUse,
   sharedSpaceTitle,
-  submissionWithFloorCount,
   syncListingBasicsFromLists,
 } from "@/lib/listing-basics-sync";
 import { PortalRowMenu } from "@/components/portal/portal-row-menu";
@@ -736,9 +736,11 @@ function StepBasics({
             <CountStepper
               compact
               value={stories}
-              min={1}
+              // The minus stops at the highest floor a room, bathroom or shared space sits on:
+              // lowering never moves a record. Raising is free.
+              min={Math.max(1, highestFloorInUse(sub))}
               max={LISTING_STORIES_OPTIONS.length}
-              onChange={(n) => patch(submissionWithFloorCount(sub, n))}
+              onChange={(n) => patch({ listingStoriesId: String(n) })}
               label="floors"
               dataAttr="listing-v2-floors"
             />
@@ -3254,12 +3256,10 @@ export function ListingEditorV2({
     onOpenSettings,
     workspacePricingDefaults,
   };
-  // Bathrooms and Floors on Basics follow the lists (like Bedrooms follows Rooms): any edit that
-  // touches a list rewrites the stored counters from it.
-  const patch: Patch = (next) => {
-    const merged = { ...submission, ...next };
-    onChange("bathrooms" in next || "rooms" in next || "sharedSpaces" in next ? syncListingBasicsFromLists(merged) : merged);
-  };
+  // Bathrooms and Floors on Basics follow the lists (like Bedrooms follows Rooms): the screen
+  // shows what the lists add up to, and the stored counters are rewritten from them when the
+  // manager edits (never merely on open).
+  const patch: Patch = (next) => onChange(syncListingBasicsFromLists({ ...submission, ...next }));
   const last = LISTING_V2_STEPS.length - 1;
   const stepId = LISTING_V2_STEPS[step]!.id;
 

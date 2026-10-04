@@ -7,7 +7,7 @@
  * spaces named higher floors. The list is the truth; the stored id is rewritten from it.
  */
 
-import { clampFloorLabelToStories, floorLabelRank, type SharedSpaceKind, SHARED_SPACE_KIND_OPTIONS } from "@/data/manager-listing-presets";
+import { floorLabelRank, type SharedSpaceKind, SHARED_SPACE_KIND_OPTIONS } from "@/data/manager-listing-presets";
 import { bathroomTypeOf } from "@/lib/listing-record-defaults";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
@@ -89,8 +89,9 @@ export function sharedSpaceTitle(space: { name?: string; spaceKind?: SharedSpace
 }
 
 /**
- * Brings the stored counters and names in line with the lists, on load and after every edit that
- * touches a list. Returns the same object when nothing changed.
+ * Brings the stored counters and names in line with the lists. Called on edits and saves only,
+ * never on open, so a saved listing is not marked unsaved by merely being looked at. Returns the
+ * same object when nothing changed.
  */
 export function syncListingBasicsFromLists(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
   let next = sub;
@@ -109,20 +110,4 @@ export function syncListingBasicsFromLists(sub: ManagerListingSubmissionV1): Man
     next = { ...next, sharedSpaces: spaces.map((space) => (OPTION_HINT.test(space.name ?? "") ? { ...space, name: cleanSharedSpaceName(space.name) } : space)) };
   }
   return next;
-}
-
-/**
- * Lowering the Floors count moves every record that sat above the new top floor down to it, so the
- * count and the lists never disagree (the same way lowering Bedrooms never strands a room).
- */
-export function submissionWithFloorCount(sub: ManagerListingSubmissionV1, count: number): ManagerListingSubmissionV1 {
-  const storiesId = String(Math.max(1, Math.min(MAX_FLOORS, Math.round(count))));
-  const clamp = (floor: string | undefined) => (floor ? clampFloorLabelToStories(floor, storiesId).floor : floor);
-  return {
-    ...sub,
-    listingStoriesId: storiesId,
-    rooms: (sub.rooms ?? []).map((room) => (room.floor ? { ...room, floor: clamp(room.floor) ?? room.floor } : room)),
-    bathrooms: (sub.bathrooms ?? []).map((bath) => (bath.location ? { ...bath, location: clamp(bath.location) ?? bath.location } : bath)),
-    sharedSpaces: (sub.sharedSpaces ?? []).map((space) => (space.location ? { ...space, location: clamp(space.location) ?? space.location } : space)),
-  };
 }
