@@ -42,9 +42,9 @@ export function scrollToFirstWizardFieldError(
 }
 
 export const RENTAL_WIZARD_STEP_FIELD_ORDER: Record<number, string[]> = {
-  1: ["hasCosigner", "applyingAsGroup", "groupLeaderAppId"],
+  1: ["propertyId", "leaseTerm", "bundleId", "roomChoice1", "roomChoice2", "roomChoice3", "hasCosigner", "applyingAsGroup", "groupLeaderAppId"],
   2: ["fullLegalName", "phone", "email", "dateOfBirth", "ssn", "driversLicense"],
-  3: ["propertyId", "roomChoice1", "leaseTerm", "leaseStart", "leaseEnd", "shortTermCheckInTime", "shortTermCheckOutTime", "shortTermRulesAck"],
+  3: ["leaseStart", "leaseEnd", "shortTermCheckInTime", "shortTermCheckOutTime", "shortTermRulesAck"],
   4: ["currentStreet", "currentCity", "currentState", "currentZip", "currentMoveIn"],
   5: ["prevStreet", "prevCity", "prevState", "prevZip"],
   6: ["employer", "monthlyIncome", "annualIncome", "otherIncome"],

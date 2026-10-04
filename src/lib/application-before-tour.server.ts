@@ -14,6 +14,8 @@
 import "server-only";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadLeasingPipeline } from "@/lib/leasing-pipeline-preferences";
+import { applicationBeforeTourRequired } from "@/lib/application-before-tour-policy";
+import type { PropertyApplicationTemplate } from "@/lib/property-application-templates";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -58,15 +60,28 @@ export type ApplicationBeforeTourDecision =
   | { required: false }
   | { required: true; hasApplication: boolean; ownerUserId: string };
 
-/** The property's owner (the workspace whose setting applies), or null when the property is unknown. */
-async function propertyOwnerUserId(db: Db, propertyId: string): Promise<string | null> {
+/**
+ * The property's owner (the workspace whose setting applies) and its application forms (each may
+ * carry its own before/after-tour answer), or null when the property is unknown.
+ */
+async function propertyOwnerAndForms(
+  db: Db,
+  propertyId: string,
+): Promise<{ ownerUserId: string; forms: PropertyApplicationTemplate[] } | null> {
   const { data } = await db
     .from("manager_property_records")
-    .select("manager_user_id")
+    .select("manager_user_id, property_data")
     .eq("id", propertyId)
     .maybeSingle();
-  const owner = text((data as { manager_user_id?: unknown } | null)?.manager_user_id);
-  return owner || null;
+  const row = data as { manager_user_id?: unknown; property_data?: unknown } | null;
+  const ownerUserId = text(row?.manager_user_id);
+  if (!ownerUserId) return null;
+  const propertyData = isObject(row?.property_data) ? row.property_data : null;
+  const submission = isObject(propertyData?.listingSubmission) ? propertyData.listingSubmission : null;
+  const forms = Array.isArray(submission?.propertyApplicationTemplates)
+    ? (submission.propertyApplicationTemplates as unknown[]).filter(isObject) as unknown as PropertyApplicationTemplate[]
+    : [];
+  return { ownerUserId, forms };
 }
 
 /**
@@ -80,10 +95,12 @@ export async function resolveApplicationBeforeTour(
 ): Promise<ApplicationBeforeTourDecision> {
   const propertyId = args.propertyId.trim();
   if (!propertyId) return { required: false };
-  const ownerUserId = await propertyOwnerUserId(db, propertyId);
-  if (!ownerUserId) return { required: false };
+  const owner = await propertyOwnerAndForms(db, propertyId);
+  if (!owner) return { required: false };
+  const { ownerUserId, forms } = owner;
   const pipeline = await loadLeasingPipeline(db, ownerUserId);
-  if (pipeline.applicationBeforeTour !== "required") return { required: false };
+  // The workspace setting AND each form's own before/after-tour answer, decided in one place.
+  if (!applicationBeforeTourRequired(pipeline.applicationBeforeTour, forms)) return { required: false };
 
   const email = (args.verifiedEmail ?? "").trim().toLowerCase();
   if (!email.includes("@")) return { required: true, hasApplication: false, ownerUserId };

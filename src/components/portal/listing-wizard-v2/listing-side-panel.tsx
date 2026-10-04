@@ -22,7 +22,12 @@ import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { useMemo, useState } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
 import { PanelLine, PanelSection, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { buildListingQuote, type ListingQuoteStartKind } from "@/lib/listing-quote";
+import {
+  buildListingQuote,
+  splitQuoteLinesBySigning,
+  type ListingQuoteLine,
+  type ListingQuoteStartKind,
+} from "@/lib/listing-quote";
 import {
   arrangementSummaryLine,
   offeredResidentCountsFor,
@@ -355,6 +360,30 @@ export function PricingReceiptPanel({
     patch({ rooms: next.rooms });
   };
 
+  const { atSigning: atSigningLines, later: laterLines } = splitQuoteLinesBySigning(quote);
+  const renderQuoteLine = (line: ListingQuoteLine) => (
+    <PanelLine
+      key={line.key}
+      label={line.label}
+      note={line.note}
+      amount={usd(line.amount)}
+      muted={plainReceipt ? false : !line.dueAtSigning}
+      control={
+        plainReceipt
+          ? undefined
+          : (
+            <input
+              type="checkbox"
+              checked={line.dueAtSigning}
+              onChange={(e) => toggle(line.key, e.target.checked)}
+              aria-label={`Collect ${line.label} at signing`}
+              className="h-[17px] w-[17px] accent-[var(--pl-blue)]"
+            />
+          )
+      }
+    />
+  );
+
   const monthlyBreakdown = [
     `Rent ${usd(quote.monthlyRent)}`,
     quote.monthlyUtilities > 0 ? `utilities ${usd(quote.monthlyUtilities)}` : "",
@@ -484,34 +513,19 @@ export function PricingReceiptPanel({
         {plainReceipt ? null : (
           <p className="pt-1 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due at signing</p>
         )}
-        {quote.signingLines.map((line) => (
-          <PanelLine
-            key={line.key}
-            label={line.label}
-            note={line.note}
-            amount={usd(line.amount)}
-            muted={plainReceipt ? false : !line.dueAtSigning}
-            control={
-              plainReceipt
-                ? undefined
-                : (
-                  <input
-                    type="checkbox"
-                    checked={line.dueAtSigning}
-                    onChange={(e) => toggle(line.key, e.target.checked)}
-                    aria-label={`Collect ${line.label} at signing`}
-                    className="h-[17px] w-[17px] accent-[var(--pl-blue)]"
-                  />
-                )
-            }
-          />
-        ))}
+        {atSigningLines.map(renderQuoteLine)}
         <div className="flex items-baseline justify-between pt-2.5">
           <span className="text-[13px] text-foreground">Total at signing</span>
           <b className="text-[24px] font-extrabold tabular-nums tracking-tight text-foreground">
             {usd(quote.signingTotal)}
           </b>
         </div>
+        {laterLines.length > 0 ? (
+          <div data-testid="receipt-due-later">
+            <p className="pt-2.5 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due later</p>
+            {laterLines.map(renderQuoteLine)}
+          </div>
+        ) : null}
         {quote.isStay ? (
           <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl bg-accent/50 p-2.5">
             <span className="text-[13px] font-semibold text-foreground">Stay rate</span>

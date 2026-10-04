@@ -13,7 +13,8 @@ import type {
   ManagerSharedSpaceSubmission,
 } from "@/lib/manager-listing-submission";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
-import { publicPropertyApplicationTemplate } from "@/lib/property-application-templates";
+import { publicPropertyApplicationTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { applicationBeforeTourRequired } from "@/lib/application-before-tour-policy";
 import {
   houseDefaultsForSubmission,
   type ListingHouseDefaults,
@@ -522,7 +523,13 @@ export function publicListingProjection(
       ? {
           signingOrder: signingContext.signingOrder,
           leaseSigningFeeCents: signingContext.leaseSigningFeeCents,
-          ...(signingContext.applicationBeforeTour ? { applicationBeforeTour: true as const } : {}),
+          // The workspace setting, then each application form's own before/after-tour answer.
+          ...(applicationBeforeTourRequired(
+            signingContext.applicationBeforeTour ? "required" : "not_needed",
+            resolvedSub && resolvedSub.v === 1 ? readPropertyApplicationTemplates(resolvedSub) : [],
+          )
+            ? { applicationBeforeTour: true as const }
+            : {}),
         }
       : {}),
     // Says what this payload IS, so the browser cache it lands in can tell it

@@ -17,6 +17,7 @@ import {
   buildManagerTourUrl,
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import { applicationFormIdForLink } from "@/lib/send-forms";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { managerMayFileLeaseUnderProperty } from "@/lib/auth/manager-lease-scope";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
@@ -87,6 +88,7 @@ export async function POST(req: Request) {
       note?: unknown;
       listingIntro?: unknown;
       rentalType?: unknown;
+      applicationFormId?: unknown;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -217,11 +219,21 @@ export async function POST(req: Request) {
       : isPortfolioTour
         ? `${authorized.length} properties`
         : (listing?.title || listing?.buildingName || listing?.address || propertyId).trim();
+    // The form is re-validated here against the property's own published forms: a request body can
+    // never make the link name a form the property does not offer. One property only.
+    const applicationFormId =
+      kind === "apply" && !isMultiApply
+        ? applicationFormIdForLink(
+            listing?.listingSubmission,
+            typeof body.applicationFormId === "string" ? body.applicationFormId : "",
+          )
+        : undefined;
     const applyUrl = buildManagerApplyUrl(origin, {
       propertyId,
       listingRoomId: listingRoomId || undefined,
       roomName: roomName || undefined,
       rentalType: rentalType === "short_term" ? "short_term" : undefined,
+      applicationFormId,
     });
     const tourUrl = buildManagerTourUrl(origin, propertyId);
     const listingPageUrl = buildManagerListingUrl(origin, propertyId);

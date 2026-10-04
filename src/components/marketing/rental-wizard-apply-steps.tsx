@@ -1,11 +1,11 @@
 "use client";
 
-const MILESTONES = ["Household", "About you", "Property", "Review", "Fee"] as const;
+const MILESTONES = ["Lease", "About you", "Details", "Review", "Fee"] as const;
 
 function milestoneIndexForWizardStep(step: number): number {
-  if (step <= 2) return 0;
-  if (step === 3) return 1;
-  if (step >= 4 && step <= 9) return 2;
+  if (step <= 1) return 0;
+  if (step === 2) return 1;
+  if (step >= 3 && step <= 9) return 2;
   if (step === 10) return 3;
   if (step === 11) return 4;
   return 0;

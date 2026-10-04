@@ -35,6 +35,7 @@ import { SettingsGroupSourceTag, scopeTagLabel } from "@/components/portal/setti
 import { managerSettingsProfilePath } from "@/lib/portal-settings-section";
 import { useServiceAutomationSettings } from "@/components/portal/service-automation-settings-section";
 import { DEFAULT_SERVICE_AUTOMATION_SETTINGS } from "@/lib/service-automation-settings";
+import { WaiveCodesSettingsSection } from "@/components/portal/settings-waive-codes-section";
 import { RESIDENT_MAINTENANCE_CATEGORY_LABELS } from "@/lib/work-order-taxonomy";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
@@ -354,6 +355,8 @@ export function ApplicationsSettingsPanel({
           </PortalSettingsRow>
         </PortalSettingsGroup>
       </PortalSettingsSection>
+
+      <WaiveCodesSettingsSection propertyOptions={propertyOptions} defaultAppliesTo="application" />
 
       <PortalSettingsSection
         title="Handling"
@@ -766,6 +769,8 @@ export function LeaseSettingsPanel({
           </PortalSettingsRow>
         </PortalSettingsGroup>
       </PortalSettingsSection>
+
+      <WaiveCodesSettingsSection propertyOptions={propertyOptions} defaultAppliesTo="lease" />
 
       <PortalSettingsSection
         title="Documents"

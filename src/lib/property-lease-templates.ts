@@ -103,6 +103,11 @@ export type PropertyLeaseTemplate = {
    * invite path to wire this into on the lease side.
    */
   linkedGuarantorLeaseTemplateId?: string | null;
+  /**
+   * Set when this copy was added from the workspace Forms library (`leasing-forms-library.ts`): the
+   * library form's id. The property's own forms never carry it.
+   */
+  libraryFormId?: string | null;
 };
 
 export const PROPERTY_LEASE_TYPE_OPTIONS: readonly {

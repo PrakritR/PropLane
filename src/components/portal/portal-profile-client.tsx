@@ -1,5 +1,6 @@
 "use client";
 
+import { LeasingFormsPanel } from "@/components/portal/leasing-forms-panel";
 import { WorkspaceApplicationsLeasesSettings } from "@/components/portal/workspace-applications-leases-settings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -20,6 +21,7 @@ import {
   UserRound,
   Wallet,
   ClipboardList,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -183,6 +185,7 @@ export type SettingsGroupId =
   | "payments"
   | "payouts"
   | "applicationsLeases"
+  | "leasingForms"
   | "spreadsheets";
 
 type SettingsGroup = {
@@ -529,6 +532,8 @@ export function PortalProfileClient({
         { id: "payments", label: "Balance & payouts", description: "PropLane balance, bank accounts, and withdrawals.", icon: Wallet, group: "Workspace" },
         // Captain, Oct 3: the workspace's signing order and lease defaults are their own section.
         { id: "applicationsLeases", label: "Applications & leases", description: "Signing order and lease defaults for this workspace.", icon: ClipboardList, group: "Workspace" },
+        // Captain, Oct 3 (D1): application and lease forms are defined once here; each property picks which apply.
+        { id: "leasingForms", label: "Forms", description: "Application and lease forms, defined once for this workspace.", icon: FileText, group: "Workspace" },
         { id: "spreadsheets", label: "Integrations", description: "Google Calendar and Sheets.", icon: Table2, group: "Workspace" },
       );
     }
@@ -773,6 +778,8 @@ export function PortalProfileClient({
         return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
       case "applicationsLeases":
         return variant === "manager" ? <WorkspaceApplicationsLeasesSettings /> : null;
+      case "leasingForms":
+        return variant === "manager" ? <LeasingFormsPanel /> : null;
       case "applicationForm":
         // Kept per the S014 correction (captain, 06:47): the Applications
         // list-page gear was removed by another worker on the assumption
@@ -791,11 +798,11 @@ export function PortalProfileClient({
   // Settings row, and this nav carries both groups. PROFILE is the account
   // (never workspace-dependent); WORKSPACE follows the workspace selected in the
   // sidebar switcher, whose name is shown read-only above its rows.
-  const WORKSPACE_GROUP_ORDER: SettingsGroupId[] = ["workspaces", "payments", "applicationsLeases", "messaging", "spreadsheets"];
+  const WORKSPACE_GROUP_ORDER: SettingsGroupId[] = ["workspaces", "payments", "applicationsLeases", "leasingForms", "messaging", "spreadsheets"];
   const profileGroups = groups.filter((g) => g.group === "Profile");
   const workspaceGroups = WORKSPACE_GROUP_ORDER.flatMap((id) => groups.filter((g) => g.id === id));
   const limitedWorkspace = variant === "manager" && Boolean(workspaces?.active && !workspaces.active.owned && !workspaces.active.canManageMembers);
-  const locked = (id: string) => limitedWorkspace && ["messaging", "payments", "applicationsLeases", "spreadsheets"].includes(id);
+  const locked = (id: string) => limitedWorkspace && ["messaging", "payments", "applicationsLeases", "leasingForms", "spreadsheets"].includes(id);
   // Panes whose content is the selected workspace's: remount when the sidebar switches it.
   const followsWorkspace = (id: string) => [...WORKSPACE_GROUP_ORDER, "billing"].includes(id);
   const paneTitle = paneGroup.id === "workspaces" ? "Workspace settings" : paneGroup.label;

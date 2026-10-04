@@ -290,7 +290,7 @@ describe("public apply — resume after reload", () => {
     standard.application = { ...standard.application, rentalType: "standard", leaseTerm: "Long-term", applicationTemplateId: "template-standard", applicationTemplateVersion: 1, customFieldAnswers: [{ key: "standard_key", label: "Question", type: "text", value: "saved v1 answer" }] } as DemoApplicantRow["application"];
     const short = serverRow();
     short.id = shortId;
-    short.application = { ...short.application, rentalType: "short_term", leaseTerm: "Short-Term Stay", applicationTemplateId: "template-short", applicationTemplateVersion: 2, customFieldAnswers: [{ key: "short_key", label: "Question", type: "text", value: "saved v2 answer" }], wizardStep: 3 } as DemoApplicantRow["application"];
+    short.application = { ...short.application, rentalType: "short_term", leaseTerm: "Short-Term Stay", applicationTemplateId: "template-short", applicationTemplateVersion: 2, customFieldAnswers: [{ key: "short_key", label: "Question", type: "text", value: "saved v2 answer" }], wizardStep: 1 } as DemoApplicantRow["application"];
     window.sessionStorage.setItem("axis:rental-application:public-resume-axis-id:v1", shortId);
     window.sessionStorage.setItem(`axis.applicationSetupToken.${shortId}`, TOKEN);
     window.sessionStorage.setItem(`axis.applicationSetupToken.${standardId}`, TOKEN);
@@ -316,12 +316,12 @@ describe("public apply — resume after reload", () => {
     const currentB = publishedTemplateSubmission("template-b", 2);
     seedListing(currentB);
     const a = serverRow();
-    a.application = { ...a.application, wizardStep: 3, rentalType: "standard", applicationTemplateId: "template-a", applicationTemplateVersion: 2, customFieldAnswers: [{ key: "a", label: "A", type: "text", value: "answer A" }] } as DemoApplicantRow["application"];
+    a.application = { ...a.application, wizardStep: 1, rentalType: "standard", applicationTemplateId: "template-a", applicationTemplateVersion: 2, customFieldAnswers: [{ key: "a", label: "A", type: "text", value: "answer A" }] } as DemoApplicantRow["application"];
     const b = serverRow();
     b.id = "PROPLANE-SECOND1";
     b.propertyId = PID_B;
     b.property = "Second Flat";
-    b.application = { ...b.application, wizardStep: 3, propertyId: PID_B, rentalType: "standard", applicationTemplateId: "template-b", applicationTemplateVersion: 1, customFieldAnswers: [{ key: "b", label: "B", type: "text", value: "answer B" }] } as DemoApplicantRow["application"];
+    b.application = { ...b.application, wizardStep: 1, propertyId: PID_B, rentalType: "standard", applicationTemplateId: "template-b", applicationTemplateVersion: 1, customFieldAnswers: [{ key: "b", label: "B", type: "text", value: "answer B" }] } as DemoApplicantRow["application"];
     window.sessionStorage.setItem("axis:rental-application:public-resume-axis-id:v1", a.id);
     window.sessionStorage.setItem(`axis.applicationSetupToken.${a.id}`, TOKEN);
     window.sessionStorage.setItem(`axis.applicationSetupToken.${b.id}`, TOKEN);
@@ -346,7 +346,7 @@ describe("public apply — resume after reload", () => {
     const a = serverRow();
     a.application = {
       ...a.application,
-      wizardStep: 3,
+      wizardStep: 1,
       rentalType: "standard",
       applicationTemplateId: "template-a",
       applicationTemplateVersion: 1,
@@ -400,12 +400,12 @@ describe("public apply — resume after reload", () => {
 
   it("ignores a delayed B response after returning to A and retries a failed B lookup without writing B", async () => {
     const a = serverRow();
-    a.application = { ...a.application, wizardStep: 3, rentalType: "standard", applicationTemplateId: "template-a", applicationTemplateVersion: 2, customFieldAnswers: [{ key: "a", label: "A", type: "text", value: "answer A" }] } as DemoApplicantRow["application"];
+    a.application = { ...a.application, wizardStep: 1, rentalType: "standard", applicationTemplateId: "template-a", applicationTemplateVersion: 2, customFieldAnswers: [{ key: "a", label: "A", type: "text", value: "answer A" }] } as DemoApplicantRow["application"];
     const b = serverRow();
     b.id = "PROPLANE-SECOND2";
     b.propertyId = PID_B;
     b.property = "Second Flat";
-    b.application = { ...b.application, wizardStep: 3, propertyId: PID_B, rentalType: "standard", applicationTemplateId: "template-b", applicationTemplateVersion: 1, customFieldAnswers: [{ key: "b", label: "B", type: "text", value: "answer B" }] } as DemoApplicantRow["application"];
+    b.application = { ...b.application, wizardStep: 1, propertyId: PID_B, rentalType: "standard", applicationTemplateId: "template-b", applicationTemplateVersion: 1, customFieldAnswers: [{ key: "b", label: "B", type: "text", value: "answer B" }] } as DemoApplicantRow["application"];
     window.sessionStorage.setItem("axis:rental-application:public-resume-axis-id:v1", a.id);
     window.sessionStorage.setItem(`axis.applicationSetupToken.${a.id}`, TOKEN);
     window.sessionStorage.setItem(`axis.applicationSetupToken.${b.id}`, TOKEN);

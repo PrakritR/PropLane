@@ -131,7 +131,7 @@ describe("C2-CP8: the lease editor has no Settings step", () => {
     footerStepCountHidden();
   });
 
-  it("shows Used for mapping on edit when form setup is loaded", async () => {
+  it("shows no Used for mapping card on edit", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -146,9 +146,8 @@ describe("C2-CP8: the lease editor has no Settings step", () => {
       />,
     );
     await screen.findByRole("dialog", { name: "Edit lease" });
-    await waitFor(() =>
-      expect(document.querySelector('[data-attr="property-form-used-for-mapping"]')).not.toBeNull(),
-    );
+    expect(document.querySelector('[data-attr="property-form-used-for-mapping"]')).toBeNull();
+    expect(screen.queryByText("Used for")).toBeNull();
   });
 });
 
@@ -232,8 +231,8 @@ describe("F-editor c: footer-only commit", () => {
   });
 });
 
-describe("C2-R30-3 month-to-month and custom start as lease documents", () => {
-  it("offers month-to-month and custom start in the add-lease type picker", async () => {
+describe("Add lease type picker", () => {
+  it("offers Long-term and Short term only; custom dates and month-to-month are checkboxes", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -248,8 +247,10 @@ describe("C2-R30-3 month-to-month and custom start as lease documents", () => {
     );
     await screen.findByRole("dialog", { name: "New lease" });
     fireEvent.click(screen.getByRole("button", { name: "Type of lease" }));
-    expect(await screen.findByRole("option", { name: "Month-to-month" })).toBeTruthy();
-    expect(await screen.findByRole("option", { name: "Custom start" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Long-term" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "Short term" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Month-to-month" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Custom start" })).toBeNull();
   });
 });
 

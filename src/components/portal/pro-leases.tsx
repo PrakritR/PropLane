@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
+import { UploadForResidentModal } from "@/components/portal/upload-for-resident-modal";
+import { Upload } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -67,6 +69,7 @@ export function ManagerLeases({
   const [listSearch, setListSearch] = useState("");
   const [clientReady, setClientReady] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
+  const [uploadForResidentOpen, setUploadForResidentOpen] = useState(false);
 
   useEffect(() => {
     queueMicrotask(() => setClientReady(true));
@@ -155,7 +158,17 @@ export function ManagerLeases({
     </PortalFilterSortSheet>
   );
 
-  const leasesListActions = <>{leasesFilterSheet}</>;
+  const leasesListActions = (
+    <>
+      {leasesFilterSheet}
+      <PortalIconAction
+        icon={Upload}
+        label="Upload for resident"
+        data-attr="leases-upload-for-resident"
+        onClick={() => setUploadForResidentOpen(true)}
+      />
+    </>
+  );
 
   const openLeaseAfterSend = (leaseId: string) => {
     navigate(leaseDetailHref(basePath, "resident", leaseId));
@@ -163,6 +176,14 @@ export function ManagerLeases({
 
   const modals = (
     <>
+      <UploadForResidentModal
+        open={uploadForResidentOpen}
+        onClose={() => setUploadForResidentOpen(false)}
+        managerUserId={userId}
+        properties={propertyOptions}
+        initialKind="lease"
+        onCreated={() => setTick((n) => n + 1)}
+      />
       {/* The + is Send lease: the one screen, with a resident picker on top (it replaced the Add lease wizard). */}
       <LeaseSendSheet
         open={addLeaseOpen}

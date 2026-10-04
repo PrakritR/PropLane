@@ -53,6 +53,7 @@ const DEFERRED_ROUTES: Record<string, string> = {
 const MIGRATED_ROUTES = [
   "portal/resident-approval/route.ts",
   "resident/extend-lease/route.ts",
+  "resident/lease-fee-waiver-code/route.ts",
   "resident/check-move-out-availability/route.ts",
   "resident/sms-conversations/route.ts",
   "portal/work-orders/send-reminder/route.ts",

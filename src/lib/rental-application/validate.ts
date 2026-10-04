@@ -156,6 +156,29 @@ export function validateRentalWizardStep(
   return e;
 }
 
+/** The answers to "Which lease are you applying for?" (step 1): property, lease type, bundle and room or home choice. */
+export const LEASE_CHOICE_ERROR_KEYS = [
+  "propertyId",
+  "leaseTerm",
+  "bundleId",
+  "roomChoice1",
+  "roomChoice2",
+  "roomChoice3",
+] as const;
+
+function pickLeaseChoiceErrors(all: RentalWizardErrors): RentalWizardErrors {
+  const out: RentalWizardErrors = {};
+  for (const key of LEASE_CHOICE_ERROR_KEYS) {
+    if (all[key]) out[key] = all[key];
+  }
+  return out;
+}
+
+/** True when any error belongs to the lease question (so the wizard shows step 1, where those fields live). */
+export function hasLeaseChoiceError(errors: RentalWizardErrors): boolean {
+  return LEASE_CHOICE_ERROR_KEYS.some((key) => Boolean(errors[key]));
+}
+
 export function validateStandardWizardStep(
   step: number,
   f: RentalWizardFormState,
@@ -169,6 +192,15 @@ export function validateStandardWizardStep(
 
   if (step === 1) {
     if (f.applicantRole === "cosigner") return e;
+    // Step 1 opens with "Which lease are you applying for?": the property, lease type and
+    // room/home are answered here, before any other step. The date-dependent room checks stay on
+    // the dates step, so this asks the same questions with the dates left out.
+    Object.assign(
+      e,
+      pickLeaseChoiceErrors(
+        validateStandardWizardStep(3, { ...f, leaseStart: "", leaseEnd: "" }, fieldRequired, prop, fieldEnabled),
+      ),
+    );
     if (fieldRequired("hasCosigner") && f.hasCosigner === null) {
       e.hasCosigner = "Please choose whether a co-signer will be added.";
     }

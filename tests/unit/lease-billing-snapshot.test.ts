@@ -357,19 +357,30 @@ describe("buildLeaseBillingSnapshot", () => {
     expect(billing.dueAtSigning).toBe(baseline.dueAtSigning);
   });
 
-  it("includes an applicable one-time fee in the signing total without making it monthly", () => {
-    const propertyId = "prop-one-time-fee";
-    const email = "one-time-fee@example.com";
-    removeResidentHouseholdPaymentData(email);
-    const sub = normalizeManagerListingSubmissionV1({
-      ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
-      customFees: [{ id: "one-time", label: "Short-Term Lease Fee", amount: "100", frequency: "one-time" }],
-      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
-    });
-    seedListing(propertyId, sub);
-    const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
-    expect(buildLeaseBillingSnapshot(row, MANAGER_ID).dueAtSigning).toBe(650);
+  it("includes a ticked one-time fee in the signing total, and leaves an unticked one out, without making it monthly", () => {
+    for (const [ticked, expected] of [[true, 650], [false, 550]] as const) {
+      const propertyId = `prop-one-time-fee-${ticked ? "on" : "off"}`;
+      const email = `one-time-fee-${ticked ? "on" : "off"}@example.com`;
+      removeResidentHouseholdPaymentData(email);
+      const base = normalizeManagerListingSubmissionV1({
+        ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150", allowedLeaseTerms: ["Long-term"],
+        customFees: [{ id: "one-time", label: "Short-Term Lease Fee", amount: "100", frequency: "one-time" }],
+        rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+      });
+      const sub = ticked
+        ? {
+            ...base,
+            paymentAtSigningByLeaseType: {
+              ...(base.paymentAtSigningByLeaseType ?? {}),
+              "Long-term": [...(base.paymentAtSigningIncludes ?? []), "fee:one-time"],
+            },
+          }
+        : base;
+      seedListing(propertyId, sub as typeof base);
+      const row = applicantRow(propertyId, email, { leaseTerm: "Long-term" });
+      recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
+      expect(buildLeaseBillingSnapshot(row, MANAGER_ID).dueAtSigning).toBe(expected);
+    }
   });
 
   it("keeps a short stay on its nightly rate and short-term fees through snapshot generation", () => {

@@ -12,12 +12,13 @@ import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
+import { UploadForResidentModal } from "@/components/portal/upload-for-resident-modal";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Bell, CalendarDays, Check, Clock, Download, Home, Plus, Send, Shield, Trash2, Undo2, Wallet, X } from "lucide-react";
+import { Bell, CalendarDays, Check, Clock, Download, Home, Plus, Send, Shield, Trash2, Undo2, Upload, Wallet, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
@@ -607,6 +608,8 @@ export function ManagerApplications({
     { row: DemoApplicantRow; to: string; subject: string; text: string } | null
   >(null);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  /** Upload for resident: closed (null), or open for one resident (an application id) / for anyone ("" = pick). */
+  const [uploadForResidentFor, setUploadForResidentFor] = useState<string | null>(null);
   const [applicationsFilterOpen, setApplicationsFilterOpen] = useState(false);
   const openSendApplicationInvite = useCallback(() => {
     armFilterSheetOpenSuppressFromOverlayDismiss();
@@ -1385,6 +1388,7 @@ export function ManagerApplications({
     }
     if (showCompletionReminder) actions.push(portalIconActionSpec({ id: "reminder", label: reminderPreviewBusyId === row.id ? "Loading…" : "Remind", icon: Bell,
       dataAttr: "application-send-reminder", disabled: reminderPreviewBusyId !== null || reminderBusyId !== null, onClick: () => openReminderPreview(row) }));
+    actions.push(portalIconActionSpec({ id: "upload-for-resident", label: "Upload for resident", icon: Upload, dataAttr: "application-upload-for-resident", onClick: () => setUploadForResidentFor(row.id) }));
     actions.push(portalIconActionSpec({ id: "download", label: "Download", icon: Download, dataAttr: "application-pdf-download", onClick: () => runApplicationPdfDownload(row, showToast) }));
     actions.push({ id: "share",
       node: <PortalRecordShareLinkButton kind="application" recordId={row.id} icon dataAttr="application-share" recordTitle={recordTitle} />,
@@ -1547,6 +1551,15 @@ export function ManagerApplications({
     />
   );
 
+  const applicationsUploadButton = (
+    <PortalIconAction
+      icon={Upload}
+      label="Upload for resident"
+      data-attr="applications-upload-for-resident"
+      onClick={() => setUploadForResidentFor("")}
+    />
+  );
+
   /** Add application — the same AddWorkspace rail as Add resident / Schedule tour. */
   const [addApplicationOpen, setAddApplicationOpen] = useState(false);
   /** Send lease: the application id the one Send lease screen opens for, or null when closed. */
@@ -1563,6 +1576,7 @@ export function ManagerApplications({
     <>
       {applicationsFilterSort}
       {applicationsAddButton}
+      {applicationsUploadButton}
       {applicationsManualAddButton}
     </>
   );
@@ -1628,6 +1642,15 @@ export function ManagerApplications({
           if (!reminderPreview) return;
           void sendApplicationReminder(reminderPreview.row, channels, draft);
         }}
+      />
+      <UploadForResidentModal
+        open={uploadForResidentFor !== null}
+        onClose={() => setUploadForResidentFor(null)}
+        managerUserId={userId ?? null}
+        properties={shareableProperties}
+        initialKind="application"
+        residentApplicationId={uploadForResidentFor || null}
+        onCreated={() => setRows(readManagerApplicationRows())}
       />
       <ShareLeadLinkModal
         open={inviteModalOpen}

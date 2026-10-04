@@ -149,8 +149,9 @@ export async function fillSignerStep(page: Page, applicant: ApplicantInfo, dateO
   if (await email.isEditable()) await email.fill(applicant.email);
 }
 
-export async function fillPropertyLeaseStep(page: Page, leaseTerm = "12-Month") {
-  await expect(page.getByText(/Property Information/i).filter({ visible: true }).first()).toBeVisible({
+/** Step 1 opens with "Which lease are you applying for?": the lease type (and room or home) come before everything else. */
+export async function fillLeaseChoiceStep(page: Page, leaseTerm = "12-Month") {
+  await expect(page.getByText(/Which lease are you applying for\?/i).filter({ visible: true }).first()).toBeVisible({
     timeout: 30_000,
   });
   const leaseTrigger = page.getByRole("button", { name: "Select lease length" }).filter({ visible: true }).first();
@@ -165,6 +166,13 @@ export async function fillPropertyLeaseStep(page: Page, leaseTerm = "12-Month") 
       if (values[0]) await nativeLease.selectOption(values[0]);
     }
   }
+}
+
+/** Step 3: the lease dates (the lease type was chosen on step 1). */
+export async function fillPropertyLeaseStep(page: Page) {
+  await expect(page.getByText(/Move-in dates/i).filter({ visible: true }).first()).toBeVisible({
+    timeout: 30_000,
+  });
   const startBox = page
     .getByRole("textbox", { name: /Lease start date/i })
     .filter({ visible: true })

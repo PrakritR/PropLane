@@ -110,8 +110,11 @@ import {
   type ApplicationFormVariant,
 } from "@/lib/rental-application/application-field-catalog";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
+import { applicationPinForStayTerm } from "@/lib/property-form-stay-type-routing";
+import { applicationPinForLinkedForm } from "@/lib/send-forms";
+import { APPLY_FORM_PARAM } from "@/lib/rental-application/apply-from-listing";
 import { digitsOnly, maskSsnInput } from "@/lib/rental-application/masks";
-import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
+import { countValidationErrors, hasLeaseChoiceError, validateRentalWizardStep } from "@/lib/rental-application/validate";
 import {
   sanitizeApplicationFormForListing,
   validateResidentApplicationSubmit,
@@ -401,6 +404,8 @@ function RentalApplicationWizardInner({
   linkedRentalType,
 }: RentalApplicationWizardProps) {
   const searchParams = useSearchParams();
+  // "Send application" can name the form the resident gets; that pick outranks the lease type's form.
+  const linkedFormIdRef = useRef(searchParams.get(APPLY_FORM_PARAM)?.trim() || "");
   const feeCheckoutReturn = searchParams.get("fee_checkout");
   // A Stripe reload has identity only. Keep all draft writes paused until the
   // server confirms promotion; failures retain these params for a safe retry.
@@ -583,12 +588,18 @@ function RentalApplicationWizardInner({
     const property = getPropertyById(propertyId);
     const submission = property?.listingSubmission;
     if (!submission || submission.v !== 1) return;
-    const resolved = applicationConfigForApplicant(submission, applicationRentalTypeFor(form.rentalType), null);
+    // "Which lease are you applying for?" picks the form: the application mapped to the chosen lease
+    // type wins; otherwise the stay kind's default published form.
+    const linkedPin = applicationPinForLinkedForm(submission, linkedFormIdRef.current);
+    const leasePin = linkedPin ?? applicationPinForStayTerm(submission, form.leaseTerm);
+    const resolved = leasePin
+      ? { templateId: leasePin.templateId, templateVersion: leasePin.templateVersion }
+      : applicationConfigForApplicant(submission, applicationRentalTypeFor(form.rentalType), null);
     if (!resolved.templateId || !resolved.templateVersion) return;
     setForm((previous) => previous.applicationTemplateId
       ? previous
       : { ...previous, applicationTemplateId: resolved.templateId, applicationTemplateVersion: resolved.templateVersion });
-  }, [form.propertyId, form.rentalType, form.applicationTemplateId, extrasTick, templatePreview]);
+  }, [form.propertyId, form.rentalType, form.leaseTerm, form.applicationTemplateId, extrasTick, templatePreview]);
   const nextActiveStep = useCallback(
     (from: number) => nextActiveWizardStep(activeSteps, from),
     [activeSteps],
@@ -1545,6 +1556,21 @@ function RentalApplicationWizardInner({
         } else {
           variantRestoreRef.current = "";
           queueMicrotask(() => setVariantRestorePending(false));
+        }
+      }
+      // Choosing a different lease type inside the same stay kind can route to a different
+      // application form (the form mapped to that lease). Re-pin it and drop the answers that
+      // belonged to the form being left; a stay-kind change already re-resolves its own pin above.
+      if ("leaseTerm" in p && p.leaseTerm !== f.leaseTerm && !("rentalType" in p && p.rentalType !== f.rentalType)) {
+        const sub = getPropertyById(merged.propertyId)?.listingSubmission;
+        const leasePin = sub && sub.v === 1 && String(p.leaseTerm ?? "").trim()
+          ? applicationPinForStayTerm(sub, String(p.leaseTerm))
+          : null;
+        const formChosenByLink = Boolean(linkedFormIdRef.current) && merged.applicationTemplateId === linkedFormIdRef.current;
+        if (!formChosenByLink && leasePin && leasePin.templateId !== merged.applicationTemplateId) {
+          merged.applicationTemplateId = leasePin.templateId;
+          merged.applicationTemplateVersion = leasePin.templateVersion;
+          merged.customFieldAnswers = [];
         }
       }
       if ("leaseStart" in p) merged.leaseStart = normalizeIsoDateInput(p.leaseStart);
@@ -2552,8 +2578,12 @@ function RentalApplicationWizardInner({
       setErrors(e);
       if (countValidationErrors(e) > 0) {
         showToast("Please fix the highlighted fields before continuing.");
+        // The property, lease type and room live on step 1 ("Which lease are you applying for?"),
+        // so a draft that reaches the dates step without them goes back to the question.
+        const errorStep = step !== 1 && hasLeaseChoiceError(e) ? 1 : step;
+        if (errorStep !== step) setStep(errorStep);
         queueMicrotask(() =>
-          scrollToFirstWizardFieldError(RENTAL_WIZARD_STEP_FIELD_ORDER[step] ?? [], e),
+          scrollToFirstWizardFieldError(RENTAL_WIZARD_STEP_FIELD_ORDER[errorStep] ?? [], e),
         );
         return;
       }

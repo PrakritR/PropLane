@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   HOUSEHOLD_CHARGES_EVENT,
@@ -43,6 +44,98 @@ type CheckoutState = {
 };
 
 /**
+ * "Have a waive code?" on the pay-before-signing step. A valid lease (or both) code cancels the lease fee on
+ * the server exactly like the manager's per-lease waiver; this only sends the typed code and the lease id,
+ * then asks the page to re-read the charges so the fee drops out of the total. The server decides everything
+ * (whose lease, which manager's code, which property, paid or not, how many uses are left).
+ */
+function LeaseFeeWaiveCodeEntry({ leaseId, onWaived }: { leaseId: string; onWaived: () => void }) {
+  const { showToast } = useAppUi();
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function apply() {
+    const typed = code.trim();
+    if (!typed || applying) return;
+    setApplying(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/resident/lease-fee-waiver-code", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leaseId, code: typed }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(payload.error ?? "That code could not be applied.");
+        return;
+      }
+      setCode("");
+      setOpen(false);
+      showToast("Lease fee waived.");
+      onWaived();
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="mt-3 text-sm font-bold text-primary underline-offset-2 hover:underline"
+        data-attr="resident-at-signing-waive-code-open"
+        onClick={() => setOpen(true)}
+      >
+        Have a waive code?
+      </button>
+    );
+  }
+  return (
+    <div className="mt-3" data-attr="resident-at-signing-waive-code">
+      <div className="flex items-center gap-2">
+        <Input
+          value={code}
+          onChange={(e) => {
+            setCode(e.target.value.toUpperCase());
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void apply();
+          }}
+          aria-label="Waive code"
+          placeholder="Code"
+          autoCapitalize="characters"
+          autoComplete="off"
+          spellCheck={false}
+          className="font-mono uppercase"
+          data-attr="resident-at-signing-waive-code-input"
+        />
+        <Button
+          type="button"
+          className="min-h-11"
+          disabled={!code.trim() || applying}
+          data-attr="resident-at-signing-waive-code-apply"
+          onClick={() => apply()}
+        >
+          {applying ? "Applying…" : "Apply"}
+        </Button>
+      </div>
+      {error ? (
+        <p className="mt-2 text-sm font-semibold text-destructive" role="alert" data-attr="resident-at-signing-waive-code-error">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * The one sign-and-pay payment.
  *
  * `mode="move-in"` (default) is the original after-signing card: the resident's move-in group.
@@ -57,12 +150,18 @@ export function ResidentSignAndPayMoveIn({
   mode = "move-in",
   charges: atSigningCharges,
   onCheckoutComplete,
+  leaseId,
+  onFeeWaived,
 }: {
   email: string;
   signed: boolean;
   mode?: "move-in" | "at-signing";
   charges?: HouseholdCharge[];
   onCheckoutComplete?: () => void;
+  /** The lease being signed. With it, a resident who still owes a lease fee may enter a waive code. */
+  leaseId?: string | null;
+  /** The lease fee was waived by a code: re-read the charges so it drops out of the total. */
+  onFeeWaived?: () => void;
 }) {
   const atSigning = mode === "at-signing";
   const { showToast } = useAppUi();
@@ -109,6 +208,9 @@ export function ResidentSignAndPayMoveIn({
     [items],
   );
   const payableIds = useMemo(() => payableItems.map((c) => c.id), [payableItems]);
+  // Only an unpaid lease fee can be waived, and only while the resident can still pay it here.
+  const canEnterWaiveCode =
+    atSigning && Boolean(leaseId) && payableItems.some((c) => c.kind === "lease_fee" && !c.waivedAt);
 
   const loadCheckout = useCallback(
     async (chargeIds: string[], method: ResidentAxisPaymentMethod) => {
@@ -241,6 +343,17 @@ export function ResidentSignAndPayMoveIn({
           </button>
         ))}
       </div>
+      {canEnterWaiveCode && !checkout?.clientSecret ? (
+        <LeaseFeeWaiveCodeEntry
+          leaseId={leaseId as string}
+          onWaived={() => {
+            // The session (if one was opened) was priced with the fee in it: drop it so the resident
+            // starts a new one for the corrected total.
+            setCheckout(null);
+            onFeeWaived?.();
+          }}
+        />
+      ) : null}
       {checkout?.loading ? <p className="mt-3 text-sm text-muted">Loading secure checkout…</p> : null}
       {checkout?.error ? (
         <p className="mt-3 text-sm font-semibold text-destructive" role="alert">{checkout.error}</p>

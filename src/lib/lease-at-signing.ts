@@ -18,7 +18,11 @@
  *    the total.
  */
 import type { HouseholdCharge, HouseholdChargeKind } from "@/lib/household-charges";
-import { isPaymentDueAtSigning, PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX } from "@/lib/listing-fee-scope";
+import {
+  isPaymentDueAtSigning,
+  PAYMENT_AT_SIGNING_FEE_KEY_PREFIX,
+  PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX,
+} from "@/lib/listing-fee-scope";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { ROOM_LEASE_FEE_ID_PREFIX } from "@/lib/room-term-fees";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -79,8 +83,8 @@ export function readLeaseFeeWaiver(
 
 /**
  * Is a charge of `kind` collected at signing on this lease type? The listing's per-lease-type ticks decide
- * (the same `isPaymentDueAtSigning` the quote uses); the lease fee and the one-time fees are always collected
- * then, exactly as `computeLeasePaymentAtSigning` always sums them. With no listing the legacy set
+ * (the same `isPaymentDueAtSigning` the quote uses), a custom one-time fee by its own tick; the lease fee is
+ * always collected then. With no listing the legacy set
  * (deposit + move-in) applies.
  */
 export function chargeKindDueAtSigning(
@@ -91,10 +95,20 @@ export function chargeKindDueAtSigning(
     roomId: string | null | undefined;
     /** A recurring-month charge (carries a rentMonth) is never an at-signing line. */
     hasRentMonth?: boolean;
+    /** The listing fee row a one-time `other_cost` charge bills: it follows that fee's own tick. */
+    customFeeId?: string | null;
   },
 ): boolean {
   if (ctx.hasRentMonth) return false;
-  if (kind === "lease_fee" || kind === "other_cost") return true;
+  if (kind === "lease_fee") return true;
+  if (kind === "other_cost") {
+    // A custom one-time fee is collected at signing only when the manager ticked it, exactly as the
+    // preview shows; unticked, it is a normal one-time charge. The manager's own per-application
+    // other cost (no fee row) and the legacy lease-fee line are always collected then.
+    const feeId = ctx.customFeeId?.trim();
+    if (!feeId || !ctx.sub || isRoomLeaseFeeRowId(feeId)) return true;
+    return isPaymentDueAtSigning(ctx.sub, `${PAYMENT_AT_SIGNING_FEE_KEY_PREFIX}${feeId}`, ctx.leaseTerm, ctx.roomId);
+  }
   const { sub, leaseTerm, roomId } = ctx;
   const due = (key: string) => (sub ? isPaymentDueAtSigning(sub, key, leaseTerm, roomId) : false);
   switch (kind) {
