@@ -28,9 +28,19 @@ import {
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { cn } from "@/lib/utils";
 import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
 
 export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
+
+/*
+ * A one-step dialog draws no rail: the shell (`ListingWorkspace`, shared with the listing wizard) always
+ * renders its section nav, so the single-step case hides that nav and collapses the grid column it held.
+ */
+const SINGLE_STEP_NO_RAIL_CLASS =
+  "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)]";
+const SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS =
+  "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)_300px] xl:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)_380px]";
 
 export type AddWorkspaceStep = StepRailItem & {
   /** True while this step still has something required to fill. Drawn as the red dot. */
@@ -144,6 +154,8 @@ export function AddWorkspace({
   reviewEditLinks?: boolean;
 }) {
   const confirm = useConfirm();
+  // A rail with one item has nowhere to go: a one-step dialog draws the body (and any live panel) alone.
+  const singleStep = steps.length < 2;
   const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
   const [readiness, setReadiness] = useState("");
   const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
@@ -265,7 +277,7 @@ export function AddWorkspace({
   return (
     <WizardInvalidFields.Provider value={invalidFields}>
     <ListingWizardOverlay ariaLabel={title}>
-      <div ref={workspaceRef} className="relative h-full w-full" onInput={(event) => {
+      <div ref={workspaceRef} data-rail={singleStep ? "none" : undefined} className={cn("relative h-full w-full", singleStep && (sidePanel ? SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS : SINGLE_STEP_NO_RAIL_CLASS))} onInput={(event) => {
         const target = event.target;
         if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) {
           if (target.validity.valid) target.removeAttribute("aria-invalid");
@@ -326,7 +338,7 @@ export function AddWorkspace({
               </button>
             </div>
             <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
-              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : steps.length > 1 && steps[current]?.incomplete ? <span className="mb-0.5 block">Complete {steps[current]?.label}</span> : null}
+              {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : null}
               {hideFooterStepCount || steps.length < 2 ? null : <>Step {current + 1} of {steps.length}</>}
             </span>
             {isLast ? (
