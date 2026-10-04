@@ -29,6 +29,22 @@ function drawSegment(ctx: CanvasRenderingContext2D, from: Point, to: Point) {
   ctx.stroke();
 }
 
+/**
+ * Moves stored strokes from one pad width to another. Both axes take the same factor, so the
+ * signature keeps its proportions rather than its bounding box; the factor is capped so a wider
+ * pad never pushes the ink past the fixed height, which would crop it on the way back out.
+ */
+function rescaleStrokes(strokes: Point[][], from: number, to: number): void {
+  if (from <= 0 || to <= 0 || from === to || strokes.length === 0) return;
+  let tallest = 0;
+  for (const stroke of strokes) for (const point of stroke) tallest = Math.max(tallest, point.y);
+  const scale = tallest > 0 ? Math.min(to / from, PAD_HEIGHT / tallest) : to / from;
+  if (!Number.isFinite(scale) || scale === 1) return;
+  for (const stroke of strokes) {
+    for (let i = 0; i < stroke.length; i++) stroke[i] = { x: stroke[i]!.x * scale, y: stroke[i]!.y * scale };
+  }
+}
+
 function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
   return new Promise((resolve) => {
     try {
@@ -57,8 +73,10 @@ export function SignaturePad({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const last = useRef<Point | null>(null);
-  // Every stroke drawn so far, in CSS pixels, so a resize can redraw the signature instead of wiping it.
+  // Every stroke drawn so far, in the CSS pixels of the width the pad currently has, so a resize
+  // redraws the whole signature at the new size instead of clipping whatever fell outside it.
   const strokes = useRef<Point[][]>([]);
+  const padWidth = useRef(0);
   const [hasInk, setHasInk] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -72,6 +90,8 @@ export function SignaturePad({
     canvas.height = Math.floor(PAD_HEIGHT * ratio);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${PAD_HEIGHT}px`;
+    rescaleStrokes(strokes.current, padWidth.current, width);
+    padWidth.current = width;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.scale(ratio, ratio);
