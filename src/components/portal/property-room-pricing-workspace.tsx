@@ -562,6 +562,169 @@ export function WholeHousePricingFields({
   );
 }
 
+/** One bundle's pricing fields for one lease type step; the workspace and the inline Pricing step share it. */
+export function BundlePricingFields({
+  draft,
+  bundle,
+  activeStepId,
+  patch,
+  setDraft,
+}: {
+  draft: ManagerListingSubmissionV1;
+  bundle: ManagerBundleRow;
+  /** The pricing step's term id: Long-term or Short term. */
+  activeStepId: string;
+  patch: (next: Partial<ManagerListingSubmissionV1>) => void;
+  setDraft: (next: ManagerListingSubmissionV1) => void;
+}) {
+  const activeTerm = activeStepId;
+  const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
+  const allowCustomStart = feeVisibilityForTerms(listingPricingLeaseTabs(draft)).customStartSurcharge;
+  const patchBundle = (next: Partial<ManagerBundleRow>) => {
+    patch({ bundles: draft.bundles.map((b) => (b.id === bundle.id ? { ...b, ...next } : b)) });
+  };
+  const copySources = pricingCopySourceBundles(draft, bundle.id, activeTerm);
+  const copyValue = bundle.copyFromBundleIdByTerm?.[activeTerm] ?? "";
+  const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
+  const bundleLabel = bundle.label?.trim() || "Bundle";
+  const bundleFeeScopeId = bundle.id;
+  const bundleRentMonthly = parseMoneyAmount(bundle.price ?? "");
+  return (
+    <>
+      {copySources.length > 0 ? (
+        <FactRow label="Pricing">
+          <FieldSingleSelect
+            label="Pricing"
+            options={[
+              { value: "", label: "Set for this bundle" },
+              ...copySources.map((b) => ({
+                value: b.id,
+                label: `Same as ${b.label?.trim() || "Bundle"}`,
+              })),
+            ]}
+            value={copyValue}
+            onChange={(v) => {
+              const next = setBundlePricingCopyFrom(draft, bundle.id, activeTerm, v || null);
+              setDraft(normalizeManagerListingSubmissionV1(next));
+            }}
+            dataAttr="property-bundle-pricing-copy"
+          />
+        </FactRow>
+      ) : null}
+      {!copyValue ? (
+        isStay ? (
+          <>
+            <FactRow label="Nightly rate">
+              <MoneyInput
+                label="Nightly rate"
+                value={bundle.shortTermNightlyRent ?? ""}
+                onChange={(v) => patchBundle({ shortTermNightlyRent: v })}
+              />
+            </FactRow>
+            <FactRow label="Deposit">
+              <MoneyInput
+                label="Bundle short-term deposit"
+                value={bundle.shortTermDeposit ?? bundle.securityDeposit ?? ""}
+                onChange={(v) => patchBundle({ shortTermDeposit: v })}
+              />
+            </FactRow>
+            <FactRow label="Move-in fee">
+              <MoneyInput
+                label="Bundle short-term move-in fee"
+                value={bundle.shortTermMoveInFee ?? ""}
+                onChange={(v) => patchBundle({ shortTermMoveInFee: v })}
+              />
+            </FactRow>
+            <FeeRows
+              sub={draft}
+              patch={patch}
+              roomId={bundleFeeScopeId}
+              roomName={bundleLabel}
+              term={quoteTerm}
+            />
+          </>
+        ) : (
+          <>
+            <FactRow label="Rent /mo">
+              <MoneyInput
+                label="Bundle rent"
+                value={bundle.price ?? ""}
+                onChange={(v) => patchBundle({ price: v })}
+              />
+            </FactRow>
+            <FactRow label="Utilities /mo">
+              <MoneyInput
+                label="Bundle utilities"
+                value={bundle.utilitiesEstimate ?? ""}
+                onChange={(v) => patchBundle({ utilitiesEstimate: v })}
+              />
+            </FactRow>
+            <FactRow label="Deposit">
+              <MoneyInput
+                label="Bundle deposit"
+                value={bundle.securityDeposit ?? ""}
+                onChange={(v) => patchBundle({ securityDeposit: v })}
+              />
+            </FactRow>
+            <FactRow label="Move-in fee">
+              <MoneyInput
+                label="Bundle move-in fee"
+                value={bundle.moveInFee ?? ""}
+                onChange={(v) => patchBundle({ moveInFee: v })}
+              />
+            </FactRow>
+            <FeeRows
+              sub={draft}
+              patch={patch}
+              roomId={bundleFeeScopeId}
+              roomName={bundleLabel}
+              term={quoteTerm}
+            />
+            {allowCustomStart ? (
+              <ProrateRows
+                sub={draft}
+                patch={patch}
+                term={quoteTerm}
+                roomId={bundleFeeScopeId}
+                name={bundleLabel}
+                automatic={(bundle.prorateMethod ?? "auto") !== "daily_rate"}
+                onAutomatic={(next) => patchBundle({ prorateMethod: next ? "auto" : "daily_rate" })}
+                rent={{
+                  text: bundle.dailyRentRate ? String(bundle.dailyRentRate) : "",
+                  placeholder: perDay(bundleRentMonthly) || "35",
+                  onChange: (v) =>
+                    patchBundle({
+                      dailyRentRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                    }),
+                }}
+                util={
+                  Number((bundle.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")) > 0
+                    ? {
+                        text: bundle.dailyUtilitiesRate ? String(bundle.dailyUtilitiesRate) : "",
+                        placeholder: perDay(
+                          Number((bundle.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")),
+                        ),
+                        onChange: (v) =>
+                          patchBundle({
+                            dailyUtilitiesRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
+                          }),
+                      }
+                    : null
+                }
+                dataAttr="property-bundle-pricing-prorate"
+              />
+            ) : null}
+          </>
+        )
+      ) : (
+        <p className="text-[13px] font-semibold text-muted">
+          Mirroring another bundle — change Pricing to edit on its own.
+        </p>
+      )}
+    </>
+  );
+}
+
 export function PropertyRoomPricingWorkspace({
   open,
   onClose,
@@ -664,8 +827,6 @@ export function PropertyRoomPricingWorkspace({
   const activeTerm =
     activeStepId === "bundle" ? LONG_TERM_LEASE_TERM : activeStepId;
   const quoteTerm = listingPricingTabToLeaseTerm(activeTerm) ?? LONG_TERM_LEASE_TERM;
-  /** Lease fee / Application fee are set per step: Short term has its own, every other step is the shared (long-term) value. */
-  const feeScope = roomFeeTermScope(quoteTerm);
 
   const jumpStep = (index: number) => {
     setSlideDir(index > step ? 1 : index < step ? -1 : 0);
@@ -774,154 +935,17 @@ export function PropertyRoomPricingWorkspace({
               </StepColumn>
             );
           }
-          const copySources = pricingCopySourceBundles(draft, bundle.id, activeTerm);
-          const copyValue = bundle.copyFromBundleIdByTerm?.[activeTerm] ?? "";
-          const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
-          const isBaseLong = activeStepId === LONG_TERM_LEASE_TERM;
-          const bundleLabel = bundle.label?.trim() || "Bundle";
-          const bundleFeeScopeId = bundle.id;
-          const stepTitle =
-            activeStepId === "bundle"
-              ? "Bundle"
-              : isStay
-                ? "Short term"
-                : isBaseLong
-                  ? "Long-term"
-                  : String(activeStepId);
-          const bundleRentMonthly = parseMoneyAmount(bundle.price ?? "");
+          const stepTitle = activeStepId === SHORT_TERM_LEASE_TERM ? "Short term" : activeStepId === LONG_TERM_LEASE_TERM ? "Long-term" : String(activeStepId);
           return (
             <StepColumn>
               <StepHeading title={stepTitle} />
-              {copySources.length > 0 ? (
-                <FactRow label="Pricing">
-                  <FieldSingleSelect
-                    label="Pricing"
-                    options={[
-                      { value: "", label: "Set for this bundle" },
-                      ...copySources.map((b) => ({
-                        value: b.id,
-                        label: `Same as ${b.label?.trim() || "Bundle"}`,
-                      })),
-                    ]}
-                    value={copyValue}
-                    onChange={(v) => {
-                      const next = setBundlePricingCopyFrom(draft, bundle.id, activeTerm, v || null);
-                      setDraft(normalizeManagerListingSubmissionV1(next));
-                    }}
-                    dataAttr="property-bundle-pricing-copy"
-                  />
-                </FactRow>
-              ) : null}
-              {!copyValue ? (
-                isStay ? (
-                  <>
-                    <FactRow label="Nightly rate">
-                      <MoneyInput
-                        label="Nightly rate"
-                        value={bundle.shortTermNightlyRent ?? ""}
-                        onChange={(v) => patchBundle({ shortTermNightlyRent: v })}
-                      />
-                    </FactRow>
-                    <FactRow label="Deposit">
-                      <MoneyInput
-                        label="Bundle short-term deposit"
-                        value={bundle.shortTermDeposit ?? bundle.securityDeposit ?? ""}
-                        onChange={(v) => patchBundle({ shortTermDeposit: v })}
-                      />
-                    </FactRow>
-                    <FactRow label="Move-in fee">
-                      <MoneyInput
-                        label="Bundle short-term move-in fee"
-                        value={bundle.shortTermMoveInFee ?? ""}
-                        onChange={(v) => patchBundle({ shortTermMoveInFee: v })}
-                      />
-                    </FactRow>
-                    <FeeRows
-                      sub={draft}
-                      patch={patch}
-                      roomId={bundleFeeScopeId}
-                      roomName={bundleLabel}
-                      term={quoteTerm}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <FactRow label="Rent /mo">
-                      <MoneyInput
-                        label="Bundle rent"
-                        value={bundle.price ?? ""}
-                        onChange={(v) => patchBundle({ price: v })}
-                      />
-                    </FactRow>
-                    <FactRow label="Utilities /mo">
-                      <MoneyInput
-                        label="Bundle utilities"
-                        value={bundle.utilitiesEstimate ?? ""}
-                        onChange={(v) => patchBundle({ utilitiesEstimate: v })}
-                      />
-                    </FactRow>
-                    <FactRow label="Deposit">
-                      <MoneyInput
-                        label="Bundle deposit"
-                        value={bundle.securityDeposit ?? ""}
-                        onChange={(v) => patchBundle({ securityDeposit: v })}
-                      />
-                    </FactRow>
-                    <FactRow label="Move-in fee">
-                      <MoneyInput
-                        label="Bundle move-in fee"
-                        value={bundle.moveInFee ?? ""}
-                        onChange={(v) => patchBundle({ moveInFee: v })}
-                      />
-                    </FactRow>
-                    <FeeRows
-                      sub={draft}
-                      patch={patch}
-                      roomId={bundleFeeScopeId}
-                      roomName={bundleLabel}
-                      term={quoteTerm}
-                    />
-                    {allowCustomStart ? (
-                      <ProrateRows
-                        sub={draft}
-                        patch={patch}
-                        term={quoteTerm}
-                        roomId={bundleFeeScopeId}
-                        name={bundleLabel}
-                        automatic={(bundle.prorateMethod ?? "auto") !== "daily_rate"}
-                        onAutomatic={(next) => patchBundle({ prorateMethod: next ? "auto" : "daily_rate" })}
-                        rent={{
-                          text: bundle.dailyRentRate ? String(bundle.dailyRentRate) : "",
-                          placeholder: perDay(bundleRentMonthly) || "35",
-                          onChange: (v) =>
-                            patchBundle({
-                              dailyRentRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
-                            }),
-                        }}
-                        util={
-                          Number((bundle.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")) > 0
-                            ? {
-                                text: bundle.dailyUtilitiesRate ? String(bundle.dailyUtilitiesRate) : "",
-                                placeholder: perDay(
-                                  Number((bundle.utilitiesEstimate ?? "").replace(/[^0-9.]/g, "")),
-                                ),
-                                onChange: (v) =>
-                                  patchBundle({
-                                    dailyUtilitiesRate: Number(v.replace(/[^0-9.]/g, "")) || undefined,
-                                  }),
-                              }
-                            : null
-                        }
-                        dataAttr="property-bundle-pricing-prorate"
-                      />
-                    ) : null}
-                  </>
-                )
-              ) : (
-                <p className="text-[13px] font-semibold text-muted">
-                  Mirroring another bundle — change Pricing to edit on its own.
-                </p>
-              )}
+              <BundlePricingFields
+                draft={draft}
+                bundle={bundle}
+                activeStepId={activeStepId}
+                patch={patch}
+                setDraft={(next) => setDraft(normalizeManagerListingSubmissionV1(next))}
+              />
             </StepColumn>
           );
         })()
