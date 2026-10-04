@@ -197,12 +197,15 @@ export async function sendWorkOrderVendorOffers(
   // Re-opening bidding on a service that already has an approved bid would let a second bid be
   // approved on top of it, and two `accepted` rows break every payout-anchor read (they resolve
   // with `.maybeSingle()`, which errors on two rows and falls back to a caller-supplied amount).
-  const { data: acceptedBid } = await db
+  const { data: acceptedBid, error: acceptedBidError } = await db
     .from("work_order_bids")
     .select("id")
     .eq("work_order_id", workOrderId)
     .eq("status", "accepted")
     .limit(1);
+  // Fail closed: a read that errored tells us nothing, and proceeding would re-open bidding on a
+  // service that may already be awarded.
+  if (acceptedBidError) return { ok: false, status: 500, error: acceptedBidError.message };
   if (acceptedBid && acceptedBid.length > 0) {
     return { ok: false, status: 409, error: "A bid is already approved on this service — remove the vendor first." };
   }

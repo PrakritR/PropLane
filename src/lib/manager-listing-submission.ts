@@ -1388,6 +1388,41 @@ export function resolveAllowedLeaseTerms(
 }
 
 /**
+ * What a listing with NO stored lease-term choice offers.
+ *
+ * `resolveAllowedLeaseTerms` answers [] for a listing that never stated a choice (and for the
+ * rows the picker could briefly save empty). Reading [] as "every term" inverted the manager's
+ * setting: the property then accepted Month-to-month and Custom it had never offered. So the
+ * stored choice is used when there is one, else what the listing effectively offered is derived
+ * from the term fields it still carries, else Long-term alone — never the whole option list, and
+ * never Month-to-month by default.
+ */
+export const DEFAULT_OFFERED_LEASE_TERMS: readonly string[] = [LONG_TERM_LEASE_TERM];
+
+export function resolveOfferedLeaseTermsOrDefault(
+  sub:
+    | Pick<
+        ManagerListingSubmissionV1,
+        "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
+      > &
+        Partial<Pick<ManagerListingSubmissionV1, "rooms" | "longTermLengthsOffered">>
+    | null
+    | undefined,
+): string[] {
+  const stored = resolveAllowedLeaseTerms(sub);
+  if (stored.length > 0) return stored;
+
+  const derived = new Set<string>();
+  for (const room of sub?.rooms ?? []) {
+    for (const term of room.offeredLeaseTerms ?? []) {
+      if (LISTING_LEASE_TERM_OPTION_SET.has(term)) derived.add(term);
+    }
+  }
+  if (normalizeLongTermLengths(sub?.longTermLengthsOffered).length > 0) derived.add(LONG_TERM_LEASE_TERM);
+  return sortLeaseTermsCanonical(derived.size > 0 ? [...derived] : [...DEFAULT_OFFERED_LEASE_TERMS]);
+}
+
+/**
  * The listing fields that change when a manager ticks which lease types a property offers ("Lease terms").
  * Ticked types are what the applicant's Lease term select offers. An older listing may still carry the
  * retired Airbnb stay or fixed 3/6/9/12 lengths: they are kept untouched while their type stays ticked, so

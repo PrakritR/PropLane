@@ -8,6 +8,7 @@ import {
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import { normalizeAssignee } from "@/lib/work-assignment";
+import { pacificEndOfDayMs } from "@/lib/pacific-time";
 import { managerTaskStage, serviceRequestTaskStage } from "@/lib/manager-task-stage";
 
 /** Street-only property label for task rows — avoids repeating room count and rent in the subtitle. */
@@ -100,16 +101,15 @@ export function managerTaskIsScheduled(task: Pick<ManagerTask, "start" | "end">)
   return Boolean(task.start?.trim() && task.end?.trim());
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
- * A bare `YYYY-MM-DD` is a WALL date: the deadline is the end of that day where the manager is,
- * not UTC midnight. `Date.parse` reads it as UTC, which marked a task due "Oct 5" late from
- * 5pm Pacific on Oct 4 while the list row still read "Due today".
+ * A bare `YYYY-MM-DD` is a WALL date: the deadline is the end of that PACIFIC day, like every
+ * other PropLane stamp. `Date.parse` reads it as UTC midnight and the runtime's own midnight
+ * differs between a manager's laptop and a Vercel Node function, so neither can be the answer —
+ * either way the list row and the reminder route disagreed about the same stored date.
  */
 function dueInstantFromDateish(raw: string): number | null {
-  const wall = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
-  if (wall) return new Date(Number(wall[1]), Number(wall[2]) - 1, Number(wall[3])).getTime() + DAY_MS;
+  const endOfPacificDay = pacificEndOfDayMs(raw);
+  if (endOfPacificDay != null) return endOfPacificDay;
   const ms = Date.parse(raw);
   return Number.isFinite(ms) ? ms : null;
 }

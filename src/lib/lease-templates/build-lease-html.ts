@@ -467,8 +467,8 @@ ${closing}
 
 /**
  * The lease prices the room the way the Pricing popup and its receipt do: the room's own
- * month-to-month / custom start surcharges, its Lease fee and Application fee for THIS lease's
- * term (`room-term-fees.ts`). A room that sets none of them returns the same context.
+ * custom start surcharge, its Lease fee and Application fee for THIS lease's term
+ * (`room-term-fees.ts`). A room that sets none of them returns the same context.
  */
 function leaseContextWithRoomTermFees(ctx: LeaseGenerationContext): LeaseGenerationContext {
   if (!ctx.submission || ctx.propertyTemplatePreview) return ctx;

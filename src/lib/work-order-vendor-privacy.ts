@@ -80,6 +80,10 @@ export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
  * permission, the resident's name and email, and the resident's intake photos unless the
  * manager ticked "Share photos" on the bid request. `propertyName` is replaced with the
  * general area so every downstream label keeps reading the area and nothing else.
+ *
+ * What the manager bills the RESIDENT for the job goes too. It is the manager's markup over the
+ * bid the vendor is about to submit, and a vendor who has only been offered the job has no
+ * business reading it.
  */
 export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): DemoManagerWorkOrderRow {
   const area = workOrderGeneralArea(row);
@@ -90,6 +94,10 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     residentName: _residentName,
     residentEmail: _residentEmail,
     residentConfirmation: _residentConfirmation,
+    residentChargeCents: _residentChargeCents,
+    residentChargeId: _residentChargeId,
+    residentReminderSentAt: _residentReminderSentAt,
+    expenseEntryIds: _expenseEntryIds,
     photoDataUrls,
     ...rest
   } = row;

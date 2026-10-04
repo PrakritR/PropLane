@@ -16,6 +16,7 @@ import { CalendarDays, CheckCircle2, ListChecks, UserRound } from "lucide-react"
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { compactTaskRoomLabel, managerTaskDueInstant } from "@/lib/manager-task-display";
 import { formatPortalRowDate } from "@/lib/portal-display-dates";
+import { pacificStartOfTodayMs } from "@/lib/pacific-time";
 import type { ManagerTask } from "@/lib/manager-tasks";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -35,10 +36,8 @@ export function taskDueState(
   const due = managerTaskDueInstant(task);
   if (due == null) return "none";
   if (due <= nowMs) return "overdue";
-  const now = new Date(nowMs);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const endOfToday = startOfToday + DAY_MS;
-  if (due <= endOfToday) return "today";
+  const startOfToday = pacificStartOfTodayMs(nowMs);
+  if (due <= startOfToday + DAY_MS) return "today";
   if (due < startOfToday + 7 * DAY_MS) return "soon";
   return "later";
 }

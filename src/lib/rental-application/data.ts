@@ -13,7 +13,7 @@ import {
   readExtraListings,
 } from "@/lib/demo-property-pipeline";
 import { effectiveApplicationForRow, readManagerApplicationRows } from "@/lib/manager-applications-storage";
-import { isEntireHomeListing, normalizeLongTermLengths, normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms, roomOffersLeaseTerm } from "@/lib/manager-listing-submission";
+import { DEFAULT_OFFERED_LEASE_TERMS, isEntireHomeListing, normalizeLongTermLengths, normalizeManagerListingSubmissionV1, resolveOfferedLeaseTermsOrDefault, roomOffersLeaseTerm } from "@/lib/manager-listing-submission";
 import {
   applicationHoldsRoomPublicly,
   executedApplicationIdsForManager,
@@ -67,9 +67,8 @@ function normFloorLabel(raw: string): string {
 export function listingAllowedLeaseTerms(propertyId: string): string[] {
   const prop = getPropertyById(propertyId);
   const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-  if (!sub) return [...LEASE_TERM_CHOICES];
-  const terms = resolveAllowedLeaseTerms(sub);
-  return terms.length > 0 ? terms : [...LEASE_TERM_CHOICES];
+  if (!sub) return [...DEFAULT_OFFERED_LEASE_TERMS];
+  return resolveOfferedLeaseTermsOrDefault(sub);
 }
 
 /**
@@ -88,7 +87,7 @@ export function listingLongTermLengths(propertyId: string): number[] {
 
 export function listingOfferedLeaseTerms(propertyId: string): string[] {
   const offered = offeredLeaseTermsFromStored(listingAllowedLeaseTerms(propertyId));
-  return offered.length > 0 ? offered : [...LEASE_TERM_CHOICES];
+  return offered.length > 0 ? offered : [...DEFAULT_OFFERED_LEASE_TERMS];
 }
 
 /**

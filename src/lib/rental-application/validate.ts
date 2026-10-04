@@ -19,7 +19,7 @@ import type { MockProperty } from "@/data/types";
 import {
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
-  resolveAllowedLeaseTerms,
+  resolveOfferedLeaseTermsOrDefault,
   roomOffersLeaseTerm,
 } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -32,7 +32,7 @@ import {
   isRoomChoiceAvailable,
   firstChoiceSlotIsTaken,
 } from "./data";
-import { LEASE_TERM_OPTIONS, acceptedLeaseTermsFromStored } from "./lease-terms";
+import { acceptedLeaseTermsFromStored } from "./lease-terms";
 import type { RentalWizardErrors, RentalWizardFormState } from "./types";
 import { digitsOnly, parseMoneyInput } from "./masks";
 import { customFieldsForWizardStep, listingCustomApplicationFields, validateCustomFieldAnswers } from "./custom-fields";
@@ -106,13 +106,16 @@ function leaseTermsForProperty(
 ): string[] {
   const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
   if (sub) {
-    const terms = resolveAllowedLeaseTerms(sub);
     // The UNION of what the listing stored and what it now offers. A listing
     // holding only "12-Month" offers "Long-term", so the stored set alone would
     // reject the very answer the form just handed the applicant — and the
     // offered set alone would reject an application filed while the old lengths
     // were still being offered. The union is never narrower than before.
-    return terms.length > 0 ? acceptedLeaseTermsFromStored(terms) : [...LEASE_TERM_OPTIONS];
+    //
+    // A listing with no stored choice reads as what it effectively offered
+    // (`resolveOfferedLeaseTermsOrDefault`), never as every term: falling open
+    // accepted Month-to-month and Custom on a property that offered neither.
+    return acceptedLeaseTermsFromStored(resolveOfferedLeaseTermsOrDefault(sub));
   }
   return acceptedLeaseTermsFromStored(listingAllowedLeaseTerms(propertyId));
 }

@@ -774,12 +774,17 @@ export async function acceptWorkOrderBid(
   if (!actor.admin && (ownerRow.manager_user_id !== actor.userId || record.manager_user_id !== actor.userId)) {
     return { ok: false, status: 403, error: "Forbidden." };
   }
-  if (record.status !== "submitted") {
+  // Approving THIS bid again is a retry, not a second approval: the hire below is the
+  // authoritative state and the decline / withdraw steps after it can fail transiently, with no
+  // other way back in. Re-entering re-runs that cleanup, which is idempotent, and answers ok.
+  // A DIFFERENT bid on a service that already has one accepted is still refused.
+  const retryOfAcceptedBid = record.status === "accepted";
+  if (record.status !== "submitted" && !retryOfAcceptedBid) {
     return { ok: false, status: 400, error: "This bid has already been resolved." };
   }
   if (
     !bidCanBeApproved({
-      status: record.status,
+      status: "submitted",
       amountCents: record.amount_cents,
       bidSubmittedAt: record.bid_submitted_at ?? null,
     })
@@ -797,13 +802,14 @@ export async function acceptWorkOrderBid(
   // which errors on two rows and falls back to a caller-supplied amount), and the "other bids"
   // sweep below only sees `submitted` rows, so an existing accepted bid is invisible to it.
   // Backed by `work_order_bids_one_accepted_idx`.
-  const { data: alreadyAccepted } = await db
+  const { data: alreadyAccepted, error: alreadyAcceptedError } = await db
     .from("work_order_bids")
     .select("id")
     .eq("work_order_id", record.work_order_id)
     .eq("status", "accepted")
-    .limit(1);
-  if (alreadyAccepted && alreadyAccepted.length > 0) {
+    .limit(2);
+  if (alreadyAcceptedError) return { ok: false, status: 500, error: alreadyAcceptedError.message };
+  if ((alreadyAccepted ?? []).some((row) => String(row.id) !== bidId)) {
     return { ok: false, status: 409, error: "A bid is already approved on this service." };
   }
 
@@ -819,15 +825,17 @@ export async function acceptWorkOrderBid(
   // Re-asserting `status = 'submitted'` in the WHERE clause makes the transition
   // atomic: the loser matches zero rows and is refused. `setVendorPriceForWorkOrder`
   // already guards its own update the same way.
-  const { data: acceptedRows, error: acceptError } = await db
-    .from("work_order_bids")
-    .update({ status: "accepted", updated_at: now })
-    .eq("id", bidId)
-    .eq("status", "submitted")
-    .select("id");
-  if (acceptError) return { ok: false, status: 500, error: acceptError.message };
-  if (!acceptedRows || acceptedRows.length === 0) {
-    return { ok: false, status: 400, error: "This bid has already been resolved." };
+  if (!retryOfAcceptedBid) {
+    const { data: acceptedRows, error: acceptError } = await db
+      .from("work_order_bids")
+      .update({ status: "accepted", updated_at: now })
+      .eq("id", bidId)
+      .eq("status", "submitted")
+      .select("id");
+    if (acceptError) return { ok: false, status: 500, error: acceptError.message };
+    if (!acceptedRows || acceptedRows.length === 0) {
+      return { ok: false, status: 400, error: "This bid has already been resolved." };
+    }
   }
 
   // Defensive fallback: create a directory row for the winning bidder if one

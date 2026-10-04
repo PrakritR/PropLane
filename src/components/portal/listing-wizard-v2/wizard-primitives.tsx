@@ -1779,24 +1779,36 @@ export function LeaseTermsField({
   first?: boolean;
 }) {
   const selectedIds = leaseTypeIdsFromStored(resolveAllowedLeaseTerms(sub));
+  const [refusedEmpty, setRefusedEmpty] = useState(false);
   return (
     <FactRow first={first} label="Lease terms" required>
-      <MultiPick
-        label="Lease terms you offer"
-        dataAttr="lease-type"
-        options={LEASE_TYPES.map((type) => type.label)}
-        selected={selectedIds.map(leaseTypeLabel)}
-        allowOther={false}
-        emptyLabel="Choose…"
-        onChange={(picked) => {
-          const ids = LEASE_TYPES.filter((type) => picked.includes(type.label)).map((type) => type.id);
-          // A property must offer at least one lease type. Storing none inverted the field:
-          // `resolveAllowedLeaseTerms` then returns [] and the applicant-side fallback reads
-          // that as EVERY term, so unticking all four accepted more than any single tick did.
-          if (ids.length === 0) return;
-          onPatch(leaseTermsPatchForTypes(sub, ids));
-        }}
-      />
+      <span className="flex min-w-0 flex-col items-end gap-1">
+        <MultiPick
+          label="Lease terms you offer"
+          dataAttr="lease-type"
+          options={LEASE_TYPES.map((type) => type.label)}
+          selected={selectedIds.map(leaseTypeLabel)}
+          allowOther={false}
+          emptyLabel="Choose…"
+          onChange={(picked) => {
+            const ids = LEASE_TYPES.filter((type) => picked.includes(type.label)).map((type) => type.id);
+            // A property must offer at least one lease type. Storing none inverted the field:
+            // `resolveAllowedLeaseTerms` then returns [] and every reader falls back to what the
+            // listing is assumed to offer, so unticking all four said less than it looked like.
+            if (ids.length === 0) {
+              setRefusedEmpty(true);
+              return;
+            }
+            setRefusedEmpty(false);
+            onPatch(leaseTermsPatchForTypes(sub, ids));
+          }}
+        />
+        {refusedEmpty ? (
+          <span role="alert" data-attr="lease-type-min-one" className="block text-xs font-semibold text-destructive">
+            Keep at least one lease term
+          </span>
+        ) : null}
+      </span>
     </FactRow>
   );
 }
