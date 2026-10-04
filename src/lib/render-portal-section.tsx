@@ -890,7 +890,7 @@ export async function renderPortalSection(
 
     if (section === "work-orders" || section === "services") {
       const REQUEST_BUCKETS = ["pending", "approved", "denied"] as const;
-      const WO_BUCKETS = ["open", "scheduled", "completed"] as const;
+      const WO_BUCKETS = ["open", "assigned", "scheduled", "completed"] as const;
 
       if (!tabParts?.length) {
         redirect(`${def.basePath}/services/work-orders/open`);
@@ -928,11 +928,15 @@ export async function renderPortalSection(
         }
         if (tabParts.length > 4) notFound();
         const bucketRaw = tabParts[1]!;
+        // An old tab id (`done`, `pending`, `active`, ...) lands on its stage, keeping any record
+        // path after it; a link never falls home.
+        const { parseServiceStage } = await import("@/lib/service-stage-ids");
         const workOrderBucket = WO_BUCKETS.includes(bucketRaw as typeof WO_BUCKETS[number])
           ? (bucketRaw as typeof WO_BUCKETS[number])
-          : "open";
+          : parseServiceStage(bucketRaw);
         if (bucketRaw !== workOrderBucket) {
-          redirect(`${def.basePath}/services/work-orders/${workOrderBucket}`);
+          const rest = tabParts.slice(2).map((part) => `/${encodeURIComponent(decodeURIComponent(part))}`).join("");
+          redirect(`${def.basePath}/services/work-orders/${workOrderBucket}${rest}`);
         }
       }
 

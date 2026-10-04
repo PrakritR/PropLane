@@ -1,26 +1,18 @@
+import { SERVICE_STAGE_IDS, SERVICE_STAGE_LABEL, type ServiceStage } from "@/lib/service-stage-ids";
 import type { ServiceRowState } from "@/lib/unified-service-rows";
 
 /**
- * Resident Services header buttons (captain, 2026-09-25: every resident list
- * gets three right-side header buttons named per page — Services get
- * Requested / Scheduled / Done). The underlying row state
- * (`ServiceRowState`) keeps its own four values — `open` / `scheduled` /
- * `done` / `declined` — since that finer state still drives row facts and
- * manager-side filtering; only the resident's own three-button display folds
- * `declined` into `done`, the same way vendor Jobs' Past folds completed,
- * declined, and withdrawn (`src/lib/vendor-work-order-tabs.ts`).
+ * Resident Services header buttons: the same four words every service list uses
+ * (`service-lifecycle.ts`) - Open · Assigned · Scheduled · Completed. A declined add-on folds into
+ * Completed, the same way the manager list does.
  */
-export type ResidentServiceTab = "open" | "scheduled" | "done";
+export type ResidentServiceTab = ServiceStage;
 
-export const RESIDENT_SERVICE_TAB_ORDER: ResidentServiceTab[] = ["open", "scheduled", "done"];
+export const RESIDENT_SERVICE_TAB_ORDER: ResidentServiceTab[] = [...SERVICE_STAGE_IDS];
 
-export const RESIDENT_SERVICE_TAB_LABELS: Record<ResidentServiceTab, string> = {
-  open: "Requested",
-  scheduled: "Scheduled",
-  done: "Done",
-};
+export const RESIDENT_SERVICE_TAB_LABELS: Record<ResidentServiceTab, string> = SERVICE_STAGE_LABEL;
 
 export function residentServiceTab(state: ServiceRowState): ResidentServiceTab {
-  if (state === "declined") return "done";
+  if (state === "declined") return "completed";
   return state;
 }

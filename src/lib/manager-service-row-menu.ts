@@ -17,13 +17,16 @@ export function managerServiceRowMenuItems(
   const items: ManagerServiceRowMenuItem[] = [];
 
   if (!row.bucket || row.bucket !== "completed") {
-    if (next?.key === "publish") {
-      items.push({ id: "publish", label: "Request bids" });
+    if (next?.key === "request-bids") {
+      items.push({ id: "request-bids", label: "Request bids" });
       items.push({ id: "assign", label: row.vendorId || row.assignee ? "Reassign" : "Assign" });
     }
-    if (next?.key === "compare-quotes") {
-      items.push({ id: "compare-quotes", label: "Compare bids" });
+    if (next?.key === "compare-bids") {
+      items.push({ id: "compare-bids", label: "Compare bids" });
       items.push({ id: "assign", label: row.vendorId || row.assignee ? "Reassign" : "Assign" });
+    }
+    if (!next && !row.vendorId && !row.assignee && !row.selfAssigned) {
+      items.push({ id: "assign", label: "Assign" });
     }
     if (next?.key === "assign") {
       items.push({ id: "assign", label: row.vendorId || row.assignee ? "Reassign" : "Assign" });
@@ -31,11 +34,11 @@ export function managerServiceRowMenuItems(
     if (next?.key === "schedule" || (row.scheduledAtIso && row.bucket === "scheduled")) {
       items.push({ id: "schedule", label: row.scheduledAtIso ? "Reschedule" : "Schedule" });
     }
-    if (next?.key === "mark-done" || (row.bucket === "scheduled" && !row.automationStatus)) {
-      items.push({ id: "mark-done", label: "Mark done" });
+    if (next?.key === "complete" || (row.bucket === "scheduled" && !row.automationStatus)) {
+      items.push({ id: "complete", label: "Complete" });
     }
     if (next?.key === "approve-pay") {
-      items.push({ id: "approve-invoice", label: "Approve invoice" });
+      items.push({ id: "approve-invoice", label: "Pay" });
     }
     if (next?.key === "pay") {
       items.push({ id: "pay", label: "Pay" });

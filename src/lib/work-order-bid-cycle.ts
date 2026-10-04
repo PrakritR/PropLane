@@ -33,6 +33,11 @@ export function clientBidApprovalFacts(bid: WorkOrderBid): BidApprovalFacts {
   };
 }
 
+/** Bids a manager can approve right now (a submitted bid, not an estimate and not a lost one). */
+export function countSubmittedBids(bids: readonly WorkOrderBid[]): number {
+  return bids.filter((bid) => bid.status === "submitted" && bidCanBeApproved(clientBidApprovalFacts(bid))).length;
+}
+
 export type VendorRequestState =
   | "requested"
   | "estimate"

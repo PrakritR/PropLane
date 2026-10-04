@@ -2,15 +2,15 @@
 
 import Image from "next/image";
 import { useState, type ReactNode } from "react";
-import { Pencil } from "lucide-react";
+import { Check, Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { RecordTabBand } from "@/components/portal/record-list-band";
-import { ServiceProgressLine } from "@/components/portal/service-vendor-cycle-section";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
+import { cn } from "@/lib/utils";
 import type { StageBarItem } from "@/lib/work-order-bid-cycle";
 import type { ServiceActivityEvent } from "@/lib/service-activity";
 
@@ -21,8 +21,49 @@ const SAFE_PHOTO_HREF_RE =
 type DetailsTab = "details" | "photos" | "activity";
 
 /**
- * The Service section: the standard band (Details · Photos · Activity with counts, the Edit icon at
- * the top right), the compact progress line, then the tab's content - the overview cards, the
+ * The stage stepper at the top of the Service tab: Open -> Assigned -> Scheduled -> Completed (and
+ * Paid for a job a vendor is paid for). Done steps are filled and ticked, the current one outlined,
+ * the rest muted.
+ */
+export function ServiceStageStepper({ stages }: { stages: readonly StageBarItem[] }) {
+  const current = stages.find((stage) => stage.state === "current");
+  if (stages.length === 0) return null;
+  return (
+    <ol
+      className="mb-3 flex flex-wrap items-center gap-y-2 rounded-2xl border border-border bg-card px-4 py-3"
+      data-attr="service-stage-stepper"
+      aria-label={current ? `Stage: ${current.label}` : "Stage"}
+    >
+      {stages.map((stage, index) => (
+        <li
+          key={stage.id}
+          data-stage-state={stage.state}
+          aria-current={stage.state === "current" ? "step" : undefined}
+          className={cn(
+            "flex items-center gap-2 text-[13px] font-semibold",
+            stage.state === "todo" ? "text-muted" : stage.state === "current" ? "text-primary" : "text-foreground",
+          )}
+        >
+          {index > 0 ? <span aria-hidden className="mx-2 h-0.5 w-5 bg-border" /> : null}
+          <span
+            aria-hidden
+            className={cn(
+              "grid size-5 place-items-center rounded-full border-2",
+              stage.state === "done" ? "border-primary bg-primary text-white" : stage.state === "current" ? "border-primary" : "border-border",
+            )}
+          >
+            {stage.state === "done" ? <Check className="size-3" strokeWidth={3} /> : null}
+          </span>
+          {stage.label}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * The Service section: the stage stepper, the standard band (Details · Photos · Activity with counts,
+ * the Edit icon at the top right), then the tab's content - the overview cards, the
  * resident's photos, or what happened. The same section serves a maintenance service and an add-on.
  */
 export function ServiceDetailsSection({
@@ -43,6 +84,7 @@ export function ServiceDetailsSection({
   const safePhotos = photos.map((src) => src.trim()).filter((src) => SAFE_PHOTO_HREF_RE.test(src));
   return (
     <div data-attr="service-details" className="pb-6">
+      <ServiceStageStepper stages={stages} />
       <RecordTabBand
         dataAttr="service-details"
         ariaLabel="Service details"
@@ -55,7 +97,6 @@ export function ServiceDetailsSection({
         onChange={(id) => setTab(id as DetailsTab)}
         actions={onEdit ? <PortalIconAction icon={Pencil} label="Edit" data-attr="service-details-edit" onClick={onEdit} /> : undefined}
       />
-      <ServiceProgressLine stages={stages} />
       {tab === "details" ? details : null}
       {tab === "photos" ? (
         safePhotos.length > 0 ? (

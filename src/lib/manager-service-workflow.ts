@@ -70,101 +70,43 @@ export function managerServiceListStageLabel(
   _acceptedBid?: WorkOrderBid | null,
 ): string {
   if (row.bucket === "completed" && row.automationStatus === "paid") return "Paid";
-  if (row.automationStatus === "vendor_marked_done") return "Awaiting payment";
+  if (row.automationStatus === "vendor_marked_done") return "To pay";
   if (row.automationStatus === "paid") return "Paid";
   const assignee = resolveWorkOrderAssignee(row);
   if (row.scheduledAtIso) {
     return `Scheduled ${formatServiceVisitLabel(row.scheduledAtIso)}`;
   }
-  if (assignee) return assignee.kind === "team" ? "Assigned" : "Hired";
-  if (bidCount > 0) return `${bidCount} ${bidCount === 1 ? "quote" : "quotes"}`;
-  if (row.biddingOpen) return "Published";
+  if (assignee) return "Assigned";
+  if (bidCount > 0) return `${bidCount} ${bidCount === 1 ? "bid" : "bids"}`;
+  if (row.biddingOpen) return "Requested";
   return "New";
 }
 
-export function managerServiceWorkflowSteps(
-  row: DemoManagerWorkOrderRow,
-  opts: { bidCount?: number; acceptedBid?: WorkOrderBid | null } = {},
-): ServiceWorkflowStep[] {
-  const assignee = resolveWorkOrderAssignee(row);
-  const bidCount = opts.bidCount ?? 0;
-  const accepted = opts.acceptedBid;
-  const isVendorJob = assignee?.kind === "vendor";
-  const scheduled = Boolean(row.scheduledAtIso);
-  const done = row.bucket === "completed" || Boolean(row.completedAt);
-  const paid = row.automationStatus === "paid";
-  const invoicePending = row.automationStatus === "vendor_marked_done";
-  const cost = formatServiceMoney(workOrderCostCents(row, accepted));
-
-  const assignedDetail = assignee
-    ? isVendorJob
-      ? [assignee.name, cost].filter(Boolean).join(" · ")
-      : `${assignee.name} · Team`
-    : bidCount > 0
-      ? `${bidCount} ${bidCount === 1 ? "bid" : "bids"}`
-      : row.biddingOpen
-        ? "Waiting for bids"
-        : "";
-
-  const steps: Omit<ServiceWorkflowStep, "state">[] = [
-    { id: "reported", label: "Reported", detail: row.completedAt ? undefined : undefined },
-    { id: "assigned", label: "Assigned", detail: assignedDetail },
-    { id: "scheduled", label: "Scheduled", detail: row.scheduledAtIso ? formatServiceVisitLabel(row.scheduledAtIso) : "" },
-    { id: "done", label: "Done", detail: done ? "Marked done" : "" },
-  ];
-
-  if (!assignee || isVendorJob) {
-    let paidDetail = "";
-    if (invoicePending) paidDetail = cost ? `Invoice to approve · ${cost}` : "Invoice to approve";
-    else if (paid && cost) paidDetail = cost;
-    else if (row.automationStatus === "vendor_marked_done") paidDetail = "Awaiting approval";
-    steps.push({ id: "paid", label: "Paid", detail: paidDetail });
-  }
-
-  const flags = {
-    reported: true,
-    assigned: Boolean(assignee) || bidCount > 0 || Boolean(row.biddingOpen),
-    scheduled: scheduled || done,
-    done,
-    paid: paid || invoicePending,
-  };
-
-  const order = steps.map((s) => s.id);
-  let currentId: string = "reported";
-  if (!flags.assigned) currentId = "assigned";
-  else if (!flags.scheduled) currentId = "scheduled";
-  else if (!flags.done) currentId = "done";
-  else if (steps.some((s) => s.id === "paid") && !flags.paid) currentId = "paid";
-  else currentId = steps[steps.length - 1]!.id;
-
-  return steps.map((step) => {
-    const idx = order.indexOf(step.id);
-    const curIdx = order.indexOf(currentId);
-    let state: ServiceWorkflowStep["state"] = "todo";
-    if (idx < curIdx) state = "done";
-    else if (idx === curIdx) state = "current";
-    return { ...step, state };
-  });
-}
-
+/**
+ * The one next step of a service, from the lifecycle (`service-lifecycle.ts`): Request bids (nobody
+ * asked yet) -> Compare bids (a submitted bid is waiting) -> Schedule -> Complete -> Pay. `bidCount`
+ * counts SUBMITTED bids only; a service still waiting on vendors has no next step of its own.
+ */
 export function managerServiceNextStep(
   row: DemoManagerWorkOrderRow,
   opts: { bidCount?: number; canPay?: boolean } = {},
 ): ManagerServiceNextStep | null {
+  if ((row.status ?? "").trim().toLowerCase() === "cancelled") return null;
   const assignee = resolveWorkOrderAssignee(row);
   const bidCount = opts.bidCount ?? 0;
   if (!assignee) {
-    if (bidCount > 0 || row.biddingOpen) return { key: "compare-quotes", label: "Compare quotes" };
-    return { key: "publish", label: "Publish to vendors" };
+    if (bidCount > 0) return { key: "compare-bids", label: "Compare bids" };
+    if (row.biddingOpen) return null;
+    return { key: "request-bids", label: "Request bids" };
   }
   if (row.automationStatus === "vendor_marked_done") {
-    return { key: "approve-pay", label: "Approve & pay" };
+    return { key: "approve-pay", label: "Pay" };
   }
   if (!row.scheduledAtIso && row.bucket !== "completed") {
     return { key: "schedule", label: "Schedule" };
   }
   if (row.bucket === "scheduled" && !row.automationStatus) {
-    return { key: "mark-done", label: "Mark done" };
+    return { key: "complete", label: "Complete" };
   }
   if (assignee.kind === "vendor" && row.automationStatus === "paid") return null;
   if (assignee.kind === "vendor" && row.bucket === "completed" && !row.automationStatus && opts.canPay) {

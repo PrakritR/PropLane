@@ -17,20 +17,14 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   buildUnifiedServiceRows,
   countServiceRowsByState,
-  type ServiceRowState,
 } from "@/lib/unified-service-rows";
 
 /**
- * The three tabs the merged list filters by, in the order a manager works through them. There is no
- * Vendors tab: who is doing a service is a fact on the service, and a vendor's own work lives on the
- * vendor record. Open = Pending + Bids requested, Scheduled = Bid approved + Scheduled, Done =
- * Completed + Paid (`serviceListBucket`).
+ * The four tabs the merged list filters by, in the order a manager works through them
+ * (`service-lifecycle.ts`): Open · Assigned · Scheduled · Completed. There is no Vendors tab: who is
+ * doing a service is a fact on the row, and a vendor's own work lives on the vendor record.
  */
-export const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
-  { id: "open", label: "Open" },
-  { id: "scheduled", label: "Scheduled" },
-  { id: "done", label: "Done" },
-];
+export const SERVICE_STATE_TABS: { id: ServiceStage; label: string }[] = [...SERVICE_STAGE_TABS];
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListResidentField } from "@/components/portal/portal-list-group-filter-fields";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
@@ -52,6 +46,7 @@ import {
   vendorDetailHref,
   workOrderDetailHref as buildWorkOrderDetailHref,
   type ServiceDetailTabId,
+  type WorkOrderBucketId,
 } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -101,7 +96,7 @@ import {
 } from "@/lib/manager-applications-storage";
 import { directoryResidentEmailSet, isLinkedToDirectoryResident } from "@/lib/resident-directory-scope";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
-import type { DemoManagerWorkOrderRow, ManagerWorkOrderBucket } from "@/data/demo-portal";
+import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { ManagerWorkOrdersPanel } from "@/components/portal/pro-work-orders-panel";
 import {
   ManagerServiceRequestDetail,
@@ -124,7 +119,18 @@ import {
   managerServiceListCostFigure,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
-import { addOnStageFact, deriveAddOnStages, serviceListBucket, serviceListStageFact } from "@/lib/work-order-bid-cycle";
+import { countSubmittedBids } from "@/lib/work-order-bid-cycle";
+import {
+  SERVICE_STAGE_LABEL,
+  SERVICE_STAGE_TABS,
+  addOnServiceStage,
+  addOnStageFact,
+  addOnStageSteps,
+  formatServiceWhen,
+  workOrderServiceStage,
+  workOrderStageFact,
+  type ServiceStage,
+} from "@/lib/service-lifecycle";
 import { AddOnCycleSection } from "@/components/portal/service-vendor-cycle-section";
 import { ServiceAssignDialog } from "@/components/portal/service-assign-dialog";
 import { AddOnEditDialog, ServiceDetailsSection } from "@/components/portal/service-details-section";
@@ -190,7 +196,7 @@ export function ManagerAllServicesPanel({
   tabId: FilterType;
   basePath: string;
   requestBucket?: RequestBucket;
-  workOrderBucket?: ManagerWorkOrderBucket;
+  workOrderBucket?: WorkOrderBucketId;
   serviceRequestId?: string;
   workOrderId?: string;
   /** The service record's own rail tab (docs/agents/record-page.md); undefined = Overview. */
@@ -220,7 +226,7 @@ export function ManagerAllServicesPanel({
   const [residentFilters, setResidentFilters] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [woBucket, setWoBucket] = useState<ManagerWorkOrderBucket>(workOrderBucketProp);
+  const [woBucket, setWoBucket] = useState<WorkOrderBucketId>(workOrderBucketProp);
   const [prevWoBucketProp, setPrevWoBucketProp] = useState(workOrderBucketProp);
   if (workOrderBucketProp !== prevWoBucketProp) {
     setPrevWoBucketProp(workOrderBucketProp);
@@ -239,17 +245,24 @@ export function ManagerAllServicesPanel({
   const [editRequestOpen, setEditRequestOpen] = useState(false);
   // The URL names the tab (`/services/work-orders/scheduled`), so it selects it - on first load, on
   // back/forward, and when the page is reached from a link. A tab click writes the URL back.
+  // Old tab ids (`done`, `pending`, `active`, ...) resolve through `parseServiceStage`, so a saved link
+  // lands on the right tab.
+  const tabFromPath = (path: string | null | undefined): ServiceStage | null => {
+    const parts = (path ?? "").split("/").filter(Boolean);
+    const at = parts.lastIndexOf("work-orders");
+    return at >= 0 && at === parts.length - 2 ? serviceTabFromSegment(parts[at + 1]) : null;
+  };
   const urlTabSegment = lockedPropertyId || tabId !== "work-orders" ? null : serviceTabFromSegment(workOrderBucketProp);
-  const [serviceState, setServiceStateRaw] = useState<ServiceRowState>(
-    () => serviceTabFromSegment(pathname?.split("/").filter(Boolean).pop()) ?? urlTabSegment ?? "open",
+  const [serviceState, setServiceStateRaw] = useState<ServiceStage>(
+    () => (lockedPropertyId ? null : tabFromPath(pathname)) ?? urlTabSegment ?? "open",
   );
   const [prevPathname, setPrevPathname] = useState(pathname);
   if (pathname !== prevPathname) {
     setPrevPathname(pathname);
-    const fromUrl = lockedPropertyId ? null : serviceTabFromSegment(pathname?.split("/").filter(Boolean).pop());
+    const fromUrl = lockedPropertyId ? null : tabFromPath(pathname);
     if (fromUrl && fromUrl !== serviceState) setServiceStateRaw(fromUrl);
   }
-  const setServiceState = (next: ServiceRowState) => {
+  const setServiceState = (next: ServiceStage) => {
     setServiceStateRaw(next);
     if (lockedPropertyId || typeof window === "undefined") return;
     const href = `${basePath}/services/work-orders/${SERVICE_TAB_URL_SEGMENT[next]}`;
@@ -343,9 +356,10 @@ export function ManagerAllServicesPanel({
     };
   }, [authReady, userId, dataTick]);
   const bidCountByWorkOrderId = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const bid of allBids) counts.set(bid.workOrderId, (counts.get(bid.workOrderId) ?? 0) + 1);
-    return counts;
+    // Submitted bids only: an estimate or a booked visit is not something to compare.
+    const byWorkOrder = new Map<string, WorkOrderBid[]>();
+    for (const bid of allBids) byWorkOrder.set(bid.workOrderId, [...(byWorkOrder.get(bid.workOrderId) ?? []), bid]);
+    return new Map([...byWorkOrder].map(([id, bids]) => [id, countSubmittedBids(bids)]));
   }, [allBids]);
 
   const filterPropertyOptions = useMemo(() => {
@@ -586,7 +600,7 @@ export function ManagerAllServicesPanel({
         // The tab a service sits in comes from the same stage the record's stage bar shows.
         maintenance: filteredWorkOrders.map((workOrder) => ({
           ...workOrder,
-          state: serviceListBucket(workOrder, {
+          state: workOrderServiceStage(workOrder, {
             bids: allBids.filter((bid) => bid.workOrderId === workOrder.id),
             offers: allOffers.filter((offer) => offer.workOrderId === workOrder.id),
           }),
@@ -599,8 +613,8 @@ export function ManagerAllServicesPanel({
   const unifiedCounts = useMemo(() => countServiceRowsByState(unifiedRows), [unifiedRows]);
   const tabUnifiedRows = useMemo(() => {
     let rows = unifiedRows;
-    if (serviceState === "done") {
-      rows = rows.filter((row) => row.state === "done" || row.state === "declined");
+    if (serviceState === "completed") {
+      rows = rows.filter((row) => row.state === "completed" || row.state === "declined");
     } else {
       rows = rows.filter((row) => row.state === serviceState);
     }
@@ -804,7 +818,7 @@ export function ManagerAllServicesPanel({
     const addOnRequest =
       row.kind === "add-on" ? filteredRequests.find((r) => r.id === row.id) ?? null : null;
     const costFigure = maintenanceRow
-      ? managerServiceListCostFigure(maintenanceRow) || undefined
+      ? managerServiceListCostFigure(maintenanceRow, allBids.find((bid) => bid.workOrderId === maintenanceRow.id && bid.status === "accepted")) || undefined
       : addOnRequest
         ? managerServiceRequestCardFigure(addOnRequest)
         : undefined;
@@ -820,7 +834,7 @@ export function ManagerAllServicesPanel({
       navigate(
         row.kind === "add-on"
           ? serviceRequestDetailHref(basePath, reqBucket, row.id)
-          : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
+          : buildWorkOrderDetailHref(basePath, serviceState, row.id),
       );
     const onMenuAction = (id: string) => {
       if (addOnRequest) {
@@ -851,12 +865,8 @@ export function ManagerAllServicesPanel({
         setScheduleVisitRow(maintenanceRow);
         return;
       }
-      if (id === "publish" || id === "compare-quotes") {
-        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "vendor-schedule"));
-        return;
-      }
-      if (id === "assign") {
-        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "vendor-schedule"));
+      if (id === "request-bids" || id === "compare-bids" || id === "assign") {
+        navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id, "vendors"));
         return;
       }
       if (id === "approve-invoice") {
@@ -896,7 +906,7 @@ export function ManagerAllServicesPanel({
         })();
         return;
       }
-      if (id === "mark-done") {
+      if (id === "complete") {
         navigate(buildWorkOrderDetailHref(basePath, maintenanceRow.bucket, maintenanceRow.id));
         return;
       }
@@ -914,7 +924,7 @@ export function ManagerAllServicesPanel({
         figure={costFigure}
         stageFact={
           maintenanceRow
-            ? serviceListStageFact(maintenanceRow, {
+            ? workOrderStageFact(maintenanceRow, {
                 bids: allBids.filter((bid) => bid.workOrderId === maintenanceRow.id),
                 offers: allOffers.filter((offer) => offer.workOrderId === maintenanceRow.id),
               })
@@ -955,13 +965,11 @@ export function ManagerAllServicesPanel({
       setDataTick((t) => t + 1);
       showToast(next.id === userId ? "You're handling this yourself." : `Assigned ${next.name}.`);
     };
-    const addOnStages = deriveAddOnStages(detailRequest);
     const propertyForModals = detailRequest.propertyId?.trim() || undefined;
     const ownContent =
-      activeTab === "vendor-schedule" ? (
+      activeTab === "vendors" ? (
         <AddOnCycleSection
-          stages={addOnStages.stages}
-          currentId={addOnStages.currentId}
+          currentStage={addOnServiceStage(detailRequest)}
           assignee={detailRequest.assignee ?? null}
           onOpenAssign={() => setAssignOpen(true)}
         />
@@ -984,7 +992,7 @@ export function ManagerAllServicesPanel({
         />
       ) : (
         <ServiceDetailsSection
-          stages={addOnStages.stages}
+          stages={addOnStageSteps(detailRequest)}
           photos={[]}
           activity={addOnActivityEvents(detailRequest)}
           onEdit={detailRequest.status === "pending" ? () => setEditRequestOpen(true) : undefined}
@@ -996,13 +1004,13 @@ export function ManagerAllServicesPanel({
           recordId: detailRequest.id,
           recordLabel: detailRequest.offerName,
           overviewTiles: [
-            { id: "status", label: "Status", value: detailRequest.status.charAt(0).toUpperCase() + detailRequest.status.slice(1).toLowerCase() },
-            { id: "vendor", label: "Vendor", value: detailRequest.assignee?.name ?? "Not assigned" },
+            { id: "status", label: "Status", value: detailRequest.status.toLowerCase() === "denied" ? "Declined" : SERVICE_STAGE_LABEL[addOnServiceStage(detailRequest)] },
+            { id: "vendor", label: "Assigned to", value: detailRequest.assignee?.name ?? "Not assigned" },
             { id: "cost", label: "Cost", value: managerServiceRequestPricingSummary(detailRequest) },
             { id: "requested", label: "Requested", value: formatPortalListDate(detailRequest.requestedAt) },
           ],
           overviewNeeds: !detailRequest.assignee
-            ? [{ id: "assign-vendor", title: "Assign a vendor", onClick: () => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "vendor-schedule")) }]
+            ? [{ id: "assign-vendor", title: "Assign a vendor", onClick: () => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "vendors")) }]
             : [],
           overviewCards: [
             {
@@ -1019,6 +1027,14 @@ export function ManagerAllServicesPanel({
               rows: [
                 { label: "Property", value: resolveRequestPropertyLabel(detailRequest) },
                 { label: "Resident", value: detailRequest.residentName },
+              ],
+            },
+            {
+              id: "assignment",
+              title: "Assignment",
+              rows: [
+                { label: "Assigned to", value: detailRequest.assignee?.name ?? "—" },
+                { label: "Visit", value: formatServiceWhen(detailRequest.proposedVisit?.iso) || "—" },
               ],
             },
           ],
@@ -1172,11 +1188,11 @@ export function ManagerAllServicesPanel({
       items={SERVICE_STATE_TABS.map((tab) => ({
         id: tab.id,
         label: tab.label,
-        count: tab.id === "done" ? unifiedCounts.done + unifiedCounts.declined : unifiedCounts[tab.id],
+        count: tab.id === "completed" ? unifiedCounts.completed + unifiedCounts.declined : unifiedCounts[tab.id],
         dataAttr: `manager-services-state-${tab.id}`,
       }))}
       activeId={serviceState}
-      onChange={(id) => setServiceState(id as ServiceRowState)}
+      onChange={(id) => setServiceState(id as ServiceStage)}
       ariaLabel="Service status"
       appearance="command"
     />
