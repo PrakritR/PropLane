@@ -359,6 +359,19 @@ export function resolvePropertyLeaseTemplateForApplication(
   return longTermTemplate;
 }
 
+/**
+ * The lease an approved application gets, as a template id: the lease its application form maps to
+ * (the form was picked from the lease type the applicant chose), else the lease that lease type
+ * routes to. This is what approval records on the lease so the manager sees it already chosen in
+ * Send lease, where they can still pick another. Null when the property has no lease templates.
+ */
+export function leaseTemplateIdForApplication(
+  sub: ManagerListingSubmissionV1,
+  application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId" | "applicationTemplateId">,
+): string | null {
+  return resolvePropertyLeaseTemplateForApplication(sub, application)?.id ?? null;
+}
+
 export function applicationUsesBundleLeaseTemplate(
   application: Pick<Partial<RentalWizardFormState>, "bundleId">,
   leaseKind?: "individual" | "joint_bundle",

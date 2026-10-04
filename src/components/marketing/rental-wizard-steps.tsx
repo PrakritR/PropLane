@@ -465,220 +465,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
       </div>
     ) : null;
 
-  if (step === 1) {
-    const showCosigner = showWizardField("hasCosigner");
-    const showGroup = showWizardField("applyingAsGroup");
-    const joiningGroup = Boolean(form.groupLeaderAppId.trim());
-    const organizingGroup = form.applyingAsGroup === "yes" && !joiningGroup;
-    const inviteAppId = savedApplicationId.trim();
-    const propertyOffersBundles =
-      form.propertyId.trim().length > 0 &&
-      getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) }).length > 0;
-
-    return (
-      <div className="rental-wizard-step space-y-4">
-        <div className="divide-y divide-border/60 rounded-2xl border border-border bg-card/30 [html[data-theme=dark]_&]:border-white/10 [html[data-theme=dark]_&]:bg-white/4">
-          {showGroup ? (
-            <>
-              <ApplyFieldRow
-                label="Applying as part of a group?"
-                error={errors.applyingAsGroup}
-                fieldKey="applyingAsGroup"
-                inline
-                showRequiredMarker={false}
-                labelClassName="text-sm font-semibold text-foreground"
-                className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
-              >
-                <YesNoPills
-                  value={form.applyingAsGroup}
-                  error={errors.applyingAsGroup}
-                  name="Group application"
-                  fieldKey="applyingAsGroup"
-                  suppressError
-                  onChange={(v) => {
-                    if (v === "no") {
-                      patch({
-                        applicantRole: "signer",
-                        applyingAsGroup: v,
-                        groupRole: null,
-                        groupSize: "",
-                        groupId: "",
-                        groupLeaderAppId: "",
-                      });
-                      return;
-                    }
-                    onEnsureApplicationId?.();
-                    patch({
-                      applicantRole: "signer",
-                      applyingAsGroup: v,
-                      groupRole: joiningGroup ? "joining" : "first",
-                      groupId: joiningGroup
-                        ? form.groupId
-                        : form.groupId.trim() || makeApplicationGroupId(),
-                    });
-                  }}
-                />
-              </ApplyFieldRow>
-
-              {form.applyingAsGroup === "yes" ? (
-                <>
-                  <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
-                    One person applies first and gets a Group ID. Everyone else pastes that same
-                    ID below so the manager sees you as one household. Each of you still files your
-                    own application
-                    {propertyOffersBundles
-                      ? ". If you all choose the same lease bundle, move-in costs split evenly across your group; otherwise each person is billed their own charges."
-                      : " and is billed your own charges."}
-                  </p>
-
-                  <ApplyFieldRow
-                    label="Organizer application ID"
-                    optional
-                    inline
-                    error={errors.groupLeaderAppId}
-                    fieldKey="groupLeaderAppId"
-                    labelClassName="text-sm font-semibold text-foreground"
-                    className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
-                  >
-                    <GroupLeaderAppIdField
-                      value={form.groupLeaderAppId}
-                      onChange={(next) => {
-                        const trimmed = next.trim();
-                        patch({
-                          groupLeaderAppId: next,
-                          groupRole: trimmed ? "joining" : "first",
-                          groupId: trimmed ? form.groupId : makeApplicationGroupId(),
-                          ...(trimmed ? { groupSize: "" } : {}),
-                        });
-                      }}
-                      error={errors.groupLeaderAppId}
-                      onResolved={(preview) => {
-                        if (preview) {
-                          patch({
-                            groupLeaderAppId: preview.leaderAppId,
-                            groupId: preview.groupId,
-                            groupRole: "joining",
-                            ...(preview.propertyId && !form.propertyId.trim()
-                              ? { propertyId: preview.propertyId }
-                              : {}),
-                            ...(preview.groupSize != null && !form.groupSize.trim()
-                              ? { groupSize: String(preview.groupSize) }
-                              : {}),
-                          });
-                        }
-                      }}
-                      suppressError
-                    />
-                  </ApplyFieldRow>
-                </>
-              ) : null}
-
-              {organizingGroup ? (
-                <ApplyFieldRow
-                  label="How many people in the group?"
-                  error={errors.groupSize}
-                  fieldKey="groupSize"
-                  inline
-                  labelClassName="text-sm font-semibold text-foreground"
-                  className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
-                >
-                  {/*
-                    The organizer's declared size is load-bearing, not a nicety:
-                    `buildBundleApplicationGroups` derives the group's expected size
-                    from it (driving "Group N/M", missingCount and isComplete), and
-                    `bundle-cost-split` divides the move-in charges by it. It was
-                    never collected anywhere in the UI — only ever read back — so
-                    every group read as "size unknown" and no split could be made.
-                  */}
-                  <Input
-                    id="groupSize"
-                    type="number"
-                    inputMode="numeric"
-                    min={2}
-                    max={12}
-                    step={1}
-                    placeholder="e.g. 3"
-                    value={form.groupSize}
-                    onChange={(e) => patch({ groupSize: e.target.value })}
-                    className={errors.groupSize ? "border-red-400 ring-2 ring-red-100" : ""}
-                    aria-describedby="groupSizeHelp"
-                  />
-                  <p id="groupSizeHelp" className="mt-1.5 text-xs text-muted">
-                    Everyone applying together, including you.
-                    {propertyOffersBundles
-                      ? " Move-in costs split evenly when you all choose the same lease bundle; otherwise each person is billed their own charges."
-                      : " Each person is billed their own charges."}
-                  </p>
-                </ApplyFieldRow>
-              ) : null}
-
-              {joiningGroup ? (
-                <div className="px-4 pb-4 sm:px-5">
-                  <p className="rounded-xl border border-border bg-card/40 px-3 py-2.5 text-xs leading-relaxed text-muted">
-                    You are joining the group started by{" "}
-                    <span className="font-semibold text-foreground">{form.groupLeaderAppId.trim()}</span>. The
-                    organizer declared the group size — you do not need to enter it. Finish your own
-                    application and the manager will see you both on the same household.
-                  </p>
-                </div>
-              ) : null}
-
-              {organizingGroup && inviteAppId ? (
-                <div className="px-4 pb-4 sm:px-5">
-                  <GroupInviteCallout
-                    leaderAppId={inviteAppId}
-                    organizerName={form.fullLegalName.trim() || undefined}
-                    groupSize={form.groupSize.trim() || undefined}
-                    propertyId={form.propertyId.trim() || undefined}
-                    pendingSubmit
-                  />
-                </div>
-              ) : null}
-            </>
-          ) : null}
-
-          {showCosigner ? (
-            <>
-              <ApplyFieldRow
-                label="Will someone co-sign with you?"
-                error={errors.hasCosigner}
-                fieldKey="hasCosigner"
-                inline
-                showRequiredMarker={false}
-                labelClassName="text-sm font-semibold text-foreground"
-                className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
-              >
-                <YesNoPills
-                  value={form.hasCosigner}
-                  error={errors.hasCosigner}
-                  name="Co-signer"
-                  fieldKey="hasCosigner"
-                  suppressError
-                  onChange={(v) => {
-                    if (v === "yes") onEnsureApplicationId?.();
-                    patch({ applicantRole: "signer", hasCosigner: v });
-                  }}
-                />
-              </ApplyFieldRow>
-              {form.hasCosigner === "yes" && inviteAppId ? (
-                <div className="px-4 pb-4 sm:px-5">
-                  <CosignerInviteCallout
-                    signerAppId={inviteAppId}
-                    signerName={form.fullLegalName.trim() || undefined}
-                    pendingSubmit
-                  />
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-
-        {stepManagerQuestions}
-      </div>
-    );
-  }
-
-  if (step === 3) {
+  const renderLeaseChoice = () => {
     void occupancySyncEpoch;
     const selectedProperty = getPropertyById(form.propertyId);
     const propertyQuestion = standardQuestion("property", "propertyId");
@@ -696,7 +483,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const offeredLeaseTerms = form.propertyId.trim()
       ? listingOfferedLeaseTerms(form.propertyId)
       : [...LEASE_TERM_CHOICES];
-    const longTermLengths = form.propertyId.trim() ? listingLongTermLengths(form.propertyId) : [];
     // A resumed draft — or an application started while a retired length was
     // still offered — keeps its OWN answer selectable. Dropping it would blank
     // what they already chose without a word, the same reason an already-picked
@@ -774,21 +560,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         searchText: prop ? `${prop.title} ${prop.address} ${prop.neighborhood} ${prop.buildingName} ${prop.zip}` : o.label,
       };
     });
-    const room1ApprovedConflict = form.roomChoice1
-      ? isRoomApprovedConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
-      : false;
-    const room1PendingConflict = !room1ApprovedConflict && form.roomChoice1
-      ? isRoomPendingConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
-      : false;
     return (
       <div className="space-y-8">
-        <div>
-          <StepIntro>
-            Your property manager shared this listing with you. Choose your room preferences and lease dates you are prepared to
-            sign.
-          </StepIntro>
-        </div>
-
         <WizardFieldGate fieldKey="propertyId" enabled={showWizardField}>
         <div className="space-y-2" data-wizard-field="propertyId" data-application-question-id={propertyQuestion?.id}>
           <Label htmlFor="propertyId" required={propertyQuestion?.required}>{propertyQuestion?.label ?? "Property name"}</Label>
@@ -1125,7 +898,239 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         })() : null}
         {listingQuote ? <ApplicantPaysCard quote={listingQuote} /> : null}
         </div>
+      </div>
+    );
+  };
 
+  if (step === 1) {
+    const showCosigner = showWizardField("hasCosigner");
+    const showGroup = showWizardField("applyingAsGroup");
+    const joiningGroup = Boolean(form.groupLeaderAppId.trim());
+    const organizingGroup = form.applyingAsGroup === "yes" && !joiningGroup;
+    const inviteAppId = savedApplicationId.trim();
+    const propertyOffersBundles =
+      form.propertyId.trim().length > 0 &&
+      getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) }).length > 0;
+
+    return (
+      <div className="rental-wizard-step space-y-6">
+        <section data-wizard-lease-choice className="space-y-4">
+          {renderLeaseChoice()}
+        </section>
+        <div className="divide-y divide-border/60 rounded-2xl border border-border bg-card/30 [html[data-theme=dark]_&]:border-white/10 [html[data-theme=dark]_&]:bg-white/4">
+          {showGroup ? (
+            <>
+              <ApplyFieldRow
+                label="Applying as part of a group?"
+                error={errors.applyingAsGroup}
+                fieldKey="applyingAsGroup"
+                inline
+                showRequiredMarker={false}
+                labelClassName="text-sm font-semibold text-foreground"
+                className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
+              >
+                <YesNoPills
+                  value={form.applyingAsGroup}
+                  error={errors.applyingAsGroup}
+                  name="Group application"
+                  fieldKey="applyingAsGroup"
+                  suppressError
+                  onChange={(v) => {
+                    if (v === "no") {
+                      patch({
+                        applicantRole: "signer",
+                        applyingAsGroup: v,
+                        groupRole: null,
+                        groupSize: "",
+                        groupId: "",
+                        groupLeaderAppId: "",
+                      });
+                      return;
+                    }
+                    onEnsureApplicationId?.();
+                    patch({
+                      applicantRole: "signer",
+                      applyingAsGroup: v,
+                      groupRole: joiningGroup ? "joining" : "first",
+                      groupId: joiningGroup
+                        ? form.groupId
+                        : form.groupId.trim() || makeApplicationGroupId(),
+                    });
+                  }}
+                />
+              </ApplyFieldRow>
+
+              {form.applyingAsGroup === "yes" ? (
+                <>
+                  <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
+                    One person applies first and gets a Group ID. Everyone else pastes that same
+                    ID below so the manager sees you as one household. Each of you still files your
+                    own application
+                    {propertyOffersBundles
+                      ? ". If you all choose the same lease bundle, move-in costs split evenly across your group; otherwise each person is billed their own charges."
+                      : " and is billed your own charges."}
+                  </p>
+
+                  <ApplyFieldRow
+                    label="Organizer application ID"
+                    optional
+                    inline
+                    error={errors.groupLeaderAppId}
+                    fieldKey="groupLeaderAppId"
+                    labelClassName="text-sm font-semibold text-foreground"
+                    className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
+                  >
+                    <GroupLeaderAppIdField
+                      value={form.groupLeaderAppId}
+                      onChange={(next) => {
+                        const trimmed = next.trim();
+                        patch({
+                          groupLeaderAppId: next,
+                          groupRole: trimmed ? "joining" : "first",
+                          groupId: trimmed ? form.groupId : makeApplicationGroupId(),
+                          ...(trimmed ? { groupSize: "" } : {}),
+                        });
+                      }}
+                      error={errors.groupLeaderAppId}
+                      onResolved={(preview) => {
+                        if (preview) {
+                          patch({
+                            groupLeaderAppId: preview.leaderAppId,
+                            groupId: preview.groupId,
+                            groupRole: "joining",
+                            ...(preview.propertyId && !form.propertyId.trim()
+                              ? { propertyId: preview.propertyId }
+                              : {}),
+                            ...(preview.groupSize != null && !form.groupSize.trim()
+                              ? { groupSize: String(preview.groupSize) }
+                              : {}),
+                          });
+                        }
+                      }}
+                      suppressError
+                    />
+                  </ApplyFieldRow>
+                </>
+              ) : null}
+
+              {organizingGroup ? (
+                <ApplyFieldRow
+                  label="How many people in the group?"
+                  error={errors.groupSize}
+                  fieldKey="groupSize"
+                  inline
+                  labelClassName="text-sm font-semibold text-foreground"
+                  className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
+                >
+                  {/*
+                    The organizer's declared size is load-bearing, not a nicety:
+                    `buildBundleApplicationGroups` derives the group's expected size
+                    from it (driving "Group N/M", missingCount and isComplete), and
+                    `bundle-cost-split` divides the move-in charges by it. It was
+                    never collected anywhere in the UI — only ever read back — so
+                    every group read as "size unknown" and no split could be made.
+                  */}
+                  <Input
+                    id="groupSize"
+                    type="number"
+                    inputMode="numeric"
+                    min={2}
+                    max={12}
+                    step={1}
+                    placeholder="e.g. 3"
+                    value={form.groupSize}
+                    onChange={(e) => patch({ groupSize: e.target.value })}
+                    className={errors.groupSize ? "border-red-400 ring-2 ring-red-100" : ""}
+                    aria-describedby="groupSizeHelp"
+                  />
+                  <p id="groupSizeHelp" className="mt-1.5 text-xs text-muted">
+                    Everyone applying together, including you.
+                    {propertyOffersBundles
+                      ? " Move-in costs split evenly when you all choose the same lease bundle; otherwise each person is billed their own charges."
+                      : " Each person is billed their own charges."}
+                  </p>
+                </ApplyFieldRow>
+              ) : null}
+
+              {joiningGroup ? (
+                <div className="px-4 pb-4 sm:px-5">
+                  <p className="rounded-xl border border-border bg-card/40 px-3 py-2.5 text-xs leading-relaxed text-muted">
+                    You are joining the group started by{" "}
+                    <span className="font-semibold text-foreground">{form.groupLeaderAppId.trim()}</span>. The
+                    organizer declared the group size — you do not need to enter it. Finish your own
+                    application and the manager will see you both on the same household.
+                  </p>
+                </div>
+              ) : null}
+
+              {organizingGroup && inviteAppId ? (
+                <div className="px-4 pb-4 sm:px-5">
+                  <GroupInviteCallout
+                    leaderAppId={inviteAppId}
+                    organizerName={form.fullLegalName.trim() || undefined}
+                    groupSize={form.groupSize.trim() || undefined}
+                    propertyId={form.propertyId.trim() || undefined}
+                    pendingSubmit
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {showCosigner ? (
+            <>
+              <ApplyFieldRow
+                label="Will someone co-sign with you?"
+                error={errors.hasCosigner}
+                fieldKey="hasCosigner"
+                inline
+                showRequiredMarker={false}
+                labelClassName="text-sm font-semibold text-foreground"
+                className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
+              >
+                <YesNoPills
+                  value={form.hasCosigner}
+                  error={errors.hasCosigner}
+                  name="Co-signer"
+                  fieldKey="hasCosigner"
+                  suppressError
+                  onChange={(v) => {
+                    if (v === "yes") onEnsureApplicationId?.();
+                    patch({ applicantRole: "signer", hasCosigner: v });
+                  }}
+                />
+              </ApplyFieldRow>
+              {form.hasCosigner === "yes" && inviteAppId ? (
+                <div className="px-4 pb-4 sm:px-5">
+                  <CosignerInviteCallout
+                    signerAppId={inviteAppId}
+                    signerName={form.fullLegalName.trim() || undefined}
+                    pendingSubmit
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+
+        {stepManagerQuestions}
+      </div>
+    );
+  }
+
+  if (step === 3) {
+    void occupancySyncEpoch;
+    const selectedProperty = getPropertyById(form.propertyId);
+    const datesQuestion = standardQuestion("property", "leaseStart");
+    const longTermLengths = form.propertyId.trim() ? listingLongTermLengths(form.propertyId) : [];
+    const room1ApprovedConflict = form.roomChoice1
+      ? isRoomApprovedConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
+      : false;
+    const room1PendingConflict = !room1ApprovedConflict && form.roomChoice1
+      ? isRoomPendingConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
+      : false;
+    return (
+      <div className="space-y-8">
         <WizardFieldGate fieldKey="leaseStart" enabled={showWizardField}>
         <div className={form.leaseTerm === "Month-to-Month" ? "space-y-2" : "grid gap-4 sm:grid-cols-2"}>
           <div className="space-y-2">
@@ -1919,7 +1924,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </ReviewSection>
           ) : null}
           {activeStepSet.has(3) ? (
-          <ReviewSection title="Property information" stepTarget={3} onEdit={editFromReview}>
+          <ReviewSection title="Property information" stepTarget={1} onEdit={editFromReview}>
             <ReviewRow k="Property" v={displayOrDash(prop?.title)} />
             {reviewBundleLabel ? (
               <ReviewRow k="Lease bundle" v={reviewBundleLabel} />
@@ -1946,7 +1951,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           ) : null}
           {prop?.listingSubmission?.v === 1 ? (
             activeStepSet.has(3) ? (
-            <ReviewSection title="Housing charges (this listing)" stepTarget={3} onEdit={editFromReview}>
+            <ReviewSection title="Housing charges (this listing)" stepTarget={1} onEdit={editFromReview}>
               <ReviewRow
                 k="Application fee"
                 v={
@@ -1998,7 +2003,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </ReviewSection>
             ) : null
           ) : activeStepSet.has(3) ? (
-            <ReviewSection title="Housing charges" stepTarget={3} onEdit={editFromReview}>
+            <ReviewSection title="Housing charges" stepTarget={1} onEdit={editFromReview}>
               <ReviewRow
                 k="Listing fees"
                 v="This property has not published detailed fee lines yet. Confirm dollar amounts with the property manager before you pay or sign."

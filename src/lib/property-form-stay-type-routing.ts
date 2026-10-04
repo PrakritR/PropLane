@@ -2,11 +2,18 @@ import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submissio
 import { resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import {
   leaseIdForApplication,
+  mappableApplicationTemplates,
   setMappingTarget,
   type MappingCatalog,
   type MappingSigningOrder,
 } from "@/lib/application-lease-mapping";
-import type { PropertyApplicationTemplate } from "@/lib/property-application-templates";
+import {
+  publishedQuestionConfigVersionForTemplate,
+  readPropertyApplicationTemplates,
+  type PropertyApplicationTemplate,
+} from "@/lib/property-application-templates";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms";
 import {
   AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
@@ -116,4 +123,32 @@ export function applyApplicationLinkForStayTerm(
   const result = setMappingTarget(order, catalog, applicationId, leaseId);
   if (!result.ok) return { error: result.error };
   return { applications: result.applications, leases: result.leases };
+}
+
+/**
+ * "Which lease are you applying for?" drives the application form. The lease type the applicant
+ * picked routes to ONE lease (`applicationLeaseTerms`), and the application form mapped to that
+ * lease (`linkedLeaseTemplateId`) is the form they fill in. Returns that form's pin (id + current
+ * published version), or null when no published form is mapped to the lease for this type - the
+ * caller then keeps the stay kind's default form.
+ */
+export function applicationPinForStayTerm(
+  sub: Pick<ManagerListingSubmissionV1, "propertyApplicationTemplates" | "propertyLeaseTemplates">,
+  term: string,
+): { templateId: string; templateVersion: number } | null {
+  const cleanTerm = normalizeApplicationLeaseTerm(term.trim());
+  if (!cleanTerm) return null;
+  const leases = readPropertyLeaseTemplates(sub);
+  const applications = readPropertyApplicationTemplates(sub);
+  const leaseId = leaseTemplateIdForStayTerm(leases, cleanTerm);
+  if (!leaseId) return null;
+  const catalog: MappingCatalog = { applications, leases };
+  const mapped = mappableApplicationTemplates(applications)
+    .filter((app) => leaseIdForApplication(catalog, app.id) === leaseId)
+    .filter((app) => Boolean(app.publishedQuestionConfig))
+    .sort((a, b) => a.label.localeCompare(b.label))[0];
+  if (!mapped) return null;
+  const published = publishedQuestionConfigVersionForTemplate(mapped);
+  if (!published) return null;
+  return { templateId: mapped.id, templateVersion: published.version };
 }

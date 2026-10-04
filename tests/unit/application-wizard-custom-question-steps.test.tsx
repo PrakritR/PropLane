@@ -9,6 +9,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
 import { RentalWizardStepBody, type WizardStepsProps } from "@/components/marketing/rental-wizard-steps";
 import { applicationConfigForVariant, STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
@@ -33,7 +34,7 @@ const property = {
   id: "prop-custom-questions",
   title: "Birch Flats 7",
   listingSubmission: {
-    v: 1,
+    ...createDefaultListingSubmission(),
     customApplicationFields: [
       {
         id: "caf-household-1",
@@ -59,6 +60,8 @@ function applicationRow() {
   const application = {
     ...createInitialRentalWizardState(),
     propertyId: property.id,
+    leaseTerm: "Long-term",
+    roomChoice1: property.id,
     applyingAsGroup: "no",
     hasCosigner: "no",
   };
@@ -99,7 +102,7 @@ afterEach(cleanup);
 describe("manager custom questions on the household step", () => {
   it("are asked on the step that validates them", () => {
     renderEditor();
-    expect(screen.getByText("Household application")).toBeTruthy();
+    expect(screen.getByText("Which lease are you applying for?")).toBeTruthy();
     expect(screen.getByText(QUESTION_LABEL, { exact: false })).toBeTruthy();
   });
 
@@ -107,7 +110,7 @@ describe("manager custom questions on the household step", () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
     // Still on step 1 — the answer is genuinely required...
-    expect(screen.getByText("Household application")).toBeTruthy();
+    expect(screen.getByText("Which lease are you applying for?")).toBeTruthy();
     // ...and the applicant can see why. Before the fix the question was absent,
     // so the button simply did nothing.
     expect(screen.getAllByText(QUESTION_LABEL, { exact: false }).length).toBeGreaterThan(1);

@@ -1,9 +1,9 @@
 import type { RentalWizardFormState } from "./types";
 
 export const RENTAL_WIZARD_STEP_TITLES = [
-  "Household application",
+  "Which lease are you applying for?",
   "Signer Information",
-  "Property Information",
+  "Move-in dates",
   "Current Address",
   "Previous Address",
   "Employment and Income",
@@ -14,7 +14,7 @@ export const RENTAL_WIZARD_STEP_TITLES = [
   "Application fee",
 ] as const;
 
-/** Step header copy for the household-first application flow. */
+/** Step header copy. Step 1 always opens with the lease question (the lease type and room or home drive the form, the fee and the lease). */
 export function rentalWizardStepTitle(step: number, _form: RentalWizardFormState): string {
   return RENTAL_WIZARD_STEP_TITLES[step - 1] ?? "";
 }

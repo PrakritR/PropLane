@@ -11,6 +11,7 @@ import {
   fillEmploymentStep,
   fillHouseholdStep,
   fillPreviousAddressStep,
+  fillLeaseChoiceStep,
   fillPropertyLeaseStep,
   fillReferencesStep,
   fillSignerStep,
@@ -214,7 +215,8 @@ async function submitApplication(
     await openGuestApplyWizard(page, PROPERTY_ID);
   }
 
-  // Step 1 — household (group + co-signer on one step).
+  // Step 1 — which lease first, then household (group + co-signer on the same step).
+  await fillLeaseChoiceStep(page);
   await fillHouseholdStep(page, toHouseholdConfig(group));
   await shot(page, `${label}-01-wizard-step1-household`);
   await continueBtn(page).click();
@@ -223,7 +225,7 @@ async function submitApplication(
   await fillSignerStep(page, applicant, "04/12/1994");
   await continueBtn(page).click();
 
-  // Step 3 — property + lease dates (property locked via ?propertyId).
+  // Step 3 — lease dates (property locked via ?propertyId, lease chosen on step 1).
   await fillPropertyLeaseStep(page);
   await continueBtn(page).click();
 

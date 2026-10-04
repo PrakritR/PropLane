@@ -52,13 +52,13 @@ function seedListing(allowedLeaseTerms: string[], shortTerm = false): void {
   cachePublicExtraListings([property], { silent: true });
 }
 
-/** Step 3 carries Lease term; render it exactly as the apply page does. */
+/** Step 1 opens with the lease question and carries Lease term; render it exactly as the apply page does. */
 function renderLeaseTermStep(allowedLeaseTerms: string[], leaseTerm = "", shortTerm = false) {
   seedListing(allowedLeaseTerms, shortTerm);
   const noop = () => {};
   return render(
     <RentalWizardStepBody
-      step={3}
+      step={1}
       form={{ ...createInitialRentalWizardState(), propertyId: PID, leaseTerm }}
       errors={{}}
       mode="public"

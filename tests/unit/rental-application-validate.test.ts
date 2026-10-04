@@ -25,13 +25,27 @@ describe("rental-application validate", () => {
     expect(errors.applyingAsGroup).toBeDefined();
   });
 
-  it("passes step 1 when not applying as group", () => {
+  it("passes step 1 when the lease is chosen and not applying as group", () => {
+    const state = {
+      ...createInitialRentalWizardState(),
+      propertyId: "prop-1",
+      leaseTerm: "Long-term",
+      roomChoice1: "prop-1",
+      applyingAsGroup: "no" as const,
+      hasCosigner: "no" as const,
+    };
+    expect(validateRentalWizardStep(1, state)).toEqual({});
+  });
+
+  it("opens with the lease question: step 1 asks for the property and lease type before anything else", () => {
     const state = {
       ...createInitialRentalWizardState(),
       applyingAsGroup: "no" as const,
       hasCosigner: "no" as const,
     };
-    expect(validateRentalWizardStep(1, state)).toEqual({});
+    const errors = validateRentalWizardStep(1, state);
+    expect(errors.propertyId).toBeDefined();
+    expect(errors.leaseTerm).toBeDefined();
   });
 
   it("requires group choice on step 1 even when the property offers lease bundles", () => {
