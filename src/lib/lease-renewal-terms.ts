@@ -26,8 +26,8 @@ export type ExtendMoveOutTypeId = "month_to_month" | "short_term" | "long_term" 
 
 export type ExtendMoveOutTypeOption =
   | { id: "month_to_month"; label: "Month-to-month"; leaseTerm: "Month-to-Month" }
-  | { id: "short_term"; label: "Short term"; leaseTerm: typeof SHORT_TERM_LEASE_TERM }
-  | { id: "long_term"; label: "Long term"; leaseTerms: string[] }
+  | { id: "short_term"; label: "Short-term"; leaseTerm: typeof SHORT_TERM_LEASE_TERM }
+  | { id: "long_term"; label: "Long-term"; leaseTerms: string[] }
   | { id: "custom"; label: "Custom" };
 
 /** Resident extend-move-out types offered for a listing (month-to-month, short, fixed, custom). */
@@ -39,7 +39,7 @@ export function extendMoveOutTypesForProperty(propertyId: string): ExtendMoveOut
     options.push({ id: "month_to_month", label: "Month-to-month", leaseTerm: "Month-to-Month" });
   }
   if (terms.includes(SHORT_TERM_LEASE_TERM)) {
-    options.push({ id: "short_term", label: "Short term", leaseTerm: SHORT_TERM_LEASE_TERM });
+    options.push({ id: "short_term", label: "Short-term", leaseTerm: SHORT_TERM_LEASE_TERM });
   }
 
   // "Long-term" counts as a fixed term here alongside the retired N-Month
@@ -54,7 +54,7 @@ export function extendMoveOutTypesForProperty(propertyId: string): ExtendMoveOut
       (term === LONG_TERM_LEASE_TERM || FIXED_LEASE_TERM_RE.test(term)),
   );
   if (fixedTerms.length > 0) {
-    options.push({ id: "long_term", label: "Long term", leaseTerms: fixedTerms });
+    options.push({ id: "long_term", label: "Long-term", leaseTerms: fixedTerms });
   }
 
   options.push({ id: "custom", label: "Custom" });

@@ -22,7 +22,7 @@ describe("property lease template kinds", () => {
   });
 
   it("labels normalized kinds for managers", () => {
-    expect(propertyLeaseTypeLabel("short-term")).toBe("Short term");
+    expect(propertyLeaseTypeLabel("short-term")).toBe("Short-term");
     expect(propertyLeaseTypeLabel("time-based")).toBe("Time-based");
     expect(propertyLeaseTypeLabel("custom")).toBe("Custom builder");
   });

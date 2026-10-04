@@ -162,7 +162,7 @@ export function stayTypeLabelForLeaseKindDisplay(
     if (!groups.includes(label)) groups.push(label);
   };
   if (active.some((term) => term !== SHORT_TERM_LEASE_TERM && term !== AIRBNB_LEASE_TERM)) push("Long-term");
-  if (active.includes(SHORT_TERM_LEASE_TERM)) push("Short term");
+  if (active.includes(SHORT_TERM_LEASE_TERM)) push("Short-term");
   if (active.includes(AIRBNB_LEASE_TERM)) push("Airbnb");
   return groups.join(", ");
 }

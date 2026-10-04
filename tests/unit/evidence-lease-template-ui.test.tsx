@@ -135,7 +135,7 @@ describe("evidence · lease templates are opt-in", () => {
       "short-term",
     );
     const b = render(<Harness initial={withBoth} />);
-    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease", "Short term lease"]);
+    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease", "Short-term lease"]);
     writePanel(
       "lease-b-added",
       "B · After adding the two PropLane defaults — 'Long-term lease' and 'Short-term lease' (the retired 'Lease bundle' rows are gone).",
@@ -143,7 +143,7 @@ describe("evidence · lease templates are opt-in", () => {
     );
 
     // C. delete Short-term from the row ⋯ menu, then re-sync
-    selectLeaseRowByLabel(b.container, "Short term lease");
+    selectLeaseRowByLabel(b.container, "Short-term lease");
     await new Promise((resolve) => setTimeout(resolve, 160));
     await act(async () => {
       fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));

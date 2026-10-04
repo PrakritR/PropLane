@@ -21,11 +21,12 @@ import {
 import { persistManagerListingSubmission, type ManagerPricingSaveTarget } from "@/lib/manager-property-save-target";
 import {
   propertyPricingBundleSummary,
+  propertyPricingBundleTitle,
   propertyPricingRoomAmount,
+  propertyPricingRoomDepositFact,
   propertyPricingRoomSummary,
+  propertyPricingTermsFact,
   propertyPricingWholeHouseSummary,
-  roomPricingSourceLabel,
-  wholeHousePricingSourceLabel,
 } from "@/lib/property-pricing-summary";
 import { resetRoomToWorkspaceDefault, resetWholeHouseToWorkspaceDefault } from "@/lib/property-pricing-publish";
 import {
@@ -40,9 +41,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { MoreHorizontal, PanelsTopLeft, ScrollText } from "lucide-react";
+import { MoreHorizontal, PanelsTopLeft, ScrollText, ShieldCheck } from "lucide-react";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
-import { resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Settings } from "lucide-react";
 
@@ -145,14 +145,17 @@ export function PropertyPricingPanel({
     else showToast("Add a room on House details first.");
   };
 
-  // Studio row fact: the leases this property offers ("Long-term, Short term").
-  const leaseTermsLabel = resolveAllowedLeaseTerms(sub).join(", ");
+  // Row fact: the lease types this property offers, in the one label set ("Long-term · Short-term").
+  const leaseTermsLabel = propertyPricingTermsFact(sub);
+  const wholeHouseSummary = propertyPricingWholeHouseSummary(sub);
+  // The figure is the rent when there is one; a house that is not offered has no figure, so no stray dash.
+  const wholeHouseAmount = wholeHouseSummary.includes("/mo") ? wholeHouseSummary.split(" · ").pop() : undefined;
   const addLabel =
     tab === "bundles" ? "Add bundle" : tab === "whole" ? "Add whole house price" : "Add room price";
 
   const tabItems = [
     { id: "rooms" as const, label: "Rooms", count: rooms.length },
-    { id: "bundles" as const, label: "Bundles", count: bundles.length },
+    { id: "bundles" as const, label: "Room bundles", count: bundles.length },
     ...(showWholeTab
       ? [{ id: "whole" as const, label: "Whole house", count: sub.entireHomeOffered || entireHome ? 1 : 0 }]
       : []),
@@ -219,8 +222,7 @@ export function PropertyPricingPanel({
         {tab === "rooms"
           ? filteredRooms.map((room) => {
               const meta = sub.roomPricingMeta?.[room.id];
-              const source = roomPricingSourceLabel(meta);
-              const summary = propertyPricingRoomSummary(room, sub, meta);
+              const depositFact = propertyPricingRoomDepositFact(room, sub);
               const canReset =
                 meta?.priceSource === "default" ||
                 meta?.priceSource === "own" ||
@@ -229,8 +231,6 @@ export function PropertyPricingPanel({
                 <PortalPropertyRecordRow
                   key={room.id}
                   title={room.name.trim() || "Room"}
-                  address={source ? source : undefined}
-                  summary={summary}
                   amount={propertyPricingRoomAmount(room)}
                   onOpen={() => openSubject({ kind: "room", roomId: room.id })}
                   leading={
@@ -239,7 +239,14 @@ export function PropertyPricingPanel({
                     </span>
                   }
                   leadingShape="square"
-                  facts={leaseTermsLabel ? <PortalRowFact icon={ScrollText} srLabel="Leases offered">{leaseTermsLabel}</PortalRowFact> : undefined}
+                  facts={
+                    leaseTermsLabel || depositFact ? (
+                      <>
+                        {leaseTermsLabel ? <PortalRowFact icon={ScrollText} srLabel="Leases offered">{leaseTermsLabel}</PortalRowFact> : null}
+                        {depositFact ? <PortalRowFact icon={ShieldCheck} srLabel="Deposit">{depositFact}</PortalRowFact> : null}
+                      </>
+                    ) : undefined
+                  }
                   dataAttr="property-pricing-room-row"
                   actions={
                     <PricingRowMenu
@@ -265,16 +272,18 @@ export function PropertyPricingPanel({
           ? filteredBundles.map((bundle) => (
               <PortalPropertyRecordRow
                 key={bundle.id}
-                title={bundle.label.trim() || "Bundle"}
-                summary={propertyPricingBundleSummary(bundle, sub)}
+                title={propertyPricingBundleTitle(bundle, sub)}
                 amount={
                   bundle.price?.trim()
                     ? `${bundle.price.replace(/\/mo$/i, "").trim()}/mo`
-                    : "—"
+                    : undefined
+                }
+                facts={
+                  bundle.price?.trim() ? undefined : <PortalRowFact icon={ScrollText} srLabel="Price">No price</PortalRowFact>
                 }
                 onOpen={() => openSubject({ kind: "bundle", bundleId: bundle.id })}
                 dataAttr="property-pricing-bundle-row"
-                actions={<PricingRowMenu label={bundle.label.trim() || "Bundle"} onEdit={() => openSubject({ kind: "bundle", bundleId: bundle.id })} />}
+                actions={<PricingRowMenu label={propertyPricingBundleTitle(bundle, sub)} onEdit={() => openSubject({ kind: "bundle", bundleId: bundle.id })} />}
               />
             ))
           : null}
@@ -282,12 +291,11 @@ export function PropertyPricingPanel({
         {tab === "whole" && showWholeTab ? (
           <PortalPropertyRecordRow
             title="Whole house"
-            address={wholeHousePricingSourceLabel(sub) ?? undefined}
-            summary={propertyPricingWholeHouseSummary(sub)}
-            amount={
-              propertyPricingWholeHouseSummary(sub).includes("/mo")
-                ? propertyPricingWholeHouseSummary(sub).split(" · ").pop() ?? "—"
-                : "—"
+            amount={wholeHouseAmount}
+            facts={
+              <PortalRowFact icon={ScrollText} srLabel={wholeHouseAmount ? "Leases offered" : "Whole house"}>
+                {wholeHouseAmount && leaseTermsLabel ? leaseTermsLabel : wholeHouseSummary}
+              </PortalRowFact>
             }
             onOpen={() => openSubject({ kind: "whole" })}
             dataAttr="property-pricing-whole-row"

@@ -90,7 +90,7 @@ async function sha256Text(value: string): Promise<string> {
 /** The lease-term choices an applicant can make, as "Applies to" boxes. */
 const LEASE_ADD_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "long-term", label: "Long-term" },
-  { value: "short-term", label: "Short term" },
+  { value: "short-term", label: "Short-term" },
 ];
 
 /** Steps are Name, Document, Preview; the import review box is on Document. */

@@ -92,7 +92,7 @@ describe("room pricing popup rows follow what the room offers", () => {
 });
 
 describe("Application fee and Lease fee per step", () => {
-  it("the Long-term step and the Short term step each bind their own boxes", () => {
+  it("the Long-term step and the Short-term step each bind their own boxes", () => {
     const sub = listing({
       occupancyPrices: [{ count: 1, applicationFee: "50", leaseFee: "100", shortTermApplicationFee: "20", shortTermLeaseFee: "40" }],
     });
@@ -101,7 +101,7 @@ describe("Application fee and Lease fee per step", () => {
     expect(lt.value).toBe("100");
     expect((screen.getByLabelText("Private room long-term application fee") as HTMLInputElement).value).toBe("50");
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Short term/ })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /Short-term/ })[0]!);
     expect((screen.getByLabelText("Private room short term lease fee") as HTMLInputElement).value).toBe("40");
     expect((screen.getByLabelText("Private room short term application fee") as HTMLInputElement).value).toBe("20");
     expect(screen.queryByLabelText("Private room long-term lease fee")).toBeNull();
@@ -109,7 +109,7 @@ describe("Application fee and Lease fee per step", () => {
 });
 
 describe("stay-type steps", () => {
-  it("are Long-term and Short term only; custom dates and month-to-month have no step of their own", () => {
+  it("are Long-term and Short-term only; custom dates and month-to-month have no step of their own", () => {
     open(listing());
     const rail = (id: string) => document.querySelector(`[data-attr="listing-v2-rail-${id}"]`);
     expect(rail("Long-term")).not.toBeNull();

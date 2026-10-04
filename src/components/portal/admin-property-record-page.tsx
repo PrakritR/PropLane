@@ -1,5 +1,6 @@
 "use client";
 
+import { composePropertyTitle } from "@/lib/property-title";
 import { useMemo } from "react";
 import { Eye, ListChecks, XCircle } from "lucide-react";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
@@ -39,7 +40,7 @@ export function AdminPropertyRecordPage({
 
   return (
     <PortalRecordDetailPage
-      title={`${row.buildingName} · ${row.unitLabel}`}
+      title={composePropertyTitle(row.buildingName, row.unitLabel)}
       subtitle={`${row.address}${row.zip ? `, ${row.zip}` : ""}`}
       avatarName={row.buildingName}
       backHref={backHref}
