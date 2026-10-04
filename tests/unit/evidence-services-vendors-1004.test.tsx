@@ -24,6 +24,13 @@ import type { WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
 import { buildServicePipeline } from "@/lib/service-pipeline";
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR ?? "";
+/** Opens a row's ⋯ and returns the labels of its items (the menu stays open for the caller to click one). */
+async function rowActionLabels(name: string): Promise<string[]> {
+  fireEvent.keyDown(screen.getByRole("button", { name: `Actions for ${name}` }), { key: "ArrowDown" });
+  const menu = await screen.findByRole("menu");
+  return [...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? "");
+}
+
 const captured: { name: string; html: string }[] = [];
 function capture(name: string) {
   if (!EVIDENCE_DIR) return;
@@ -223,6 +230,7 @@ describe("a service's Vendors section", () => {
           onMarkDone={vi.fn()}
           onPay={vi.fn()}
           onMessage={vi.fn()}
+          onOpenVendor={vi.fn()}
         />
       </AppUiProvider>,
     );
@@ -230,7 +238,10 @@ describe("a service's Vendors section", () => {
     await waitFor(() => expect(document.querySelectorAll('[data-attr="service-pipeline-sent-row"]').length).toBe(2));
     expect(document.body.textContent).toContain("Harborview Electric");
     expect(document.body.textContent).toContain("Sound Heating");
-    fireEvent.click(screen.getByRole("button", { name: "Withdraw from Harborview Electric" }));
+    // Rows carry no inline buttons: Withdraw lives in the row's ⋯, with Open vendor beside it.
+    expect(screen.queryByRole("button", { name: "Withdraw from Harborview Electric" })).toBeNull();
+    expect(await rowActionLabels("Harborview Electric")).toEqual(expect.arrayContaining(["Withdraw", "Open vendor"]));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Withdraw" }));
     expect(onWithdraw).toHaveBeenCalledTimes(1);
 
     fireEvent.click(document.querySelector('[data-attr="service-vendor-cycle-tab-available"]') as HTMLElement);
@@ -238,12 +249,22 @@ describe("a service's Vendors section", () => {
     // Only the plumber the job has not gone to; the electrician is not offered a plumbing job.
     expect(document.body.textContent).toContain("Cascade Drains");
     expect(document.body.textContent).not.toContain("Bright Sparks");
-    expect(document.body.textContent).toContain("Vendors see the general area only until you approve one.");
-    const send = document.querySelector('[data-attr="service-send-job"]') as HTMLButtonElement;
-    expect(send.disabled).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Cascade Drains" }));
-    expect(send.textContent).toBe("Send job to 1");
-    fireEvent.click(send);
+    // No checkbox, no sticky send bar, no sentence about what vendors can see.
+    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(document.querySelector('[data-attr="service-send-bar"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Vendors see the general area only");
+    expect(await rowActionLabels("Cascade Drains")).toEqual(["Send job", "Open vendor"]);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+
+    // The round + opens the standard Send job popup: pick vendors from the dropdown, then Send.
+    fireEvent.click(document.querySelector('[data-attr="service-send-plus"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-attr="service-send-job"]')).not.toBeNull());
+    const finish = document.querySelector('[data-attr="service-send-job"]') as HTMLButtonElement;
+    expect(finish.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Vendors/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /Cascade Drains/ }));
+    expect(finish.textContent).toBe("Send job to 1");
+    fireEvent.click(finish);
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(["d5"], undefined));
   });
 });

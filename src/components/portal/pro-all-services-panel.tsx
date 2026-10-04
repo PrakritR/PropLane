@@ -50,7 +50,6 @@ import {
 } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
-import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -127,7 +126,6 @@ import {
 } from "@/lib/manager-service-workflow";
 import { countSubmittedBids } from "@/lib/work-order-bid-cycle";
 import {
-  SERVICE_STAGE_LABEL,
   SERVICE_STAGE_TABS,
   addOnServiceStage,
   addOnStageFact,
@@ -1023,6 +1021,7 @@ export function ManagerAllServicesPanel({
           onMarkDone={() => void addOnJob.markDone()}
           onPay={() => void addOnJob.pay()}
           onMessage={() => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "communication"))}
+          onOpenVendor={(vendorId) => navigate(vendorDetailHref(basePath, vendorId))}
         />
       ) : activeTab === "incoming-payments" ? (
         <ServiceIncomingPaymentsList
@@ -1051,42 +1050,33 @@ export function ManagerAllServicesPanel({
       ) : (
         <ServiceDetailsSection
           stages={addOnStageSteps(detailRequest)}
-          photos={[]}
-          activity={addOnActivityEvents(detailRequest)}
-          onEdit={detailRequest.status === "pending" || detailRequest.status === "approved" ? () => setEditRequestOpen(true) : undefined}
-          details={
-        <>
-        <div className="mb-3">
-          <ServiceWhoCard
-            who={
-              detailRequest.assignee
-                ? {
-                    name: detailRequest.assignee.name?.trim() || "Assigned",
-                    kind: hiredVendor ? "vendor" : "team",
-                    visit: formatServiceWhen(detailRequest.proposedVisit?.iso),
-                    price: hiredVendor && detailJob ? managerServiceListCostFigure(detailJob, addOnJob.acceptedBid) : managerServiceRequestPricingSummary(detailRequest).replace(/^—$/, ""),
-                  }
-                : null
-            }
-            finished={detailRequest.status === "returned" || detailRequest.status === "denied"}
-            onAssignTeam={() => setAssignOpen(true)}
-            onSendToVendors={sendToVendors}
-          />
-        </div>
-        {renderRecordSection("overview", {
-          role: "manager",
-          kind: "service",
-          kindLabel: "service",
-          recordId: detailRequest.id,
-          recordLabel: detailRequest.offerName,
-          overviewTiles: [
-            { id: "status", label: "Status", value: detailRequest.status.toLowerCase() === "denied" ? "Declined" : SERVICE_STAGE_LABEL[addOnServiceStage(detailRequest)] },
-            { id: "vendor", label: "Assigned to", value: detailRequest.assignee?.name ?? "Not assigned" },
-            { id: "cost", label: "Cost", value: managerServiceRequestPricingSummary(detailRequest) },
-            { id: "requested", label: "Requested", value: formatPortalListDate(detailRequest.requestedAt) },
-          ],
-          overviewNeeds: [],
-          overviewCards: [
+          who={
+            <ServiceWhoCard
+              who={
+                detailRequest.assignee
+                  ? {
+                      name: detailRequest.assignee.name?.trim() || "Assigned",
+                      kind: hiredVendor ? "vendor" : "team",
+                      trade: hiredVendor ? (rosterVendors.find((v) => v.id === detailRequest.assignee?.id)?.trade ?? "") : "",
+                      visit: formatServiceWhen(detailRequest.proposedVisit?.iso),
+                      price: hiredVendor && detailJob ? managerServiceListCostFigure(detailJob, addOnJob.acceptedBid) : managerServiceRequestPricingSummary(detailRequest).replace(/^—$/, ""),
+                      approved: hiredVendor && Boolean(addOnJob.acceptedBid),
+                    }
+                  : null
+              }
+              finished={detailRequest.status === "returned" || detailRequest.status === "denied"}
+              onAssignTeam={() => setAssignOpen(true)}
+              onSendToVendors={sendToVendors}
+              onReschedule={detailJob ? () => setScheduleVisitRow(detailJob) : undefined}
+              onOpenVendor={
+                hiredVendor && detailRequest.assignee && rosterVendors.some((v) => v.id === detailRequest.assignee?.id)
+                  ? () => navigate(vendorDetailHref(basePath, detailRequest.assignee!.id))
+                  : undefined
+              }
+              onMessage={() => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "communication"))}
+            />
+          }
+          cards={[
             {
               id: "request",
               title: "Request",
@@ -1103,10 +1093,9 @@ export function ManagerAllServicesPanel({
                 { label: "Resident", value: detailRequest.residentName },
               ],
             },
-          ],
-        })}
-        </>
-          }
+          ]}
+          photos={[]}
+          activity={addOnActivityEvents(detailRequest)}
         />
       );
     return (

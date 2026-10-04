@@ -11,7 +11,7 @@
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 import type { WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
-import { resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
+import { applyAcceptedBid, resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
 
 export {
   MAX_ESTIMATE_VISIT_FEE_CENTS,
@@ -186,6 +186,8 @@ export function deriveServiceStages(
   row: DemoManagerWorkOrderRow,
   data: { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendorOffer[] },
 ): { stages: ServiceStage[]; currentId: ServiceStageId } {
+  // An approved bid is the hire, even when the local mirror of the row has not caught up with it yet.
+  row = applyAcceptedBid(row, data.bids);
   const assignee = resolveWorkOrderAssignee(row);
   const requests = deriveVendorRequestRows(data.bids, data.offers);
   const live = requests.filter((r) => r.state !== "declined");

@@ -29,10 +29,18 @@ export const PIPELINE_TAB_LABEL: Record<PipelineTabId, string> = {
 /** One send reaches at most this many vendors (the server caps it too: `MAX_VENDORS_PER_SEND`). */
 export const MAX_VENDORS_PER_JOB_SEND = 10;
 
-/** The line under the sticky "Send job to N" bar: what a vendor can and cannot see before approval. */
-export const PIPELINE_PRIVACY_LINE = "Vendors see the general area only until you approve one.";
+/** The radii the Send job popup offers for "Also send to PropLane vendors within". */
+export const JOB_SEND_RADIUS_OPTIONS = [5, 10, 25] as const;
 
-export type PipelineRosterVendor = { id: string; name: string; trade?: string | null; active?: boolean };
+export type PipelineRosterVendor = {
+  id: string;
+  name: string;
+  trade?: string | null;
+  active?: boolean;
+  /** The vendor's review rating, when they have reviews. */
+  rating?: { average: number; count: number } | null;
+  city?: string | null;
+};
 
 export type PipelineCandidate = {
   id: string;
@@ -40,6 +48,8 @@ export type PipelineCandidate = {
   trade: string;
   /** The vendor's trade matches the job's. */
   matchesTrade: boolean;
+  rating?: { average: number; count: number } | null;
+  city?: string;
 };
 
 /** A row under Scheduled or Done: the approved vendor plus what the job itself says. */
@@ -124,7 +134,14 @@ export function buildServicePipeline(input: {
   const active = input.roster.filter((vendor) => vendor.id?.trim() && vendor.active !== false && !offered.has(vendor.id));
   const decorated: PipelineCandidate[] = active.map((vendor) => {
     const trade = (vendor.trade ?? "").trim();
-    return { id: vendor.id, name: vendor.name?.trim() || "Vendor", trade, matchesTrade: tradeMatches(normalizeTrade(trade), jobTrade) };
+    return {
+      id: vendor.id,
+      name: vendor.name?.trim() || "Vendor",
+      trade,
+      matchesTrade: tradeMatches(normalizeTrade(trade), jobTrade),
+      rating: vendor.rating ?? null,
+      city: vendor.city?.trim() || undefined,
+    };
   });
   const matched = decorated.filter((vendor) => vendor.matchesTrade);
   const availableIsUnfiltered = matched.length === 0 && decorated.length > 0;
@@ -191,7 +208,7 @@ export function pipelineJobFact(row: PipelineJobRow, formatWhen: (iso: string | 
     .join(" · ");
 }
 
-/** The "Send job to N" bar: how many are picked, capped, and the label it shows. */
+/** The Send job popup's button: how many are picked, capped, and the label it shows. */
 export function sendBarState(selectedCount: number, marketplace: boolean): { count: number; label: string; disabled: boolean; capped: boolean } {
   const count = Math.min(selectedCount, MAX_VENDORS_PER_JOB_SEND);
   const picked = count + (marketplace ? 1 : 0);

@@ -270,7 +270,24 @@ export function PortalPropertyRecordRow({
   return (
     <div
       id={rowId}
+      data-openable={openable ? "" : undefined}
+      // The body button is the keyboard / screen-reader target, but a click ANYWHERE on the card opens the
+      // record - the tile, the right-hand figure and the padding included (a vendor record's Services rows
+      // were only clickable on their text). Anything interactive inside (the body button itself, the ⋯, an
+      // inline action, the selection box) keeps its own click, and a portaled menu or dialog React-bubbles
+      // through here but is not DOM-contained, so it never opens the row.
+      onClick={
+        openable
+          ? (event) => {
+              const target = event.target;
+              if (!(target instanceof Element) || !event.currentTarget.contains(target)) return;
+              if (target.closest('button, a, input, select, textarea, label, [role="menuitem"], [data-portal-row-ignore]')) return;
+              onOpen?.();
+            }
+          : undefined
+      }
       className={cn(
+        openable && "cursor-pointer",
         // One white card per property when the row stands alone — no group
         // heading, no repeated status badge — with the row title opening the
         // record and a separate 44px selection target. Inside a

@@ -150,8 +150,10 @@ describe("add-on request: Vendors renders the cycle UI", () => {
     // The old team-only band (Open / Assigned ... + Add assignee) is retired; vendors are allowed on an add-on.
     expect(screen.queryByRole("button", { name: "Add assignee" })).toBeNull();
     expect(document.querySelector('[data-attr="service-assign-open"]')).toBeNull();
-    expect(document.querySelector('[data-attr="service-send-bar"]')).not.toBeNull();
-    expect(document.body.textContent).toContain("Vendors see the general area only until you approve one.");
+    // The send-out is the band's round + (a popup): no sticky bar, no sentence about what vendors can see.
+    expect(document.querySelector('[data-attr="service-send-plus"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="service-send-bar"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Vendors see the general area only");
     expect(document.body.textContent).not.toContain("No vendor for this service");
     expect(document.body.textContent).not.toContain("Not scheduled yet");
     expect(document.querySelectorAll('[data-attr="portal-list-empty-card"]')).toHaveLength(1);
