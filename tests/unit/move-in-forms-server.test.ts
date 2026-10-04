@@ -634,8 +634,8 @@ describe("dispatch: intake, links and move-out", () => {
     });
   });
 
-  describe("never-saved and older lists", () => {
-    it("a property that never saved its forms (no moveInFormTemplates key) sends nothing, even for application-submitted", async () => {
+  describe("never-added and older lists", () => {
+    it("a property that never added a form (no moveInFormTemplates key) sends nothing, even for application-submitted", async () => {
       properties[0]!.templates = null;
       applications[0]!.app_bucket = "pending";
       expect(await send("application-submitted")).toEqual({ sent: 0 });
@@ -645,25 +645,26 @@ describe("dispatch: intake, links and move-out", () => {
       expect(forms).toEqual([]);
     });
 
-    it("a saved list lacking the default forms treats the restored defaults as 'Only when I send it'", async () => {
+    it("a stored list is the whole truth: no default form is added to it", async () => {
       properties[0]!.templates = [form("mine")];
       applications[0]!.app_bucket = "pending";
       applications[0]!.app_lease_end = "2026-10-20";
       expect(await send("application-submitted")).toEqual({ sent: 0 });
       applications[0]!.app_bucket = "approved";
       expect(await send("before-move-out", { daysUntilLeaseEnd: 3 })).toEqual({ sent: 0 });
-      // The lease-signed default is restored by hand-only too, so only the manager's own form goes out.
+      // Only the manager's own form goes out; no Intake, Move-in or Move-out form is added behind it.
       expect(await send("lease-signed")).toEqual({ sent: 1 });
       expect(forms.map((row) => row.form_id)).toEqual(["mine"]);
     });
 
-    it("a restored default can still be sent by hand", async () => {
+    it("a form the property does not hold cannot be sent by hand, and one it holds can", async () => {
       properties[0]!.templates = [form("mine")];
-      const sent = await sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "default-intake" });
-      expect(sent.form).toMatchObject({ formId: "default-intake", status: "sent" });
+      await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "default-intake" })).rejects.toMatchObject({ status: 404 });
+      const sent = await sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "mine" });
+      expect(sent.form).toMatchObject({ formId: "mine", status: "sent" });
     });
 
-    it("a default the manager saved keeps its own Sends", async () => {
+    it("a stored Intake form keeps its own Sends", async () => {
       properties[0]!.templates = [{ ...defaultMoveInForm("intake"), trigger: "application-approved" }];
       applications[0]!.app_bucket = "pending";
       expect(await send("application-submitted")).toEqual({ sent: 0 });

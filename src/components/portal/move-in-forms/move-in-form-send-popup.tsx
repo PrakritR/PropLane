@@ -100,7 +100,7 @@ export function SendMoveInFormPopup({
     try {
       await sendMoveInForm({ applicationId: residency.id, formId: template.id, ...(dueAt ? { dueAt } : {}) });
       track("move_in_form_sent", { source: presetApplicationId ? "resident_record" : "move_in_page" });
-      showToast("Sent. It shows under Waiting.");
+      showToast("Form sent.");
       onClose();
     } catch (error) {
       showToast(error instanceof Error && error.message ? error.message : "Could not send this form.");

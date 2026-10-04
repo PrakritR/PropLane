@@ -42,6 +42,7 @@ const QUESTION_TYPES: readonly (ManagerCustomApplicationFieldType | "signature")
   "date", "phone", "email", "photos", "file", "initials", "signature",
 ];
 const STARTER_KEYS: readonly MoveInFormStarterKey[] = [
+  "intake-form", "move-in-form", "move-out-form",
   "move-in-checklist", "key-receipt", "vehicle-parking", "pet-agreement", "emergency-contacts",
 ];
 const MAX_TEMPLATES = 40;
@@ -71,7 +72,7 @@ type StarterDefinition = {
   questions: MoveInFormQuestion[];
 };
 
-const STARTER_DEFINITIONS: Record<MoveInFormStarterKey, StarterDefinition> = {
+const STARTER_DEFINITIONS: Record<Exclude<MoveInFormStarterKey, "intake-form" | "move-in-form" | "move-out-form">, StarterDefinition> = {
   "move-in-checklist": {
     name: "Move-in checklist",
     trigger: "lease-signed",
@@ -166,12 +167,16 @@ const STARTER_DEFINITIONS: Record<MoveInFormStarterKey, StarterDefinition> = {
   },
 };
 
-/* ----------------------------------------------------------- default kind forms */
+/* ------------------------------------------------- the three kind forms (offered as templates) */
 
 export type MoveInFormDefaultKind = Exclude<MoveInFormKind, "other">;
 export const MOVE_IN_FORM_DEFAULT_KINDS: readonly MoveInFormDefaultKind[] = ["intake", "move-in", "move-out"];
 
-/** Stable ids: every property holds exactly these three, whatever else it adds. */
+/**
+ * Ids the three kind forms carried when they were injected into every property. Nothing is injected
+ * any more; a property that already stored one keeps it as a normal form, and its kind still reads
+ * from the id.
+ */
 export const MOVE_IN_FORM_DEFAULT_IDS: Record<MoveInFormDefaultKind, string> = {
   intake: "default-intake",
   "move-in": "default-move-in",
@@ -182,12 +187,9 @@ export function moveInFormDefaultKindOfId(id: string): MoveInFormDefaultKind | n
   return MOVE_IN_FORM_DEFAULT_KINDS.find((kind) => MOVE_IN_FORM_DEFAULT_IDS[kind] === id) ?? null;
 }
 
-export function isDefaultMoveInForm(template: Pick<MoveInFormTemplate, "id">): boolean {
-  return moveInFormDefaultKindOfId(template.id) !== null;
-}
-
 type DefaultFormDefinition = {
   name: string;
+  starterKey: MoveInFormStarterKey;
   trigger: MoveInFormTrigger;
   due: MoveInFormDueRule;
   moveOutDaysBefore: MoveInFormMoveOutDays;
@@ -199,6 +201,7 @@ const yes = (fieldKey: string) => ({ fieldKey, equals: "yes" });
 const DEFAULT_FORM_DEFINITIONS: Record<MoveInFormDefaultKind, DefaultFormDefinition> = {
   intake: {
     name: "Intake form",
+    starterKey: "intake-form",
     trigger: "application-submitted",
     due: "3-days-after-sent",
     moveOutDaysBefore: 14,
@@ -222,6 +225,7 @@ const DEFAULT_FORM_DEFINITIONS: Record<MoveInFormDefaultKind, DefaultFormDefinit
   },
   "move-in": {
     name: "Move-in form",
+    starterKey: "move-in-form",
     trigger: "lease-signed",
     due: "day-before",
     moveOutDaysBefore: 14,
@@ -238,6 +242,7 @@ const DEFAULT_FORM_DEFINITIONS: Record<MoveInFormDefaultKind, DefaultFormDefinit
   },
   "move-out": {
     name: "Move-out form",
+    starterKey: "move-out-form",
     trigger: "before-move-out",
     due: "move-out-day",
     moveOutDaysBefore: 14,
@@ -257,7 +262,7 @@ const DEFAULT_FORM_DEFINITIONS: Record<MoveInFormDefaultKind, DefaultFormDefinit
   },
 };
 
-/** A fresh copy of one default form, exactly as it ships (also what "Reset to default questions" restores). */
+/** A fresh copy of one kind form with its shipped questions, Sends and Due (stored-default id; kept for compatibility). */
 export function defaultMoveInForm(kind: MoveInFormDefaultKind, timestamps?: { createdAt?: string; updatedAt?: string }): MoveInFormTemplate {
   const definition = DEFAULT_FORM_DEFINITIONS[kind];
   const now = starterTimestamp();
@@ -279,42 +284,58 @@ export function defaultMoveInForm(kind: MoveInFormDefaultKind, timestamps?: { cr
   };
 }
 
-/** Reset a default form's questions (and its Sends/Due) to the shipped ones, keeping its audience and links. */
-export function resetMoveInFormToDefault(template: MoveInFormTemplate): MoveInFormTemplate {
-  const kind = moveInFormDefaultKindOfId(template.id);
-  if (!kind) return template;
-  const fresh = defaultMoveInForm(kind, { createdAt: template.createdAt });
-  return { ...fresh, audience: template.audience, linkedApplicationTemplateIds: template.linkedApplicationTemplateIds, linkedLeaseTemplateIds: template.linkedLeaseTemplateIds };
-}
-
 function starterTimestamp(): string {
   return new Date().toISOString();
 }
 
 /**
- * The five starter templates. The checklist sends itself when the lease is signed; the other four
- * ship as "manual" (only when the manager sends them), so nothing else reaches a resident by surprise.
+ * The eight templates offered under "Start from a template": the Intake, Move-in and Move-out forms,
+ * then the five older ones. Nothing here is added to a property by itself; the manager picks one and
+ * it becomes an ordinary form of that property. The checklist sends itself when the lease is signed;
+ * the Intake, Move-in and Move-out forms ship with their own sends; the rest are manual.
  */
-export const MOVE_IN_FORM_STARTERS: readonly MoveInFormTemplate[] = STARTER_KEYS.map((starterKey) => {
-  const definition = STARTER_DEFINITIONS[starterKey];
-  return {
-    id: `starter-${starterKey}`,
-    name: definition.name,
-    source: "built" as const,
-    questions: definition.questions,
-    pdf: null,
-    audience: { kind: "every-room" } as MoveInFormAudience,
-    trigger: definition.trigger,
-    due: definition.due,
-    kind: "other" as const,
-    moveOutDaysBefore: 14 as const,
-    linkedApplicationTemplateIds: [] as string[],
-    linkedLeaseTemplateIds: [] as string[],
-    starterKey,
-    createdAt: "2026-10-03T00:00:00.000Z",
-    updatedAt: "2026-10-03T00:00:00.000Z",
-  };
-});
+export const MOVE_IN_FORM_STARTERS: readonly MoveInFormTemplate[] = [
+  ...MOVE_IN_FORM_DEFAULT_KINDS.map((kind): MoveInFormTemplate => {
+    const definition = DEFAULT_FORM_DEFINITIONS[kind];
+    return {
+      id: `starter-${definition.starterKey}`,
+      name: definition.name,
+      source: "built",
+      questions: definition.questions,
+      pdf: null,
+      audience: { kind: "every-room" },
+      trigger: definition.trigger,
+      due: definition.due,
+      kind,
+      moveOutDaysBefore: definition.moveOutDaysBefore,
+      linkedApplicationTemplateIds: [],
+      linkedLeaseTemplateIds: [],
+      starterKey: definition.starterKey,
+      createdAt: "2026-10-03T00:00:00.000Z",
+      updatedAt: "2026-10-03T00:00:00.000Z",
+    };
+  }),
+  ...(["move-in-checklist", "key-receipt", "vehicle-parking", "pet-agreement", "emergency-contacts"] as const).map((starterKey): MoveInFormTemplate => {
+    const definition = STARTER_DEFINITIONS[starterKey];
+    return {
+      id: `starter-${starterKey}`,
+      name: definition.name,
+      source: "built",
+      questions: definition.questions,
+      pdf: null,
+      audience: { kind: "every-room" },
+      trigger: definition.trigger,
+      due: definition.due,
+      kind: "other",
+      moveOutDaysBefore: 14,
+      linkedApplicationTemplateIds: [],
+      linkedLeaseTemplateIds: [],
+      starterKey,
+      createdAt: "2026-10-03T00:00:00.000Z",
+      updatedAt: "2026-10-03T00:00:00.000Z",
+    };
+  }),
+];
 
 /**
  * A fresh template to edit. With `starterKey` it is a deep copy of that starter (new id, so
@@ -435,7 +456,7 @@ function normalizeTemplate(raw: unknown): MoveInFormTemplate | null {
   const storedTrigger = TRIGGERS.includes(raw.trigger as MoveInFormTrigger) ? (raw.trigger as MoveInFormTrigger) : "lease-signed";
   const trigger: MoveInFormTrigger = raw.enabled === false ? "manual" : storedTrigger;
   const starterKey = STARTER_KEYS.includes(raw.starterKey as MoveInFormStarterKey) ? (raw.starterKey as MoveInFormStarterKey) : undefined;
-  // A default form's kind is fixed by its id; anything stored before kinds existed reads as "other".
+  // A form stored under one of the old injected ids keeps that kind; anything stored before kinds existed reads as "other".
   const defaultKind = moveInFormDefaultKindOfId(id);
   const storedKind = KINDS.includes(raw.kind as MoveInFormKind) ? (raw.kind as MoveInFormKind) : "other";
   const days = Number(raw.moveOutDaysBefore);
@@ -472,42 +493,18 @@ export function normalizeMoveInFormTemplates(raw: unknown): MoveInFormTemplate[]
   return out;
 }
 
-/**
- * The three default forms always exist and always come first, in Intake, Move-in, Move-out order.
- * A saved list that lacks one (older data, or a client that dropped it) gets it back here, so a
- * default can never be deleted through the property JSON the client can write. Every other form keeps
- * its place after them. A default the saved list lacks comes back as `restoredTrigger` when given (a
- * property that saved its forms before these existed must not start messaging residents unasked).
- */
-export function withDefaultMoveInForms(
-  list: readonly MoveInFormTemplate[],
-  options: { restoredTrigger?: MoveInFormTrigger } = {},
-): MoveInFormTemplate[] {
-  const pinned = MOVE_IN_FORM_DEFAULT_KINDS.map((kind) => {
-    const existing = list.find((item) => item.id === MOVE_IN_FORM_DEFAULT_IDS[kind]);
-    if (existing) return existing;
-    const fresh = defaultMoveInForm(kind);
-    return options.restoredTrigger ? { ...fresh, trigger: options.restoredTrigger } : fresh;
-  });
-  return [...pinned, ...list.filter((item) => !isDefaultMoveInForm(item))];
-}
-
 function submissionRecord(listingSubmission: unknown): Record<string, unknown> | null {
   return isRecord(listingSubmission) ? listingSubmission : null;
 }
 
 /**
- * The property's forms: the three default forms first (always), then the rest. When the key was never
- * written (a property nobody has touched here) the five starters follow them. Once the manager
- * saves anything the stored list is the truth, even if it is empty.
+ * The property's forms: exactly the stored list. A property whose manager never added a form reads as
+ * empty; nothing is injected, and a form the manager deleted never comes back.
  */
 export function readMoveInFormTemplates(listingSubmission: unknown): MoveInFormTemplate[] {
   const submission = submissionRecord(listingSubmission);
-  if (!submission || !("moveInFormTemplates" in submission) || submission.moveInFormTemplates === undefined) {
-    return structuredClone([...withDefaultMoveInForms(MOVE_IN_FORM_STARTERS)]);
-  }
-  // A saved list that lacks a default (older data) gets it back as "Only when I send it".
-  return withDefaultMoveInForms(normalizeMoveInFormTemplates(submission.moveInFormTemplates), { restoredTrigger: "manual" });
+  if (!submission) return [];
+  return normalizeMoveInFormTemplates(submission.moveInFormTemplates);
 }
 
 export function readMoveInFormSettings(listingSubmission: unknown): MoveInFormSettings {

@@ -215,10 +215,11 @@ describe("template list and wording", () => {
 
   it("a duplicate sits after its original, sent only by hand, with its own id and no starter mark", () => {
     const list = [...MOVE_IN_FORM_STARTERS];
-    const { list: next, copy } = duplicateMoveInTemplate(list, list[0]!.id, "mif-copy");
+    const checklistAt = list.findIndex((t) => t.starterKey === "move-in-checklist");
+    const { list: next, copy } = duplicateMoveInTemplate(list, list[checklistAt]!.id, "mif-copy");
     expect(copy).not.toBeNull();
-    expect(next[1]!.id).toBe("mif-copy");
-    expect(list[0]!.trigger).toBe("lease-signed");
+    expect(next[checklistAt + 1]!.id).toBe("mif-copy");
+    expect(list[checklistAt]!.trigger).toBe("lease-signed");
     expect(copy!.trigger).toBe("manual");
     expect(copy!.starterKey).toBeUndefined();
     expect(copy!.name).toBe("Move-in checklist (copy)");

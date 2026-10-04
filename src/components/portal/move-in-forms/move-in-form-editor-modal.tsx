@@ -47,7 +47,7 @@ import { Input } from "@/components/ui/input";
 import type { ManagerCustomApplicationFieldType } from "@/lib/manager-listing-submission";
 import type { ResolvedApplicationField } from "@/lib/rental-application/application-field-catalog";
 import { moveInFormTemplatePdfUrl, uploadMoveInFormPdf } from "@/lib/move-in-forms/client";
-import { isDefaultMoveInForm, MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, resetMoveInFormToDefault } from "@/lib/move-in-forms/templates";
+import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
 import type {
   MoveInFormAudience,
   MoveInFormMoveOutDays,
@@ -124,7 +124,6 @@ export function MoveInFormEditorModal({
   const [sendNow, setSendNow] = useState(mode === "add");
   // "Send to current residents now" only makes sense for the two sends that residents are already past.
   const sendsToExistingResidents = draft.trigger === "lease-signed" || draft.trigger === "application-approved";
-  const isDefaultForm = isDefaultMoveInForm(initial);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [startsFrom, setStartsFrom] = useState<string>(initial.source === "upload" && mode === "add" ? "upload" : (initial.starterKey ?? "blank"));
@@ -224,6 +223,7 @@ export function MoveInFormEditorModal({
         source: "upload",
         questions: newMoveInFormTemplate("upload").questions,
         starterKey: undefined,
+        kind: "other" as const,
         pdf: prev.pdf ?? null,
       }));
       return;
@@ -231,7 +231,7 @@ export function MoveInFormEditorModal({
     const starter = MOVE_IN_FORM_STARTERS.find((item) => (item.starterKey ?? item.id) === value);
     setDraft((prev) => {
       const keepName = prev.name.trim() && prev.name !== previous?.name;
-      if (!starter) return { ...prev, source: "built", pdf: null, questions: [], starterKey: undefined };
+      if (!starter) return { ...prev, source: "built", pdf: null, questions: [], starterKey: undefined, kind: "other" as const };
       return {
         ...prev,
         source: "built",
@@ -240,6 +240,8 @@ export function MoveInFormEditorModal({
         name: keepName ? prev.name : starter.name,
         trigger: starter.trigger,
         due: starter.due,
+        kind: starter.kind,
+        moveOutDaysBefore: starter.moveOutDaysBefore,
         starterKey: value as MoveInFormStarterKey,
       };
     });
@@ -278,13 +280,6 @@ export function MoveInFormEditorModal({
     setSaving(false);
     if (ok) onClose();
     else setSaveError("Could not delete this form. Try again.");
-  };
-
-  const resetToDefault = async () => {
-    if (!(await confirm({ description: "Reset this form to its default questions? Your own questions are replaced." }))) return;
-    setDraft((prev) => resetMoveInFormToDefault(prev));
-    setPreviewIndex(0);
-    setPreviewAnswers({});
   };
 
   const focusQuestion = (key: string) => {
@@ -688,17 +683,7 @@ export function MoveInFormEditorModal({
         ) : null
       }
       dangerAction={
-        mode === "edit" && isDefaultForm ? (
-          <button
-            type="button"
-            className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
-            data-attr="move-in-form-reset-default"
-            disabled={saving}
-            onClick={() => void resetToDefault()}
-          >
-            Reset to default questions
-          </button>
-        ) : mode === "edit" && onDelete ? (
+        mode === "edit" && onDelete ? (
           <button
             type="button"
             className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700 disabled:opacity-45"

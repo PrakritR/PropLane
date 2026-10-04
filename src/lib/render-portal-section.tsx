@@ -85,9 +85,8 @@ import { getProPortalRenderContext } from "@/lib/portals/pro-nav";
 import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
 import {
   legacyManagerPortalSectionPath,
-  MOVE_IN_FORM_LIST_TABS,
+  isMoveInFormTabSlug,
   parseApplicationDetailTab,
-  parseMoveInFormListTab,
   parseResidentMoveInTab,
   residentLeaseDetailHref,
 } from "@/lib/portal-detail-routes";
@@ -718,40 +717,35 @@ export async function renderPortalSection(
       }
     }
 
-    // The manager's one Move-in page: Intake | Move-in | Move-out (every resident's copy of that
-    // kind of form, sent and submitted together; Move-in is the default), Inspections (move-in /
-    // move-out photo reports) and Other (custom forms). Old /waiting and /submitted redirect.
-    // `/portal/move-in` is a different thing from a property's own Move-in tab; they share no route.
-    // Inspections routes: `/move-in/inspections[/{move-in|move-out}[/{reportId}[/{recordTab}]]]`;
-    // `/portal/inspections/...` redirects here (next.config.ts) with the same trailing segments.
+    // The manager's one Move-in page: a tab per form the manager has added to a property (grouped
+    // by form name; the tab id is a slug of it), each listing every resident's copy, sent and
+    // submitted together. The forms live in the browser's property store, so the page picks the
+    // tab itself: the bare `/move-in` (and a slug that matches no form) shows the first one.
+    // `/move-in/inspections` and `/move-in/inspections/{move-in|move-out}` redirect to `/move-in`;
+    // a single report (`.../inspections/{move-in|move-out}/{reportId}[/{recordTab}]`) keeps its page.
     if ((kind === "manager" || kind === "pro") && section === "move-in") {
-      if (!tabParts?.length || tabParts[0] === "waiting" || tabParts[0] === "submitted") redirect(`${def.basePath}/move-in/move-in`);
-      const moveInTab = tabParts[0];
+      const moveInTab = tabParts?.[0];
       if (moveInTab === "inspections") {
-        const inspectionKind = tabParts[1] ?? "move-in";
-        if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 4) notFound();
-        if (tabParts[2] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[2])) notFound();
-        const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
+        const inspectionKind = tabParts?.[1] ?? "move-in";
+        if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || (tabParts?.length ?? 0) > 4) notFound();
+        if (!tabParts?.[2]) redirect(`${def.basePath}/move-in`);
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[2])) notFound();
         return subscriptionGated(
-          tabParts[2] ? (
-            <ManagerInspectionsPage
-              kind={inspectionKind}
-              reportId={tabParts[2]}
-              recordTab={tabParts[3]}
-              basePath={def.basePath}
-            />
-          ) : (
-            <ManagerMoveInFormsPage tab="inspections" basePath={def.basePath} inspectionKind={inspectionKind} />
-          ),
+          <ManagerInspectionsPage
+            kind={inspectionKind}
+            reportId={tabParts[2]}
+            recordTab={tabParts[3]}
+            basePath={def.basePath}
+          />,
           kind,
           "move-in",
           managerOwnerSubscriptionTier,
         );
       }
-      if (!(MOVE_IN_FORM_LIST_TABS as readonly string[]).includes(moveInTab!) || tabParts.length > 1) notFound();
+      if ((tabParts?.length ?? 0) > 1 || (moveInTab !== undefined && !isMoveInFormTabSlug(moveInTab))) notFound();
       const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
       return subscriptionGated(
-        <ManagerMoveInFormsPage tab={parseMoveInFormListTab(moveInTab)} basePath={def.basePath} />,
+        <ManagerMoveInFormsPage tab={moveInTab} basePath={def.basePath} />,
         kind,
         "move-in",
         managerOwnerSubscriptionTier,

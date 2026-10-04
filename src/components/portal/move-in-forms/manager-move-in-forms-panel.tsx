@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * Sidebar › Move-in, the one hub for moving a resident in: Intake | Move-in | Move-out | Inspections,
- * plus Other when the manager has a custom or older form. Each form tab lists every resident's copy
- * of that kind of form across properties (sent and submitted together; late first, then waiting by
- * due date, then submitted newest first), on the house list surface copied from Properties: header
- * tabs with counts, search, a Filter (Property, Status) and the one round + that sends a form by
- * hand. Rows are tile · "Resident · Form" · "Property · Room" · glyph facts · ⋯, with no pill; a
- * late form reads as plain red text. Inspections mounts the move-in / move-out inspections list,
- * which takes this page's tab row as its own so the page keeps one control stack.
+ * Sidebar › Move-in: one tab per form the manager has added to a property, grouped by form name
+ * across properties (trimmed, case-insensitive), alphabetical. A form with no copies still has its
+ * tab. Each tab lists every resident's copy of that form (sent and submitted together, cancelled
+ * excluded; late first, then waiting by due date, then submitted newest first), on the house list
+ * surface copied from Properties: tabs with counts, search, a Filter (Property, Status) and the one
+ * round + that sends a form by hand. Rows are tile · "Resident · Form" · "Property · Room" · glyph
+ * facts · ⋯, with no pill; a late form reads as plain red text. The tabs come from the property
+ * store merged with the names on the loaded copies, so a renamed or deleted form's copies still show
+ * under the name they were sent with. With no form anywhere the page is one empty state.
  */
 import { useMemo, useState } from "react";
 import { CheckCircle2, Camera, Clock, PenLine, Send, type LucideIcon } from "lucide-react";
@@ -23,45 +24,32 @@ import { PortalSectionActionRow } from "@/components/portal/portal-section-actio
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import type { DestinationNavItem } from "@/components/ui/destination-nav";
-import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { MoveInFormViewer } from "@/components/portal/move-in-forms/move-in-form-viewer";
 import { SendMoveInFormPopup } from "@/components/portal/move-in-forms/move-in-form-send-popup";
 import { MoveInFormMenuItems, useMoveInFormRowActions } from "@/components/portal/move-in-forms/move-in-form-row-actions";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { usePropertyPipelineTick } from "@/hooks/use-property-pipeline-tick";
 import { useManagerMoveInForms } from "@/hooks/use-move-in-forms";
 import { track } from "@/lib/analytics/track-client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import { storedMoveInFormNames } from "@/lib/move-in-forms/manager-forms";
 import {
   filterMoveInForms,
   moveInFormFacts,
   moveInFormPlaceLine,
   moveInFormTabCounts,
+  moveInFormTabGroups,
   moveInFormTitle,
   type MoveInFormFact,
-  type MoveInFormListTab,
   type MoveInFormStatusBucket,
+  type MoveInFormTabGroup,
 } from "@/lib/move-in-forms/manager-rows";
 import type { MoveInFormSummary } from "@/lib/move-in-forms/types";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import {
-  moveInFormListHref,
-  moveInInspectionsHref,
-  propertyDetailHref,
-  propertyListHref,
-  MOVE_IN_FORM_LIST_TABS,
-  type MoveInFormListTabId,
-} from "@/lib/portal-detail-routes";
+import { moveInFormListHref, propertyDetailHref, propertyListHref } from "@/lib/portal-detail-routes";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
-
-const TAB_LABELS: Record<MoveInFormListTabId, string> = {
-  intake: "Intake",
-  "move-in": "Move-in",
-  "move-out": "Move-out",
-  inspections: "Inspections",
-  other: "Other",
-};
 
 const ALL = "all";
 
@@ -83,66 +71,36 @@ export function moveInFormEntryFacts(form: MoveInFormSummary, now: Date = new Da
   }));
 }
 
-/**
- * The hub's tab row. Form tabs carry their row counts; Inspections is a roster of residencies, so it
- * carries none. Other (custom or older forms) is drawn only when the manager has one, or is open.
- */
-export function moveInHubTabs(basePath: string, counts: Record<MoveInFormListTab, number>, openTab?: MoveInFormListTabId): DestinationNavItem[] {
-  return MOVE_IN_FORM_LIST_TABS.filter((id) => id !== "other" || counts.other > 0 || openTab === "other").map((id) => ({
-    id,
-    label: TAB_LABELS[id],
-    ...(id === "inspections" ? {} : { count: counts[id] }),
-    href: id === "inspections" ? moveInInspectionsHref(basePath) : moveInFormListHref(basePath, id),
-    dataAttr: `move-in-forms-tab-${id}`,
+/** The page's tab row: one tab per form, each carrying its row count. */
+export function moveInFormTabs(basePath: string, groups: readonly MoveInFormTabGroup[], counts: Record<string, number>): DestinationNavItem[] {
+  return groups.map((group) => ({
+    id: group.id,
+    label: group.label,
+    count: counts[group.id] ?? 0,
+    href: moveInFormListHref(basePath, group.id),
+    dataAttr: `move-in-forms-tab-${group.id}`,
   }));
 }
 
-export function ManagerMoveInFormsPage({
-  tab = "move-in",
-  basePath = "/portal",
-  inspectionKind = "move-in",
-}: {
-  tab?: MoveInFormListTabId;
-  basePath?: string;
-  /** Move-in / Move-out inside the Inspections tab. */
-  inspectionKind?: "move-in" | "move-out";
-}) {
+export function ManagerMoveInFormsPage({ tab, basePath = "/portal" }: { tab?: string; basePath?: string }) {
   return (
     <ManagerPortalPageShell title="Move-in" hideTitleOnMobileNav compactFilterRow>
-      <MoveInFormsPanel tab={tab} basePath={basePath} inspectionKind={inspectionKind} />
+      <MoveInFormsPanel tab={tab} basePath={basePath} />
     </ManagerPortalPageShell>
   );
 }
 
-function MoveInFormsPanel({ tab, basePath, inspectionKind }: { tab: MoveInFormListTabId; basePath: string; inspectionKind: "move-in" | "move-out" }) {
+function MoveInFormsPanel({ tab, basePath }: { tab?: string; basePath: string }) {
   const { userId, ready } = usePortalSession();
   if (!ready) {
     return <div role="status" aria-label="Loading move-in forms" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div>;
   }
   if (!userId && !isDemoModeActive()) return <p className="p-4 text-sm text-muted">Sign in to view move-in forms.</p>;
   // Remount on a viewer change so another account never sees stale rows.
-  if (tab === "inspections") {
-    return <MoveInInspectionsTab key={userId ?? "demo"} userId={userId ?? "demo"} basePath={basePath} kind={inspectionKind} />;
-  }
   return <MoveInFormsWorkspace key={userId ?? "demo"} userId={userId ?? "demo"} tab={tab} basePath={basePath} />;
 }
 
-/** The Inspections tab: the existing inspections list, led by this page's tab row. */
-function MoveInInspectionsTab({ userId, basePath, kind }: { userId: string; basePath: string; kind: "move-in" | "move-out" }) {
-  const { list } = useManagerMoveInForms(userId);
-  const counts = useMemo(() => moveInFormTabCounts(list.forms.filter((form) => workspaceContainsProperty(form.propertyId))), [list.forms]);
-  const destinations = useMemo(() => moveInHubTabs(basePath, counts, "inspections"), [basePath, counts]);
-  return (
-    <InspectionsPanel
-      role="manager"
-      initialKind={kind}
-      routeBase={moveInInspectionsHref(basePath)}
-      hubTabs={{ destinations, activeId: "inspections", ariaLabel: "Move-in" }}
-    />
-  );
-}
-
-function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: MoveInFormListTab; basePath: string }) {
+function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab?: string; basePath: string }) {
   const navigate = usePortalNavigate();
   const actions = useMoveInFormRowActions();
   const { list, loading, error, retry } = useManagerMoveInForms(userId);
@@ -159,20 +117,27 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
   // The workspace narrows the list to its own houses, like every other list; tab counts are the
   // narrowed, unfiltered totals so the tab and the rows can never disagree.
   const scoped = useMemo(() => list.forms.filter((form) => workspaceContainsProperty(form.propertyId)), [list.forms]);
-  const counts = useMemo(() => moveInFormTabCounts(scoped), [scoped]);
+  const propertyTick = usePropertyPipelineTick();
+  const groups = useMemo(() => {
+    void propertyTick; // the property store changed: read the forms again
+    return moveInFormTabGroups(storedMoveInFormNames(userId), scoped);
+  }, [userId, scoped, propertyTick]);
+  const counts = useMemo(() => moveInFormTabCounts(groups, scoped), [groups, scoped]);
+  // The bare address, and a slug that matches no form, show the first tab.
+  const active = groups.find((group) => group.id === tab) ?? groups[0] ?? null;
   const rows = useMemo(
-    () => filterMoveInForms(scoped, { tab, propertyId, status: status || undefined, query }, now),
-    [scoped, tab, propertyId, status, query, now],
+    () => (active ? filterMoveInForms(scoped, { formName: active.label, propertyId, status: status || undefined, query }, now) : []),
+    [scoped, active, propertyId, status, query, now],
   );
   const filtersActive = Boolean(propertyId || status);
-  const hasAny = counts[tab] > 0;
+  const hasAny = active ? (counts[active.id] ?? 0) > 0 : false;
 
   const propertyOptions = useMemo(() => {
     const options = new Map(buildManagerPropertyFilterOptions(userId).map((option) => [option.id, option.label]));
     for (const form of scoped) if (form.propertyId && !options.has(form.propertyId)) options.set(form.propertyId, form.propertyLabel);
     return [...options].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
   }, [userId, scoped]);
-  const tabs = moveInHubTabs(basePath, counts, tab);
+  const tabs = moveInFormTabs(basePath, groups, counts);
 
   const clearFilters = () => {
     setPropertyId("");
@@ -187,25 +152,45 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
   const selectedForm = selected.size === 1 ? scoped.find((form) => selected.has(form.id)) : undefined;
 
   const propertyLabel = propertyOptions.find((option) => option.id === propertyId)?.label ?? "";
-  const emptyCard = !hasAny
+  const emptyCard = !active
     ? {
-        title: portalEmptyCopy(`move-in.${tab}`).title,
+        title: portalEmptyCopy("move-in.forms").title,
         section: "move-in",
-        actions: demo ? [] : [{ label: "Make a move-in form", onClick: () => navigate(propertyListHref(basePath, "all")), dataAttr: "move-in-forms-empty-make" }],
-        sibling: portalEmptySibling(tabs.filter((t) => t.id !== "inspections").map((t) => ({ id: t.id, label: t.label.toLowerCase(), count: t.count ?? 0, href: t.href })), tab),
+        actions: demo ? [] : [{ label: "Add form", onClick: () => navigate(propertyListHref(basePath, "all")), dataAttr: "move-in-forms-empty-add" }],
       }
-    : rows.length === 0 && (query.trim() || filtersActive)
+    : !hasAny
       ? {
-          title: portalEmptyNoMatchTitle("move-in forms", query),
+          title: portalEmptyCopy("move-in.copies").title,
           section: "move-in",
-          tone: "muted" as const,
-          clear: { label: filtersActive ? "Clear filters" : "Clear search", onClick: clearFilters, dataAttr: "move-in-forms-empty-clear" },
+          sibling: portalEmptySibling(tabs.map((t) => ({ id: t.id, label: t.label.toLowerCase(), count: t.count ?? 0, href: t.href })), active.id),
         }
-      : {
-          title: portalEmptyCopy(`move-in.${tab}`).title,
-          section: "move-in",
-          sibling: portalEmptySibling(tabs.filter((t) => t.id !== "inspections").map((t) => ({ id: t.id, label: t.label.toLowerCase(), count: t.count ?? 0, href: t.href })), tab),
-        };
+      : rows.length === 0 && (query.trim() || filtersActive)
+        ? {
+            title: portalEmptyNoMatchTitle("move-in forms", query),
+            section: "move-in",
+            tone: "muted" as const,
+            clear: { label: filtersActive ? "Clear filters" : "Clear search", onClick: clearFilters, dataAttr: "move-in-forms-empty-clear" },
+          }
+        : {
+            title: portalEmptyCopy("move-in.copies").title,
+            section: "move-in",
+            sibling: portalEmptySibling(tabs.map((t) => ({ id: t.id, label: t.label.toLowerCase(), count: t.count ?? 0, href: t.href })), active.id),
+          };
+
+  if (!active) {
+    return (
+      <div className="min-w-0 space-y-3" data-attr="move-in-forms-panel">
+        <PortalRecordListSurface
+          isEmpty
+          loading={loading}
+          loadError={error ? "Couldn't load move-in forms" : undefined}
+          onRetry={retry}
+          emptyCard={emptyCard}
+          dataAttr="move-in-forms-list"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-w-0 space-y-3" data-attr="move-in-forms-panel">
@@ -213,7 +198,7 @@ function MoveInFormsWorkspace({ userId, tab, basePath }: { userId: string; tab: 
         variant="command"
         stickyDestinations
         destinationAriaLabel="Move-in forms"
-        activeDestinationId={tab}
+        activeDestinationId={active.id}
         destinations={tabs}
         search={{ value: query, onChange: setQuery, placeholder: "Search move-in forms", dataAttr: "move-in-forms-search" }}
         actions={

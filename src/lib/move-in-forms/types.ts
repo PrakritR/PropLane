@@ -41,8 +41,8 @@ export type MoveInFormTrigger =
   | "manual";
 
 /**
- * What a form is for. The three default kinds (intake, move-in, move-out) exist on every
- * property under stable ids (`default-intake` ...) and cannot be deleted; everything else is "other".
+ * What a form is for. Forms started from the Intake, Move-in or Move-out template carry that kind;
+ * everything else is "other". The kind rides on the sent copy; the manager's Move-in tabs follow the form's name.
  */
 export type MoveInFormKind = "intake" | "move-in" | "move-out" | "other";
 
@@ -65,6 +65,9 @@ export type MoveInFormDueRule =
   | "7-days-before-move-out";
 
 export type MoveInFormStarterKey =
+  | "intake-form"
+  | "move-in-form"
+  | "move-out-form"
   | "move-in-checklist"
   | "key-receipt"
   | "vehicle-parking"

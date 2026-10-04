@@ -10,7 +10,6 @@ import {
   encodeMultiSelectAnswer,
   parseMultiSelectAnswer,
 } from "@/lib/rental-application/custom-fields";
-import { isDefaultMoveInForm } from "@/lib/move-in-forms/templates";
 import type {
   MoveInFormAnswer,
   MoveInFormAudience,
@@ -328,9 +327,9 @@ export function upsertMoveInTemplate(list: readonly MoveInFormTemplate[], templa
   return exists ? list.map((item) => (item.id === template.id ? next : item)) : [...list, next];
 }
 
-/** The three default forms are never deleted (the server re-adds them); everything else can be. */
+/** Any form the manager added can be deleted. */
 export function removeMoveInTemplate(list: readonly MoveInFormTemplate[], id: string): MoveInFormTemplate[] {
-  return list.filter((item) => item.id !== id || isDefaultMoveInForm(item));
+  return list.filter((item) => item.id !== id);
 }
 
 /** A copy sits right after its original, with a new id, set to "only when I send it" so a duplicate never double-sends on its own. */

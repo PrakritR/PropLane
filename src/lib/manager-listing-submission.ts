@@ -38,7 +38,7 @@ import {
 import type { BathroomDefaults, SharedSpaceDefaults } from "@/lib/listing-record-defaults";
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { normalizeLeaseUtilities } from "@/lib/lease-utilities";
-import { normalizeMoveInFormTemplates, readMoveInFormSettings, withDefaultMoveInForms } from "@/lib/move-in-forms/templates";
+import { normalizeMoveInFormTemplates, readMoveInFormSettings } from "@/lib/move-in-forms/templates";
 import type { MoveInFormSettings, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import {
   defaultRemovedStandardListingFeeRowsForNewListing,
@@ -2942,10 +2942,7 @@ function normalizeManagerListingSubmissionV1Base(
         ? true
         : undefined,
     moveInFormTemplates: Array.isArray((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates)
-      ? withDefaultMoveInForms(
-        normalizeMoveInFormTemplates((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates),
-        { restoredTrigger: "manual" },
-      )
+      ? normalizeMoveInFormTemplates((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates)
       : undefined,
     moveInFormSettings:
       (sub as { moveInFormSettings?: unknown }).moveInFormSettings &&
