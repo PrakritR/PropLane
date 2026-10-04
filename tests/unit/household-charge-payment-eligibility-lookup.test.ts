@@ -1,21 +1,10 @@
 /**
- * `lookupFailed` is what lets a gate tell "this property collects offline" from
- * "nothing could be read". Every read the enrichment makes has to feed it -
- * the payout-account read included, because a manager whose account is actually
- * unusable would otherwise read as payable and hold the resident at 402 behind
- * a checkout that cannot succeed.
+ * `lookupFailed` distinguishes a listing that collects offline from a failed
+ * property read. A manager payout account is not required for platform checkout.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/stripe", () => ({
-  getStripe: () => {
-    throw new Error("no stripe in tests");
-  },
-}));
-vi.mock("@/lib/stripe-connect", () => ({
-  validateManagerConnectForDestinationCharge: async () => ({ ok: true }),
-}));
 
 import { enrichHouseholdChargesFromPropertyRecordsResult } from "@/lib/household-charge-payment-eligibility.server";
 import type { HouseholdCharge } from "@/lib/household-charges";
@@ -23,7 +12,9 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 const fail: Record<string, boolean> = {};
 
 function fakeDb() {
+  const reads: string[] = [];
   const from = (table: string) => {
+    reads.push(table);
     const q: Record<string, unknown> = {
       select: () => q,
       eq: () => q,
@@ -39,7 +30,7 @@ function fakeDb() {
     };
     return q;
   };
-  return { from } as never;
+  return { db: { from } as never, reads };
 }
 
 const charge = {
@@ -65,26 +56,27 @@ beforeEach(() => {
 
 describe("enrichHouseholdChargesFromPropertyRecordsResult", () => {
   it("reports no failure when every read succeeds", async () => {
-    const result = await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb(), [charge]);
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb().db, [charge]);
     expect(result.lookupFailed).toBe(false);
     expect(result.charges).toHaveLength(1);
   });
 
   it("reports a failed property read", async () => {
     fail.manager_property_records = true;
-    expect((await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb(), [charge])).lookupFailed).toBe(true);
+    expect((await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb().db, [charge])).lookupFailed).toBe(true);
   });
 
-  it("reports a failed payout-account read too", async () => {
+  it("does not read payout accounts or block an otherwise payable charge", async () => {
     fail.profiles = true;
-    const result = await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb(), [charge]);
-    expect(result.lookupFailed).toBe(true);
-    // Undefined, not false: nothing was learned about the account either way.
+    const { db, reads } = fakeDb();
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [charge]);
+    expect(result.lookupFailed).toBe(false);
+    expect(reads).not.toContain("profiles");
     expect(result.charges[0]!.managerStripeConnectReadySnapshot).toBeUndefined();
   });
 
   it("says nothing failed for an empty list", async () => {
     fail.profiles = true;
-    expect((await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb(), [])).lookupFailed).toBe(false);
+    expect((await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb().db, [])).lookupFailed).toBe(false);
   });
 });

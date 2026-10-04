@@ -192,7 +192,7 @@ Required events:
 3. **Add a bank account for payouts** (own sheet/embedded component, per account type).
 4. Wait for badge **Payouts ready** (transfers + payouts active).
 
-Until this is done there is no rail a resident can pay on, so checkout is refused and the resident is told to ask the manager to finish payment setup.
+Residents can still pay while the manager finishes payout setup. Checkout charges the platform and records a hold; the funds transfer to the manager once their Connect account and bank are ready.
 
 ---
 

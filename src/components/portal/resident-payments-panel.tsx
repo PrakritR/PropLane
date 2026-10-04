@@ -492,17 +492,6 @@ export function ResidentPaymentsPanel({
     [termCharges],
   );
 
-  const managerStripeConnectBlocked = useMemo(
-    () =>
-      charges.some(
-        (c) =>
-          c.status === "pending" &&
-          c.axisPaymentsEnabledSnapshot === true &&
-          c.managerStripeConnectReadySnapshot === false,
-      ),
-    [charges],
-  );
-
   const refresh = useCallback(() => {
     setTick((n) => n + 1);
   }, []);
@@ -1786,15 +1775,6 @@ export function ResidentPaymentsPanel({
             ) : (paymentsCommandActions ?? undefined)
           }
         />
-        {managerStripeConnectBlocked ? (
-          <div
-            className={`${PORTAL_INLINE_STATUS_NOTICE_CLASS} mb-3 border-[var(--status-pending-border)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`}
-            data-attr="resident-payments-connect-blocked"
-          >
-            Your property manager is still finishing PropLane payment setup, so bank and card checkout
-            is not available yet. Message your manager in Communication if you need help.
-          </div>
-        ) : null}
         {paymentsCards}
         {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}
         <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={paySelectionActions} />}>{paymentsBody}</PortalRecordListSurface>
