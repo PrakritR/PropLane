@@ -30,6 +30,8 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useLinkedFormRequests } from "@/hooks/use-linked-form-requests";
+import { owedNeededBeforeReview, waitingOnFormsFact } from "@/lib/application-linked-form-requests";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
@@ -159,10 +161,21 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
     [],
   );
 
+  // Forms the manager marked "needed before review" that are still owed ask for one confirm, never a hard block.
+  const { requests: linkedForms } = useLinkedFormRequests(row.id);
+  const owedForms = owedNeededBeforeReview(linkedForms);
+  const [owedConfirmed, setOwedConfirmed] = useState(false);
+  const owedFact = waitingOnFormsFact(linkedForms);
+  const needsOwedConfirm = owedForms.length > 0 && !owedConfirmed;
+
   const approve = async () => {
     if (busy) return;
     if (shared && slot == null) {
       setError("No bed is open in this room.");
+      return;
+    }
+    if (needsOwedConfirm) {
+      setOwedConfirmed(true);
       return;
     }
     setBusy(true);
@@ -303,7 +316,7 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
         />
       }
       primaryAction={{
-        label: "Approve",
+        label: owedConfirmed && owedForms.length > 0 ? "Approve anyway" : "Approve",
         loading: busy,
         disabled: busy || (shared && slot == null),
         dataAttr: "approve-application-confirm",
@@ -311,6 +324,17 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
       }}
     >
       <div className="space-y-1" data-attr="approve-application-body">
+        {owedFact ? (
+          <p
+            className="pb-2 text-sm font-semibold text-foreground"
+            role={owedConfirmed ? "alert" : undefined}
+            data-attr="approve-application-owed-forms"
+          >
+            {owedConfirmed
+              ? `${owedFact}. Approve without ${owedForms.length === 1 ? "it" : "them"}?`
+              : owedFact}
+          </p>
+        ) : null}
         <ApproveRow label="Room">
           <span className="text-sm font-bold text-foreground">{placeLine(row) || "Not assigned"}</span>
         </ApproveRow>

@@ -149,6 +149,7 @@ import {
 import { ManagerLinkGate } from "@/components/marketing/manager-link-gate";
 import { ApplicationUnavailableContactManager } from "@/components/marketing/application-unavailable-contact-manager";
 import { RentalApplicationFinishPanel } from "@/components/marketing/rental-application-finish-panel";
+import type { IssuedLinkedFormView } from "@/lib/application-linked-form-requests";
 import {
   activeWizardProgressPct,
   canNavigateToWizardStep,
@@ -521,6 +522,8 @@ function RentalApplicationWizardInner({
     groupSize?: string;
     groupPropertyId?: string;
     hasCosigner?: "yes" | "no" | null;
+    /** Forms the template's rules owe after this submit, from the submit response. */
+    linkedForms?: IssuedLinkedFormView[];
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
@@ -2061,6 +2064,7 @@ function RentalApplicationWizardInner({
           groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
           groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
           hasCosigner: submittedForm.hasCosigner,
+          linkedForms: sync.linkedForms,
         });
         showToast("Application submitted.");
         return {
@@ -2089,6 +2093,7 @@ function RentalApplicationWizardInner({
         groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
         groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
         hasCosigner: submittedForm.hasCosigner,
+        linkedForms: sync.linkedForms,
       });
       showToast("Application submitted.");
       return {
@@ -2682,6 +2687,7 @@ function RentalApplicationWizardInner({
             groupSize={postSubmit.groupSize}
             groupPropertyId={postSubmit.groupPropertyId}
             hasCosigner={postSubmit.hasCosigner}
+            linkedForms={postSubmit.linkedForms}
             onDone={() => {
               clearApplicationFeeSubmitConfirm();
               setPostSubmit(null);

@@ -13,6 +13,7 @@ import {
   notifyManagerApplicationSubmitted,
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
+import { createLinkedFormRequestsForSubmit } from "@/lib/application-linked-form-requests.server";
 import { dispatchMoveInFormsForResidencyAfterResponse } from "@/lib/move-in-forms/server";
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
@@ -271,6 +272,9 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     );
     // Forms set to go out once the application is submitted (the default Intake form).
     dispatchMoveInFormsForResidencyAfterResponse(row.id, "application-submitted");
+    // Forms the template's rules owe. No browser is waiting on this path, so no share token is handed back;
+    // the applicant asks for a link from the finish screen or their portal when they want one.
+    await createLinkedFormRequestsForSubmit(db, { applicationId: row.id, row });
   }
 
   return {

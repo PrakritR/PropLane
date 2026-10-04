@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
 import { GroupInviteCallout } from "@/components/marketing/group-invite-callout";
+import { LinkedFormsFinishList, type LinkedFormListItem } from "@/components/marketing/linked-forms-finish-list";
+import { isLinkedFormOpen } from "@/lib/application-linked-form-requests";
 import type { GroupRole } from "@/lib/rental-application/types";
 
 type FinishPanelProps = {
@@ -24,6 +26,8 @@ type FinishPanelProps = {
   groupSize?: string;
   groupPropertyId?: string;
   hasCosigner?: "yes" | "no" | null;
+  /** Forms the template's rules owe after this submit (replaces the co-signer copy box when there are any). */
+  linkedForms?: readonly LinkedFormListItem[];
   onDone: () => void;
 };
 
@@ -97,6 +101,7 @@ export function RentalApplicationFinishPanel({
   groupSize,
   groupPropertyId,
   hasCosigner,
+  linkedForms = [],
   onDone,
 }: FinishPanelProps) {
   const signInHref = `/auth/sign-in?intent=resident&next=${encodeURIComponent("/resident/applications")}`;
@@ -104,7 +109,10 @@ export function RentalApplicationFinishPanel({
   const emailFailed = guestFlow && emailSent === false;
   const showGroup = Boolean(groupLeaderAppId?.trim() && groupRole === "first");
   const showGroupJoined = groupRole === "joining";
-  const showCosignerInvite = hasCosigner === "yes";
+  const hasLinkedForms = linkedForms.some((form) => isLinkedFormOpen(form.status));
+  // The linked-forms list carries a co-signer form when the template links one; the bare copy box is only the
+  // fallback for an application that planned a co-signer but whose template links no form.
+  const showCosignerInvite = hasCosigner === "yes" && !hasLinkedForms;
   const canCreateAccount = guestFlow && Boolean(setupHref?.startsWith("/auth/resident-setup"));
 
   return (
@@ -143,6 +151,8 @@ export function RentalApplicationFinishPanel({
       ) : showGroupJoined ? (
         <GroupShareCallout groupRole="joining" />
       ) : null}
+
+      {hasLinkedForms ? <LinkedFormsFinishList forms={linkedForms} className="mt-6" /> : null}
 
       {showCosignerInvite ? (
         <CosignerInviteCallout signerAppId={axisId} className="mt-6" />

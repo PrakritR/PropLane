@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ApplicationHouseholdInlinePanels } from "@/components/portal/application-household-inline-panels";
+import { ApplicationLinkedFormsSection } from "@/components/portal/application-linked-forms-section";
 import { groupIdForRow } from "@/components/portal/application-group-section";
 import { ApplicationReviewLauncherRow } from "@/components/portal/application-review-launcher-row";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -65,16 +66,19 @@ export function ApplicationDetailReviewBody({
       onScreeningSubjectChange={onScreeningSubjectChange}
       onRequestChecksForSubjects={onRequestChecksForSubjects}
       householdPanels={
-        <ApplicationHouseholdInlinePanels
-          cosignerSubmissions={cosignerSubmissions}
-          hasCosigner={row.application?.hasCosigner}
-          applyingAsGroup={row.application?.applyingAsGroup}
-          groupId={groupIdForRow(row)}
-          onOpenCosigner={householdNav?.onOpenCosigner}
-          group={group}
-          currentRowId={row.id}
-          onOpenApplication={householdNav?.onOpenApplication}
-        />
+        <>
+          <ApplicationHouseholdInlinePanels
+            cosignerSubmissions={cosignerSubmissions}
+            hasCosigner={row.application?.hasCosigner}
+            applyingAsGroup={row.application?.applyingAsGroup}
+            groupId={groupIdForRow(row)}
+            onOpenCosigner={householdNav?.onOpenCosigner}
+            group={group}
+            currentRowId={row.id}
+            onOpenApplication={householdNav?.onOpenApplication}
+          />
+          <ApplicationLinkedFormsSection applicationId={row.id} />
+        </>
       }
       omitReviewSections={["cosigner", "group"]}
       className={className}

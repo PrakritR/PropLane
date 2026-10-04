@@ -12,6 +12,7 @@ import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lea
 import { linkedOwnerForProperty, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-resident";
 import { isDraftApplicationRow, normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { createLinkedFormRequestsForSubmit } from "@/lib/application-linked-form-requests.server";
 import { applicationEventForTransition, emitApplicationTransition } from "@/lib/domain-action-events.server";
 import { dispatchMoveInFormsForResidencyAfterResponse } from "@/lib/move-in-forms/server";
 import {
@@ -1213,6 +1214,11 @@ export async function POST(req: Request) {
       const previousRow = existing ?? null;
       await persistNormalizedRow(db, existingRecord?.id ?? row.id, row, existingRecord ?? null);
       await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
+      // Forms the published template's rules owe after this submit. Only the first submit creates them; the
+      // share tokens are returned once, to the browser that just submitted.
+      const guestLinkedForms = shouldNotifyManagerOfApplicationSubmit(previousRow, row)
+        ? await createLinkedFormRequestsForSubmit(db, { applicationId: String(existingRecord?.id ?? row.id), row })
+        : [];
       if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
         void notifyManagerApplicationSubmitted(db, row).catch(
           bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
@@ -1245,6 +1251,7 @@ export async function POST(req: Request) {
         setupToken: guest.setupToken,
         setupHref: buildResidentSetupHref(guest.setupToken, row.id),
         axisId: row.id,
+        ...(guestLinkedForms.length > 0 ? { linkedForms: guestLinkedForms } : {}),
       });
     }
     const { role, email } = await resolvePortalRole(db, user);
@@ -1438,6 +1445,9 @@ export async function POST(req: Request) {
     }
     row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);
     await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
+    const linkedForms = shouldNotifyManagerOfApplicationSubmit(previousRow, row)
+      ? await createLinkedFormRequestsForSubmit(db, { applicationId: String(authorizedWriteRecord?.id ?? row.id), row })
+      : [];
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
       void notifyManagerApplicationSubmitted(db, row).catch(
           bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
@@ -1497,7 +1507,15 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json(residentSelfWrite ? { ok: true, row: prepareApplicantIdentityWrite(row, null, row.id) } : { ok: true });
+    return NextResponse.json(
+      residentSelfWrite
+        ? {
+            ok: true,
+            row: prepareApplicantIdentityWrite(row, null, row.id),
+            ...(linkedForms.length > 0 ? { linkedForms } : {}),
+          }
+        : { ok: true },
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save application.";
     const code = e && typeof e === "object" && "code" in e ? String(e.code) : "";
