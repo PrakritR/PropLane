@@ -19,6 +19,8 @@ describe("dropdown menus keep the liquid default", () => {
       .filter(Boolean);
     expect(out.map((l) => l.replace(/:\d+:.*$/, ""))).toEqual([
       "src/components/portal/application-form-builder.tsx",
+      // The shared question editor's ⋯ menu lives in the same full-page editor modals.
+      "src/components/portal/question-editor/question-sections-editor.tsx",
     ]);
     expect(out.some((l) => l.includes("glass={false}"))).toBe(false);
   });
