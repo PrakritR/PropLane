@@ -75,6 +75,6 @@ describe("services empty state is one surface", () => {
     expect(src).toMatch(/!servicesListIsEmpty && "overflow-hidden rounded-xl border border-border bg-card shadow-sm"/);
     // ...and never applied unconditionally around the empty card.
     expect(src).not.toMatch(/className="svc30 overflow-hidden rounded-xl border/);
-    expect(src).toMatch(/!servicesListIsEmpty && "border-t border-border"/);
+    expect(src).toMatch(/!servicesListIsEmpty && "border-t border-border pb-0 lg:pb-0 max-lg:pb-0"/);
   });
 });
