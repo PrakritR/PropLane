@@ -63,7 +63,7 @@ import {
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
 import { RENTAL_APPLICATION_SECTIONS, type RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
-import { canEditBuiltInApplicationField, orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { builtInAnswersAreFixed, canEditBuiltInApplicationField, orderedEditorApplicationFields } from "@/lib/application-editor-fields";
 import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
 import { applicationFieldsToImportSections } from "@/lib/import-staging/application-sections";
 import {
@@ -558,7 +558,7 @@ export function ManagerApplicationQuestionsEditorModal({
   const showDelete = templateEditorMode === "edit" && canDelete && Boolean(onDelete);
   const confirm = useConfirm();
 
-  const canEditBuiltIn = (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order"): boolean =>
+  const canEditBuiltIn = (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order" | "type" | "options"): boolean =>
     canEditBuiltInApplicationField(variant, field, action);
 
   const handleDelete = async () => {
@@ -1132,7 +1132,8 @@ export function ManagerApplicationQuestionsEditorModal({
   const patchField = (field: ResolvedApplicationField, patch: Partial<ManagerCustomApplicationField>) => {
     if ((patch.label !== undefined && !canEditBuiltIn(field, "label")) ||
       (patch.required !== undefined && !canEditBuiltIn(field, "required")) ||
-      (patch.options !== undefined && field.isStandard && field.options.length > 0) ||
+      (patch.options !== undefined && field.isStandard && field.options.length > 0 &&
+        !(builtInAnswersAreFixed(field) && patch.options.length === field.options.length)) ||
       (patch.type !== undefined && variant === "cosigner" && !field.isStandard && (patch.type === "file" || patch.type === "photos"))) return;
     applyEditedSlice(patchListingApplicationField(configSlice, field, patch));
   };

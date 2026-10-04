@@ -5,6 +5,7 @@
  * (pick questions), Required, and Done. Delete is a red text button on the left, absent when the
  * system reads the question and it cannot go.
  */
+import { useState } from "react";
 import { OptionRowsEditor } from "@/components/portal/application-question-edit-modal";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
@@ -34,13 +35,15 @@ export function QuestionInlineForm({
   dataAttrPrefix: string;
 }) {
   const can = question.can ?? {};
+  // A built-in whose words are cleared reads as its default again; keep what is being typed until the field loses focus.
+  const [labelDraft, setLabelDraft] = useState<string | null>(null);
   const typeOptions = allowedTypes.some((type) => type.id === question.type)
     ? allowedTypes
     : [...allowedTypes, { id: question.type, label: question.type }];
   const currentTypeLabel = typeOptions.find((type) => type.id === question.type)?.label ?? question.type;
   const canRequired = can.required !== false;
   return (
-    <div className="space-y-4 py-3" data-attr={`${dataAttrPrefix}-question-form`}>
+    <div className="space-y-4 py-3" data-attr={`${dataAttrPrefix}-question-form`} data-question-id={question.id}>
       <div>
         <label className={LABEL_CLASS} htmlFor={`${dataAttrPrefix}-label-${question.id}`}>Question</label>
         {can.label === false ? (
@@ -48,8 +51,12 @@ export function QuestionInlineForm({
         ) : (
           <Input
             id={`${dataAttrPrefix}-label-${question.id}`}
-            value={question.label}
-            onChange={(event) => onPatch({ label: event.target.value })}
+            value={labelDraft ?? question.label}
+            onChange={(event) => {
+              setLabelDraft(event.target.value);
+              onPatch({ label: event.target.value });
+            }}
+            onBlur={() => setLabelDraft(null)}
             placeholder="e.g. Do you smoke?"
             autoFocus={!question.label}
             data-attr={`${dataAttrPrefix}-question-label`}
@@ -76,7 +83,7 @@ export function QuestionInlineForm({
       {questionTypeUsesChoices(question.type) && can.options !== false ? (
         <div>
           <span className={LABEL_CLASS}>Choices</span>
-          <OptionRowsEditor options={question.options} onChange={(options) => onPatch({ options })} />
+          <OptionRowsEditor options={question.options} onChange={(options) => onPatch({ options })} reword={can.fixedOptions === true} />
         </div>
       ) : null}
       <div className="flex items-center justify-between gap-3">

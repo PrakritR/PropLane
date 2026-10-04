@@ -1,6 +1,7 @@
 import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
 import { normalizeCustomApplicationFieldsForEditor } from "@/lib/manager-listing-submission";
 import {
+  BUILT_IN_ANSWER_VALUES,
   NEVER_DISABLED_STANDARD_KEY_SET,
   TYPE_LOCKED_STANDARD_KEY_SET,
   resolveListingApplicationFields,
@@ -45,30 +46,34 @@ export function orderedEditorApplicationFields(configSlice: ApplicationConfigSli
 }
 
 /**
- * Which edits the editor allows on a question. Every question's text, required flag, choices and type can
- * be edited and every question can be removed, except the few the system reads by key
- * (`NEVER_DISABLED_STANDARD_KEYS`: not removable; `TYPE_LOCKED_STANDARD_KEYS`: type fixed) and the
- * positions the applicant wizard fixes (household and property built-ins, and the whole co-signer form).
+ * Which edits the editor allows on a question. Nothing is locked except what the system cannot work without:
+ * a few built-ins cannot be removed (`NEVER_DISABLED_STANDARD_KEYS`), name, phone and email stay required,
+ * the type of a built-in the system reads by key is fixed (`TYPE_LOCKED_STANDARD_KEYS`), property and room
+ * choices keep their listing-driven options, and the household and property built-ins keep the positions the
+ * applicant wizard lays out (the household pair can still swap). Every question's words are editable. A built-in
+ * whose choices the wizard reads by stored value (`BUILT_IN_ANSWER_VALUES`) can have each choice reworded.
  */
 export function canEditBuiltInApplicationField(
   variant: ApplicationFormVariant,
   field: ResolvedApplicationField,
-  action: "label" | "required" | "visibility" | "order" | "type",
+  action: "label" | "required" | "visibility" | "order" | "type" | "options",
 ): boolean {
   if (!field.isStandard) return true;
   const key = field.standardKey ?? "";
   if (variant === "cosigner") {
-    if (action === "order" || action === "type") return false;
+    if (action === "order" || action === "type" || action === "options") return false;
     if (key === "personal-date-of-birth" || key === "personal-social-security-number") return true;
     return action === "label" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email");
   }
   if (action === "type") return !TYPE_LOCKED_STANDARD_KEY_SET.has(key);
-  if (action === "order" && (field.section === "household" || field.section === "property")) return false;
-  if (action === "label" && field.section === "household") return false;
-  // C195: identity, SSN, ID and income are read directly by screening/charges/leases, so a manager
-  // hiding one breaks approval with no error at disable-time. Only removal is locked for SSN, ID,
-  // DOB and income; name, phone and email are also always required.
+  if (action === "options") return key in BUILT_IN_ANSWER_VALUES || !TYPE_LOCKED_STANDARD_KEY_SET.has(key);
+  if (action === "order" && field.section === "property") return false;
   if (action === "visibility" && NEVER_DISABLED_STANDARD_KEY_SET.has(key)) return false;
   if (action === "required" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email")) return false;
   return true;
+}
+
+/** True when the choices can be reworded but not added, removed or reordered (the wizard reads their stored values). */
+export function builtInAnswersAreFixed(field: Pick<ResolvedApplicationField, "isStandard" | "standardKey">): boolean {
+  return Boolean(field.isStandard && field.standardKey && field.standardKey in BUILT_IN_ANSWER_VALUES);
 }

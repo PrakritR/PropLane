@@ -1,7 +1,7 @@
 "use client";
 
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
-import { Children, isValidElement, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -82,6 +82,7 @@ import { CustomQuestionField } from "@/components/rental-application/custom-ques
 import {
   activeApplicationWizardSteps,
   applicationFieldCatalogDef,
+  builtInAnswerLabel,
   isWizardFormFieldEnabled,
   resolveListingApplicationFields,
   type ApplicationConfigSlice,
@@ -965,205 +966,233 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
       form.propertyId.trim().length > 0 &&
       getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) }).length > 0;
 
+    // Each household question is worded from the template's own question (the stored key never changes), and the
+    // pair follows the order the manager gave it. A question the manager deleted is simply not asked.
+    const groupQuestion = standardQuestion("household", "applyingAsGroup");
+    const cosignerQuestion = standardQuestion("household", "hasCosigner");
+    const groupLabel = pairedInputLabel(groupQuestion, "Applying as part of a group?");
+    const cosignerLabel = pairedInputLabel(cosignerQuestion, "Will someone co-sign with you?");
+    const groupAnswerLabels = { yes: builtInAnswerLabel(groupQuestion, "yes", "Yes"), no: builtInAnswerLabel(groupQuestion, "no", "No") };
+    const cosignerAnswerLabels = { yes: builtInAnswerLabel(cosignerQuestion, "yes", "Yes"), no: builtInAnswerLabel(cosignerQuestion, "no", "No") };
+    const householdBlocks: Record<"applyingAsGroup" | "hasCosigner", ReactNode> = {
+      applyingAsGroup: showGroup ? (
+  showGroup ? (
+              <>
+                <ApplyFieldRow
+                  label={groupLabel}
+                  error={errors.applyingAsGroup}
+                  fieldKey="applyingAsGroup"
+                  inline
+                  showRequiredMarker={false}
+                  labelClassName="text-sm font-semibold text-foreground"
+                  className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
+                >
+                  <YesNoPills
+                    value={form.applyingAsGroup}
+                    error={errors.applyingAsGroup}
+                    name={pairedInputLabel(groupQuestion, "Group application")}
+                    labels={groupAnswerLabels}
+                    fieldKey="applyingAsGroup"
+                    suppressError
+                    onChange={(v) => {
+                      if (v === "no") {
+                        patch({
+                          applicantRole: "signer",
+                          applyingAsGroup: v,
+                          groupRole: null,
+                          groupSize: "",
+                          groupId: "",
+                          groupLeaderAppId: "",
+                        });
+                        return;
+                      }
+                      onEnsureApplicationId?.();
+                      patch({
+                        applicantRole: "signer",
+                        applyingAsGroup: v,
+                        groupRole: joiningGroup ? "joining" : "first",
+                        groupId: joiningGroup
+                          ? form.groupId
+                          : form.groupId.trim() || makeApplicationGroupId(),
+                      });
+                    }}
+                  />
+                </ApplyFieldRow>
+
+                {form.applyingAsGroup === "yes" ? (
+                  <>
+                    <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
+                      One person applies first and gets a Group ID. Everyone else pastes that same
+                      ID below so the manager sees you as one household. Each of you still files your
+                      own application
+                      {propertyOffersBundles
+                        ? ". If you all choose the same lease bundle, move-in costs split evenly across your group; otherwise each person is billed their own charges."
+                        : " and is billed your own charges."}
+                    </p>
+
+                    <ApplyFieldRow
+                      label="Organizer application ID"
+                      optional
+                      inline
+                      error={errors.groupLeaderAppId}
+                      fieldKey="groupLeaderAppId"
+                      labelClassName="text-sm font-semibold text-foreground"
+                      className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
+                    >
+                      <GroupLeaderAppIdField
+                        value={form.groupLeaderAppId}
+                        onChange={(next) => {
+                          const trimmed = next.trim();
+                          patch({
+                            groupLeaderAppId: next,
+                            groupRole: trimmed ? "joining" : "first",
+                            groupId: trimmed ? form.groupId : makeApplicationGroupId(),
+                            ...(trimmed ? { groupSize: "" } : {}),
+                          });
+                        }}
+                        error={errors.groupLeaderAppId}
+                        onResolved={(preview) => {
+                          if (preview) {
+                            patch({
+                              groupLeaderAppId: preview.leaderAppId,
+                              groupId: preview.groupId,
+                              groupRole: "joining",
+                              ...(preview.propertyId && !form.propertyId.trim()
+                                ? { propertyId: preview.propertyId }
+                                : {}),
+                              ...(preview.groupSize != null && !form.groupSize.trim()
+                                ? { groupSize: String(preview.groupSize) }
+                                : {}),
+                            });
+                          }
+                        }}
+                        suppressError
+                      />
+                    </ApplyFieldRow>
+                  </>
+                ) : null}
+
+                {organizingGroup ? (
+                  <ApplyFieldRow
+                    label="How many people in the group?"
+                    error={errors.groupSize}
+                    fieldKey="groupSize"
+                    inline
+                    labelClassName="text-sm font-semibold text-foreground"
+                    className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
+                  >
+                    {/*
+                      The organizer's declared size is load-bearing, not a nicety:
+                      `buildBundleApplicationGroups` derives the group's expected size
+                      from it (driving "Group N/M", missingCount and isComplete), and
+                      `bundle-cost-split` divides the move-in charges by it. It was
+                      never collected anywhere in the UI — only ever read back — so
+                      every group read as "size unknown" and no split could be made.
+                    */}
+                    <Input
+                      id="groupSize"
+                      type="number"
+                      inputMode="numeric"
+                      min={2}
+                      max={12}
+                      step={1}
+                      placeholder="e.g. 3"
+                      value={form.groupSize}
+                      onChange={(e) => patch({ groupSize: e.target.value })}
+                      className={errors.groupSize ? "border-red-400 ring-2 ring-red-100" : ""}
+                      aria-describedby="groupSizeHelp"
+                    />
+                    <p id="groupSizeHelp" className="mt-1.5 text-xs text-muted">
+                      Everyone applying together, including you.
+                      {propertyOffersBundles
+                        ? " Move-in costs split evenly when you all choose the same lease bundle; otherwise each person is billed their own charges."
+                        : " Each person is billed their own charges."}
+                    </p>
+                  </ApplyFieldRow>
+                ) : null}
+
+                {joiningGroup ? (
+                  <div className="px-4 pb-4 sm:px-5">
+                    <p className="rounded-xl border border-border bg-card/40 px-3 py-2.5 text-xs leading-relaxed text-muted">
+                      You are joining the group started by{" "}
+                      <span className="font-semibold text-foreground">{form.groupLeaderAppId.trim()}</span>. The
+                      organizer declared the group size — you do not need to enter it. Finish your own
+                      application and the manager will see you both on the same household.
+                    </p>
+                  </div>
+                ) : null}
+
+                {organizingGroup && inviteAppId ? (
+                  <div className="px-4 pb-4 sm:px-5">
+                    <GroupInviteCallout
+                      leaderAppId={inviteAppId}
+                      organizerName={form.fullLegalName.trim() || undefined}
+                      groupSize={form.groupSize.trim() || undefined}
+                      propertyId={form.propertyId.trim() || undefined}
+                      pendingSubmit
+                    />
+                  </div>
+                ) : null}
+              </>
+            ) : null
+      ) : null,
+      hasCosigner: showCosigner ? (
+  showCosigner ? (
+              <>
+                <ApplyFieldRow
+                  label={cosignerLabel}
+                  error={errors.hasCosigner}
+                  fieldKey="hasCosigner"
+                  inline
+                  showRequiredMarker={false}
+                  labelClassName="text-sm font-semibold text-foreground"
+                  className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
+                >
+                  <YesNoPills
+                    value={form.hasCosigner}
+                    error={errors.hasCosigner}
+                    name={pairedInputLabel(cosignerQuestion, "Co-signer")}
+                    labels={cosignerAnswerLabels}
+                    fieldKey="hasCosigner"
+                    suppressError
+                    onChange={(v) => {
+                      if (v === "yes") onEnsureApplicationId?.();
+                      patch({ applicantRole: "signer", hasCosigner: v });
+                    }}
+                  />
+                </ApplyFieldRow>
+                {form.hasCosigner === "yes" && inviteAppId ? (
+                  <div className="px-4 pb-4 sm:px-5">
+                    <CosignerInviteCallout
+                      signerAppId={inviteAppId}
+                      signerName={form.fullLegalName.trim() || undefined}
+                      pendingSubmit
+                    />
+                  </div>
+                ) : null}
+              </>
+            ) : null
+      ) : null,
+    };
+    const householdOrder = (["applyingAsGroup", "hasCosigner"] as const)
+      .map((key, index) => ({
+        key,
+        position: resolvedQuestions.findIndex((field) => field.isStandard && applicationFieldCatalogDef(field.standardKey!)?.wizardFormKeys[0] === key),
+        index,
+      }))
+      .filter((entry) => entry.position >= 0)
+      .sort((a, b) => a.position - b.position)
+      .map((entry) => entry.key);
+
     return (
       <div className="rental-wizard-step space-y-6">
         <section data-wizard-lease-choice className="space-y-4">
           {renderLeaseChoice()}
         </section>
         <div className="divide-y divide-border/60 rounded-2xl border border-border bg-card/30 [html[data-theme=dark]_&]:border-white/10 [html[data-theme=dark]_&]:bg-white/4">
-          {showGroup ? (
-            <>
-              <ApplyFieldRow
-                label="Applying as part of a group?"
-                error={errors.applyingAsGroup}
-                fieldKey="applyingAsGroup"
-                inline
-                showRequiredMarker={false}
-                labelClassName="text-sm font-semibold text-foreground"
-                className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
-              >
-                <YesNoPills
-                  value={form.applyingAsGroup}
-                  error={errors.applyingAsGroup}
-                  name="Group application"
-                  fieldKey="applyingAsGroup"
-                  suppressError
-                  onChange={(v) => {
-                    if (v === "no") {
-                      patch({
-                        applicantRole: "signer",
-                        applyingAsGroup: v,
-                        groupRole: null,
-                        groupSize: "",
-                        groupId: "",
-                        groupLeaderAppId: "",
-                      });
-                      return;
-                    }
-                    onEnsureApplicationId?.();
-                    patch({
-                      applicantRole: "signer",
-                      applyingAsGroup: v,
-                      groupRole: joiningGroup ? "joining" : "first",
-                      groupId: joiningGroup
-                        ? form.groupId
-                        : form.groupId.trim() || makeApplicationGroupId(),
-                    });
-                  }}
-                />
-              </ApplyFieldRow>
-
-              {form.applyingAsGroup === "yes" ? (
-                <>
-                  <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
-                    One person applies first and gets a Group ID. Everyone else pastes that same
-                    ID below so the manager sees you as one household. Each of you still files your
-                    own application
-                    {propertyOffersBundles
-                      ? ". If you all choose the same lease bundle, move-in costs split evenly across your group; otherwise each person is billed their own charges."
-                      : " and is billed your own charges."}
-                  </p>
-
-                  <ApplyFieldRow
-                    label="Organizer application ID"
-                    optional
-                    inline
-                    error={errors.groupLeaderAppId}
-                    fieldKey="groupLeaderAppId"
-                    labelClassName="text-sm font-semibold text-foreground"
-                    className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
-                  >
-                    <GroupLeaderAppIdField
-                      value={form.groupLeaderAppId}
-                      onChange={(next) => {
-                        const trimmed = next.trim();
-                        patch({
-                          groupLeaderAppId: next,
-                          groupRole: trimmed ? "joining" : "first",
-                          groupId: trimmed ? form.groupId : makeApplicationGroupId(),
-                          ...(trimmed ? { groupSize: "" } : {}),
-                        });
-                      }}
-                      error={errors.groupLeaderAppId}
-                      onResolved={(preview) => {
-                        if (preview) {
-                          patch({
-                            groupLeaderAppId: preview.leaderAppId,
-                            groupId: preview.groupId,
-                            groupRole: "joining",
-                            ...(preview.propertyId && !form.propertyId.trim()
-                              ? { propertyId: preview.propertyId }
-                              : {}),
-                            ...(preview.groupSize != null && !form.groupSize.trim()
-                              ? { groupSize: String(preview.groupSize) }
-                              : {}),
-                          });
-                        }
-                      }}
-                      suppressError
-                    />
-                  </ApplyFieldRow>
-                </>
-              ) : null}
-
-              {organizingGroup ? (
-                <ApplyFieldRow
-                  label="How many people in the group?"
-                  error={errors.groupSize}
-                  fieldKey="groupSize"
-                  inline
-                  labelClassName="text-sm font-semibold text-foreground"
-                  className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
-                >
-                  {/*
-                    The organizer's declared size is load-bearing, not a nicety:
-                    `buildBundleApplicationGroups` derives the group's expected size
-                    from it (driving "Group N/M", missingCount and isComplete), and
-                    `bundle-cost-split` divides the move-in charges by it. It was
-                    never collected anywhere in the UI — only ever read back — so
-                    every group read as "size unknown" and no split could be made.
-                  */}
-                  <Input
-                    id="groupSize"
-                    type="number"
-                    inputMode="numeric"
-                    min={2}
-                    max={12}
-                    step={1}
-                    placeholder="e.g. 3"
-                    value={form.groupSize}
-                    onChange={(e) => patch({ groupSize: e.target.value })}
-                    className={errors.groupSize ? "border-red-400 ring-2 ring-red-100" : ""}
-                    aria-describedby="groupSizeHelp"
-                  />
-                  <p id="groupSizeHelp" className="mt-1.5 text-xs text-muted">
-                    Everyone applying together, including you.
-                    {propertyOffersBundles
-                      ? " Move-in costs split evenly when you all choose the same lease bundle; otherwise each person is billed their own charges."
-                      : " Each person is billed their own charges."}
-                  </p>
-                </ApplyFieldRow>
-              ) : null}
-
-              {joiningGroup ? (
-                <div className="px-4 pb-4 sm:px-5">
-                  <p className="rounded-xl border border-border bg-card/40 px-3 py-2.5 text-xs leading-relaxed text-muted">
-                    You are joining the group started by{" "}
-                    <span className="font-semibold text-foreground">{form.groupLeaderAppId.trim()}</span>. The
-                    organizer declared the group size — you do not need to enter it. Finish your own
-                    application and the manager will see you both on the same household.
-                  </p>
-                </div>
-              ) : null}
-
-              {organizingGroup && inviteAppId ? (
-                <div className="px-4 pb-4 sm:px-5">
-                  <GroupInviteCallout
-                    leaderAppId={inviteAppId}
-                    organizerName={form.fullLegalName.trim() || undefined}
-                    groupSize={form.groupSize.trim() || undefined}
-                    propertyId={form.propertyId.trim() || undefined}
-                    pendingSubmit
-                  />
-                </div>
-              ) : null}
-            </>
-          ) : null}
-
-          {showCosigner ? (
-            <>
-              <ApplyFieldRow
-                label="Will someone co-sign with you?"
-                error={errors.hasCosigner}
-                fieldKey="hasCosigner"
-                inline
-                showRequiredMarker={false}
-                labelClassName="text-sm font-semibold text-foreground"
-                className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
-              >
-                <YesNoPills
-                  value={form.hasCosigner}
-                  error={errors.hasCosigner}
-                  name="Co-signer"
-                  fieldKey="hasCosigner"
-                  suppressError
-                  onChange={(v) => {
-                    if (v === "yes") onEnsureApplicationId?.();
-                    patch({ applicantRole: "signer", hasCosigner: v });
-                  }}
-                />
-              </ApplyFieldRow>
-              {form.hasCosigner === "yes" && inviteAppId ? (
-                <div className="px-4 pb-4 sm:px-5">
-                  <CosignerInviteCallout
-                    signerAppId={inviteAppId}
-                    signerName={form.fullLegalName.trim() || undefined}
-                    pendingSubmit
-                  />
-                </div>
-              ) : null}
-            </>
-          ) : null}
+          {householdOrder.map((formKey) => (
+            <Fragment key={formKey}>{householdBlocks[formKey]}</Fragment>
+          ))}
         </div>
 
         {stepManagerQuestions}
@@ -1964,6 +1993,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const showCosignerReview = showWizardField("hasCosigner");
     const showGroupReview = showWizardField("applyingAsGroup");
     const showHouseholdReview = showCosignerReview || showGroupReview;
+    const reviewGroupQuestion = standardQuestion("household", "applyingAsGroup");
+    const reviewCosignerQuestion = standardQuestion("household", "hasCosigner");
     return (
       <div className="space-y-8">
         <div>
@@ -1974,14 +2005,14 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <ReviewSection title="Household application" stepTarget={1} onEdit={editFromReview}>
               {showGroupReview ? (
                 <>
-                  <ReviewRow k="Applying as group" v={form.applyingAsGroup === "yes" ? "Yes" : form.applyingAsGroup === "no" ? "No" : "—"} />
+                  <ReviewRow k={pairedInputLabel(reviewGroupQuestion, "Applying as group")} v={form.applyingAsGroup === "yes" || form.applyingAsGroup === "no" ? builtInAnswerLabel(reviewGroupQuestion, form.applyingAsGroup, form.applyingAsGroup === "yes" ? "Yes" : "No") : "—"} />
                   {form.applyingAsGroup === "yes" && form.groupLeaderAppId.trim() ? (
                     <ReviewRow k="Organizer application ID" v={displayOrDash(form.groupLeaderAppId)} />
                   ) : null}
                 </>
               ) : null}
               {showCosignerReview ? (
-                <ReviewRow k="Co-signer planned" v={form.hasCosigner === "yes" ? "Yes" : form.hasCosigner === "no" ? "No" : "—"} />
+                <ReviewRow k={reviewCosignerQuestion?.label ?? "Co-signer planned"} v={form.hasCosigner === "yes" || form.hasCosigner === "no" ? builtInAnswerLabel(reviewCosignerQuestion, form.hasCosigner, form.hasCosigner === "yes" ? "Yes" : "No") : "—"} />
               ) : null}
             </ReviewSection>
           ) : null}

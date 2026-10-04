@@ -21,6 +21,7 @@ import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } 
 import {
   PortalCollapsibleEditRow,
 } from "@/components/portal/portal-collapsible-edit-row";
+import { builtInAnswersAreFixed } from "@/lib/application-editor-fields";
 import type { ManagerCustomApplicationField, ManagerCustomApplicationFieldType } from "@/lib/manager-listing-submission";
 import { customApplicationFieldTypeLabel } from "@/lib/manager-listing-submission";
 import {
@@ -215,7 +216,7 @@ export function BuilderQuestionCard({
   onMoveDown: () => void;
   availableSections: ReadonlyArray<{ id: RentalApplicationSectionId; title: string }>;
   onMoveToSection: (sectionId: RentalApplicationSectionId) => void;
-  canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order") => boolean;
+  canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order" | "type" | "options") => boolean;
   blockedTypes?: readonly ManagerCustomApplicationFieldType[];
   /** Types a host form adds beyond the application vocabulary (move-in forms: Photos, Signature). */
   extraTypes?: readonly ExtraQuestionType[];
@@ -320,6 +321,8 @@ export function BuilderQuestionCard({
           editableLabel={canEditBuiltIn?.(field, "label") ?? true}
           editableRequired={canEditBuiltIn?.(field, "required") ?? true}
           editableType={!field.isStandard}
+          editableOptions={builtInAnswersAreFixed(field) ? true : undefined}
+          rewordOptions={builtInAnswersAreFixed(field)}
           blockedTypes={blockedTypes}
           extraTypes={extraTypes}
         />
@@ -375,7 +378,7 @@ export function ApplicationFormBuilder({
   onMoveField?: (field: ResolvedApplicationField, direction: "up" | "down") => void;
   onMoveFieldToSection?: (field: ResolvedApplicationField, sectionId: RentalApplicationSectionId) => void;
   canMoveField?: (field: ResolvedApplicationField, direction: "up" | "down") => boolean;
-  canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order") => boolean;
+  canEditBuiltIn?: (field: ResolvedApplicationField, action: "label" | "required" | "visibility" | "order" | "type" | "options") => boolean;
   blockedCustomTypes?: readonly ManagerCustomApplicationFieldType[];
   /** Full-width footer row to enable another default section (Questions step). */
   onAddSection?: () => void;

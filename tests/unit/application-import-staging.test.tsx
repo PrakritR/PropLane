@@ -76,7 +76,7 @@ async function chooseUploadPdf() {
   const trigger = document.querySelector('[data-attr="property-application-start-from"]') as HTMLElement;
   expect(trigger).not.toBeNull();
   fireEvent.click(trigger);
-  fireEvent.click(await screen.findByText("Upload PDF"));
+  fireEvent.click(await screen.findByText("Upload a PDF"));
 }
 
 beforeEach(() => {

@@ -183,7 +183,7 @@ describe("F013: lease Sections step duplicate-name validation", () => {
 });
 
 describe("F-editor c: footer-only commit", () => {
-  it("shows the upload strip only after Start from → Upload PDF", async () => {
+  it("shows the upload strip only after Start from → Upload a PDF", async () => {
     render(
       <PropertyLeaseFormModal
         open
@@ -199,7 +199,7 @@ describe("F-editor c: footer-only commit", () => {
     await screen.findByRole("dialog", { name: "New lease" });
     expect(screen.getByRole("button", { name: "Start from" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start from" }));
-    const uploadOption = await screen.findByRole("option", { name: "Upload PDF" });
+    const uploadOption = await screen.findByRole("option", { name: "Upload a PDF" });
     fireEvent.pointerDown(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();

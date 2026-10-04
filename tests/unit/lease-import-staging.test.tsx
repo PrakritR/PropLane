@@ -40,7 +40,7 @@ async function chooseUploadPdf() {
   const trigger = document.querySelector('[data-attr="property-form-start-from"]') as HTMLElement;
   expect(trigger).not.toBeNull();
   fireEvent.click(trigger);
-  fireEvent.click(await screen.findByText("Upload PDF"));
+  fireEvent.click(await screen.findByText("Upload a PDF"));
 }
 
 function pickLeaseFile(dataAttr = "property-lease-name-upload") {

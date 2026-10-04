@@ -12,6 +12,8 @@ export type QuestionEditorCan = {
   type?: boolean;
   required?: boolean;
   options?: boolean;
+  /** The choices can be reworded only: none added, removed or reordered (the system reads their stored values). */
+  fixedOptions?: boolean;
   remove?: boolean;
   move?: boolean;
 };

@@ -16,7 +16,7 @@ import {
   type ManagerCustomApplicationField,
   type ManagerCustomApplicationFieldType,
 } from "@/lib/manager-listing-submission";
-import { canEditBuiltInApplicationField } from "@/lib/application-editor-fields";
+import { builtInAnswersAreFixed, canEditBuiltInApplicationField } from "@/lib/application-editor-fields";
 import {
   addListingApplicationField,
   NEVER_DISABLED_STANDARD_KEY_SET,
@@ -101,7 +101,8 @@ function toEditorQuestion(
       label: can("label"),
       required: can("required"),
       type: canType,
-      options: canType,
+      options: can("options"),
+      fixedOptions: builtInAnswersAreFixed(field),
       remove: can("visibility"),
       move: can("order"),
     },
@@ -249,14 +250,16 @@ export function applyApplicationEditorChange(
         (patch.label !== undefined && !canEdit(field, "label")) ||
         (patch.required !== undefined && !canEdit(field, "required")) ||
         (patch.type !== undefined && !canEdit(field, "type")) ||
-        (patch.options !== undefined && !canEdit(field, "type")) ||
+        (patch.options !== undefined && !canEdit(field, "options")) ||
         (patch.type !== undefined && ctx.variant === "cosigner" && (patch.type === "file" || patch.type === "photos"))
       ) {
         return state;
       }
+      // A built-in whose choices the wizard reads by stored value keeps every choice; only the wording changes.
+      if (patch.options !== undefined && builtInAnswersAreFixed(field) && patch.options.length !== field.options.length) return state;
       const changesShape =
         (patch.type !== undefined && patch.type !== field.type) ||
-        (patch.options !== undefined && field.isStandard);
+        (patch.options !== undefined && field.isStandard && !builtInAnswersAreFixed(field));
       if (field.isStandard && changesShape) {
         return { ...state, slice: convertBuiltInQuestion(slice, ctx.fields, field, patch) };
       }
