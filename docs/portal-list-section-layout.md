@@ -20,7 +20,9 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   dates `CalendarOff` · Link calendars `CalendarSync` · Update from sheet
   `RefreshCw` · Vendor catalog `BookOpen` · Payment setup `Wrench` ·
   Set up messaging `Phone` · Export CSV `Download` · Plan credit `Coins`
-  (admin Accounts only — a global per-plan default, not a per-row action).
+  (admin Accounts only — a global per-plan default, not a per-row action) ·
+  Import your portfolio `Upload` (Properties) · Send application link `Send`
+  (Applications).
 - The primary is `PortalPrimaryIconAction`: `Plus` for "add"; `Link2` (Link
   Airbnb), `PenSquare` (New message), `Upload` (documents), `FileBarChart`
   (reports) where the job is not "add". Keep the accessible name specific

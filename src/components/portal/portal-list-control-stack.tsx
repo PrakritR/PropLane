@@ -13,10 +13,12 @@ import {
   Phone,
   RefreshCw,
   Search,
+  Send,
   Settings,
   Settings2,
   Share2,
   Filter,
+  Upload,
   Wrench,
   X,
   type LucideIcon,
@@ -51,6 +53,8 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   CalendarClock, // Availability (Calendar band)
   Download, // Export CSV (N025)
   Coins, // Plan credit (admin Accounts, S27)
+  Upload, // Import your portfolio (Properties band)
+  Send, // Send application link (Applications band)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */
