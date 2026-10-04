@@ -508,13 +508,8 @@ describe("pure listing helpers", () => {
     });
 
     expect(details.listing?.leaseTerms).toMatchObject({ available: ["12-Month", "Long-term", "Month-to-Month"] });
-    expect(details.listing?.leaseTerms.termSurcharges).toContainEqual(expect.objectContaining({
-      term: "Month-to-Month",
-      monthlySurcharge: "75",
-    }));
-    expect(details.listing?.leaseTerms.termSurcharges).not.toContainEqual(expect.objectContaining({
-      term: "Long-term",
-    }));
+    // Month-to-month carries no surcharge, so no lease term lists one.
+    expect(details.listing?.leaseTerms.termSurcharges).toEqual([]);
     expect(details.listing?.leaseTerms.customCalendarSurcharge).toEqual({
       eligible: true,
       monthlySurcharge: "25",

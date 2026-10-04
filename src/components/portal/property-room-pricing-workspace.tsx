@@ -798,7 +798,6 @@ export function PropertyRoomPricingWorkspace({
             leaseTerms={leaseTerms}
             lockLeaseTerm
             plainReceipt
-            allowMonthToMonthStart={allowM2m}
             allowCustomStart={allowCustomStart}
           />
         ) : subject.kind === "whole" ? (
@@ -807,7 +806,6 @@ export function PropertyRoomPricingWorkspace({
             kind="whole"
             leaseTerm={quoteTerm}
             leaseTerms={leaseTerms}
-            allowMonthToMonthStart={allowM2m}
             allowCustomStart={allowCustomStart}
           />
         ) : subject.kind === "bundle" ? (
@@ -817,7 +815,6 @@ export function PropertyRoomPricingWorkspace({
             bundleId={subject.bundleId}
             leaseTerm={quoteTerm}
             leaseTerms={leaseTerms}
-            allowMonthToMonthStart={allowM2m}
             allowCustomStart={allowCustomStart}
           />
         ) : undefined

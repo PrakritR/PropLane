@@ -330,7 +330,6 @@ describe("long-term lease parity", () => {
       longTermContext({
         applicationFee: "50",
         holdingDeposit: "100",
-        monthToMonthSurcharge: "25",
         customLeaseSurcharge: "100",
       }),
       SEATTLE_LEASE_CONFIG,
@@ -342,22 +341,18 @@ describe("long-term lease parity", () => {
     expect(html).toMatch(/<strong>Application fee:<\/strong> \$50\.00 \(one-time\)/);
   });
 
-  it("shows month-to-month surcharge only on month-to-month leases", () => {
-    const ctx = longTermContext({ monthToMonthSurcharge: "25" });
+  it("never shows a month-to-month surcharge, even from a stale saved value", () => {
+    const ctx = longTermContext({ monthToMonthSurcharge: "25" } as never);
     ctx.application = {
       ...ctx.application,
       leaseTerm: "Month-to-Month",
       leaseEnd: "",
     };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
-    // Seattle: the surcharge is RENT. The document quotes one rent figure that includes it,
-    // says so, and never lists it as a separate monthly fee (tests/unit/seattle-rent-fold-in.test.ts).
-    expect(html).toContain("$25.00 month-to-month surcharge");
-    expect(html).toContain('data-rent-composition="true"');
-    expect(html).not.toMatch(/<strong>Month-to-month surcharge:<\/strong> \$25\.00 \(monthly\)/);
-    // A fixed-term lease on the same listing carries no surcharge at all.
-    const fixed = buildLeaseHtml(longTermContext({ monthToMonthSurcharge: "25" }), SEATTLE_LEASE_CONFIG);
-    expect(fixed).not.toContain("month-to-month surcharge");
+    expect(html).not.toMatch(/month-to-month surcharge/i);
+    expect(html).not.toContain("$25.00");
+    const fixed = buildLeaseHtml(longTermContext({ monthToMonthSurcharge: "25" } as never), SEATTLE_LEASE_CONFIG);
+    expect(fixed).not.toMatch(/month-to-month surcharge/i);
   });
 
   it("shows custom lease surcharge only when the term uses non-standard calendar dates", () => {

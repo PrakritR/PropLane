@@ -118,12 +118,15 @@ import {
   roomOfferedLeaseTermsFromPick,
 } from "@/lib/manager-listing-submission";
 import {
-  AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
   LONG_TERM_LEASE_TERM,
-  LEASE_TERM_CHOICES,
+  LEASE_TYPES,
   SHORT_TERM_LEASE_TERM,
+  leaseTypeIdForStoredTerm,
+  leaseTypeIdsFromStored,
+  leaseTypeLabel,
   sortLeaseTermsCanonical,
+  storedTermForLeaseType,
 } from "@/lib/rental-application/lease-terms";
 import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/house-info";
 import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manager-listing-submission";
@@ -1092,12 +1095,10 @@ function SizeInput({ who, value, inherited, onCommit }: { who: string; value: nu
  * (see `copyRoomDescriptionFrom`), never a standing link.
  */
 /** The lease types a room can be limited to, with the wording the Leases offered row uses. */
-const ROOM_LEASE_TERM_LABELS: readonly { value: string; label: string }[] = [
-  { value: LONG_TERM_LEASE_TERM, label: "Long-term" },
-  { value: SHORT_TERM_LEASE_TERM, label: "Short-term" },
-  { value: CUSTOM_LEASE_TERM, label: "Custom" },
-  { value: "Month-to-Month", label: "Month-to-month" },
-];
+const ROOM_LEASE_TERM_LABELS: readonly { value: string; label: string }[] = LEASE_TYPES.map((type) => ({
+  value: type.term,
+  label: type.label,
+}));
 
 /** Captain, Oct 3: a room always offers the four lease types to pick from; Custom explains itself. */
 const ROOM_LEASE_TERM_PICKS = ROOM_LEASE_TERM_LABELS.map((o) =>
@@ -2232,45 +2233,43 @@ function LongTermLengthsField({ sub, patch }: { sub: ManagerListingSubmissionV1;
   );
 }
 
-const LEASE_TYPE_LABELS: readonly { value: string; label: string }[] = [
-  { value: LONG_TERM_LEASE_TERM, label: "Long-term" },
-  { value: "Month-to-Month", label: "Month to month" },
-  { value: CUSTOM_LEASE_TERM, label: "Custom" },
-  { value: SHORT_TERM_LEASE_TERM, label: "Short-term" },
-  { value: AIRBNB_LEASE_TERM, label: "Airbnb" },
-];
-
+/**
+ * "Lease terms": the four lease types a property can offer, from the one owner (`LEASE_TYPES` in
+ * `lease-terms.ts`). A multi-select, never pills. What is ticked is what an applicant can pick, and the lease
+ * document and charge schedule follow the applicant's pick. Custom lets the applicant choose their own start
+ * and end dates; Month-to-month is open-ended rolling rent with no surcharge.
+ */
 function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const allowed = resolveAllowedLeaseTerms(sub);
-  const named = LEASE_TERM_CHOICES.filter((t) => t !== CUSTOM_LEASE_TERM);
-  /* One order for the picker and every summary — `sortLeaseTermsCanonical` is
-     the single authority (lease-terms.ts). */
-  const selected = sortLeaseTermsCanonical([
-    ...named.filter((t) => allowed.includes(t)),
-    ...(sub.shortTermRentalsAllowed ? [SHORT_TERM_LEASE_TERM] : []),
-    ...(sub.airbnbRentalsAllowed ? [AIRBNB_LEASE_TERM] : []),
-    ...(allowed.includes(CUSTOM_LEASE_TERM) ? [CUSTOM_LEASE_TERM] : []),
-  ]);
-  const toLabel = (value: string) => LEASE_TYPE_LABELS.find((o) => o.value === value)?.label ?? value;
-  const toValue = (label: string) => LEASE_TYPE_LABELS.find((o) => o.label === label)?.value ?? label;
+  const selectedIds = leaseTypeIdsFromStored(allowed);
+  const labels = LEASE_TYPES.map((type) => type.label);
   return (
-    <FactRow first label="Lease types" required>
+    <FactRow first label="Lease terms" required>
       <MultiPick
-        label="Lease types you offer"
+        label="Lease terms you offer"
         dataAttr="lease-type"
-        options={LEASE_TYPE_LABELS.map((o) => o.label)}
-        selected={selected.map(toLabel)}
+        options={labels}
+        selected={selectedIds.map(leaseTypeLabel)}
         allowOther={false}
         emptyLabel="Choose…"
-        onChange={(labels) => {
-          const next = labels.map(toValue);
-          const shortTerm = next.includes(SHORT_TERM_LEASE_TERM);
-          const airbnb = next.includes(AIRBNB_LEASE_TERM);
-          // Short-term and Airbnb each have a flag AND a term in the list; the
-          // sync helpers keep the two halves from disagreeing.
-          let terms = next.filter((t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM);
+        onChange={(picked) => {
+          const ids = LEASE_TYPES.filter((type) => picked.includes(type.label)).map((type) => type.id);
+          const shortTerm = ids.includes("short_term");
+          // An older listing may still carry the retired Airbnb stay and fixed lengths; they are kept
+          // untouched while their type stays ticked, so no saved listing loses what it offers.
+          const airbnb = shortTerm && sub.airbnbRentalsAllowed === true;
+          let terms = allowed.filter((term) => {
+            const id = leaseTypeIdForStoredTerm(term);
+            return id !== null && id !== "short_term" && ids.includes(id);
+          });
+          for (const id of ids) {
+            if (id !== "short_term" && !terms.some((term) => leaseTypeIdForStoredTerm(term) === id)) {
+              terms.push(storedTermForLeaseType(id));
+            }
+          }
           terms = syncShortTermLeaseTermInAllowed(terms, shortTerm);
           terms = syncAirbnbLeaseTermInAllowed(terms, airbnb);
+          terms = sortLeaseTermsCanonical(terms);
           patch({
             shortTermRentalsAllowed: shortTerm,
             airbnbRentalsAllowed: airbnb,

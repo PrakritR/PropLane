@@ -200,7 +200,7 @@ function roomUtilitiesForTerm(
  * `roomId` null quotes the whole place — an entire-home listing, where the
  * listing's own rent stands in for a room's.
  */
-export type ListingQuoteStartKind = "std" | "m2m" | "cst";
+export type ListingQuoteStartKind = "std" | "cst";
 
 export function buildListingQuote(
   sub: ManagerListingSubmissionV1,

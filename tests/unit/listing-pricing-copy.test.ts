@@ -12,7 +12,6 @@ describe("copyListingPricingBetweenSubmissions", () => {
       ...createDefaultListingSubmission(),
       applicationFee: "50",
       holdingDeposit: "100",
-      monthToMonthSurcharge: "25",
       customLeaseSurcharge: "100",
       customFees: [
         {
@@ -53,7 +52,6 @@ describe("copyListingPricingBetweenSubmissions", () => {
     expect(summary.roomsUpdated).toBe(2);
     expect(submission.applicationFee).toBe("50");
     expect(submission.holdingDeposit).toBe("$100");
-    expect(submission.monthToMonthSurcharge).toBe("25");
     expect(submission.customLeaseSurcharge).toBe("100");
     expect(submission.rooms[0]!.id).toBe("tgt-r1");
     expect(submission.rooms[0]!.monthlyRent).toBe(825);

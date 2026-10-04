@@ -43,12 +43,9 @@ import {
   APPLICANT_TERM_PLACEHOLDER,
   applicantChoiceFromStored,
   applicantTermOptions,
-  propertyAllowsMonthToMonth,
-  storedTermAfterStartChange,
   storedTermForApplicant,
   type ApplicantTerm,
 } from "@/lib/rental-application/applicant-lease-term";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   applicantListingQuote,
   formatQuoteMoney,
@@ -671,14 +668,13 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <div className="space-y-2" data-wizard-field="leaseTerm" data-application-question-id={termQuestion?.id}>
           <Label htmlFor="leaseTerm" required={termQuestion?.required}>{termQuestion?.label ?? "Lease term"}</Label>
           {/*
-            The applicant picks Long-term or Short-term, filtered to what the property offers. Month-to-month
-            and custom dates are options of the long-term lease, so they are a "Length" under Long-term and the
-            date pickers on the dates step, not terms of their own. The stored `leaseTerm` is translated at this
-            edge (`applicant-lease-term.ts`) and stays one of the existing stored terms.
+            ONE select, listing only the lease types the property enabled (Long-term, Short-term, Custom,
+            Month-to-month). The stored `leaseTerm` is translated at this edge (`applicant-lease-term.ts`);
+            the dates step then asks for exactly what the type needs.
           */}
           <Select
             id="leaseTerm"
-            value={applicantChoice.term}
+            value={applicantChoice}
             onChange={(e) => {
               const picked = e.target.value as ApplicantTerm | "";
               if (!picked) {
@@ -686,7 +682,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 return;
               }
               applyStoredLeaseTerm(
-                storedTermForApplicant({ offered: offeredStored, term: picked, length: "fixed", leaseStart: form.leaseStart }),
+                storedTermForApplicant({ offered: offeredStored, term: picked }),
               );
             }}
             className={errors.leaseTerm ? "border-red-400 ring-2 ring-red-100" : ""}
@@ -698,31 +694,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               </option>
             ))}
           </Select>
-          {applicantChoice.term === "long" && propertyAllowsMonthToMonth(offeredStored) ? (
-            <div className="space-y-2" data-wizard-field="leaseLength">
-              <Label htmlFor="leaseLength">Length</Label>
-              <FieldSingleSelect
-                label="Length"
-                hideLabel
-                value={applicantChoice.length}
-                dataAttr="rental-wizard-lease-length"
-                options={[
-                  { value: "fixed", label: "Fixed term" },
-                  { value: "month_to_month", label: "Month-to-month" },
-                ]}
-                onChange={(next) =>
-                  applyStoredLeaseTerm(
-                    storedTermForApplicant({
-                      offered: offeredStored,
-                      term: "long",
-                      length: next === "month_to_month" ? "month_to_month" : "fixed",
-                      leaseStart: form.leaseStart,
-                    }),
-                  )
-                }
-              />
-            </div>
-          ) : null}
           <FieldError msg={errors.leaseTerm} />
           {form.rentalType === "short_term" ? (
             <div className="rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground">
@@ -735,11 +706,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 <p className="mt-1 text-muted">{selectedProperty.listingSubmission.shortTermRequirements.trim()}</p>
               ) : null}
             </div>
-          ) : null}
-          {form.leaseTerm === "Month-to-Month" ? (
-            <p className="rounded-lg border px-3 py-2 text-sm portal-banner-pending">
-              Month-to-month leases include an additional <span className="font-semibold">$25</span> charge to rent.
-            </p>
           ) : null}
         </div>
         </WizardFieldGate>
@@ -1222,16 +1188,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               min="2020-01-01"
               max="2035-12-31"
               value={form.leaseStart}
-              onChange={(next) => {
-                // Only a Custom lease may start mid-month: on a property that offers both Long-term and Custom,
-                // the stored term follows the start date the applicant picks.
-                const stored = storedTermAfterStartChange({
-                  offered: form.propertyId.trim() ? listingOfferedLeaseTerms(form.propertyId) : [],
-                  currentStored: form.leaseTerm,
-                  leaseStart: next,
-                });
-                patch(stored !== form.leaseTerm ? { leaseStart: next, leaseTerm: stored } : { leaseStart: next });
-              }}
+              onChange={(next) => patch({ leaseStart: next })}
               className={errors.leaseStart ? "border-red-400 ring-2 ring-red-100" : ""}
             />
             <FieldError msg={errors.leaseStart} />

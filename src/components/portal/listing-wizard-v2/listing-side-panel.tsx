@@ -304,7 +304,6 @@ export function PricingReceiptPanel({
   leaseTerms,
   lockLeaseTerm = false,
   plainReceipt = false,
-  allowMonthToMonthStart = false,
   allowCustomStart = false,
 }: {
   sub: ManagerListingSubmissionV1;
@@ -318,7 +317,6 @@ export function PricingReceiptPanel({
   lockLeaseTerm?: boolean;
   /** Property Pricing — no "Due at signing" heading (C2-R30-9). */
   plainReceipt?: boolean;
-  allowMonthToMonthStart?: boolean;
   allowCustomStart?: boolean;
 }) {
   const rooms = sub.rooms ?? [];
@@ -424,7 +422,6 @@ export function PricingReceiptPanel({
       : arrangementSummaryLine(room);
 
   const startOptions: { value: ListingQuoteStartKind; label: string }[] = [{ value: "std", label: "Standard start" }];
-  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
   if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
 
   const residentOptions = Array.from({ length: arrangementCount }, (_, i) => ({
@@ -600,7 +597,6 @@ export function BundleWholePricingReceiptPanel({
   bundleId,
   leaseTerm,
   leaseTerms,
-  allowMonthToMonthStart = false,
   allowCustomStart = false,
 }: {
   sub: ManagerListingSubmissionV1;
@@ -608,7 +604,6 @@ export function BundleWholePricingReceiptPanel({
   bundleId?: string;
   leaseTerm: string;
   leaseTerms: string[];
-  allowMonthToMonthStart?: boolean;
   allowCustomStart?: boolean;
 }) {
   const [startKind, setStartKind] = useState<ListingQuoteStartKind>("std");
@@ -655,7 +650,6 @@ export function BundleWholePricingReceiptPanel({
   const startOptions: { value: ListingQuoteStartKind; label: string }[] = [
     { value: "std", label: "Standard start" },
   ];
-  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
   if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
 
   const allArr = leaseTerms

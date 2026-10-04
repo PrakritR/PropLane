@@ -87,7 +87,6 @@ describe("listing fees migration", () => {
     sub.parkingMonthly = "0";
     sub.hoaMonthly = "0";
     sub.otherMonthlyFees = "0";
-    sub.monthToMonthSurcharge = "0";
     const n = normalizeManagerListingSubmissionV1(sub);
     expect(n.customFees?.some((f) => f.presetId === "security_deposit")).toBe(true);
     expect(n.securityDeposit).toBe("100");
@@ -244,12 +243,12 @@ describe("lease payment at signing", () => {
     ).toBe(600);
   });
 
-  it("filters lease document monthly surcharges by lease context", () => {
+  it("filters lease document monthly surcharges by lease context (month-to-month has none)", () => {
     let sub = createDefaultListingSubmission();
     sub = applyListingFeesToSubmission(sub, [
       {
         id: "fee-mtm",
-        presetId: "mtm_surcharge",
+        presetId: "mtm_surcharge" as never,
         label: "Month-to-month surcharge",
         amount: "25",
         frequency: "monthly",
@@ -278,7 +277,8 @@ describe("lease payment at signing", () => {
       leaseTerm: "Month-to-Month",
       rentalType: "standard",
     });
-    expect(mtm.monthly.map((line) => line.label)).toContain("Month-to-month surcharge");
+    // The retired month-to-month surcharge row is dropped, never billed or printed.
+    expect(mtm.monthly.map((line) => line.label)).not.toContain("Month-to-month surcharge");
 
     const custom = leaseDocumentFeeLines(normalized, "long-term", {
       leaseStart: "2026-09-22",

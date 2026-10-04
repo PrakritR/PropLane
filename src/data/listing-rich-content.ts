@@ -253,7 +253,7 @@ const defaultFloors: ListingFloorCard[] = [
         price: "$790/month",
         availability: "Available now",
         modal: roomModal({
-          setupLine: "Flex lease: 3-month, 9-month, 12-month, or month-to-month (+$25/mo)",
+          setupLine: "Flex lease: 3-month, 9-month, 12-month, or month-to-month",
           tourTitle: "Room 1A tour coming soon.",
           tourSubtitle: "Walkthrough placeholder — connect Vimeo, YouTube, or Mux when media is ready.",
           includedTags: ["Bed", "Desk", "Keypad lock", "Heating", "AC", "Flex lease"],
@@ -595,7 +595,7 @@ export function getListingRichContent(property: MockProperty): ListingRichConten
     leaseBasics: defaultLease,
     amenities: defaultAmenities,
     bundlesText:
-      "**Four lease options** are available for every package. Month-to-month renewals add **$25/month** where applicable.",
+      "**Four lease options** are available for every package: long-term, short-term, custom and month-to-month, with no month-to-month surcharge.",
     bundleCards: defaultBundles,
     quickFacts: [
       { label: "Rooms listed", value: String(Math.max(property.beds * 3, 3)) },

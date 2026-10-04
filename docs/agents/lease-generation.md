@@ -4,6 +4,32 @@
 
 **Short stays are applications (captain, Oct 3, 2026).** There is one way to book a short stay: the listing's "Apply short term" door (shown only when the listing offers short stays) opens the same application -> lease -> payments process as "Apply long term", in the resident portal, with `rentalType: "short_term"`. That selects the property's short-term application template ("Short-term application": who, contact, dates and room, plus anything the manager added) and short-term lease ("Short term lease"), prices the stay through `resolveStayPricing` (never a second price decision, never utilities), and creates the stay's charges (`stay_total`, short-term move-in fee, deposit) through `recordApprovedApplicationCharges` like any approval. Workspace signing order applies unchanged. The old public hold-and-pay booking (`/rent/stay` form, `POST /api/public/short-stay-booking`) is retired: `/rent/stay` redirects to the short-term application, and `short-stay-booking.server.ts` keeps only the cron/webhook settling for holds that were already in flight. The resident portal files Application, Lease and Payments under two text tabs, Long term and Short term (`src/lib/resident-term-split.ts`, the one decision); Lease and Payments show the tabs only once a short stay exists. Coverage: `tests/unit/short-term-resident-flow.test.ts`.
 
+## The four lease types (Oct 2026)
+
+A property offers some of exactly four lease types, and the lease and payments follow the one an applicant
+picks. `LEASE_TYPES` in `src/lib/rental-application/lease-terms.ts` is the one owner of the list, the labels
+and the stored terms; do not re-declare it.
+
+| Type | Stored term | Term and dates | Charges |
+| --- | --- | --- | --- |
+| Long-term | `Long-term` (retired `3/6/9/12-Month` read as this) | fixed, start + end (or a manager-offered length) | first month, then monthly rent |
+| Short-term | `Short-Term Stay` (`Airbnb` reads as this) | check-in + check-out | one stay total from the nightly rate |
+| Custom | `Custom` | the applicant's own start + end | prorated first and last month, monthly between |
+| Month-to-month | `Month-to-Month` | start only, rolling, no end date | monthly rent, **no surcharge** |
+
+- Manager: the listing's "Lease terms" multi-select picks which are offered (stored in `allowedLeaseTerms`,
+  unchanged; existing properties keep what they effectively offered). Applicant: ONE "Lease term" select lists
+  only the enabled types (`applicantTermOptions`), and preselects when exactly one is enabled. There is no
+  separate "Length" select.
+- Everything is server-derived from the stored term and dates through `resolveStayPricing`, the ledger and
+  `buildLeaseHtml`; the client never sends a price. A type the property did not enable is rejected at submit by
+  `validateSubmittedApplication` (the wizard's own validator, `leaseTermIsOfferedType` is the pure test).
+- **There is no month-to-month surcharge.** It was removed (captain, Oct 4 2026): not in the fee catalog, the
+  quote, the ledger, the rent fold-in, the lease document or the public listing. Rows already saved with
+  `preset:mtm_surcharge` or a `monthToMonthSurcharge` value are ignored (`resolveListingFees` drops the row), and
+  charges already generated are not rewritten. The custom-start surcharge still applies to a custom-dated lease.
+- Coverage: `tests/unit/lease-types-four.test.ts`.
+
 ## Resident lease visibility and signing (Sep 2026 hotfix)
 
 Four invariants, closed together because a resident could not sign any lease
@@ -1433,8 +1459,7 @@ consumes `stay` too. When `stay.basis === "daily"`:
   daily basis) and the `daily_rate` / `dailyUtilitiesRate` branch. The amount is passed in as
   the ledger's billable monthly utilities, never parsed back out of the display label.
   Coverage: `stay-pricing-repro.test.ts` case 15;
-- a month-to-month surcharge is NOT folded into the rate (that would print a daily rate $25 too
-  high); it stays its own monthly line.
+- there is no month-to-month surcharge to fold (retired Oct 2026, see "The four lease types").
 
 **When a billing snapshot exists, the prorated block PRINTS the ledger's own
 numbers.** `proratedBlock` still computes days-remaining × rate for the table's
@@ -2003,8 +2028,7 @@ exact amount before confirming (`describeMoveOutChange`).
 configured late fee when supplied and omits the late-fee paragraph when it is disabled or
 unset — the jurisdiction `defaultLateFeeUsd` fallback (Seattle `$75`) is gone with the other
 commercial defaults.
-The existing `monthToMonthSurcharge` is not rendered because the billing snapshot and
-household-charge ledger do not charge it.
+A month-to-month surcharge no longer exists (see "The four lease types").
 
 ### Citations added in the template config
 
