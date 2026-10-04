@@ -38,13 +38,17 @@ const MAX_CONVERSATIONS = 200;
 /** How many distinct addresses one list read will try to name a manager from (one `or` clause each). */
 const MAX_NAMED_EMAILS = 50;
 /**
- * Bounds on one link check pass. Each workspace costs ~6 reads, and the keyed
- * caller's input is a page of the resident's own stored `ws:` keys (a client
- * once wrote `ws:<any uuid>`), so an unbounded pass is how one list read turns
- * into hundreds of concurrent requests from a single invocation.
+ * How many workspaces one link check pass runs at a time. Each costs ~6 reads,
+ * so an unbounded pass is how one list read turns into hundreds of concurrent
+ * requests from a single invocation.
  */
-const MAX_LINK_CHECKS = 24;
 const LINK_CHECK_CONCURRENCY = 4;
+/**
+ * A TOTAL ceiling on the checks the legacy email-naming path may spend. Only
+ * that path passes it: a `ws:`-keyed conversation is a real conversation of the
+ * resident's and always gets its manager named, however many they have.
+ */
+const MAX_EMAIL_NAMING_LINK_CHECKS = 24;
 
 function clean(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -155,13 +159,16 @@ export async function loadResidentCounterparties(
  * a workspace named here may have its manager's name and work number stamped on
  * the resident's list. A failed read links nothing.
  *
- * At most `MAX_LINK_CHECKS` workspaces are checked, in id order so the set is
- * the same on every load, `LINK_CHECK_CONCURRENCY` at a time.
+ * Every workspace asked about is checked, `LINK_CHECK_CONCURRENCY` at a time.
+ * `maxChecks` puts a ceiling on that for a caller that is guessing rather than
+ * reading the resident's own conversations; the surviving set is chosen in id
+ * order, so it is the same on every load.
  */
 export async function loadResidentLinkedWorkspaceIds(
   db: Db,
   residentId: string,
   workspaceIds: readonly string[],
+  options: { maxChecks?: number } = {},
 ): Promise<Set<string>> {
   const linked = new Set<string>();
   const ids = [...new Set(workspaceIds.map(clean).filter(Boolean))];
@@ -169,8 +176,8 @@ export async function loadResidentLinkedWorkspaceIds(
   if (!resident || ids.length === 0) return linked;
   try {
     const { data } = await db.from("portal_workspaces").select("id, owner_user_id, is_default").in("id", ids);
-    // Workspaces that really exist, in a stable order, bounded: a forged key
-    // falls out at the read above, and the cap is applied to what survives it.
+    // Workspaces that really exist, in a stable order: a forged key falls out
+    // at the read above, and a ceiling is applied to what survives it.
     const checkable = ((data ?? []) as Row[])
       .flatMap((workspace) => {
         const workspaceId = clean(workspace.id);
@@ -178,7 +185,7 @@ export async function loadResidentLinkedWorkspaceIds(
         return workspaceId && owner ? [{ workspaceId, owner, isDefault: workspace.is_default === true }] : [];
       })
       .sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))
-      .slice(0, MAX_LINK_CHECKS);
+      .slice(0, options.maxChecks ?? Infinity);
     // A few at a time: a resident's Communication list waits on this before it
     // can name a single row, and each check is ~6 independent reads.
     for (let start = 0; start < checkable.length; start += LINK_CHECK_CONCURRENCY) {
@@ -289,7 +296,9 @@ export async function loadResidentManagerCounterpartiesByEmail(
         .map(([, probes]) => probes[round])
         .filter((id): id is string => Boolean(id));
       if (probe.length === 0) break;
-      const linked = await loadResidentLinkedWorkspaceIds(db, resident, probe);
+      const linked = await loadResidentLinkedWorkspaceIds(db, resident, probe, {
+        maxChecks: MAX_EMAIL_NAMING_LINK_CHECKS,
+      });
       for (const [owner, probes] of byOwner) {
         const id = probes[round];
         if (id && !chosen.has(owner) && linked.has(id)) chosen.set(owner, id);

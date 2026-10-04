@@ -77,6 +77,27 @@ function seededDb(extra: Seed = {}): FakeDb {
   });
 }
 
+/**
+ * `count` more managers, each a manager in `profile_roles`, each owning one
+ * default workspace the resident is linked to through an application. Ids sort
+ * ascending with the index, so any ceiling applied in id order is predictable.
+ */
+function linkedManagers(db: FakeDb, count: number): { managerId: string; workspaceId: string; email: string }[] {
+  const made: { managerId: string; workspaceId: string; email: string }[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const suffix = String(i + 10).padStart(12, "0");
+    const managerId = `99999999-0000-4000-8000-${suffix}`;
+    const workspaceId = `cccccccc-0000-4000-8000-${suffix}`;
+    const email = `many${i + 10}@x.co`;
+    (db.tables.profiles ??= []).push({ id: managerId, email, full_name: `Many Manager ${i + 10}`, role: "manager" });
+    (db.tables.profile_roles ??= []).push({ user_id: managerId, role: "manager" });
+    (db.tables.portal_workspaces ??= []).push({ id: workspaceId, owner_user_id: managerId, name: `Many Homes ${i + 10}`, is_default: true });
+    (db.tables.manager_application_records ??= []).push({ manager_user_id: managerId, resident_email: "resident@x.co", row_data: { bucket: "approved" } });
+    made.push({ managerId, workspaceId, email });
+  }
+  return made;
+}
+
 let turnCounter = 0;
 function summary(over: Record<string, unknown>): Record<string, unknown> {
   turnCounter += 1;
@@ -491,6 +512,30 @@ describe("applyResidentConversationExtras - rows with no workspace key are named
     const assistant = storedRow({ id: "resident-agent-x", threadType: "resident_agent", from: "PropLane Assistant", email: "m1@x.co", conversationKey: undefined, workspaceId: undefined } as Partial<PersistedInboxThread>);
     const { rows } = await applyResidentConversationExtras(seededDb(roles(M1)), { id: R, mayReadResidentTexts: false }, [assistant]);
     expect(rows[0]!.counterparty).toBeUndefined();
+  });
+
+  it("guessing from many addresses at once is capped, while every keyed conversation is still named", async () => {
+    const emailDb = seededDb();
+    const guessed = linkedManagers(emailDb, 26);
+    const { rows: byEmailRows } = await applyResidentConversationExtras(
+      emailDb,
+      { id: R, mayReadResidentTexts: false },
+      guessed.map((manager, i) => unkeyed({ id: `legacy-${i}`, email: manager.email })),
+    );
+    expect(byEmailRows.filter((row) => row.counterparty).length).toBe(24);
+
+    // The SAME 26 managers reached through the resident's own `ws:` keys: a
+    // real conversation is never left unnamed by that ceiling.
+    const keyedDb = seededDb();
+    const keyed = linkedManagers(keyedDb, 26);
+    const { rows: keyedRows } = await applyResidentConversationExtras(
+      keyedDb,
+      { id: R, mayReadResidentTexts: false },
+      keyed.map((manager, i) =>
+        storedRow({ id: `keyed-${i}`, conversationKey: `ws:${manager.workspaceId}`, workspaceId: manager.workspaceId }),
+      ),
+    );
+    expect(keyedRows.filter((row) => row.counterparty).length).toBe(26);
   });
 });
 
