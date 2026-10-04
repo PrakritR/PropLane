@@ -190,42 +190,69 @@ lightweight `biddingOpen` / `biddingOpenedAt` / `biddingResolvedAt` flag
 (`DemoManagerWorkOrderRow` fields) plus the existing `vendorId` /
 `vendorName` / `cost` fields that already model final vendor assignment.
 
-**Single-vendor-at-a-time offer, not a multi-vendor auction.** The work
-order's existing `vendorId` (`manager_vendor_records.id`) / `vendor_user_id`
-column can only point at one vendor, and `/api/portal-work-orders` GET scopes
-a vendor's visibility to `vendor_user_id = auth.uid()` — so only the currently
-assigned vendor can see and bid on a given work order at a time. The
-`work_order_bids` table itself does **not** preclude multiple bids per work
-order (only `unique(work_order_id, vendor_user_id)`): a manager can reassign
-`vendorId` to a different vendor and click "Invite for bids" again, and each
-vendor's bid is tracked as its own row. The tradeoff: if a manager moves on to
-vendor B, vendor A loses read access to that work order (and its own status
-badge) even though their `work_order_bids` row still exists — acceptable for
-Phase 2 per spec, revisit if concurrent multi-vendor bidding becomes a
-requirement.
+## Estimate vs bid, and the service cycle (vendor-bids-1003)
 
-**Flow.** Manager assigns a vendor (existing `assignVendor`), optionally
-schedules a tour visit (existing flow, unchanged), then clicks "Invite for
-bids" (`manager-work-orders-panel.tsx`) — this sets `biddingOpen: true` on the
-work order (mirrored to the server via the existing local-first
-`updateManagerWorkOrder` → `/api/portal-work-orders` "replace" sync, same as
-every other work-order field) and calls `/api/portal/send-vendor-visit-email`
-with `kind: "bid_offer"` to reuse the SAME vendor resolution + email (Resend)
-+ `deliverPortalInboxMessage` + audit-log pipeline as the visit-scheduled
-email, just with different copy (`buildVendorBidOfferEmail` in
-`src/lib/vendor-visit-email.ts`) — no second notification path was built. The
-vendor submits/updates a cost + proposed-time + note bid via the new
-`/api/portal/work-order-bids` route (`vendor-work-orders-panel.tsx`), which
-verifies `portal_work_order_records.vendor_user_id === auth.uid()` AND
-`row_data.biddingOpen === true` before accepting a write — never trusting a
-client-supplied work order id to attach a bid to an unrelated manager's
-record. The manager reviews bids on the work-order detail and accepts one;
-the accept route (server-side, service-role) sets that bid `accepted`, every
-other `submitted` bid on the same work order `declined`, patches the work
-order's `row_data` directly (`vendorId`, `vendorName`, `cost`, `biddingOpen:
-false`) bypassing the client mirror (the manager's browser picks it up on its
-next `syncManagerWorkOrdersFromServer`), and notifies the winner (and,
-best-effort, each declined vendor) via `deliverPortalInboxMessage`.
+**An estimate is not a bid.** The old note that a service goes to one vendor at a time is gone: a
+manager requests up to 10 vendors at once (`work_order_vendor_offers`, `sendWorkOrderVendorOffers`),
+and every requested vendor is one row that moves through
+
+```
+Requested -> Estimate and/or Estimate visit -> Bid -> Approved | Declined
+```
+
+- **Estimate** (`work_order_bids.estimate_cents`, `estimate_given_at`): the vendor's ONE rough
+  number before seeing the job. It can never be approved and never becomes a payment.
+- **Estimate visit** (`consultation_visit_at`, optional `estimate_visit_fee_cents`,
+  `estimate_visit_done_at`): the vendor books a look. The fee (0 = free, capped at
+  `MAX_ESTIMATE_VISIT_FEE_CENTS`) is shown on the manager's row; it is fixed once the visit is
+  marked done.
+- **Bid** (`amount_cents` + `materials_cents` + `proposed_time` + `bid_submitted_at`): the real price
+  and time, and the ONLY thing a manager can approve. Allowed fresh, after an estimate, or after a
+  visit. `bidCanBeApproved` (`src/lib/work-order-bid-approval.ts`) is the one predicate the server
+  and the UI both read.
+
+Vendor actions on `POST /api/portal/work-order-bids` (service-role writes, vendors stay SELECT-only
+at the database): `give_estimate`, `book_estimate_visit` (alias `schedule_consultation`),
+`complete_estimate_visit`, `submit_bid` (alias `submit`), `withdraw`. Manager actions:
+`approve_bid` (alias `accept`) and `remove_request`. `approve_bid` re-derives that the service
+belongs to the caller's workspace and that the bid belongs to the service, refuses anything without
+a submitted bid (422), declines the other bids and tells their vendors, and books the bid's
+`proposed_time` as the scheduled visit (either side can still move it). Every amount is read from the
+stored row; a body amount is never used for a payout.
+
+**The estimate-visit fee is its own outgoing payment.** `complete_estimate_visit` (vendor marks the
+visit happened; refused 422 before the visit time) files one vendor invoice per bid
+(`invoice_number = VISIT-<bid id>`, unique index in
+`20261003230000_work_order_bid_estimates.sql`, `ensureVisitFeeInvoice`) for the stored fee. It rides
+the normal Approve & pay rail; `isGenuineVisitFeeInvoice` is what lets it be paid although that vendor
+was never hired, and only when it matches a real bid whose visit happened at that fee. The job's own
+invoice (`ensureSubmittedVendorInvoiceForMarkedDone`) ignores `VISIT-` invoices. The job payout is
+built only when the service is completed AND assigned to a vendor
+(`serviceIsVendorPayable`): yourself and teammates never create an outgoing row.
+
+**The manager record** (`record-sections.ts` `service`): Service · Vendor & schedule · (Linked)
+Incoming payments · Outgoing payments · Communication. Overview and Photos are one Service tab (the
+resident's photos are a strip inside it); Payments is Incoming payments. Old `/overview`, `/photos`,
+`/payments` links redirect (`SERVICE_DETAIL_TAB_ALIASES`). Vendor & schedule shows the stage bar
+(Pending · Bids requested · Bid approved · Scheduled · Completed · Paid, derived by
+`deriveServiceStages`, never stored), one row per requested vendor (`deriveVendorRequestRows`),
+Approve bid only on a row with a submitted bid, an Assign dropdown (Request bids / a vendor / a
+teammate / myself) and a + to request more vendors. The vendor answers in `VendorBidReplyDialog`
+(choices from `vendorReplyChoices`).
+
+**Flow.** The manager requests vendors from the service's Vendor & schedule section (the + or
+"Request bids" in Assign), which sets `biddingOpen: true` on the work order (mirrored through the
+local-first `updateManagerWorkOrder` -> `/api/portal-work-orders` "replace" sync) and sends each vendor
+an offer through the SAME vendor resolution + email (Resend) + `deliverPortalInboxMessage` + audit-log
+pipeline as the visit-scheduled email (`buildVendorBidOfferEmail` in `src/lib/vendor-visit-email.ts`).
+A vendor may act only while they hold a `sent` offer or are the assigned vendor, and only while bidding
+is open (or their own row is awaiting a bid after an estimate or visit) - a client-supplied work order
+id never attaches a row to an unrelated manager's record. The manager reviews the rows on Vendor &
+schedule and approves one; the approve action (server-side, service-role) sets that bid `accepted`,
+every other `submitted` row on the service `declined`, patches the work order's `row_data` directly
+(`vendorId`, `vendorName`, `cost`, `biddingOpen: false`, and the booked visit), bypassing the client
+mirror (the manager's browser picks it up on its next `syncManagerWorkOrdersFromServer`), and notifies
+the winner and, best-effort, each declined vendor.
 
 **RLS** (`work_order_bids_vendor_read` / `work_order_bids_manager_read`):
 BOTH sides are `FOR SELECT` only — vendor by `vendor_user_id = auth.uid()`,

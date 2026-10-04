@@ -52,7 +52,12 @@ import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { parseWorkOrderCategoryFromDescription } from "@/lib/reports/formal-documents/spec";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
 import { syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
-import { MANAGER_OUTGOING_PAYMENTS_EVENT } from "@/lib/manager-outgoing-payments";
+import {
+  MANAGER_OUTGOING_PAYMENTS_EVENT,
+  buildManagerOutgoingPaymentRows,
+  readManagerOutgoingExpenses,
+  type VisitFeeSnapshot,
+} from "@/lib/manager-outgoing-payments";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -69,7 +74,10 @@ import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spe
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import { ServiceAssignModal } from "@/components/portal/service-assign-modal";
 import { PublishServiceBidsModal } from "@/components/portal/publish-service-bids-modal";
-import { ServiceQuoteCompareSection } from "@/components/portal/service-quote-compare-section";
+import { ServiceVendorCycleSection } from "@/components/portal/service-vendor-cycle-section";
+import { deriveServiceStages, deriveVendorRequestRows, serviceIsVendorPayable, type VendorRequestRow } from "@/lib/work-order-bid-cycle";
+import { isVisitFeeInvoiceNumber, visitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
+import { fetchServiceInvoices, outgoingPayHref, type ServiceInvoiceSummary } from "@/lib/manager-service-invoice-nav";
 import { ServiceWorkOrderThreadEvents } from "@/components/portal/service-work-order-thread-events";
 import { ServiceInvoiceDocument } from "@/components/portal/service-invoice-document";
 import { vendorInvoiceShortfallCents } from "@/lib/vendor-invoice-bulk-pay";
@@ -79,7 +87,7 @@ import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card"
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { propertyDetailHref, workOrderDetailHref, workOrderListHref, type ServiceDetailTabId } from "@/lib/portal-detail-routes";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalApplicantRecordRow, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -283,6 +291,9 @@ export function ManagerWorkOrdersPanel({
   const [assignSheetRow, setAssignSheetRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [publishBidsRow, setPublishBidsRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [offersByWorkOrderId, setOffersByWorkOrderId] = useState<Record<string, WorkOrderVendorOffer[]>>({});
+  /** Vendor invoices on the open service (the job's and any estimate-visit fee), for Outgoing payments. */
+  const [serviceInvoices, setServiceInvoices] = useState<ServiceInvoiceSummary[]>([]);
+  const [outgoingBusyId, setOutgoingBusyId] = useState<string | null>(null);
   /** "Leave a review" dialog launched from the record header, completed services only. */
   const [reviewRow, setReviewRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** C105: multi-vendor "Invite another vendor" sheet launched from the vendor-schedule section. */
@@ -468,6 +479,26 @@ export function ManagerWorkOrdersPanel({
     const t = window.setTimeout(() => tryAutoChargeScheduled(), 400);
     return () => window.clearTimeout(t);
   }, [tryAutoChargeScheduled, hcTick]);
+
+  const routeInvoicesWorkOrderId = routeWorkOrder?.id ?? null;
+  useEffect(() => {
+    if (!routeInvoicesWorkOrderId || isDemoModeActive()) {
+      setServiceInvoices([]);
+      return;
+    }
+    let active = true;
+    const load = () => {
+      void fetchServiceInvoices(routeInvoicesWorkOrderId).then((list) => {
+        if (active) setServiceInvoices(list);
+      });
+    };
+    load();
+    window.addEventListener(MANAGER_OUTGOING_PAYMENTS_EVENT, load);
+    return () => {
+      active = false;
+      window.removeEventListener(MANAGER_OUTGOING_PAYMENTS_EVENT, load);
+    };
+  }, [routeInvoicesWorkOrderId]);
 
   const chargeByWoId = useMemo(() => {
     void hcTick;
@@ -981,24 +1012,51 @@ export function ManagerWorkOrdersPanel({
       if (isDemoModeActive()) {
         if (!acceptDemoWorkOrderBid(bid.workOrderId)) throw new Error("Could not accept bid.");
         await loadBids(bid.workOrderId);
-        showToast("Quote accepted. Vendor assigned at the agreed cost.");
+        showToast("Bid approved. The visit is booked at the bid's time.");
         return;
       }
       const res = await fetch("/api/portal/work-order-bids", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ action: "accept", bidId: bid.id }),
+        body: JSON.stringify({ action: "approve_bid", bidId: bid.id, workOrderId: bid.workOrderId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not accept bid.");
+      if (!res.ok) throw new Error(data.error ?? "Could not approve bid.");
       await syncManagerWorkOrdersFromServer({ force: true });
       await loadBids(bid.workOrderId);
-      showToast("Quote accepted. Vendor assigned at the agreed cost.");
+      showToast("Bid approved. The visit is booked at the bid's time.");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not accept bid.");
+      showToast(e instanceof Error ? e.message : "Could not approve bid.");
     } finally {
       setAcceptingBidId(null);
+    }
+  };
+
+  /** Manager removes one vendor from the request (their offer is withdrawn; an owed visit fee is kept). */
+  const removeRequestHandler = async (row: DemoManagerWorkOrderRow, request: VendorRequestRow) => {
+    if (isDemoModeActive()) {
+      showToast("Removing a request isn't available in the demo.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/portal/work-order-bids", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "remove_request",
+          workOrderId: row.id,
+          ...(request.bidId ? { bidId: request.bidId } : {}),
+          ...(request.offerId ? { offerId: request.offerId } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not remove the request.");
+      await loadBids(row.id);
+      showToast("Request removed.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not remove the request.");
     }
   };
 
@@ -1093,10 +1151,10 @@ export function ManagerWorkOrdersPanel({
     </div>
   );
 
-  /** Photos section (PLAN-0921-1029, area 2) — the same gallery `renderOverviewFacts` used to inline. */
-  const renderPhotosBody = (row: DemoManagerWorkOrderRow) =>
+  /** The resident's photos as a strip inside the Service tab (there is no Photos tab). Nothing renders without photos. */
+  const renderPhotosStrip = (row: DemoManagerWorkOrderRow) =>
     row.photoDataUrls?.length ? (
-      <div className="grid grid-cols-2 gap-2 px-3 pb-4 sm:grid-cols-3 sm:px-4" data-attr="work-order-photos">
+      <div className="flex gap-2 overflow-x-auto px-3 pb-4 sm:px-4" data-attr="work-order-photos">
         {row.photoDataUrls.map((src, index) => {
           const trimmed = src.trim();
           if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
@@ -1106,7 +1164,7 @@ export function ManagerWorkOrdersPanel({
               href={trimmed}
               target="_blank"
               rel="noreferrer"
-              className="block overflow-hidden rounded-xl border border-border bg-accent/30"
+              className="block w-40 shrink-0 overflow-hidden rounded-xl border border-border bg-accent/30"
             >
               <Image
                 src={trimmed}
@@ -1120,11 +1178,9 @@ export function ManagerWorkOrdersPanel({
           );
         })}
       </div>
-    ) : (
-      <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="work-order-photos-empty" />
-    );
+    ) : null;
 
-  /** Vendor & bids — assignment, contact, PropLane's dispatch suggestion, and bids. */
+  /** Vendor & schedule - the cycle: stage bar, one row per requested vendor, Assign, and request more. */
   const renderVendorBidsBody = (row: DemoManagerWorkOrderRow) => {
     const assignedVendor =
       !row.selfAssigned && row.vendorId
@@ -1133,38 +1189,51 @@ export function ManagerWorkOrdersPanel({
     const assignedVendorEmail = assignedVendor?.email?.trim() ?? "";
     const dispatch = (row as WorkOrderRowWithDispatch).dispatch;
     const bids = bidsByWorkOrderId[row.id] ?? [];
+    const offers = offersByWorkOrderId[row.id] ?? [];
+    const { stages } = deriveServiceStages(row, { bids, offers });
+    const requests = deriveVendorRequestRows(bids, offers);
+    const current = workOrderAssigneeFromRow(row, managerUserId, teamMembers);
+    const assignValue = current ? (current.type === "vendor" ? `vendor:${current.id}` : current.id === managerUserId ? "me" : `team:${current.id}`) : "";
+    const assignGroups = [
+      { label: "Bids", options: [{ value: "bids", label: "Request bids" }] },
+      ...(activeVendors.length > 0
+        ? [{ label: "Vendors", options: activeVendors.map((v) => ({ value: `vendor:${v.id}`, label: v.trade?.trim() ? `${v.name} · ${v.trade}` : v.name })) }]
+        : []),
+      {
+        label: "Team",
+        options: [
+          ...(managerUserId ? [{ value: "me", label: "Myself" }] : []),
+          ...teamMembers
+            .filter((m) => m.userId !== managerUserId)
+            .map((m) => ({ value: `team:${m.userId}`, label: m.name?.trim() || "Teammate" })),
+        ],
+      },
+    ];
+    const onAssign = (value: string) => {
+      if (value === "bids") {
+        if (requests.length > 0) {
+          setInviteVendorRow(row);
+          setInviteVendorSelectedIds([]);
+        } else setPublishBidsRow(row);
+        return;
+      }
+      if (value === "me" && managerUserId) {
+        assignWork(row, { type: "team", id: managerUserId, name: "You" });
+        return;
+      }
+      if (value.startsWith("team:")) {
+        const id = value.slice(5);
+        assignWork(row, { type: "team", id, name: teamMembers.find((m) => m.userId === id)?.name?.trim() || "Teammate" });
+        return;
+      }
+      if (value.startsWith("vendor:")) {
+        const id = value.slice(7);
+        assignWork(row, { type: "vendor", id, name: activeVendors.find((v) => v.id === id)?.name || "Vendor" });
+      }
+    };
     return (
-      <div className="px-3 pb-4 sm:px-4" data-attr="work-order-vendor-bids">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-8 rounded-full px-3 text-xs"
-            data-attr="work-order-open-assign"
-            onClick={() => setAssignSheetRow(row)}
-          >
-            Assign
-          </Button>
-          {row.biddingOpen || (bidsByWorkOrderId[row.id]?.length ?? 0) > 0 ? null : (
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-8 rounded-full px-3 text-xs"
-              data-attr="work-order-open-publish"
-              onClick={() => setPublishBidsRow(row)}
-            >
-              Send for bids
-            </Button>
-          )}
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          {row.vendorName ? (
-            <span className="text-xs text-muted">
-              Vendor: <span className="font-medium text-foreground">{row.vendorName}</span>
-            </span>
-          ) : row.selfAssigned ? (
-            <span className="text-xs text-muted">Self-handled</span>
-          ) : null}
+      <div data-attr="work-order-vendor-bids">
+        <div className="flex flex-wrap items-center gap-3 px-3 pb-2 sm:px-4">
           {assignedVendor?.phone ? (
             <a href={`tel:${assignedVendor.phone}`} className="text-xs font-medium text-primary hover:underline">
               Call
@@ -1176,8 +1245,7 @@ export function ManagerWorkOrdersPanel({
             </a>
           ) : null}
         </div>
-
-        {row.bucket === "open" && dispatch ? (
+        <div className="px-3 sm:px-4">{row.bucket === "open" && dispatch ? (
           dispatch.status === "proposed" ? (
             <div className="mt-4 rounded-xl border border-primary/30 bg-primary/5 p-3">
               <p className="text-sm font-semibold text-foreground">PropLane suggests {dispatch.vendorName}</p>
@@ -1216,23 +1284,27 @@ export function ManagerWorkOrdersPanel({
               {dispatch.decidedAtIso ? ` · ${formatScheduledLabel(dispatch.decidedAtIso)}` : ""}
             </p>
           ) : null
-        ) : null}
-
-        <div className="mt-3 border-t border-border pt-3">
-          <ServiceQuoteCompareSection
-            bids={bids}
-            waitingOffers={offersByWorkOrderId[row.id] ?? []}
-            vendors={activeVendors}
-            reviewAggregatesByVendorUserId={reviewAggregatesByVendorUserId}
-            acceptingBidId={acceptingBidId}
-            onHire={(bid) => void acceptBidHandler(bid)}
-            onMessageVendor={() => {
-              navigate(
-                workOrderDetailHref(listBasePath ?? "/portal", row.bucket, row.id, "communication"),
-              );
-            }}
-          />
-        </div>
+        ) : null}</div>
+        <ServiceVendorCycleSection
+          stages={stages}
+          requests={requests}
+          assignValue={assignValue}
+          assignGroups={assignGroups}
+          approvingBidId={acceptingBidId}
+          onAssign={onAssign}
+          onRequestMore={() => {
+            setInviteVendorRow(row);
+            setInviteVendorSelectedIds([]);
+          }}
+          onApprove={(request) => {
+            const bid = bids.find((b) => b.id === request.bidId);
+            if (bid) void acceptBidHandler(bid);
+          }}
+          onMessage={() => {
+            navigate(workOrderDetailHref(listBasePath ?? "/portal", row.bucket, row.id, "communication"));
+          }}
+          onRemove={(request) => void removeRequestHandler(row, request)}
+        />
       </div>
     );
   };
@@ -1328,6 +1400,103 @@ export function ManagerWorkOrdersPanel({
     );
   };
 
+  /**
+   * Outgoing payments for ONE service: the job payout (only once completed and assigned to a vendor)
+   * and any estimate-visit fee, as the same rows the Outgoing payments page builds. Approve & pay
+   * reuses the existing vendor-invoice pay flow - there is no second pay implementation here.
+   */
+  const outgoingRowsForService = (row: DemoManagerWorkOrderRow) => {
+    const bids = bidsByWorkOrderId[row.id] ?? [];
+    const visitFees: VisitFeeSnapshot[] = bids
+      .filter((bid) => bid.estimateVisitDoneAt && (bid.estimateVisitFeeCents ?? 0) > 0)
+      .map((bid) => ({
+        bidId: bid.id,
+        workOrderId: bid.workOrderId,
+        vendorName: bid.vendorName,
+        vendorId: bid.vendorDirectoryId ?? undefined,
+        feeCents: bid.estimateVisitFeeCents ?? 0,
+        visitDoneAt: bid.estimateVisitDoneAt,
+        paidAt: serviceInvoices.find((invoice) => invoice.invoiceNumber === visitFeeInvoiceNumber(bid.id) && invoice.status === "paid")?.paidAt ?? null,
+      }));
+    return buildManagerOutgoingPaymentRows({
+      managerUserId: managerUserId,
+      expenses: readManagerOutgoingExpenses().filter((expense) => expense.sourceWorkOrderId === row.id),
+      workOrders: [row],
+      visitFees,
+    }).filter((outgoing) => outgoing.workOrderId === row.id || outgoing.serviceId === row.id);
+  };
+
+  /** Approve (if still submitted) and open the existing pay flow for the matching invoice. */
+  const approveAndPayOutgoing = async (row: DemoManagerWorkOrderRow, outgoing: { id: string; kind?: string; visitFeeBidId?: string }) => {
+    setOutgoingBusyId(outgoing.id);
+    try {
+      const isFee = outgoing.kind === "visit-fee";
+      const fresh = await fetchServiceInvoices(row.id);
+      const target = fresh.find(
+        (invoice) =>
+          (invoice.status === "submitted" || invoice.status === "approved" || invoice.status === "scheduled") &&
+          (isFee ? invoice.invoiceNumber === visitFeeInvoiceNumber(outgoing.visitFeeBidId ?? "") : !isVisitFeeInvoiceNumber(invoice.invoiceNumber)),
+      );
+      if (!target) {
+        if (!isFee) approvePay(row);
+        else showToast("The visit fee isn't ready to pay yet.");
+        return;
+      }
+      if (target.status === "submitted") {
+        const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(target.id)}/decision`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status: "approved" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Could not approve the payment.");
+        window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT));
+      }
+      navigate(outgoingPayHref(listBasePath ?? "/portal", target.id));
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not approve the payment.");
+    } finally {
+      setOutgoingBusyId(null);
+    }
+  };
+
+  const renderOutgoingBody = (row: DemoManagerWorkOrderRow) => {
+    const outgoingRows = outgoingRowsForService(row);
+    if (outgoingRows.length === 0) {
+      return <PortalListEmptyCard title="Nothing to pay on this service" workspaceAware={false} dataAttr="work-order-outgoing-empty" />;
+    }
+    return (
+      <div className="px-3 pb-6 sm:px-4" data-attr="work-order-outgoing-payments">
+        {outgoingRows.map((outgoing) => (
+          <PortalApplicantRecordRow
+            key={outgoing.id}
+            name={outgoing.payeeLabel}
+            address={[outgoing.chargeTitle, outgoing.categoryLabel].filter(Boolean).join(" · ")}
+            facts={<PortalRowFact icon={Calendar}>{outgoing.bucket === "paid" ? `Paid ${outgoing.dueDate}` : outgoing.statusLabel}</PortalRowFact>}
+            amount={outgoing.amountLabel}
+            amountTone={outgoing.bucket === "paid" ? "ok" : undefined}
+            dataAttr="work-order-outgoing-row"
+            actions={
+              outgoing.bucket === "paid" ? undefined : (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="h-7 rounded-full px-3 text-xs"
+                  data-attr="work-order-outgoing-approve-pay"
+                  disabled={outgoingBusyId === outgoing.id}
+                  onClick={() => void approveAndPayOutgoing(row, outgoing)}
+                >
+                  {outgoingBusyId === outgoing.id ? "Opening…" : "Approve & pay"}
+                </Button>
+              )
+            }
+          />
+        ))}
+      </div>
+    );
+  };
+
   if (routeWorkOrderId) {
     if (!routeWorkOrder) {
       return <PortalDataTableEmpty icon="work-order" message="Service not found." />;
@@ -1337,7 +1506,7 @@ export function ManagerWorkOrdersPanel({
       serviceKind: "work-order",
       serviceBucket: bucket,
     });
-    const activeTab = serviceDetailTab ?? "overview";
+    const activeTab = serviceDetailTab ?? "service";
     const backHref = listBasePath ? workOrderListHref(listBasePath, bucket) : "#";
     const routeBids = bidsByWorkOrderId[routeWorkOrder.id] ?? [];
     const serviceNext = managerServiceNextStep(routeWorkOrder, { bidCount: routeBids.length });
@@ -1513,10 +1682,10 @@ export function ManagerWorkOrdersPanel({
           {renderVendorBidsBody(routeWorkOrder)}
           {renderScheduleBody(routeWorkOrder)}
         </>
-      ) : activeTab === "photos" ? (
-        renderPhotosBody(routeWorkOrder)
-      ) : activeTab === "payments" ? (
+      ) : activeTab === "incoming-payments" ? (
         renderInvoiceBody(routeWorkOrder)
+      ) : activeTab === "outgoing-payments" ? (
+        renderOutgoingBody(routeWorkOrder)
       ) : activeTab === "communication" ? (
         <>
           <ServiceWorkOrderThreadEvents row={routeWorkOrder} bids={routeBids} />
@@ -1561,7 +1730,6 @@ export function ManagerWorkOrdersPanel({
               {
                 id: "request",
                 title: "Request",
-                action: { label: "Photos", href: workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "photos") },
                 rows: [
                   { label: "Details", value: routeWorkOrder.description || "—" },
                   { label: "Preferred arrival", value: routeWorkOrder.preferredArrival?.trim() || "Anytime" },
@@ -1590,6 +1758,7 @@ export function ManagerWorkOrdersPanel({
               },
             ],
           })}
+          {renderPhotosStrip(routeWorkOrder)}
           <div className="space-y-3 px-3 pb-8 sm:px-4">
             {resolveWorkOrderAssignee(routeWorkOrder) ? (
               <p className="text-xs text-muted">

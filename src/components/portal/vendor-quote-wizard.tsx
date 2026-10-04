@@ -243,7 +243,7 @@ export function VendorQuoteWizard({
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({
-            action: "schedule_consultation",
+            action: "book_estimate_visit",
             workOrderId: job.id,
             consultationVisitAt: proposedTimeIso,
           }),
@@ -272,9 +272,10 @@ export function VendorQuoteWizard({
           materialsCents,
           proposedTime: proposedTimeIso,
           note: note.trim() || null,
+          bidSubmittedAt: new Date().toISOString(),
           status: "submitted",
         });
-        showToast("Quote submitted.");
+        showToast("Bid submitted.");
         onSubmitted?.();
         resetAndClose();
         return;
@@ -284,7 +285,7 @@ export function VendorQuoteWizard({
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          action: "submit",
+          action: "submit_bid",
           workOrderId: job.id,
           amountCents,
           materialsCents,
@@ -294,7 +295,7 @@ export function VendorQuoteWizard({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not submit quote.");
-      showToast("Quote submitted.");
+      showToast("Bid submitted.");
       onSubmitted?.();
       resetAndClose();
     } catch (error) {

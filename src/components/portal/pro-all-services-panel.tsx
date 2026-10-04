@@ -871,7 +871,7 @@ export function ManagerAllServicesPanel({
       ...recordSections("manager", "service", { basePath, serviceKind: "request", serviceBucket: reqBucket }),
       headerActions: [],
     };
-    const activeTab = serviceDetailTab ?? "overview";
+    const activeTab = serviceDetailTab ?? "service";
     const backHref = serviceRequestListHref(basePath, reqBucket);
     const ownContent =
       activeTab === "vendor-schedule" ? (
@@ -891,14 +891,14 @@ export function ManagerAllServicesPanel({
             <PortalListEmptyCard title="Not scheduled yet" workspaceAware={false} dataAttr="service-request-schedule-empty" />
           )}
         </div>
-      ) : activeTab === "photos" ? (
-        <PortalListEmptyCard title="No photos yet" workspaceAware={false} dataAttr="service-request-photos-empty" />
-      ) : activeTab === "payments" ? (
+      ) : activeTab === "incoming-payments" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="service-request-invoice">
           <p className="text-sm text-foreground">
             Charges: <span className="font-medium">{managerServiceRequestPricingSummary(detailRequest)}</span>
           </p>
         </div>
+      ) : activeTab === "outgoing-payments" ? (
+        <PortalListEmptyCard title="Nothing to pay on this service" workspaceAware={false} dataAttr="service-request-outgoing-empty" />
       ) : activeTab === "communication" ? (
         renderRecordSection("communication", {
           role: "manager",
@@ -929,7 +929,6 @@ export function ManagerAllServicesPanel({
             {
               id: "request",
               title: "Request",
-              action: { label: "Photos", href: serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "photos") },
               rows: [
                 { label: "Details", value: detailRequest.offerDescription || detailRequest.notes || "—" },
                 { label: "Reported", value: formatPortalListDate(detailRequest.requestedAt) },

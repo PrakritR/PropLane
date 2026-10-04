@@ -11,6 +11,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
+import { VendorBidReplyDialog } from "@/components/portal/vendor-bid-reply-dialog";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -175,15 +176,12 @@ export function VendorWorkOrdersPanel({
   // intake photo (ServiceIntakePhotoPicker), never a new upload mechanism.
   const [donePhotosById, setDonePhotosById] = useState<Record<string, string[]>>({});
   const [donePhotoErrorById, setDonePhotoErrorById] = useState<Record<string, boolean>>({});
-  /** Chosen before a bid row exists — once scheduled/submitted, the row's own quoteMode wins. */
-  const [modeById, setModeById] = useState<Record<string, "upfront" | "after_consultation">>({});
-  const [consultationDraftById, setConsultationDraftById] = useState<Record<string, string>>({});
-  const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [bidsSyncFailed, setBidsSyncFailed] = useState(false);
   const [payoutsSyncFailed, setPayoutsSyncFailed] = useState(false);
   const [decliningOfferId, setDecliningOfferId] = useState<string | null>(null);
   const [withdrawingBidId, setWithdrawingBidId] = useState<string | null>(null);
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const [replyRowId, setReplyRowId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const loadBids = useCallback(async () => {
@@ -320,7 +318,7 @@ export function VendorWorkOrdersPanel({
           workOrderId: row.id,
           vendorUserId: "demo-vendor-1",
           vendorDirectoryId: row.vendorId ?? "demo-vendor-1",
-          quoteMode: modeById[row.id] ?? "upfront",
+          quoteMode: "upfront",
           amountCents,
           materialsCents,
           proposedTime: proposedTimeIso,
@@ -352,67 +350,6 @@ export function VendorWorkOrdersPanel({
       showToast(e instanceof Error ? e.message : "Could not submit bid.");
     } finally {
       setSubmittingId(null);
-    }
-  };
-
-  const scheduleConsultation = async (row: DemoManagerWorkOrderRow, mode: "auto" | "manual") => {
-    let consultationVisitAt: string | null = null;
-    if (mode === "manual") {
-      consultationVisitAt = fromDatetimeLocalValue(consultationDraftById[row.id] ?? "");
-      if (!consultationVisitAt) {
-        showToast("Choose a date and time for the consultation.");
-        return;
-      }
-    }
-    setSchedulingId(row.id);
-    try {
-      if (demo) {
-        let visitAt = consultationVisitAt;
-        if (mode === "auto") {
-          const d = new Date();
-          d.setDate(d.getDate() + 2);
-          d.setHours(10, 0, 0, 0);
-          visitAt = d.toISOString();
-        }
-        if (!visitAt) {
-          showToast("Choose a date and time for the consultation.");
-          return;
-        }
-        upsertWorkOrderBid({
-          workOrderId: row.id,
-          vendorUserId: "demo-vendor-1",
-          vendorDirectoryId: row.vendorId ?? "demo-vendor-1",
-          quoteMode: "after_consultation",
-          consultationVisitAt: visitAt,
-          amountCents: null,
-          materialsCents: 0,
-          proposedTime: null,
-          note: null,
-          status: "submitted",
-        });
-        await loadBids();
-        showToast(`Consultation scheduled for ${formatVisitLabel(visitAt)}.`);
-        return;
-      }
-      const res = await fetch("/api/portal/work-order-bids", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          action: "schedule_consultation",
-          workOrderId: row.id,
-          mode,
-          ...(consultationVisitAt ? { consultationVisitAt } : {}),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not schedule consultation.");
-      await loadBids();
-      showToast(`Consultation scheduled for ${formatVisitLabel(data.consultationVisitAt)}.`);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not schedule consultation.");
-    } finally {
-      setSchedulingId(null);
     }
   };
 
@@ -696,15 +633,12 @@ export function VendorWorkOrdersPanel({
     const pricingPending = isPricingPendingBid(bid);
     const canEditBid = (row.biddingOpen || pricingPending) && (!bid || bid.status === "submitted");
     const canMarkDone = row.bucket === "scheduled" && !row.automationStatus;
-    const mode = bid?.quoteMode ?? modeById[row.id] ?? "upfront";
     const consultationScheduled = Boolean(bid?.consultationVisitAt);
-    const simplifiedBidForm = Boolean(row.biddingOpen && !bid);
-    const showModeToggle = canEditBid && !bid && row.biddingOpen === false && !simplifiedBidForm;
-    const showScheduleConsultation =
-      canEditBid && !bid && mode === "after_consultation" && row.biddingOpen && !simplifiedBidForm;
-    const showPricingFields =
-      canEditBid &&
-      (simplifiedBidForm || mode === "upfront" || consultationScheduled || pricingPending);
+    // A reply (estimate, visit, bid, decline) goes through the Reply popup; the inline fields only
+    // re-price a bid that was already submitted.
+    const showReply = canEditBid && (!bid || pricingPending);
+    const simplifiedBidForm = false;
+    const showPricingFields = canEditBid && Boolean(bid) && !pricingPending;
     const showScheduledPrice = canMarkDone && !showPricingFields;
 
     const fullSite = vendorCanSeeFullWorkOrderSite(row, bid);
@@ -791,66 +725,24 @@ export function VendorWorkOrdersPanel({
               </p>
             ) : null}
 
-            {showModeToggle ? (
-              <div className={`${PORTAL_TOOLBAR_GROUP} mt-2`} role="tablist" aria-label="Pricing mode">
-                <button
+            {showReply ? (
+              <div className="mt-3">
+                <Button
                   type="button"
-                  role="tab"
-                  aria-selected={mode === "upfront"}
-                  data-attr="vendor-quote-mode-upfront"
-                  className={`${PORTAL_TOOLBAR_PILL_BUTTON} ${mode === "upfront" ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : ""}`}
-                  onClick={() => setModeById((prev) => ({ ...prev, [row.id]: "upfront" }))}
+                  variant="primary"
+                  data-attr="vendor-reply-open"
+                  className={`${PORTAL_DETAIL_BTN} rounded-full`}
+                  onClick={() => setReplyRowId(row.id)}
                 >
-                  Quote now
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={mode === "after_consultation"}
-                  data-attr="vendor-quote-mode-consultation"
-                  className={`${PORTAL_TOOLBAR_PILL_BUTTON} ${mode === "after_consultation" ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : ""}`}
-                  onClick={() => setModeById((prev) => ({ ...prev, [row.id]: "after_consultation" }))}
-                >
-                  Consult first
-                </button>
+                  Reply
+                </Button>
               </div>
             ) : null}
 
-            {showScheduleConsultation ? (
-              <div className="mt-3 space-y-2">
-                <p className="text-xs text-muted">Schedule a consultation visit, then come back to price the job.</p>
-                <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-                  <Button
-                    type="button"
-                    variant="primary"
-                    data-attr="vendor-auto-schedule-consultation"
-                    className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                    disabled={schedulingId === row.id}
-                    onClick={() => scheduleConsultation(row, "auto")}
-                  >
-                    {schedulingId === row.id ? "Finding a slot…" : "Auto-schedule from my availability"}
-                  </Button>
-                  <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                    Or pick a time
-                    <Input
-                      type="datetime-local"
-                      value={consultationDraftById[row.id] ?? ""}
-                      onChange={(e) => setConsultationDraftById((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                      className="h-8 rounded-md text-sm"
-                    />
-                  </label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    data-attr="vendor-manual-schedule-consultation"
-                    className={PORTAL_DETAIL_BTN}
-                    disabled={schedulingId === row.id}
-                    onClick={() => scheduleConsultation(row, "manual")}
-                  >
-                    Schedule
-                  </Button>
-                </div>
-              </div>
+            {bid?.estimateCents != null && bid.amountCents == null ? (
+              <p className="mt-2 text-xs text-muted">
+                Your estimate: <span className="font-medium text-foreground">${(bid.estimateCents / 100).toFixed(2)}</span>
+              </p>
             ) : null}
 
             {bid?.quoteMode === "after_consultation" && consultationScheduled ? (
@@ -1392,6 +1284,22 @@ export function VendorWorkOrdersPanel({
           );
         })}
       </PortalRecordListSurface>
+      <VendorBidReplyDialog
+        open={replyRowId !== null}
+        row={rows.find((r) => r.id === replyRowId) ?? null}
+        bid={replyRowId ? bidsByWorkOrderId[replyRowId] : undefined}
+        onClose={() => setReplyRowId(null)}
+        onDone={() => loadBids()}
+        onDecline={async () => {
+          const target = rows.find((r) => r.id === replyRowId);
+          const offer = replyRowId ? offersByWorkOrderId[replyRowId] : undefined;
+          if (target && offer) await declineOffer(target, offer);
+        }}
+        onWithdraw={async () => {
+          const target = rows.find((r) => r.id === replyRowId);
+          if (target) await withdrawBid(target);
+        }}
+      />
       <VendorQuoteWizard
         open={quoteOpen}
         door="quote"

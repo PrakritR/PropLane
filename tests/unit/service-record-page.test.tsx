@@ -47,7 +47,7 @@ function row(overrides: Partial<DemoManagerWorkOrderRow> = {}): DemoManagerWorkO
 }
 
 describe("service record page (work order)", () => {
-  it("the rail has the registry's trimmed sections (PLAN-0921-1029): Overview, Vendor & schedule, Photos, Payments, Communication", () => {
+  it("the rail has the registry's trimmed sections (PLAN-0921-1029): Service, Vendor & schedule, Incoming payments, Outgoing payments, Communication", () => {
     render(
       <AppUiProvider>
         <ManagerWorkOrdersPanel allRows={[row()]} bucket="open" workOrderId="wo-1" listBasePath="/portal" />
@@ -56,10 +56,10 @@ describe("service record page (work order)", () => {
     const rail = screen.getByRole("navigation", { name: "Service sections" });
     const links = within(rail).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual([
-      "Overview",
+      "Service",
       "Vendor & schedule",
-      "Photos",
-      "Payments",
+      "Incoming payments",
+      "Outgoing payments",
       "Communication",
     ]);
   });
