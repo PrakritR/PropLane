@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import { buildProspectApplyHref } from "@/lib/prospect-public-nav";
-import { TOUR_BLOCK_MESSAGES, type TourBlockReason } from "@/lib/application-before-tour-policy";
+import { TOUR_BLOCK_LABELS, TOUR_BLOCK_MESSAGES, type TourBlockReason } from "@/lib/application-before-tour-policy";
 
 /**
  * Shown in place of the tour flow when the property's workspace asks for an application first and
@@ -38,6 +38,32 @@ export function TourApplicationFirstPanel({
       >
         Apply
       </Link>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Inline blocked state for a picker that cannot continue: one heading-style line for the gate's
+ * reason, plus the Apply door only when an application is what is missing.
+ */
+export function TourBlockedNotice({ applyHref, reason }: { applyHref: string; reason: TourBlockReason }) {
+  return (
+    <div
+      role="status"
+      data-attr="tour-blocked-notice"
+      data-reason={reason}
+      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
+    >
+      <p className="text-sm font-semibold text-foreground">{TOUR_BLOCK_LABELS[reason]}</p>
+      {reason === "apply_first" ? (
+        <Link
+          href={applyHref}
+          data-attr="tour-blocked-notice-apply"
+          className="inline-flex rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+        >
+          Apply
+        </Link>
       ) : null}
     </div>
   );

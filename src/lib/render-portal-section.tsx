@@ -1,7 +1,6 @@
 import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/portal/inspections-panel";
 import {
   parseResidentInspectionTypeFilter,
-  RESIDENT_INSPECTION_TAB_ORDER,
 } from "@/lib/resident-inspections-tabs";
 import type { InspectionKind } from "@/lib/inspections/model";
 import {
@@ -385,8 +384,12 @@ export async function renderPortalSection(
   // (`upcoming|in-progress|done`, optionally `?type=`) land on the merged list, with the type kept.
   // Must run BEFORE findSection (it is no longer a nav section) and before the stage guard.
   if (kind === "resident" && section === "inspections") {
-    const legacyBucket = (RESIDENT_INSPECTION_TAB_ORDER as readonly string[]).includes(tabParts?.[0] ?? "");
-    if (!tabParts?.length || legacyBucket) {
+    // Only `move-in` / `move-out` address a page of their own under My home. Anything else the old
+    // routes had (`upcoming|in-progress|done`, `reports`, `pending`, ...) is a list address: it lands on
+    // the merged list instead of a `/move-in/inspections/<word>` that 404s.
+    const firstPart = tabParts?.[0] ?? "";
+    const addressesAKind = firstPart === "move-in" || firstPart === "move-out";
+    if (!addressesAKind) {
       const type = parseResidentInspectionTypeFilter(firstSearchParam(searchParams, "type"));
       redirect(residentMoveInInspectionsHref(def.basePath, type === "all" ? undefined : type));
     }

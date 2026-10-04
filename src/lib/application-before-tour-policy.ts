@@ -59,6 +59,13 @@ export const TOUR_BLOCK_MESSAGES: Record<TourBlockReason, string> = {
   denied: "Your application for this home was denied, so a tour cannot be booked here.",
 };
 
+/** One-line headings for an inline blocked state (no sentence under them). */
+export const TOUR_BLOCK_LABELS: Record<TourBlockReason, string> = {
+  apply_first: "Application approval required to book a tour",
+  pending_approval: "Your application is under review",
+  denied: "Tours unavailable",
+};
+
 /**
  * The one gate matrix (captain, Oct 3 2026), shared by the server refusal, the check route and the
  * pages:

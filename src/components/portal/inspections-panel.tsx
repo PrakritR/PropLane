@@ -471,7 +471,9 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const residentTypeKinds: InspectionKind[] =
     residentTypeFilterState === "all" ? ["move-in", "move-out"] : [residentTypeFilterState];
   const residentAllRows: (InspectionRow & { _kind: InspectionKind })[] = isResidentBucketMode
-    ? residentTypeKinds.flatMap((k) => rowsFor(k).map((row) => ({ ...row, _kind: k })))
+    ? // A residency with no filed report gets a roster row under BOTH kinds (`residency:<id>`), so the
+      // merged list namespaces every key by kind or React sees two children with the same key.
+      residentTypeKinds.flatMap((k) => rowsFor(k).map((row) => ({ ...row, key: `${k}:${row.key}`, _kind: k })))
     : [];
   const residentActiveBucket: ResidentInspectionTab | "all" = isResidentHubMode ? residentStatusState : residentBucket ?? "upcoming";
   const residentBucketCounts: Record<ResidentInspectionTab, number> = { upcoming: 0, "in-progress": 0, done: 0 };

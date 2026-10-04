@@ -1,7 +1,5 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
-import { AxisAssistant } from "@/components/portal/axis-assistant";
-import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { RateAppPrompt } from "@/components/native/rate-app-prompt";
@@ -26,7 +24,6 @@ import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-serv
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { getResidentPortalDefinition } from "@/lib/portals/resident";
-import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { TestAccountBanner } from "@/components/portal/test-account-banner";
 import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
@@ -58,10 +55,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
     email: profile?.email ?? user?.email ?? null,
     managerSubscriptionTier,
   });
-  const [sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
-    getSidebarCollapsed(),
-    getAssistantDockCollapsed(),
-  ]);
+  const sidebarCollapsed = await getSidebarCollapsed();
 
   const residentNavStage = resolveResidentPortalNavStage(access);
   const testWorkspace = user ? await resolveTestWorkspaceClassification(user.id) : { kind: "normal" as const };
@@ -70,7 +64,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
   }
 
   return (
-    <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null} smsTestPortal="resident" dockable>
+    // Residents have no PropLane assistant: no provider, FAB, dock rail, modal strip or header launcher.
     <div className={PORTAL_SHELL_ROOT_CLASS}>
       <SurfaceThemeDefault theme="light" />
       <PortalDataPrefetch kind="resident" />
@@ -111,12 +105,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
             </div>
           </main>
         </div>
-        <PortalAssistantDockRail
-          managerName={profile?.full_name ?? null}
-          initialCollapsed={assistantDockCollapsed}
-        />
       </div>
     </div>
-    </AxisAssistant>
   );
 }

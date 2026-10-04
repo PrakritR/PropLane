@@ -45,24 +45,10 @@ function initials(name: string | null, email: string | null): string {
 }
 
 /**
- * Slim desktop top bar (`lg+`) with Ask PropLane and the account menu. On phones
- * and tablets, this bar is hidden — {@link PortalMobileNavBar} owns the page
- * title and profile avatar without a duplicate assistant strip above it.
+ * The Ask PropLane pill and its ⌘K shortcut. Mounted only for portals that have the
+ * assistant; the resident portal never renders this, so it never binds the shortcut either.
  */
-export function PortalTopBar({
-  kind,
-  basePath,
-  name,
-  email,
-}: {
-  kind: PortalKind;
-  basePath: string;
-  name: string | null;
-  email: string | null;
-}) {
-  const router = useRouter();
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
+function AskPropLaneButton() {
   const assistantOpen = useSyncExternalStore(
     subscribeAxisAssistantOpen,
     getAxisAssistantOpen,
@@ -139,8 +125,7 @@ export function PortalTopBar({
   }, [toggleAssistant]);
 
   return (
-    <header className="hidden h-14 shrink-0 items-center justify-end gap-3 border-b border-border bg-background px-4 sm:px-5 lg:flex">
-      <button
+    <button
         type="button"
         onClick={toggleAssistant}
         data-attr="portal-ask-proplane"
@@ -157,6 +142,31 @@ export function PortalTopBar({
           ⌘K
         </kbd>
       </button>
+  );
+}
+
+/**
+ * Slim desktop top bar (`lg+`) with Ask PropLane and the account menu. On phones
+ * and tablets, this bar is hidden — {@link PortalMobileNavBar} owns the page
+ * title and profile avatar without a duplicate assistant strip above it.
+ */
+export function PortalTopBar({
+  kind,
+  basePath,
+  name,
+  email,
+}: {
+  kind: PortalKind;
+  basePath: string;
+  name: string | null;
+  email: string | null;
+}) {
+  const router = useRouter();
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
+  return (
+    <header className="hidden h-14 shrink-0 items-center justify-end gap-3 border-b border-border bg-background px-4 sm:px-5 lg:flex">
+      {kind === "resident" ? null : <AskPropLaneButton />}
 
       <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
         <DropdownMenuTrigger

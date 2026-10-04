@@ -7,6 +7,8 @@ import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { PropertySearchPicker, type PropertySearchOption } from "@/components/marketing/property-search-picker";
+import { residentPortalApplyReturnPath } from "@/lib/rental-application/public-apply-session";
+import { TourBlockedNotice } from "@/components/marketing/tour-application-first-panel";
 import { TourScheduleFlow } from "@/components/marketing/tour-schedule-flow";
 import {
   isPropertyActiveForLeads,
@@ -104,10 +106,11 @@ export function ResidentScheduleTourModal({
     { id: pickedPropertyId ?? "", applicationBeforeTour: undefined },
     { signedIn: Boolean(pickedPropertyId) },
   );
-  const gateReason =
+  const blockedReason =
     pickedGate.status === "apply_first" || pickedGate.status === "pending_approval" || pickedGate.status === "denied"
-      ? TOUR_BLOCK_MESSAGES[pickedGate.status]
+      ? pickedGate.status
       : null;
+  const gateReason = blockedReason ? TOUR_BLOCK_MESSAGES[blockedReason] : null;
 
   const pickerFooter = (
     <ModalFooter>
@@ -177,6 +180,10 @@ export function ResidentScheduleTourModal({
           />
         </div>
       ) : (
+        <>
+          {pickedPropertyId && blockedReason ? (
+            <TourBlockedNotice applyHref={residentPortalApplyReturnPath({ propertyId: pickedPropertyId })} reason={blockedReason} />
+          ) : null}
         <PropertySearchPicker
           options={propertyOptions}
           value={pickedPropertyId}
@@ -188,6 +195,7 @@ export function ResidentScheduleTourModal({
           listFillsAvailableHeight
           className="min-h-0 flex-1"
         />
+        </>
       )}
     </Modal>
   );
