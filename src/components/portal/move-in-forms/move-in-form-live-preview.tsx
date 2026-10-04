@@ -14,6 +14,7 @@ import {
   type MoveInAnswerMap,
 } from "@/components/portal/move-in-forms/move-in-form-model";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
+import { WorkspacePreviewTitle } from "@/components/portal/add-workspace/frame";
 import { Button } from "@/components/ui/button";
 import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSource } from "@/lib/move-in-forms/types";
 import { cn } from "@/lib/utils";
@@ -59,7 +60,7 @@ export function MoveInFormLivePreview({
 
   return (
     <section aria-label="What the resident sees" data-attr="move-in-form-live-preview">
-      <h3 className="mb-2 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">What the resident sees · live</h3>
+      <WorkspacePreviewTitle>Resident sees</WorkspacePreviewTitle>
       <div className="mx-auto w-full max-w-[272px] rounded-[30px] border-[7px] border-foreground/85 bg-card shadow-lg">
         <div className="flex min-h-[420px] flex-col rounded-[22px] bg-background p-3">
           <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-foreground">

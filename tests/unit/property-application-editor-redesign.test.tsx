@@ -68,15 +68,17 @@ describe("F003: Sections step default-sections checklist", () => {
     await waitWorkspace();
 
     jumpRail("sections");
-    const propertyRow = document.querySelector('[data-attr="application-sections-checklist-property"]') as HTMLInputElement | null;
-    expect(propertyRow).not.toBeNull();
-    expect(propertyRow!.checked).toBe(true);
+    // One row per section, a switch each: turning Property information off leaves its row in the list, switched off.
+    const propertySwitch = document.querySelector('[data-attr="application-questions-editor-section-switch-property"]') as HTMLElement | null;
+    expect(propertySwitch).not.toBeNull();
+    expect(propertySwitch!.getAttribute("aria-checked")).toBe("true");
 
-    fireEvent.click(propertyRow!);
-    expect(propertyRow!.checked).toBe(false);
+    fireEvent.click(propertySwitch!);
+    expect(propertySwitch!.getAttribute("aria-checked")).toBe("false");
 
-    expect(document.querySelector('[data-attr="application-section-toggle-property"]')).toBeNull();
-    expect(document.querySelector('[data-attr="application-section-toggle-household"]')).not.toBeNull();
+    expect(document.querySelectorAll('[data-attr="application-questions-editor-section-property"]')).toHaveLength(1);
+    const householdSwitch = document.querySelector('[data-attr="application-questions-editor-section-switch-household"]') as HTMLElement | null;
+    expect(householdSwitch!.getAttribute("aria-checked")).toBe("true");
   });
 
   it("locks a section holding a never-removable question (Personal information) checked", async () => {
@@ -99,10 +101,11 @@ describe("F003: Sections step default-sections checklist", () => {
     await waitWorkspace();
 
     jumpRail("sections");
-    const personalRow = document.querySelector('[data-attr="application-sections-checklist-personal"]') as HTMLInputElement | null;
-    expect(personalRow).not.toBeNull();
-    expect(personalRow!.checked).toBe(true);
-    expect(personalRow!.disabled).toBe(true);
+    const personalSwitch = document.querySelector('[data-attr="application-questions-editor-section-switch-personal"]') as HTMLButtonElement | null;
+    expect(personalSwitch).not.toBeNull();
+    expect(personalSwitch!.getAttribute("aria-checked")).toBe("true");
+    expect(personalSwitch!.disabled).toBe(true);
+    expect(document.querySelector('[data-attr="application-questions-editor-section-lock-personal"]')).not.toBeNull();
   });
 });
 

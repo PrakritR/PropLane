@@ -130,18 +130,18 @@ describe("F-editor b: no Workspace form / Custom for this listing picker in the 
     // template is editable immediately.
     expect(screen.queryByText(/Following the workspace application form/i)).toBeNull();
 
-    const sectionToggle = document.querySelector('[data-attr="application-section-toggle-additional"]') as HTMLElement | null;
+    const sectionToggle = document.querySelector('[data-attr="application-questions-editor-section-toggle-additional"]') as HTMLElement | null;
     expect(sectionToggle).not.toBeNull();
     fireEvent.click(sectionToggle!);
 
     // Expand the copied question's card (same id it had on the workspace
     // template — proving it was actually copied, not re-created) and confirm
     // it's a real, editable label input pre-filled with the copied question.
-    const toggle = document.querySelector('[data-attr="application-question-edit-ws-gate"]') as HTMLElement | null;
+    const toggle = document.querySelector('[data-question-id="ws-gate"] [data-attr="application-questions-editor-question-open"]') as HTMLElement | null;
     expect(toggle).not.toBeNull();
     fireEvent.click(toggle!);
     const labelInput = await screen.findByDisplayValue("Do you have pets?");
-    expect(labelInput.getAttribute("data-attr")).toBe("application-question-label");
+    expect(labelInput.getAttribute("data-attr")).toBe("application-questions-editor-question-label");
   });
 
   it("is unreachable for a bulk (multi-property) edit, where a single listing's flag is ambiguous", async () => {

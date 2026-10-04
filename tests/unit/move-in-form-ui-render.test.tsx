@@ -495,7 +495,7 @@ describe("property Move-in › Forms", () => {
 describe("builder popup", () => {
   const rooms = [{ id: "room-1", label: "Room 1" }, { id: "room-2", label: "Room 2" }];
   const applicationTemplates = [{ id: "tplA", label: "Standard application" }, { id: "tplB", label: "Group application" }];
-  const labels = () => Array.from(document.querySelectorAll<HTMLInputElement>('[data-attr="application-question-label"]')).map((input) => input.value);
+  const labels = () => Array.from(document.querySelectorAll<HTMLInputElement>('[data-attr="move-in-questions-editor-question-label"]')).map((input) => input.value);
   const optionNames = async () => (await screen.findAllByRole("option")).map((option) => (option.textContent ?? "").replace(/^✓/, "").trim());
   const attr = (name: string) => document.querySelector(`[data-attr="${name}"]`) as HTMLElement | null;
 
@@ -542,7 +542,7 @@ describe("builder popup", () => {
     expect(screen.getAllByText("Add move-in form").length).toBeGreaterThan(0);
     for (const label of ["Form", "Questions", "Who & when"]) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     expect(screen.queryByText("Review")).toBeNull();
-    expect(screen.getAllByText("What the resident sees · live").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Resident sees").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Not saved yet").length).toBeGreaterThan(0);
   });
 
@@ -628,6 +628,8 @@ describe("builder popup", () => {
     await openBuilder(MOVE_IN_FORM_STARTERS[1]!, "edit", 1);
     expect(screen.getAllByText("Edit move-in form").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Saved").length).toBeGreaterThan(0);
+    // Several sections: each starts closed, one row per section.
+    for (const toggle of document.querySelectorAll<HTMLElement>('[data-attr^="move-in-questions-editor-section-toggle-"][aria-expanded="false"]')) fireEvent.click(toggle);
     for (const question of MOVE_IN_FORM_STARTERS[1]!.questions) expect(screen.getAllByText(question.label).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /continue to who & when/i }));
@@ -665,9 +667,9 @@ describe("builder popup", () => {
     await openBuilder({ ...newMoveInFormTemplate("built"), name: "Blank", questions: [q("a", { label: "First" })] }, "add", 1);
     expect(screen.getAllByText("First").length).toBeGreaterThan(0);
     // The shared row subtitle names the type; the move-in vocabulary adds Signature and Photos.
-    fireEvent.click(screen.getByRole("button", { name: "Add question" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Add question" }));
     expect(labels()).toEqual([""]);
-    fireEvent.change(document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement, { target: { value: "Second" } });
+    fireEvent.change(document.querySelector('[data-attr="move-in-questions-editor-question-label"]') as HTMLInputElement, { target: { value: "Second" } });
     expect(labels()).toEqual(["Second"]);
     fireEvent.click(screen.getByText("+ Add section"));
     expect(screen.getAllByText("Section 2").length).toBeGreaterThan(0);
