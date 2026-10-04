@@ -77,9 +77,23 @@ export function propertyRowStreet(row: Pick<AdminPropertyRow, "address" | "submi
       const at = stripped.toLowerCase().indexOf(`, ${city.toLowerCase()}`);
       if (at > 0) stripped = stripped.slice(0, at).trim();
     }
-    if (stripped) return stripped;
+    if (stripped) return cutTrailingLocality(stripped);
   }
   return address.split(",")[0]?.trim() ?? address;
+}
+
+/**
+ * "2100 Westlake Ave N, Seattle, WA 98109" -> "2100 Westlake Ave N". A street
+ * whose tail still carries a state or ZIP (the stored address and the
+ * city/state/ZIP fields disagree) is cut at its first comma, so the row never
+ * prints the locality once in the street and again beside it. A unit suffix
+ * ("Apt 4") has neither and stays.
+ */
+function cutTrailingLocality(street: string): string {
+  const at = street.indexOf(",");
+  if (at <= 0) return street;
+  const tail = street.slice(at + 1);
+  return /\b[A-Z]{2}\b|\b\d{5}(?:-\d{4})?\b/.test(tail) ? street.slice(0, at).trim() : street;
 }
 
 /**
@@ -104,18 +118,28 @@ export function propertyRowLocality(row: Pick<AdminPropertyRow, "address" | "zip
 }
 
 /**
- * What the second line says: the locality alone when the title is the street,
- * "street · locality" when the title is a name — never the street twice.
+ * What the second line says. Street · neighborhood when the neighborhood is
+ * known, otherwise street, city. The ZIP and state never ride along: the row is
+ * a place to recognise, not a mailing label. When the title is the street the
+ * line is the neighborhood, or the city, state and ZIP without one. No segment
+ * ever appears twice.
  */
 export function propertyRowAddressLine(
   row: Pick<AdminPropertyRow, "buildingName" | "address" | "zip" | "submission" | "neighborhood">,
 ): string {
   const locality = propertyRowLocality(row);
   const neighborhood = (row.neighborhood ?? "").trim();
-  const place = [locality, neighborhood && neighborhood !== locality ? neighborhood : ""].filter(Boolean).join(" · ");
-  if (propertyRowTitleIsStreet(row)) return place || propertyRowAddress(row);
+  const city = (row.submission?.city ?? "").trim() || (locality.split(",")[0] ?? "").trim();
+  // A locality that is only a ZIP ("98166") names no city.
+  const cityName = /^[\d\s-]+$/.test(city) ? "" : city;
+  const sameAs = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  if (propertyRowTitleIsStreet(row)) {
+    return neighborhood || locality || propertyRowAddress(row);
+  }
   const street = propertyRowStreet(row);
-  return [street, place].filter(Boolean).join(" · ") || propertyRowAddress(row);
+  if (neighborhood && !sameAs(neighborhood, street)) return `${street} \u00b7 ${neighborhood}`;
+  if (cityName && !sameAs(cityName, street)) return `${street}, ${cityName}`;
+  return street || propertyRowAddress(row);
 }
 
 /**

@@ -69,7 +69,7 @@ const MD_UP = "(min-width: 768px)";
  * — hiding the other copy with CSS would leave two "Download" buttons for a
  * screen reader and a test. Without matchMedia (SSR) it counts as wide.
  */
-function useMdUp(): boolean {
+export function useMdUp(): boolean {
   return useSyncExternalStore(
     (onChange) => {
       if (typeof window === "undefined" || !window.matchMedia) return MEDIA_NOOP();

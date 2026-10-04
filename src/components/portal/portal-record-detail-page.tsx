@@ -29,6 +29,8 @@ export function PortalRecordDetailPage({
   inlineActionsClassName,
   /** Published actions render as round icon buttons in the title row at every width, no band beneath. */
   iconTitleActions = false,
+  /** Phone: the name stays on one line (ellipsis); see PortalDetailHeader. */
+  titleSingleLine = false,
   children,
   fillBody = false,
   /**
@@ -61,6 +63,7 @@ export function PortalRecordDetailPage({
   inlineActions?: boolean;
   inlineActionsClassName?: string;
   iconTitleActions?: boolean;
+  titleSingleLine?: boolean;
   children: ReactNode;
   /**
    * Opt in when `children` is a self-contained fill layout (a chat pane that
@@ -106,6 +109,7 @@ export function PortalRecordDetailPage({
         inlineActions={inlineActions}
         inlineActionsClassName={inlineActionsClassName}
         iconTitleActions={iconTitleActions}
+        titleSingleLine={titleSingleLine}
       />
       </div>
       <div className={cn(bodyFill && "flex min-h-0 flex-1 flex-col")}>{body}</div>

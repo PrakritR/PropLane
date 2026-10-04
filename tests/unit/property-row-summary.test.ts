@@ -114,7 +114,7 @@ describe("property row title and address lines (PLAN-0914-1345)", () => {
       neighborhood: "University District",
       submission: sub({ address: "4709A 8th Ave NE, Seattle, WA 98105", city: "Seattle", state: "WA", zip: "98105" }),
     };
-    expect(propertyRowAddressLine(named)).toBe("4709A 8th Ave NE · Seattle, WA 98105 · University District");
+    expect(propertyRowAddressLine(named)).toBe("4709A 8th Ave NE · University District");
     expect(propertyRowLocality(named)).toBe("Seattle, WA 98105");
   });
 
@@ -173,6 +173,44 @@ describe("propertyRowStreet — city spelled differently in the stored address",
       neighborhood: "Beacon Hill",
       submission: { city: "Seattle", state: "WA", zip: "98144" } as never,
     };
-    expect(propertyRowAddressLine(row)).toBe("230 Alder Row · Seattle, WA 98144 · Beacon Hill");
+    expect(propertyRowAddressLine(row)).toBe("230 Alder Row · Beacon Hill");
+  });
+});
+
+describe("propertyRowAddressLine — no repeated place segment", () => {
+  const westlake = {
+    buildingName: "Lakeview Studio",
+    address: "2100 Westlake Ave N, Seattle, WA 98109",
+    zip: "98109",
+  };
+
+  it("reads street · neighborhood, never the city, state and ZIP again", () => {
+    const row = { ...westlake, neighborhood: "South Lake Union", submission: undefined };
+    expect(propertyRowAddressLine(row)).toBe("2100 Westlake Ave N \u00b7 South Lake Union");
+    // a submission whose own city field is empty must not leave the locality in the street
+    const noCity = { ...row, submission: { address: westlake.address, city: "", state: "", zip: "" } as never };
+    expect(propertyRowAddressLine(noCity)).toBe("2100 Westlake Ave N \u00b7 South Lake Union");
+  });
+
+  it("falls back to street, city when there is no neighborhood", () => {
+    const row = { ...westlake, neighborhood: "", submission: undefined };
+    expect(propertyRowAddressLine(row)).toBe("2100 Westlake Ave N, Seattle");
+  });
+
+  it("is the street alone when nothing else is known", () => {
+    expect(propertyRowAddressLine({ buildingName: "Cabin", address: "12 Pine Rd", zip: "", neighborhood: "", submission: undefined })).toBe(
+      "12 Pine Rd",
+    );
+  });
+
+  it("never prints any segment twice", () => {
+    const rows = [
+      { ...westlake, neighborhood: "Seattle", submission: undefined },
+      { ...westlake, neighborhood: "South Lake Union", submission: { address: westlake.address, city: "Seattle", state: "WA", zip: "98109" } as never },
+    ];
+    for (const row of rows) {
+      const segs = propertyRowAddressLine(row).split(/\s\u00b7\s|,\s/).map((s) => s.toLowerCase());
+      expect(new Set(segs).size).toBe(segs.length);
+    }
   });
 });
