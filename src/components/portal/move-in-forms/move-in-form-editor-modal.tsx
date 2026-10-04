@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Upload } from "lucide-react";
-import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WizardMultiSelect } from "@/components/portal/add-workspace/parts";
 import { FloatingLabelField, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { MoveInQuestionsEditor } from "@/components/portal/move-in-forms/move-in-questions-editor";
@@ -559,7 +559,7 @@ export function MoveInFormEditorModal({
         setShowErrors(false);
         return true;
       }}
-      saveState={saving ? "Saving…" : dirty || mode === "add" ? "Not saved yet" : "Saved"}
+      saveState={workspaceSaveState({ busy: saving, dirty, isNew: mode === "add" })}
       footerNote={
         saveError ? (
           <span className="text-sm text-rose-600" role="alert">
@@ -567,19 +567,9 @@ export function MoveInFormEditorModal({
           </span>
         ) : null
       }
-      dangerAction={
-        mode === "edit" && onDelete ? (
-          <button
-            type="button"
-            className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700 disabled:opacity-45"
-            data-attr="move-in-form-delete"
-            disabled={saving}
-            onClick={() => void remove()}
-          >
-            Delete
-          </button>
-        ) : null
-      }
+      onDelete={mode === "edit" && onDelete ? () => void remove() : undefined}
+      deleteDisabled={saving}
+      deleteDataAttr="move-in-form-delete"
       sidePanel={
         <MoveInFormLivePreview
           name={draft.name}

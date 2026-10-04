@@ -221,11 +221,12 @@ describe("⋯ reorder menu", () => {
     expect(employerRow).toBeDefined();
     fireEvent.click(employerRow as HTMLElement);
 
-    const typeControl = document.querySelector('[data-attr="application-question-type"]') as HTMLButtonElement | null;
+    // A fixed control is plain text, never a disabled input.
+    const typeControl = document.querySelector('[data-attr="application-question-type-text"]');
     const labelControl = document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement | null;
     const requiredControl = document.querySelector('[data-attr="application-question-required"]') as HTMLInputElement | null;
     expect(typeControl).not.toBeNull();
-    expect(typeControl).toBeDisabled();
+    expect(document.querySelector('[data-attr="application-question-type"]')).toBeNull();
     expect(labelControl).not.toBeNull();
     expect(labelControl).not.toBeDisabled();
     expect(requiredControl).not.toBeNull();
@@ -290,7 +291,8 @@ describe("built-in controls that match the applicant form", () => {
     await waitWorkspace();
     jumpRail("household");
     expandFirstQuestion();
-    expect(document.querySelector('[data-attr="application-question-label"]')).toBeDisabled();
+    expect(document.querySelector('[data-attr="application-question-label"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-label-text"]')).not.toBeNull();
     expect(document.querySelector('[data-attr^="application-question-option-"]')).toBeNull();
     expect(screen.getByText("Yes", { exact: true })).toBeTruthy();
     expect(screen.getByText("No", { exact: true })).toBeTruthy();
@@ -334,7 +336,8 @@ describe("built-in controls that match the applicant form", () => {
     const nameRow = document.querySelector('[data-attr="application-question-edit-std-personal-full-legal-name"]') as HTMLElement;
     fireEvent.click(nameRow);
     expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
-    expect(document.querySelector('[data-attr="application-question-required"]')).toBeDisabled();
+    expect(document.querySelector('[data-attr="application-question-required"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-required-text"]')).not.toBeNull();
     expect(screen.queryByRole("button", { name: /^Reorder Full legal name/ })).toBeNull();
     expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
     fireEvent.click(nameRow);
@@ -346,8 +349,9 @@ describe("built-in controls that match the applicant form", () => {
     jumpRail("employment");
     const employerRow = document.querySelector('[data-attr="application-question-edit-std-employment-employer-employer-address"]') as HTMLElement;
     fireEvent.click(employerRow);
-    expect(document.querySelector('[data-attr="application-question-label"]')).toBeDisabled();
-    expect(document.querySelector('[data-attr="application-question-required"]')).toBeDisabled();
+    expect(document.querySelector('[data-attr="application-question-label"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-label-text"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="application-question-required"]')).toBeNull();
     expect(employerRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
   });
 

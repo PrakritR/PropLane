@@ -2,6 +2,7 @@
 
 import { type KeyboardEvent, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
+import { WorkspacePreviewTitle } from "@/components/portal/add-workspace/frame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApplicationQuestionFields, type ExtraQuestionType } from "@/components/portal/application-question-edit-modal";
@@ -144,18 +145,16 @@ export function ApplicationSectionPreviewPane({
   const answerRows = fields.map((field) => ({ key: field.key, label: field.label, type: field.type, section: field.section, value: answers[field.key] ?? "" }));
   const visibleFields = fields.filter((field) => !isCustomFieldHiddenByCondition(field, answerRows));
   return (
-    <div
-      className="space-y-4 rounded-2xl border border-border bg-accent/10 p-4"
-      data-attr="application-preview-pane"
-    >
+    <section data-attr="application-preview-pane">
+    <WorkspacePreviewTitle>Applicant sees</WorkspacePreviewTitle>
+    <div className="space-y-4 rounded-2xl border border-border bg-card p-3.5">
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
         {stepPosition && stepPosition.index > 0 ? (
           <p className="text-xs text-muted" data-attr="application-preview-step-label">
             Step {stepPosition.index} of {stepPosition.total} · {section?.title ?? "Application"}
           </p>
         ) : (
-          <h3 className="text-sm font-bold text-foreground">{section?.title ?? "Application"}</h3>
+          <h4 className="text-sm font-bold text-foreground">{section?.title ?? "Application"}</h4>
         )}
       </div>
       {fields.length === 0 ? (
@@ -178,6 +177,7 @@ export function ApplicationSectionPreviewPane({
         </div>
       )}
     </div>
+    </section>
   );
 }
 
@@ -298,7 +298,7 @@ export function BuilderQuestionCard({
     <div onKeyDown={onKeyDown}>
       <PortalCollapsibleEditRow
         title={field.label.trim() || "Untitled question"}
-        subtitle={`${field.isStandard ? "Built-in" : "Custom"} · ${extraTypes.find((extra) => extra.id === field.type)?.label ?? typeLabel(field.type)}${
+        subtitle={`${extraTypes.find((extra) => extra.id === field.type)?.label ?? typeLabel(field.type)}${
           field.required ? " · Required" : " · Optional"
         }`}
         expanded={expanded}
@@ -453,7 +453,6 @@ export function ApplicationFormBuilder({
                     className="h-7 shrink-0 rounded-full px-2.5 text-xs"
                     data-attr="application-question-reenable"
                     disabled={canEditBuiltIn?.(field, "visibility") === false}
-                    title={canEditBuiltIn?.(field, "visibility") === false ? "Fixed in the applicant form" : undefined}
                     onClick={() => onReenableField(field)}
                   >
                     Add back

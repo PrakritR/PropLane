@@ -3,7 +3,7 @@
 import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { AddWorkspace, WorkspacePreviewTitle, workspaceSaveState, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { Button } from "@/components/ui/button";
 import {
@@ -851,6 +851,8 @@ export function PropertyLeaseFormModal({
   const dirty = Boolean(label.trim() || htmlOverride.trim() || draft.leaseTemplateDocUrl);
 
   const htmlPreview = (
+    <section>
+    <WorkspacePreviewTitle>Lease preview</WorkspacePreviewTitle>
     <div className="max-h-[70vh] overflow-auto rounded-2xl border border-border bg-card p-3 text-[13px] leading-relaxed text-foreground" data-attr="property-lease-html-preview">
       {displayHtml.trim() ? (
         <div
@@ -863,6 +865,7 @@ export function PropertyLeaseFormModal({
         <p>No lease document yet.</p>
       )}
     </div>
+    </section>
   );
 
   // F016: a freshly parsed lease upload waits here — nothing above or below
@@ -979,24 +982,14 @@ export function PropertyLeaseFormModal({
       }}
       busy={templateUploading || parsingLease || saving}
       onFinish={save}
-      saveState={saving ? "Saving…" : parsingLease ? "Parsing…" : templateUploading ? "Uploading…" : "Not saved yet"}
+      saveState={parsingLease ? "Parsing…" : templateUploading ? "Uploading…" : workspaceSaveState({ busy: saving, dirty, isNew: mode === "add" })}
       dataAttrPrefix="property-lease"
       numberedSteps={false}
       hideFooterStepCount
       finishDataAttr={mode === "add" ? "property-lease-add-save" : "property-lease-edit-save"}
       footerNote={error ? <span className="text-sm text-rose-600">{error}</span> : null}
-      dangerAction={
-        mode === "edit" && canDelete && onDelete ? (
-          <button
-            type="button"
-            className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700"
-            onClick={() => void handleDelete()}
-            data-attr="property-lease-delete"
-          >
-            Delete
-          </button>
-        ) : null
-      }
+      onDelete={mode === "edit" && canDelete && onDelete ? () => void handleDelete() : undefined}
+      deleteDataAttr="property-lease-delete"
     >
       {stepId === "name" ? (
         <StepColumn>

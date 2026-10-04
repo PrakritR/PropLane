@@ -176,11 +176,43 @@ const REQUIRED_IDENTITY_STANDARD_KEY_SET = new Set(REQUIRED_IDENTITY_STANDARD_KE
 export const NEVER_DISABLED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
   (field) =>
     REQUIRED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) ||
-    (field.section === "personal" && (field.label === "Social Security number" || field.label === "Driver's license / ID")) ||
+    (field.section === "personal" &&
+      (field.label === "Date of birth" || field.label === "Social Security number" || field.label === "Driver's license / ID")) ||
     (field.section === "employment" && field.label === "Monthly / annual income"),
 ).map((field) => field.standardKey);
 
 export const NEVER_DISABLED_STANDARD_KEY_SET = new Set(NEVER_DISABLED_STANDARD_KEYS);
+
+/**
+ * Built-ins whose stored answer is read BY KEY by code outside the form, so their ANSWER TYPE cannot be
+ * changed from the editor (text, required flag and position still can, except where the wizard fixes
+ * them). Every other built-in may change type: the editor then retires the built-in and asks a custom
+ * question of the new type in its place, for NEW applications only (submitted ones keep their data).
+ * Verified readers, one per key:
+ *   fullLegalName   lib/checkr/background-check.ts (splits first/last for the screening hand-off),
+ *                   lib/generated-lease.ts (tenant name), api/portal/resident-approval (account creation)
+ *   email, phone    api/portal/resident-approval (resident account + notices), lib/generated-lease.ts
+ *   dateOfBirth     lib/checkr/background-check.ts, lib/screening/providers/certn.ts, lib/security/applicant-identity.ts
+ *   ssn, driversLicense   lib/checkr/background-check.ts, lib/screening/providers/certn.ts, lib/security/applicant-identity.ts
+ *   monthlyIncome   lib/screening/recommendation.ts (income-to-rent ratio)
+ *   propertyId, roomChoice1-3, leaseTerm, leaseStart/leaseEnd
+ *                   api/stripe/application-fee-checkout + api/public/application-fee-preview (fee by room and term),
+ *                   lib/rental-application/placement-values.ts and lib/generated-lease.ts (lease placement),
+ *                   lib/household-charges.ts (charges)
+ *   idPhotoFront/Back  api/portal/application-photos, components/portal/application-verification-photos.tsx
+ *   applyingAsGroup, hasCosigner  lib/application-group-document.server.ts, lib/rental-application/validate.ts
+ *   consentCredit   api/manager-applications (screening runs only on consent), application-screening-panel
+ */
+export const TYPE_LOCKED_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+  (field) =>
+    NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey) ||
+    field.section === "household" ||
+    field.section === "property" ||
+    (field.section === "personal" && (field.label.endsWith("front photo") || field.label.endsWith("back photo"))) ||
+    (field.section === "consent" && field.label === "Credit & background check consent"),
+).map((field) => field.standardKey);
+
+export const TYPE_LOCKED_STANDARD_KEY_SET = new Set(TYPE_LOCKED_STANDARD_KEYS);
 
 const CATALOG_BY_KEY = new Map(
   STANDARD_APPLICATION_FIELD_CATALOG.map((def) => [def.standardKey, def] as const),

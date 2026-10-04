@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
   BundleWholePricingReceiptPanel,
   PricingReceiptPanel,
@@ -11,6 +11,7 @@ import {
   MoneyInput,
   SectionGroup,
   StepColumn,
+  StepHeading,
   ToggleRow,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ArrangementPriceEditor } from "@/components/portal/listing-wizard-v2/listing-arrangement-editor";
@@ -807,6 +808,7 @@ export function PropertyRoomPricingWorkspace({
       hideFooterStepCount
       onClose={onClose}
       dirty={dirty}
+      saveState={workspaceSaveState({ dirty })}
       lastLabel="Save"
       onFinish={() => {
         if (save()) onClose();
@@ -852,6 +854,7 @@ export function PropertyRoomPricingWorkspace({
         ) : undefined
       }
     >
+      <StepColumn><StepHeading title={steps[0]?.label ?? "Pricing"} /></StepColumn>
       <div className="plp-wizard-root plp-ws-col" data-rp-form>
         {center}
       </div>

@@ -30,6 +30,9 @@ import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { cn } from "@/lib/utils";
 import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
+import { WorkspaceDeleteButton } from "./frame";
+
+export { WORKSPACE_PREVIEW_TITLE_CLASS, WorkspaceDeleteButton, WorkspacePreviewTitle, workspaceSaveState } from "./frame";
 
 export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
 
@@ -76,6 +79,9 @@ export function AddWorkspace({
   finishDataAttr,
   finishCount,
   dangerAction,
+  onDelete,
+  deleteDisabled = false,
+  deleteDataAttr,
   footerNote,
   overlay,
   headerActions,
@@ -130,6 +136,10 @@ export function AddWorkspace({
   finishCount?: number;
   /** Footer ghost on the left — Delete, not a second layout language. */
   dangerAction?: ReactNode;
+  /** Edit only: the standard red Delete text at the footer's left. Prefer this to `dangerAction`. */
+  onDelete?: () => void;
+  deleteDisabled?: boolean;
+  deleteDataAttr?: string;
   footerNote?: ReactNode;
   /**
    * Sits on top of the workspace without unmounting steps — message preview
@@ -311,6 +321,7 @@ export function AddWorkspace({
         footer={
           <>
             <div className="flex items-center gap-2.5">
+              {onDelete ? <WorkspaceDeleteButton onClick={onDelete} disabled={deleteDisabled || busy} dataAttr={deleteDataAttr} /> : null}
               {dangerAction}
               {/* No trash in the header (captain, Oct 3): a kept draft is discarded from the footer. */}
               {!dangerAction && keepsDraft && dirty && onDiscardDraft ? (
@@ -367,9 +378,10 @@ export function AddWorkspace({
           </>
         }
       >
-        <div className="mb-5 flex gap-1" aria-label="Step progress">
+        {/* A one-step popup has nothing to progress through: no bar. */}
+        {singleStep ? null : <div className="mb-5 flex gap-1" aria-label="Step progress">
           {steps.map((step, index) => <span key={step.id} data-step-progress={step.id} data-error={attemptedSteps.has(index) && Boolean(step.incomplete || (index === current && invalidFields.size)) || undefined} className={`h-1 flex-1 rounded-full ${attemptedSteps.has(index) && (step.incomplete || (index === current && invalidFields.size)) ? "bg-destructive" : index <= current ? "bg-primary" : "bg-border"}`} />)}
-        </div>
+        </div>}
         {reviewEditLinks && (steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">
           {steps.filter((step) => step.id !== "review" && step.id !== "preview").map((step) => <button key={step.id} type="button" onClick={() => onJump(steps.indexOf(step))} className="min-h-11 text-sm font-semibold text-primary">Edit {step.label}</button>)}
         </nav> : null}

@@ -222,50 +222,61 @@ export function ApplicationQuestionFields({
   return (
     <>
       <div>
-        <p className="text-sm font-medium text-foreground">Question{!editableLabel ? " · Fixed" : ""}</p>
-        <Input
-          value={field.label}
-          onChange={(e) => onPatch({ label: e.target.value })}
-          disabled={!editableLabel}
-          title={!editableLabel ? "Fixed in the applicant form" : undefined}
-          placeholder="e.g. Do you smoke?"
-          className="mt-1"
-          data-attr="application-question-label"
-        />
+        <p className="text-sm font-medium text-foreground">Question</p>
+        {editableLabel ? (
+          <Input
+            value={field.label}
+            onChange={(e) => onPatch({ label: e.target.value })}
+            placeholder="e.g. Do you smoke?"
+            className="mt-1"
+            data-attr="application-question-label"
+          />
+        ) : (
+          <p className="mt-1 text-sm text-foreground" data-attr="application-question-label-text">{field.label}</p>
+        )}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <p className="text-sm font-medium text-foreground">Answer type{!canEditType ? " · Fixed" : blockedTypes.includes(field.type) ? " · Unsupported" : ""}</p>
-          <Select
-            value={field.type}
-            onChange={(e) => onPatch({ type: e.target.value as ManagerCustomApplicationFieldType })}
-            disabled={field.isStandard || !canEditType}
-            className="mt-1"
-            data-attr="application-question-type"
-          >
-            {typeOptions.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
+          <p className="text-sm font-medium text-foreground">Answer type</p>
+          {canEditType ? (
+            <Select
+              value={field.type}
+              onChange={(e) => onPatch({ type: e.target.value as ManagerCustomApplicationFieldType })}
+              className="mt-1"
+              data-attr="application-question-type"
+            >
+              {typeOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <p className="mt-1 text-sm text-foreground" data-attr="application-question-type-text">
+              {typeOptions.find((o) => o.id === field.type)?.label ?? field.type}
+            </p>
+          )}
         </div>
-        <label className={`flex items-center gap-2 self-end rounded-xl border border-border bg-card px-3 py-2.5 ${editableRequired ? "cursor-pointer" : "opacity-60"}`}>
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-border text-primary"
-            checked={field.required}
-            onChange={(e) => onPatch({ required: e.target.checked })}
-            disabled={!editableRequired}
-            title={!editableRequired ? "Fixed in the applicant form" : undefined}
-            data-attr="application-question-required"
-          />
-          <span className="text-sm font-medium text-foreground">Required{!editableRequired ? " · Fixed" : ""}</span>
-        </label>
+        {editableRequired ? (
+          <label className="flex cursor-pointer items-center gap-2 self-end rounded-xl border border-border bg-card px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-border text-primary"
+              checked={field.required}
+              onChange={(e) => onPatch({ required: e.target.checked })}
+              data-attr="application-question-required"
+            />
+            <span className="text-sm font-medium text-foreground">Required</span>
+          </label>
+        ) : (
+          <p className="self-end text-sm text-foreground" data-attr="application-question-required-text">
+            {field.required ? "Required" : "Optional"}
+          </p>
+        )}
       </div>
       {fieldTypeUsesOptions(field.type) ? (
         <div>
-          <p className="text-sm font-medium text-foreground">{field.type === "multi_select" ? "Multi-select choices" : "Dropdown options"}{!canEditOptions ? " · Fixed" : ""}</p>
+          <p className="text-sm font-medium text-foreground">{field.type === "multi_select" ? "Multi-select choices" : "Dropdown options"}</p>
           <div className="mt-1">
             {canEditOptions ? (
               <OptionRowsEditor
@@ -273,7 +284,7 @@ export function ApplicationQuestionFields({
                 onChange={(options) => onPatch({ options })}
               />
             ) : (
-              <div className="space-y-1 rounded-xl border border-border bg-muted/30 p-3" aria-label="Fixed answer choices">
+              <div className="space-y-1 rounded-xl border border-border bg-muted/30 p-3" aria-label="Answer choices">
                 {field.options.map((option) => <div key={option} className="text-sm text-foreground">{option}</div>)}
               </div>
             )}

@@ -289,7 +289,8 @@ describe("Application step", () => {
     const name = screen.getByLabelText("Name for application 1") as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Room application" } });
     expect(readPropertyApplicationTemplates(live.latest())[0]!.label).toBe("Room application");
-    fireEvent.click(q("[data-attr='application-questions-add']")!);
+    fireEvent.click(q("[data-attr='listing-v2-application-editor-section-toggle-additional']")!);
+    fireEvent.click(q("[data-attr='listing-v2-application-editor-add-question']")!);
     const draft = readPropertyApplicationTemplates(live.latest())[0]!.draftQuestionConfig!;
     expect(draft.applicationConfigMode).toBe("custom");
     expect(draft.customApplicationFields.length).toBe(1);
@@ -543,7 +544,8 @@ describe("Move-in step", () => {
     openCard(cards("movein")[0]!);
     expect(q("[data-attr='move-in-questions-editor']")).not.toBeNull();
     const before = readMoveInFormTemplates(live.latest())[0]!.questions.length;
-    fireEvent.click(qa("[data-attr='move-in-form-add-question']")[0]!);
+    fireEvent.click(qa("[data-attr^='move-in-questions-editor-section-toggle-'][aria-expanded='false']")[0]!);
+    fireEvent.click(qa("[data-attr='move-in-questions-editor-add-question']")[0]!);
     // a blank question is held in the open form until it has words, then it is stored
     expect(readMoveInFormTemplates(live.latest())[0]!.questions.length).toBe(before);
     const blank = (screen.getAllByPlaceholderText("e.g. Do you smoke?") as HTMLInputElement[]).find((input) => input.value === "")!;

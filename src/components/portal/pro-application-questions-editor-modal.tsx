@@ -5,7 +5,7 @@ import { Plus, RotateCcw, Star } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
   FloatingLabelField,
   MoneyInput,
@@ -15,12 +15,12 @@ import {
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
+import { ApplicationQuestionsEditor } from "@/components/portal/question-editor/application-questions-editor";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
   PORTAL_EDIT_ROW_ICON_BUTTON_CLASS,
-  PortalCollapsibleEditRow,
 } from "@/components/portal/portal-collapsible-edit-row";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
@@ -58,7 +58,6 @@ import {
   editorVisibleDisabledApplicationFields,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
-  NEVER_DISABLED_STANDARD_KEY_SET,
   type ApplicationConfigSlice,
   type ApplicationFormVariant,
   type ResolvedApplicationField,
@@ -1114,16 +1113,6 @@ export function ManagerApplicationQuestionsEditorModal({
     applyEditedSlice(reenableListingApplicationField(configSlice, field.standardKey));
   };
 
-  // F-editor a: a section holding a never-removable standard field (identity
-  // trio, SSN/ID, income) can never actually drop to zero questions, so its
-  // Sections-step checklist entry stays locked checked rather than offering
-  // an uncheck that would not do anything.
-  const sectionHasLockedField = (sectionId: RentalApplicationSectionId): boolean =>
-    [...applicationFields, ...disabledFields].some(
-      (field) => (field.section ?? "additional") === sectionId && Boolean(field.standardKey) && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey!),
-    );
-
-  /** Unchecking drops every standard question in the section that can be turned off (never a custom one the manager wrote). Re-checking brings them back. */
   useEffect(() => {
     if (!open || templateEditorMode !== "add" || startFrom !== "copy" || !copyFromApplicationId) return;
     const src = templates?.find((candidate) => candidate.id === copyFromApplicationId);
@@ -1137,34 +1126,6 @@ export function ManagerApplicationQuestionsEditorModal({
     if (!templateLabel.trim()) setTemplateLabel(`${src.label} copy`);
     setDirty(true);
   }, [copyFromApplicationId, open, startFrom, templateEditorMode, templates, templateLabel]);
-
-  const addQuestionSection = (): void => {
-    const next = RENTAL_APPLICATION_SECTIONS.find(
-      (section) => section.id !== "review" && disabledSectionIds.includes(section.id),
-    );
-    if (next) toggleSection(next.id, true);
-  };
-
-  const toggleSection = (sectionId: RentalApplicationSectionId, on: boolean): void => {
-    if (!on && sectionHasLockedField(sectionId)) return;
-    let nextConfig: ApplicationConfigSlice = configSlice;
-    if (!on) {
-      for (const field of applicationFields) {
-        if ((field.section ?? "additional") !== sectionId || !field.isStandard) continue;
-        if (!canEditBuiltIn(field, "visibility")) continue;
-        nextConfig = { ...nextConfig, ...removeListingApplicationField(nextConfig, field) };
-      }
-    } else {
-      for (const field of disabledFields) {
-        if ((field.section ?? "additional") !== sectionId || !field.standardKey) continue;
-        nextConfig = { ...nextConfig, ...reenableListingApplicationField(nextConfig, field.standardKey) };
-      }
-    }
-    applyEditedSlice(nextConfig);
-    setDisabledSectionIds((prev) =>
-      on ? prev.filter((id) => id !== sectionId) : prev.includes(sectionId) ? prev : [...prev, sectionId],
-    );
-  };
 
   const patchField = (field: ResolvedApplicationField, patch: Partial<ManagerCustomApplicationField>) => {
     if ((patch.label !== undefined && !canEditBuiltIn(field, "label")) ||
@@ -1616,7 +1577,7 @@ export function ManagerApplicationQuestionsEditorModal({
         // falls back to an ordinary draft save (see commitSave) when the
         // publish gate is not satisfied yet.
         onFinish={() => void commitSave({ publish: isTemplateEditor && !isBulkTemplateEditor })}
-        saveState={saving ? "Saving…" : dirty ? "Not saved yet" : "Saved"}
+        saveState={workspaceSaveState({ busy: saving, dirty })}
         dataAttrPrefix="application-questions"
         numberedSteps={false}
         hideFooterStepCount
@@ -1630,19 +1591,9 @@ export function ManagerApplicationQuestionsEditorModal({
             <span>Applies to {bulkIds.length} properties</span>
           ) : null
         }
-        dangerAction={
-          showDelete ? (
-            <button
-              type="button"
-              className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700 disabled:opacity-45"
-              data-attr="application-questions-delete"
-              disabled={saving}
-              onClick={() => void handleDelete()}
-            >
-              Delete
-            </button>
-          ) : null
-        }
+        onDelete={showDelete ? () => void handleDelete() : undefined}
+        deleteDisabled={saving}
+        deleteDataAttr="application-questions-delete"
       >
         {stepId === "name" ? (
           <StepColumn>
@@ -1992,14 +1943,7 @@ export function ManagerApplicationQuestionsEditorModal({
         ) : null}
         {stepId === "sections" ? (
           <StepColumn>
-            <StepHeading
-              title="Questions"
-              action={
-                <button type="button" className="text-xs font-semibold text-primary underline-offset-2 hover:underline" onClick={restoreDefaults}>
-                  {restoreLabel}
-                </button>
-              }
-            />
+            <StepHeading title="Questions" />
             {(importedQuestionDraft?.importProvenance || applicationTemplate?.draftQuestionConfig?.importProvenance) ? (
               <div
                 className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm"
@@ -2010,88 +1954,25 @@ export function ManagerApplicationQuestionsEditorModal({
                 </span>
               </div>
             ) : null}
-            <div className="mb-3 space-y-2 lg:hidden" data-attr="application-questions-section-picker">
-              <FieldSingleSelect
-                label="Section"
-                labelClassName={WIZARD_LABEL_CLASS}
-                value={questionsMobileSectionId}
-                dataAttr="application-questions-section"
-                options={visibleQuestionSections.map((section) => ({
-                  value: section.id,
-                  label: section.title,
-                }))}
-                onChange={(next) => {
-                  const id = next as RentalApplicationSectionId;
-                  setQuestionsMobileSectionId(id);
-                  setPreviewSectionPick(id);
-                  setExpandedSectionIds((prev) => new Set(prev).add(id));
-                }}
-              />
-            </div>
-            <div className="mb-4 space-y-2" data-attr="application-sections-checklist">
-              {RENTAL_APPLICATION_SECTIONS.filter((section) => section.id !== "review").map((section) => {
-                const count = applicationFields.filter((f) => (f.section ?? "additional") === section.id).length;
-                const on = !disabledSectionIds.includes(section.id);
-                const locked = on && sectionHasLockedField(section.id);
-                return (
-                  <label
-                    key={section.id}
-                    className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 has-[:disabled]:cursor-not-allowed"
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        disabled={locked}
-                        onChange={(e) => toggleSection(section.id, e.target.checked)}
-                        className="h-4 w-4 rounded border-border text-primary"
-                        data-attr={`application-sections-checklist-${section.id}`}
-                      />
-                      <span className="text-[13.5px] font-semibold text-foreground">{section.title}</span>
-                    </span>
-                    <span className="text-xs text-muted">{count === 1 ? "1 question" : `${count} questions`}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <div className="space-y-2">
-              {visibleQuestionSections.map((section) => {
-                const n = applicationFields.filter((f) => (f.section ?? "additional") === section.id).length;
-                return (
-                  <PortalCollapsibleEditRow
-                    key={section.id}
-                    title={section.title}
-                    subtitle={n === 1 ? "1 question" : `${n} questions`}
-                    expanded={expandedSectionIds.has(section.id)}
-                    onExpandedChange={(next) => {
-                      if (next) {
-                        setPreviewSectionPick(section.id);
-                        setQuestionsMobileSectionId(section.id);
-                      }
-                      setExpandedSectionIds((prev) => {
-                        const updated = new Set(prev);
-                        if (next) updated.add(section.id);
-                        else updated.delete(section.id);
-                        return updated;
-                      });
-                    }}
-                    headerActions={sectionAddButton(section.id)}
-                    toggleDataAttr={`application-section-toggle-${section.id}`}
-                    className={section.id === questionsMobileSectionId ? "" : "hidden lg:block"}
-                  >
-                    {renderSection(section.id)}
-                  </PortalCollapsibleEditRow>
-                );
-              })}
-              <button
-                type="button"
-                className="flex min-h-[44px] w-full items-center justify-center rounded-xl border border-dashed border-border bg-card text-sm font-semibold text-primary lg:mt-2"
-                data-attr="application-add-section"
-                onClick={addQuestionSection}
-              >
-                + Add section
-              </button>
-            </div>
+            <ApplicationQuestionsEditor
+              variant={variant}
+              state={{ slice: configSlice, disabledSectionIds }}
+              fields={applicationFields}
+              disabledFields={disabledFields}
+              fieldErrors={fieldErrors}
+              onState={(next) => {
+                applyEditedSlice(next.slice);
+                setDisabledSectionIds(next.disabledSectionIds);
+              }}
+              onRestoreDefaults={restoreDefaults}
+              restoreLabel={restoreLabel}
+              onSectionOpen={(sectionId) => {
+                setPreviewSectionPick(sectionId);
+                setQuestionsMobileSectionId(sectionId);
+              }}
+              onQuestionOpen={(sectionId) => setPreviewSectionPick(sectionId)}
+              dataAttrPrefix="application-questions-editor"
+            />
             {previewExtras}
           </StepColumn>
         ) : null}
