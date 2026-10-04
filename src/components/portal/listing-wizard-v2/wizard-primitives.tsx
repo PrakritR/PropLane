@@ -515,6 +515,8 @@ export function WizardStepSheet({
       </div>
     </div>
   ) : null;
+  // A one-step dialog has nowhere to jump: no picker, no "Step 1 of 1".
+  if (steps.length <= 1) return null;
   return (
     <>
       <button
