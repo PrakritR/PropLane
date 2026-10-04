@@ -233,10 +233,23 @@ describe("opening a share link", () => {
     expect(db.tables.application_form_requests![0]!.helper_user_id).toBe("helper-1");
   });
 
-  it("a new link replaces the old one and starts a new hand-off", async () => {
+  it("showing the link again keeps the helper who already holds it", async () => {
     await redeemLinkedFormToken(db, TOKEN, { id: "helper-1", email: "mom@example.com" });
     const request = (await loadLinkedFormRequest(db, "11111111-1111-4111-8111-111111111111"))!;
-    const next = await rotateLinkedFormToken(db, request);
+    const shown = await rotateLinkedFormToken(db, request);
+    expect(shown?.token).toHaveLength(43);
+    expect(db.tables.application_form_requests![0]!.helper_user_id).toBe("helper-1");
+    // The helper part-way through the form is still the helper, on the link they now hold.
+    expect(await redeemLinkedFormToken(db, shown!.token, { id: "helper-1", email: "mom@example.com" })).toMatchObject({
+      ok: true,
+      role: "helper",
+    });
+  });
+
+  it("an explicit new link replaces the old one and starts a new hand-off", async () => {
+    await redeemLinkedFormToken(db, TOKEN, { id: "helper-1", email: "mom@example.com" });
+    const request = (await loadLinkedFormRequest(db, "11111111-1111-4111-8111-111111111111"))!;
+    const next = await rotateLinkedFormToken(db, request, { revokeHelper: true });
     expect(next?.token).toHaveLength(43);
     expect(next?.path).toBe(`/f/${next!.token}`);
     expect(db.tables.application_form_requests![0]!.token_hash).toBe(sha256(next!.token));

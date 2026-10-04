@@ -339,7 +339,14 @@ export function updateServiceRequest(id: string, updates: Partial<ServiceRequest
   const idx = all.findIndex((r) => r.id === id);
   if (idx === -1) return;
   let next = { ...all[idx]!, ...updates };
-  if (next.status === "pending" && (updates.price !== undefined || updates.offerName !== undefined)) {
+  // An edit that moves the money re-syncs the resident's household charge for as long as that charge
+  // is still unpaid - an approved add-on included, since its Edit is live. Once the resident has paid,
+  // the amount they paid is the amount owed and nothing here rewrites it (the editor locks the field).
+  if (
+    (updates.price !== undefined || updates.offerName !== undefined) &&
+    (next.status === "pending" || next.status === "approved") &&
+    !isServiceRequestFeePaid(next)
+  ) {
     const serviceChargeId = ensureServiceRequestPendingCharge(next);
     if (serviceChargeId) next = { ...next, serviceChargeId };
   }
@@ -463,16 +470,20 @@ export function deleteServiceRequestsForResident(residentEmail: string): number 
 /**
  * The manager finishes an add-on (the header's next step once it is approved). It reads as Completed
  * everywhere (`deriveAddOnStages`); unlike `submitReturnPhoto` it never marks the resident's fee paid.
+ *
+ * Returns false when the add-on was not approved, so a caller never tells the manager "Marked done."
+ * about a request that is still sitting in its own bucket.
  */
-export function markServiceRequestDone(id: string): void {
+export function markServiceRequestDone(id: string): boolean {
   const all = readAll();
   const idx = all.findIndex((r) => r.id === id);
-  if (idx === -1) return;
+  if (idx === -1) return false;
   const row = all[idx]!;
-  if (row.status !== "approved") return;
+  if (row.status !== "approved") return false;
   all[idx] = { ...row, status: "returned", returnedAt: new Date().toISOString() };
   writeAll(all);
   mirrorServiceRequestToServerBestEffort(all[idx]!);
+  return true;
 }
 
 export function submitReturnPhoto(id: string, photoDataUrl: string): void {

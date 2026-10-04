@@ -245,9 +245,9 @@ export function ManagerServiceRequestDetail({
   const markDone = () => {
     if (onMarkDone) onMarkDone();
     else {
-      markServiceRequestDone(req.id);
+      const done = markServiceRequestDone(req.id);
       onUpdated();
-      showToast("Marked done.");
+      showToast(done ? "Marked done." : "Approve this request first.");
     }
   };
   const headerMenu = serviceHeaderMenuItems("add-on", {

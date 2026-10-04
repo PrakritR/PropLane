@@ -934,8 +934,6 @@ export type ManagerListingSubmissionV1 = {
   shortTermHoaMonthly?: string;
   /** Short-term other monthly fees (parallel to {@link otherMonthlyFees}). */
   shortTermOtherMonthlyFees?: string;
-  /** Short-term month-to-month surcharge (parallel to {@link monthToMonthSurcharge}). */
-  shortTermMonthToMonthSurcharge?: string;
   applicationFee: string;
   /** Optional code applicants enter to waive the application fee for this listing. */
   applicationFeeWaiverCode?: string;
@@ -1600,6 +1598,12 @@ export type ManagerCustomApplicationField = {
   section?: string;
   /** When set, this row customizes a built-in Axis application question. */
   standardKey?: string;
+  /**
+   * The built-in this custom question REPLACED when its type (or choices) were changed: the retired
+   * built-in's standard key. The editor hides that built-in from the removed list by this key, so
+   * rewording the replacement never brings the original back for the applicant to be asked twice.
+   */
+  replacedStandardKey?: string;
   /** Manager-authored help text shown under the question label. Absent when unset. */
   description?: string;
   /**
@@ -1702,6 +1706,10 @@ export function normalizeCustomApplicationFields(
         : [];
     const standardKey =
       typeof o.standardKey === "string" && o.standardKey.trim() ? o.standardKey.trim() : undefined;
+    const replacedStandardKey =
+      typeof o.replacedStandardKey === "string" && o.replacedStandardKey.trim()
+        ? o.replacedStandardKey.trim()
+        : undefined;
     // Built-in overrides may be dynamic selects (property, rooms) with no fixed option list.
     if (hasOptions && options.length === 0 && !includeIncomplete && !standardKey) continue;
     const section =
@@ -1731,6 +1739,7 @@ export function normalizeCustomApplicationFields(
       options,
       section,
       standardKey,
+      replacedStandardKey,
       description,
       showIf,
       linkedForms,
@@ -2954,8 +2963,6 @@ function normalizeManagerListingSubmissionV1Base(
     shortTermParkingMonthly: typeof sub.shortTermParkingMonthly === "string" ? sub.shortTermParkingMonthly : "",
     shortTermHoaMonthly: typeof sub.shortTermHoaMonthly === "string" ? sub.shortTermHoaMonthly : "",
     shortTermOtherMonthlyFees: typeof sub.shortTermOtherMonthlyFees === "string" ? sub.shortTermOtherMonthlyFees : "",
-    shortTermMonthToMonthSurcharge:
-      typeof sub.shortTermMonthToMonthSurcharge === "string" ? sub.shortTermMonthToMonthSurcharge : "",
     shortTermApplicationFee:
       typeof sub.shortTermApplicationFee === "string" ? sub.shortTermApplicationFee : "",
     removedStandardListingFeeRows: Array.isArray(sub.removedStandardListingFeeRows)

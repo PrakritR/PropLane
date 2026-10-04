@@ -482,7 +482,12 @@ function leaseContextWithRoomTermFees(ctx: LeaseGenerationContext): LeaseGenerat
       signedMonthlyRent: parseAmount((a as LeaseApplicationWithRentSnapshot).__signedRentLabel?.trim() ?? "") ?? undefined,
       bundleId: a.bundleId,
     },
-    { leaseTerm: a.leaseTerm, rentalType: a.rentalType, applicationTemplateId: a.applicationTemplateId },
+    {
+      leaseTerm: a.leaseTerm,
+      rentalType: a.rentalType,
+      applicationTemplateId: a.applicationTemplateId,
+      listingProperty: ctx.leasedRoom ?? ctx.listingProperty ?? null,
+    },
   );
   return !overlaid || overlaid === normalized ? ctx : { ...ctx, submission: overlaid };
 }

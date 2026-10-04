@@ -41,13 +41,27 @@ function errorOf(data: Record<string, unknown>, fallback: string): string {
   return typeof data.error === "string" && data.error.trim() ? data.error : fallback;
 }
 
+/** The add-on must be approved before a vendor is hired for it: everything after this writes money. */
+export const ADD_ON_NOT_APPROVED_REFUSAL = {
+  ok: false as const,
+  error: "Approve this request first, then send the job to vendors.",
+};
+
 /** The vendor job for this add-on, created on first use. Returns the job's id. */
 export async function ensureAddOnVendorJob(
   req: ServiceRequest,
   ctx: { propertyName: string; propertyAddress?: string; managerUserId: string | null },
 ): Promise<{ ok: true; workOrderId: string; created: boolean } | { ok: false; error: string }> {
   if (isDemoModeActive()) return DEMO_REFUSAL;
-  const existing = linkedVendorJobFor(req, readManagerWorkOrderRows());
+  const found = () => linkedVendorJobFor(req, readManagerWorkOrderRows());
+  let existing = found();
+  if (!existing) {
+    // The local mirror is not evidence the job does not exist: a job created (and a bid approved) on
+    // another device is only in the mirror after a sync, and creating a second blank row here would
+    // replace `row_data` wholesale and wipe the hire. Ask the server before deciding it is absent.
+    await syncManagerWorkOrdersFromServer({ force: true });
+    existing = found();
+  }
   if (existing) {
     if (req.linkedWorkOrderId !== existing.id) updateServiceRequest(req.id, { linkedWorkOrderId: existing.id });
     return { ok: true, workOrderId: existing.id, created: false };
@@ -69,6 +83,7 @@ export async function sendAddOnToVendors(
   vendorIds: string[],
   marketplace?: PublishMarketplaceOptions,
 ): Promise<{ ok: true; workOrderId: string; sent: number } | { ok: false; error: string }> {
+  if (req.status !== "approved") return ADD_ON_NOT_APPROVED_REFUSAL;
   const job = await ensureAddOnVendorJob(req, ctx);
   if (!job.ok) return job;
   const sent = await sendWorkOrderToVendors(job.workOrderId, vendorIds, marketplace);

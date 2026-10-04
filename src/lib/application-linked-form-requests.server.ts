@@ -446,10 +446,16 @@ export async function listLinkedFormRequestsForResident(
  * Mints a fresh token for one request and stores only its hash. The previous link stops working, so a
  * manager or applicant who asks for "the link" again always gets one that works. A finished or waived
  * request has no link to give.
+ *
+ * `revokeHelper` is the explicit "new link": only then does whoever already opened the link lose
+ * access. Showing the link again is NOT that - a helper part-way through the form would be cut off
+ * (`resolveLinkedFormViewerRole` stops recognising them and their submit 404s), so the ordinary
+ * re-share keeps `helper_user_id` exactly as it is.
  */
 export async function rotateLinkedFormToken(
   db: SupabaseClient,
   request: LinkedFormRequestRow,
+  opts: { revokeHelper?: boolean } = {},
 ): Promise<{ token: string; path: string } | null> {
   if (request.status !== "owed" && request.status !== "shared") return null;
   const { token, tokenHash } = mintLinkedFormToken();
@@ -458,8 +464,7 @@ export async function rotateLinkedFormToken(
     .update({
       token_hash: tokenHash,
       status: "shared",
-      // A new link starts a new hand-off: whoever held the old one no longer has access.
-      helper_user_id: null,
+      ...(opts.revokeHelper ? { helper_user_id: null } : {}),
       expires_at: expiryFromNow(),
       updated_at: new Date().toISOString(),
     })

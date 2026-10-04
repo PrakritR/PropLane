@@ -124,7 +124,6 @@ export function copyListingPricingBetweenSubmissions(
   next.shortTermParkingMonthly = src.shortTermParkingMonthly;
   next.shortTermHoaMonthly = src.shortTermHoaMonthly;
   next.shortTermOtherMonthlyFees = src.shortTermOtherMonthlyFees;
-  next.shortTermMonthToMonthSurcharge = src.shortTermMonthToMonthSurcharge;
   next.applicationFee = src.applicationFee;
   next.shortTermApplicationFee = src.shortTermApplicationFee;
   next.applicationFeeByLeaseType = src.applicationFeeByLeaseType ? { ...src.applicationFeeByLeaseType } : undefined;

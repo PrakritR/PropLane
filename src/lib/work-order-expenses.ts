@@ -15,6 +15,31 @@ export type WorkOrderCompleteInput = {
   vendorId?: string;
 };
 
+/**
+ * The expense rows this work order already posted, by category. One job's labor and materials are
+ * posted exactly once however many times a completion runs: Mark done and Approve + pay both call
+ * this function for the same job, and without this read the second pass doubles the ledger, the
+ * cash-flow chart and the tax-deductible total.
+ */
+async function postedExpenseIdsByCategory(
+  db: SupabaseClient,
+  managerUserId: string,
+  workOrderId: string,
+): Promise<Map<string, string>> {
+  const posted = new Map<string, string>();
+  const { data } = await db
+    .from("manager_expense_entries")
+    .select("id, category_code")
+    .eq("manager_user_id", managerUserId)
+    .eq("source_work_order_id", workOrderId);
+  for (const row of (data ?? []) as Array<{ id?: unknown; category_code?: unknown }>) {
+    const category = typeof row.category_code === "string" ? row.category_code : "";
+    const id = row.id == null ? "" : String(row.id);
+    if (category && id && !posted.has(category)) posted.set(category, id);
+  }
+  return posted;
+}
+
 export async function createExpensesFromWorkOrder(
   db: SupabaseClient,
   managerUserId: string,
@@ -25,8 +50,14 @@ export async function createExpensesFromWorkOrder(
   const expenseDate = (input.completedAt || now).slice(0, 10);
   const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category] ?? "maintenance";
   const memoBase = input.workDoneSummary?.trim() || `Work order ${input.workOrderId}`;
+  const alreadyPosted = await postedExpenseIdsByCategory(db, managerUserId, input.workOrderId);
 
-  if (input.vendorCostCents && input.vendorCostCents > 0) {
+  const postedLabor = alreadyPosted.get(laborCategory);
+  if (postedLabor) ids.push(postedLabor);
+  const postedMaterials = alreadyPosted.get("materials");
+  if (postedMaterials && postedMaterials !== postedLabor) ids.push(postedMaterials);
+
+  if (!postedLabor && input.vendorCostCents && input.vendorCostCents > 0) {
     const { data, error } = await db
       .from("manager_expense_entries")
       .insert({
@@ -59,7 +90,7 @@ export async function createExpensesFromWorkOrder(
     }
   }
 
-  if (input.materialsCostCents && input.materialsCostCents > 0) {
+  if (!postedMaterials && input.materialsCostCents && input.materialsCostCents > 0) {
     const { data, error } = await db
       .from("manager_expense_entries")
       .insert({

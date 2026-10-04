@@ -17,7 +17,7 @@ import { syncManagerApplicationsFromServer } from "@/lib/manager-applications-st
 import { emptyRoomsForManagerService } from "@/lib/manager-add-service-where";
 import { updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
-import { updateServiceRequest, type ServiceRequest } from "@/lib/service-requests-storage";
+import { isServiceRequestFeePaid, updateServiceRequest, type ServiceRequest } from "@/lib/service-requests-storage";
 import { isWorkOrderCostLockedByVendor } from "@/lib/work-order-cost-lock";
 
 const PRIORITIES = ["Low", "Medium", "High", "Emergency"] as const;
@@ -107,19 +107,21 @@ export function serviceEditDraftFor(target: ServiceEditTarget): ServiceEditDraft
 /** The fields an add-on save writes, through the existing `updateServiceRequest`. */
 export function addOnEditUpdates(
   draft: ServiceEditDraft,
-  ctx: { propertyId: string; residentName: string; hasDeposit: boolean },
+  ctx: { propertyId: string; residentName: string; hasDeposit: boolean; feePaid?: boolean },
 ): Partial<ServiceRequest> {
   const visitIso = fromDatetimeLocal(draft.visit);
   return {
     offerName: draft.title.trim(),
     offerDescription: draft.details.trim(),
-    price: draft.price.trim(),
+    // A paid fee is the amount the resident already paid; the field is read-only, so never write it.
+    ...(ctx.feePaid ? {} : { price: draft.price.trim() }),
     deposit: draft.deposit.trim(),
     returnByDate: ctx.hasDeposit ? draft.returnBy : "",
     propertyId: ctx.propertyId,
     residentEmail: draft.residentEmail.trim().toLowerCase(),
     residentName: ctx.residentName,
-    ...(visitIso ? { proposedVisit: { iso: visitIso, source: "availability" as const } } : {}),
+    // An empty Visit field is an answer ("no visit time"), so clearing it clears the proposal.
+    proposedVisit: visitIso ? { iso: visitIso, source: "availability" as const } : undefined,
   };
 }
 
@@ -217,6 +219,8 @@ export function ServiceEditPopup({
   const residentName = pickedResident?.residentName ?? (draft.residentEmail.toLowerCase() === (isAddOn ? target.request.residentEmail : target.row.residentEmail ?? "").toLowerCase() ? currentResidentName : "");
   const roomOptions = !isAddOn && draft.propertyId ? emptyRoomsForManagerService(draft.propertyId, draft.roomChoice) : [];
   const costLocked = !isAddOn && isWorkOrderCostLockedByVendor(target.row);
+  // Once the resident has paid the fee, the fee is settled: the amount is theirs, not the manager's to move.
+  const feePaid = isAddOn && isServiceRequestFeePaid(target.request);
   const hasDeposit = draft.deposit.trim() !== "" && draft.deposit.trim() !== "0";
 
   const steps: AddWorkspaceStep[] = [
@@ -237,7 +241,10 @@ export function ServiceEditPopup({
       return;
     }
     if (isAddOn) {
-      updateServiceRequest(target.request.id, addOnEditUpdates(draft, { propertyId: draft.propertyId, residentName, hasDeposit }));
+      updateServiceRequest(
+        target.request.id,
+        addOnEditUpdates(draft, { propertyId: draft.propertyId, residentName, hasDeposit, feePaid }),
+      );
       showToast("Service updated.");
     } else {
       updateManagerWorkOrder(target.row.id, (row) => applyWorkOrderEdit(row, draft, { propertyLabel: property?.propertyLabel ?? "", residentName, costLocked }));
@@ -347,7 +354,15 @@ export function ServiceEditPopup({
             <>
               <div className="grid gap-3 sm:grid-cols-2">
                 <WizardField label="Service fee">
-                  <Input value={draft.price} inputMode="decimal" placeholder="$0" onChange={(e) => set({ price: sanitizeMoneyInput(e.target.value) })} className="bg-card" data-attr="service-edit-price" />
+                  <Input
+                    value={draft.price}
+                    inputMode="decimal"
+                    placeholder="$0"
+                    disabled={feePaid}
+                    onChange={(e) => set({ price: sanitizeMoneyInput(e.target.value) })}
+                    className="bg-card"
+                    data-attr="service-edit-price"
+                  />
                 </WizardField>
                 <WizardField label="Deposit">
                   <Input value={draft.deposit} inputMode="decimal" placeholder="$0" onChange={(e) => set({ deposit: sanitizeMoneyInput(e.target.value) })} className="bg-card" data-attr="service-edit-deposit" />

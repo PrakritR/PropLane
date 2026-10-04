@@ -1,3 +1,4 @@
+import { resolveShareableAppOrigin } from "@/lib/app-url";
 import type { LinkedFormRequestView } from "@/lib/application-linked-form-requests";
 
 /**
@@ -45,11 +46,20 @@ async function post(id: string, payload: Json) {
   });
 }
 
-/** A fresh link for one form, as a full URL. The previous link stops working. */
-export async function mintLinkedFormShareUrl(id: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
-  const res = await post(id, { action: "share" });
+/**
+ * A link for one form, as a full URL on the canonical app origin (never the preview or lane host the
+ * author happens to be on - the person who receives this link is not on it).
+ *
+ * `newLink` is the explicit "get a new link": it revokes whoever already holds one. The ordinary
+ * share keeps the current helper's access, so re-showing the link never strands someone mid-form.
+ */
+export async function mintLinkedFormShareUrl(
+  id: string,
+  opts: { newLink?: boolean } = {},
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const res = await post(id, { action: "share", ...(opts.newLink ? { newLink: true } : {}) });
   if (!res.ok || typeof res.body.path !== "string") return { ok: false, error: errorOf(res.body, "Could not create a link.") };
-  return { ok: true, url: `${window.location.origin}${res.body.path}` };
+  return { ok: true, url: `${resolveShareableAppOrigin(window.location.origin)}${res.body.path}` };
 }
 
 export async function sendLinkedFormByEmail(id: string, to: string): Promise<{ ok: boolean; error?: string }> {

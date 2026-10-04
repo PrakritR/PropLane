@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import {
+  ADD_ON_NOT_APPROVED_REFUSAL,
   approveVendorJobBid,
   completeVendorJob,
   payVendorJob,
@@ -113,9 +114,17 @@ export function useAddOnVendorJob({
     [workOrderId, showToast, reload],
   );
 
-  /** The add-on's Mark done: finish the vendor job (when a vendor is on it) and the add-on itself. */
+  /**
+   * The add-on's Mark done: finish the vendor job (when a vendor is on it) and the add-on itself.
+   * An add-on that is not approved has nothing to finish - say so instead of completing the vendor
+   * job (and posting its expense) while the request stays in its own bucket.
+   */
   const markDone = useCallback(async () => {
     if (!request) return;
+    if (request.status !== "approved") {
+      showToast(ADD_ON_NOT_APPROVED_REFUSAL.error);
+      return;
+    }
     if (job && job.bucket !== "completed" && (job.vendorId || acceptedBid)) {
       const result = await completeVendorJob(job, acceptedBid);
       if (!result.ok) {
@@ -123,9 +132,9 @@ export function useAddOnVendorJob({
         return;
       }
     }
-    markServiceRequestDone(request.id);
+    const done = markServiceRequestDone(request.id);
     onChanged();
-    showToast("Marked done.");
+    showToast(done ? "Marked done." : ADD_ON_NOT_APPROVED_REFUSAL.error);
   }, [request, job, acceptedBid, showToast, onChanged]);
 
   const pay = useCallback(async () => {

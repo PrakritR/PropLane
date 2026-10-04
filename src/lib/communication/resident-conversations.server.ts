@@ -290,14 +290,20 @@ export async function loadResidentManagerCounterpartiesByEmail(
     // still unplaced, and a manager drops out as soon as one of theirs is
     // linked. The ordinary list read is a single round - the default workspace.
     const chosen = new Map<string, string>();
+    // One budget for the WHOLE path, spent across the rounds. Passing the ceiling to each round
+    // would let a list read with many legacy managers spend it over again every round.
+    let checksLeft = MAX_EMAIL_NAMING_LINK_CHECKS;
     for (let round = 0; round < MAX_WORKSPACE_PROBES_PER_MANAGER; round += 1) {
+      if (checksLeft <= 0) break;
       const probe = [...byOwner]
         .filter(([owner]) => !chosen.has(owner))
         .map(([, probes]) => probes[round])
-        .filter((id): id is string => Boolean(id));
+        .filter((id): id is string => Boolean(id))
+        .slice(0, checksLeft);
       if (probe.length === 0) break;
+      checksLeft -= probe.length;
       const linked = await loadResidentLinkedWorkspaceIds(db, resident, probe, {
-        maxChecks: MAX_EMAIL_NAMING_LINK_CHECKS,
+        maxChecks: probe.length,
       });
       for (const [owner, probes] of byOwner) {
         const id = probes[round];

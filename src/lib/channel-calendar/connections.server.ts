@@ -74,7 +74,13 @@ export function sanitizeCalendarOrigin(raw: string | undefined | null): string |
   }
 }
 
+/**
+ * A localhost origin, and only outside production. `resolveRequestOrigin` builds the candidate from
+ * the caller-controlled Host / x-forwarded-host header, so a production request arriving as
+ * `Host: localhost:3000` must never get a feed URL Airbnb cannot fetch.
+ */
 function isLocalDevOrigin(origin: string): boolean {
+  if (process.env.NODE_ENV === "production") return false;
   const host = new URL(origin).hostname.toLowerCase();
   return host === "localhost" || host === "127.0.0.1";
 }

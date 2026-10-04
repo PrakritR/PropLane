@@ -119,12 +119,19 @@ export function applicationSectionsForEditor(
 ): QuestionEditorSection[] {
   return APPLICATION_EDITOR_SECTIONS.map((section) => {
     const active = ctx.fields.filter((field) => sectionOf(field) === section.id);
-    const activeLabels = new Set(
-      active.filter((field) => !field.isStandard).map((field) => field.label.trim().toLowerCase()),
+    const activeCustom = active.filter((field) => !field.isStandard);
+    // A built-in whose type was changed was retired for a custom question that points back at it;
+    // do not list both. The pointer (`replacedStandardKey`) survives rewording - the label match
+    // behind it only covers rows detached before that was stamped.
+    const replacedKeys = new Set(
+      activeCustom.map((field) => field.replacedStandardKey?.trim()).filter((key): key is string => Boolean(key)),
     );
-    // A built-in whose type was changed was retired for a custom question of the same words; do not list both.
+    const activeLabels = new Set(activeCustom.map((field) => field.label.trim().toLowerCase()));
     const off = ctx.disabledFields.filter(
-      (field) => sectionOf(field) === section.id && !activeLabels.has(field.label.trim().toLowerCase()),
+      (field) =>
+        sectionOf(field) === section.id &&
+        !(field.standardKey && replacedKeys.has(field.standardKey)) &&
+        !activeLabels.has(field.label.trim().toLowerCase()),
     );
     return {
       id: section.id,
@@ -156,6 +163,8 @@ export function convertBuiltInQuestion(
     required: patch.required ?? field.required,
     options,
     linkedForms: patch.linkedForms ?? field.linkedForms,
+    // The built-in this question stands in for: how the editor keeps it hidden after a reword.
+    ...(field.standardKey?.trim() ? { replacedStandardKey: field.standardKey.trim() } : {}),
   };
   const retired = removeListingApplicationField(slice, field);
   const added = addListingApplicationField({ ...slice, ...retired }, replacement);

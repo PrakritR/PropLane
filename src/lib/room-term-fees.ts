@@ -35,7 +35,7 @@ import {
   resolvePlacementStandardFees,
 } from "@/lib/listing-placement-standard-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
+import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
@@ -207,6 +207,12 @@ export function resolveRoomTermFees(input: {
   bundle?: Pick<ManagerBundleRow, "termPricing"> | null;
   /** The application the applicant filled in (selector); picks whose template fee sits under the room's. */
   applicationTemplateId?: string | null;
+  /**
+   * The stored property record, which `resolveLeaseJurisdiction` reads BEFORE the submission. Pass it
+   * whenever you have one, or a Seattle property whose submission never recorded a city resolves as
+   * non-Seattle here while the ledger (which is given the property) resolves it as Seattle.
+   */
+  listingProperty?: RentRuleAddress | null;
 }): ResolvedRoomTermFees {
   const scope = roomFeeTermScope(input.leaseTerm, input.rentalType);
   const room = input.wholeHouse ? null : ((input.room ?? null) as ManagerRoomSubmission | null);
@@ -232,7 +238,9 @@ export function resolveRoomTermFees(input: {
     moveInFee: parseMoneyAmount(resolvedMoveInFeeRaw(input.sub, opts)),
     // Optional long-term charge; never on a Seattle listing, where this resolves to nothing.
     monthToMonthSurcharge:
-      scope === "long" && !listingFoldsAllMonthlyFeesIntoRent(input.sub) ? money(row?.monthToMonthSurcharge) : 0,
+      scope === "long" && !listingFoldsAllMonthlyFeesIntoRent(input.sub, input.listingProperty)
+        ? money(row?.monthToMonthSurcharge)
+        : 0,
     customStartSurcharge: scope === "long" ? money(row?.customStartSurcharge) : 0,
   };
 }
@@ -251,6 +259,8 @@ export type RoomFeeOverlayContext = {
   bundle?: Pick<ManagerBundleRow, "termPricing"> | null;
   /** The application the applicant filled in (selector, never an amount); its template fee sits under the room's. */
   applicationTemplateId?: string | null;
+  /** The stored property record: the jurisdiction resolver reads it first, so the Seattle gate agrees with the ledger. */
+  listingProperty?: RentRuleAddress | null;
 };
 
 /** True when any stored application or lease template carries a fee (so the overlay has something to apply with no room row). */
@@ -326,7 +336,7 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   let removedChanged = false;
 
   if (scope === "long" && row) {
-    const mtm = listingFoldsAllMonthlyFeesIntoRent(sub) ? 0 : money(row.monthToMonthSurcharge);
+    const mtm = listingFoldsAllMonthlyFeesIntoRent(sub, ctx.listingProperty) ? 0 : money(row.monthToMonthSurcharge);
     if (mtm > 0) {
       const text = cleanMoneyText(mtm);
       removedChanged = removed.delete("monthToMonthSurcharge") || removedChanged;
@@ -405,7 +415,12 @@ function bundleOfLookup(sub: ManagerListingSubmissionV1, bundleId: string | null
 export function submissionWithApplicationRoomFees<T extends ManagerListingSubmissionV1>(
   sub: T | null | undefined,
   lookup: SubmissionRoomLookup & { bundleId?: string | null },
-  ctx: { leaseTerm?: string | null; rentalType?: string | null; applicationTemplateId?: string | null },
+  ctx: {
+    leaseTerm?: string | null;
+    rentalType?: string | null;
+    applicationTemplateId?: string | null;
+    listingProperty?: RentRuleAddress | null;
+  },
 ): T | null | undefined {
   if (!sub) return sub;
   if (lookup.bundleId?.trim()) {
@@ -422,7 +437,13 @@ export function submissionWithApplicationRoomFees<T extends ManagerListingSubmis
 export function resolveApplicationRoomTermFees(
   sub: ManagerListingSubmissionV1 | null | undefined,
   lookup: SubmissionRoomLookup & { bundleId?: string | null },
-  ctx: { leaseTerm?: string | null; rentalType?: string | null; applicationTemplateId?: string | null },
+  ctx: {
+    leaseTerm?: string | null;
+    rentalType?: string | null;
+    applicationTemplateId?: string | null;
+    /** The stored property record; the Seattle gate reads it first, exactly as the lease and the ledger do. */
+    listingProperty?: RentRuleAddress | null;
+  },
 ): ResolvedRoomTermFees | null {
   if (!sub) return null;
   if (lookup.bundleId?.trim()) {

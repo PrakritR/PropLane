@@ -97,9 +97,10 @@ export const LISTING_STANDARD_FEE_ROWS: readonly {
     ltField: "otherMonthlyFees",
   },
   {
+    // Long term only: the surcharge exists because month-to-month folds into long term. A stay is
+    // never month-to-month, so there is no short-term amount to collect, quote, bill or print.
     id: "monthToMonthSurcharge",
     label: "Month-to-month surcharge",
-    stField: "shortTermMonthToMonthSurcharge",
     ltField: "monthToMonthSurcharge",
   },
   {

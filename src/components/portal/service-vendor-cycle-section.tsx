@@ -270,7 +270,9 @@ export function ServiceVendorPipeline({
               : row.canPay
                 ? { id: "pay", label: "Pay", onSelect: () => onPay(row), dataAttr: "service-pay-vendor" }
                 : null,
-            group === "scheduled" ? { id: "mark-done", label: ADD_ON_NEXT_STEP_LABEL["mark-done"], onSelect: () => onMarkDone(row), dataAttr: "service-mark-done" } : null,
+            group === "scheduled" || row.vendorSaysDone
+              ? { id: "mark-done", label: ADD_ON_NEXT_STEP_LABEL["mark-done"], onSelect: () => onMarkDone(row), dataAttr: "service-mark-done" }
+              : null,
             openVendorItem(row.vendorDirectoryId, row.vendorName),
             messageItem(row.vendorName),
           ]}

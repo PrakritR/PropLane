@@ -97,6 +97,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       action?: unknown;
       to?: unknown;
       sessionId?: unknown;
+      newLink?: unknown;
     };
     const action = body.action as Action;
     if (!["share", "send_email", "not_needed", "fee_checkout", "fee_verify"].includes(String(action))) {
@@ -121,7 +122,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (!(await rateLimit(`linked-form-share:${user.id}`, 20, 60_000)).ok) {
         return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
       }
-      const link = await rotateLinkedFormToken(db, request);
+      // Only an explicit "new link" cuts off whoever already opened the current one.
+      const link = await rotateLinkedFormToken(db, request, { revokeHelper: body.newLink === true });
       if (!link) return NextResponse.json({ error: "Could not create a link." }, { status: 500 });
       return NextResponse.json({ ok: true, path: link.path }, { headers: { "Cache-Control": "private, no-store" } });
     }
@@ -134,7 +136,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (!isLegitimateEmail(to)) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
       const apiKey = process.env.RESEND_API_KEY?.trim();
       if (!apiKey) return NextResponse.json({ error: "Email delivery is not configured." }, { status: 503 });
-      const link = await rotateLinkedFormToken(db, request);
+      // Emailing the link IS a new hand-off to a named address: whoever holds the old one loses it,
+      // or the recipient would open a link already claimed by someone else and be refused.
+      const link = await rotateLinkedFormToken(db, request, { revokeHelper: true });
       if (!link) return NextResponse.json({ error: "Could not create a link." }, { status: 500 });
       const [view] = await toLinkedFormRequestViews(db, [{ request, viewerRole: role, app }]);
       const row = openApplicantRow(app.row_data, app.id, true, { soft: true });

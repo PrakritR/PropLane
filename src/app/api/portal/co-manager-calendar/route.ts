@@ -113,13 +113,18 @@ export async function GET(req: Request) {
       });
     }
 
+    // The workspace's links, not just the viewer's own: two co-managers of the same house are peers
+    // of each other, and neither holds a link row naming the other. The owner's accepted links are
+    // the workspace roster; the viewer's own rows are still read so their own access is decided here.
+    const linkFilters = [`inviter_user_id.eq.${user.id}`, `invitee_user_id.eq.${user.id}`];
+    if (ownerId && ownerId !== user.id) linkFilters.unshift(`inviter_user_id.eq.${ownerId}`);
     let linkQuery = db
       .from("account_link_invites")
       .select(
         "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope, team_role, status, test_workspace_id",
       )
       .eq("status", "accepted")
-      .or(`inviter_user_id.eq.${user.id},invitee_user_id.eq.${user.id}`);
+      .or(linkFilters.join(","));
     linkQuery = businessAccess.kind === "test"
       ? linkQuery.eq("test_workspace_id", businessAccess.workspaceId)
       : linkQuery.is("test_workspace_id", null);
@@ -138,8 +143,11 @@ export async function GET(req: Request) {
       const inviterId = textField(row, "inviter_user_id");
       const inviteeId = textField(row, "invitee_user_id");
       const actorIsOwner = ownerId === user.id;
-      const actorIsGrantedInvitee = inviteeId === user.id && inviterId === ownerId;
-      if (!actorIsOwner && !actorIsGrantedInvitee) continue;
+      // A link the owner granted is a workspace row: it describes a peer of everyone else on the
+      // house. Any other row is only read when it is the viewer's own.
+      const isOwnerGrant = Boolean(ownerId) && inviterId === ownerId;
+      const involvesActor = inviterId === user.id || inviteeId === user.id;
+      if (!isOwnerGrant && !involvesActor) continue;
       const permissions = readPropertyPermissionsFromRow({
         assigned_property_ids: assigned,
         property_co_manager_permissions: row.property_co_manager_permissions,
@@ -151,6 +159,9 @@ export async function GET(req: Request) {
       // a property is not a grant, and an empty grant is no access, so an invitee without it is
       // neither returned nor has their hours read, whoever is asking.
       const inviteeMayUseCalendar = coManagerModuleAllowed(permissions, propertyId, "calendar", "read");
+      // The viewer still earns their own place the same way: owner, or an invitee the owner granted
+      // calendar read. Everyone else falls out at the membership check below.
+      if (!actorIsOwner && !isOwnerGrant) continue;
       if (!actorIsOwner && !inviteeMayUseCalendar) continue;
 
       if (inviterId) {

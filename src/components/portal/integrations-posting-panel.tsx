@@ -10,6 +10,7 @@ import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
@@ -106,7 +107,12 @@ function FacebookMarketplaceRow({ options }: { options: { value: string; label: 
   const chosen = options.some((o) => o.value === listingId) ? listingId : (options[0]?.value ?? "");
 
   const copyPost = async () => {
-    const text = buildFacebookMarketplacePost(chosen, typeof window !== "undefined" ? window.location.origin : undefined);
+    // The post is published publicly, so the listing link is the canonical app origin - never the
+    // preview or lane host the manager happens to be on.
+    const text = buildFacebookMarketplacePost(
+      chosen,
+      typeof window !== "undefined" ? resolveShareableAppOrigin(window.location.origin) : undefined,
+    );
     if (!text) {
       showToast("Pick a listing first.");
       return;

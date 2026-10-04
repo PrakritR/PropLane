@@ -102,7 +102,10 @@ export function applyVendorJobToAddOn(req: ServiceRequest, job: DemoManagerWorkO
   if (!req.proposedVisit && job.scheduledAtIso) {
     next = { ...next, proposedVisit: { iso: job.scheduledAtIso, source: "availability" } };
   }
-  const finished = job.bucket === "completed" || job.automationStatus === "vendor_marked_done" || job.automationStatus === "paid";
+  // A vendor's own "mark done" is their claim, not the manager's confirmation: it shows as
+  // "Vendor says done" and the manager's Mark done is what finishes the add-on (and returns a
+  // deposit). Only a completion the manager ran closes the request here.
+  const finished = job.bucket === "completed" || job.automationStatus === "paid";
   if (finished && req.status === "approved" && (job.status ?? "").trim().toLowerCase() !== "cancelled") {
     next = { ...next, status: "returned" };
   }

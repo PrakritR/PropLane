@@ -64,6 +64,8 @@ export type PipelineJobRow = {
   /** Done only: "To pay" or "Paid". */
   paymentFact: "To pay" | "Paid" | null;
   canPay: boolean;
+  /** The vendor said they finished; the manager has not confirmed it yet, so Mark done is still theirs to do. */
+  vendorSaysDone?: boolean;
 };
 
 export type ServicePipeline = {
@@ -169,6 +171,7 @@ export function buildServicePipeline(input: {
         ? completedPaymentFact({ vendorPayable: serviceIsVendorPayable(job as DemoManagerWorkOrderRow), paid })
         : null,
       canPay: finished && Boolean(job) && !paid && serviceIsVendorPayable(job as DemoManagerWorkOrderRow),
+      vendorSaysDone: job?.automationStatus === "vendor_marked_done" && job?.bucket !== "completed",
     };
   };
   const scheduled = hired && !finished && !cancelled ? [hiredRow()] : [];
@@ -203,7 +206,12 @@ export function defaultPipelineTab(counts: Record<PipelineTabId, number>): Pipel
 /** One line of what a Scheduled / Done row says: the visit time and the money, plain facts. */
 export function pipelineJobFact(row: PipelineJobRow, formatWhen: (iso: string | null | undefined) => string): string {
   const when = row.visitAt ? formatWhen(row.visitAt) : "";
-  return [row.paymentFact ?? "", when || (row.paymentFact ? "" : "No visit time yet"), row.amountCents != null ? formatServiceMoney(row.amountCents) : ""]
+  return [
+    row.vendorSaysDone ? "Vendor says done" : "",
+    row.paymentFact ?? "",
+    when || (row.paymentFact || row.vendorSaysDone ? "" : "No visit time yet"),
+    row.amountCents != null ? formatServiceMoney(row.amountCents) : "",
+  ]
     .filter(Boolean)
     .join(" · ");
 }
