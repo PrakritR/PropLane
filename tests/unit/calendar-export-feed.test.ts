@@ -51,6 +51,7 @@ const placement = (id: string, connectionId: string | null, start: string, end: 
 
 const AIRBNB = { start: "2027-01-10", end: "2027-01-12" };
 const BOOKING = { start: "2027-02-01", end: "2027-02-03" };
+const VRBO = { start: "2027-07-01", end: "2027-07-03" };
 const LEASE = { start: "2027-03-01", end: "2027-03-31" };
 
 function seed() {
@@ -58,11 +59,13 @@ function seed() {
     external_calendar_connections: [
       conn("c-air", "airbnb", "tok-air", [AIRBNB]),
       conn("c-bdc", "booking_com", "tok-bdc", [BOOKING]),
+      conn("c-vrbo", "vrbo", "tok-vrbo", [VRBO]),
     ],
     manager_application_records: [
       placement("lease", null, LEASE.start, LEASE.end),
       placement("air-stay", "c-air", AIRBNB.start, AIRBNB.end),
       placement("bdc-stay", "c-bdc", BOOKING.start, BOOKING.end),
+      placement("vrbo-stay", "c-vrbo", VRBO.start, VRBO.end),
     ],
     portal_schedule_records: [
       { manager_user_id: "m1", property_id: "p1", record_type: "room_date_block", row_data: { roomId: "r1", bookingStatus: "cancelled", checkIn: "2027-04-10", checkOut: "2027-04-14" } },
@@ -88,6 +91,17 @@ describe("calendar export feed", () => {
     expect(ics.includes("20270601")).toBe(true);
   });
 
+  it("with three channels each feed carries the other two and never its own", async () => {
+    seed();
+    const air = await feed("tok-air");
+    expect([has(air, AIRBNB), has(air, BOOKING), has(air, VRBO)]).toEqual([false, true, true]);
+    const bdc = await feed("tok-bdc");
+    expect([has(bdc, AIRBNB), has(bdc, BOOKING), has(bdc, VRBO)]).toEqual([true, false, true]);
+    const vrbo = await feed("tok-vrbo");
+    expect([has(vrbo, AIRBNB), has(vrbo, BOOKING), has(vrbo, VRBO)]).toEqual([true, true, false]);
+    expect(has(vrbo, LEASE)).toBe(true);
+  });
+
   it("the Booking.com feed is the reverse", async () => {
     seed();
     const ics = await feed("tok-bdc");
@@ -99,8 +113,8 @@ describe("calendar export feed", () => {
   it("an 'other' link carries every channel, and a cancelled block is in none of them", async () => {
     seed();
     const other = await feed("tok-air", "?channels=all");
-    expect(has(other, AIRBNB) && has(other, BOOKING) && has(other, LEASE)).toBe(true);
-    for (const ics of [other, await feed("tok-air"), await feed("tok-bdc")]) expect(ics.includes("20270410")).toBe(false);
+    expect(has(other, AIRBNB) && has(other, BOOKING) && has(other, VRBO) && has(other, LEASE)).toBe(true);
+    for (const ics of [other, await feed("tok-air"), await feed("tok-bdc"), await feed("tok-vrbo")]) expect(ics.includes("20270410")).toBe(false);
   });
 
   it("a token shared by two connections (older links) carries every channel", async () => {
@@ -120,6 +134,11 @@ describe("importedRangesForFeed", () => {
   it("a whole-home booking blocks the room, and a room's feed ignores other rooms", () => {
     const out = importedRangesForFeed({ propertyId: "p1", roomId: "r1", destination: "airbnb", connections, placements: [] });
     expect(out).toEqual([BOOKING]);
+  });
+  it("a Vrbo destination takes Airbnb and Booking.com ranges but not Vrbo's own", () => {
+    const withVrbo = [...connections, { id: "v", roomId: "r1", provider: "vrbo" as const, importedRanges: [{ id: "4", sourceUid: "4", summary: "", ...VRBO }] }];
+    expect(importedRangesForFeed({ propertyId: "p1", roomId: "r1", destination: "vrbo", connections: withVrbo, placements: [] })).toEqual([AIRBNB, BOOKING]);
+    expect(importedRangesForFeed({ propertyId: "p1", roomId: "r1", destination: "airbnb", connections: withVrbo, placements: [] })).toEqual([BOOKING, VRBO]);
   });
   it("a whole-home feed takes every room's other-channel bookings, deduplicated against placements", () => {
     const out = importedRangesForFeed({ propertyId: "p1", roomId: "p1", destination: "airbnb", connections, placements: [{ connectionId: "b", ...BOOKING }] });

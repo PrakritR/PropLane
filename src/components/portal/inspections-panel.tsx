@@ -11,7 +11,8 @@ import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { LocalDestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
+import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { InspectionEditor, type InspectionEditorHandle } from "@/components/portal/inspection-editor";
@@ -21,7 +22,7 @@ import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-rela
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { inspectionDetailHref, parseServiceRecordTab } from "@/lib/portal-detail-routes";
+import { inspectionDetailHref, moveInInspectionsHref, parseServiceRecordTab } from "@/lib/portal-detail-routes";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -264,21 +265,32 @@ export function ResidentInspectionsPage({
   );
 }
 
+/**
+ * Manager inspections live inside the Move-in page (`/portal/move-in/inspections[/{move-in|move-out}[/{id}]]`).
+ * The list is the hub's Inspections tab (`ManagerMoveInFormsPage`); this page is the one report, which
+ * opens on its own record page like every other record.
+ */
 export function ManagerInspectionsPage({ kind = "move-in", reportId, recordTab, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; recordTab?: string; basePath?: string }) {
-  if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} recordTab={recordTab} routeBase={`${basePath}/inspections`} />;
+  const routeBase = moveInInspectionsHref(basePath);
+  if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} recordTab={recordTab} routeBase={routeBase} />;
   return (
     <ManagerPortalPageShell
-      title="Inspections"
+      title="Move-in"
       hideTitleOnMobileNav
       compactFilterRow
     >
-      <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />
+      <InspectionsPanel role="manager" initialKind={kind} routeBase={routeBase} />
     </ManagerPortalPageShell>
   );
 }
 
-export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, residentBucket, residentTypeFilter }: {
+/** The Move-in page's tab row, handed to the manager list so the page keeps one control stack. */
+export type InspectionsHubTabs = { destinations: DestinationNavItem[]; activeId: string; ariaLabel: string };
+
+export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, residentBucket, residentTypeFilter, hubTabs }: {
   role: InspectionRole; applicationId?: string; initialKind?: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
+  /** Manager list inside the Move-in page: the page's tabs lead the one control stack and Move-in / Move-out moves into the Filter's Type field. */
+  hubTabs?: InspectionsHubTabs;
   /** Embedded in a resident record: wraps the Move-in / Move-out tabs in the record's one section header card. */
   embeddedToolbar?: (destinationRow: ReactNode) => ReactNode;
   /** Resident-only bucket list mode. Omitted (always, for manager) keeps the kind-based view exactly as it was. */
@@ -309,12 +321,14 @@ export function InspectionsPanel({ role, applicationId, initialKind = "move-in",
       embeddedToolbar={embeddedToolbar}
       residentBucket={residentBucket}
       residentTypeFilter={residentTypeFilter}
+      hubTabs={hubTabs}
     />
   );
 }
 
-function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, residentBucket, residentTypeFilter }: {
+function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, residentBucket, residentTypeFilter, hubTabs }: {
   userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
+  hubTabs?: InspectionsHubTabs;
   embeddedToolbar?: (destinationRow: ReactNode) => ReactNode;
   residentBucket?: ResidentInspectionTab;
   residentTypeFilter?: ResidentInspectionTypeFilter;
@@ -485,7 +499,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     const editor = <InspectionEditor ref={editorRef} embedded={embeddedInResident || (role === "manager" && Boolean(routeBase))} initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
     if (role !== "manager" || !routeBase) return editor;
     const recordTabId = parseServiceRecordTab(recordTab);
-    const inspectionBasePath = routeBase.replace(/\/inspections$/, "") || "/portal";
+    const inspectionBasePath = routeBase.replace(/\/move-in\/inspections$/, "") || "/portal";
     const sections = recordSections("manager", "inspection", {
       basePath: inspectionBasePath,
       inspectionKind: kind,
@@ -630,6 +644,38 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
             dataAttr="resident-inspections-type-select"
           />
         </PortalFilterSortSheet>
+      }
+    />
+    ) : hubTabs && routeBase ? (
+    <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel={hubTabs.ariaLabel} activeDestinationId={hubTabs.activeId}
+      destinations={hubTabs.destinations}
+      search={{ value: query, onChange: setQuery, placeholder: "Search inspections", dataAttr: "inspections-search" }}
+      actions={
+        <PortalFilterSortSheet
+          activeCount={portalFilterActiveCount([kind !== "move-in" ? kind : ""])}
+          compactPanel
+          commandStripTrigger
+          filterFieldCount={1}
+          onReset={() => changeKind("move-in")}
+          dataAttr="inspections-type-filter-open"
+        >
+          <FieldSingleSelect
+            label="Type"
+            variant="cell"
+            value={kind}
+            onChange={(next) => changeKind(next as InspectionKind)}
+            options={[
+              { value: "move-in", label: kindLabel("move-in") },
+              { value: "move-out", label: kindLabel("move-out") },
+            ]}
+            dataAttr="inspections-type-select"
+          />
+        </PortalFilterSortSheet>
+      }
+      activeFilterChips={
+        kind !== "move-in" ? (
+          <PortalActiveFilterChips chips={[{ id: "type", label: `Type: ${kindLabel(kind)}`, onRemove: () => changeKind("move-in") }]} />
+        ) : null
       }
     />
     ) : (

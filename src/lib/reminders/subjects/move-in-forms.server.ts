@@ -112,3 +112,79 @@ export async function sweepMoveInFormReminders(db: SupabaseClient, now: Date = n
   }
   return sent;
 }
+
+/* ------------------------------------------------------------------ move-out */
+
+/** How far ahead of a lease end any form can be set to go out (the longest "Before move-out" choice). */
+const MOVE_OUT_LOOKAHEAD_DAYS = 30;
+
+function daysBetween(fromKey: string, toKey: string): number {
+  const from = Date.parse(`${fromKey}T00:00:00Z`);
+  const to = Date.parse(`${toKey}T00:00:00Z`);
+  return Math.round((to - from) / 86_400_000);
+}
+
+/**
+ * The daily "Before move-out" send: for every fully signed, not voided lease whose end date is within
+ * the next 30 days, dispatch the forms whose trigger is "Before move-out" and whose "N days before the
+ * lease ends" has been reached. The due date is anchored on the lease end (`move-out-day`,
+ * `N-days-before-move-out`). Idempotent twice over: it only does work in the 8 o'clock Pacific hour
+ * (the 5-minute tick lands in it a dozen times), and dispatch skips any form a residency already holds
+ * (`liveFormIds`), so a re-run, a missed day or an overlapping run never sends the same form twice.
+ * A form is sent once the lease is within its window, so a lease signed with 10 days left still gets a
+ * "14 days before" form the next morning. Returns how many forms went out.
+ */
+export async function sweepMoveOutForms(db: SupabaseClient, now: Date = new Date()): Promise<number> {
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", hour12: false }).format(now)) % 24;
+  if (hour !== 8) return 0;
+  return runMoveOutDispatch(db, now);
+}
+
+/** The sweep without the hour gate (the cron tick and the tests call `sweepMoveOutForms`). */
+export async function runMoveOutDispatch(db: SupabaseClient, now: Date = new Date()): Promise<number> {
+  // Loaded here, not at the top: the reminder sweep above stays light (and testable) without the send machinery.
+  const { dispatchMoveInFormsForResidency } = await import("@/lib/move-in-forms/server");
+  const todayKey = pacificTodayKey(now);
+  const leases: { axis_id: string | null; members: unknown }[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await db.from("portal_lease_pipeline_records")
+      .select("axis_id:row_data->>axisId,signed:row_data->>fullySignedAt,voided:row_data->>voidedAt,members:row_data->jointLeaseMembers")
+      .not("row_data->>fullySignedAt", "is", null)
+      .is("row_data->>voidedAt", null)
+      .order("id")
+      .range(offset, offset + 499);
+    if (error) throw new Error(error.message);
+    leases.push(...((data ?? []) as unknown as { axis_id: string | null; members: unknown }[]));
+    if ((data ?? []).length < 500) break;
+  }
+  const primary = new Set<string>();
+  const secondary = new Set<string>();
+  for (const lease of leases) {
+    if (lease.axis_id) primary.add(lease.axis_id);
+    if (Array.isArray(lease.members)) {
+      for (const member of lease.members as { applicationId?: unknown }[]) {
+        if (typeof member?.applicationId === "string" && member.applicationId) secondary.add(member.applicationId);
+      }
+    }
+  }
+  for (const id of primary) secondary.delete(id);
+  const ids = [...primary, ...secondary];
+  let sent = 0;
+  for (let start = 0; start < ids.length; start += 100) {
+    const { data, error } = await db.from("manager_application_records")
+      .select("id,lease_end:row_data->application->>leaseEnd")
+      .in("id", ids.slice(start, start + 100));
+    if (error) throw new Error(error.message);
+    for (const record of (data ?? []) as unknown as { id: string; lease_end: string | null }[]) {
+      const endKey = /^\d{4}-\d{2}-\d{2}/.exec((record.lease_end ?? "").trim())?.[0];
+      if (!endKey) continue;
+      const daysLeft = daysBetween(todayKey, endKey);
+      if (daysLeft < 0 || daysLeft > MOVE_OUT_LOOKAHEAD_DAYS) continue;
+      const result = await dispatchMoveInFormsForResidency(String(record.id), "before-move-out", {
+        db, daysUntilLeaseEnd: daysLeft, secondaryMember: secondary.has(String(record.id)),
+      });
+      sent += result.sent;
+    }
+  }
+  return sent;
+}

@@ -16,7 +16,7 @@ import { renderRecordSection } from "@/components/portal/record-section-renderer
 import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
-import { bookingConflictsFor, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDaysToDateKey, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
@@ -44,8 +44,8 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const removeStayDialog = removingStay ? <BookingsRemoveStayDialog key={bookingEntryKey(removingStay)} entry={removingStay} onClose={() => setRemovingStay(null)} onChanged={() => onRefresh?.()} /> : null;
   if (!entry) return <>{removeStayDialog}<PortalDataTableEmpty icon="default" message={loading ? "Loading…" : "Booking not found."} /></>;
   const tab = tabProp === "communication" ? "communication" : "overview";
-  const channel = entry.source === "airbnb" || entry.source === "booking_com";
-  const name = entry.source === "airbnb" || entry.source === "booking_com" ? bookingGuestLabel(entry.summary, entry.source) : entry.summary;
+  const channel = isChannelBookingSource(entry.source);
+  const name = isChannelBookingSource(entry.source) ? bookingGuestLabel(entry.summary, entry.source) : entry.summary;
   const resident = residentOptions.find((option) => option.email === entry.residentEmail || option.name === entry.residentName || option.name === entry.summary);
   const sourceTarget = channel ? null : bookingOpenTarget(entry, basePath);
   const backHref = managerBookingListHref(basePath, "upcoming");

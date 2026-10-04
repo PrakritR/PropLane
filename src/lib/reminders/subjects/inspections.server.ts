@@ -109,7 +109,7 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
           queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection_manager", subjectId, anchorIso,
             recipients: [{ email: manager.email, userId: row.manager_user_id, role: "manager" }],
             payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row),
-              title: `No ${kind} photos yet`, url: `${origin}/portal/inspections/${kind}` },
+              title: `No ${kind} photos yet`, url: `${origin}/portal/move-in/inspections/${kind}` },
           }, config, now);
         }
       }

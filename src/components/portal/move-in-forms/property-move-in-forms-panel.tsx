@@ -9,7 +9,7 @@
  * and never live here.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DoorOpen, FileText, ListChecks, Send } from "lucide-react";
+import { DoorOpen, FileText, Link2, ListChecks, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MoveInFormChooser, type MoveInChooserPick, type MoveInCopySource } from "@/components/portal/move-in-forms/move-in-form-chooser";
 import {
@@ -21,6 +21,7 @@ import {
   audienceSummary,
   copyTemplateToProperty,
   duplicateMoveInTemplate,
+  linkedTemplatesSummary,
   moveInFormPreviewHtml,
   questionCountLabel,
   removeMoveInTemplate,
@@ -51,7 +52,14 @@ import {
   moveInFormTemplatePdfUrl,
   sendMoveInFormToCurrentResidents,
 } from "@/lib/move-in-forms/client";
-import { newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import {
+  isDefaultMoveInForm,
+  newMoveInFormTemplate,
+  readMoveInFormTemplates,
+  resetMoveInFormToDefault,
+} from "@/lib/move-in-forms/templates";
+import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import { readExtraListingsForUser, readPendingManagerPropertiesForUser } from "@/lib/demo-property-pipeline";
 
@@ -119,6 +127,14 @@ export function PropertyMoveInFormsPanel({
   const canUploadPdf = !viewerId || !managerUserId || viewerId === managerUserId;
   const templates = useMemo(() => readMoveInFormTemplates(sub), [sub]);
   const rooms = useMemo(() => templateRooms(sub), [sub]);
+  const applicationTemplates = useMemo(
+    () => readPropertyApplicationTemplates(sub).map((item) => ({ id: item.id, label: item.label.trim() || "Application" })),
+    [sub],
+  );
+  const leaseTemplates = useMemo(
+    () => readPropertyLeaseTemplates(sub).map((item) => ({ id: item.id, label: item.label.trim() || "Lease" })),
+    [sub],
+  );
   const copySources = useCopySources(managerUserId, propertyId);
   const [editor, setEditor] = useState<EditorState>(null);
   const confirm = useConfirm();
@@ -145,7 +161,7 @@ export function PropertyMoveInFormsPanel({
     return () => window.removeEventListener(MOVE_IN_FORMS_CHANGED, refresh);
   }, [refreshSent]);
 
-  /** First save materialises the starters array too: `templates` already includes them. */
+  /** First save materialises the starters array too: `templates` already includes them (and the three default forms). */
   const persist = async (list: MoveInFormTemplate[], message: string, savedId?: string): Promise<boolean> => {
     // The first save writes the starters out too. Only the form the manager actually saved keeps its
     // own Sends; the untouched starters are stored as "Only when I send it" so saving one form never
@@ -221,6 +237,11 @@ export function PropertyMoveInFormsPanel({
     await persist(list, template.source === "upload" ? "Duplicated. Upload its PDF before sending it." : "Duplicated. The copy is sent only when you send it.");
   };
 
+  const resetTemplate = async (template: MoveInFormTemplate) => {
+    if (!(await confirm({ description: `Reset ${template.name.trim() || "this form"} to its default questions?` }))) return;
+    await persist(upsertMoveInTemplate(templates, resetMoveInFormToDefault(template)), "Reset to the default questions.", template.id);
+  };
+
   const deleteTemplate = (template: MoveInFormTemplate): Promise<boolean> => persist(removeMoveInTemplate(templates, template.id), "Form deleted.");
 
   const confirmAndDelete = async (template: MoveInFormTemplate) => {
@@ -269,7 +290,12 @@ export function PropertyMoveInFormsPanel({
                             Duplicate
                           </Button>
                         ) : null}
-                        {canEdit ? (
+                        {canEdit && isDefaultMoveInForm(template) ? (
+                          <Button type="button" variant="outline" data-attr="move-in-form-row-reset" onClick={() => void resetTemplate(template)}>
+                            Reset to default questions
+                          </Button>
+                        ) : null}
+                        {canEdit && !isDefaultMoveInForm(template) ? (
                           <Button type="button" variant="danger" data-attr="move-in-form-row-delete" onClick={() => void confirmAndDelete(template)}>
                             Delete
                           </Button>
@@ -291,7 +317,10 @@ export function PropertyMoveInFormsPanel({
                             {audienceSummary(template.audience, rooms)}
                           </PortalRowFact>
                           <PortalRowFact icon={Send} srLabel="Sent">
-                            {triggerSummary(template.trigger)}
+                            {triggerSummary(template.trigger, template.moveOutDaysBefore)}
+                          </PortalRowFact>
+                          <PortalRowFact icon={Link2} srLabel="Linked to">
+                            {`${linkedTemplatesSummary(template.linkedApplicationTemplateIds, applicationTemplates, "application")} · ${linkedTemplatesSummary(template.linkedLeaseTemplateIds, leaseTemplates, "lease")}`}
                           </PortalRowFact>
                         </>
                       }
@@ -328,10 +357,12 @@ export function PropertyMoveInFormsPanel({
           mode={editor.mode}
           initial={editor.template}
           rooms={rooms}
+          applicationTemplates={applicationTemplates}
+          leaseTemplates={leaseTemplates}
           propertyId={propertyId}
           startStep={editor.startStep}
           onSave={saveFromEditor}
-          onDelete={editor.mode === "edit" && canEdit ? deleteTemplate : undefined}
+          onDelete={editor.mode === "edit" && canEdit && !isDefaultMoveInForm(editor.template) ? deleteTemplate : undefined}
           onClose={() => setEditor(null)}
           canUploadPdf={canUploadPdf}
         />

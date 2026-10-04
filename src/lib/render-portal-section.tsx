@@ -716,37 +716,41 @@ export async function renderPortalSection(
       }
     }
 
-    // Move-in forms: the manager's inbox of what residents filled out (Submitted) or still owe
-    // (Waiting). `/portal/move-in` is a different thing from a property's own Move-in tab and from
-    // Inspections' Move-in tab; none of them share a route.
+    // The manager's one Move-in page: Waiting (forms residents still owe, the default), Submitted
+    // (forms they filled out) and Inspections (move-in / move-out photo reports).
+    // `/portal/move-in` is a different thing from a property's own Move-in tab; they share no route.
+    // Inspections routes: `/move-in/inspections[/{move-in|move-out}[/{reportId}[/{recordTab}]]]`;
+    // `/portal/inspections/...` redirects here (next.config.ts) with the same trailing segments.
     if ((kind === "manager" || kind === "pro") && section === "move-in") {
-      if (!tabParts?.length) redirect(`${def.basePath}/move-in/submitted`);
+      if (!tabParts?.length) redirect(`${def.basePath}/move-in/waiting`);
       const moveInTab = tabParts[0];
+      if (moveInTab === "inspections") {
+        const inspectionKind = tabParts[1] ?? "move-in";
+        if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 4) notFound();
+        if (tabParts[2] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[2])) notFound();
+        const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
+        return subscriptionGated(
+          tabParts[2] ? (
+            <ManagerInspectionsPage
+              kind={inspectionKind}
+              reportId={tabParts[2]}
+              recordTab={tabParts[3]}
+              basePath={def.basePath}
+            />
+          ) : (
+            <ManagerMoveInFormsPage tab="inspections" basePath={def.basePath} inspectionKind={inspectionKind} />
+          ),
+          kind,
+          "move-in",
+          managerOwnerSubscriptionTier,
+        );
+      }
       if ((moveInTab !== "submitted" && moveInTab !== "waiting") || tabParts.length > 1) notFound();
       const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
       return subscriptionGated(
         <ManagerMoveInFormsPage tab={moveInTab} basePath={def.basePath} />,
         kind,
         "move-in",
-        managerOwnerSubscriptionTier,
-      );
-    }
-
-    if (section === "inspections") {
-      if (!tabParts?.length) redirect(`${def.basePath}/inspections/move-in`);
-      const inspectionKind = tabParts[0];
-      if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 3) notFound();
-      if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
-      const inspectionTab = tabParts[2];
-      return subscriptionGated(
-        <ManagerInspectionsPage
-          kind={inspectionKind}
-          reportId={tabParts[1]}
-          recordTab={inspectionTab}
-          basePath={def.basePath}
-        />,
-        kind,
-        "inspections",
         managerOwnerSubscriptionTier,
       );
     }
@@ -1616,7 +1620,8 @@ export async function renderPortalSection(
     const allowedTabs = meta.tabs.map((t) => t.id);
     // Use the same entitlement as navigation, including attested off-platform tenancies. An approved
     // application opens the Forms tab alone (the same rule as `isResidentPathAllowedForAccess`).
-    const preLeaseFormsOnly = !residentAccess?.leaseAccessUnlocked && Boolean(residentAccess?.applicationApproved);
+    const preLeaseFormsOnly = !residentAccess?.leaseAccessUnlocked &&
+      Boolean(residentAccess?.applicationApproved || residentAccess?.hasMoveInForms);
     if (!residentAccess?.leaseAccessUnlocked && !preLeaseFormsOnly) {
       return (
         <ManagerPortalPageShell title="My home" hideTitleOnMobileNav>

@@ -12,6 +12,7 @@ import {
   bookingEntriesForDayKey,
   bookingVisualSource,
   filterBookingEntriesByRoom,
+  isChannelBookingSource,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
 import {
@@ -126,7 +127,7 @@ function dominantSourceForDay(
   dayBookings: PropertyBookingEntry[],
 ): PropertyBookingEntry["source"] | null {
   if (dayBookings.length === 0) return null;
-  for (const source of ["proplane", "airbnb", "booking_com", "hold", "block"] as const) {
+  for (const source of ["proplane", "airbnb", "booking_com", "vrbo", "hold", "block"] as const) {
     if (dayBookings.some((b) => bookingVisualSource(b) === source)) return source;
   }
   return null;
@@ -279,7 +280,7 @@ function YearMonthMiniGrid({
 
 function DayViewStayCard({ booking }: { booking: PropertyBookingEntry }) {
   const name =
-    booking.source === "airbnb" || booking.source === "booking_com"
+    isChannelBookingSource(booking.source)
       ? bookingGuestLabel(booking.summary, booking.source)
       : booking.summary;
   return (

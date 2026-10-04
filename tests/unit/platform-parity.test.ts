@@ -161,9 +161,14 @@ describe("platform parity (web + native WebView)", () => {
 
   it("manager Move-in forms section is registered, smoke-tested and in the native bar order", () => {
     const section = proPortal.sections.find((s) => s.section === "move-in");
-    expect(section?.tabs.map((t) => t.id)).toEqual(["submitted", "waiting"]);
-    expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path === "/portal/move-in/submitted")).toBe(true);
+    expect(section?.tabs.map((t) => t.id)).toEqual(["waiting", "submitted", "inspections"]);
+    expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path === "/portal/move-in/waiting")).toBe(true);
+    expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path === "/portal/move-in/inspections")).toBe(true);
+    expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path.startsWith("/portal/inspections"))).toBe(false);
     expect(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER).toContain("move-in");
+    // One sidebar row: the manager portal has no Inspections section or native bar slot of its own.
+    expect(proPortal.sections.some((s) => s.section === "inspections")).toBe(false);
+    expect(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER as readonly string[]).not.toContain("inspections");
   });
 
   it("manager smoke-test paths are valid in-app routes for web and native", () => {

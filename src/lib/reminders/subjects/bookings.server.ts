@@ -113,7 +113,7 @@ export async function channelStays(db: SupabaseClient): Promise<Stay[]> {
         checkOutKey: end,
         guestName: bookingGuestLabel(
           String(range.summary ?? ""),
-          str(row, "provider") === "booking_com" ? "booking_com" : "airbnb",
+          str(row, "provider") === "booking_com" ? "booking_com" : str(row, "provider") === "vrbo" ? "vrbo" : "airbnb",
         ),
         propertyId: str(row, "property_id"),
         propertyLabel: str(row, "label") ?? str(row, "property_id") ?? "your listing",

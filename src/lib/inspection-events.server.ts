@@ -49,10 +49,10 @@ export async function emitInspectionSubmission(
     senderEmail: input.actor.email,
     senderName: input.actor.name,
     payload: { kind: input.report.kind, propertyId: input.report.property_id },
-    templateContext: { residentName: facts.residentName, propertyTitle: facts.propertyLabel, kind: facts.kind, url: `${base}/${event === "submitted" ? "portal" : "resident"}/inspections` },
+    templateContext: { residentName: facts.residentName, propertyTitle: facts.propertyLabel, kind: facts.kind, url: `${base}/${event === "submitted" ? "portal/move-in" : "resident"}/inspections` },
     recipients: recipients.flatMap((recipient) => {
       const rendered = renderInspectionEvent(event, recipient.audience, facts);
-      return rendered ? [{ ...recipient, rendered: { ...rendered, text: `${rendered.text}\n\n${base}/${recipient.audience === "manager" ? "portal" : "resident"}/inspections` } }] : [];
+      return rendered ? [{ ...recipient, rendered: { ...rendered, text: `${rendered.text}\n\n${base}/${recipient.audience === "manager" ? "portal/move-in" : "resident"}/inspections` } }] : [];
     }),
   });
 }

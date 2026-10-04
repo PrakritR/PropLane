@@ -23,9 +23,11 @@ import {
   addMoveInSection,
   audienceSummary,
   cleanMoveInTemplateForSave,
+  dueForTriggerChange,
+  dueOptionsForTrigger,
   groupQuestionsBySection,
-  MOVE_IN_DUE_OPTIONS,
   MOVE_IN_TRIGGER_OPTIONS,
+  MOVE_OUT_DAYS_CHOICES,
   moveInFormProblemsByStep,
   moveMoveInQuestion,
   questionCountLabel,
@@ -45,9 +47,10 @@ import { Input } from "@/components/ui/input";
 import type { ManagerCustomApplicationFieldType } from "@/lib/manager-listing-submission";
 import type { ResolvedApplicationField } from "@/lib/rental-application/application-field-catalog";
 import { moveInFormTemplatePdfUrl, uploadMoveInFormPdf } from "@/lib/move-in-forms/client";
-import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
+import { isDefaultMoveInForm, MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, resetMoveInFormToDefault } from "@/lib/move-in-forms/templates";
 import type {
   MoveInFormAudience,
+  MoveInFormMoveOutDays,
   MoveInFormQuestion,
   MoveInFormStarterKey,
   MoveInFormTemplate,
@@ -68,6 +71,8 @@ function asField(question: MoveInFormQuestion): ResolvedApplicationField {
 }
 
 export type MoveInEditorRoom = { id: string; label: string };
+/** An application or lease template of this property a form can be linked to. */
+export type MoveInEditorLinkOption = { id: string; label: string };
 export type MoveInEditorSaveOptions = { sendToCurrent: boolean };
 
 function deriveFormName(fileName: string): string {
@@ -85,6 +90,8 @@ export function MoveInFormEditorModal({
   mode,
   initial,
   rooms,
+  applicationTemplates = [],
+  leaseTemplates = [],
   propertyId,
   startStep = 0,
   onSave,
@@ -95,6 +102,10 @@ export function MoveInFormEditorModal({
   mode: "add" | "edit";
   initial: MoveInFormTemplate;
   rooms: readonly MoveInEditorRoom[];
+  /** This property's application forms, for "Linked application". */
+  applicationTemplates?: readonly MoveInEditorLinkOption[];
+  /** This property's leases, for "Linked lease". */
+  leaseTemplates?: readonly MoveInEditorLinkOption[];
   propertyId: string;
   /** Preview from a row's menu opens on Questions (the live view is always on the right); Edit opens on Form. */
   startStep?: number;
@@ -108,10 +119,12 @@ export function MoveInFormEditorModal({
 }) {
   const confirm = useConfirm();
   const [draft, setDraft] = useState<MoveInFormTemplate>(() => structuredClone(initial));
-  const [step, setStep] = useState(Math.min(Math.max(startStep, 0), 1));
+  const [step, setStep] = useState(Math.min(Math.max(startStep, 0), 2));
   const [showErrors, setShowErrors] = useState(false);
   const [sendNow, setSendNow] = useState(mode === "add");
-  const sendsItself = draft.trigger !== "manual";
+  // "Send to current residents now" only makes sense for the two sends that residents are already past.
+  const sendsToExistingResidents = draft.trigger === "lease-signed" || draft.trigger === "application-approved";
+  const isDefaultForm = isDefaultMoveInForm(initial);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [startsFrom, setStartsFrom] = useState<string>(initial.source === "upload" && mode === "add" ? "upload" : (initial.starterKey ?? "blank"));
@@ -143,6 +156,8 @@ export function MoveInFormEditorModal({
   const allProblems = [...problems.form, ...problems.questions, ...problems.who];
   const pdfUrl = pdfBlobUrl ?? (draft.pdf ? moveInFormTemplatePdfUrl("manager", draft.id, propertyId) : null);
   const roomOptions = useMemo(() => rooms.map((room) => ({ value: room.id, label: room.label })), [rooms]);
+  const applicationOptions = useMemo(() => applicationTemplates.map((item) => ({ value: item.id, label: item.label })), [applicationTemplates]);
+  const leaseOptions = useMemo(() => leaseTemplates.map((item) => ({ value: item.id, label: item.label })), [leaseTemplates]);
 
   const patch = (next: Partial<MoveInFormTemplate>) => setDraft((prev) => ({ ...prev, ...next }));
   const setQuestions = (questions: MoveInFormQuestion[]) => patch({ questions });
@@ -152,7 +167,7 @@ export function MoveInFormEditorModal({
       id: "form",
       label: "Form",
       summary: draft.name.trim() || "Name this form",
-      incomplete: problems.form.length > 0 || problems.who.length > 0,
+      incomplete: problems.form.length > 0,
     },
     {
       id: "questions",
@@ -160,9 +175,15 @@ export function MoveInFormEditorModal({
       summary: questionCountLabel(draft.questions.length),
       incomplete: problems.questions.length > 0,
     },
+    {
+      id: "who-when",
+      label: "Who & when",
+      summary: MOVE_IN_TRIGGER_OPTIONS.find((option) => option.value === draft.trigger)?.label ?? "",
+      incomplete: problems.who.length > 0,
+    },
   ];
 
-  const stepProblems = (step === 0 ? [...problems.form, ...problems.who] : problems.questions) as string[];
+  const stepProblems = (step === 0 ? problems.form : step === 1 ? problems.questions : problems.who) as string[];
 
   const pickPdf = async (file: File | undefined | null) => {
     if (!file) return;
@@ -242,7 +263,7 @@ export function MoveInFormEditorModal({
     setSaving(true);
     setSaveError(null);
     // A form that only goes out when the manager sends it is never pushed to residents by saving it.
-    const ok = await onSave(cleanMoveInTemplateForSave(draft), { sendToCurrent: sendNow && sendsItself });
+    const ok = await onSave(cleanMoveInTemplateForSave(draft), { sendToCurrent: sendNow && sendsToExistingResidents });
     setSaving(false);
     if (ok) onClose();
     else setSaveError("Could not save this form. Try again.");
@@ -257,6 +278,13 @@ export function MoveInFormEditorModal({
     setSaving(false);
     if (ok) onClose();
     else setSaveError("Could not delete this form. Try again.");
+  };
+
+  const resetToDefault = async () => {
+    if (!(await confirm({ description: "Reset this form to its default questions? Your own questions are replaced." }))) return;
+    setDraft((prev) => resetMoveInFormToDefault(prev));
+    setPreviewIndex(0);
+    setPreviewAnswers({});
   };
 
   const focusQuestion = (key: string) => {
@@ -289,6 +317,11 @@ export function MoveInFormEditorModal({
 
   /* ───────────── step bodies ───────────── */
 
+  const setTrigger = (value: string) => {
+    const trigger = value as MoveInFormTemplate["trigger"];
+    patch({ trigger, due: dueForTriggerChange(trigger, draft.due) });
+  };
+
   const sectionOptions = (
     <>
       <PropertyFormWizardRow label="Sends">
@@ -299,11 +332,26 @@ export function MoveInFormEditorModal({
           variant="cell"
           className="min-w-[200px] max-w-[280px]"
           value={draft.trigger}
-          onChange={(value) => patch({ trigger: value as MoveInFormTemplate["trigger"] })}
+          onChange={setTrigger}
           options={MOVE_IN_TRIGGER_OPTIONS}
           dataAttr="move-in-form-trigger"
         />
       </PropertyFormWizardRow>
+      {draft.trigger === "before-move-out" ? (
+        <PropertyFormWizardRow label="Days before the lease ends">
+          <FieldSingleSelect
+            hideLabel
+            label="Days before the lease ends"
+            labelClassName={WIZARD_LABEL_CLASS}
+            variant="cell"
+            className="min-w-[200px] max-w-[280px]"
+            value={String(draft.moveOutDaysBefore)}
+            onChange={(value) => patch({ moveOutDaysBefore: Number(value) as MoveInFormMoveOutDays })}
+            options={MOVE_OUT_DAYS_CHOICES}
+            dataAttr="move-in-form-move-out-days"
+          />
+        </PropertyFormWizardRow>
+      ) : null}
       <PropertyFormWizardRow label="Due">
         <FieldSingleSelect
           hideLabel
@@ -313,10 +361,36 @@ export function MoveInFormEditorModal({
           className="min-w-[200px] max-w-[280px]"
           value={draft.due}
           onChange={(value) => patch({ due: value as MoveInFormTemplate["due"] })}
-          options={MOVE_IN_DUE_OPTIONS}
+          options={dueOptionsForTrigger(draft.trigger)}
           dataAttr="move-in-form-due"
         />
       </PropertyFormWizardRow>
+      {applicationOptions.length > 0 ? (
+        <PropertyFormWizardRow label="Linked application">
+          <WizardMultiSelect
+            hideLabel
+            label="Linked application"
+            options={applicationOptions}
+            selected={draft.linkedApplicationTemplateIds}
+            onChange={(linkedApplicationTemplateIds) => patch({ linkedApplicationTemplateIds })}
+            emptyLabel="All applications"
+            dataAttr="move-in-form-linked-applications"
+          />
+        </PropertyFormWizardRow>
+      ) : null}
+      {leaseOptions.length > 0 ? (
+        <PropertyFormWizardRow label="Linked lease">
+          <WizardMultiSelect
+            hideLabel
+            label="Linked lease"
+            options={leaseOptions}
+            selected={draft.linkedLeaseTemplateIds}
+            onChange={(linkedLeaseTemplateIds) => patch({ linkedLeaseTemplateIds })}
+            emptyLabel="All leases"
+            dataAttr="move-in-form-linked-leases"
+          />
+        </PropertyFormWizardRow>
+      ) : null}
       <PropertyFormWizardRow label="Who">
         <FieldSingleSelect
           hideLabel
@@ -347,7 +421,7 @@ export function MoveInFormEditorModal({
           />
         </PropertyFormWizardRow>
       ) : null}
-      {sendsItself ? (
+      {sendsToExistingResidents ? (
         <PropertyFormWizardRow label="Already-signed residents">
           <FieldSingleSelect
             hideLabel
@@ -382,8 +456,8 @@ export function MoveInFormEditorModal({
           onChange={(next) => patch({ name: next })}
         />
       </div>
+      {mode === "add" ? (
       <PropertyFormWizardCard dataAttr="move-in-form-step-one-card">
-        {mode === "add" ? (
           <PropertyFormWizardRow label="Start from">
             <FieldSingleSelect
               hideLabel
@@ -397,9 +471,8 @@ export function MoveInFormEditorModal({
               dataAttr="move-in-form-starts-from"
             />
           </PropertyFormWizardRow>
-        ) : null}
-        {sectionOptions}
       </PropertyFormWizardCard>
+      ) : null}
       {isUpload ? (
         <div className="mt-4 space-y-2">
           <input
@@ -570,7 +643,14 @@ export function MoveInFormEditorModal({
     </StepColumn>
   );
 
-  const bodies = [formStep, questionsStep];
+  const whoWhenStep = (
+    <StepColumn>
+      <StepHeading title="Who & when" />
+      <PropertyFormWizardCard dataAttr="move-in-form-who-when-card">{sectionOptions}</PropertyFormWizardCard>
+    </StepColumn>
+  );
+
+  const bodies = [formStep, questionsStep, whoWhenStep];
 
   return (
     <AddWorkspace
@@ -608,7 +688,17 @@ export function MoveInFormEditorModal({
         ) : null
       }
       dangerAction={
-        mode === "edit" && onDelete ? (
+        mode === "edit" && isDefaultForm ? (
+          <button
+            type="button"
+            className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
+            data-attr="move-in-form-reset-default"
+            disabled={saving}
+            onClick={() => void resetToDefault()}
+          >
+            Reset to default questions
+          </button>
+        ) : mode === "edit" && onDelete ? (
           <button
             type="button"
             className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700 disabled:opacity-45"

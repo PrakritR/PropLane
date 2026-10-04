@@ -107,7 +107,7 @@ export async function GET(
     );
     // The token's connection names the channel this link is pasted into; its own bookings are
     // left out so they do not echo back. A token shared by several connections (older links) or
-    // a `?channels=all` link (VRBO / other sites) carries every channel's bookings instead.
+    // a `?channels=all` link (any other site) carries every channel's bookings instead.
     const { data: siblingRows } = await db
       .from("external_calendar_connections")
       .select("*")

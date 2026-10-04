@@ -63,7 +63,7 @@ export const GALLERY = Object.freeze([
   { file: "05-payments", route: "/portal/payments/incoming/pending", headline: "Rent collected per room.", sub: "Move-in totals, automatic reminders, every charge tracked." },
   { file: "06-leases", route: "/portal/leases", headline: "Leases signed in-app.", sub: "Draft, send, and countersign — one lease per room." },
   { file: "07-tours", route: "/portal/tours/pending", headline: "Tours booked for you.", sub: "Prospects pick a time. You just show up." },
-  { file: "08-inspections", route: "/portal/inspections/move-in", headline: "Move-in photos, per room.", sub: "Residents document their room. You keep the record." },
+  { file: "08-inspections", route: "/portal/move-in/inspections/move-in", headline: "Move-in photos, per room.", sub: "Residents document their room. You keep the record." },
   { file: "09-inbox", route: "/portal/communication/active", headline: "One inbox for everyone.", sub: "Residents, applicants, and your PropLane assistant." },
   { file: "10-list-a-room", route: "wizard:rooms", headline: "Set up every room in minutes.", sub: "Residents, bathroom, furnishing — set once, then per room.", dark: true },
 ]);

@@ -96,3 +96,30 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   through `BuilderQuestionCard`, the same row the application editor uses.
 - The table is classified in `account-purge-manifest.ts`; clients hold no
   privileges on it (RLS on, no policies).
+- **Move-in hub.** The manager's `/portal/move-in` is one page with tabs Waiting (default) | Submitted | Inspections. Waiting and Submitted filter by Property and Form kind (Intake, Move-in, Move-out, Other; `summary.kind`, an unstamped copy reads as Other). Inspections mounts `InspectionsPanel` (`/portal/move-in/inspections/{move-in|move-out}[/{reportId}]`; Move-in / Move-out is its Type filter) and takes the page's tab row as its own. `/portal/inspections/...` redirects there; `docs/agents/inspections.md` owns the reports.
+
+## Kinds, default forms, triggers and links (Move-in hub, plan `move-in-hub-1003`)
+
+- **Three default forms on every property**: `default-intake`, `default-move-in`, `default-move-out`
+  (`templates.ts`: `defaultMoveInForm`, `withDefaultMoveInForms`). `readMoveInFormTemplates` and the
+  listing normalizer always pin them first and re-add one a client dropped, so they cannot be deleted
+  (the row menu offers "Reset to default questions" instead, `resetMoveInFormToDefault`). A template's
+  `kind` (`intake | move-in | move-out | other`) is fixed by those ids; stored forms without a kind read
+  as `other`. The kind rides on the sent copy's `snapshot.kind` and is what the Waiting/Submitted
+  "Form" filter uses.
+- **Sends**: `application-submitted | application-approved | lease-signed | before-move-out | manual`.
+  `before-move-out` + `moveOutDaysBefore` (7/14/30) is sent by the daily `sweepMoveOutForms` (8 o'clock
+  Pacific hour of the `dispatch-reminders` tick) for fully signed, not voided leases ending within 30
+  days; a form goes once the lease is within its window. Intake is dispatched where an application
+  first becomes submitted (`manager-applications` POST x2, `promote-incomplete-application-after-fee`).
+  Due rules are anchored on move-in, on the day sent, or on the lease end (`moveInFormDueFor`).
+- **Links**: `linkedApplicationTemplateIds` / `linkedLeaseTemplateIds` (empty = all). A residency's
+  application template is `row_data.application.applicationTemplateId`; its lease template is the lease
+  row's `leaseGenerationTemplateId || leaseTemplateId`, else the lease its application template maps to.
+  Dispatch and "Send to current residents" skip a non-matching residency; an unknown id never matches a
+  non-empty link list. A manual Send ignores links.
+- **Nothing auto-sends without the manager's save**: a never-saved property, and a default form a saved
+  list did not hold (restored as "Only when I send it"), send nothing on their own. The first save
+  stores the defaults with their shown Sends.
+- **Resident access**: a resident who submitted an application and holds a sent form gets nav stage
+  `application_submitted_forms` (`hasMoveInForms` on the access state): My home opens for Forms only.

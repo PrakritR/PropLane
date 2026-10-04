@@ -42,7 +42,7 @@ import { autoCloseResidentConfirmations } from "@/lib/work-order-resident-confir
 import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
 import { sweepInspectionReminders } from "@/lib/reminders/subjects/inspections.server";
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
-import { sweepMoveInFormReminders } from "@/lib/reminders/subjects/move-in-forms.server";
+import { sweepMoveInFormReminders, sweepMoveOutForms } from "@/lib/reminders/subjects/move-in-forms.server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -125,6 +125,8 @@ export async function GET(req: Request) {
       ["resident_welcome", sweepResidentWelcome],
       // Move-in forms: each property's own "Remind residents" choice.
       ["move_in_form", sweepMoveInFormReminders],
+      // "Before move-out" forms: daily, N days before a signed lease ends.
+      ["move_out_form", sweepMoveOutForms],
     ] as const) {
       try {
         swept += await sweep(db);

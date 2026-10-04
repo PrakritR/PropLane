@@ -10,10 +10,12 @@ import {
   encodeMultiSelectAnswer,
   parseMultiSelectAnswer,
 } from "@/lib/rental-application/custom-fields";
+import { isDefaultMoveInForm } from "@/lib/move-in-forms/templates";
 import type {
   MoveInFormAnswer,
   MoveInFormAudience,
   MoveInFormDueRule,
+  MoveInFormKind,
   MoveInFormQuestion,
   MoveInFormSummary,
   MoveInFormTemplate,
@@ -194,16 +196,26 @@ export function requiredMessage(question: MoveInFormQuestion): string {
 
 /* ───────────────────────────── list wording ───────────────────────────── */
 
-export function triggerSummary(trigger: MoveInFormTrigger): string {
-  if (trigger === "lease-signed") return "When lease is signed";
-  if (trigger === "application-approved") return "When application is approved";
+export function triggerSummary(trigger: MoveInFormTrigger, moveOutDaysBefore = 14): string {
+  if (trigger === "application-submitted") return "After application is submitted";
+  if (trigger === "application-approved") return "After application is approved";
+  if (trigger === "lease-signed") return "After lease is signed";
+  if (trigger === "before-move-out") return `${moveOutDaysBefore} days before move-out`;
   return "Sent by hand";
 }
 
 export const MOVE_IN_TRIGGER_OPTIONS: { value: MoveInFormTrigger; label: string }[] = [
-  { value: "lease-signed", label: "When the lease is signed" },
-  { value: "application-approved", label: "When the application is approved" },
+  { value: "application-submitted", label: "After the application is submitted" },
+  { value: "application-approved", label: "After the application is approved" },
+  { value: "lease-signed", label: "After the lease is signed" },
+  { value: "before-move-out", label: "Before move-out" },
   { value: "manual", label: "Only when I send it" },
+];
+
+export const MOVE_OUT_DAYS_CHOICES: { value: string; label: string }[] = [
+  { value: "7", label: "7 days" },
+  { value: "14", label: "14 days" },
+  { value: "30", label: "30 days" },
 ];
 
 export const MOVE_IN_DUE_OPTIONS: { value: MoveInFormDueRule; label: string }[] = [
@@ -211,7 +223,56 @@ export const MOVE_IN_DUE_OPTIONS: { value: MoveInFormDueRule; label: string }[] 
   { value: "move-in-day", label: "On move-in day" },
   { value: "3-days-before", label: "3 days before move-in" },
   { value: "7-days-before", label: "7 days before move-in" },
+  { value: "3-days-after-sent", label: "3 days after it is sent" },
+  { value: "7-days-after-sent", label: "7 days after it is sent" },
+  { value: "move-out-day", label: "On move-out day" },
+  { value: "3-days-before-move-out", label: "3 days before move-out" },
+  { value: "7-days-before-move-out", label: "7 days before move-out" },
 ];
+
+const MOVE_IN_DUE_RULES: MoveInFormDueRule[] = ["day-before", "move-in-day", "3-days-before", "7-days-before"];
+const SENT_DUE_RULES: MoveInFormDueRule[] = ["3-days-after-sent", "7-days-after-sent"];
+const MOVE_OUT_DUE_RULES: MoveInFormDueRule[] = ["move-out-day", "3-days-before-move-out", "7-days-before-move-out"];
+
+/** The Due choices that make sense for a Sends choice: move-out dates only for a move-out send, and so on. */
+export function dueOptionsForTrigger(trigger: MoveInFormTrigger): { value: MoveInFormDueRule; label: string }[] {
+  const allowed: MoveInFormDueRule[] = trigger === "before-move-out"
+    ? [...MOVE_OUT_DUE_RULES, ...SENT_DUE_RULES]
+    : trigger === "application-submitted"
+      ? [...SENT_DUE_RULES, ...MOVE_IN_DUE_RULES]
+      : [...MOVE_IN_DUE_RULES, ...SENT_DUE_RULES];
+  return MOVE_IN_DUE_OPTIONS.filter((option) => allowed.includes(option.value));
+}
+
+/** Changing Sends keeps the Due the manager chose when it still makes sense, else picks the natural one. */
+export function dueForTriggerChange(trigger: MoveInFormTrigger, current: MoveInFormDueRule): MoveInFormDueRule {
+  const options = dueOptionsForTrigger(trigger);
+  if (options.some((option) => option.value === current)) return current;
+  return options[0]!.value;
+}
+
+export const MOVE_IN_KIND_OPTIONS: { value: MoveInFormKind; label: string }[] = [
+  { value: "intake", label: "Intake" },
+  { value: "move-in", label: "Move-in" },
+  { value: "move-out", label: "Move-out" },
+  { value: "other", label: "Other" },
+];
+
+export function moveInKindLabel(kind: MoveInFormKind): string {
+  return MOVE_IN_KIND_OPTIONS.find((option) => option.value === kind)?.label ?? "Other";
+}
+
+/** "All applications" / "Standard application" / "2 applications": the linked templates, in plain words. */
+export function linkedTemplatesSummary(
+  linkedIds: readonly string[],
+  options: readonly { id: string; label: string }[],
+  noun: "application" | "lease",
+): string {
+  if (linkedIds.length === 0) return `All ${noun}s`;
+  const names = linkedIds.map((id) => options.find((option) => option.id === id)?.label).filter((name): name is string => Boolean(name));
+  if (names.length === 1) return names[0]!;
+  return `${linkedIds.length} ${noun}${linkedIds.length === 1 ? "" : "s"}`;
+}
 
 export function audienceSummary(audience: MoveInFormAudience, rooms: readonly { id: string; label: string }[]): string {
   if (audience.kind === "whole-house") return "Whole house";
@@ -267,8 +328,9 @@ export function upsertMoveInTemplate(list: readonly MoveInFormTemplate[], templa
   return exists ? list.map((item) => (item.id === template.id ? next : item)) : [...list, next];
 }
 
+/** The three default forms are never deleted (the server re-adds them); everything else can be. */
 export function removeMoveInTemplate(list: readonly MoveInFormTemplate[], id: string): MoveInFormTemplate[] {
-  return list.filter((item) => item.id !== id);
+  return list.filter((item) => item.id !== id || isDefaultMoveInForm(item));
 }
 
 /** A copy sits right after its original, with a new id, set to "only when I send it" so a duplicate never double-sends on its own. */
@@ -286,6 +348,8 @@ export function duplicateMoveInTemplate(
     id: newId,
     name: `${original.name || "Untitled form"} (copy)`,
     trigger: "manual",
+    // Only the three default forms carry a kind; a copy is an ordinary form.
+    kind: "other",
     // An uploaded PDF is stored under its own form id; a copy uploads its own.
     pdf: original.source === "upload" ? null : (original.pdf ?? null),
     starterKey: undefined,
@@ -305,6 +369,10 @@ export function copyTemplateToProperty(template: MoveInFormTemplate, newId: stri
     ...structuredClone(template),
     id: newId,
     trigger: "manual",
+    kind: "other",
+    // Templates belong to the source property; a copy links to this property's own.
+    linkedApplicationTemplateIds: [],
+    linkedLeaseTemplateIds: [],
     // The PDF lives under the source property's storage; a copy asks for its own upload.
     pdf: null,
     // Rooms belong to the source property; a copy asks for rooms again rather than pointing at strangers.

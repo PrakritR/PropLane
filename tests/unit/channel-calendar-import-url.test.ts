@@ -15,6 +15,7 @@ import {
   isValidAirbnbImportUrl,
   isValidBookingComImportUrl,
   isValidChannelImportUrl,
+  isValidVrboImportUrl,
   normalizeAirbnbImportUrl,
 } from "@/lib/channel-calendar/airbnb-url";
 
@@ -52,6 +53,37 @@ describe("isValidBookingComImportUrl", () => {
     expect(isValidBookingComImportUrl("https://www.airbnb.com/calendar/ical/12345.ics?s=abc")).toBe(false);
     expect(isValidBookingComImportUrl("https://evil.example.com/v1/export?t=abc")).toBe(false);
     expect(isValidBookingComImportUrl("http://ical.booking.com/v1/export?t=abc")).toBe(false);
+  });
+});
+
+describe("isValidVrboImportUrl", () => {
+  it("accepts Vrbo and HomeAway /icalendar/<token>.ics export links, with or without a query", () => {
+    expect(isValidVrboImportUrl("https://www.vrbo.com/icalendar/abc123def.ics")).toBe(true);
+    expect(isValidVrboImportUrl("https://www.vrbo.com/icalendar/abc-123_DEF.ics?nonTentative")).toBe(true);
+    expect(isValidVrboImportUrl("https://vrbo.com/icalendar/abc123.ics")).toBe(true);
+    expect(isValidVrboImportUrl("https://www.homeaway.com/icalendar/abc123.ics?nonTentative")).toBe(true);
+    expect(isValidVrboImportUrl("https://homeaway.com/icalendar/abc123.ics")).toBe(true);
+  });
+
+  it("rejects Airbnb and Booking.com links, other hosts, plain http, and other Vrbo paths", () => {
+    expect(isValidVrboImportUrl("https://www.airbnb.com/calendar/ical/12345.ics?s=abc")).toBe(false);
+    expect(isValidVrboImportUrl("https://ical.booking.com/v1/export?t=abc")).toBe(false);
+    expect(isValidVrboImportUrl("https://evil.example.com/icalendar/abc123.ics")).toBe(false);
+    expect(isValidVrboImportUrl("https://www.vrbo.com.evil.example.com/icalendar/abc123.ics")).toBe(false);
+    expect(isValidVrboImportUrl("http://www.vrbo.com/icalendar/abc123.ics")).toBe(false);
+    expect(isValidVrboImportUrl("https://www.vrbo.com/rooms/12345")).toBe(false);
+    expect(isValidVrboImportUrl("https://www.vrbo.com/icalendar/abc123")).toBe(false);
+    expect(isValidVrboImportUrl("")).toBe(false);
+  });
+
+  it("is the allowlist for the vrbo provider, and the other providers reject a Vrbo link", () => {
+    const vrbo = "https://www.vrbo.com/icalendar/abc123.ics?nonTentative";
+    expect(isValidChannelImportUrl("vrbo", vrbo)).toBe(true);
+    expect(isValidChannelImportUrl("vrbo", "https://www.airbnb.com/calendar/ical/12345.ics?s=abc")).toBe(false);
+    expect(isValidChannelImportUrl("airbnb", vrbo)).toBe(false);
+    expect(isValidChannelImportUrl("booking_com", vrbo)).toBe(false);
+    expect(channelCalendarProviderLabel("vrbo")).toBe("Vrbo");
+    expect(channelImportUrlErrorMessage("vrbo")).toContain("Calendar → Import & export → Export calendar");
   });
 });
 

@@ -26,7 +26,7 @@ vi.mock("@/lib/rental-application/data", async (importOriginal) => ({
   getRoomOptionsForProperty: () => [{ value: "p1::r1", label: "Room 1 · 3rd floor · $2100/mo" }, { value: "p1::r2", label: "Room 2" }, { value: "p1::r3", label: "Room 3" }],
 }));
 vi.mock("@/lib/channel-calendar/client", () => ({
-  fetchManagerChannelBookings: vi.fn(async () => [{ propertyId: "p1", propertyLabel: "4709A", rooms: [room("airbnb", "r1"), room("booking_com", "r2"), room("airbnb", "r2", false)] }]),
+  fetchManagerChannelBookings: vi.fn(async () => [{ propertyId: "p1", propertyLabel: "4709A", rooms: [room("airbnb", "r1"), room("booking_com", "r2"), room("airbnb", "r2", false), room("vrbo", "r1"), room("vrbo", "r3")] }]),
   fetchRoomExportCalendarUrl: vi.fn(),
 }));
 
@@ -40,32 +40,27 @@ describe("Settings → Integrations channel rows", () => {
     render(<ManagerSheetLinkPanel />);
     await waitFor(() => expect(document.querySelector('[data-attr="settings-booking_com-status"]')?.textContent).toBe("Connected · 1 room"));
     expect(document.querySelector('[data-attr="settings-airbnb-status"]')?.textContent).toBe("Connected · 1 room");
+    expect(document.querySelector('[data-attr="settings-vrbo-status"]')?.textContent).toBe("Connected · 2 rooms");
     fireEvent.click(document.querySelector('[data-attr="settings-booking_com-manage"]') as HTMLElement);
     expect(screen.getByTestId("connect-modal").textContent).toBe("booking_com");
   });
-});
 
-describe("ExportBookingCalendarDialog", () => {
-  it("lists the existing links and Copy copies the full URL", async () => {
-    const writeText = vi.fn(async () => {});
-    Object.assign(navigator, { clipboard: { writeText } });
-    const { ExportBookingCalendarDialog } = await import("@/components/portal/export-booking-calendar-dialog");
-    render(<ExportBookingCalendarDialog open onClose={() => {}} propertyOptions={[{ id: "p1", label: "4709A" }]} showToast={toast} />);
-    const field = await screen.findByLabelText("4709A · Room 1 export link");
-    await waitFor(() => expect((field as HTMLInputElement).value).toBe("https://proplane.ai/api/calendar/export/token-r1.ics"));
-    fireEvent.click(screen.getByLabelText("Copy 4709A · Room 1 link"));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://proplane.ai/api/calendar/export/token-r1.ics"));
-    expect(toast).toHaveBeenCalledWith("Link copied");
-    // Room 3 has no export link yet: it offers to create one instead of a copy.
-    expect(screen.getByLabelText("Create link for 4709A · Room 3")).toBeTruthy();
-    // Compact standard dialog: the select leads, rooms sit under their house with the name alone, no empty inputs.
-    expect(document.querySelector('[data-attr="export-booking-calendar-site"]')).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "4709A" })).toBeTruthy();
-    expect(document.body.textContent).not.toContain("$2100");
-    expect(document.querySelectorAll('[data-attr="export-booking-calendar-row"] input').length).toBe(2);
-    expect(document.querySelector('[data-popup-preview]')).toBeNull();
-    expect(document.querySelectorAll('[data-attr="export-booking-calendar-steps"] li').length).toBeGreaterThanOrEqual(3);
-    // Room 2 has a Booking.com link and an Airbnb one without an import: the default site (Airbnb) shows the Airbnb link.
-    expect((screen.getByLabelText("4709A · Room 2 export link") as HTMLInputElement).value).toBe("https://proplane.ai/api/calendar/export/token-r2.ics");
+  it("lists Airbnb, Booking.com and Vrbo as channel rows, in that order, and no Export booking calendar row", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ links: [], sheets: { connected: false, email: null, configured: true } }) })));
+    render(<ManagerSheetLinkPanel />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-vrbo-status"]')?.textContent).toBe("Connected · 2 rooms"));
+    const rows = ["airbnb", "booking_com", "vrbo"].map((p) => document.querySelector(`[data-attr="settings-${p}-manage"]`) as HTMLElement);
+    expect(rows.every(Boolean)).toBe(true);
+    expect(rows.map((el) => el.closest("div")?.parentElement?.parentElement?.textContent ?? "")).toEqual([expect.stringContaining("Airbnb"), expect.stringContaining("Booking.com"), expect.stringContaining("Vrbo")]);
+    expect(document.body.textContent).not.toContain("Export booking calendar");
+    expect(document.querySelector('[data-attr="settings-export-booking-calendar"]')).toBeNull();
+  });
+
+  it("Connect on the Vrbo row opens the popup on Vrbo", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ links: [], sheets: { connected: false, email: null, configured: true } }) })));
+    render(<ManagerSheetLinkPanel />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-vrbo-status"]')?.textContent).toBe("Connected · 2 rooms"));
+    fireEvent.click(document.querySelector('[data-attr="settings-vrbo-manage"]') as HTMLElement);
+    expect(screen.getByTestId("connect-modal").textContent).toBe("vrbo");
   });
 });

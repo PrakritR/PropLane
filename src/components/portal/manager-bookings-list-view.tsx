@@ -9,7 +9,7 @@ import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/por
 import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
-import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   addDaysToDateKey,
   bookingEntryKey,
@@ -23,7 +23,7 @@ import { bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChanne
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 function guestName(entry: PropertyBookingEntry): string {
-  return entry.source === "airbnb" || entry.source === "booking_com"
+  return isChannelBookingSource(entry.source)
     ? bookingGuestLabel(entry.summary, entry.source)
     : entry.summary;
 }
@@ -114,7 +114,7 @@ export function ManagerBookingsListView({
               key={key}
               label={name}
               onView={() => navigate(href)}
-              onEditDates={entry.source !== "airbnb" && entry.source !== "booking_com" ? () => onEditBlock ? onEditBlock(entry) : navigate(href) : undefined}
+              onEditDates={!isChannelBookingSource(entry.source) ? () => onEditBlock ? onEditBlock(entry) : navigate(href) : undefined}
               onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
               onCancel={
                 canCancelBooking(entry) && onDeleteBlock
@@ -134,7 +134,7 @@ export function ManagerBookingsListView({
                     <PortalRowFact icon={CalendarDays} srLabel="Dates">{formatBookingStayRangeShort(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded)}</PortalRowFact>
                     <PortalRowFact icon={CircleCheck} srLabel="Status">{status}</PortalRowFact>
                     {entry.stayDetails && (entry.stayDetails.linen || entry.stayDetails.baggage || entry.stayDetails.earlyCheckIn || entry.stayDetails.lateCheckOut) ? <PortalRowFact icon={Globe} srLabel="Stay details">{[entry.stayDetails?.source || bookingSourceLabel(entry.source), entry.stayDetails?.linen && `Linen ${entry.stayDetails.linen}`, entry.stayDetails?.baggage && `Baggage ${entry.stayDetails.baggage}`, entry.stayDetails?.earlyCheckIn && `Early ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Late ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ")}</PortalRowFact> : null}
-                    {entry.source === "airbnb" || entry.source === "booking_com" ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}
+                    {isChannelBookingSource(entry.source) ? <PortalRowFact icon={entry.source === "airbnb" ? BookingsAirbnbIcon : Globe} srLabel="Source">{bookingSourceLabel(entry.source)}</PortalRowFact> : null}
                   </>
                 }
                 checked={selectedKeys.has(key)}

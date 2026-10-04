@@ -128,7 +128,7 @@ const SWEEPS: Sweep[] = [
   { kind: "lease_ending", anchor: (row) => row.leaseEnd, audience: "resident", url: "/resident/lease", category: "leases", title: () => "lease" },
   { kind: "lease_ending_manager", anchor: (row) => row.leaseEnd, audience: "manager", url: "/portal/leases", category: "leases", title: () => "lease" },
   { kind: "move_out", anchor: (row) => row.moveOut, audience: "resident", url: "/resident/lease", category: "leases", title: () => "move-out" },
-  { kind: "move_out_inspection_manager", anchor: (row) => row.moveOut, audience: "manager", url: "/portal/inspections", category: "leases", title: () => "move-out inspection" },
+  { kind: "move_out_inspection_manager", anchor: (row) => row.moveOut, audience: "manager", url: "/portal/move-in/inspections", category: "leases", title: () => "move-out inspection" },
   // ---- Lease-ending sequence (PLAN-0915 area 4) ----
   // Informational only — never a regulated notice (deposit accounting itself
   // stays the manager-only `deposit_accounting` kind above). All three anchor

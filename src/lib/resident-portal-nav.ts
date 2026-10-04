@@ -4,6 +4,11 @@ import type { ResidentPortalAccessState } from "@/lib/resident-portal-access-typ
 export type ResidentPortalNavStage =
   | "pre_approval"
   | "application_submitted"
+  /**
+   * Submitted, not yet approved, AND a move-in form (the Intake form) has been sent to them. Locked
+   * exactly like `application_submitted` except My home opens for its Forms tab alone.
+   */
+  | "application_submitted_forms"
   | "booking_residency"
   | "post_approval_pre_lease"
   | "post_lease";
@@ -13,14 +18,16 @@ export function resolveResidentPortalNavStage(
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
   > &
-    Partial<Pick<ResidentPortalAccessState, "isBookingResidency">>,
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasMoveInForms">>,
 ): ResidentPortalNavStage {
   if (access.leaseAccessUnlocked) return "post_lease";
   if (access.applicationApproved) return "post_approval_pre_lease";
   // A booking-created resident has neither row — checked before the ordinary
   // application-submitted branch since they never submitted one.
   if (access.isBookingResidency) return "booking_residency";
-  if (access.hasCompletedApplicationSubmission) return "application_submitted";
+  if (access.hasCompletedApplicationSubmission) {
+    return access.hasMoveInForms ? "application_submitted_forms" : "application_submitted";
+  }
   return "pre_approval";
 }
 
@@ -39,6 +46,7 @@ export function resolveResidentPortalNavStage(
 export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonly string[]> = {
   pre_approval: ["tour", "applications", "dashboard", "communication"],
   application_submitted: ["tour", "applications", "dashboard", "communication"],
+  application_submitted_forms: ["tour", "applications", "dashboard", "communication"],
   post_approval_pre_lease: ["lease", "payments", "dashboard", "communication"],
   // Same primary set as a signed lease — Applications and Lease were never
   // bottom-bar tabs at that stage either, so hiding them here needs no
@@ -48,8 +56,9 @@ export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonl
 };
 
 /**
- * My home tabs open BEFORE a lease is signed. Approval is when "application approved" move-in forms
- * are sent, so Forms must be reachable then; every other My home tab (placement, housemates, info &
+ * My home tabs open BEFORE a lease is signed. A form can be sent as early as the application being
+ * submitted (the Intake form) and "application approved" forms go out at approval, so Forms must be
+ * reachable from the first sent form on; every other My home tab (placement, housemates, info &
  * rules, amenities) discloses the house and stays locked until the lease is signed.
  */
 export const RESIDENT_PRE_LEASE_MOVE_IN_TABS: readonly string[] = ["forms"];
@@ -57,6 +66,9 @@ export const RESIDENT_PRE_LEASE_MOVE_IN_TABS: readonly string[] = ["forms"];
 const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]> = {
   pre_approval: ["tour", "applications", "dashboard", "communication", "profile"],
   application_submitted: ["tour", "applications", "dashboard", "communication", "profile"],
+  // Same as application_submitted, plus My home for its Forms tab only (the path guard and the server
+  // render gate hold the other tabs back).
+  application_submitted_forms: ["tour", "applications", "dashboard", "communication", "move-in", "profile"],
   post_approval_pre_lease: [
     "tour",
     "applications",
@@ -165,7 +177,7 @@ export function isResidentPathAllowedForAccess(
     ResidentPortalAccessState,
     "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
   > &
-    Partial<Pick<ResidentPortalAccessState, "isBookingResidency">>,
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasMoveInForms">>,
 ): boolean {
   const stage = resolveResidentPortalNavStage(access);
   if (pathname === "/resident/profile" || pathname.startsWith("/resident/profile/")) return true;
@@ -183,8 +195,8 @@ export function isResidentPathAllowedForAccess(
     return residentSectionUnlockedForStage("applications", stage);
   }
 
-  // Between approval and a signed lease My home opens for Forms alone.
-  if (section === "move-in" && stage === "post_approval_pre_lease") {
+  // Before a signed lease My home opens for Forms alone: from approval, or from the first sent form.
+  if (section === "move-in" && (stage === "post_approval_pre_lease" || stage === "application_submitted_forms")) {
     const tab = pathname.split("/").filter(Boolean)[2];
     return !tab || RESIDENT_PRE_LEASE_MOVE_IN_TABS.includes(tab);
   }
@@ -197,7 +209,7 @@ export function residentNavLockReason(
   stage: ResidentPortalNavStage,
 ): string | null {
   if (!residentSectionLockedForStage(section, stage)) return null;
-  if (stage === "pre_approval" || stage === "application_submitted") {
+  if (stage === "pre_approval" || stage === "application_submitted" || stage === "application_submitted_forms") {
     return "Available after your application is approved";
   }
   if (stage === "post_approval_pre_lease") {

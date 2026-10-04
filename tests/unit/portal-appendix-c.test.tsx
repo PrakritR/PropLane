@@ -243,8 +243,8 @@ describe("PortalListControlStack", () => {
         stickyDestinations
         actions={<button type="button">Settings</button>}
         destinations={[
-          { id: "move-in", label: "Move-in", href: "/portal/inspections/move-in", count: 1 },
-          { id: "move-out", label: "Move-out", href: "/portal/inspections/move-out", count: 0 },
+          { id: "move-in", label: "Move-in", href: "/portal/move-in/inspections/move-in", count: 1 },
+          { id: "move-out", label: "Move-out", href: "/portal/move-in/inspections/move-out", count: 0 },
         ]}
         activeDestinationId="move-in"
       />,

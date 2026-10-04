@@ -38,6 +38,7 @@ function form(patch: Partial<MoveInFormSummary> = {}): MoveInFormSummary {
     submittedAt: null,
     remindedAt: null,
     managerViewedAt: null,
+    kind: "other",
     questionCount: 5,
     photoCount: 0,
     signed: false,

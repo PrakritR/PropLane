@@ -4,6 +4,7 @@ import {
   RESIDENT_BOTTOM_NAV_PRIMARY,
   resolveResidentPortalNavStage,
   residentBottomNavPrimarySections,
+  residentNavLockReason,
   residentNavSectionVisibleInNav,
   residentSectionLockedForStage,
   residentSectionUnlockedForStage,
@@ -60,7 +61,7 @@ describe("resident portal nav stages", () => {
   });
 
   it("never puts a section on the bottom bar that its own stage locks", () => {
-    const stages = ["pre_approval", "application_submitted", "post_approval_pre_lease", "post_lease"] as const;
+    const stages = ["pre_approval", "application_submitted", "application_submitted_forms", "post_approval_pre_lease", "post_lease"] as const;
     for (const stage of stages) {
       for (const section of residentBottomNavPrimarySections(stage)) {
         expect(
@@ -199,8 +200,112 @@ describe("resident portal nav — Forms open at approval, the rest of My home at
   });
 
   it("every bottom-bar tab is still unlocked at its own stage", () => {
-    for (const stage of ["pre_approval", "application_submitted", "post_approval_pre_lease", "post_lease"] as const) {
+    for (const stage of ["pre_approval", "application_submitted", "application_submitted_forms", "post_approval_pre_lease", "post_lease"] as const) {
       for (const section of RESIDENT_BOTTOM_NAV_PRIMARY[stage]) expect(residentSectionUnlockedForStage(section, stage)).toBe(true);
     }
+  });
+});
+
+/**
+ * The Intake form goes out the moment an application is submitted, so a resident who has submitted and
+ * has a form waiting must be able to open it: My home opens for its Forms tab alone, every other tab
+ * stays exactly as locked as in `application_submitted`.
+ */
+describe("resident portal nav — submitted application with a form waiting (application_submitted_forms)", () => {
+  const submittedNoForms = { leaseAccessUnlocked: false, applicationApproved: false, hasCompletedApplicationSubmission: true };
+  const submittedWithForms = { ...submittedNoForms, hasMoveInForms: true };
+
+  it("resolves the new stage only for a submitted, unapproved resident with a form", () => {
+    expect(resolveResidentPortalNavStage(submittedWithForms)).toBe("application_submitted_forms");
+    expect(resolveResidentPortalNavStage(submittedNoForms)).toBe("application_submitted");
+    expect(resolveResidentPortalNavStage({ ...submittedNoForms, hasMoveInForms: false })).toBe("application_submitted");
+  });
+
+  it("a form flag does not change any other stage", () => {
+    const flagged = (access: Record<string, boolean>) => ({ ...access, hasMoveInForms: true });
+    expect(resolveResidentPortalNavStage(flagged({ leaseAccessUnlocked: false, applicationApproved: false, hasCompletedApplicationSubmission: false }))).toBe("pre_approval");
+    expect(resolveResidentPortalNavStage(flagged({ leaseAccessUnlocked: false, applicationApproved: true, hasCompletedApplicationSubmission: true }))).toBe("post_approval_pre_lease");
+    expect(resolveResidentPortalNavStage(flagged({ leaseAccessUnlocked: true, applicationApproved: true, hasCompletedApplicationSubmission: true }))).toBe("post_lease");
+  });
+
+  it("the bottom bar is the submitted one, and every primary tab on it is unlocked", () => {
+    expect(residentBottomNavPrimarySections("application_submitted_forms")).toEqual(residentBottomNavPrimarySections("application_submitted"));
+    expect(residentBottomNavPrimarySections("application_submitted_forms")).toEqual(["tour", "applications", "dashboard", "communication"]);
+    for (const section of residentBottomNavPrimarySections("application_submitted_forms")) {
+      expect(residentSectionLockedForStage(section, "application_submitted_forms")).toBe(false);
+    }
+  });
+
+  it("the new stage is covered by the two-tables-agree invariant", () => {
+    expect(Object.keys(RESIDENT_BOTTOM_NAV_PRIMARY)).toContain("application_submitted_forms");
+  });
+
+  it("opens My home, and nothing else the submitted stage locks", () => {
+    expect(residentSectionUnlockedForStage("move-in", "application_submitted_forms")).toBe(true);
+    expect(residentSectionUnlockedForStage("move-in", "application_submitted")).toBe(false);
+    for (const section of ["lease", "payments", "services", "inspections", "documents"]) {
+      expect({ section, locked: residentSectionLockedForStage(section, "application_submitted_forms") }).toEqual({ section, locked: true });
+    }
+    for (const section of ["tour", "applications", "dashboard", "communication", "profile"]) {
+      expect({ section, locked: residentSectionLockedForStage(section, "application_submitted_forms") }).toEqual({ section, locked: false });
+    }
+  });
+
+  it("allows /resident/move-in and /resident/move-in/forms", () => {
+    expect(isResidentPathAllowedForAccess("/resident/move-in", submittedWithForms)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", submittedWithForms)).toBe(true);
+  });
+
+  it("keeps placement, housemates, info, amenities and inspections locked", () => {
+    for (const tab of ["placement", "housemates", "info", "amenities", "inspections"]) {
+      expect({ tab, allowed: isResidentPathAllowedForAccess(`/resident/move-in/${tab}`, submittedWithForms) }).toEqual({ tab, allowed: false });
+    }
+  });
+
+  it("keeps Lease and Payments locked", () => {
+    expect(isResidentPathAllowedForAccess("/resident/lease", submittedWithForms)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/lease/pending/x", submittedWithForms)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/payments", submittedWithForms)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/payments/pending", submittedWithForms)).toBe(false);
+  });
+
+  it("keeps the always-open sections reachable", () => {
+    expect(isResidentPathAllowedForAccess("/resident/dashboard", submittedWithForms)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/communication/inbox/unopened", submittedWithForms)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/applications", submittedWithForms)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/profile", submittedWithForms)).toBe(true);
+  });
+
+  it("without a form, /resident/move-in/forms stays closed for a submitted-only resident", () => {
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", submittedNoForms)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/move-in", submittedNoForms)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", { ...submittedNoForms, hasMoveInForms: false })).toBe(false);
+  });
+
+  it("a resident who has not submitted never gets My home, even with a form flag", () => {
+    const preApproval = { leaseAccessUnlocked: false, applicationApproved: false, hasCompletedApplicationSubmission: false, hasMoveInForms: true };
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", preApproval)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/move-in", preApproval)).toBe(false);
+  });
+
+  it("approval and a signed lease behave as before (Forms from approval, the rest at signing)", () => {
+    const approved = { leaseAccessUnlocked: false, applicationApproved: true, hasCompletedApplicationSubmission: true, hasMoveInForms: true };
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", approved)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/placement", approved)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/lease", approved)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/move-in/placement", { ...approved, leaseAccessUnlocked: true })).toBe(true);
+  });
+
+  it("the sidebar says a locked section opens after approval, and My home has no lock reason", () => {
+    expect(residentNavLockReason("lease", "application_submitted_forms")).toBe("Available after your application is approved");
+    expect(residentNavLockReason("payments", "application_submitted_forms")).toBe("Available after your application is approved");
+    expect(residentNavLockReason("lease", "application_submitted_forms")).toBe(residentNavLockReason("lease", "application_submitted"));
+    expect(residentNavLockReason("move-in", "application_submitted_forms")).toBeNull();
+    expect(residentNavLockReason("move-in", "application_submitted")).toBe("Available after your application is approved");
+    expect(residentNavLockReason("dashboard", "application_submitted_forms")).toBeNull();
+  });
+
+  it("My home stays visible in the nav at the new stage", () => {
+    expect(residentNavSectionVisibleInNav("move-in", "application_submitted_forms")).toBe(true);
   });
 });

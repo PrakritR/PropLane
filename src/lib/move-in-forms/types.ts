@@ -33,10 +33,36 @@ export type MoveInFormAudience =
  * "does it send itself" setting: a form has no separate on/off switch (the Applications list has
  * none either), so every form is usable by hand and `trigger` alone decides the automatic send.
  */
-export type MoveInFormTrigger = "lease-signed" | "application-approved" | "manual";
+export type MoveInFormTrigger =
+  | "application-submitted"
+  | "application-approved"
+  | "lease-signed"
+  | "before-move-out"
+  | "manual";
 
-/** Due date rule, relative to the residency's move-in date. */
-export type MoveInFormDueRule = "day-before" | "move-in-day" | "3-days-before" | "7-days-before";
+/**
+ * What a form is for. The three default kinds (intake, move-in, move-out) exist on every
+ * property under stable ids (`default-intake` ...) and cannot be deleted; everything else is "other".
+ */
+export type MoveInFormKind = "intake" | "move-in" | "move-out" | "other";
+
+/** Days before the lease ends that a `before-move-out` form goes out. */
+export type MoveInFormMoveOutDays = 7 | 14 | 30;
+
+/**
+ * Due date rule. Anchored on the move-in date (`day-before` ... `7-days-before`), on the day the form
+ * is sent (`*-after-sent`), or on the lease end date (`move-out-day`, `*-before-move-out`).
+ */
+export type MoveInFormDueRule =
+  | "day-before"
+  | "move-in-day"
+  | "3-days-before"
+  | "7-days-before"
+  | "3-days-after-sent"
+  | "7-days-after-sent"
+  | "move-out-day"
+  | "3-days-before-move-out"
+  | "7-days-before-move-out";
 
 export type MoveInFormStarterKey =
   | "move-in-checklist"
@@ -56,6 +82,14 @@ export type MoveInFormTemplate = {
   audience: MoveInFormAudience;
   trigger: MoveInFormTrigger;
   due: MoveInFormDueRule;
+  /** Absent in stored data written before kinds existed: read as "other". */
+  kind: MoveInFormKind;
+  /** Used when `trigger` is "before-move-out". */
+  moveOutDaysBefore: MoveInFormMoveOutDays;
+  /** Application templates (`propertyApplicationTemplates` ids) this form goes to. Empty = every application. */
+  linkedApplicationTemplateIds: string[];
+  /** Lease templates (`propertyLeaseTemplates` ids) this form goes to. Empty = every lease. */
+  linkedLeaseTemplateIds: string[];
   starterKey?: MoveInFormStarterKey;
   createdAt: string;
   updatedAt: string;
@@ -94,7 +128,7 @@ export type MoveInFormRecord = {
   formName: string;
   source: MoveInFormSource;
   /** Immutable once sent: the questions (and PDF fingerprint) this resident was asked. */
-  snapshot: { questions: MoveInFormQuestion[]; pdf: MoveInFormTemplate["pdf"] };
+  snapshot: { questions: MoveInFormQuestion[]; pdf: MoveInFormTemplate["pdf"]; kind?: MoveInFormKind };
   status: MoveInFormStatus;
   answers: MoveInFormAnswer[];
   /** SHA-256 of the exact PDF bytes the resident signed (upload forms only). */
@@ -109,6 +143,8 @@ export type MoveInFormRecord = {
 
 /** List-row projection (no answers) for the sidebar, the resident record and the resident's checklist. */
 export type MoveInFormSummary = Omit<MoveInFormRecord, "answers" | "snapshot"> & {
+  /** Which kind of form this copy was sent from (the Waiting / Submitted filter). */
+  kind: MoveInFormKind;
   questionCount: number;
   photoCount: number;
   signed: boolean;

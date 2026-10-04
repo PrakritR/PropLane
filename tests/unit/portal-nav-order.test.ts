@@ -87,7 +87,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   // Screening nests inside the application record's own rail now
   // (docs/agents/record-page.md) — no separate "background-checks" nav row.
   const leasingBlock = ["properties", "tours", "applications", "leases"];
-  const tenancyBlock = ["residents", "move-in", "inspections", "payments", "services"];
+  const tenancyBlock = ["residents", "move-in", "payments", "services"];
   const operationsBlock = ["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"];
   const financesBlock = ["financials", "documents"];
 
@@ -117,7 +117,9 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("free operational sections precede the finances block", () => {
-    expect(sections.slice(0, 17)).toEqual([
+    // Inspections is a tab of Move-in, not a sidebar row of its own.
+    expect(sections).not.toContain("inspections");
+    expect(sections.slice(0, 16)).toEqual([
       "dashboard",
       "properties",
       "tours",
@@ -125,7 +127,6 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
       "leases",
       "residents",
       "move-in",
-      "inspections",
       "payments",
       "services",
       "vendors",

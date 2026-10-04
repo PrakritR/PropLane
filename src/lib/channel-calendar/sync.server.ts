@@ -389,7 +389,7 @@ async function resolveRoomExportToken(
 
 /**
  * One PropLane export link per (room, channel) - reuses the existing token when present.
- * `destination` is the site the link is pasted into. "other" (VRBO and the rest) has no channel of
+ * `destination` is the site the link is pasted into. "other" (any site without a channel of its own) has no channel of
  * its own: it reuses any link the room already has, or mints an Airbnb-channel one, and adds
  * `?channels=all` so the feed carries every channel's bookings.
  */

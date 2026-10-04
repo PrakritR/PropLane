@@ -197,6 +197,16 @@ export async function loadResidentLeaseSignedStatus(email: string, managerUserId
   });
 }
 
+/** Whether a move-in form (any status but cancelled) has been sent to this email. A missing table reads as no. */
+async function residentHasMoveInForms(db: ReturnType<typeof createSupabaseServiceRoleClient>, email: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.from("resident_move_in_forms").select("id").eq("resident_email", email).neq("status", "cancelled").limit(1);
+    return !error && (data ?? []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 const loadResidentPortalAccessStateCached = cache(
   async (
     userId: string | null,
@@ -297,10 +307,16 @@ const loadResidentPortalAccessStateCached = cache(
       !leaseAccessUnlocked &&
       (hasTourLink || hasSubmittedApplication || applicationApproved);
 
+    // Only a resident who has neither approval nor lease access can be waiting on a pre-approval form.
+    const hasMoveInForms = leaseAccessUnlocked || applicationApproved || !hasCompletedApplicationSubmission
+      ? false
+      : await residentHasMoveInForms(db, email);
+
     return {
       roleOk,
       hasSubmittedApplication,
       hasCompletedApplicationSubmission,
+      hasMoveInForms,
       isPreApplicationResident: roleOk && !hasSubmittedApplication && !hasTourLink,
       hasTourLink,
       isPreLeaseResident,
