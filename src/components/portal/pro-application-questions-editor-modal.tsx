@@ -743,7 +743,7 @@ export function ManagerApplicationQuestionsEditorModal({
     // template record itself — null clears back to "use the account
     // default" exactly like the account-level setting's own null/0 rule.
     const feeCentsOverride = feeOverrideEnabled ? feeOverrideCents : null;
-    const waiverCodeOverride = feeOverrideEnabled && waiverOverrideEnabled ? waiverOverrideCode.trim().toUpperCase() || null : null;
+    const waiverCodeOverride = waiverOverrideEnabled ? waiverOverrideCode.trim().toUpperCase() || null : null;
     if (isTemplateEditor && templates && onPersistSubmission) {
       const trimmed = templateLabel.trim();
       let nextTemplates: PropertyApplicationTemplate[];

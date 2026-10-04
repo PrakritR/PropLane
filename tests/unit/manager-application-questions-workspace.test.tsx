@@ -751,6 +751,35 @@ describe("P003: this application's own fee override (Setup step)", () => {
     const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
     const savedTemplate = savedSubmission.propertyApplicationTemplates?.find((t) => t.id === template.id);
     expect(savedTemplate?.feeCentsOverride).toBeNull();
-    expect(savedTemplate?.waiverCodeOverride).toBeNull();
+    expect(savedTemplate?.waiverCodeOverride).toBe("LONGSTAY");
+  });
+});
+
+
+describe("application promo code without a fee override", () => {
+  it("persists a promo code independently and displays it when the editor reopens", async () => {
+    const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Waiver application" });
+    const persist = vi.fn().mockResolvedValue(true);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ template }), { status: 200 })));
+    const props = { open: true, title: template.label, sub: createDefaultListingSubmission(), managerUserId: "manager-1", applicationPreviewPropertyId: "mgr-house-1", templateEditorMode: "edit" as const, applicationTemplate: template, templates: [template], onPersistSubmission: persist, onClose: vi.fn(), onSaved: vi.fn(), showToast: vi.fn() };
+    const view = render(<ManagerApplicationQuestionsEditorModal {...props} />);
+    await waitWorkspace(template.label);
+    jumpRail("setup");
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    expect(screen.getByRole("switch", { name: "Charge an application fee" })).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(screen.getByRole("switch", { name: "Promo code that waives the fee" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Promo code that waives the fee" }), { target: { value: "inherit10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    const submission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
+    const saved = submission.propertyApplicationTemplates!.find(t => t.id === template.id)!;
+    expect(saved.feeCentsOverride).toBeNull();
+    expect(saved.waiverCodeOverride).toBe("INHERIT10");
+    view.unmount();
+    render(<ManagerApplicationQuestionsEditorModal {...props} sub={submission} applicationTemplate={saved} templates={submission.propertyApplicationTemplates} />);
+    await waitWorkspace(template.label);
+    jumpRail("setup");
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    expect(screen.getByRole("textbox", { name: "Promo code that waives the fee" })).toHaveValue("INHERIT10");
   });
 });

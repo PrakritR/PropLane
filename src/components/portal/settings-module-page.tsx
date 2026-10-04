@@ -32,6 +32,8 @@ import {
   type ManagerSettingsPanelFooter,
 } from "@/components/portal/pro-portal-settings-panels";
 import type { ManagerReminderRuleSettingsHandle } from "@/components/portal/manager-reminder-rule-settings";
+import { normalizeWaiverCode } from "@/lib/application-fee-waiver";
+import { AUTOSAVE_DEBOUNCE_MS } from "@/hooks/use-autosave-draft";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
 import {
   DEFAULT_MANAGER_APPLICATION_SETTINGS,
@@ -172,6 +174,13 @@ export const SettingsModulePage = forwardRef<
   // Keep the target with the edit, so changing scope cannot move an unsaved code.
   const pendingWaiverCodesRef = useRef(new Map<string, string>());
   const waiverSaveInFlightRef = useRef<Promise<boolean> | null>(null);
+  const waiverRevisionsRef = useRef(new Map<string, number>());
+  const waiverSaveErrorRef = useRef<string | null>(null);
+  const applicationLoadRequestRef = useRef(0);
+  const currentWaiverPropertyRef = useRef("");
+  useEffect(() => {
+    currentWaiverPropertyRef.current = propertyIds.length === 1 ? propertyIds[0] : "";
+  }, [propertyIds]);
   const [applicationSettings, setApplicationSettings] = useState<ManagerApplicationSettings>(
     DEFAULT_MANAGER_APPLICATION_SETTINGS,
   );
@@ -220,13 +229,15 @@ export const SettingsModulePage = forwardRef<
       cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
       return;
     }
+    const requestId = ++applicationLoadRequestRef.current;
+    const loadId = propertyIds.length === 1 ? propertyIds[0] : "";
+    const waiverRevision = waiverRevisionsRef.current.get(loadId) ?? 0;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       // Reading one house shows that house's own values; reading several (or
       // none) reads the shared workspace/account rung every one of them falls
       // back to — the FIRST selected id is enough to resolve that rung.
-      const loadId = propertyIds.length === 1 ? propertyIds[0] : "";
       if (loadId) params.set("propertyId", loadId);
       if (scope.workspaceId) params.set("workspaceId", scope.workspaceId);
       const query = params.toString() ? `?${params.toString()}` : "";
@@ -239,12 +250,16 @@ export const SettingsModulePage = forwardRef<
         error?: string;
         source?: SettingsResolutionSource;
       };
+      if (requestId !== applicationLoadRequestRef.current) return;
       if (!res.ok) {
         showToast(data.error ?? "Could not load settings.");
         return;
       }
       setAutomation(normalizeApplicationAutomation(data.automation));
-      setWaiverCode(pendingWaiverCodesRef.current.get(loadId) ?? (typeof data.waiverCode === "string" ? data.waiverCode : ""));
+      // A read started before an edit/save must never restore its old code.
+      if (waiverRevision === (waiverRevisionsRef.current.get(loadId) ?? 0) && currentWaiverPropertyRef.current === loadId) {
+        setWaiverCode(pendingWaiverCodesRef.current.get(loadId) ?? (typeof data.waiverCode === "string" ? data.waiverCode : ""));
+      }
       setApplicationSettings(normalizeManagerApplicationSettings(data.settings));
       setLeasingPipeline(normalizeLeasingPipelinePreferences(data.leasingPipeline));
       cacheLeasingPipelinePreferences(data.leasingPipeline);
@@ -253,7 +268,7 @@ export const SettingsModulePage = forwardRef<
     } catch {
       showToast("Could not load settings.");
     } finally {
-      setLoading(false);
+      if (requestId === applicationLoadRequestRef.current) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demo, propertyIds, scope.workspaceId, showToast]);
@@ -287,6 +302,10 @@ export const SettingsModulePage = forwardRef<
         return;
       }
       if (saveStatusInFlightRef.current === 0) {
+        if (pendingWaiverCodesRef.current.size > 0) {
+          onSaveStatusChange?.({ state: waiverSaveErrorRef.current ? "error" : "idle", reason: waiverSaveErrorRef.current, savedAt: null });
+          return;
+        }
         onSaveStatusChange?.({ state: "saved", reason: null, savedAt: Date.now() });
       }
     },
@@ -389,9 +408,12 @@ export const SettingsModulePage = forwardRef<
   const changeWaiverCode = useCallback((code: string) => {
     const ids = propertyIds.length > 0 ? propertyIds : propertyId ? [propertyId] : [];
     if (ids.length !== 1) return;
+    waiverRevisionsRef.current.set(ids[0], (waiverRevisionsRef.current.get(ids[0]) ?? 0) + 1);
+    waiverSaveErrorRef.current = null;
     setWaiverCode(code);
     pendingWaiverCodesRef.current.set(ids[0], code);
-  }, [propertyId, propertyIds]);
+    onSaveStatusChange?.({ state: saveStatusInFlightRef.current > 0 ? "saving" : "idle", reason: null, savedAt: null });
+  }, [propertyId, propertyIds, onSaveStatusChange]);
 
   const commitWaiverCode = useCallback((): Promise<boolean> => {
     if (waiverSaveInFlightRef.current) return waiverSaveInFlightRef.current;
@@ -408,17 +430,35 @@ export const SettingsModulePage = forwardRef<
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ propertyId: targetPropertyId, waiverCode: code }),
           });
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          const data = (await res.json().catch(() => ({}))) as { error?: string; waiverCode?: string | null };
           if (!res.ok) throw new Error(data.error ?? "Could not save waiver code.");
+          const expected = normalizeWaiverCode(code);
+          const confirmError = "Could not confirm the saved waiver code. Please try again.";
+          if (!(typeof data.waiverCode === "string" || data.waiverCode === null) || normalizeWaiverCode(data.waiverCode ?? "") !== expected) {
+            throw new Error(confirmError);
+          }
+          // Confirm through the same fresh property read used when reopening.
+          const read = await fetch(`/api/portal/manager-application-settings?propertyId=${encodeURIComponent(targetPropertyId)}`, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          const persisted = (await read.json().catch(() => ({}))) as { waiverCode?: string | null };
+          if (!read.ok || !(typeof persisted.waiverCode === "string" || persisted.waiverCode === null) || normalizeWaiverCode(persisted.waiverCode ?? "") !== expected) {
+            throw new Error(confirmError);
+          }
           // A newer edit made during this request still needs its own save.
           if (pendingWaiverCodesRef.current.get(targetPropertyId) === code) {
             pendingWaiverCodesRef.current.delete(targetPropertyId);
+            waiverRevisionsRef.current.set(targetPropertyId, (waiverRevisionsRef.current.get(targetPropertyId) ?? 0) + 1);
+            if (currentWaiverPropertyRef.current === targetPropertyId) setWaiverCode(persisted.waiverCode ?? "");
           }
         }
+        waiverSaveErrorRef.current = null;
         reportSaveStatus({ type: "success" });
         return true;
       } catch (error) {
         const reason = error instanceof Error ? error.message : "Could not save waiver code.";
+        waiverSaveErrorRef.current = reason;
         showToast(reason);
         reportSaveStatus({ type: "failure", reason });
         return false;
@@ -430,6 +470,12 @@ export const SettingsModulePage = forwardRef<
     waiverSaveInFlightRef.current = promise;
     return promise;
   }, [demo, reportSaveStatus, showToast]);
+
+  useEffect(() => {
+    if (!active || demo || pendingWaiverCodesRef.current.size === 0 || waiverSaveErrorRef.current) return;
+    const timer = setTimeout(() => { void commitWaiverCode(); }, AUTOSAVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [active, demo, waiverCode, commitWaiverCode]);
 
   const changeAutomation = useCallback(
     (next: ApplicationAutomationPreferences) => {

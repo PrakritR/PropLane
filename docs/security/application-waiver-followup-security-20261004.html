@@ -1,0 +1,354 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Waiver follow-up security review - 2026-10-04</title><style>body{max-width:940px;margin:36px auto;padding:0 24px;font:16px/1.6 system-ui;color:#17232a}h1{font-size:28px}h2{font-size:20px}pre{background:#f4f6f7;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}code{overflow-wrap:anywhere}</style><h1>Waiver follow-up security review</h1><p>2026-10-04. Independent static release review. No introduced security findings; no unresolved Critical or High findings in the reviewed four-file diff.</p><h2>Exact reviewed scope</h2><p>Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-waiver-release</code><br>Reviewed HEAD/base: <code>4796d559d2b85b4f48f86eb8424cb9bfd292801c</code><br>Uncommitted diff SHA-256: <code>851331a674c0c834fd1ac766949e5046c9b1d436f790d6a1566509240c99c021</code></p><ul><li>src/components/portal/settings-module-page.tsx</li><li>src/components/portal/pro-application-questions-editor-modal.tsx</li><li>tests/unit/manager-application-promo-code-scope.test.tsx</li><li>tests/unit/manager-application-questions-workspace.test.tsx</li></ul><p>No source edits, tests, servers, database mutations or heavy validation performed. Release owner owns validation. The separately modified release handoff HTML and temporary next.config.ts local absolute Turbopack root are excluded from this approval. The release owner was notified to remove the temporary configuration before shipping or review it separately.</p><h2>Assessment</h2><ul><li><strong>Authorization and targeting:</strong> Autosave retains the property/code pair captured at edit time. PATCH and confirmation GET both use the existing authenticated endpoint and same property identity. No caller-supplied manager identity, widened endpoint, or permission bypass was introduced. Existing server manager authentication, property ownership and co-manager applications edit/read checks continue to apply. References: settings-module-page.tsx:406-446; API manager-application-settings/route.ts:142-151,218-251.</li><li><strong>Disclosure:</strong> Confirmation GET encodes only the property ID in the URL and requests no-store. The code remains in authenticated JSON responses and instance-local state; no new public payloads, analytics, logs or persistent browser storage carry it. normalizeWaiverCode import contains no runtime service credentials or server-client initialization.</li><li><strong>Fail-closed success and errors:</strong> Success requires valid normalized PATCH code plus the same normalized code from a fresh property GET. Malformed JSON, missing code, rejected read, mismatch and network errors retain pending edits and report failure. Close still waits for the save-registry result. A failed read may follow a committed PATCH; retries reuse the original property target. New edits reset failure state, while background retries pause after an error. References: settings-module-page.tsx:429-469.</li><li><strong>Stale display and autosave:</strong> Per-property revision/request checks prevent older loads from restoring pre-edit codes. Completing property A saves no longer invalidates property B reads. The selected-property ref updates in an effect registered before the loading effect; save status respects the aggregate in-flight counter. Pending edits clear a previous Saved indication; normalized confirmed values update the field only for the currently selected original property. The debounce preserves existing explicit blur/close save paths. References: settings-module-page.tsx:227-269,300-308,406-417,446-452,472-476.</li><li><strong>Template waiver independence:</strong> Persisting waiverCodeOverride when its own switch is enabled removes an unrelated fee-switch dependency. This adds no new persistence route or actor scope and keeps the existing save callback. It allows a configured code to waive the inherited account fee as intended. Existing uppercase/trim and null-clear semantics remain. Reference: pro-application-questions-editor-modal.tsx:743-746,820.</li></ul><h2>Amendment re-review</h2><p>The per-property revision-map correction was re-reviewed after Bugbot identified a Medium property-switch display race. The amended component resolves that race without changing authorization, request targets, response disclosure or save confirmation checks. The added regression holds the B read until after the A save completes, verifies B displays its own code. Property identity on later edits is covered by the unchanged capture-at-edit implementation. No introduced security finding or unresolved Critical/High issue identified in this amended diff. Test execution was reported by the release owner and was not independently repeated by this reviewer.</p><h2>Findings and limitations</h2><p>No Critical, High, Medium or Low introduced security finding identified. Static review does not prove deployed persistence or runtime authorization. Focused regressions cover autosave, normalized display, false-success rejection, stale load prevention and template reopening without a fee override. Their execution remains with the release owner.</p><p>Follow-up browser QA should include property switching during an in-flight save, authorization rejection during confirmation, and rapid edits while an earlier write is confirming. These are validation recommendations, not identified security vulnerabilities.</p><h2>Reviewed diff</h2><pre>diff --git a/src/components/portal/pro-application-questions-editor-modal.tsx b/src/components/portal/pro-application-questions-editor-modal.tsx
+index cad797293..2271af15e 100644
+--- a/src/components/portal/pro-application-questions-editor-modal.tsx
++++ b/src/components/portal/pro-application-questions-editor-modal.tsx
+@@ -743,7 +743,7 @@ export function ManagerApplicationQuestionsEditorModal({
+     // template record itself — null clears back to &quot;use the account
+     // default&quot; exactly like the account-level setting&#x27;s own null/0 rule.
+     const feeCentsOverride = feeOverrideEnabled ? feeOverrideCents : null;
+-    const waiverCodeOverride = feeOverrideEnabled &amp;&amp; waiverOverrideEnabled ? waiverOverrideCode.trim().toUpperCase() || null : null;
++    const waiverCodeOverride = waiverOverrideEnabled ? waiverOverrideCode.trim().toUpperCase() || null : null;
+     if (isTemplateEditor &amp;&amp; templates &amp;&amp; onPersistSubmission) {
+       const trimmed = templateLabel.trim();
+       let nextTemplates: PropertyApplicationTemplate[];
+diff --git a/src/components/portal/settings-module-page.tsx b/src/components/portal/settings-module-page.tsx
+index 00714e225..923c3a9e2 100644
+--- a/src/components/portal/settings-module-page.tsx
++++ b/src/components/portal/settings-module-page.tsx
+@@ -32,6 +32,8 @@ import {
+   type ManagerSettingsPanelFooter,
+ } from &quot;@/components/portal/pro-portal-settings-panels&quot;;
+ import type { ManagerReminderRuleSettingsHandle } from &quot;@/components/portal/manager-reminder-rule-settings&quot;;
++import { normalizeWaiverCode } from &quot;@/lib/application-fee-waiver&quot;;
++import { AUTOSAVE_DEBOUNCE_MS } from &quot;@/hooks/use-autosave-draft&quot;;
+ import type { ApplicationAutomationPreferences } from &quot;@/lib/application-automation-preferences&quot;;
+ import {
+   DEFAULT_MANAGER_APPLICATION_SETTINGS,
+@@ -172,6 +174,13 @@ export const SettingsModulePage = forwardRef&lt;
+   // Keep the target with the edit, so changing scope cannot move an unsaved code.
+   const pendingWaiverCodesRef = useRef(new Map&lt;string, string&gt;());
+   const waiverSaveInFlightRef = useRef&lt;Promise&lt;boolean&gt; | null&gt;(null);
++  const waiverRevisionsRef = useRef(new Map&lt;string, number&gt;());
++  const waiverSaveErrorRef = useRef&lt;string | null&gt;(null);
++  const applicationLoadRequestRef = useRef(0);
++  const currentWaiverPropertyRef = useRef(&quot;&quot;);
++  useEffect(() =&gt; {
++    currentWaiverPropertyRef.current = propertyIds.length === 1 ? propertyIds[0] : &quot;&quot;;
++  }, [propertyIds]);
+   const [applicationSettings, setApplicationSettings] = useState&lt;ManagerApplicationSettings&gt;(
+     DEFAULT_MANAGER_APPLICATION_SETTINGS,
+   );
+@@ -220,13 +229,15 @@ export const SettingsModulePage = forwardRef&lt;
+       cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
+       return;
+     }
++    const requestId = ++applicationLoadRequestRef.current;
++    const loadId = propertyIds.length === 1 ? propertyIds[0] : &quot;&quot;;
++    const waiverRevision = waiverRevisionsRef.current.get(loadId) ?? 0;
+     setLoading(true);
+     try {
+       const params = new URLSearchParams();
+       // Reading one house shows that house&#x27;s own values; reading several (or
+       // none) reads the shared workspace/account rung every one of them falls
+       // back to — the FIRST selected id is enough to resolve that rung.
+-      const loadId = propertyIds.length === 1 ? propertyIds[0] : &quot;&quot;;
+       if (loadId) params.set(&quot;propertyId&quot;, loadId);
+       if (scope.workspaceId) params.set(&quot;workspaceId&quot;, scope.workspaceId);
+       const query = params.toString() ? `?${params.toString()}` : &quot;&quot;;
+@@ -239,12 +250,16 @@ export const SettingsModulePage = forwardRef&lt;
+         error?: string;
+         source?: SettingsResolutionSource;
+       };
++      if (requestId !== applicationLoadRequestRef.current) return;
+       if (!res.ok) {
+         showToast(data.error ?? &quot;Could not load settings.&quot;);
+         return;
+       }
+       setAutomation(normalizeApplicationAutomation(data.automation));
+-      setWaiverCode(pendingWaiverCodesRef.current.get(loadId) ?? (typeof data.waiverCode === &quot;string&quot; ? data.waiverCode : &quot;&quot;));
++      // A read started before an edit/save must never restore its old code.
++      if (waiverRevision === (waiverRevisionsRef.current.get(loadId) ?? 0) &amp;&amp; currentWaiverPropertyRef.current === loadId) {
++        setWaiverCode(pendingWaiverCodesRef.current.get(loadId) ?? (typeof data.waiverCode === &quot;string&quot; ? data.waiverCode : &quot;&quot;));
++      }
+       setApplicationSettings(normalizeManagerApplicationSettings(data.settings));
+       setLeasingPipeline(normalizeLeasingPipelinePreferences(data.leasingPipeline));
+       cacheLeasingPipelinePreferences(data.leasingPipeline);
+@@ -253,7 +268,7 @@ export const SettingsModulePage = forwardRef&lt;
+     } catch {
+       showToast(&quot;Could not load settings.&quot;);
+     } finally {
+-      setLoading(false);
++      if (requestId === applicationLoadRequestRef.current) setLoading(false);
+     }
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [demo, propertyIds, scope.workspaceId, showToast]);
+@@ -287,6 +302,10 @@ export const SettingsModulePage = forwardRef&lt;
+         return;
+       }
+       if (saveStatusInFlightRef.current === 0) {
++        if (pendingWaiverCodesRef.current.size &gt; 0) {
++          onSaveStatusChange?.({ state: waiverSaveErrorRef.current ? &quot;error&quot; : &quot;idle&quot;, reason: waiverSaveErrorRef.current, savedAt: null });
++          return;
++        }
+         onSaveStatusChange?.({ state: &quot;saved&quot;, reason: null, savedAt: Date.now() });
+       }
+     },
+@@ -389,9 +408,12 @@ export const SettingsModulePage = forwardRef&lt;
+   const changeWaiverCode = useCallback((code: string) =&gt; {
+     const ids = propertyIds.length &gt; 0 ? propertyIds : propertyId ? [propertyId] : [];
+     if (ids.length !== 1) return;
++    waiverRevisionsRef.current.set(ids[0], (waiverRevisionsRef.current.get(ids[0]) ?? 0) + 1);
++    waiverSaveErrorRef.current = null;
+     setWaiverCode(code);
+     pendingWaiverCodesRef.current.set(ids[0], code);
+-  }, [propertyId, propertyIds]);
++    onSaveStatusChange?.({ state: saveStatusInFlightRef.current &gt; 0 ? &quot;saving&quot; : &quot;idle&quot;, reason: null, savedAt: null });
++  }, [propertyId, propertyIds, onSaveStatusChange]);
+ 
+   const commitWaiverCode = useCallback((): Promise&lt;boolean&gt; =&gt; {
+     if (waiverSaveInFlightRef.current) return waiverSaveInFlightRef.current;
+@@ -408,17 +430,35 @@ export const SettingsModulePage = forwardRef&lt;
+             headers: { &quot;Content-Type&quot;: &quot;application/json&quot; },
+             body: JSON.stringify({ propertyId: targetPropertyId, waiverCode: code }),
+           });
+-          const data = (await res.json().catch(() =&gt; ({}))) as { error?: string };
++          const data = (await res.json().catch(() =&gt; ({}))) as { error?: string; waiverCode?: string | null };
+           if (!res.ok) throw new Error(data.error ?? &quot;Could not save waiver code.&quot;);
++          const expected = normalizeWaiverCode(code);
++          const confirmError = &quot;Could not confirm the saved waiver code. Please try again.&quot;;
++          if (!(typeof data.waiverCode === &quot;string&quot; || data.waiverCode === null) || normalizeWaiverCode(data.waiverCode ?? &quot;&quot;) !== expected) {
++            throw new Error(confirmError);
++          }
++          // Confirm through the same fresh property read used when reopening.
++          const read = await fetch(`/api/portal/manager-application-settings?propertyId=${encodeURIComponent(targetPropertyId)}`, {
++            credentials: &quot;include&quot;,
++            cache: &quot;no-store&quot;,
++          });
++          const persisted = (await read.json().catch(() =&gt; ({}))) as { waiverCode?: string | null };
++          if (!read.ok || !(typeof persisted.waiverCode === &quot;string&quot; || persisted.waiverCode === null) || normalizeWaiverCode(persisted.waiverCode ?? &quot;&quot;) !== expected) {
++            throw new Error(confirmError);
++          }
+           // A newer edit made during this request still needs its own save.
+           if (pendingWaiverCodesRef.current.get(targetPropertyId) === code) {
+             pendingWaiverCodesRef.current.delete(targetPropertyId);
++            waiverRevisionsRef.current.set(targetPropertyId, (waiverRevisionsRef.current.get(targetPropertyId) ?? 0) + 1);
++            if (currentWaiverPropertyRef.current === targetPropertyId) setWaiverCode(persisted.waiverCode ?? &quot;&quot;);
+           }
+         }
++        waiverSaveErrorRef.current = null;
+         reportSaveStatus({ type: &quot;success&quot; });
+         return true;
+       } catch (error) {
+         const reason = error instanceof Error ? error.message : &quot;Could not save waiver code.&quot;;
++        waiverSaveErrorRef.current = reason;
+         showToast(reason);
+         reportSaveStatus({ type: &quot;failure&quot;, reason });
+         return false;
+@@ -431,6 +471,12 @@ export const SettingsModulePage = forwardRef&lt;
+     return promise;
+   }, [demo, reportSaveStatus, showToast]);
+ 
++  useEffect(() =&gt; {
++    if (!active || demo || pendingWaiverCodesRef.current.size === 0 || waiverSaveErrorRef.current) return;
++    const timer = setTimeout(() =&gt; { void commitWaiverCode(); }, AUTOSAVE_DEBOUNCE_MS);
++    return () =&gt; clearTimeout(timer);
++  }, [active, demo, waiverCode, commitWaiverCode]);
++
+   const changeAutomation = useCallback(
+     (next: ApplicationAutomationPreferences) =&gt; {
+       setAutomation(next);
+diff --git a/tests/unit/manager-application-promo-code-scope.test.tsx b/tests/unit/manager-application-promo-code-scope.test.tsx
+index fb0317055..6e15cd45b 100644
+--- a/tests/unit/manager-application-promo-code-scope.test.tsx
++++ b/tests/unit/manager-application-promo-code-scope.test.tsx
+@@ -30,6 +30,7 @@ vi.mock(&quot;@/hooks/use-work-assignment-directory&quot;, () =&gt; ({
+   useWorkAssignmentDirectory: () =&gt; ({ teamMembers: [] }),
+ }));
+ 
++import { SettingsModulePage } from &quot;@/components/portal/settings-module-page&quot;;
+ import { ProPortalSettingsModal } from &quot;@/components/portal/pro-portal-settings-modal&quot;;
+ 
+ const PROPERTY_OPTIONS = [
+@@ -39,22 +40,30 @@ const PROPERTY_OPTIONS = [
+ ];
+ 
+ let patches: Array&lt;Record&lt;string, unknown&gt;&gt;;
++let storedCodes: Map&lt;string, string | null&gt;;
+ 
+ beforeEach(() =&gt; {
+   vi.clearAllMocks();
+   patches = [];
++  storedCodes = new Map([[&quot;prop-1&quot;, &quot;WELCOME50&quot;]]);
+   vi.stubGlobal(
+     &quot;fetch&quot;,
+     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =&gt; {
+       const url = String(input);
+       if (url.includes(&quot;manager-application-settings&quot;) &amp;&amp; (init?.method ?? &quot;GET&quot;) === &quot;GET&quot;) {
+         return new Response(
+-          JSON.stringify({ automation: { autoApproveApplications: false }, waiverCode: &quot;WELCOME50&quot; }),
++          JSON.stringify({ automation: { autoApproveApplications: false }, waiverCode: storedCodes.get(new URL(url, &quot;http://localhost&quot;).searchParams.get(&quot;propertyId&quot;) ?? &quot;prop-1&quot;) ?? null }),
+           { status: 200 },
+         );
+       }
+       if (url.includes(&quot;manager-application-settings&quot;) &amp;&amp; init?.method === &quot;PATCH&quot;) {
+-        patches.push(JSON.parse(String(init.body)) as Record&lt;string, unknown&gt;);
++        const body = JSON.parse(String(init.body)) as Record&lt;string, unknown&gt;;
++        patches.push(body);
++        if (&quot;waiverCode&quot; in body) {
++          const code = String(body.waiverCode).trim().toUpperCase().replace(/\s+/g, &quot;&quot;) || null;
++          storedCodes.set(String(body.propertyId), code);
++          return new Response(JSON.stringify({ waiverCode: code }), { status: 200 });
++        }
+         return new Response(&quot;{}&quot;, { status: 200 });
+       }
+       return new Response(&quot;{}&quot;, { status: 200 });
+@@ -208,7 +217,10 @@ describe(&quot;waiver code save on leaving settings&quot;, () =&gt; {
+     fireEvent.click(screen.getByRole(&quot;button&quot;, { name: &quot;Close&quot; }));
+     await waitFor(() =&gt; expect(patches).toHaveLength(1));
+     expect(onClose).not.toHaveBeenCalled();
+-    await act(async () =&gt; { finish(new Response(&quot;{}&quot;, { status: 200 })); });
++    await act(async () =&gt; {
++      storedCodes.set(&quot;prop-1&quot;, &quot;WAIT10&quot;);
++      finish(new Response(JSON.stringify({ waiverCode: &quot;WAIT10&quot; }), { status: 200 }));
++    });
+     await waitFor(() =&gt; expect(onClose).toHaveBeenCalledTimes(1));
+     expect(patches).toHaveLength(1);
+   });
+@@ -248,3 +260,95 @@ describe(&quot;waiver code save on leaving settings&quot;, () =&gt; {
+     expect(patches).toEqual([{ propertyId: &quot;prop-1&quot;, waiverCode: &quot;TAKEN10&quot; }]);
+   });
+ });
++
++
++describe(&quot;waiver save truth and display&quot;, () =&gt; {
++  it(&quot;clears the previous Saved mark as soon as a new edit is pending, then autosaves without blur&quot;, async () =&gt; {
++    renderModal();
++    await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++    fireEvent.change(promoField(), { target: { value: &quot;FIRST10&quot; } });
++    fireEvent.blur(promoField());
++    await screen.findByText(&quot;Saved&quot;);
++    fireEvent.change(promoField(), { target: { value: &quot;SECOND10&quot; } });
++    expect(screen.queryByText(&quot;Saved&quot;)).toBeNull();
++    await waitFor(() =&gt; expect(storedCodes.get(&quot;prop-1&quot;)).toBe(&quot;SECOND10&quot;));
++    await screen.findByText(&quot;Saved&quot;);
++  });
++
++  it(&quot;displays the normalized code confirmed by a fresh read&quot;, async () =&gt; {
++    renderModal();
++    await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++    fireEvent.change(promoField(), { target: { value: &quot; spring 10 &quot; } });
++    fireEvent.blur(promoField());
++    await screen.findByText(&quot;Saved&quot;);
++    expect(promoField()).toHaveValue(&quot;SPRING10&quot;);
++  });
++
++  it(&quot;does not claim Saved or close if a 200 write is not reflected by the server read&quot;, async () =&gt; {
++    const onClose = vi.fn();
++    renderModal(onClose);
++    await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++    const originalFetch = globalThis.fetch;
++    vi.stubGlobal(&quot;fetch&quot;, vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =&gt; {
++      if (String(input).includes(&quot;manager-application-settings&quot;) &amp;&amp; init?.method === &quot;PATCH&quot;) {
++        return new Response(JSON.stringify({ waiverCode: &quot;UNSAVED10&quot; }), { status: 200 });
++      }
++      return originalFetch(input, init);
++    }));
++    fireEvent.change(promoField(), { target: { value: &quot;UNSAVED10&quot; } });
++    fireEvent.keyDown(document, { key: &quot;Escape&quot; });
++    await waitFor(() =&gt; expect(showToast).toHaveBeenCalledWith(&quot;Could not confirm the saved waiver code. Please try again.&quot;));
++    expect(onClose).not.toHaveBeenCalled();
++    expect(screen.queryByText(&quot;Saved&quot;)).toBeNull();
++    expect(promoField()).toHaveValue(&quot;UNSAVED10&quot;);
++  });
++
++  it(&quot;ignores an older settings load that finishes after a confirmed save&quot;, async () =&gt; {
++    let finish!: (response: Response) =&gt; void;
++    const oldRead = new Promise&lt;Response&gt;((resolve) =&gt; { finish = resolve; });
++    const originalFetch = globalThis.fetch;
++    vi.stubGlobal(&quot;fetch&quot;, vi.fn((input: RequestInfo | URL, init?: RequestInit) =&gt; {
++      const url = String(input);
++      if (url.includes(&quot;manager-application-settings&quot;) &amp;&amp; !url.includes(&quot;propertyId&quot;) &amp;&amp; (init?.method ?? &quot;GET&quot;) === &quot;GET&quot;) return oldRead;
++      return originalFetch(input, init);
++    }));
++    renderModal();
++    await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++    fireEvent.change(promoField(), { target: { value: &quot;NEWEST10&quot; } });
++    fireEvent.blur(promoField());
++    await screen.findByText(&quot;Saved&quot;);
++    await act(async () =&gt; { finish(new Response(JSON.stringify({ waiverCode: &quot;STALE10&quot; }), { status: 200 })); });
++    expect(promoField()).toHaveValue(&quot;NEWEST10&quot;);
++  });
++});
++
++
++it(&quot;loads the new property&#x27;s code even when the previous property&#x27;s confirmation finishes first&quot;, async () =&gt; {
++  storedCodes.set(&quot;prop-2&quot;, &quot;FREMONT10&quot;);
++  const originalFetch = globalThis.fetch;
++  let confirmA!: (response: Response) =&gt; void;
++  let loadB!: (response: Response) =&gt; void;
++  const readA = new Promise&lt;Response&gt;(resolve =&gt; { confirmA = resolve; });
++  const readB = new Promise&lt;Response&gt;(resolve =&gt; { loadB = resolve; });
++  let savingA = false;
++  vi.stubGlobal(&quot;fetch&quot;, vi.fn((input: RequestInfo | URL, init?: RequestInit) =&gt; {
++    const url = String(input);
++    if (url.includes(&quot;manager-application-settings&quot;)) {
++      if (init?.method === &quot;PATCH&quot;) savingA = true;
++      else if (url.includes(&quot;propertyId=prop-1&quot;) &amp;&amp; savingA) return readA;
++      else if (url.includes(&quot;propertyId=prop-2&quot;)) return readB;
++    }
++    return originalFetch(input, init);
++  }));
++  const props = { tab: &quot;applications&quot; as const, propertyOptions: PROPERTY_OPTIONS };
++  const view = render(&lt;SettingsModulePage {...props} initialPropertyId=&quot;prop-1&quot; /&gt;);
++  await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++  fireEvent.change(promoField(), { target: { value: &quot;BALLARD10&quot; } });
++  fireEvent.blur(promoField());
++  await waitFor(() =&gt; expect(savingA).toBe(true));
++  view.rerender(&lt;SettingsModulePage {...props} initialPropertyId=&quot;prop-2&quot; /&gt;);
++  await waitFor(() =&gt; expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining(&quot;propertyId=prop-2&quot;), expect.anything()));
++  await act(async () =&gt; { confirmA(new Response(JSON.stringify({ waiverCode: &quot;BALLARD10&quot; }), { status: 200 })); });
++  await act(async () =&gt; { loadB(new Response(JSON.stringify({ waiverCode: &quot;FREMONT10&quot; }), { status: 200 })); });
++  expect(promoField()).toHaveValue(&quot;FREMONT10&quot;);
++});
+diff --git a/tests/unit/manager-application-questions-workspace.test.tsx b/tests/unit/manager-application-questions-workspace.test.tsx
+index e4257cbe4..1b0b43abc 100644
+--- a/tests/unit/manager-application-questions-workspace.test.tsx
++++ b/tests/unit/manager-application-questions-workspace.test.tsx
+@@ -751,6 +751,35 @@ describe(&quot;P003: this application&#x27;s own fee override (Setup step)&quot;, () =&gt; {
+     const savedSubmission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
+     const savedTemplate = savedSubmission.propertyApplicationTemplates?.find((t) =&gt; t.id === template.id);
+     expect(savedTemplate?.feeCentsOverride).toBeNull();
+-    expect(savedTemplate?.waiverCodeOverride).toBeNull();
++    expect(savedTemplate?.waiverCodeOverride).toBe(&quot;LONGSTAY&quot;);
++  });
++});
++
++
++describe(&quot;application promo code without a fee override&quot;, () =&gt; {
++  it(&quot;persists a promo code independently and displays it when the editor reopens&quot;, async () =&gt; {
++    const template = createPropertyApplicationTemplate({ kind: &quot;long-term&quot;, label: &quot;Waiver application&quot; });
++    const persist = vi.fn().mockResolvedValue(true);
++    vi.stubGlobal(&quot;fetch&quot;, vi.fn(async () =&gt; new Response(JSON.stringify({ template }), { status: 200 })));
++    const props = { open: true, title: template.label, sub: createDefaultListingSubmission(), managerUserId: &quot;manager-1&quot;, applicationPreviewPropertyId: &quot;mgr-house-1&quot;, templateEditorMode: &quot;edit&quot; as const, applicationTemplate: template, templates: [template], onPersistSubmission: persist, onClose: vi.fn(), onSaved: vi.fn(), showToast: vi.fn() };
++    const view = render(&lt;ManagerApplicationQuestionsEditorModal {...props} /&gt;);
++    await waitWorkspace(template.label);
++    jumpRail(&quot;setup&quot;);
++    await waitFor(() =&gt; expect(screen.queryByText(&quot;Loading…&quot;)).toBeNull());
++    expect(screen.getByRole(&quot;switch&quot;, { name: &quot;Charge an application fee&quot; })).toHaveAttribute(&quot;aria-checked&quot;, &quot;false&quot;);
++    fireEvent.click(screen.getByRole(&quot;switch&quot;, { name: &quot;Promo code that waives the fee&quot; }));
++    fireEvent.change(screen.getByRole(&quot;textbox&quot;, { name: &quot;Promo code that waives the fee&quot; }), { target: { value: &quot;inherit10&quot; } });
++    fireEvent.click(screen.getByRole(&quot;button&quot;, { name: &quot;Save&quot; }));
++    await waitFor(() =&gt; expect(persist).toHaveBeenCalled());
++    const submission = persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1;
++    const saved = submission.propertyApplicationTemplates!.find(t =&gt; t.id === template.id)!;
++    expect(saved.feeCentsOverride).toBeNull();
++    expect(saved.waiverCodeOverride).toBe(&quot;INHERIT10&quot;);
++    view.unmount();
++    render(&lt;ManagerApplicationQuestionsEditorModal {...props} sub={submission} applicationTemplate={saved} templates={submission.propertyApplicationTemplates} /&gt;);
++    await waitWorkspace(template.label);
++    jumpRail(&quot;setup&quot;);
++    await waitFor(() =&gt; expect(screen.queryByText(&quot;Loading…&quot;)).toBeNull());
++    expect(screen.getByRole(&quot;textbox&quot;, { name: &quot;Promo code that waives the fee&quot; })).toHaveValue(&quot;INHERIT10&quot;);
+   });
+ });
+</pre></html>
