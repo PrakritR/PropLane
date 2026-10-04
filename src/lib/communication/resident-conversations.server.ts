@@ -37,6 +37,14 @@ const TURNS_PER_CONVERSATION = 60;
 const MAX_CONVERSATIONS = 200;
 /** How many distinct addresses one list read will try to name a manager from (one `or` clause each). */
 const MAX_NAMED_EMAILS = 50;
+/**
+ * Bounds on one link check pass. Each workspace costs ~6 reads, and the keyed
+ * caller's input is a page of the resident's own stored `ws:` keys (a client
+ * once wrote `ws:<any uuid>`), so an unbounded pass is how one list read turns
+ * into hundreds of concurrent requests from a single invocation.
+ */
+const MAX_LINK_CHECKS = 24;
+const LINK_CHECK_CONCURRENCY = 4;
 
 function clean(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -146,6 +154,9 @@ export async function loadResidentCounterparties(
  * workspace). A conversation key on a stored row is a claim, never a link: only
  * a workspace named here may have its manager's name and work number stamped on
  * the resident's list. A failed read links nothing.
+ *
+ * At most `MAX_LINK_CHECKS` workspaces are checked, in id order so the set is
+ * the same on every load, `LINK_CHECK_CONCURRENCY` at a time.
  */
 export async function loadResidentLinkedWorkspaceIds(
   db: Db,
@@ -158,25 +169,35 @@ export async function loadResidentLinkedWorkspaceIds(
   if (!resident || ids.length === 0) return linked;
   try {
     const { data } = await db.from("portal_workspaces").select("id, owner_user_id, is_default").in("id", ids);
-    // One link check per workspace, all at once: each is ~5 independent reads,
-    // and a resident's Communication list waits on this before it can name a
-    // single row. Serially this grew with the number of workspaces asked about.
-    const checks = ((data ?? []) as Row[]).flatMap((workspace) => {
-      const workspaceId = clean(workspace.id);
-      const owner = clean(workspace.owner_user_id);
-      if (!workspaceId || !owner) return [];
-      return [
-        loadAccountCandidates(
-          db,
-          { workspaceId, workspaceOwnerId: owner, isDefault: workspace.is_default === true },
-          owner,
-          { accountId: resident },
-        ).then((candidates) =>
-          candidates.some((candidate) => candidate.id === resident && candidate.linked) ? workspaceId : null,
+    // Workspaces that really exist, in a stable order, bounded: a forged key
+    // falls out at the read above, and the cap is applied to what survives it.
+    const checkable = ((data ?? []) as Row[])
+      .flatMap((workspace) => {
+        const workspaceId = clean(workspace.id);
+        const owner = clean(workspace.owner_user_id);
+        return workspaceId && owner ? [{ workspaceId, owner, isDefault: workspace.is_default === true }] : [];
+      })
+      .sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))
+      .slice(0, MAX_LINK_CHECKS);
+    // A few at a time: a resident's Communication list waits on this before it
+    // can name a single row, and each check is ~6 independent reads.
+    for (let start = 0; start < checkable.length; start += LINK_CHECK_CONCURRENCY) {
+      const batch = await Promise.all(
+        checkable.slice(start, start + LINK_CHECK_CONCURRENCY).map((workspace) =>
+          loadAccountCandidates(
+            db,
+            { workspaceId: workspace.workspaceId, workspaceOwnerId: workspace.owner, isDefault: workspace.isDefault },
+            workspace.owner,
+            { accountId: resident },
+          ).then((candidates) =>
+            candidates.some((candidate) => candidate.id === resident && candidate.linked)
+              ? workspace.workspaceId
+              : null,
+          ),
         ),
-      ];
-    });
-    for (const workspaceId of await Promise.all(checks)) if (workspaceId) linked.add(workspaceId);
+      );
+      for (const workspaceId of batch) if (workspaceId) linked.add(workspaceId);
+    }
   } catch {
     return new Set();
   }

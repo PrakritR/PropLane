@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
 
 /**
  * A small multi-table in-memory Supabase fake for the conversation-key tests.
@@ -19,32 +20,18 @@ function cell(row: Row, column: string): unknown {
   return row[column];
 }
 
+/**
+ * `col.eq."value"`, `col.is.null`, `col.ilike."pattern"` — split and unquoted by
+ * the ONE parser that sits next to the builder (`src/lib/supabase/or-filter.ts`),
+ * so this fake cannot model a PostgREST where an escaped quote ends a clause.
+ */
 function parseOr(filter: string): Array<(row: Row) => boolean> {
-  // `col.eq."value"` , `col.is.null`
-  const parts: string[] = [];
-  const depth = 0;
-  let current = "";
-  let inQuote = false;
-  for (const ch of filter) {
-    if (ch === '"') inQuote = !inQuote;
-    if (ch === "," && !inQuote && depth === 0) {
-      parts.push(current);
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  if (current) parts.push(current);
-  return parts.map((part) => {
-    const match = /^([^.]+)\.(eq|is|ilike)\.(.*)$/.exec(part);
-    if (!match) return () => false;
-    const [, column, op, rawValue] = match;
-    const value = rawValue!.startsWith('"') ? rawValue!.slice(1, -1).replace(/\\(["\\])/g, "$1") : rawValue!;
-    if (op === "is") return (row: Row) => cell(row, column!) === null || cell(row, column!) === undefined;
+  return parseOrFilterClauses(filter).map(({ column, operator, value }) => {
+    if (operator === "is") return (row: Row) => cell(row, column) === null || cell(row, column) === undefined;
     // `ilike` is a case-insensitive PATTERN, not an equality: PostgREST reads
     // `*` as `%`, and `%` / `_` are wildcards. Modelled here so a caller that
     // forgets to escape a value is caught by the fake rather than by production.
-    if (op === "ilike") {
+    if (operator === "ilike") {
       const pattern = new RegExp(
         `^${value
           .replace(/[.*+?^${}()|[\]\\]/g, (ch) => (ch === "*" ? "%" : `\\${ch}`))
@@ -52,9 +39,10 @@ function parseOr(filter: string): Array<(row: Row) => boolean> {
           .replace(/_/g, ".")}$`,
         "i",
       );
-      return (row: Row) => pattern.test(String(cell(row, column!) ?? ""));
+      return (row: Row) => pattern.test(String(cell(row, column) ?? ""));
     }
-    return (row: Row) => String(cell(row, column!) ?? "") === value;
+    if (operator === "eq") return (row: Row) => String(cell(row, column) ?? "") === value;
+    return () => false;
   });
 }
 
