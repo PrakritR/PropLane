@@ -78,19 +78,33 @@ export function StatTile({
  */
 export function RecordFactCard({
   title,
+  count,
   action,
+  headerActions,
   children,
   dataAttr,
 }: {
   title: string;
+  /** A count drawn after the title (Photos 3). */
+  count?: number;
   action?: { label: string; href: string };
+  /** Icon actions at the card header's right edge (`PortalIconAction`s), never labelled buttons. */
+  headerActions?: ReactNode;
   children: ReactNode;
   dataAttr?: string;
 }) {
   return (
     <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr={dataAttr}>
       <div className="flex items-center gap-2 border-b border-border/70 px-[var(--portal-card-padding,16px)] py-3">
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
+          {title}
+          {count != null ? <span className="ml-1.5 font-medium text-muted">{count}</span> : null}
+        </h2>
+        {headerActions ? (
+          <div className="ml-auto flex items-center gap-1.5" data-attr="record-card-header-actions">
+            {headerActions}
+          </div>
+        ) : null}
         {action ? (
           <Link
             href={action.href}

@@ -143,6 +143,13 @@ describe("the Assign popup is the standard frame", () => {
   });
 });
 
+/** Opens a row's ⋯ and returns its item labels (the menu stays open). */
+async function rowActionItems(name: string): Promise<string[]> {
+  fireEvent.keyDown(screen.getByRole("button", { name: `Actions for ${name}` }), { key: "ArrowDown" });
+  const menu = await screen.findByRole("menu");
+  return [...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? "");
+}
+
 describe("Vendors places each vendor under its pipeline tab, with counts", () => {
   type Bid = import("@/lib/work-order-bids").WorkOrderBid;
   type Offer = import("@/lib/work-order-vendor-offers").WorkOrderVendorOffer;
@@ -188,14 +195,18 @@ describe("Vendors places each vendor under its pipeline tab, with counts", () =>
     expect(count("done")).toMatch(/Done\s*0/);
     expect(screen.getByText("Bid Co")).toBeTruthy();
     expect(screen.queryByText("Estimate Co")).toBeNull();
-    expect((screen.getByRole("button", { name: /Approve bid from Bid Co/ }) as HTMLButtonElement).disabled).toBe(false);
+    // Approve bid lives in the Bids row's ⋯ (a submitted bid only); there is no inline button.
+    expect(screen.queryByRole("button", { name: /Approve bid from Bid Co/ })).toBeNull();
+    expect(await rowActionItems("Bid Co")).toEqual(["Approve bid", "Message"]);
+    expect(screen.getByRole("menuitem", { name: "Approve bid" }).hasAttribute("disabled")).toBe(false);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     fireEvent.click(document.querySelector('[data-attr="service-vendor-cycle-tab-sent"]')!);
     expect(screen.getByText("Estimate Co")).toBeTruthy();
     expect(screen.getByText("Asked Co")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve bid/ })).toBeNull();
-    // An estimate row says so as a plain fact, and can only be withdrawn.
+    // An estimate row says so as a plain fact, and can only be withdrawn: no Approve bid in its ⋯.
     expect(document.body.textContent).toContain("Estimate $180");
-    expect(screen.getByRole("button", { name: "Withdraw from Estimate Co" })).toBeTruthy();
+    expect(await rowActionItems("Estimate Co")).toEqual(["Withdraw", "Message"]);
   });
 
   it("marks the lowest bid and, with two or more bids, Compare lays them side by side with Approve bid on each", async () => {

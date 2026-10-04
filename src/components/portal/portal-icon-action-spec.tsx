@@ -40,7 +40,7 @@ export function portalLabeledPrimarySpec({ id, label, onClick, disabled, dataAtt
     id,
     tone: "primary",
     node: (
-      <Button type="button" variant="primary" className="h-9 shrink-0 rounded-full px-5 text-[13.5px]" aria-label={label} disabled={disabled} data-attr={dataAttr} onClick={() => onClick()}>
+      <Button type="button" variant="primary" className="h-9 shrink-0 rounded-full px-5 text-[13.5px]" aria-label={label} disabled={disabled} data-attr={dataAttr} data-labeled-primary="" onClick={() => onClick()}>
         {label}
       </Button>
     ),

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
+import { seedDemoWorkOrderBids } from "@/lib/work-order-bids-storage";
+import type { WorkOrderBid } from "@/lib/work-order-bids";
 
 const navigate = vi.fn();
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
@@ -128,8 +130,10 @@ describe("service record page (work order)", () => {
     );
     expect(document.querySelector('[data-attr="manager-service-primary"]')!.getAttribute("aria-label")).toBe("Complete");
     expect(document.querySelector('[data-attr="record-header-action-close"]')).toBeNull();
-    // Reschedule is no longer a header icon; it sits in ⋯ with the red items.
-    expect(screen.queryByRole("button", { name: "Reschedule" })).toBeNull();
+    // Reschedule is no longer a header icon; it sits in ⋯ with the red items, and beside the vendor in Who's doing it.
+    const headerIcons = document.querySelector('[data-attr="service-record-header-icons"]')!;
+    expect([...headerIcons.querySelectorAll("button")].some((b) => b.getAttribute("aria-label") === "Reschedule")).toBe(false);
+    expect(document.querySelector('[data-attr="record-overview-card-who"] [data-attr="service-who-reschedule"]')).not.toBeNull();
     expect(await openMore()).toEqual(["Reschedule", "Auto-schedule", "Cancel service", "Delete"]);
   });
 
@@ -173,6 +177,34 @@ describe("service record page (work order)", () => {
     expect(who.textContent).toContain("Acme Plumbing");
     expect(who.textContent).toContain("$180");
     expect(who.querySelector('[data-attr="service-who-team"]')).toBeNull();
+  });
+
+  it("a service approved the older way (its row never got the vendor) still shows who, the booked visit and the approved price from the accepted bid", async () => {
+    const accepted = {
+      id: "b-1", workOrderId: "wo-1", vendorUserId: "u-9", vendorDirectoryId: "v-9", vendorName: "Pacific Plumbing", quoteMode: "upfront",
+      consultationVisitAt: null, amountCents: 14000, materialsCents: 0, proposedTime: "2026-10-08T16:00:00.000Z", note: null, status: "accepted",
+      createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-02T00:00:00.000Z", bidSubmittedAt: "2026-10-02T00:00:00.000Z",
+    };
+    // The test pathname is "/", so the panel reads bids from the local demo store, like the server route would.
+    seedDemoWorkOrderBids([accepted] as unknown as WorkOrderBid[]);
+    try {
+      // The mirror still says nobody has it: open, no vendor, no visit.
+      render(
+        <AppUiProvider>
+          <ManagerWorkOrdersPanel allRows={[row({ bucket: "open", status: "Open" })]} bucket="open" workOrderId="wo-1" listBasePath="/portal" />
+        </AppUiProvider>,
+      );
+      const who = () => document.querySelector('[data-attr="record-overview-card-who"]')!;
+      await waitFor(() => expect(who().textContent).toContain("Pacific Plumbing"));
+      expect(who().textContent).toContain("$140 approved");
+      expect(who().textContent).toMatch(/Oct/);
+      expect(who().querySelector('[data-attr="service-who-choices"]')).toBeNull();
+      // The stepper and the header agree: Scheduled, so Complete is the next step.
+      expect(document.querySelector('[data-attr="service-stage-stepper"] [data-stage-state="current"]')!.textContent).toBe("Scheduled");
+      await waitFor(() => expect(document.querySelector('[data-attr="manager-service-primary"]')!.getAttribute("aria-label")).toBe("Complete"));
+    } finally {
+      seedDemoWorkOrderBids([]);
+    }
   });
 
   it("never shows Coming soon on the record page", () => {

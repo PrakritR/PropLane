@@ -175,7 +175,7 @@ export function PortalDetailHeader({
           {iconTitleActions && !inlineActions ? (
             <PortalTitleActionsHost
               className={cn(
-                "flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button]:!size-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!p-0",
+                "flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button:not([data-labeled-primary])]:!size-9 [&_button:not([data-labeled-primary])]:!min-h-0 [&_button:not([data-labeled-primary])]:!rounded-full [&_button:not([data-labeled-primary])]:!p-0",
                 titleSingleLine && "max-md:flex-none max-md:basis-auto",
               )}
             />

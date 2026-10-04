@@ -70,7 +70,7 @@ import { readChargesForManagerResident } from "@/lib/household-charges";
 import { ServiceVendorPipeline, type VendorsIntent } from "@/components/portal/service-vendor-cycle-section";
 import { buildServicePipeline } from "@/lib/service-pipeline";
 import { countSubmittedBids, deriveVendorRequestRows, type VendorRequestRow } from "@/lib/work-order-bid-cycle";
-import { SERVICE_STAGE_LABEL, formatServiceWhen, workOrderServiceStage, workOrderStageSteps } from "@/lib/service-lifecycle";
+import { formatServiceWhen, workOrderServiceStage, workOrderStageSteps } from "@/lib/service-lifecycle";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { isVisitFeeInvoiceNumber, visitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
@@ -86,17 +86,17 @@ import { fetchWorkOrderVendorOffers, type WorkOrderVendorOffer } from "@/lib/wor
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { recordSections } from "@/lib/portals/record-sections";
-import { renderRecordSection } from "@/components/portal/record-section-renderers";
-import { propertyDetailHref, workOrderDetailHref, workOrderListHref, type ServiceDetailTabId, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
+import { propertyDetailHref, vendorDetailHref, workOrderDetailHref, workOrderListHref, type ServiceDetailTabId, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { PortalApplicantRecordRow, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
+  acceptedBidOf,
+  applyAcceptedBid,
   formatServiceMoney,
   managerServiceListCostFigure,
   managerServiceNextStep,
-  managerServiceNeed,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
 
@@ -122,10 +122,6 @@ type BillDraft = { cost: string; paymentStatus: "pending" | "paid" };
 function isSetWorkOrderCost(cost: string | undefined): boolean {
   const trimmed = cost?.trim() ?? "";
   return trimmed !== "" && trimmed !== "—";
-}
-
-function displayWorkOrderCost(cost: string | undefined): string {
-  return isSetWorkOrderCost(cost) ? (cost ?? "") : "—";
 }
 
 function defaultBillDraft(row: DemoManagerWorkOrderRow): BillDraft {
@@ -365,7 +361,7 @@ export function ManagerWorkOrdersPanel({
   }, [bidsVendorUserIds.join(",")]);
 
   const openExpand = useCallback(
-    (row: DemoManagerWorkOrderRow) => {
+    (row: DemoManagerWorkOrderRow, opts?: { alwaysLoadBids?: boolean }) => {
       setVisitAtById((prev) => ({
         ...prev,
         [row.id]: row.scheduledAtIso ? toDatetimeLocalValue(row.scheduledAtIso) : prev[row.id] ?? "",
@@ -374,20 +370,27 @@ export function ManagerWorkOrdersPanel({
         ...prev,
         [row.id]: prev[row.id] ?? defaultBillDraft(row),
       }));
-      if (!row.selfAssigned && (row.vendorId || row.biddingOpen || row.biddingResolvedAt)) void loadBids(row.id);
+      if (opts?.alwaysLoadBids || (!row.selfAssigned && (row.vendorId || row.biddingOpen || row.biddingResolvedAt))) void loadBids(row.id);
     },
     [loadBids],
   );
 
   const routeWorkOrderId = workOrderIdProp ? decodeURIComponent(workOrderIdProp) : null;
-  const routeWorkOrder = useMemo(() => {
+  const routeStoredWorkOrder = useMemo(() => {
     if (!routeWorkOrderId) return null;
     return rows.find((r) => r.id === routeWorkOrderId) ?? allRows.find((r) => r.id === routeWorkOrderId) ?? null;
   }, [routeWorkOrderId, rows, allRows]);
+  // The service page always asks the server for THIS job's bids: an approval written the older way (or in
+  // another tab) lives on the accepted bid before the local mirror of the row says so.
+  const routeAcceptedBids = routeStoredWorkOrder ? bidsByWorkOrderId[routeStoredWorkOrder.id] : undefined;
+  const routeWorkOrder = useMemo(
+    () => (routeStoredWorkOrder ? applyAcceptedBid(routeStoredWorkOrder, routeAcceptedBids) : null),
+    [routeStoredWorkOrder, routeAcceptedBids],
+  );
 
   useEffect(() => {
-    if (routeWorkOrder) openExpand(routeWorkOrder);
-  }, [routeWorkOrder, openExpand]);
+    if (routeStoredWorkOrder) openExpand(routeStoredWorkOrder, { alwaysLoadBids: true });
+  }, [routeStoredWorkOrder, openExpand]);
 
   useEffect(() => {
     if (!routeWorkOrder || routeWorkOrder.automationStatus !== "vendor_marked_done" || isDemoModeActive()) {
@@ -1221,7 +1224,16 @@ export function ManagerWorkOrdersPanel({
       job: row,
       offers,
       bids,
-      roster: activeVendors,
+      roster: activeVendors.map((vendor) => {
+        const aggregate = vendor.vendorUserId ? reviewAggregatesByVendorUserId[vendor.vendorUserId] : undefined;
+        return {
+          id: vendor.id,
+          name: vendor.name,
+          trade: vendor.trade,
+          active: vendor.active,
+          rating: aggregate && aggregate.count > 0 && aggregate.average != null ? { average: aggregate.average, count: aggregate.count } : null,
+        };
+      }),
       jobTrade: tradeLabelForRow(row),
     });
     return (
@@ -1253,6 +1265,7 @@ export function ManagerWorkOrdersPanel({
           onMessage={() => {
             navigate(workOrderDetailHref(listBasePath ?? "/portal", row.bucket, row.id, "communication"));
           }}
+          onOpenVendor={(vendorId) => navigate(vendorDetailHref(listBasePath ?? "/portal", vendorId))}
         />
       </div>
     );
@@ -1414,7 +1427,6 @@ export function ManagerWorkOrdersPanel({
     const routeStage = workOrderServiceStage(routeWorkOrder, { bids: routeBids, offers: routeOffers });
     const submittedBids = countSubmittedBids(routeBids);
     const serviceNext = managerServiceNextStep(routeWorkOrder, { bidCount: submittedBids, canPay: routeStage === "completed" });
-    const serviceNeed = managerServiceNeed(routeWorkOrder, { bidCount: submittedBids, canPay: routeStage === "completed" });
     const vendorsHref = workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "vendors");
     const runServicePrimary = (key: string) => {
       if (key === "request-bids") {
@@ -1569,84 +1581,58 @@ export function ManagerWorkOrdersPanel({
       ) : (
         <ServiceDetailsSection
           stages={workOrderStageSteps(routeWorkOrder, { bids: routeBids, offers: routeOffers })}
-          photos={routeWorkOrder.photoDataUrls ?? []}
-          activity={workOrderActivityEvents(routeWorkOrder)}
-          onEdit={() => setEditWorkOrderRow(routeWorkOrder)}
-          details={
-          <>
-          <div className="mb-3">
+          who={
             <ServiceWhoCard
               who={
                 assignee
                   ? {
                       name: assignee.name || "Assigned",
                       kind: assignee.kind,
+                      trade: assignee.kind === "vendor" ? (activeVendors.find((v) => v.id === assignee.id)?.trade ?? "") : "",
                       visit: formatServiceWhen(routeWorkOrder.scheduledAtIso),
-                      price: managerServiceListCostFigure(routeWorkOrder),
+                      price: managerServiceListCostFigure(routeWorkOrder, acceptedBidOf(routeBids)),
+                      approved: assignee.kind === "vendor" && Boolean(acceptedBidOf(routeBids)),
                     }
                   : null
               }
               finished={routeStage === "completed"}
               onAssignTeam={() => openAssign(routeWorkOrder, "team")}
               onSendToVendors={() => runServicePrimary("request-bids")}
+              onReschedule={() => setScheduleVisitRow(routeWorkOrder)}
+              onOpenVendor={
+                assignee?.kind === "vendor" && activeVendors.some((v) => v.id === assignee.id)
+                  ? () => navigate(vendorDetailHref(listBasePath ?? "/portal", assignee.id))
+                  : undefined
+              }
+              onMessage={() => navigate(workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "communication"))}
             />
-          </div>
-          {renderRecordSection("overview", {
-            role: "manager",
-            kind: "service",
-            kindLabel: "service",
-            recordId: routeWorkOrder.id,
-            recordLabel: routeWorkOrder.title,
-            overviewTiles: [
-              { id: "status", label: "Status", value: (routeWorkOrder.status ?? "").trim().toLowerCase() === "cancelled" ? "Cancelled" : SERVICE_STAGE_LABEL[routeStage] },
-              { id: "priority", label: "Priority", value: routeWorkOrder.priority ?? "—" },
-              { id: "vendor", label: "Assigned to", value: assignee?.name || "Not assigned" },
-              { id: "cost", label: "Cost", value: displayWorkOrderCost(routeWorkOrder.cost) },
-              // C253: bid count, visible from Overview without opening Vendors.
-              ...(routeWorkOrder.biddingOpen || (bidsByWorkOrderId[routeWorkOrder.id]?.length ?? 0) > 0
-                ? [
-                    {
-                      id: "bids",
-                      label: "Bids",
-                      value: String(bidsByWorkOrderId[routeWorkOrder.id]?.length ?? 0),
-                    },
-                  ]
-                : []),
-            ],
-            overviewNeeds: [
-              ...(serviceNeed
-                ? [
-                    {
-                      id: serviceNeed.id,
-                      title: serviceNeed.title,
-                      onClick: serviceNeed.key ? () => runServicePrimary(serviceNeed.key!) : undefined,
-                    },
-                  ]
-                : []),
-            ],
-            overviewCards: [
-              {
-                id: "request",
-                title: "Request",
-                rows: [
-                  { label: "Details", value: routeWorkOrder.description || "—" },
-                  { label: "Preferred arrival", value: routeWorkOrder.preferredArrival?.trim() || "Anytime" },
-                  { label: "Entry", value: entryPermissionLabel(routeWorkOrder.entryPermission) },
-                ],
-              },
-              {
-                id: "home",
-                title: "Home",
-                action: { label: "Resident record", href: routeWorkOrder.propertyId ? propertyDetailHref(listBasePath ?? "/portal", "all", routeWorkOrder.propertyId, "preview") : `${listBasePath ?? "/portal"}/properties/all` },
-                rows: [
-                  { label: "Property", value: routeWorkOrder.propertyName ?? "—" },
-                  { label: "Resident", value: routeWorkOrder.residentName?.trim() || "—" },
-                ],
-              },
-            ],
-          })}
-          </>
           }
+          cards={[
+            {
+              id: "request",
+              title: "Request",
+              rows: [
+                { label: "Details", value: routeWorkOrder.description || "—" },
+                { label: "Preferred arrival", value: routeWorkOrder.preferredArrival?.trim() || "Anytime" },
+                { label: "Entry", value: entryPermissionLabel(routeWorkOrder.entryPermission) },
+                { label: "Priority", value: routeWorkOrder.priority ?? "—" },
+              ],
+            },
+            {
+              id: "home",
+              title: "Home",
+              action: { label: "Resident record", href: routeWorkOrder.propertyId ? propertyDetailHref(listBasePath ?? "/portal", "all", routeWorkOrder.propertyId, "preview") : `${listBasePath ?? "/portal"}/properties/all` },
+              rows: [
+                { label: "Property", value: routeWorkOrder.propertyName ?? "—" },
+                { label: "Resident", value: routeWorkOrder.residentName?.trim() || "—" },
+              ],
+            },
+          ]}
+          photos={routeWorkOrder.photoDataUrls ?? []}
+          onAddPhotos={(dataUrls) =>
+            updateManagerWorkOrder(routeWorkOrder.id, (r) => ({ ...r, photoDataUrls: [...(r.photoDataUrls ?? []), ...dataUrls].slice(0, 12) }))
+          }
+          activity={workOrderActivityEvents(routeWorkOrder)}
         />
       );
     return (
