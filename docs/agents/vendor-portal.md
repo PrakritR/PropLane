@@ -168,7 +168,7 @@ mirrored across `portal-inbox-delivery.ts`, `portal-inbox-thread-scope.ts`, and
 the legacy duplicate in `send-inbox-message/route.ts` — yes, the scope-for-role
 logic is duplicated 3x pre-existing, not something introduced here). Manager →
 vendor and vendor → manager messaging permission checks were added to
-`src/lib/inbox-recipient-scope.ts` (`vendorEmailsForManagers`,
+`src/lib/inbox-recipient-scope.ts` (`linkedVendorsForManagers`,
 `managerIdsOwningVendor` / `isVendorRole` branches) — without these the
 automatic notification would silently get filtered out by
 `filterRecipientsBySenderScope`.
@@ -231,7 +231,7 @@ best-effort, each declined vendor) via `deliverPortalInboxMessage`.
 BOTH sides are `FOR SELECT` only — vendor by `vendor_user_id = auth.uid()`,
 manager by `manager_user_id = auth.uid()` (denormalized onto the bid row at
 submit time so no join is needed). The original vendor `FOR ALL` owner policy
-was replaced by `20260705120000_work_order_bids_vendor_select_only.sql`
+was replaced by `20260705120002_work_order_bids_vendor_select_only.sql`
 because it let a vendor's own client INSERT bids on arbitrary work orders,
 bypassing the service-role API's work-order-access + `biddingOpen` checks.
 All real writes go through the service-role API exactly like every other

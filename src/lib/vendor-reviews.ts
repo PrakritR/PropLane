@@ -43,7 +43,7 @@ export function mapVendorReviewRow(row: Record<string, unknown>): VendorReview {
  * The vendor-safe projection: never a `*_user_id` or `work_order_id` column,
  * even though the vendor route reads via the service-role client. RLS on
  * `vendor_reviews` grants no direct client SELECT at all (see
- * `20260925010000_vendor_reviews_no_client_select.sql`) — this is the belt
+ * `20260925020000_vendor_reviews_no_client_select.sql`) — this is the belt
  * *and* the suspenders: even a route that queries too much would still have
  * to explicitly choose to return these fields to leak an identity.
  */

@@ -1,6 +1,6 @@
 # Lease generation — agent notes
 
-**One system for every workspace: application first, then lease, then the move-in form (captain, Oct 3 2026); lease first is retired.** There is no signing-order setting: `normalizePipelineOrder` / `resolveLeasingPipelineForProperty` always answer `application_then_lease` (a stored `lease_then_application` is ignored), every CTA says "Apply", and Lease unlocks only on an approved application. Application <-> lease is one-to-one in the application direction (C2-CP9): every application maps to exactly ONE lease (`linkedLeaseTemplateId`), one lease may serve many applications, and a second link is refused or collapsed on save, never kept (`src/lib/application-lease-mapping.ts`, the one place; a stored `linkedApplicationTemplateId` on a lease is inert). Unmapped: an application gets the stay-kind default lease (short stay -> the short-term lease, else the long-term lease). Settings -> Workspace -> Applications & leases also carries **Application before a tour** (Not needed by default / Required, `leasingPipeline.applicationBeforeTour`): when Required a prospect needs a submitted application for that property before the tour flow or `POST /api/public/tour-bookings` lets them book (`src/lib/application-before-tour.server.ts`); manager-scheduled tours are unaffected. The third step is the resident's own **Move-in** section ("My home", `/resident/move-in`), which `STAGE_UNLOCKED_SECTIONS` (`src/lib/resident-portal-nav.ts`) unlocks only once the lease is signed — there is no `move_in` template kind and no move-in form editor on that Settings page today (`tests/unit/resident-portal-nav.test.ts`). Coverage: `tests/unit/application-lease-mapping.test.ts`, `tests/unit/workspace-applications-leases-settings.test.tsx`, `tests/unit/leasing-pipeline-preferences.test.ts`.
+**One system for every workspace: application first, then lease, then the move-in form (captain, Oct 3 2026); lease first is retired.** There is no signing-order setting: `normalizePipelineOrder` / `resolveLeasingPipelineForProperty` always answer `application_then_lease` (a stored `lease_then_application` is ignored), every CTA says "Apply", and Lease unlocks only on an approved application. Application <-> lease is one-to-one in the application direction (C2-CP9): every application maps to exactly ONE lease (`linkedLeaseTemplateId`), one lease may serve many applications, and a second link is refused or collapsed on save, never kept (`src/lib/application-lease-mapping.ts`, the one place; a stored `linkedApplicationTemplateId` on a lease is inert). Unmapped: an application gets the stay-kind default lease (short stay -> the short-term lease, else the long-term lease). Settings -> Workspace -> Applications & leases also carries **Application before a tour** (`leasingPipeline.applicationBeforeTour`) — owned by [`docs/agents/tours-scheduling.md`](tours-scheduling.md) § Application before a tour, not restated here. The third step is the resident's own **Move-in** section ("My home", `/resident/move-in`), which `STAGE_UNLOCKED_SECTIONS` (`src/lib/resident-portal-nav.ts`) unlocks only once the lease is signed — there is no `move_in` template kind and no move-in form editor on that Settings page today (`tests/unit/resident-portal-nav.test.ts`). Coverage: `tests/unit/application-lease-mapping.test.ts`, `tests/unit/workspace-applications-leases-settings.test.tsx`, `tests/unit/leasing-pipeline-preferences.test.ts`.
 
 **Short stays are applications (captain, Oct 3, 2026).** There is one way to book a short stay: the listing's "Apply short term" door (shown only when the listing offers short stays) opens the same application -> lease -> payments process as "Apply long term", in the resident portal, with `rentalType: "short_term"`. That selects the property's short-term application template ("Short-term application": who, contact, dates and room, plus anything the manager added) and short-term lease ("Short term lease"), prices the stay through `resolveStayPricing` (never a second price decision, never utilities), and creates the stay's charges (`stay_total`, short-term move-in fee, deposit) through `recordApprovedApplicationCharges` like any approval. Workspace signing order applies unchanged. The old public hold-and-pay booking (`/rent/stay` form, `POST /api/public/short-stay-booking`) is retired: `/rent/stay` redirects to the short-term application, and `short-stay-booking.server.ts` keeps only the cron/webhook settling for holds that were already in flight. The resident portal files Application, Lease and Payments under two text tabs, Long term and Short term (`src/lib/resident-term-split.ts`, the one decision); Lease and Payments show the tabs only once a short stay exists. Coverage: `tests/unit/short-term-resident-flow.test.ts`.
 
@@ -336,17 +336,19 @@ outside this agent's files. Flagged, not attempted.
 
 ### A consent tick must not outlive what it consented to
 
-Both lease gates — the e-signature affirmation (`lease-signing-modal.tsx`) and the
-uploaded-lease review attestation (`uploaded-lease-review-modal.tsx`, below) — are
-mounted **without a `key` at a stable position** by every call site
+The one remaining tick here is the e-signature affirmation
+(`lease-signing-modal.tsx`); the uploaded-lease review has no attestation
+checkbox at all (§ "No verification checkboxes"), only staged `drafts`/`note`
+that must not outlive the reading they were typed against.
+
+Both are mounted **without a `key` at a stable position** by every call site
 (`resident-lease-panel.tsx`, `manager-residents.tsx`,
 `manager-leases-pipeline-panel.tsx`). A new `row` / `parse` prop therefore
 RE-RENDERS rather than remounts, and `useState` initializers do not re-run:
-nothing resets on its own. That allowed two ways to agree to something you never
-saw — a retried parse carrying the weaker "I have read the original PDF myself"
-tick onto the stronger "I have compared this against the original PDF. The terms
-above are correct", and a live `row` swapping the document under an already
-ticked signing affirmation. **The evidence layer structurally cannot catch this:**
+nothing resets on its own. That allowed agreeing to something you never saw — a
+live `row` swapping the document under an already ticked signing affirmation, and
+a retried parse carrying corrections typed against one reading onto another.
+**The evidence layer structurally cannot catch this:**
 `lease-execution-evidence.ts` hashes whatever is current AT signature time, so it
 records the substitution faithfully. The reset is the control.
 
@@ -356,14 +358,11 @@ Rules for any new consent/attestation control here:
   review modal's `drafts`/`note`, which are submitted as human-confirmed
   overrides and badged "Manager entered" — whenever a **content-derived**
   identity of what is being attested to changes. Each component has a documented
-  `…Subject()` helper; extend that rather than adding a second scheme — **unless
-  the new trigger must reset the tick ALONE**. The review modal's
-  `attestationWording` is that case: the checkbox reads "The terms above are
-  correct" with no disagreements and "I accept the differences listed above"
-  with them, so a manager's own edit that introduces or clears a disagreement
-  changes which statement they are signing. Folding it into `attestationSubject`
-  would re-seed `drafts`/`note` too and wipe their typing on every keystroke, so
-  it is a separate render-time guard that resets `attested` and nothing else.
+  `…Subject()` helper (`signedDocumentSubject`, `attestationSubject`); extend
+  that rather than adding a second scheme. Keep it content-derived but narrow:
+  `attestationSubject` re-seeds `drafts`/`note`, so folding a draft-aware signal
+  into it would wipe a manager's typing on every keystroke — which is why the
+  draft-aware mismatch list drives the panel only, never the subject.
 - **Never key on object identity.** The pipeline re-syncs on a cadence and hands
   back an equal-but-new object; clearing the box under a manager's fingers on a
   background refresh is its own bug. Equally, keep the identity narrow enough

@@ -293,10 +293,9 @@ export function UploadedLeaseReviewModal({
    *
    * The one draft-aware value in this component, and deliberately so: this list
    * is what the manager is editing against, so correcting a value clears its row
-   * here immediately rather than after a save. It drives the PANEL and the
-   * wording of the attestation — never the banner, the footer, or any claim
-   * about whether the lease can be sent, all of which read the stored parse the
-   * send gate reads.
+   * here immediately rather than after a save. It drives the PANEL only — never
+   * the banner, the footer, `attestationSubject`, or any claim about whether the
+   * lease can be sent, all of which read the stored parse the send gate reads.
    */
   const mismatches = useMemo(
     () =>

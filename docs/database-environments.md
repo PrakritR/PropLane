@@ -43,7 +43,7 @@ version-wise diff reports drift that is not there, and hides drift that is.
 second file to be applied dies on a duplicate-key error and can then *never* be
 applied to that project — while a project whose history was bundled looks
 perfectly healthy. It also means a brand-new environment cannot finish
-provisioning. `tests/unit/migration-version-uniqueness.test.ts` guards the
+provisioning. `tests/unit/migration-versions-unique.test.ts` guards the
 filenames; renaming the later file to a free timestamp is the whole fix.
 
 ### The refresh is incremental — staging-only data survives

@@ -6,7 +6,7 @@ manager, resident, vendor, and admin portals.
 **Workflow:** portal changes follow **`docs/agents/captain-dev-workflow.md`**
 (studio lane plan → approved → build). **Read this file before editing portal UI.**
 
-Reference implementation: **resident detail in the property portal** (`manager-residents.tsx` → `ResidentDetailSection` + nested tables).
+Reference implementations are owned by [`docs/agents/ui-page-structure.md`](agents/ui-page-structure.md) § Reference implementations (lists → the property Pricing tab; pop-ups and create/edit flows → Add property). Do not copy a reference screen name into this file.
 
 ## Sidebar nav counts
 
@@ -106,7 +106,7 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 - Subtitle: `mt-1 text-sm text-muted` on the line below
 - Chevron: right when collapsed, down when expanded (built into component)
 
-`ResidentDetailSection` in `manager-residents.tsx` wraps `PortalCollapsibleSection` with `titleVariant="resident"`.
+`titleVariant="resident"` is the wrapping convention for a record's own section cards (`vendor-payout-timeline.tsx` is the live example).
 
 ### `PortalCollapsibleSection` vs table inline expand
 
@@ -527,7 +527,7 @@ the bytes are already there, so it costs no round trip. Coverage:
 
 | Pattern | File |
 |---------|------|
-| Section cards (resident detail) | `manager-residents.tsx` → `ResidentDetailSection` |
+| Section cards (record detail) | `vendor-payout-timeline.tsx` → `PortalCollapsibleSection` |
 | Table inline expand (inbox) | `portal-inbox-ui.tsx` |
 | Resident applications table | `resident-applications-panel.tsx` |
 | Collapsible section primitive | `portal-collapsible-section.tsx` |

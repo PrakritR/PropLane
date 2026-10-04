@@ -158,7 +158,7 @@ export function LeasingFormsPanel() {
   const tab = TABS.find((entry) => entry.id === kind)!;
   const forms: AnyForm[] = kind === "application" ? library.applications : library.leases;
   const visible = useMemo(() => filterLibraryForms(kind, forms, query), [kind, forms, query]);
-  const useCount = (form: AnyForm) => libraryFormUseCount(form.id, kind, properties.map((property) => property.sub));
+  const formUseCount = (form: AnyForm) => libraryFormUseCount(form.id, kind, properties.map((property) => property.sub));
 
   const destinations = TABS.map((entry) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
@@ -248,7 +248,7 @@ export function LeasingFormsPanel() {
         dataAttr="leasing-forms-list"
       >
         {visible.map((form) => {
-          const row = leasingFormRowFacts(kind, form, useCount(form));
+          const row = leasingFormRowFacts(kind, form, formUseCount(form));
           return (
             <PortalEntryRow
               key={form.id}
