@@ -3,6 +3,7 @@
 import { Children, Fragment, isValidElement, useEffect, useRef, type ReactElement, type ReactNode } from "react";
 import {
   BookOpen,
+  Upload,
   CalendarClock,
   CalendarOff,
   CalendarPlus,
@@ -51,6 +52,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   CalendarClock, // Availability (Calendar band)
   Download, // Export CSV (N025)
   Coins, // Plan credit (admin Accounts, S27)
+  Upload, // Upload / Import (documents, leases, properties) — already in the doc's vocabulary
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */
