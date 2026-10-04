@@ -318,11 +318,12 @@ describe("the round + (C2-CALP8)", () => {
 });
 
 describe("empty week (C2-CALP6)", () => {
-  it("says so in one line above the grid with the round +", async () => {
+  it("says so in one line above the grid, and the header + stays the only create", async () => {
     mount("all");
     await waitFor(() => expect(screen.getByText("Nothing scheduled this week")).toBeTruthy());
     const strip = document.querySelector('[data-attr="calendar-empty-strip"]')!;
-    expect(within(strip as HTMLElement).getByRole("button", { name: "Add" })).toBeTruthy();
+    // The strip never draws a second + (tests/unit/manager-calendar-views.test.tsx).
+    expect(within(strip as HTMLElement).queryByRole("button", { name: "Add" })).toBeNull();
     expect(document.querySelector('[data-attr="calendar-time-grid"]')).toBeTruthy();
   });
 });

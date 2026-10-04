@@ -10,17 +10,22 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { onlyOfferedStoredTerm } from "@/lib/rental-application/applicant-lease-term";
 
 const wizard = readFileSync(
   path.join(process.cwd(), "src/components/marketing/rental-application-wizard.tsx"),
   "utf8",
 );
 
-const block = wizard.split("const listingTerms = listingOfferedLeaseTerms(pid);")[1]?.slice(0, 700) ?? "";
+// The "exactly one offered term" rule now lives in `onlyOfferedStoredTerm`
+// (src/lib/rental-application/applicant-lease-term.ts); the wizard just calls it.
+const block = wizard.split("const soleListingTerm =")[1]?.slice(0, 700) ?? "";
 
 describe("lease term prefill from the listing", () => {
   it("only prefills when the listing offers exactly one term", () => {
-    expect(block).toContain("listingTerms.length === 1");
+    expect(block).toContain("onlyOfferedStoredTerm(listingOfferedLeaseTerms(pid))");
+    expect(onlyOfferedStoredTerm(["Long-term"])).toBe("Long-term");
+    expect(onlyOfferedStoredTerm(["Long-term", "Short-Term Stay"])).toBeNull();
   });
 
   it("never overwrites an answer the applicant already gave", () => {

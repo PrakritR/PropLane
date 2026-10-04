@@ -250,6 +250,9 @@ export const DELETE_ORDER = [
   "resident_move_in_forms",
   "resident_housemate_sharing",
   "manager_expense_entries",
+  // Saved payees after the expenses that reference one, and before the vendor directory
+  // row a vendor payee points at.
+  "manager_payees",
   "audit_log",
   // 3. foreign-key parents: journals, work orders, documents, properties
   "gl_journal_entries",

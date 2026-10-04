@@ -26,6 +26,13 @@ import { POST as EXPENSE_POST } from "@/app/api/expenses/route";
 const MANAGER = "mgr-1";
 const OTHER_MANAGER = "mgr-2";
 const TEAMMATE = "11111111-1111-4111-8111-111111111111";
+// Payee ids are uuids on the column, and `findOwnedPayee` reads a malformed one as
+// "not found" rather than letting Postgres refuse the cast — so the fixtures use
+// real uuids, otherwise every owned-payee lookup below 404s for the wrong reason.
+const MINE = "33333333-3333-4333-8333-333333333333";
+const THEIRS = "44444444-4444-4444-8444-444444444444";
+const ARCHIVED = "55555555-5555-4555-8555-555555555555";
+const ABSENT = "66666666-6666-4666-8666-666666666666";
 const STRANGER = "22222222-2222-4222-8222-222222222222";
 
 function payee(id: string, manager: string, extra: Row = {}): Row {
@@ -111,17 +118,17 @@ describe("/api/manager/payees", () => {
   });
 
   it("refuses to update or archive another manager's payee", async () => {
-    setup({ manager_payees: [payee("theirs", OTHER_MANAGER)] });
-    expect((await PATCH(req({ id: "theirs", name: "Mine now" }, "PATCH"))).status).toBe(404);
-    expect((await PATCH(req({ id: "theirs", archived: true }, "PATCH"))).status).toBe(404);
+    setup({ manager_payees: [payee(THEIRS, OTHER_MANAGER)] });
+    expect((await PATCH(req({ id: THEIRS, name: "Mine now" }, "PATCH"))).status).toBe(404);
+    expect((await PATCH(req({ id: THEIRS, archived: true }, "PATCH"))).status).toBe(404);
   });
 
   it("updates details and archives an owned payee", async () => {
-    const db = setup({ manager_payees: [payee("mine", MANAGER)] });
-    const updated = await PATCH(req({ id: "mine", phone: "555-0100" }, "PATCH"));
+    const db = setup({ manager_payees: [payee(MINE, MANAGER)] });
+    const updated = await PATCH(req({ id: MINE, phone: "555-0100" }, "PATCH"));
     expect(updated.status).toBe(200);
     expect(((await updated.json()) as { payee: { phone: string } }).payee.phone).toBe("555-0100");
-    expect((await PATCH(req({ id: "mine", archived: true }, "PATCH"))).status).toBe(200);
+    expect((await PATCH(req({ id: MINE, archived: true }, "PATCH"))).status).toBe(200);
     const rows = await (db.from("manager_payees") as unknown as PromiseLike<{ data: Row[] }>).then((r) => r.data);
     expect(rows[0]!.archived_at).toBeTruthy();
   });
@@ -135,25 +142,25 @@ describe("POST /api/expenses with payeeId", () => {
     });
 
   it("records the payee on the expense when it is the manager's own", async () => {
-    const db = setup({ manager_payees: [payee("mine", MANAGER)] });
-    const res = await EXPENSE_POST(body({ payeeId: "mine" }));
+    const db = setup({ manager_payees: [payee(MINE, MANAGER)] });
+    const res = await EXPENSE_POST(body({ payeeId: MINE }));
     expect(res.status).toBe(200);
     const rows = await (db.from("manager_expense_entries") as unknown as PromiseLike<{ data: Row[] }>).then((r) => r.data);
-    expect(rows[0]).toMatchObject({ manager_user_id: MANAGER, payee_id: "mine" });
+    expect(rows[0]).toMatchObject({ manager_user_id: MANAGER, payee_id: MINE });
   });
 
   it("refuses another manager's payee id with 404 and writes no expense", async () => {
-    const db = setup({ manager_payees: [payee("theirs", OTHER_MANAGER)] });
-    const res = await EXPENSE_POST(body({ payeeId: "theirs" }));
+    const db = setup({ manager_payees: [payee(THEIRS, OTHER_MANAGER)] });
+    const res = await EXPENSE_POST(body({ payeeId: THEIRS }));
     expect(res.status).toBe(404);
     const rows = await (db.from("manager_expense_entries") as unknown as PromiseLike<{ data: Row[] }>).then((r) => r.data);
     expect(rows).toHaveLength(0);
   });
 
   it("refuses an archived payee and a missing one the same way", async () => {
-    setup({ manager_payees: [payee("old", MANAGER, { archived_at: "2026-01-01T00:00:00Z" })] });
-    expect((await EXPENSE_POST(body({ payeeId: "old" }))).status).toBe(404);
-    expect((await EXPENSE_POST(body({ payeeId: "nope" }))).status).toBe(404);
+    setup({ manager_payees: [payee(ARCHIVED, MANAGER, { archived_at: "2026-01-01T00:00:00Z" })] });
+    expect((await EXPENSE_POST(body({ payeeId: ARCHIVED }))).status).toBe(404);
+    expect((await EXPENSE_POST(body({ payeeId: ABSENT }))).status).toBe(404);
   });
 
   it("still records an expense with no payee", async () => {

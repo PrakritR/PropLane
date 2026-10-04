@@ -33,29 +33,32 @@ function fakeScheduleRecordsDb(rows: Array<{ id: string; row_data: unknown }>) {
  * save still refuses.
  */
 describe("describeBookingConflict", () => {
+  // `end` is the INCLUSIVE last night (`lastNightBeforeCheckout`), and
+  // `formatBookingStayRange` derives the check-out day from it — so a hold whose
+  // last night is Sep 3 reads "Sep 1, 2026 – Sep 4, 2026".
   const conflict: Pick<PropertyBookingEntry, "roomLabel" | "start" | "end" | "openEnded" | "summary"> = {
     roomLabel: "Room 9",
     start: "2026-09-01",
-    end: "2026-08-31",
+    end: "2026-09-03",
     openEnded: false,
     summary: "Prakrit",
   };
 
   it("names the room, the dates, and the person — never a generic refusal", () => {
     expect(describeBookingConflict(conflict, "Room 1")).toBe(
-      "Room 9 is booked Sep 1, 2026 – Aug 31, 2026 by Prakrit",
+      "Room 9 is booked Sep 1, 2026 – Sep 4, 2026 by Prakrit",
     );
   });
 
   it("falls back to the field's own room label when the conflict has none", () => {
     expect(describeBookingConflict({ ...conflict, roomLabel: "" }, "Room 1")).toBe(
-      "Room 1 is booked Sep 1, 2026 – Aug 31, 2026 by Prakrit",
+      "Room 1 is booked Sep 1, 2026 – Sep 4, 2026 by Prakrit",
     );
   });
 
   it("drops the 'by <name>' clause when the conflicting entry has no name", () => {
     expect(describeBookingConflict({ ...conflict, summary: "" }, "Room 1")).toBe(
-      "Room 9 is booked Sep 1, 2026 – Aug 31, 2026",
+      "Room 9 is booked Sep 1, 2026 – Sep 4, 2026",
     );
   });
 });

@@ -171,30 +171,34 @@ export function ServiceAssignDialog({
               disabled={busy}
               dataAttr="service-assign-vendors"
             />
-            <label className="flex flex-wrap items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={marketplace}
-                disabled={busy}
-                onChange={(e) => setMarketplace(e.target.checked)}
-                data-attr="service-assign-marketplace"
-              />
-              <span>Also send to PropLane vendors within</span>
-              <select
-                aria-label="Marketplace radius"
-                value={radiusMi}
+            {/*
+              The radius picker is a sibling of the label, never a child of it: a `<label>`
+              forwards a click on any non-labelable descendant to its own control, so the
+              dropdown's trigger `<button>` would toggle the marketplace checkbox instead of
+              opening the menu (a native `<select>` was labelable, so it did not).
+            */}
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={marketplace}
+                  disabled={busy}
+                  onChange={(e) => setMarketplace(e.target.checked)}
+                  data-attr="service-assign-marketplace"
+                />
+                <span>Also send to PropLane vendors within</span>
+              </label>
+              <FieldSingleSelect
+                label="Marketplace radius"
+                hideLabel
+                variant="pill"
+                value={String(radiusMi)}
+                options={MARKETPLACE_RADIUS_OPTIONS.map((mi) => ({ value: String(mi), label: `${mi} mi` }))}
+                onChange={(next) => setRadiusMi(Number(next))}
                 disabled={busy || !marketplace}
-                onChange={(e) => setRadiusMi(Number(e.target.value))}
-                className="h-8 rounded-lg border border-border bg-card px-2 text-sm"
-                data-attr="service-assign-marketplace-radius"
-              >
-                {MARKETPLACE_RADIUS_OPTIONS.map((mi) => (
-                  <option key={mi} value={mi}>
-                    {mi} mi
-                  </option>
-                ))}
-              </select>
-            </label>
+                dataAttr="service-assign-marketplace-radius"
+              />
+            </div>
             <label className="block">
               <span className={MODAL_FIELD_LABEL_CLASS}>Note to vendors</span>
               <Input value={note} placeholder="Optional" onChange={(e) => setNote(e.target.value)} disabled={busy} data-attr="service-assign-note" />

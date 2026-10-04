@@ -95,7 +95,9 @@ describe("ManagerBookingsListView", () => {
     expect(blockMenu.textContent).toContain("Edit");
     expect(blockMenu.textContent).not.toContain("Move room");
     expect(blockMenu.textContent).toContain("Cancel booking");
-    expect(blockMenu.textContent).toContain("View");
+    // The row itself opens the booking record (`omitActionView`), so the ⋯ never
+    // repeats it — see the "row click opens the booking's own record page" case above.
+    expect(blockMenu.textContent).not.toContain("View");
     expect(blockMenu.textContent).not.toContain("Blocked");
     fireEvent.keyDown(document.body, { key: "Escape" });
 

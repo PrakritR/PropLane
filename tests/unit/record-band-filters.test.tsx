@@ -123,7 +123,8 @@ describe("the Assign popup is the standard frame", () => {
       </AppUiProvider>,
     );
     fireEvent.click(screen.getByRole("checkbox", { name: /PropLane vendors within/ }));
-    fireEvent.change(screen.getByLabelText("Marketplace radius"), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Marketplace radius" }));
+    fireEvent.click(within(screen.getByRole("listbox", { name: "Marketplace radius" })).getByRole("option", { name: "10 mi" }));
     fireEvent.change(document.querySelector('[data-attr="service-assign-note"]')!, { target: { value: "Back door" } });
     fireEvent.click(document.querySelector('[data-attr="service-assign-submit"]')!);
     await vi.waitFor(() => expect(onRequestBids).toHaveBeenCalled());
