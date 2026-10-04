@@ -330,6 +330,12 @@ export type DemoManagerWorkOrderRow = {
   expenseEntryIds?: string[];
   /** Logged by manager (not submitted by resident). */
   managerInitiated?: boolean;
+  /**
+   * Set on the vendor job behind an add-on service (`add-on-vendor-job.ts`): the add-on request this job serves.
+   * It is a vendor-bill-only record - no resident, no resident charge - and the manager's Services lists never
+   * show it as a service of its own.
+   */
+  linkedServiceRequestId?: string;
   /** Manager has invited the assigned vendor to submit a cost/time bid (see work_order_bids). */
   biddingOpen?: boolean;
   biddingOpenedAt?: string;

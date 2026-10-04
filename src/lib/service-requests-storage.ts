@@ -71,6 +71,12 @@ export type ServiceRequest = {
    * one place they get it, and `work-assignment.ts` decides who may be offered.
    */
   assignee?: WorkAssignee;
+  /**
+   * The vendor job behind this add-on, once the manager sends it to vendors: the id of a work order whose
+   * `linkedServiceRequestId` points back here (`add-on-vendor-job.ts`). The resident's charge stays on this
+   * request only; the linked job carries just the vendor's bill.
+   */
+  linkedWorkOrderId?: string;
   /** Checklist the manager attached when logging the service (`service-tasks.ts`). */
   tasks?: { id: string; title: string; done: boolean }[];
   // Return
@@ -452,6 +458,21 @@ export function deleteServiceRequestsForResident(residentEmail: string): number 
     for (const row of removedRows) deleteServiceRequestFromServer(row.id);
   }
   return removed;
+}
+
+/**
+ * The manager finishes an add-on (the header's next step once it is approved). It reads as Completed
+ * everywhere (`deriveAddOnStages`); unlike `submitReturnPhoto` it never marks the resident's fee paid.
+ */
+export function markServiceRequestDone(id: string): void {
+  const all = readAll();
+  const idx = all.findIndex((r) => r.id === id);
+  if (idx === -1) return;
+  const row = all[idx]!;
+  if (row.status !== "approved") return;
+  all[idx] = { ...row, status: "returned", returnedAt: new Date().toISOString() };
+  writeAll(all);
+  mirrorServiceRequestToServerBestEffort(all[idx]!);
 }
 
 export function submitReturnPhoto(id: string, photoDataUrl: string): void {

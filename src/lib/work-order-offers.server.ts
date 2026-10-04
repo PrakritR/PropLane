@@ -543,6 +543,7 @@ async function notifyManagerOfDeclinedOffer(
       note: input.reason ?? undefined,
       toUserIds: recipientIds,
       audience: "manager",
+      serviceId: input.workOrderId,
     });
   } catch {
     // Swallowed on purpose: the vendor said no, and that answer must survive a mail outage.

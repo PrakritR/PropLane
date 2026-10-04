@@ -8,15 +8,16 @@
  * Two kinds of assignee, and the distinction is load-bearing:
  *
  *   - a **team member** (co-manager) can take anything — a service, a work order, a tour, a task;
- *   - a **vendor** can take staff TASK work and MAINTENANCE work orders only — not tours (they do
- *     not show prospects around) and not add-on services (those stay with the manager team).
+ *   - a **vendor** can take staff TASK work, MAINTENANCE work orders and an add-on SERVICE (through its
+ *     linked vendor job, `add-on-vendor-job.ts`) — not tours (they do not show prospects around).
+ *     The add-on's own assignee picker stays team-only; a vendor reaches it only by being sent the job.
  *     `assignableKindsFor` is the one place that rule lives, so a new surface cannot quietly
  *     offer a vendor a tour.
  */
 
 /**
- * What can be assigned. `service` is an add-on request (manager team only);
- * `maintenance` is a work order — the one kind of service a vendor is dispatched to.
+ * What can be assigned. `service` is an add-on request (the manager team directly, a vendor through its
+ * linked vendor job); `maintenance` is a work order — dispatched to vendors by offers and bids.
  */
 export type AssignableWorkKind = "service" | "maintenance" | "tour" | "task";
 
@@ -44,11 +45,11 @@ export type AssignmentCandidate = {
 /**
  * Which assignee types may take this kind of work.
  *
- * Vendors are task-only. Keeping this as one function rather than a check at each picker is
+ * Vendors never take a tour. Keeping this as one function rather than a check at each picker is
  * what stops a future surface from offering a vendor a tour by omission.
  */
 export function assignableKindsFor(type: AssigneeType): AssignableWorkKind[] {
-  return type === "vendor" ? ["task", "maintenance"] : ["service", "maintenance", "tour", "task"];
+  return type === "vendor" ? ["task", "maintenance", "service"] : ["service", "maintenance", "tour", "task"];
 }
 
 export function canAssign(type: AssigneeType, kind: AssignableWorkKind): boolean {

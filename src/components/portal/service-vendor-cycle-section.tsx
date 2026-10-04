@@ -1,50 +1,43 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, Clock, Receipt, Scale, UserRound } from "lucide-react";
+import { CalendarDays, Clock, Receipt, Scale, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { RecordBandFilter, RecordListBand } from "@/components/portal/record-list-band";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
+import { MARKETPLACE_RADIUS_OPTIONS } from "@/components/portal/service-assign-dialog";
 import { formatServiceMoney } from "@/lib/manager-service-workflow";
+import { ADD_ON_NEXT_STEP_LABEL } from "@/lib/service-header-next-step";
+import { formatServiceWhen, vendorRequestFact } from "@/lib/service-lifecycle";
 import {
-  SERVICE_STAGE_LABEL,
-  SERVICE_STAGE_TABS,
-  VENDOR_ANSWER_TABS,
-  formatServiceWhen,
-  vendorAnswerGroup,
-  vendorRequestFact,
-  type ServiceStage,
-  type VendorAnswerGroup,
-} from "@/lib/service-lifecycle";
+  PIPELINE_PRIVACY_LINE,
+  PIPELINE_TABS,
+  PIPELINE_TAB_LABEL,
+  defaultPipelineTab,
+  pipelineJobFact,
+  sendBarState,
+  type PipelineCandidate,
+  type PipelineJobRow,
+  type PipelineTabId,
+  type ServicePipeline,
+} from "@/lib/service-pipeline";
 import { compareBids, type VendorRequestRow } from "@/lib/work-order-bid-cycle";
+import type { PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
 
 /** Open the Vendors section on a given tab, optionally in the side-by-side compare view (the header's Compare bids). */
-export type VendorsIntent = { tab?: VendorAnswerGroup; compare?: boolean; nonce: number };
+export type VendorsIntent = { tab?: PipelineTabId; compare?: boolean; nonce: number };
 
-const FACT_ICON: Record<VendorAnswerGroup, typeof Clock> = {
-  requested: Clock,
-  estimates: Receipt,
-  bids: Receipt,
-  approved: Receipt,
-  declined: Clock,
-};
-
-const EMPTY_TITLE: Record<VendorAnswerGroup, string> = {
-  requested: "No vendors waiting to answer",
-  estimates: "No estimates yet",
+const EMPTY_TITLE: Record<PipelineTabId, string> = {
+  available: "No vendors to send this job to",
+  sent: "Nothing sent yet",
   bids: "No bids yet",
-  approved: "No bid approved yet",
-  declined: "Nobody declined",
+  scheduled: "Nobody scheduled yet",
+  done: "Nothing done yet",
 };
-
-/** The tab a service's Vendors section opens on: where the most useful answers are. */
-function firstTab(counts: Record<VendorAnswerGroup, number>): VendorAnswerGroup {
-  for (const id of ["bids", "estimates", "requested", "approved", "declined"] as const) if (counts[id] > 0) return id;
-  return "requested";
-}
 
 function CompareCards({
   rows,
@@ -103,196 +96,304 @@ function CompareCards({
   );
 }
 
-/**
- * The Vendors section of a service: ONE band - Requested · Estimates · Bids · Approved · Declined
- * with counts, search, the vendor Filter, a Compare toggle on Bids (two or more) and the round +
- * (Add vendors, which opens the Request bids / Assign popup) -
- * then one row per requested vendor under the tab its answer has reached. Approve bid exists only on
- * a Bids row (an estimate is a number on the row, never a thing to approve); Compare lays every
- * submitted bid side by side.
- */
-export function ServiceVendorCycleSection({
-  stage,
-  requests,
-  approvingBidId,
-  intent,
-  onRequestBids,
-  onApprove,
-  onMessage,
-  onRemove,
-  emptyTitle = "No vendors on this service",
-  lead,
-}: {
-  /** The service's stage; the tab resets when it changes (an approved bid moves the view to Approved). */
-  stage: ServiceStage;
-  requests: readonly VendorRequestRow[];
-  approvingBidId: string | null;
-  intent?: VendorsIntent | null;
-  /** The round +: opens the Request bids / Assign popup on Request bids. */
-  onRequestBids: () => void;
-  onApprove: (row: VendorRequestRow) => void;
-  onMessage: (row: VendorRequestRow) => void;
-  onRemove: (row: VendorRequestRow) => void;
-  emptyTitle?: string;
-  /** Cards between the band and the rows (the assigned vendor, PropLane's suggestion). */
-  lead?: ReactNode;
-}) {
-  const counts = useMemo(() => {
-    const c = Object.fromEntries(VENDOR_ANSWER_TABS.map(({ id }) => [id, 0])) as Record<VendorAnswerGroup, number>;
-    for (const row of requests) c[vendorAnswerGroup(row.state)] += 1;
-    return c;
-  }, [requests]);
-  const [tab, setTab] = useState<VendorAnswerGroup>(() => intent?.tab ?? (stage === "open" ? firstTab(counts) : "approved"));
-  const [compare, setCompare] = useState(Boolean(intent?.compare));
-  const [seen, setSeen] = useState({ stage, nonce: intent?.nonce ?? 0 });
-  if (seen.stage !== stage || seen.nonce !== (intent?.nonce ?? 0)) {
-    setSeen({ stage, nonce: intent?.nonce ?? 0 });
-    setTab(intent?.tab ?? (stage === "open" ? firstTab(counts) : "approved"));
-    setCompare(Boolean(intent?.compare));
-  }
-  const [search, setSearch] = useState("");
-  const [vendorFilter, setVendorFilter] = useState("");
-  const keyOf = (row: VendorRequestRow) => row.vendorDirectoryId ?? row.vendorUserId ?? row.key;
-  const vendorOptions = useMemo(
-    () => [...new Map(requests.map((r) => [r.vendorDirectoryId ?? r.vendorUserId ?? r.key, r.vendorName])).entries()].map(([value, label]) => ({ value, label })),
-    [requests],
-  );
-  const inTab = useMemo(() => requests.filter((row) => vendorAnswerGroup(row.state) === tab), [requests, tab]);
-  const shown = useMemo(
-    () => inTab.filter((row) => (!vendorFilter || keyOf(row) === vendorFilter) && matchesPortalListSearch(search, row.vendorName, row.note ?? "")),
-    [inTab, vendorFilter, search],
-  );
-  const lowestKeys = useMemo(() => new Set(compareBids(requests).filter((b) => b.lowest).map((b) => b.key)), [requests]);
-  const bidCount = counts.bids;
-  const comparing = tab === "bids" && compare && bidCount > 1;
-
-  return (
-    <RecordListBand
-      dataAttr="service-vendor-cycle"
-      ariaLabel="Vendor answers"
-      tabs={VENDOR_ANSWER_TABS.map(({ id, label }) => ({ id, label, count: counts[id] }))}
-      activeId={tab}
-      onChange={(id) => setTab(id as VendorAnswerGroup)}
-      search={{ value: search, onChange: setSearch, placeholder: "Search vendors" }}
-      actions={
-        <>
-          {tab === "bids" && bidCount > 1 ? (
-            <PortalIconAction
-              icon={Scale}
-              label="Compare"
-              active={compare}
-              data-attr="service-compare-toggle"
-              onClick={() => setCompare((on) => !on)}
-            />
-          ) : null}
-          <RecordBandFilter
-            dataAttr="service-vendor-cycle"
-            fields={vendorOptions.length > 0 ? [{ id: "vendor", label: "Vendor", anyLabel: "Any vendor", value: vendorFilter, options: vendorOptions, onChange: setVendorFilter }] : []}
-          />
-        </>
-      }
-      plus={{ label: "Add vendors", onClick: onRequestBids, dataAttr: "service-request-more-vendors" }}
-      isEmpty={comparing ? false : shown.length === 0}
-      emptyTitle={search.trim() || vendorFilter ? "No vendors match" : requests.length === 0 ? emptyTitle : EMPTY_TITLE[tab]}
-      middle={lead}
-    >
-      {comparing ? (
-        <CompareCards rows={requests.filter((row) => row.state === "bid")} approvingBidId={approvingBidId} onApprove={onApprove} />
-      ) : (
-        shown.map((row) => {
-          const total = row.bidTotalCents;
-          const group = vendorAnswerGroup(row.state);
-          const figure = total != null ? formatServiceMoney(total) : row.estimateCents != null ? formatServiceMoney(row.estimateCents) : undefined;
-          const figureLabel = total != null ? "bid" : row.estimateCents != null ? "estimate" : undefined;
-          const approving = approvingBidId === row.bidId;
-          const FactIcon = row.state === "visit_booked" || row.state === "visit_done" ? CalendarDays : FACT_ICON[group];
-          return (
-            <PortalApplicantRecordRow
-              key={row.key}
-              name={`${row.vendorName}${group === "bids" && lowestKeys.has(row.key) && bidCount > 1 ? " · Lowest" : ""}`}
-              tileLabel={row.vendorName}
-              facts={<PortalRowFact icon={FactIcon}>{vendorRequestFact(row)}</PortalRowFact>}
-              amount={figure}
-              amountSubLabel={figureLabel}
-              dataAttr="service-vendor-request-row"
-              actions={
-                <div className="flex items-center gap-1">
-                  {group === "bids" ? (
-                    <Button
-                      type="button"
-                      variant="primary"
-                      data-attr="service-approve-bid"
-                      className="h-7 rounded-full px-3 text-xs"
-                      disabled={!row.canApprove || approving}
-                      aria-label={`Approve bid from ${row.vendorName}`}
-                      onClick={() => onApprove(row)}
-                    >
-                      {approving ? "Approving…" : "Approve bid"}
-                    </Button>
-                  ) : null}
-                  <RowActionsMenu
-                    label={row.vendorName}
-                    items={[
-                      { id: "message", label: "Message", onSelect: () => onMessage(row), dataAttr: "service-vendor-request-message" },
-                      row.state === "approved"
-                        ? null
-                        : { id: "remove", label: "Remove request", danger: true, onSelect: () => onRemove(row), dataAttr: "service-vendor-request-remove" },
-                    ]}
-                  />
-                </div>
-              }
-            />
-          );
-        })
-      )}
-    </RecordListBand>
-  );
+/** What a Bids row says: the bid, with the vendor's earlier estimate beside it when they gave one. */
+function bidFact(row: VendorRequestRow): string {
+  const estimate = row.estimateCents != null ? `Estimate ${formatServiceMoney(row.estimateCents)}` : "";
+  return [vendorRequestFact(row), estimate].filter(Boolean).join(" · ");
 }
 
 /**
- * Vendors for an add-on service request. It has no vendors (they cannot take add-ons), so the band
- * uses the same four stage words and the one row under the current tab is whoever is handling it.
+ * The Vendors section of a service - the job's whole vendor workflow, in order, for BOTH models
+ * (maintenance and an add-on's linked vendor job): Available (tick vendors, "Send job to N") - Sent
+ * (waiting; Withdraw) - Bids (price and time; Approve) - Scheduled (visit time; Reschedule, Mark done) -
+ * Done (amount; Pay). One band with counts; rows are a vendor tile, the name, the trade and plain glyph
+ * facts - never a badge. Approve exists only on a Bids row (an estimate is a fact on a row, never a thing to
+ * approve) and the host performs every write.
  */
-export function AddOnCycleSection({
-  currentStage,
-  assignee,
-  onOpenAssign,
+export function ServiceVendorPipeline({
+  pipeline,
+  trade,
+  intent,
+  sending,
+  approvingBidId,
+  allowMarketplace = true,
+  onSend,
+  onWithdraw,
+  onApprove,
+  onSchedule,
+  onMarkDone,
+  onPay,
+  onMessage,
+  lead,
 }: {
-  currentStage: ServiceStage;
-  assignee: { name: string } | null;
-  onOpenAssign: () => void;
+  pipeline: ServicePipeline;
+  /** The job's trade, sent with the marketplace reach. */
+  trade: string;
+  intent?: VendorsIntent | null;
+  sending: boolean;
+  approvingBidId: string | null;
+  /** False where the PropLane marketplace cannot be reached (the demo). */
+  allowMarketplace?: boolean;
+  onSend: (vendorIds: string[], marketplace: PublishMarketplaceOptions | undefined) => void | Promise<void>;
+  onWithdraw: (row: VendorRequestRow) => void;
+  onApprove: (row: VendorRequestRow) => void;
+  onSchedule: (row: PipelineJobRow) => void;
+  onMarkDone: (row: PipelineJobRow) => void;
+  onPay: (row: PipelineJobRow) => void;
+  onMessage: (vendorName: string) => void;
+  /** Cards between the band and the rows (the hired vendor's contact card, PropLane's suggestion). */
+  lead?: ReactNode;
 }) {
-  const [tab, setTab] = useState<ServiceStage>(currentStage);
-  const [prevCurrent, setPrevCurrent] = useState(currentStage);
-  if (currentStage !== prevCurrent) {
-    setPrevCurrent(currentStage);
-    setTab(currentStage);
+  const { counts } = pipeline;
+  const startTab = defaultPipelineTab(counts);
+  const [tab, setTab] = useState<PipelineTabId>(() => intent?.tab ?? startTab);
+  const [compare, setCompare] = useState(Boolean(intent?.compare));
+  // The view follows the job: an approved bid moves it to Scheduled, a send to Sent. A header intent wins.
+  const [seen, setSeen] = useState({ startTab, nonce: intent?.nonce ?? 0 });
+  if (seen.startTab !== startTab || seen.nonce !== (intent?.nonce ?? 0)) {
+    setSeen({ startTab, nonce: intent?.nonce ?? 0 });
+    setTab(intent && intent.nonce !== seen.nonce && intent.tab ? intent.tab : startTab);
+    setCompare(Boolean(intent?.compare && intent.nonce !== seen.nonce));
   }
   const [search, setSearch] = useState("");
-  const here = (id: ServiceStage) => Boolean(assignee) && id === currentStage && currentStage !== "open";
-  const rowsHere = here(tab) && assignee ? [assignee] : [];
-  const shown = rowsHere.filter((a) => matchesPortalListSearch(search, a.name));
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [marketplace, setMarketplace] = useState(false);
+  const [radiusMi, setRadiusMi] = useState<number>(5);
+
+  const nameOptions = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const row of pipeline.sent) names.set(row.vendorName, row.vendorName);
+    for (const row of pipeline.bids) names.set(row.vendorName, row.vendorName);
+    for (const row of pipeline.scheduled) names.set(row.vendorName, row.vendorName);
+    for (const row of pipeline.done) names.set(row.vendorName, row.vendorName);
+    for (const row of pipeline.available) names.set(row.name, row.name);
+    return [...names.keys()].map((value) => ({ value, label: value }));
+  }, [pipeline]);
+  const keep = (name: string, extra = "") => (!vendorFilter || name === vendorFilter) && matchesPortalListSearch(search, name, extra);
+
+  const available = pipeline.available.filter((row) => keep(row.name, row.trade));
+  const sent = pipeline.sent.filter((row) => keep(row.vendorName, row.note ?? ""));
+  const bids = pipeline.bids.filter((row) => keep(row.vendorName, row.note ?? ""));
+  const scheduled = pipeline.scheduled.filter((row) => keep(row.vendorName));
+  const done = pipeline.done.filter((row) => keep(row.vendorName));
+  const shownCount = { available: available.length, sent: sent.length, bids: bids.length, scheduled: scheduled.length, done: done.length }[tab];
+  const comparing = tab === "bids" && compare && pipeline.bids.length > 1;
+  const lowestKeys = useMemo(() => new Set(compareBids(pipeline.bids).filter((b) => b.lowest).map((b) => b.key)), [pipeline.bids]);
+
+  const bar = sendBarState(picked.length, marketplace && allowMarketplace);
+  const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
+  const send = async () => {
+    const ids = picked.slice(0, bar.count);
+    await onSend(ids, marketplace && allowMarketplace ? { enabled: true, trade, radiusMi } : undefined);
+    setPicked([]);
+    setMarketplace(false);
+  };
+
+  const availableRow = (candidate: PipelineCandidate) => (
+    <PortalApplicantRecordRow
+      key={candidate.id}
+      name={candidate.name}
+      address={candidate.trade || undefined}
+      facts={candidate.matchesTrade ? undefined : <PortalRowFact icon={Wrench}>Other trade</PortalRowFact>}
+      checked={picked.includes(candidate.id)}
+      onSelectedChange={() => toggle(candidate.id)}
+      selectLabel={candidate.name}
+      dataAttr="service-pipeline-available-row"
+    />
+  );
+
+  const requestRow = (row: VendorRequestRow, group: "sent" | "bids") => {
+    const total = row.bidTotalCents;
+    const approving = approvingBidId === row.bidId;
+    const declined = row.state === "declined";
+    return (
+      <PortalApplicantRecordRow
+        key={row.key}
+        name={`${row.vendorName}${group === "bids" && lowestKeys.has(row.key) && pipeline.bids.length > 1 ? " · Lowest" : ""}`}
+        tileLabel={row.vendorName}
+        facts={
+          <PortalRowFact icon={row.state === "visit_booked" || row.state === "visit_done" ? CalendarDays : group === "bids" ? Receipt : Clock}>
+            {group === "bids" ? bidFact(row) : vendorRequestFact(row)}
+          </PortalRowFact>
+        }
+        amount={group === "bids" && total != null ? formatServiceMoney(total) : undefined}
+        amountSubLabel={group === "bids" && total != null ? "bid" : undefined}
+        dataAttr={group === "bids" ? "service-pipeline-bid-row" : "service-pipeline-sent-row"}
+        actions={
+          <div className="flex items-center gap-1">
+            {group === "bids" ? (
+              <Button
+                type="button"
+                variant="primary"
+                data-attr="service-approve-bid"
+                className="h-7 rounded-full px-3 text-xs"
+                disabled={!row.canApprove || approving}
+                aria-label={`Approve bid from ${row.vendorName}`}
+                onClick={() => onApprove(row)}
+              >
+                {approving ? "Approving…" : "Approve bid"}
+              </Button>
+            ) : declined ? null : (
+              <Button
+                type="button"
+                variant="outline"
+                data-attr="service-withdraw-request"
+                className="h-7 rounded-full px-3 text-xs"
+                aria-label={`Withdraw from ${row.vendorName}`}
+                onClick={() => onWithdraw(row)}
+              >
+                Withdraw
+              </Button>
+            )}
+            <RowActionsMenu
+              label={row.vendorName}
+              items={[{ id: "message", label: "Message", onSelect: () => onMessage(row.vendorName), dataAttr: "service-vendor-request-message" }]}
+            />
+          </div>
+        }
+      />
+    );
+  };
+
+  const jobRow = (row: PipelineJobRow, group: "scheduled" | "done") => (
+    <PortalApplicantRecordRow
+      key={row.key}
+      name={row.vendorName}
+      facts={<PortalRowFact icon={CalendarDays}>{pipelineJobFact(row, formatServiceWhen)}</PortalRowFact>}
+      amount={row.amountCents != null ? formatServiceMoney(row.amountCents) : undefined}
+      dataAttr={group === "scheduled" ? "service-pipeline-scheduled-row" : "service-pipeline-done-row"}
+      actions={
+        <div className="flex items-center gap-1">
+          {group === "scheduled" ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                data-attr="service-reschedule"
+                className="h-7 rounded-full px-3 text-xs"
+                aria-label={row.visitAt ? `Reschedule ${row.vendorName}` : `Schedule ${row.vendorName}`}
+                onClick={() => onSchedule(row)}
+              >
+                {row.visitAt ? "Reschedule" : "Schedule"}
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                data-attr="service-mark-done"
+                className="h-7 rounded-full px-3 text-xs"
+                aria-label={`Mark ${row.vendorName}'s job done`}
+                onClick={() => onMarkDone(row)}
+              >
+                {ADD_ON_NEXT_STEP_LABEL["mark-done"]}
+              </Button>
+            </>
+          ) : row.canPay ? (
+            <Button
+              type="button"
+              variant="primary"
+              data-attr="service-pay-vendor"
+              className="h-7 rounded-full px-3 text-xs"
+              aria-label={`Pay ${row.vendorName}`}
+              onClick={() => onPay(row)}
+            >
+              Pay
+            </Button>
+          ) : null}
+          <RowActionsMenu
+            label={row.vendorName}
+            items={[{ id: "message", label: "Message", onSelect: () => onMessage(row.vendorName), dataAttr: "service-vendor-request-message" }]}
+          />
+        </div>
+      }
+    />
+  );
+
   return (
-    <RecordListBand
-      dataAttr="service-vendor-cycle"
-      ariaLabel="Service stage"
-      tabs={SERVICE_STAGE_TABS.map((t) => ({ ...t, count: here(t.id) ? 1 : 0 }))}
-      activeId={tab}
-      onChange={(id) => setTab(id as ServiceStage)}
-      search={{ value: search, onChange: setSearch, placeholder: "Search team" }}
-      plus={{ label: "Add assignee", onClick: onOpenAssign, dataAttr: "service-assign-open" }}
-      isEmpty={shown.length === 0}
-      emptyTitle={search.trim() ? "No team members match" : assignee ? `Nobody in ${SERVICE_STAGE_LABEL[tab].toLowerCase()}` : "Nobody assigned yet"}
-    >
-      {shown.map((a) => (
-        <PortalApplicantRecordRow
-          key={a.name}
-          name={a.name}
-          tileIcon={UserRound}
-          facts={<PortalRowFact icon={Clock}>{SERVICE_STAGE_LABEL[currentStage]}</PortalRowFact>}
-          dataAttr="service-vendor-request-row"
-        />
-      ))}
-    </RecordListBand>
+    <div data-attr="service-vendor-pipeline">
+      <RecordListBand
+        dataAttr="service-vendor-cycle"
+        ariaLabel="Vendors"
+        tabs={PIPELINE_TABS.map((id) => ({ id, label: PIPELINE_TAB_LABEL[id], count: counts[id] }))}
+        activeId={tab}
+        onChange={(id) => setTab(id as PipelineTabId)}
+        search={{ value: search, onChange: setSearch, placeholder: "Search vendors" }}
+        actions={
+          <>
+            {tab === "bids" && pipeline.bids.length > 1 ? (
+              <PortalIconAction icon={Scale} label="Compare" active={compare} data-attr="service-compare-toggle" onClick={() => setCompare((on) => !on)} />
+            ) : null}
+            <RecordBandFilter
+              dataAttr="service-vendor-cycle"
+              fields={nameOptions.length > 1 ? [{ id: "vendor", label: "Vendor", anyLabel: "Any vendor", value: vendorFilter, options: nameOptions, onChange: setVendorFilter }] : []}
+            />
+          </>
+        }
+        isEmpty={comparing ? false : shownCount === 0}
+        emptyTitle={search.trim() || vendorFilter ? "No vendors match" : EMPTY_TITLE[tab]}
+        middle={lead}
+      >
+        {comparing ? (
+          <CompareCards rows={pipeline.bids} approvingBidId={approvingBidId} onApprove={onApprove} />
+        ) : tab === "available" ? (
+          available.map(availableRow)
+        ) : tab === "sent" ? (
+          sent.map((row) => requestRow(row, "sent"))
+        ) : tab === "bids" ? (
+          bids.map((row) => requestRow(row, "bids"))
+        ) : tab === "scheduled" ? (
+          scheduled.map((row) => jobRow(row, "scheduled"))
+        ) : (
+          done.map((row) => jobRow(row, "done"))
+        )}
+      </RecordListBand>
+      {tab === "available" ? (
+        <div
+          className="sticky bottom-0 z-10 mt-2 border-t border-border bg-card/95 px-3 py-3 backdrop-blur sm:px-4"
+          data-attr="service-send-bar"
+        >
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {allowMarketplace ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={marketplace}
+                    disabled={sending}
+                    onChange={(e) => setMarketplace(e.target.checked)}
+                    data-attr="service-send-marketplace"
+                  />
+                  <span>Also send to PropLane vendors within</span>
+                </label>
+                <FieldSingleSelect
+                  label="Marketplace radius"
+                  hideLabel
+                  variant="pill"
+                  value={String(radiusMi)}
+                  options={MARKETPLACE_RADIUS_OPTIONS.map((mi) => ({ value: String(mi), label: `${mi} mi` }))}
+                  onChange={(next) => setRadiusMi(Number(next))}
+                  disabled={sending || !marketplace}
+                  dataAttr="service-send-marketplace-radius"
+                />
+              </div>
+            ) : null}
+            <Button
+              type="button"
+              variant="primary"
+              className="ml-auto h-9 rounded-full px-5 text-sm"
+              data-attr="service-send-job"
+              disabled={bar.disabled || sending}
+              onClick={() => void send()}
+            >
+              {sending ? "Sending…" : bar.label}
+            </Button>
+          </div>
+          <p className="mt-2 text-[12.5px] text-muted" data-attr="service-send-privacy">
+            {PIPELINE_PRIVACY_LINE}
+            {bar.capped ? " Up to 10 vendors per send." : ""}
+          </p>
+        </div>
+      ) : null}
+    </div>
   );
 }

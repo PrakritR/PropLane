@@ -3,13 +3,10 @@
 import Image from "next/image";
 import { useState, type ReactNode } from "react";
 import { Check, Pencil } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { RecordTabBand } from "@/components/portal/record-list-band";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
-import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import { cn } from "@/lib/utils";
 import type { StageBarItem } from "@/lib/work-order-bid-cycle";
 import type { ServiceActivityEvent } from "@/lib/service-activity";
@@ -126,59 +123,5 @@ export function ServiceDetailsSection({
           })
         : null}
     </div>
-  );
-}
-
-/** Edit an add-on request's charges (the same two fields, and the same write, as the header Edit on a pending request). */
-export function AddOnEditDialog({
-  open,
-  title,
-  price,
-  deposit,
-  onClose,
-  onSave,
-}: {
-  open: boolean;
-  title: string;
-  price: string;
-  deposit: string;
-  onClose: () => void;
-  onSave: (next: { price: string; deposit: string }) => void;
-}) {
-  const [priceDraft, setPriceDraft] = useState(price);
-  const [depositDraft, setDepositDraft] = useState(deposit);
-  const [seed, setSeed] = useState({ price, deposit, open });
-  if (seed.open !== open || seed.price !== price || seed.deposit !== deposit) {
-    setSeed({ price, deposit, open });
-    if (open) {
-      setPriceDraft(price);
-      setDepositDraft(deposit);
-    }
-  }
-  return (
-    <PortalDialog
-      open={open}
-      onClose={onClose}
-      title={`Edit ${title}`}
-      primaryAction={{
-        label: "Save changes",
-        onClick: () => {
-          onSave({ price: priceDraft.trim(), deposit: depositDraft.trim() });
-          onClose();
-        },
-        dataAttr: "service-edit-save",
-      }}
-    >
-      <div className="space-y-4" data-attr="service-edit-dialog">
-        <label className="block text-xs font-medium text-muted">
-          Service fee
-          <Input value={priceDraft} inputMode="decimal" placeholder="$0" onChange={(e) => setPriceDraft(sanitizeMoneyInput(e.target.value))} data-attr="service-edit-price" />
-        </label>
-        <label className="block text-xs font-medium text-muted">
-          Deposit
-          <Input value={depositDraft} inputMode="decimal" placeholder="$0" onChange={(e) => setDepositDraft(sanitizeMoneyInput(e.target.value))} data-attr="service-edit-deposit" />
-        </label>
-      </div>
-    </PortalDialog>
   );
 }

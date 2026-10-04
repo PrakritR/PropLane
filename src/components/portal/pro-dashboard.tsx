@@ -1,4 +1,5 @@
 "use client";
+import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -853,7 +854,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     // A general property maintenance row (no resident named at all) is never
     // "orphaned" — only a row that names an email with no surviving directory
     // row is dropped.
-    const managerWorkOrders = readManagerWorkOrderRows().filter(
+    const managerWorkOrders = withoutLinkedVendorJobs(readManagerWorkOrderRows()).filter(
       (w) =>
         moduleRowVisibleToPortalUser(w, userId, "services") &&
         (!w.residentEmail?.trim() || isLinkedToDirectoryResident(w.residentEmail, directoryEmails)),

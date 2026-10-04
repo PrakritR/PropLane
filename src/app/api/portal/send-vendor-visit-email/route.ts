@@ -83,7 +83,15 @@ export async function POST(req: Request) {
     const { emailSent, inboxDelivered, skippedDemoEmail } = await sendVendorNotification(
       db,
       { userId: user.id, email: (profile?.email ?? user.email ?? "").trim().toLowerCase(), fullName: profile?.full_name?.trim() || "" },
-      { vendorEmail, vendorDirectoryId: vendorId || null, subject, body: messageBody, topic: kind === "bid_offer" ? "offers" : "schedule" },
+      {
+        vendorEmail,
+        vendorDirectoryId: vendorId || null,
+        subject,
+        body: messageBody,
+        topic: kind === "bid_offer" ? "offers" : "schedule",
+        // The visit / offer notice is about this service: stamp the thread for its own Communication tab.
+        ...(String(body.workOrderId ?? "").trim() ? { service: { id: String(body.workOrderId).trim(), title: workOrderTitle } } : {}),
+      },
     );
 
     track(kind === "bid_offer" ? "work_order_bid_offer_sent" : "work_order_vendor_email_sent", user.id, {

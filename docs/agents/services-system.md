@@ -46,15 +46,24 @@ from it; never re-declare a stage label or tab set.
   (`SERVICE_DETAIL_TAB_ALIASES`). A saved link never falls home.
 - **Retired words** (`tests/unit/service-vocabulary.test.ts` fails them in service / vendor / task UI
   copy): "Vendor & schedule", "Mark done", "Publish to vendors", "Compare quotes", "Potential",
-  "Send quote", "Add quote". Pending / Active / Past / Done as a service state are retired too.
+  "Send quote", "Add quote". Pending / Active / Past / Done as a service state are retired too. One
+  deliberate exception: the add-on header's finishing step reads "Mark done" (the approved studio plan),
+  defined once in `src/lib/service-header-next-step.ts` and allow-listed there; maintenance keeps "Complete".
 - **The service record** (`record-sections.ts` `service`): rail Service - Vendors | Linked: Incoming
-  payments - Outgoing payments - Communication. Header icons in order: Message - Edit - Request bids or
-  assign - Schedule - more (Cancel service and Delete, the only red items) - then ONE primary, the next
-  step from the lifecycle (Request bids, Approve bid on one bid, Compare bids only with two or more,
-  Schedule, Complete, Pay; `managerServiceNextStep`, which the Service tab's "Needs you" row reads
-  too, so the header and the overview never name different next steps). "Request bids or assign" is one dialog (`ServiceAssignDialog`): Request
-  bids (your vendors, up to 10, optionally PropLane vendors within a radius through the existing
-  marketplace reach in `sendWorkOrderVendorOffers`) - A vendor - A teammate - Me.
+  payments - Outgoing payments - Communication, the same for an add-on and a maintenance service. ONE
+  header for both kinds: Message - Edit - more (⋯) - then the next step as the ONE labeled primary button
+  (`portalLabeledPrimarySpec`; every other header control is an icon). The ⋯ holds the red items: Decline
+  request + Delete on an add-on, Cancel service + Delete on maintenance (and, not red, Reschedule /
+  Auto-schedule / Leave a review where they apply). An add-on's primary follows its status
+  (`addOnHeaderNextStep`): pending -> Approve, approved -> Mark done, nothing once returned or declined; a
+  maintenance service's is `managerServiceNextStep` (Request bids, Approve bid on one bid, Compare bids only
+  with two or more, Schedule, Complete, Pay), which the Service tab's "Needs you" row reads too, so the
+  header and the overview never name different next steps. Request bids / Approve bid / Compare bids open
+  Vendors on the right tab. Edit opens `ServiceEditPopup` (the New property shell: Service - Home - Price -
+  Schedule) for both kinds; the inline price pencil is gone. The Service tab's one assignment card is
+  "Who's doing it" (`ServiceWhoCard`): nobody yet -> "Assign someone on your team" (`ServiceAssignDialog`,
+  team only, titled Assign) or "Send to vendors" (Vendors > Available); someone on it -> who, the visit and
+  the price.
 
 ## Estimate vs bid, and the service cycle (vendor-bids-1003)
 
@@ -110,13 +119,19 @@ Overview and Photos are one Service tab (the resident's photos are a strip insid
 Incoming payments. Old `/overview`, `/photos`,
 `/payments` links redirect (`SERVICE_DETAIL_TAB_ALIASES`). The Service tab opens with the stage
 stepper (Open · Assigned · Scheduled · Completed, + Paid for a vendor job; derived, never stored);
-Vendors is one band (Requested · Estimates · Bids · Approved · Declined) with one row per requested
-vendor (`deriveVendorRequestRows`), Approve bid only on a Bids row, a Compare toggle (only with two
-or more bids) and a + reading **Add vendors**. The vendor answers on their own service page, in
+Vendors is one pipeline (`ServiceVendorPipeline`, bucketed by `buildServicePipeline` in
+`src/lib/service-pipeline.ts`): **Available - Sent - Bids - Scheduled - Done** with counts. Available =
+your roster vendors that match the job's trade and have not been offered it (every roster vendor when none
+match), a checkbox per row and a sticky "Send job to N" bar (max 10; an opt-in PropLane marketplace radius;
+"Vendors see the general area only until you approve one."). Sent = open offers, estimates and vendors who
+declined, with Withdraw. Bids = submitted bids only, Approve bid on each, a Compare toggle with two or more.
+Scheduled = the approved vendor, visit time, Reschedule / Schedule and Mark done. Done = amount and To pay /
+Paid, Pay while it is owed. Rows are a vendor tile, the name, the trade and plain glyph facts - never a
+badge. The Requested / Estimates / Bids / Approved / Declined tab set and `AddOnCycleSection` are retired
+(an estimate stays visible as a fact on the vendor's Sent or Bids row; it is still never approvable). The vendor answers on their own service page, in
 `VendorEstimateBidSection` ("Estimate & bid", choices from `vendorReplyChoices`).
 
-**Flow.** The manager requests vendors from the service's Vendors section (its + "Add vendors", or
-"Request bids" in the Request bids or assign dialog), which sets `biddingOpen: true` on the work order (mirrored through the
+**Flow.** The manager sends the job from the service's Vendors > Available tab ("Send job to N"), which sets `biddingOpen: true` on the work order (mirrored through the
 local-first `updateManagerWorkOrder` -> `/api/portal-work-orders` "replace" sync) and sends each vendor
 an offer through the SAME vendor resolution + email (Resend) + `deliverPortalInboxMessage` + audit-log
 pipeline as the visit-scheduled email (`buildVendorBidOfferEmail` in `src/lib/vendor-visit-email.ts`).
@@ -139,13 +154,13 @@ figure; its + requests a bid on an open service or creates a service assigned to
 
 **Every record section opens with one band** (`record-list-band.tsx`: `RecordTabBand` for a section,
 `RecordListBand` for a list, both the Payments header). A band's round + always reads
-**`Add <noun>`** — Add vendors, Add assignee, Add charge, Add payment — never the verb of the flow it
+**`Add <noun>`** — Add charge, Add payment — never the verb of the flow it
 opens (`tests/unit/band-primary-labels.test.ts`). Service = Details · Photos · Activity + Edit;
-Vendors = the vendor answers as tabs with counts (Requested · Estimates · Bids · Approved · Declined,
-`vendorAnswerGroup`) + Filter, Compare on Bids and the round + (Add vendors); Incoming =
+Vendors = the pipeline above (Available · Sent · Bids · Scheduled · Done, `PIPELINE_TABS`) + Filter and
+Compare on Bids - no round +, the Available tab is where a job is sent out; Incoming =
 Pending · Overdue · Paid + Add charge; Outgoing = To pay · Paid + Add payment; Communication = the
-counterparty tabs above the thread. Assign is the `ServiceAssignDialog` popup (add-ons never offer
-vendors). Add charge / Add payment reuse the existing modals prefilled from the service; a charge is
+counterparty tabs above the thread. Assign is the `ServiceAssignDialog` popup, team side only (a teammate or you); vendors are sent the job from
+Vendors > Available. Add charge / Add payment reuse the existing modals prefilled from the service; a charge is
 stamped with the service id (`createManagerCharge({ workOrderId })`) so it lists under Incoming, and no
 amount or ownership comes from the client. The stage is `deriveServiceStages` (maintenance) or
 `deriveAddOnStages` (Open · Assigned · Scheduled · Completed); the Services list facts use the
@@ -172,3 +187,35 @@ because it let a vendor's own client INSERT bids on arbitrary work orders,
 bypassing the service-role API's work-order-access + `biddingOpen` checks.
 All real writes go through the service-role API exactly like every other
 portal table in this codebase.
+
+## An add-on on a vendor: the linked vendor job (mobile-step-tabs-1004, D7)
+
+Add-ons live in `portal_service_request_records` and have no bidding tables, so a vendor reaches one through a
+LINKED work order (`src/lib/add-on-vendor-job.ts`, `add-on-vendor-job-actions.ts`). The first "Send job"
+creates it (`ensureAddOnVendorJob`, id `<add-on id>-vendor-job`, deterministic so a retry never makes a
+second): `row_data.linkedServiceRequestId` on the work order, `linkedWorkOrderId` on the add-on. Then it is
+the ordinary offer path (`sendWorkOrderToVendors`), and the add-on's Vendors section reads that job's
+offers and bids (`useAddOnVendorJob`); approve, schedule, Mark done and Pay use the same routes a
+maintenance service uses.
+
+- **The resident's charge stays on the add-on ONLY.** The job has no resident, no email, no
+  `residentChargeCents`; every client charge generator checks `workOrderMayBillResident` first, and the work
+  order route never announces the job as a new service (`emitCreatedWorkOrder`).
+- **The two models stay separate.** `withoutLinkedVendorJobs` keeps the job out of every Services list and
+  count; the add-on's stage reads the job once a vendor is hired (`applyVendorJobToAddOn`: the vendor is the
+  assignee, the job's visit the visit, a finished job completes an approved add-on).
+- **Privacy is unchanged.** An offered vendor is served the projected row (`projectWorkOrderForOfferedVendor`:
+  general area only, no resident, and no `linkedServiceRequestId`).
+- `assignableKindsFor("vendor")` now includes `service`, but an add-on's own assignee picker stays team-only; a
+  vendor is on an add-on only by being sent the job.
+
+## Communication is per party and about this service (D9)
+
+A service's Communication section (`ServiceCommunicationPane`) has one tab per party - the resident first, then
+every vendor the job went to (`serviceCommunicationParties`). Each tab shows ONLY the threads whose
+`recordRef` is this service (`serviceThreadsForParty`; for an add-on also its linked job's id) and that party
+- no counterparty-email / phone matching on the service page (it stays on every other record page). The
+footer links to the full conversation on the Communication page. Offer, bid and visit notifications are
+stamped with `{kind: "service", id}` (`serviceRecordRefForEvent`, `action-events.server.ts`,
+`vendor-notification-delivery.ts`, `notifyWorkOrderEvent`). A thread keeps the FIRST ref it is stamped with, so
+one party's single conversation is attributed to whichever service spoke to them first.

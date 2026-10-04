@@ -34,6 +34,7 @@
  * message enters the store only AFTER the send is authorized server-side,
  * exactly as every other send does.
  */
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, Phone } from "lucide-react";
 import {
@@ -83,6 +84,7 @@ import {
 } from "@/lib/inbox-attachments";
 import type { RecordRef } from "@/lib/portals/record-kinds";
 import { isSelfThread, resolveCounterpartyName } from "@/lib/record-communication-counterparty";
+import { serviceThreadsForParty } from "@/lib/service-communication-scope";
 
 export type RecordCommunicationSectionRole = "manager" | "resident" | "vendor";
 
@@ -107,6 +109,14 @@ export type RecordCommunicationSectionProps = {
    * the thread header's icon actions and Full screen, and the composer's schedule clock.
    */
   fill?: boolean;
+  /**
+   * A service's section: show ONLY the threads stamped with these record ids (the service and, for an
+   * add-on, its linked vendor job) and with this party - never the person-wide history matched by
+   * counterparty email or phone (`service-communication-scope.ts`).
+   */
+  serviceScope?: { recordIds: string[]; party: { email?: string; phone?: string } | null };
+  /** The footer link to the main Communication page ("Open the full conversation in Communication"). */
+  fullConversationHref?: string;
 };
 
 const SCOPE_BY_ROLE: Record<RecordCommunicationSectionRole, string> = {
@@ -187,6 +197,8 @@ export function RecordCommunicationSection({
   autoOpenCompose,
   onEnsureRecord,
   fill = false,
+  serviceScope,
+  fullConversationHref,
 }: RecordCommunicationSectionProps) {
   const appUi = useOptionalAppUi();
   const scope = SCOPE_BY_ROLE[role];
@@ -270,8 +282,16 @@ export function RecordCommunicationSection({
   // is now the whole history with this person, not just this one record's
   // labeled thread.
   const mergedThreads = useMemo(
-    () =>
-      threads.filter((t) => {
+    () => {
+      if (serviceScope) {
+        // A service shows its own conversation only: stamped with the service (or its linked job) and
+        // with this party. No counterparty-only matching, no phone-key history.
+        return serviceThreadsForParty(
+          threads.filter((t) => !isSelfThread(t, senderIdentity?.email)),
+          serviceScope,
+        );
+      }
+      return threads.filter((t) => {
         // The viewer's own self-thread (addressed to themselves) is never the contact's conversation.
         if (isSelfThread(t, senderIdentity?.email)) return false;
         if (threadPassesCommunicationFilters({ filters: threadFilters, contacts: [], counterpartyEmail: t.email, recordRef: t.recordRef })) {
@@ -286,8 +306,9 @@ export function RecordCommunicationSection({
         // theirs whatever email (or none) it was stored under. Flagged keys stay out.
         if (contactPhoneKey && !t.identityFlag && t.conversationKey === contactPhoneKey) return true;
         return false;
-      }),
-    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey, senderIdentity?.email],
+      });
+    },
+    [threads, threadFilters, contactEmailSet, normalizedContactPhone, contactPhoneKey, senderIdentity?.email, serviceScope],
   );
 
   // Replying still targets exactly one thread: prefer the one stamped with
@@ -296,7 +317,9 @@ export function RecordCommunicationSection({
   const primaryThread = useMemo(() => {
     if (mergedThreads.length === 0) return null;
     const byRecordRef = mergedThreads.find(
-      (t) => t.recordRef?.kind === activeRef.kind && t.recordRef?.id === activeRef.id,
+      (t) =>
+        t.recordRef?.kind === activeRef.kind &&
+        (t.recordRef?.id === activeRef.id || Boolean(serviceScope?.recordIds.includes(t.recordRef?.id ?? ""))),
     );
     if (byRecordRef) return byRecordRef;
     const candidates = primaryContact
@@ -304,7 +327,7 @@ export function RecordCommunicationSection({
       : mergedThreads;
     const pool = candidates.length > 0 ? candidates : mergedThreads;
     return [...pool].sort((a, b) => inboxThreadSortMs(b.id, b.time) - inboxThreadSortMs(a.id, a.time))[0] ?? null;
-  }, [mergedThreads, activeRef.kind, activeRef.id, primaryContact]);
+  }, [mergedThreads, activeRef.kind, activeRef.id, primaryContact, serviceScope]);
 
   const messages = useMemo<InboxBubbleMessage[]>(() => mergedThreadBubbles(mergedThreads), [mergedThreads]);
 
@@ -654,6 +677,13 @@ export function RecordCommunicationSection({
             />
           }
         />
+        {fullConversationHref ? (
+          <p className="pt-2 text-[13px]" data-attr="record-communication-full-conversation">
+            <Link href={fullConversationHref} className="font-medium text-primary hover:underline">
+              Open the full conversation in Communication
+            </Link>
+          </p>
+        ) : null}
       </div>
     );
   }
