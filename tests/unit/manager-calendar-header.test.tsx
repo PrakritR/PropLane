@@ -110,9 +110,10 @@ describe("Agenda (studio plan services-vendors-1004)", () => {
     expect(agendaTypeFact(item("service"))).toBe("Service");
   });
 
-  it("the day header is solid and sticks at the one measured offset", () => {
-    expect(agenda).toContain("bg-background");
-    expect(agenda).toContain("top-[var(--portal-calendar-header-top,0px)]");
+  it("the day header is a normal block above its rows (never sticky over the first row)", () => {
+    const header = agenda.slice(agenda.indexOf('data-attr="calendar-agenda-day-header"'), agenda.indexOf("calendar-agenda-group") + 2000);
+    expect(header).not.toMatch(/\bsticky\b/);
+    expect(agenda).not.toContain("top-[var(--portal-calendar-header-top,0px)]");
     expect(panels.match(/"--portal-calendar-header-top"/g)).toHaveLength(1);
   });
 

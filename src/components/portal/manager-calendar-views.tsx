@@ -977,9 +977,10 @@ export function CalendarAgendaView({
           <section key={group.dateStr} data-attr="calendar-agenda-group">
             <div
               data-attr="calendar-agenda-day-header"
-              // Solid ground and its own bottom edge, so a row scrolling under it never shows through; the
-              // offset has one owner (`--portal-calendar-header-top`, portal-calendar-panels.tsx).
-              className="sticky top-[var(--portal-calendar-header-top,0px)] z-[4] flex items-baseline gap-2 border-b border-border/60 bg-background px-1 pb-2 pt-1.5 text-[13px] text-muted"
+              // A normal block, not sticky: a pinned header slid over the first row (it covered the row's
+              // title and swallowed clicks, and on a phone floated over the card). Each day is a section -
+              // header, its own space, then the rows - so the first row always starts below the header.
+              className="flex items-baseline gap-2 border-b border-border/60 px-1 pb-2 pt-1.5 text-[13px] text-muted"
             >
               <b className="text-[13.5px] text-foreground">{DOW_LONG[weekday]}</b>
               <span>{dayLabel(group.dateStr, false)}</span>
