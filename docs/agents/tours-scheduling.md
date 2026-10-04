@@ -479,7 +479,11 @@ lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the gr
 
 Settings -> Workspace -> Applications & leases -> "Application before a tour" (Not needed by
 default / Required, `leasingPipeline.applicationBeforeTour`). When Required a prospect cannot
-request a tour of a property until they have a SUBMITTED application for it. The rule lives in
+request a tour of a property until they have an **APPROVED** application for it — `tourBlockReason`
+(`application-before-tour-policy.ts`) is the one matrix: setting off, scheduling is open whatever the
+application says (a denial included); setting on, only `approved` passes, and the other three answer
+in their own words (`apply_first`, `pending_approval`, `denied` — `TOUR_BLOCK_LABELS` is the
+one-line heading each inline blocked state shows, with no sentence under it). The rule lives in
 `src/lib/application-before-tour.server.ts` and is re-derived server-side: the property's owner
 and their saved setting, then the caller's `manager_application_records` (scoped on the
 `resident_email` column). `createTourInquiry` is the one enforcement point (web form, resident
@@ -490,6 +494,7 @@ an anonymous guest or an SMS prospect (a body's `email` proves nothing). The ref
 `book_tour`, accepting an inquiry) never pass through it. The page half: the public projection
 stamps `applicationBeforeTour: true` (only when Required), `buildProspectTourHref` sends a visitor
 to Apply, and `TourScheduleFlow` shows `TourApplicationFirstPanel` until
-`GET /api/public/tour-application-gate` says the caller has applied. Coverage:
+`GET /api/public/tour-application-gate` says the caller may book; the panel offers the Apply link on
+`apply_first` alone, since there is nothing to apply for on the other two. Coverage:
 `tests/unit/application-before-tour.test.ts`, `tour-application-gate-routes.test.ts`,
 `tour-application-first-ui.test.tsx`, `tools/tours.test.ts`.

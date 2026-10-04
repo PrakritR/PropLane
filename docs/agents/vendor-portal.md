@@ -220,8 +220,9 @@ from it; never re-declare a stage label or tab set.
 - **The service record** (`record-sections.ts` `service`): rail Service - Vendors | Linked: Incoming
   payments - Outgoing payments - Communication. Header icons in order: Message - Edit - Request bids or
   assign - Schedule - more (Cancel service and Delete, the only red items) - then ONE primary, the next
-  step from the lifecycle (Request bids, Compare bids, Schedule, Complete, Pay;
-  `managerServiceNextStep`). "Request bids or assign" is one dialog (`ServiceAssignDialog`): Request
+  step from the lifecycle (Request bids, Approve bid on one bid, Compare bids only with two or more,
+  Schedule, Complete, Pay; `managerServiceNextStep`, which the Service tab's "Needs you" row reads
+  too, so the header and the overview never name different next steps). "Request bids or assign" is one dialog (`ServiceAssignDialog`): Request
   bids (your vendors, up to 10, optionally PropLane vendors within a radius through the existing
   marketplace reach in `sendWorkOrderVendorOffers`) - A vendor - A teammate - Me.
 
@@ -255,6 +256,15 @@ a submitted bid (422), declines the other bids and tells their vendors, and book
 `proposed_time` as the scheduled visit (either side can still move it). Every amount is read from the
 stored row; a body amount is never used for a payout.
 
+**One approved bid per service, and approving it twice is a retry.** A DIFFERENT bid on a service
+that already has an `accepted` one answers 409; the partial unique index
+`work_order_bids_one_accepted_idx` (`20261004020000_expense_payee_same_owner_and_one_accepted_bid.sql`)
+is what holds that under a race. Two accepted rows would break every payout-anchor read, which
+resolves the accepted bid with `.maybeSingle()` and would otherwise fall back to a body amount.
+Re-approving the SAME bid is idempotent cleanup, not a second hire: the hire lands first and the
+decline / offer-withdrawal / notification steps after it can fail transiently, so re-entering re-runs
+only those, and re-stamps the assignment only when the service has no assignee at all.
+
 **The estimate-visit fee is its own outgoing payment.** `complete_estimate_visit` (vendor marks the
 visit happened; refused 422 before the visit time) files one vendor invoice per bid
 (`invoice_number = VISIT-<bid id>`, unique index in
@@ -271,11 +281,11 @@ resident's photos are a strip inside it); Payments is Incoming payments. Old `/o
 `/payments` links redirect (`SERVICE_DETAIL_TAB_ALIASES`). The Service tab opens with the stage
 stepper (Open · Assigned · Scheduled · Completed, + Paid for a vendor job; derived, never stored);
 Vendors is one band (Requested · Estimates · Bids · Approved · Declined) with one row per requested
-vendor (`deriveVendorRequestRows`), Approve bid only on a Bids row, a Compare toggle and a + (Request
-bids). The vendor answers in `VendorBidReplyDialog`
-(choices from `vendorReplyChoices`).
+vendor (`deriveVendorRequestRows`), Approve bid only on a Bids row, a Compare toggle (only with two
+or more bids) and a + reading **Add vendors**. The vendor answers on their own service page, in
+`VendorEstimateBidSection` ("Estimate & bid", choices from `vendorReplyChoices`).
 
-**Flow.** The manager requests vendors from the service's Vendors section (the + or
+**Flow.** The manager requests vendors from the service's Vendors section (its + "Add vendors", or
 "Request bids" in the Request bids or assign dialog), which sets `biddingOpen: true` on the work order (mirrored through the
 local-first `updateManagerWorkOrder` -> `/api/portal-work-orders` "replace" sync) and sends each vendor
 an offer through the SAME vendor resolution + email (Resend) + `deliverPortalInboxMessage` + audit-log
@@ -298,9 +308,11 @@ that vendor's own answer as the fact), the same shared row with that vendor's ow
 figure; its + requests a bid on an open service or creates a service assigned to them.
 
 **Every record section opens with one band** (`record-list-band.tsx`: `RecordTabBand` for a section,
-`RecordListBand` for a list, both the Payments header). Service = Details · Photos · Activity + Edit;
+`RecordListBand` for a list, both the Payments header). A band's round + always reads
+**`Add <noun>`** — Add vendors, Add assignee, Add charge, Add payment — never the verb of the flow it
+opens (`tests/unit/band-primary-labels.test.ts`). Service = Details · Photos · Activity + Edit;
 Vendors = the vendor answers as tabs with counts (Requested · Estimates · Bids · Approved · Declined,
-`vendorAnswerGroup`) + Filter, Compare on Bids and the round + (Request bids); Incoming =
+`vendorAnswerGroup`) + Filter, Compare on Bids and the round + (Add vendors); Incoming =
 Pending · Overdue · Paid + Add charge; Outgoing = To pay · Paid + Add payment; Communication = the
 counterparty tabs above the thread. Assign is the `ServiceAssignDialog` popup (add-ons never offer
 vendors). Add charge / Add payment reuse the existing modals prefilled from the service; a charge is
@@ -308,6 +320,18 @@ stamped with the service id (`createManagerCharge({ workOrderId })`) so it lists
 amount or ownership comes from the client. The stage is `deriveServiceStages` (maintenance) or
 `deriveAddOnStages` (Open · Assigned · Scheduled · Completed); the Services list facts use the
 same functions.
+
+**An offered vendor is served a projected row, not a redacted screen.** A service a vendor only
+holds an open OFFER on — including a stranger the local marketplace matched — leaves
+`/api/portal-work-orders` through `projectWorkOrderForOfferedVendor`
+(`src/lib/work-order-vendor-privacy.ts`): the street address, unit, entry notes and permission, the
+resident's name and email, the resident's intake photos (unless the manager ticked "Share photos" on
+the request), what the resident is billed, and any vendor price already recorded on the job are all
+gone before the response is written, and `propertyName` becomes the general area
+(`workOrderGeneralArea`). The last one matters on a service re-offered after its hired vendor went
+silent: those fields still hold THAT vendor's approved figure, and the competitors now bidding have
+no business reading it. The vendor panel's own `vendorCanSeeFullWorkOrderSite` redaction is
+presentation on top of this projection, never instead of it.
 
 **RLS** (`work_order_bids_vendor_read` / `work_order_bids_manager_read`):
 BOTH sides are `FOR SELECT` only — vendor by `vendor_user_id = auth.uid()`,
@@ -323,10 +347,12 @@ portal table in this codebase.
 section with Invited/Open tabs and a cross-workspace open-marketplace browse
 (`work_order_open_listings`, `openListingId` on `work_order_bids`,
 `resolveVendorWorkOrderAccess`'s `"open_listing"` access kind) previously
-existed alongside Services. The captain cut it (2026-09-26): there is no open
-marketplace, and no Jobs nav item — a vendor's invited-to-bid services are
-just Services' own Potential tab (`vendorWorkOrderTab`'s `biddingOpen`
-bucket), the same rows Services already showed. `/vendor/jobs*` redirects to
+existed alongside Services. The captain cut it (2026-09-26): a vendor never
+browses another workspace's jobs, and there is no Jobs nav item — every service
+a vendor was asked to bid on, including one a manager published to nearby
+PropLane vendors (opt-in, see the Request bids dialog above), is an offer row on
+Services' own **Open** tab (`vendorWorkOrderTab`), the same rows Services
+already showed. `/vendor/jobs*` redirects to
 Services (`render-portal-section.tsx`). `resolveVendorWorkOrderAccess` is back
 to a plain `"assigned" | "offered"` access kind; the `work_order_open_listings`
 table and its migration are untouched in the database (no drop migration) but

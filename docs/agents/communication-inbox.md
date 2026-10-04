@@ -133,15 +133,13 @@ mounting its portal's inbox panel with `suppressListPane` for the thread side);
 admin alone keeps its flat table driven by an `"all"` tabId (all non-trash
 conversations) plus the archive toggle. Invariants:
 
-- **Manager AND vendor Communication have Active | Archived command tabs**
-  under the work number/email boxes (`inbox-list-segments`) — same Tours
+- **Manager, resident AND vendor Communication have Active | Archived command
+  tabs** under the work number/email boxes (`inbox-list-segments`) — same Tours
   chrome: label + count badge + cobalt underline (`DestinationNav
   appearance="command"`). Unread stays in Filter (All conversations, Read,
-  Unread) for the current tab — Filter does not list Archived
-  (`CommunicationFilterSortFields`'/`CommunicationStatusFilterDraft`'s
-  `hideArchived`). Resident is the one portal that still keeps status in
-  **Filter** (All conversations, Read, Unread, Archived) rather than a
-  segment rail — it has no Active|Archived tab row in its list header at all.
+  Unread) for the current tab — Filter does not list Archived on any of the
+  three (`CommunicationFilterSortFields`'/`CommunicationStatusFilterDraft`'s
+  `hideArchived`).
   `/communication/{active|unread|archived}[/{threadId}]` deep links remain on
   every portal. `unread` is Active + unread filter. Admin still routes
   `/communication/inbox/{tab}` and reaches archived through its
@@ -150,13 +148,14 @@ conversations) plus the archive toggle. Invariants:
   tabbed panels survive only for the /demo path and legacy route redirects — on
   those three portals every legacy `inbox` / `email` / `sms` path now folds into a
   segment rather than resolving a tab.
-- **Switching the manager's and vendor's Active ⇄ Archived tab is instant,
-  with no skeleton and no refetch (captain, 2026-09-26: vendor Communication
-  now matches manager's UI exactly).** `InboxListSegmentTabs`
-  (`portal-inbox-ui.tsx`) takes an `interceptNavigation` prop; the manager and
-  vendor lists both pass it and preventDefault a plain left click (no
+- **Switching the Active ⇄ Archived tab is instant on all three, with no
+  skeleton and no refetch (captain, 2026-09-26 for vendor, Oct 2026 for
+  resident: both match manager's UI exactly).** `InboxListSegmentTabs`
+  (`portal-inbox-ui.tsx`) takes an `interceptNavigation` prop; all three lists
+  pass it and preventDefault a plain left click (no
   modifier key), calling `onChange` instead of letting the `<Link>` navigate.
-  `ManagerCommunication` (`pro-communication.tsx`) and `VendorCommunication`
+  `ManagerCommunication` (`pro-communication.tsx`), `ResidentCommunication`
+  (`resident-communication.tsx`) and `VendorCommunication`
   (`vendor-communication.tsx`) each own the segment as CLIENT state
   (`useCommunicationListSegment`, mirroring `useCommunicationThreadId`) and
   push the URL with `history.pushState`
@@ -176,8 +175,7 @@ conversations) plus the archive toggle. Invariants:
   the exact render back and toasts) and every selected SMS row
   archives/restores in parallel (`Promise.allSettled`), not a sequential loop —
   vendor's `CommunicationRowActions` reuses the same shared archive/restore
-  path. Resident keeps ordinary Link navigation on its Filter-only status
-  (no tab, no `interceptNavigation`).
+  path.
 - **An archived conversation must never resurrect on its own.** Three
   delivery-side bugs used to do exactly that (captain resurrection sweep):
   (1) `findExistingPortalMessageThread` (`portal-inbox-delivery.ts`) only
@@ -317,12 +315,15 @@ conversations) plus the archive toggle. Invariants:
   `tests/unit/inbox-scheduled-thread.test.ts`,
   `tests/unit/inbox-thread-omnichannel.test.tsx`,
   `tests/unit/sms-comm-ui-flag.test.ts`.
-- **Residents can schedule compose** — `PortalMessageScheduleFields` is enabled in
-  `ScopedInboxComposeModal` for the resident portal; scheduled rows stay
-  cancel-only (no inline edit). Thread actions: **Schedule** in the header and
-  **Schedule a message** below existing scheduled cards (`resident-inbox-panel`).
-  The floating assistant FAB and in-thread assistant strip are hidden on the
-  resident Communication tab (`hideAssistantFab` on `PortalCommunicationShell`).
+- **A resident schedules from the thread composer, never from New message** —
+  the reply composer carries the same clock tool as the manager's
+  (`InboxComposerScheduleMenu` in `resident-inbox-panel`), while
+  `PortalMessageScheduleFields` stays `hidden` for `portal === "resident"` in
+  `inbox-scoped-compose-modal.tsx`. Scheduled rows stay cancel-only (no inline
+  edit). Residents have no assistant anywhere (see
+  [`../ai-assistant.md`](../ai-assistant.md)); `hideAssistantFab` on
+  `PortalCommunicationShell` is what keeps the FAB and in-thread strip off a
+  manager's resident-detail Communication tab.
 - **A message enters the thread store only AFTER the send is authorized — on
   both sides.** `/api/portal/send-inbox-message` can still answer
   `403 "You can only message people connected to your account."` well past the

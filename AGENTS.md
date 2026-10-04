@@ -229,7 +229,8 @@ or `src/lib/agent/`.
   surfaces also pass `readOnly: true`.
 - One registry + resolver + route per role. Never cross them. Mounting
   `AxisAssistant` without a role-scoped `endpoint` 401s (how resident/vendor
-  assistants broke).
+  assistants broke). The **resident portal mounts no assistant at all**; its
+  route and registry serve resident SMS and the inbox agents only.
 - Manager SMS = portal catalog minus every `destructive` tool (derived from the
   flag). Leasing SMS inline-allows only `escalate_to_manager` and `request_tour`.
 - Approving an application and creating/editing a listing are **not** agent
@@ -353,7 +354,9 @@ Link builders must assert the path **resolves** against `src/app`
 
 `STAGE_UNLOCKED_SECTIONS` and `RESIDENT_BOTTOM_NAV_PRIMARY` must agree.
 Approved application unlocks Lease + Payments + Documents. Signed lease unlocks
-Services. My home stays locked until signed but the row is visible. Native
+Services. My home opens for its **Forms** tab from the first sent move-in form
+(`RESIDENT_PRE_LEASE_MOVE_IN_TABS`, stage `application_submitted_forms`); every
+other My home tab stays locked until signed, with the row visible. Native
 bottom-nav constants are **derived**, not copied. `applicationApproved` reads
 the `resident_email` **column**, not `row_data.email`.
 
@@ -372,14 +375,14 @@ branches on `"resident"` without consulting `profile_roles`.
 Authoritative copy: [`docs/agents/communication-inbox.md`](docs/agents/communication-inbox.md).
 
 - **One conversation list.** Standalone inbox page shell is `/demo` only.
-  Manager and vendor Communication both have Active | Archived tabs under the
-  work identity boxes, switching instantly with no remount; resident is the
-  one portal that keeps status in Filter with no tab row.
+  Manager, resident and vendor Communication all have Active | Archived tabs
+  under the work identity boxes, switching instantly with no remount; Unread
+  stays in Filter, which never lists Archived.
 - Scheduled sends render **inline** in the recipient thread (admin table is the exception).
 - A message enters the store **after** the send is authorized. Copy the resident panel, not the manager/vendor ones.
 - Stamp `time` with `formatInboxStamp` (Pacific). It is both label and sort key.
 - SMS **UI** is gated by `SMS_COMM_UI_ENABLED` (default off). Transport and agents stay live. Keep inbound SMS visible when the UI is hidden.
-- Residents cannot schedule a compose (deliberate).
+- Residents schedule from the thread composer only — New message hides the schedule fields for them (deliberate).
 - A thread's `row_data` may carry a `recordRef: {kind,id,label}`; a record page's
   Communication section (`record-communication-section.tsx`) merges the same
   inbox into one timeline of every conversation with that record's contact(s),
@@ -457,6 +460,13 @@ Copy says "service". Schema keeps `work_order` names. Two models share the
 Services nav: add-on requests (`portal_service_request_records`) and
 maintenance (`portal_work_order_records`). Do not merge tables, tabs, or counts.
 Two stored-title matchers must keep saying "Work order" (legacy row titles).
+
+**One stage vocabulary, everywhere.** Every service list and Tasks say
+**Open · Assigned · Scheduled · Completed** from `src/lib/service-lifecycle.ts` —
+never a bucket of your own, and the retired words fail
+`tests/unit/service-vocabulary.test.ts`. A vendor's answer, the manager's
+actions and the service record's rail are in
+[`docs/agents/vendor-portal.md`](docs/agents/vendor-portal.md) § One vocabulary.
 
 # Property ownership / plans / drafts / groups
 

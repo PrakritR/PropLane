@@ -87,7 +87,6 @@ import {
   isMoveInFormTabSlug,
   parseApplicationDetailTab,
   parseResidentMoveInTab,
-  residentLeaseDetailHref,
   residentMoveInInspectionsHref,
 } from "@/lib/portal-detail-routes";
 import type { PortalKind } from "@/lib/portal-types";
@@ -430,8 +429,8 @@ export async function renderPortalSection(
   }
 
   // Jobs was folded into Services — every /vendor/jobs* URL (any tab, any
-  // depth) redirects to the Potential tab, which already lists every invited
-  // job (`vendorWorkOrderTab`'s `biddingOpen` bucket).
+  // depth) redirects to Services, where the legacy `pending` id parses to the
+  // Open tab, which already lists every invited job (`vendorWorkOrderTab`).
   if (kind === "vendor" && section === "jobs") {
     redirect(`${def.basePath}/work-orders/pending`);
   }

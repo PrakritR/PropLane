@@ -105,7 +105,8 @@ function CompareCards({
 
 /**
  * The Vendors section of a service: ONE band - Requested · Estimates · Bids · Approved · Declined
- * with counts, search, the vendor Filter, a Compare toggle on Bids and the round + (Request bids) -
+ * with counts, search, the vendor Filter, a Compare toggle on Bids (two or more) and the round +
+ * (Add vendors, which opens the Request bids / Assign popup) -
  * then one row per requested vendor under the tab its answer has reached. Approve bid exists only on
  * a Bids row (an estimate is a number on the row, never a thing to approve); Compare lays every
  * submitted bid side by side.

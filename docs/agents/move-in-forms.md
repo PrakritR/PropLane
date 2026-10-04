@@ -75,7 +75,8 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 - **"Tell me when a resident submits"**: none; an Assistant notice (the event is sent as the manager,
   which the bus delivers as an Assistant notice with no email); or that plus an email to the manager's
   profile address from the shared sender (`emailManagerOfMoveInFormSubmission`).
-- **Resident access before a lease**: after approval My home opens for the Forms tab only
+- **Resident access before a lease**: from the first sent form on — a submitted application is enough,
+  approval is not required — My home opens for the Forms tab only
   (`RESIDENT_PRE_LEASE_MOVE_IN_TABS`; the path guard, server render gate and `STAGE_UNLOCKED_SECTIONS`
   agree). Placement, housemates, info and amenities stay locked until the lease is signed. The
   resident's email link goes to `/resident/move-in/forms`.

@@ -29,7 +29,7 @@ adding a house with no workspace still creates **My workspace** automatically.
 
 ### Resident portal (`/resident`)
 
-Rent & utility payments (card incl. Apple Pay / Google Pay, ACH, Link via Stripe Connect), My home (house info & rules, opt-in housemate sharing, move-in / move-out inspections), services & work orders, inbox, lease & receipts. Full workspace unlocks after lease approval.
+Rent & utility payments (card incl. Apple Pay / Google Pay, ACH, Link via Stripe Connect), My home (house info & rules, opt-in housemate sharing, move-in / move-out inspections), services, inbox, lease & receipts. Full workspace unlocks after lease approval.
 
 ### Platform capabilities
 

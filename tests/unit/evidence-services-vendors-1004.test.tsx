@@ -239,5 +239,30 @@ describe("the Request bids / Assign dialog", () => {
     );
     await waitFor(() => expect(document.body.textContent).toContain("Also send to PropLane vendors within"));
     capture("service-request-bids-dialog");
+
+    // The radius picker is the PropLane dropdown, never Chrome's grey OS menu
+    // (AGENTS.md § Portal UI system; tests/unit/no-native-select-in-portal.test.ts).
+    expect(document.querySelector("select")).toBeNull();
+
+    // Opting in enables the picker, and clicking the picker opens its menu
+    // instead of toggling the checkbox it sits next to — the trigger is a
+    // sibling of the <label>, not a descendant of it.
+    const optIn = document.querySelector<HTMLInputElement>('[data-attr="service-assign-marketplace"]')!;
+    fireEvent.click(optIn);
+    const radius = screen.getByRole("button", { name: "Marketplace radius" });
+    expect(radius).not.toBeDisabled();
+    expect(radius.textContent).toContain("5 mi");
+
+    fireEvent.click(radius);
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+    const menu = screen.getByRole("listbox");
+    expect(menu.textContent).toContain("3 mi");
+    expect(menu.textContent).toContain("15 mi");
+    expect(optIn.checked).toBe(true); // opening the menu did not un-check the opt-in
+    capture("service-request-bids-radius-menu");
+
+    fireEvent.click(screen.getByRole("option", { name: "10 mi" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Marketplace radius" }).textContent).toContain("10 mi"));
+    expect(optIn.checked).toBe(true);
   });
 });

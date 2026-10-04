@@ -1,10 +1,18 @@
 # PropLane Assistant — architecture, tool catalog, and how to extend it
 
-The in-app AI assistant ("PropLane Assistant") runs on **all three portals** —
-manager/admin, resident, and vendor — with one shared agent core and a
-portal-scoped tool registry per surface. Users ask in natural language; the
-assistant answers from live data and **proposes** actions that only execute
-after the user explicitly confirms.
+The in-app AI assistant ("PropLane Assistant") runs on the **manager/admin and
+vendor** portals, with one shared agent core and a portal-scoped tool registry
+per surface. Users ask in natural language; the assistant answers from live data
+and **proposes** actions that only execute after the user explicitly confirms.
+
+**The resident portal mounts no assistant at all** (captain, Oct 2026): no
+`AxisAssistant` provider, FAB, dock rail or ⌘K launcher, and the header's Ask
+PropLane pill never renders for `kind === "resident"`. The resident route,
+registry and persona below stay wired and in use — resident SMS and the inbox
+agents are the same tools — so this is a surface decision, not a capability
+removal. Guard:
+`tests/unit/agent/portal-assistant-wiring.test.ts`,
+`tests/unit/resident-portal-top-bar-no-assistant.test.tsx`.
 
 All conversational surfaces assemble their runtime prompt through
 `src/lib/agent/system-prompts.ts`. It is the catalog for portal, public-site,
@@ -22,8 +30,9 @@ axis-assistant.tsx (one panel, portal-aware copy/suggestions/endpoints)
         │
         ▼
 GET/POST /api/agent/chat            (manager/admin) ┐
-GET/POST /api/agent/resident-chat   (resident)      ├─ resolve portal context → registry
+GET/POST /api/agent/resident-chat   (resident*)     ├─ resolve portal context → registry
 GET/POST /api/agent/vendor-chat     (vendor)        ┘
+   * SMS and inbox agents only; the resident portal mounts no assistant panel.
 POST /api/agent/demo-chat       (public /demo sandbox, simulated actions)
         │
         ▼
@@ -271,6 +280,11 @@ logging and data-discount sharing in its dashboard. Never expose the key in a
   accepted bid's `amount_cents` (immutable anchor — never a model- or
   client-supplied amount); vendor `set_my_price` refuses once a bid is
   accepted.
+- **Reach invariants:** `offer_to_vendors` reaches only the vendors it names.
+  Publishing a bid request to nearby PropLane vendors is opt-in on the request
+  itself (`marketplace.enabled` in `sendWorkOrderVendorOffers`), so a caller
+  that says nothing about it — this tool, any older client — never fans a
+  service out to strangers.
 
 ## Tool catalog
 
