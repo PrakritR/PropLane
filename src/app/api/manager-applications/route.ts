@@ -19,6 +19,7 @@ import {
   notifyManagerApplicationSubmitted,
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
+import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { syncApplicationLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { purgeOrphanHousingRecordsForManager } from "@/lib/auth/clear-property-housing-access";
 import { purgeApplicationPortalData } from "@/lib/auth/purge-portal-account-data";
@@ -310,6 +311,11 @@ async function persistDraftRow(
     return;
   }
   if (error) throw new Error(`Could not persist the application draft: ${error.message}`);
+}
+
+/** A submitted, pending application the applicant is writing again: re-check the forms its answers owe (idempotent). */
+function owesLinkedFormCheck(row: DemoApplicantRow): boolean {
+  return isSubmittedPendingApplicationRow(row) && Boolean(row.managerUserId?.trim());
 }
 
 async function persistNormalizedRow(
@@ -1212,13 +1218,19 @@ export async function POST(req: Request) {
         }
       }
       const previousRow = existing ?? null;
-      await persistNormalizedRow(db, existingRecord?.id ?? row.id, row, existingRecord ?? null);
+      const persistedGuestRow = await persistNormalizedRow(db, existingRecord?.id ?? row.id, row, existingRecord ?? null);
       await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
-      // Forms the published template's rules owe after this submit. Only the first submit creates them; the
-      // share tokens are returned once, to the browser that just submitted.
-      const guestLinkedForms = shouldNotifyManagerOfApplicationSubmit(previousRow, row)
-        ? await createLinkedFormRequestsForSubmit(db, { applicationId: String(existingRecord?.id ?? row.id), row })
-        : [];
+      // Forms the published template's rules owe after this submit. The first submit creates them (the share
+      // tokens are returned once, to the browser that just submitted); a later write by the applicant re-checks,
+      // which is a no-op for a form already owed. The id is the one the row was stored under, which a rename can
+      // change from the one the record was read under.
+      const guestLinkedForms =
+        shouldNotifyManagerOfApplicationSubmit(previousRow, row) || owesLinkedFormCheck(row)
+          ? await createLinkedFormRequestsForSubmit(db, {
+              applicationId: String(persistedGuestRow?.id ?? existingRecord?.id ?? row.id),
+              row,
+            })
+          : [];
       if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
         void notifyManagerApplicationSubmitted(db, row).catch(
           bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
@@ -1445,9 +1457,11 @@ export async function POST(req: Request) {
     }
     row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);
     await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
-    const linkedForms = shouldNotifyManagerOfApplicationSubmit(previousRow, row)
-      ? await createLinkedFormRequestsForSubmit(db, { applicationId: String(authorizedWriteRecord?.id ?? row.id), row })
-      : [];
+    // `row.id` is the id the row was stored under (a rename may have changed it from the record's old id).
+    const linkedForms =
+      shouldNotifyManagerOfApplicationSubmit(previousRow, row) || (residentSelfWrite && owesLinkedFormCheck(row))
+        ? await createLinkedFormRequestsForSubmit(db, { applicationId: String(row.id), row })
+        : [];
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
       void notifyManagerApplicationSubmitted(db, row).catch(
           bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),

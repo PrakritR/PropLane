@@ -36,4 +36,14 @@ describe("Finances simplified overview", () => {
   it("shows failed ledger reads as errors, never zero totals", async () => {
     setup(true, true); expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Ledger unavailable");
   });
+  it("draws the cash flow chart as the dashboard does: period label, period-total tiles, Filter and running total", async () => {
+    setup(true);
+    await screen.findByText("Held deposits");
+    expect(document.querySelector('[data-attr="cashflow-period"]')?.textContent).toBe("Last 6 months");
+    const hero = document.querySelector('[data-attr="cashflow-hero"]');
+    expect(hero).not.toBeNull();
+    for (const id of ["rev", "exp", "net", "margin"]) expect(hero!.querySelector(`[data-attr="cashflow-kpi-${id}"]`)).not.toBeNull();
+    expect(document.querySelector('[data-attr="cashflow-filter-open"]')).not.toBeNull();
+    expect(screen.getByRole("group", { name: "Running total of revenue, expenses and net profit" })).toBeTruthy();
+  });
 });

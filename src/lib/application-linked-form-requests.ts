@@ -8,8 +8,8 @@
  *
  * Nothing here touches a secret: tokens and their hashes live in `application-linked-form-requests.server.ts`.
  */
-import { withDerivedCosignerRule, ruleMatches, type LinkedFormRef, type LinkedFormRule } from "@/lib/application-linked-forms";
-import { applicationFieldCatalogDef } from "@/lib/rental-application/application-field-catalog";
+import { withCosignerLinkRule, ruleMatches, type LinkedFormRef, type LinkedFormRule } from "@/lib/application-linked-forms";
+import { applicationFieldCatalogDef, BUILT_IN_ANSWER_VALUES } from "@/lib/rental-application/application-field-catalog";
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
 
 export type LinkedFormRequestStatus = "owed" | "shared" | "done" | "not_needed";
@@ -58,8 +58,22 @@ type QuestionWithRules = {
   key: string;
   label: string;
   standardKey?: string;
+  /** The choices a pick question shows; a built-in's wording can differ from the value it stores. */
+  options?: readonly string[];
   linkedForms?: LinkedFormRule[];
 };
+
+/**
+ * The answers a rule may be written against. A built-in with fixed stored values ("yes" / "no") stores the value
+ * but the manager's rule can name the choice as worded on the form ("Yes, my parent will"), so both are tried.
+ */
+function answerCandidates(question: Pick<QuestionWithRules, "standardKey" | "options">, answer: unknown): unknown[] {
+  const values = question.standardKey ? BUILT_IN_ANSWER_VALUES[question.standardKey] : undefined;
+  if (!values || typeof answer !== "string") return [answer];
+  const index = values.indexOf(answer.trim().toLowerCase());
+  const worded = index >= 0 ? question.options?.[index]?.trim() : "";
+  return worded ? [answer, worded] : [answer];
+}
 
 /** The applicant's stored answer to one question: a built-in reads its wizard field, a custom one its answer row. */
 export function answerForQuestion(
@@ -96,7 +110,7 @@ function formKey(ref: LinkedFormRef): string {
 /**
  * Every rule the submitted answers trigger, one entry per FORM. Two questions that point at the same form
  * give one request (the first question names it; "needed before review" is true if either rule says so).
- * A co-signer link on the template reads as a rule on "Co-signer planned" (`withDerivedCosignerRule`), so
+ * A co-signer link on the template reads as a rule on "Co-signer planned" (`withCosignerLinkRule`), so
  * today's co-signer behaviour is the same code path.
  */
 export function evaluateLinkedFormRules(input: {
@@ -104,12 +118,12 @@ export function evaluateLinkedFormRules(input: {
   application: { customFieldAnswers?: RentalCustomFieldAnswer[] } & Record<string, unknown>;
   linkedCosignerApplicationTemplateId?: string | null;
 }): MatchedLinkedFormRule[] {
-  const questions = withDerivedCosignerRule(input.questions, input.linkedCosignerApplicationTemplateId);
+  const questions = withCosignerLinkRule(input.questions, input.linkedCosignerApplicationTemplateId);
   const byForm = new Map<string, MatchedLinkedFormRule>();
   for (const question of questions) {
     for (const rule of question.linkedForms ?? []) {
       const answer = answerForQuestion(question, input.application);
-      if (!ruleMatches(rule, answer)) continue;
+      if (!answerCandidates(question, answer).some((candidate) => ruleMatches(rule, candidate))) continue;
       const key = formKey(rule.formRef);
       const existing = byForm.get(key);
       if (existing) {

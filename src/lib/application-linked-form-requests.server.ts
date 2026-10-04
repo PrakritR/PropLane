@@ -158,17 +158,20 @@ export async function createLinkedFormRequestsForSubmit(
     if (!property?.listing) return [];
     const { listing, ownerUserId } = property;
 
-    const templateId = String((application as { applicationTemplateId?: string }).applicationTemplateId ?? "").trim();
-    const template = templateId
-      ? readPropertyApplicationTemplates(listing).find((candidate) => candidate.id === templateId)
-      : undefined;
-    const variant = template ? applicationFormVariantForTemplate(template) : "standard";
+    const pinnedTemplateId = String((application as { applicationTemplateId?: string }).applicationTemplateId ?? "").trim();
+    const templates = readPropertyApplicationTemplates(listing);
+    const pinnedTemplate = pinnedTemplateId ? templates.find((candidate) => candidate.id === pinnedTemplateId) : undefined;
+    const variant = pinnedTemplate ? applicationFormVariantForTemplate(pinnedTemplate) : "standard";
     const resolved = applicationConfigForApplicant(
       listing,
       variant,
-      templateId || undefined,
+      pinnedTemplateId || undefined,
       (application as { applicationTemplateVersion?: number }).applicationTemplateVersion,
     );
+    // An application that never recorded which form it used (a draft saved before the wizard pinned one) was
+    // asked the form the listing resolves for it, so that form's own co-signer link and rules still apply.
+    const templateId = pinnedTemplateId || resolved.templateId || "";
+    const template = pinnedTemplate ?? (templateId ? templates.find((candidate) => candidate.id === templateId) : undefined);
     const questions = resolveListingApplicationFields(resolved.config, normalizeCustomApplicationFields);
     const matches = evaluateLinkedFormRules({
       questions,
@@ -185,12 +188,17 @@ export async function createLinkedFormRequestsForSubmit(
       if (!described) continue; // a rule that points at a form since deleted owes nothing
       let feeCents: number | null = null;
       if (match.rule.formRef.kind === "application") {
-        const fee = await resolveApplicationFeeProperty(
-          db,
-          { propertyId, managerUserId: ownerUserId, leaseTerm, applicationTemplateId: match.rule.formRef.id },
-          { allowZeroFee: true },
-        );
-        feeCents = fee.ok ? fee.value.applicationFeeCents : null;
+        // The fee is a display fact: a form that owes must still be recorded when pricing cannot be read.
+        try {
+          const fee = await resolveApplicationFeeProperty(
+            db,
+            { propertyId, managerUserId: ownerUserId, leaseTerm, applicationTemplateId: match.rule.formRef.id },
+            { allowZeroFee: true },
+          );
+          feeCents = fee.ok ? fee.value.applicationFeeCents : null;
+        } catch (cause) {
+          console.error("[linked-forms] could not resolve a linked form fee", cause instanceof Error ? cause.message : "unknown");
+        }
       }
       const { token, tokenHash } = mintLinkedFormToken();
       const expiresAt = expiryFromNow();

@@ -149,6 +149,27 @@ export function withDerivedCosignerRule<T extends { standardKey?: string; linked
   );
 }
 
+/**
+ * Submit-time form of the co-signer link. The template's "Co-signer form" is a visible setting, so while it is
+ * set, answering "Yes" to the built-in "Co-signer planned" question always owes that form, whatever the question's
+ * own stored rule list says (an override saved as an empty list, or one that only names other forms, must never
+ * silently drop the co-signer form the applicant was promised). A rule already pointing at that form is kept as
+ * the manager wrote it. Unlike `withDerivedCosignerRule` this is never used to draw the editor.
+ */
+export function withCosignerLinkRule<T extends { standardKey?: string; linkedForms?: LinkedFormRule[] }>(
+  fields: readonly T[],
+  linkedCosignerApplicationTemplateId: string | null | undefined,
+): T[] {
+  const linked = linkedCosignerApplicationTemplateId?.trim();
+  if (!linked) return [...fields];
+  return fields.map((field) => {
+    if (field.standardKey !== COSIGNER_QUESTION_STANDARD_KEY) return field;
+    const rules = field.linkedForms ?? [];
+    if (rules.some((rule) => rule.formRef.kind === "application" && rule.formRef.id === linked)) return field;
+    return { ...field, linkedForms: [...rules, deriveCosignerLinkedFormRule(linked)] };
+  });
+}
+
 /** One stable string for a form reference (a dropdown value). */
 export function linkedFormKey(ref: LinkedFormRef): string {
   return `${ref.kind}:${ref.id}`;

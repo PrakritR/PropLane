@@ -18,6 +18,7 @@ import { dispatchMoveInFormsForResidencyAfterResponse } from "@/lib/move-in-form
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
+import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
@@ -132,6 +133,11 @@ export async function promoteIncompleteApplicationAfterFeePaid(
   }
 
   if (alreadySubmitted) {
+    // The browser's own submit can land first (or the first attempt could not record the forms its answers owe),
+    // so this second pass makes sure they exist. Idempotent: a form already owed is left alone.
+    if (isSubmittedPendingApplicationRow(alreadySubmitted)) {
+      await createLinkedFormRequestsForSubmit(db, { applicationId: alreadySubmitted.id, row: alreadySubmitted });
+    }
     return {
       ok: true,
       promoted: false,
@@ -272,10 +278,11 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     );
     // Forms set to go out once the application is submitted (the default Intake form).
     dispatchMoveInFormsForResidencyAfterResponse(row.id, "application-submitted");
-    // Forms the template's rules owe. No browser is waiting on this path, so no share token is handed back;
-    // the applicant asks for a link from the finish screen or their portal when they want one.
-    await createLinkedFormRequestsForSubmit(db, { applicationId: row.id, row });
   }
+  // Forms the template's rules owe. Recorded for every promotion, not only the ones that notify the manager:
+  // what a form is owed on is the answers, never who is told. No browser is waiting on this path, so no share
+  // token is handed back; the applicant asks for a link from the finish screen or their portal when they want one.
+  await createLinkedFormRequestsForSubmit(db, { applicationId: row.id, row });
 
   return {
     ok: true,

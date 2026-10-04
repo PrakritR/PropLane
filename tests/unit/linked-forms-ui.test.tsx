@@ -110,7 +110,16 @@ describe("the applicant's finish screen", () => {
     await waitFor(() => expect(share).toHaveBeenCalledWith({ title: "Co-signer form", url: `${window.location.origin}/f/${TOKEN}` }));
   });
 
+  it("asks for the forms owed when the server finished the application first (pay-then-promote)", async () => {
+    client.fetchLinkedFormsForApplication.mockResolvedValue([view({ id: "req-owed", formLabel: "Co-signer application", status: "owed" })]);
+    render(<RentalApplicationFinishPanel axisId="PROPLANE-APP00001" email="" portalFlow onDone={() => {}} />);
+    expect(await screen.findByRole("heading", { name: "1 more form to finish" })).toBeInTheDocument();
+    expect(screen.getByText("Co-signer application")).toBeInTheDocument();
+    expect(client.fetchLinkedFormsForApplication).toHaveBeenCalledWith("PROPLANE-APP00001");
+  });
+
   it("keeps the old co-signer copy box when the template links no form", () => {
+    client.fetchLinkedFormsForApplication.mockResolvedValue([]);
     render(<RentalApplicationFinishPanel axisId="PROPLANE-APP00001" email="" portalFlow hasCosigner="yes" linkedForms={[]} onDone={() => {}} />);
     expect(screen.getByText(/Co-signer invite/i)).toBeInTheDocument();
     expect(screen.queryByText(/more forms? to finish/i)).not.toBeInTheDocument();

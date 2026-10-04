@@ -177,7 +177,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
         {tile("Profit", totals.profitCents, undefined, undefined, undefined, "positive")}{tile("Rent collected", rentDue?.collectedCents, undefined, rentDue?.dueCents ? `of ${wholeMoney(rentDue.dueCents)} due · ${rentDue.percent}%` : undefined)}
       </div>
     </div>
-    <MonthlyProfitChart hideSummary defaultRangeMonths={12} onMonthSelect={setMonth} points={months.map(m => {
+    <MonthlyProfitChart onMonthSelect={setMonth} points={months.map(m => {
       const t = summary.months[m.key] ?? { revenueCents: 0, expenseCents: 0, profitCents: 0, rentCollectedCents: 0 };
       return { ...m, revenue: t.revenueCents / 100, expense: t.expenseCents / 100, profit: t.profitCents / 100 };
     })} />
