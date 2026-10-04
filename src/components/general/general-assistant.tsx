@@ -112,6 +112,18 @@ export function isMarketingPath(pathname: string | null): boolean {
   );
 }
 
+/**
+ * Surfaces that carry NO PropLane assistant at all, public bubble included. A resident has no
+ * assistant anywhere (their portal deliberately mounts none), so the site-wide public bubble must
+ * not fill the gap there. One path decision, next to the lists above, never a CSS hide.
+ */
+/** `RESIDENT_PORTAL_BASE_PATH` (a literal here so this site-wide component does not pull the portal section tables into every public bundle). */
+const ASSISTANT_FREE_PATHS = ["/resident"];
+export function isAssistantFreePath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return ASSISTANT_FREE_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
 /** Floating chat control for public pages — bottom-right, hidden when the portal assistant is active. */
 export function GeneralAssistantFab() {
   const open = useGeneralOpen();
@@ -123,7 +135,7 @@ export function GeneralAssistantFab() {
   );
   const { isNative } = useIsNativeApp();
 
-  if (open || portalPresent || isNative || isMarketingPath(pathname)) return null;
+  if (open || portalPresent || isNative || isMarketingPath(pathname) || isAssistantFreePath(pathname)) return null;
 
   function toggleAssistant() {
     if (open) {
@@ -151,6 +163,7 @@ export function GeneralAssistantFab() {
 export function GeneralAssistant() {
   const isClient = useIsClient();
   const open = useGeneralOpen();
+  const pathname = usePathname();
 
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<PendingChatAttachment[]>([]);
@@ -220,7 +233,7 @@ export function GeneralAssistant() {
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
-  const panel = open ? (
+  const panel = open && !isAssistantFreePath(pathname) ? (
     <div className="fixed inset-0 z-[70]">
       <button
         type="button"

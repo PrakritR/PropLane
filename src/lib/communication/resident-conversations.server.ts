@@ -173,6 +173,67 @@ export async function loadResidentLinkedWorkspaceIds(
   return linked;
 }
 
+/**
+ * Older rows (before conversation keys) carry no `ws:` key, only the other party's ACCOUNT email.
+ * Those are named from that email, under three conditions that keep this from being a lookup oracle:
+ * the email is one the resident's OWN row already carries, its profile holds a manager role
+ * (`profile_roles`), and the manager owns a workspace the resident is really linked to. A
+ * workspace the resident is not linked to, or an email that is not a manager's, resolves to nothing.
+ * The manager's WORK email never appears on these rows, so the contact list cannot match them.
+ */
+export async function loadResidentManagerCounterpartiesByEmail(
+  db: Db,
+  residentId: string,
+  emails: readonly string[],
+): Promise<Map<string, ResidentCounterparty>> {
+  const out = new Map<string, ResidentCounterparty>();
+  const wanted = [...new Set(emails.map((email) => clean(email).toLowerCase()).filter((email) => email.includes("@")))];
+  const resident = clean(residentId);
+  if (!resident || wanted.length === 0) return out;
+  try {
+    const { data: profiles } = await db.from("profiles").select("id, email").in("email", wanted);
+    const idByEmail = new Map<string, string>();
+    for (const row of (profiles ?? []) as Row[]) {
+      const id = clean(row.id);
+      const email = clean(row.email).toLowerCase();
+      if (id && email && id !== resident) idByEmail.set(email, id);
+    }
+    if (idByEmail.size === 0) return out;
+    const { data: roles } = await db
+      .from("profile_roles")
+      .select("user_id, role")
+      .in("user_id", [...idByEmail.values()])
+      .eq("role", "manager");
+    const managerIds = new Set(((roles ?? []) as Row[]).map((row) => clean(row.user_id)).filter(Boolean));
+    if (managerIds.size === 0) return out;
+    const { data: workspaces } = await db
+      .from("portal_workspaces")
+      .select("id, owner_user_id, is_default")
+      .in("owner_user_id", [...managerIds]);
+    const workspaceRows = (workspaces ?? []) as Row[];
+    const linked = await loadResidentLinkedWorkspaceIds(
+      db,
+      resident,
+      workspaceRows.map((row) => clean(row.id)),
+    );
+    // One workspace per manager: the default one when the resident is linked to it, else the first linked.
+    const chosen = new Map<string, string>();
+    for (const row of [...workspaceRows].sort((a, b) => Number(b.is_default === true) - Number(a.is_default === true))) {
+      const owner = clean(row.owner_user_id);
+      const id = clean(row.id);
+      if (owner && linked.has(id) && !chosen.has(owner)) chosen.set(owner, id);
+    }
+    const identities = await loadResidentCounterparties(db, [...chosen.values()]);
+    for (const [email, managerId] of idByEmail) {
+      const identity = identities.get(chosen.get(managerId) ?? "");
+      if (identity) out.set(email, identity);
+    }
+  } catch {
+    return new Map();
+  }
+  return out;
+}
+
 type ProjectionRow = {
   id: string;
   owner: string;
@@ -415,7 +476,19 @@ export async function applyResidentConversationExtras(
   // construction.
   const linkedKeyed = await loadResidentLinkedWorkspaceIds(db, resident.id, keyedWorkspaces);
   const identities = await loadResidentCounterparties(db, [...linkedKeyed, ...sms.map((entry) => entry.workspaceId)]);
-  const stamped = stampCounterparties(rows, identities);
+  const stampedByKey = stampCounterparties(rows, identities);
+  // Rows with no workspace key are named from their own manager email (see the loader).
+  const unkeyedEmails = stampedByKey
+    .filter((row) => !isResidentAssistantRow(row) && !row.counterparty && !String(row.conversationKey ?? "").startsWith("ws:"))
+    .map((row) => row.email);
+  const byEmail = await loadResidentManagerCounterpartiesByEmail(db, resident.id, unkeyedEmails);
+  const stamped = byEmail.size
+    ? stampedByKey.map((row) => {
+        if (isResidentAssistantRow(row) || row.counterparty || String(row.conversationKey ?? "").startsWith("ws:")) return row;
+        const identity = byEmail.get(clean(row.email).toLowerCase());
+        return identity ? { ...row, counterparty: identity } : row;
+      })
+    : stampedByKey;
   const merged = mergeResidentSmsConversations(stamped, sms, clean(resident.name) || "You");
   return { rows: merged, phone };
 }

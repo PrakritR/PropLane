@@ -394,6 +394,72 @@ describe("folding texts into the resident's conversation", () => {
   });
 });
 
+describe("applyResidentConversationExtras - rows with no workspace key are named from their own manager email", () => {
+  const roles = (...ids: string[]) => ({ profile_roles: ids.map((user_id) => ({ user_id, role: "manager" })) });
+  const unkeyed = (over: Partial<PersistedInboxThread> = {}) =>
+    storedRow({ id: "thread-legacy", from: "Property manager", conversationKey: undefined, workspaceId: undefined, ...over });
+
+  it("a legacy row whose email is the linked manager's account email is titled with that manager", async () => {
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles(M1)),
+      { id: R, mayReadResidentTexts: false },
+      [unkeyed({ email: "M1@x.co" })],
+    );
+    expect(rows[0]!.counterparty).toMatchObject({ name: "Maya Manager", workspaceName: "Maya Homes", workspaceId: W1 });
+  });
+
+  it("a SENT legacy row (to the manager) is named too, instead of showing the raw address", async () => {
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles(M1)),
+      { id: R, mayReadResidentTexts: false },
+      [unkeyed({ folder: "sent", from: "Resident", email: "m1@x.co" })],
+    );
+    expect(rows[0]!.counterparty).toMatchObject({ name: "Maya Manager" });
+  });
+
+  it("an email on the resident's row that belongs to a manager they are NOT linked to stamps nothing", async () => {
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles(M1, M2)),
+      { id: R, mayReadResidentTexts: false },
+      [unkeyed({ email: "m2@x.co" })],
+    );
+    expect(rows[0]!.counterparty).toBeUndefined();
+    expect(JSON.stringify(rows[0])).not.toContain("Marco");
+  });
+
+  it("an email whose profile holds no manager role stamps nothing", async () => {
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles()),
+      { id: R, mayReadResidentTexts: false },
+      [unkeyed({ email: "m1@x.co" })],
+    );
+    expect(rows[0]!.counterparty).toBeUndefined();
+  });
+
+  it("a manager email that is on no row of the resident's is never looked up or revealed", async () => {
+    // M1 is linked, but the only row's email is someone else's; Maya's name must not appear anywhere.
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles(M1)),
+      { id: R, mayReadResidentTexts: false },
+      [unkeyed({ email: "stranger@x.co" })],
+    );
+    expect(rows[0]!.counterparty).toBeUndefined();
+    expect(JSON.stringify(rows)).not.toContain("Maya");
+  });
+
+  it("a forged client counterparty on a legacy row is dropped, never trusted", async () => {
+    const forged = { ...unkeyed({ email: "stranger@x.co" }), counterparty: { workspaceId: W2, name: "Marco Landlord", workspaceName: "Marco Rentals", workPhone: "+12065550102", avatarUrl: null, initials: "ML" } } as PersistedInboxThread;
+    const { rows } = await applyResidentConversationExtras(seededDb(roles(M1, M2)), { id: R, mayReadResidentTexts: false }, [forged]);
+    expect(rows[0]!.counterparty).toBeUndefined();
+  });
+
+  it("the PropLane Assistant row is never given a manager", async () => {
+    const assistant = storedRow({ id: "resident-agent-x", threadType: "resident_agent", from: "PropLane Assistant", email: "m1@x.co", conversationKey: undefined, workspaceId: undefined } as Partial<PersistedInboxThread>);
+    const { rows } = await applyResidentConversationExtras(seededDb(roles(M1)), { id: R, mayReadResidentTexts: false }, [assistant]);
+    expect(rows[0]!.counterparty).toBeUndefined();
+  });
+});
+
 describe("applyResidentConversationExtras - the list the route returns", () => {
   it("a resident's in-app row, the manager's identity and their texts arrive as one conversation", async () => {
     const db = seededDb(withConversation({}, [{ body: "texting from my phone", occurred_at: "2026-10-02T10:00:00Z" }]));
