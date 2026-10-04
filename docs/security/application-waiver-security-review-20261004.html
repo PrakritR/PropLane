@@ -1,0 +1,410 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Application waiver save security review - 2026-10-04</title><style>body{max-width:980px;margin:40px auto;padding:0 24px;font:16px/1.6 system-ui;color:#182126}h1{font-size:28px}h2{font-size:20px}table{width:100%;border-collapse:collapse}th,td{padding:12px;text-align:left;border:1px solid #ccd3d7}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f7;padding:18px;font-size:12px}code{overflow-wrap:anywhere}</style><h1>Application waiver save security review</h1><p>2026-10-04. Independent static release review required by docs/ship-gate.md. Result: no introduced security findings; no unresolved Critical or High findings in the reviewed diff.</p><h2>Exact scope</h2><p>Worktree: <code>/Users/akhilvemuri/coding/AXIS-2-waiver-release</code><br>Base and HEAD: <code>e00aa09cc68bc8f037c4502a24fcb1e020d4532f</code> (origin/main base supplied by release owner). Expanded review: the complete uncommitted eight-file source/test diff against origin/main, including minimal lint corrections. Supporting unchanged authorization and modal-flush code was inspected for context.</p><ul><li>src/components/portal/assistant-panel-chrome.tsx</li><li>src/components/portal/pro-application-questions-editor-modal.tsx</li><li>src/components/portal/property-lease-form-modal.tsx</li><li>src/components/portal/settings-module-page.tsx</li><li>src/components/portal/vendor-availability-editor.tsx</li><li>src/components/ui/motion/hold-to-confirm-button.tsx</li><li>src/components/ui/motion/inert-boundary.ts</li><li>tests/unit/manager-application-promo-code-scope.test.tsx</li></ul><p>Diff SHA-256: <code>78cac6f901ee909e9d4aa5aa051c8d301ac05ffa2d6525d59e33b1d59d918409</code>. No source edits, tests, servers, database operations, or heavy validation were performed by this reviewer. The release owner retains validation ownership.</p><h2>Security assessment</h2><table><tr><th>Area</th><th>Evidence and conclusion</th></tr><tr><td>Authorization</td><td>The new save path uses the existing same-origin authenticated JSON PATCH and supplies no manager/owner identity. The server authenticates through requireManagerRouteUser, resolves ownership and applications edit access before writes, then pre-validates waiver permission and collision rules. Removing client workspace filtering does not grant authority: the captured property is independently authorized on every request. References: settings-module-page.tsx:398-412; API route.ts:218-251; settings-scope.ts:78-119; manager-route-guard.server.ts:16-43.</td></tr><tr><td>Target retention</td><td>Changes require exactly one selected property and store its id with the edit. Flush consumes stored id/code pairs rather than the newly selected scope. Requests carry only propertyId and waiverCode. Newer edits during an in-flight request remain pending. References: settings-module-page.tsx:389-418.</td></tr><tr><td>Disclosure</td><td>No new public endpoints, analytics fields, persisted browser storage, URLs containing codes, or broad response projections. Pending codes live in an instance-local ref and errors are displayed using existing toast/status infrastructure. Existing owner-only portfolio code disclosure remains on the unchanged server route. References: settings-module-page.tsx:174-175,247,409,424-426; API route.ts:185-203.</td></tr><tr><td>Error and retry paths</td><td>HTTP failures and network rejection return false, preserve pending entries and report failure. Close awaits the registry result and stays open on false. Concurrent blur/close reuse one in-flight promise. Previously successful targets can remain committed if a later target fails; remaining failed targets retain their original ids for retry, with no success announcement for the failed batch. References: settings-module-page.tsx:396-436,469-474,531-560; pro-portal-settings-modal.tsx:206-212.</td></tr></table><h2>Expanded lint-correction security assessment</h2><table><tr><th>Change</th><th>Conclusion and references</th></tr><tr><td>Assistant mount snapshot</td><td>Lazy state preserves the initial message-count snapshot without changing message access, rendered content, or authorization. assistant-panel-chrome.tsx:231-242.</td></tr><tr><td>Application and lease template IDs</td><td>New state mirrors the same ID generated into the existing save/import refs within initialization effects. Saves still use the original refs; default pickers now consume the mirrored value. No ID generation algorithm or privilege decision changed. Existing factories use prefixed crypto.randomUUID identifiers. The duplicate-name expression preserves trimmed, case-insensitive comparison and React renders its error as text. pro-application-questions-editor-modal.tsx:311-312,360-361,761,1248-1253,1870; property-lease-form-modal.tsx:205-206,300-305,542,1101; property-application-templates.ts:305-307; property-lease-templates.ts:157-159.</td></tr><tr><td>Vendor demo rule IDs</td><td>UUID-based IDs replace the process-wide counter only inside demo branches. The retained demo-avail prefixes preserve their identity convention, while independent UUID generation avoids collisions after remounts or separate instances. IDs are not credentials. Real vendor save functions and server scoping are unchanged. vendor-availability-editor.tsx:316-323,382-389,409-416,441-452.</td></tr><tr><td>Hold-to-confirm phase</td><td>Effect synchronization replaces render-time ref mutation. Hold duration, native click suppression, callback path, and authorization are unchanged. Runtime validation should retain short-hold cancellation, full-hold commit, and duplicate activation checks because the primitive controls destructive confirmations. No introduced security defect was identified statically. hold-to-confirm-button.tsx:67-69,128-197.</td></tr><tr><td>Modal inert boundary</td><td>The memoized inline callback invokes the same mergeRefs operation with the same dependencies, preserving external ref updates and inner acquire/release behavior. No access or confirmation gate changes. inert-boundary.ts:68-98.</td></tr></table><h2>Findings and limits</h2><p>No Critical, High, Medium or Low introduced security finding identified. Static review cannot replace runtime role/ownership tests or browser QA. The new regression tests cover focused Escape, in-flight close, clearing, unchanged blur, and failure/retry; their execution is owned by the release agent.</p><p>Informational coverage recommendation: exercise scope switching with a pending edit and an authorization failure at flush time. The implementation retains target identity and handles non-2xx responses, but the added test cases do not specifically cover those combined paths. This is not a release-blocking vulnerability finding.</p><p>Graph orientation was unavailable: this release worktree has neither .graphify nor the graphify CLI default graph. Conclusions are grounded in the exact diff and directly inspected supporting source.</p><h2>Reviewed diff</h2><pre>diff --git a/src/components/portal/assistant-panel-chrome.tsx b/src/components/portal/assistant-panel-chrome.tsx
+index dcc2d0a48..bf04abf92 100644
+--- a/src/components/portal/assistant-panel-chrome.tsx
++++ b/src/components/portal/assistant-panel-chrome.tsx
+@@ -2,7 +2,7 @@
+
+ import Link from &quot;next/link&quot;;
+ import { X } from &quot;lucide-react&quot;;
+-import { useRef, type ReactNode } from &quot;react&quot;;
++import { useState, type ReactNode } from &quot;react&quot;;
+
+ import { AssistantMarkdown } from &quot;@/components/portal/assistant-markdown&quot;;
+ import {
+@@ -231,16 +231,14 @@ export function AssistantMessageList({
+ }) {
+   // M012 — a one-shot mask-wipe reveal plays over an assistant reply that
+   // arrives after this component&#x27;s own first paint (never on a thread
+-  // freshly loaded from history). `initialCountRef` snapshots the message
++  // freshly loaded from history). `freshFrom` snapshots the message
+   // count on mount; every index at or past it is &quot;fresh&quot; for this session.
+   // The reveal itself is a plain CSS class (`motion-stream-reveal`,
+   // tokens.css) that autoplays once on the bubble&#x27;s own DOM insertion and
+   // never replays on a later re-render of the same node — see the class&#x27;s
+   // own note. The real text node is never retyped: assistive tech reads the
+   // plain final string from the very first frame.
+-  const initialCountRef = useRef&lt;number | null&gt;(null);
+-  if (initialCountRef.current === null) initialCountRef.current = messages.length;
+-  const freshFrom = initialCountRef.current;
++  const [freshFrom] = useState(() =&gt; messages.length);
+
+   return (
+     &lt;div className=&quot;space-y-3 text-sm&quot;&gt;
+diff --git a/src/components/portal/pro-application-questions-editor-modal.tsx b/src/components/portal/pro-application-questions-editor-modal.tsx
+index cad797293..0dee86e29 100644
+--- a/src/components/portal/pro-application-questions-editor-modal.tsx
++++ b/src/components/portal/pro-application-questions-editor-modal.tsx
+@@ -309,6 +309,7 @@ export function ManagerApplicationQuestionsEditorModal({
+   // `importProvenance.sourcePath` and a Setup &quot;Default&quot; pick both still
+   // point at whatever template actually gets created.
+   const addModeTemplateIdRef = useRef&lt;string | null&gt;(null);
++  const [addModeTemplateId, setAddModeTemplateId] = useState&lt;string | null&gt;(null);
+
+   useEffect(() =&gt; {
+     if (!open) {
+@@ -357,6 +358,7 @@ export function ManagerApplicationQuestionsEditorModal({
+     setPendingImportCompareOpen(false);
+     setDisabledSectionIds(templateDraft?.disabledSectionIds?.slice() ?? []);
+     addModeTemplateIdRef.current = templateEditorMode === &quot;add&quot; ? makePropertyApplicationTemplateId() : null;
++    setAddModeTemplateId(addModeTemplateIdRef.current);
+   }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId]);
+
+   const bulkIds = propertyIds?.filter((id) =&gt; id.trim()) ?? [];
+@@ -1243,15 +1245,11 @@ export function ManagerApplicationQuestionsEditorModal({
+
+   // F001: inline duplicate-name validation — another application already
+   // saved on this property with the same (trimmed, case-insensitive) name.
+-  const duplicateTemplateNameError = useMemo(() =&gt; {
+-    if (!isTemplateEditor || !templates) return null;
+-    const trimmed = templateLabel.trim().toLowerCase();
+-    if (!trimmed) return null;
+-    const clashes = templates.some(
+-      (candidate) =&gt; candidate.id !== applicationTemplate?.id &amp;&amp; candidate.label.trim().toLowerCase() === trimmed,
+-    );
+-    return clashes ? `An application named &quot;${templateLabel.trim()}&quot; already exists on this property.` : null;
+-  }, [isTemplateEditor, templates, templateLabel, applicationTemplate?.id]);
++  const trimmedTemplateName = templateLabel.trim();
++  const duplicateTemplateNameError = isTemplateEditor &amp;&amp; trimmedTemplateName &amp;&amp; templates?.some(
++    (candidate) =&gt; candidate.id !== applicationTemplate?.id &amp;&amp;
++      candidate.label.trim().toLowerCase() === trimmedTemplateName.toLowerCase(),
++  ) ? `An application named &quot;${trimmedTemplateName}&quot; already exists on this property.` : null;
+   const nameStepError = templateLabelError || duplicateTemplateNameError;
+
+   const renderSection = (sectionId: RentalApplicationSectionId) =&gt; {
+@@ -1869,7 +1867,7 @@ export function ManagerApplicationQuestionsEditorModal({
+                   // new template WILL be created with at the footer commit
+                   // (see `addModeTemplateIdRef` / the `templateEditorMode ===
+                   // &quot;add&quot;` branch of `commitSave`).
+-                  const applicationTemplateIdForDefault = applicationTemplate?.id ?? addModeTemplateIdRef.current;
++                  const applicationTemplateIdForDefault = applicationTemplate?.id ?? addModeTemplateId;
+                   if (!applicationTemplateIdForDefault) return null;
+                   return (
+                     &lt;PanelSection title=&quot;Default&quot;&gt;
+diff --git a/src/components/portal/property-lease-form-modal.tsx b/src/components/portal/property-lease-form-modal.tsx
+index 8a17b1e58..10cbdbc6c 100644
+--- a/src/components/portal/property-lease-form-modal.tsx
++++ b/src/components/portal/property-lease-form-modal.tsx
+@@ -203,6 +203,7 @@ export function PropertyLeaseFormModal({
+   // template&#x27;s real id at commit, exactly like the application editor&#x27;s
+   // `addModeTemplateIdRef`.
+   const addModeLeaseTemplateIdRef = useRef&lt;string | null&gt;(null);
++  const [addModeLeaseTemplateId, setAddModeLeaseTemplateId] = useState&lt;string | null&gt;(null);
+
+   // F013: inline duplicate-name validation — another lease already saved on
+   // this property with the same (trimmed, case-insensitive) name.
+@@ -297,9 +298,11 @@ export function PropertyLeaseFormModal({
+       setPendingLeaseImport(null);
+       setPendingLeaseImportCompareOpen(false);
+       addModeLeaseTemplateIdRef.current = null;
++      setAddModeLeaseTemplateId(null);
+       return;
+     }
+     addModeLeaseTemplateIdRef.current = makePropertyLeaseTemplateId();
++    setAddModeLeaseTemplateId(addModeLeaseTemplateIdRef.current);
+     setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) =&gt; o.id === &quot;long-term&quot;)!.defaultLabel);
+     setKind(&quot;long-term&quot;);
+     setDocumentMode(&quot;proplane_long_term&quot;);
+@@ -1095,7 +1098,7 @@ export function PropertyLeaseFormModal({
+                 // saved id in edit mode, or the pending id &quot;add&quot; mode will
+                 // create the lease WITH at commit (see the `mode === &quot;add&quot;`
+                 // branch of `save` below).
+-                const thisLeaseId = mode === &quot;edit&quot; ? template?.id ?? null : addModeLeaseTemplateIdRef.current;
++                const thisLeaseId = mode === &quot;edit&quot; ? template?.id ?? null : addModeLeaseTemplateId;
+                 if (!thisLeaseId) return null;
+                 return (
+                   &lt;PanelSection title=&quot;Default&quot;&gt;
+diff --git a/src/components/portal/settings-module-page.tsx b/src/components/portal/settings-module-page.tsx
+index fb54db9dc..00714e225 100644
+--- a/src/components/portal/settings-module-page.tsx
++++ b/src/components/portal/settings-module-page.tsx
+@@ -169,6 +169,9 @@ export const SettingsModulePage = forwardRef&lt;
+   const [residentHubArea, setResidentHubArea] = useState&lt;ResidentSettingsArea&gt;(&quot;household&quot;);
+   const [automation, setAutomation] = useState&lt;ApplicationAutomationPreferences&gt;(DEFAULT_APPLICATION_AUTOMATION);
+   const [waiverCode, setWaiverCode] = useState(&quot;&quot;);
++  // Keep the target with the edit, so changing scope cannot move an unsaved code.
++  const pendingWaiverCodesRef = useRef(new Map&lt;string, string&gt;());
++  const waiverSaveInFlightRef = useRef&lt;Promise&lt;boolean&gt; | null&gt;(null);
+   const [applicationSettings, setApplicationSettings] = useState&lt;ManagerApplicationSettings&gt;(
+     DEFAULT_MANAGER_APPLICATION_SETTINGS,
+   );
+@@ -241,7 +244,7 @@ export const SettingsModulePage = forwardRef&lt;
+         return;
+       }
+       setAutomation(normalizeApplicationAutomation(data.automation));
+-      setWaiverCode(typeof data.waiverCode === &quot;string&quot; ? data.waiverCode : &quot;&quot;);
++      setWaiverCode(pendingWaiverCodesRef.current.get(loadId) ?? (typeof data.waiverCode === &quot;string&quot; ? data.waiverCode : &quot;&quot;));
+       setApplicationSettings(normalizeManagerApplicationSettings(data.settings));
+       setLeasingPipeline(normalizeLeasingPipelinePreferences(data.leasingPipeline));
+       cacheLeasingPipelinePreferences(data.leasingPipeline);
+@@ -383,13 +386,50 @@ export const SettingsModulePage = forwardRef&lt;
+     [demo, reportSaveStatus, showToast, scope.workspaceId, scope.reportSource, workspaces?.workspaces],
+   );
+
+-  const commitWaiverCode = useCallback(() =&gt; {
++  const changeWaiverCode = useCallback((code: string) =&gt; {
+     const ids = propertyIds.length &gt; 0 ? propertyIds : propertyId ? [propertyId] : [];
+-    // A promo code belongs to exactly one property. Anything else — none
+-    // selected, or more than one — is inert rather than a half-write.
+     if (ids.length !== 1) return;
+-    void saveApplicationAutomationSettings({ waiverCode }, ids);
+-  }, [propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode]);
++    setWaiverCode(code);
++    pendingWaiverCodesRef.current.set(ids[0], code);
++  }, [propertyId, propertyIds]);
++
++  const commitWaiverCode = useCallback((): Promise&lt;boolean&gt; =&gt; {
++    if (waiverSaveInFlightRef.current) return waiverSaveInFlightRef.current;
++    if (demo || pendingWaiverCodesRef.current.size === 0) return Promise.resolve(true);
++    const run = async () =&gt; {
++      setSaving(true);
++      reportSaveStatus({ type: &quot;start&quot; });
++      try {
++        while (pendingWaiverCodesRef.current.size &gt; 0) {
++          const [targetPropertyId, code] = pendingWaiverCodesRef.current.entries().next().value!;
++          const res = await fetch(&quot;/api/portal/manager-application-settings&quot;, {
++            method: &quot;PATCH&quot;,
++            credentials: &quot;include&quot;,
++            headers: { &quot;Content-Type&quot;: &quot;application/json&quot; },
++            body: JSON.stringify({ propertyId: targetPropertyId, waiverCode: code }),
++          });
++          const data = (await res.json().catch(() =&gt; ({}))) as { error?: string };
++          if (!res.ok) throw new Error(data.error ?? &quot;Could not save waiver code.&quot;);
++          // A newer edit made during this request still needs its own save.
++          if (pendingWaiverCodesRef.current.get(targetPropertyId) === code) {
++            pendingWaiverCodesRef.current.delete(targetPropertyId);
++          }
++        }
++        reportSaveStatus({ type: &quot;success&quot; });
++        return true;
++      } catch (error) {
++        const reason = error instanceof Error ? error.message : &quot;Could not save waiver code.&quot;;
++        showToast(reason);
++        reportSaveStatus({ type: &quot;failure&quot;, reason });
++        return false;
++      } finally {
++        setSaving(false);
++      }
++    };
++    const promise = run().finally(() =&gt; { waiverSaveInFlightRef.current = null; });
++    waiverSaveInFlightRef.current = promise;
++    return promise;
++  }, [demo, reportSaveStatus, showToast]);
+
+   const changeAutomation = useCallback(
+     (next: ApplicationAutomationPreferences) =&gt; {
+@@ -426,6 +466,13 @@ export const SettingsModulePage = forwardRef&lt;
+   );
+
+   const saveRegistryRef = useRef(new Map&lt;string, PendingSaveHandle&gt;());
++  useEffect(() =&gt; {
++    if (!showApplications) return;
++    const registry = saveRegistryRef.current;
++    registry.set(&quot;application-waiver-code&quot;, { saveIfDirty: commitWaiverCode });
++    return () =&gt; { registry.delete(&quot;application-waiver-code&quot;); };
++  }, [showApplications, commitWaiverCode]);
++
+   const paymentsFormRef = useSaveRegistryEntry&lt;PaymentAutomationSettingsHandle&gt;(saveRegistryRef, &quot;payments&quot;);
+   const toursFormRef = useSaveRegistryEntry&lt;TourSettingsHandle&gt;(saveRegistryRef, &quot;tours&quot;);
+   const taskFormRef = useSaveRegistryEntry&lt;TaskSettingsHandle&gt;(saveRegistryRef, &quot;tasks&quot;);
+@@ -564,8 +611,8 @@ export const SettingsModulePage = forwardRef&lt;
+           }}
+           onAutomationChange={changeAutomation}
+           waiverCode={waiverCode}
+-          onWaiverCodeChange={setWaiverCode}
+-          onWaiverCodeCommit={commitWaiverCode}
++          onWaiverCodeChange={changeWaiverCode}
++          onWaiverCodeCommit={() =&gt; { void commitWaiverCode(); }}
+           showFormLink={showFormLink}
+           source={applicationSource}
+           applicationSettings={applicationSettings}
+diff --git a/src/components/portal/vendor-availability-editor.tsx b/src/components/portal/vendor-availability-editor.tsx
+index 9b4275220..b0b9e743e 100644
+--- a/src/components/portal/vendor-availability-editor.tsx
++++ b/src/components/portal/vendor-availability-editor.tsx
+@@ -60,8 +60,6 @@ type WeeklyWindow = Extract&lt;VendorAvailabilityRule, { kind: &quot;weekly&quot; }&gt;;
+ type OverrideRule = Extract&lt;VendorAvailabilityRule, { kind: &quot;open&quot; | &quot;block&quot; }&gt;;
+ type OverrideType = &quot;open&quot; | &quot;block&quot;;
+
+-let demoRuleCounter = 0;
+-
+ /** One day&#x27;s non-flexible weekly windows, sorted. */
+ function windowsForDay(rules: VendorAvailabilityRule[], weekday: number): WeeklyWindow[] {
+   return rules
+@@ -318,10 +316,10 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean
+     const start = existing.length ? Math.min(22 * 60, existing[existing.length - 1]!.endMinute) : 9 * 60;
+     const end = Math.min(24 * 60, start + 60) &gt; start ? Math.min(24 * 60, start + 60) : 24 * 60;
+     if (demo) {
+-      demoRuleCounter += 1;
++
+       applyDemoRules([
+         ...rules,
+-        { id: `demo-avail-${demoRuleCounter}`, kind: &quot;weekly&quot;, weekday, startMinute: start, endMinute: end },
++        { id: `demo-avail-${crypto.randomUUID()}`, kind: &quot;weekly&quot;, weekday, startMinute: start, endMinute: end },
+       ]);
+       return;
+     }
+@@ -384,10 +382,10 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean
+       return;
+     }
+     if (demo) {
+-      demoRuleCounter += 1;
++
+       applyDemoRules([
+         ...rules,
+-        { id: `demo-avail-flex-${demoRuleCounter}`, kind: &quot;weekly&quot;, weekday, startMinute: 0, endMinute: 1440, note: &quot;Flexible&quot; },
++        { id: `demo-avail-flex-${crypto.randomUUID()}`, kind: &quot;weekly&quot;, weekday, startMinute: 0, endMinute: 1440, note: &quot;Flexible&quot; },
+       ]);
+       showToast(&quot;Marked flexible. Managers can schedule any time this day.&quot;);
+       return;
+@@ -411,10 +409,10 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean
+       if (flex) await removeRule(flex.id);
+       for (const w of sourceWindows) {
+         if (demo) {
+-          demoRuleCounter += 1;
++
+           applyDemoRules([
+             ...rules,
+-            { id: `demo-avail-${demoRuleCounter}`, kind: &quot;weekly&quot;, weekday, startMinute: w.startMinute, endMinute: w.endMinute },
++            { id: `demo-avail-${crypto.randomUUID()}`, kind: &quot;weekly&quot;, weekday, startMinute: w.startMinute, endMinute: w.endMinute },
+           ]);
+         } else {
+           await saveVendorWeeklyRule({ weekday, startMinute: w.startMinute, endMinute: w.endMinute });
+@@ -443,11 +441,11 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean
+       endMinute = e;
+     }
+     if (demo) {
+-      demoRuleCounter += 1;
++
+       applyDemoRules([
+         ...rules,
+         {
+-          id: `demo-avail-override-${demoRuleCounter}`,
++          id: `demo-avail-override-${crypto.randomUUID()}`,
+           kind: overrideDraft.type,
+           specificDate: overrideDraft.date,
+           startMinute: startMinute ?? 0,
+diff --git a/src/components/ui/motion/hold-to-confirm-button.tsx b/src/components/ui/motion/hold-to-confirm-button.tsx
+index 320bf96a7..4a041aeab 100644
+--- a/src/components/ui/motion/hold-to-confirm-button.tsx
++++ b/src/components/ui/motion/hold-to-confirm-button.tsx
+@@ -65,7 +65,7 @@ export function HoldToConfirmButton({
+   const reducedMotion = useReducedMotion();
+
+   const phaseRef = useRef(phase);
+-  phaseRef.current = phase;
++  useEffect(() =&gt; { phaseRef.current = phase; }, [phase]);
+   const timerRef = useRef&lt;ReturnType&lt;typeof setTimeout&gt; | null&gt;(null);
+   const startPos = useRef({ x: 0, y: 0 });
+   const mounted = useRef(true);
+diff --git a/src/components/ui/motion/inert-boundary.ts b/src/components/ui/motion/inert-boundary.ts
+index 032ad3231..00e563a0a 100644
+--- a/src/components/ui/motion/inert-boundary.ts
++++ b/src/components/ui/motion/inert-boundary.ts
+@@ -94,8 +94,7 @@ export function useInertOutsideModalRef&lt;T extends Element&gt;(outerRef: Ref&lt;T&gt; | un
+       release();
+     }
+   }, []);
+-  // eslint-disable-next-line react-hooks/exhaustive-deps -- outerRef identity churn is fine; mergeRefs re-reads it each call
+-  return useCallback(mergeRefs(outerRef, innerRef), [outerRef, innerRef]);
++  return useCallback((node: T | null) =&gt; { mergeRefs(outerRef, innerRef)(node); }, [outerRef, innerRef]);
+ }
+
+ /**
+diff --git a/tests/unit/manager-application-promo-code-scope.test.tsx b/tests/unit/manager-application-promo-code-scope.test.tsx
+index a9db9d927..fb0317055 100644
+--- a/tests/unit/manager-application-promo-code-scope.test.tsx
++++ b/tests/unit/manager-application-promo-code-scope.test.tsx
+@@ -67,11 +67,11 @@ afterEach(() =&gt; {
+   vi.unstubAllGlobals();
+ });
+
+-function renderModal() {
++function renderModal(onClose = () =&gt; undefined) {
+   return render(
+     &lt;ProPortalSettingsModal
+       open
+-      onClose={() =&gt; undefined}
++      onClose={onClose}
+       initialTab=&quot;applications&quot;
+       // The promo code + automation toggles live on the Automation pane; the
+       // Form pane is the question-template editor. Real callers that open
+@@ -174,3 +174,77 @@ describe(&quot;automation toggles across several properties&quot;, () =&gt; {
+     }
+   });
+ });
++
++
++describe(&quot;waiver code save on leaving settings&quot;, () =&gt; {
++  it(&quot;flushes a focused edit on Escape without relying on blur&quot;, async () =&gt; {
++    const onClose = vi.fn();
++    renderModal(onClose);
++    await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++    await userEvent.clear(promoField());
++    await userEvent.type(promoField(), &quot;ESCAPE10&quot;);
++    fireEvent.keyDown(document, { key: &quot;Escape&quot; });
++    await waitFor(() =&gt; expect(onClose).toHaveBeenCalledTimes(1));
++    expect(patches).toEqual([{ propertyId: &quot;prop-1&quot;, waiverCode: &quot;ESCAPE10&quot; }]);
++  });
++
++  it(&quot;waits for the waiver request before closing and does not duplicate a blur save&quot;, async () =&gt; {
++    const onClose = vi.fn();
++    renderModal(onClose);
++    await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++    let finish!: (response: Response) =&gt; void;
++    const response = new Promise&lt;Response&gt;((resolve) =&gt; { finish = resolve; });
++    const originalFetch = globalThis.fetch;
++    vi.stubGlobal(&quot;fetch&quot;, vi.fn((input: RequestInfo | URL, init?: RequestInit) =&gt; {
++      if (String(input).includes(&quot;manager-application-settings&quot;) &amp;&amp; init?.method === &quot;PATCH&quot;) {
++        patches.push(JSON.parse(String(init.body)));
++        return response;
++      }
++      return originalFetch(input, init);
++    }));
++    await userEvent.clear(promoField());
++    await userEvent.type(promoField(), &quot;WAIT10&quot;);
++    fireEvent.blur(promoField());
++    fireEvent.click(screen.getByRole(&quot;button&quot;, { name: &quot;Close&quot; }));
++    await waitFor(() =&gt; expect(patches).toHaveLength(1));
++    expect(onClose).not.toHaveBeenCalled();
++    await act(async () =&gt; { finish(new Response(&quot;{}&quot;, { status: 200 })); });
++    await waitFor(() =&gt; expect(onClose).toHaveBeenCalledTimes(1));
++    expect(patches).toHaveLength(1);
++  });
++
++  it(&quot;flushes clearing the code and skips an unchanged blur&quot;, async () =&gt; {
++    const onClose = vi.fn();
++    renderModal(onClose);
++    await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++    fireEvent.blur(promoField());
++    expect(patches).toHaveLength(0);
++    await userEvent.clear(promoField());
++    fireEvent.keyDown(document, { key: &quot;Escape&quot; });
++    await waitFor(() =&gt; expect(onClose).toHaveBeenCalledTimes(1));
++    expect(patches).toEqual([{ propertyId: &quot;prop-1&quot;, waiverCode: &quot;&quot; }]);
++  });
++
++  it(&quot;keeps the dialog open and the edit available when the save fails&quot;, async () =&gt; {
++    const onClose = vi.fn();
++    renderModal(onClose);
++    await waitFor(() =&gt; expect(promoField()).toHaveValue(&quot;WELCOME50&quot;));
++    const originalFetch = globalThis.fetch;
++    vi.stubGlobal(&quot;fetch&quot;, vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =&gt; {
++      if (String(input).includes(&quot;manager-application-settings&quot;) &amp;&amp; init?.method === &quot;PATCH&quot;) {
++        return new Response(JSON.stringify({ error: &quot;That code is already in use on another property.&quot; }), { status: 400 });
++      }
++      return originalFetch(input, init);
++    }));
++    await userEvent.clear(promoField());
++    await userEvent.type(promoField(), &quot;TAKEN10&quot;);
++    fireEvent.keyDown(document, { key: &quot;Escape&quot; });
++    await waitFor(() =&gt; expect(showToast).toHaveBeenCalledWith(&quot;That code is already in use on another property.&quot;));
++    expect(onClose).not.toHaveBeenCalled();
++    expect(promoField()).toHaveValue(&quot;TAKEN10&quot;);
++    vi.stubGlobal(&quot;fetch&quot;, originalFetch);
++    fireEvent.keyDown(document, { key: &quot;Escape&quot; });
++    await waitFor(() =&gt; expect(onClose).toHaveBeenCalledTimes(1));
++    expect(patches).toEqual([{ propertyId: &quot;prop-1&quot;, waiverCode: &quot;TAKEN10&quot; }]);
++  });
++});
+</pre></html>
+<p><strong>Final release scope:</strong> At Akhil’s request, the unrelated lint cleanups and hold-button test were removed. Only settings-module-page.tsx and manager-application-promo-code-scope.test.tsx remain changed in code. The retained waiver changes are identical to the reviewed versions; findings on removed changes do not apply to this release.</p>

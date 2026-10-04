@@ -170,6 +170,9 @@ export const SettingsModulePage = forwardRef<
   const [residentHubArea, setResidentHubArea] = useState<ResidentSettingsArea>("household");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [waiverCode, setWaiverCode] = useState("");
+  // Keep the target with the edit, so changing scope cannot move an unsaved code.
+  const pendingWaiverCodesRef = useRef(new Map<string, string>());
+  const waiverSaveInFlightRef = useRef<Promise<boolean> | null>(null);
   const [applicationSettings, setApplicationSettings] = useState<ManagerApplicationSettings>(
     DEFAULT_MANAGER_APPLICATION_SETTINGS,
   );
@@ -242,7 +245,7 @@ export const SettingsModulePage = forwardRef<
         return;
       }
       setAutomation(normalizeApplicationAutomation(data.automation));
-      setWaiverCode(typeof data.waiverCode === "string" ? data.waiverCode : "");
+      setWaiverCode(pendingWaiverCodesRef.current.get(loadId) ?? (typeof data.waiverCode === "string" ? data.waiverCode : ""));
       setApplicationSettings(normalizeManagerApplicationSettings(data.settings));
       setLeasingPipeline(normalizeLeasingPipelinePreferences(data.leasingPipeline));
       cacheLeasingPipelinePreferences(data.leasingPipeline);
@@ -384,13 +387,50 @@ export const SettingsModulePage = forwardRef<
     [demo, reportSaveStatus, showToast, scope.workspaceId, scope.reportSource, workspaces?.workspaces],
   );
 
-  const commitWaiverCode = useCallback(() => {
+  const changeWaiverCode = useCallback((code: string) => {
     const ids = propertyIds.length > 0 ? propertyIds : propertyId ? [propertyId] : [];
-    // A promo code belongs to exactly one property. Anything else — none
-    // selected, or more than one — is inert rather than a half-write.
     if (ids.length !== 1) return;
-    void saveApplicationAutomationSettings({ waiverCode }, ids);
-  }, [propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode]);
+    setWaiverCode(code);
+    pendingWaiverCodesRef.current.set(ids[0], code);
+  }, [propertyId, propertyIds]);
+
+  const commitWaiverCode = useCallback((): Promise<boolean> => {
+    if (waiverSaveInFlightRef.current) return waiverSaveInFlightRef.current;
+    if (demo || pendingWaiverCodesRef.current.size === 0) return Promise.resolve(true);
+    const run = async () => {
+      setSaving(true);
+      reportSaveStatus({ type: "start" });
+      try {
+        while (pendingWaiverCodesRef.current.size > 0) {
+          const [targetPropertyId, code] = pendingWaiverCodesRef.current.entries().next().value!;
+          const res = await fetch("/api/portal/manager-application-settings", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ propertyId: targetPropertyId, waiverCode: code }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(data.error ?? "Could not save waiver code.");
+          // A newer edit made during this request still needs its own save.
+          if (pendingWaiverCodesRef.current.get(targetPropertyId) === code) {
+            pendingWaiverCodesRef.current.delete(targetPropertyId);
+          }
+        }
+        reportSaveStatus({ type: "success" });
+        return true;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Could not save waiver code.";
+        showToast(reason);
+        reportSaveStatus({ type: "failure", reason });
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    };
+    const promise = run().finally(() => { waiverSaveInFlightRef.current = null; });
+    waiverSaveInFlightRef.current = promise;
+    return promise;
+  }, [demo, reportSaveStatus, showToast]);
 
   const changeAutomation = useCallback(
     (next: ApplicationAutomationPreferences) => {
@@ -427,6 +467,13 @@ export const SettingsModulePage = forwardRef<
   );
 
   const saveRegistryRef = useRef(new Map<string, PendingSaveHandle>());
+  useEffect(() => {
+    if (!showApplications) return;
+    const registry = saveRegistryRef.current;
+    registry.set("application-waiver-code", { saveIfDirty: commitWaiverCode });
+    return () => { registry.delete("application-waiver-code"); };
+  }, [showApplications, commitWaiverCode]);
+
   const paymentsFormRef = useSaveRegistryEntry<PaymentAutomationSettingsHandle>(saveRegistryRef, "payments");
   const toursFormRef = useSaveRegistryEntry<TourSettingsHandle>(saveRegistryRef, "tours");
   const taskFormRef = useSaveRegistryEntry<TaskSettingsHandle>(saveRegistryRef, "tasks");
@@ -565,8 +612,8 @@ export const SettingsModulePage = forwardRef<
           }}
           onAutomationChange={changeAutomation}
           waiverCode={waiverCode}
-          onWaiverCodeChange={setWaiverCode}
-          onWaiverCodeCommit={commitWaiverCode}
+          onWaiverCodeChange={changeWaiverCode}
+          onWaiverCodeCommit={() => { void commitWaiverCode(); }}
           showFormLink={showFormLink}
           source={applicationSource}
           applicationSettings={applicationSettings}
