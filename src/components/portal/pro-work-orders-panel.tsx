@@ -81,6 +81,7 @@ import { fetchServiceInvoices, outgoingPayHref, type ServiceInvoiceSummary } fro
 import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
 import { ServiceCommunicationPane } from "@/components/portal/service-communication-pane";
 import { ServiceIncomingPaymentsList } from "@/components/portal/service-incoming-payments-list";
+import { ServiceOutgoingPaymentsList } from "@/components/portal/service-outgoing-payments-list";
 import { buildServiceIncomingRows } from "@/lib/service-incoming-payments";
 import { ServiceInvoiceDocument } from "@/components/portal/service-invoice-document";
 import { vendorInvoiceShortfallCents } from "@/lib/vendor-invoice-bulk-pay";
@@ -1234,8 +1235,8 @@ export function ManagerWorkOrdersPanel({
         assignWork(row, { type: "vendor", id, name: activeVendors.find((v) => v.id === id)?.name || "Vendor" });
       }
     };
-    return (
-      <div data-attr="work-order-vendor-bids">
+    const lead = (
+      <>
         {assignedVendor ? (
           <div className="px-3 pb-4 sm:px-4" data-attr="work-order-assigned-vendor">
             <RecordFactCard title="Vendor">
@@ -1289,16 +1290,24 @@ export function ManagerWorkOrdersPanel({
             </p>
           ) : null
         ) : null}</div>
+      </>
+    );
+    return (
+      <div data-attr="work-order-vendor-bids">
         <ServiceVendorCycleSection
+          lead={lead}
           stages={stages}
           requests={requests}
           assignValue={assignValue}
           assignGroups={assignGroups}
           approvingBidId={acceptingBidId}
           onAssign={onAssign}
-          onRequestMore={() => {
-            setInviteVendorRow(row);
-            setInviteVendorSelectedIds([]);
+          plus={{
+            label: "Request more vendors",
+            onClick: () => {
+              setInviteVendorRow(row);
+              setInviteVendorSelectedIds([]);
+            },
           }}
           onApprove={(request) => {
             const bid = bids.find((b) => b.id === request.bidId);
@@ -1341,12 +1350,12 @@ export function ManagerWorkOrdersPanel({
     const incomingRows = buildServiceIncomingRows({ charges: linkedCharge ? [linkedCharge] : [], workOrderId: row.id });
     return (
       <div data-attr="work-order-invoice">
+        <ServiceIncomingPaymentsList rows={incomingRows} />
         {row.automationStatus === "vendor_marked_done" && invoiceTotal > 0 ? (
           <div className="px-3 pb-4 sm:px-4">
             <ServiceInvoiceDocument laborCents={invoiceLabor} materialsCents={invoiceMaterials} note={row.vendorMarkedDoneNote} />
           </div>
         ) : null}
-        <ServiceIncomingPaymentsList rows={incomingRows} />
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2 px-3 pb-6 sm:px-4">
           <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
             Cost
@@ -1457,41 +1466,13 @@ export function ManagerWorkOrdersPanel({
     }
   };
 
-  const renderOutgoingBody = (row: DemoManagerWorkOrderRow) => {
-    const outgoingRows = outgoingRowsForService(row);
-    if (outgoingRows.length === 0) {
-      return <PortalListEmptyCard title="Nothing to pay on this service" workspaceAware={false} dataAttr="work-order-outgoing-empty" />;
-    }
-    return (
-      <div className="px-3 pb-6 sm:px-4" data-attr="work-order-outgoing-payments">
-        {outgoingRows.map((outgoing) => (
-          <PortalApplicantRecordRow
-            key={outgoing.id}
-            name={outgoing.payeeLabel}
-            address={[outgoing.chargeTitle, outgoing.categoryLabel].filter(Boolean).join(" · ")}
-            facts={<PortalRowFact icon={Calendar}>{outgoing.bucket === "paid" ? `Paid ${outgoing.dueDate}` : outgoing.statusLabel}</PortalRowFact>}
-            amount={outgoing.amountLabel}
-            amountTone={outgoing.bucket === "paid" ? "ok" : undefined}
-            dataAttr="work-order-outgoing-row"
-            actions={
-              outgoing.bucket === "paid" ? undefined : (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="h-7 rounded-full px-3 text-xs"
-                  data-attr="work-order-outgoing-approve-pay"
-                  disabled={outgoingBusyId === outgoing.id}
-                  onClick={() => void approveAndPayOutgoing(row, outgoing)}
-                >
-                  {outgoingBusyId === outgoing.id ? "Opening…" : "Approve & pay"}
-                </Button>
-              )
-            }
-          />
-        ))}
-      </div>
-    );
-  };
+  const renderOutgoingBody = (row: DemoManagerWorkOrderRow) => (
+    <ServiceOutgoingPaymentsList
+      rows={outgoingRowsForService(row)}
+      busyId={outgoingBusyId}
+      onApproveAndPay={(outgoing) => void approveAndPayOutgoing(row, outgoing)}
+    />
+  );
 
   if (routeWorkOrderId) {
     if (!routeWorkOrder) {

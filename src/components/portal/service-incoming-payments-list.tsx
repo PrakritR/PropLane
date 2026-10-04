@@ -1,21 +1,48 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { CalendarDays, Repeat } from "lucide-react";
-import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { RecordListBand } from "@/components/portal/record-list-band";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import type { ServiceIncomingRow } from "@/lib/service-incoming-payments";
 
+type Bucket = "pending" | "overdue" | "paid";
+const TABS: Array<{ id: Bucket; label: string }> = [
+  { id: "pending", label: "Pending" },
+  { id: "overdue", label: "Overdue" },
+  { id: "paid", label: "Paid" },
+];
+
 /**
- * The resident's charges for one service, drawn with the Payments page's own row (tile, title,
- * place line, glyph facts, figure). A recurring add-on's cadence is a fact on its fee row.
+ * Incoming payments for one service: the standard list band (Pending · Overdue · Paid, search) over
+ * the Payments page's own row. A recurring add-on's cadence is a fact on its fee row.
  */
 export function ServiceIncomingPaymentsList({ rows }: { rows: readonly ServiceIncomingRow[] }) {
-  if (rows.length === 0) {
-    return <PortalListEmptyCard title="No charges for this service" workspaceAware={false} dataAttr="service-incoming-payments-empty" />;
-  }
+  const [tab, setTab] = useState<Bucket>("pending");
+  const [search, setSearch] = useState("");
+  const counts = useMemo(() => {
+    const c: Record<Bucket, number> = { pending: 0, overdue: 0, paid: 0 };
+    for (const { row } of rows) c[row.bucket] += 1;
+    return c;
+  }, [rows]);
+  const shown = useMemo(
+    () => rows.filter(({ row }) => row.bucket === tab && matchesPortalListSearch(search, row.chargeTitle, row.residentName, row.propertyName, row.lineAmount)),
+    [rows, tab, search],
+  );
   return (
-    <div className="px-3 pb-6 sm:px-4" data-attr="service-incoming-payments">
-      {rows.map(({ row, recurringLabel }) => (
+    <RecordListBand
+      dataAttr="service-incoming-payments"
+      ariaLabel="Incoming payment status"
+      tabs={TABS.map((t) => ({ ...t, count: counts[t.id], alert: t.id === "overdue" && counts.overdue > 0 }))}
+      activeId={tab}
+      onChange={(id) => setTab(id as Bucket)}
+      search={{ value: search, onChange: setSearch, placeholder: "Search charges" }}
+      isEmpty={shown.length === 0}
+      emptyTitle={search.trim() ? "No charges match" : tab === "pending" ? "Nothing pending" : tab === "overdue" ? "Nothing overdue" : "Nothing paid yet"}
+      emptySection="payments"
+    >
+      {shown.map(({ row, recurringLabel }) => (
         <PortalApplicantRecordRow
           key={row.id}
           name={row.residentName || "Resident"}
@@ -31,6 +58,6 @@ export function ServiceIncomingPaymentsList({ rows }: { rows: readonly ServiceIn
           dataAttr="service-incoming-payment-row"
         />
       ))}
-    </div>
+    </RecordListBand>
   );
 }

@@ -1,11 +1,11 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { CalendarDays, Check, Clock, Plus, Receipt, Wrench } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { CalendarDays, Check, Clock, Receipt, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { RecordListBand } from "@/components/portal/record-list-band";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { cn } from "@/lib/utils";
@@ -85,9 +85,18 @@ function requestFacts(row: VendorRequestRow) {
   return facts;
 }
 
+type CycleTab = "requested" | "bids" | "approved";
+const CYCLE_TABS: Array<{ id: CycleTab; label: string }> = [
+  { id: "requested", label: "Requested" },
+  { id: "bids", label: "Bids" },
+  { id: "approved", label: "Approved" },
+];
+const tabOf = (row: VendorRequestRow): CycleTab => (row.state === "bid" ? "bids" : row.state === "approved" ? "approved" : "requested");
+
 /**
- * Vendor & schedule: the stage bar and one Payments-row-style row per requested vendor
- * (offers + bids). Approve bid exists only on a row with a SUBMITTED BID - disabled, with an
+ * Vendor & schedule: the standard list band (Requested · Bids · Approved, search, and the round +
+ * to request vendors or assign), then the stage bar with Assign, then one Payments-row-style row
+ * per requested vendor. Approve bid exists only on a row with a SUBMITTED BID - disabled, with an
  * accessible name saying why, on every other row. An estimate is a number on the row, never a thing
  * to approve.
  */
@@ -98,11 +107,12 @@ export function ServiceVendorCycleSection({
   assignGroups,
   approvingBidId,
   onAssign,
-  onRequestMore,
+  plus,
   onApprove,
   onMessage,
   onRemove,
   emptyTitle = "No vendors requested yet",
+  lead,
 }: {
   stages: readonly StageBarItem[];
   requests: readonly VendorRequestRow[];
@@ -110,19 +120,42 @@ export function ServiceVendorCycleSection({
   assignGroups: Array<{ label: string; options: Array<{ value: string; label: string }> }>;
   approvingBidId: string | null;
   onAssign: (value: string) => void;
-  /** Omit where vendors cannot be requested (an add-on service): the + is not drawn at all. */
-  onRequestMore?: () => void;
+  /** The band's round +: request more vendors (maintenance) or assign (an add-on). */
+  plus?: { label: string; onClick: () => void };
   onApprove: (row: VendorRequestRow) => void;
   onMessage: (row: VendorRequestRow) => void;
   onRemove: (row: VendorRequestRow) => void;
   emptyTitle?: string;
+  /** Cards between the band and the stage card (the assigned vendor, PropLane's suggestion). */
+  lead?: ReactNode;
 }) {
-  const visible = requests.filter((r) => r.state !== "declined" || r.bidId);
+  const [tab, setTab] = useState<CycleTab>("requested");
+  const [search, setSearch] = useState("");
+  const counts = useMemo(() => {
+    const c: Record<CycleTab, number> = { requested: 0, bids: 0, approved: 0 };
+    for (const row of requests) c[tabOf(row)] += 1;
+    return c;
+  }, [requests]);
+  const shown = useMemo(
+    () => requests.filter((row) => tabOf(row) === tab && matchesPortalListSearch(search, row.vendorName, row.note ?? "")),
+    [requests, tab, search],
+  );
   return (
-    <div className="space-y-4 px-3 pb-6 sm:px-4" data-attr="service-vendor-cycle">
-      <div className="space-y-3 rounded-xl border border-border bg-card px-4 py-3">
-        <ServiceStageBar stages={stages} />
-        <div className="flex items-end gap-2">
+    <RecordListBand
+      dataAttr="service-vendor-cycle"
+      ariaLabel="Vendor request status"
+      tabs={CYCLE_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+      activeId={tab}
+      onChange={(id) => setTab(id as CycleTab)}
+      search={{ value: search, onChange: setSearch, placeholder: "Search vendors" }}
+      plus={plus ? { ...plus, dataAttr: "service-request-more-vendors" } : undefined}
+      isEmpty={shown.length === 0}
+      emptyTitle={search.trim() ? "No vendors match" : requests.length === 0 ? emptyTitle : tab === "requested" ? "No requests waiting" : tab === "bids" ? "No bids yet" : "No approved bid"}
+      middle={
+        <>
+        {lead}
+        <div className="mb-3 space-y-3 rounded-xl border border-border bg-card px-4 py-3" data-attr="service-stage-card">
+          <ServiceStageBar stages={stages} />
           <FieldSingleSelect
             label="Assign"
             value={assignValue}
@@ -130,70 +163,54 @@ export function ServiceVendorCycleSection({
             onChange={onAssign}
             placeholder="Request bids, or pick who does it"
             dataAttr="service-assign-select"
-            wrapperClassName="min-w-0 flex-1"
           />
-          {onRequestMore ? (
-            <PortalIconAction
-              icon={Plus}
-              label="Request more vendors"
-              ring
-              ringPrimary
-              data-attr="service-request-more-vendors"
-              onClick={onRequestMore}
-            />
-          ) : null}
         </div>
-      </div>
-
-      {visible.length === 0 ? (
-        <PortalListEmptyCard title={emptyTitle} workspaceAware={false} dataAttr="service-vendor-requests-empty" />
-      ) : (
-        <div data-attr="service-vendor-requests">
-          {visible.map((row) => {
-            const total = row.bidTotalCents;
-            const figure = total != null ? formatServiceMoney(total) : row.estimateCents != null ? formatServiceMoney(row.estimateCents) : undefined;
-            const figureLabel = total != null ? "Bid" : row.estimateCents != null ? "Estimate" : undefined;
-            const approving = approvingBidId === row.bidId;
-            return (
-              <PortalApplicantRecordRow
-                key={row.key}
-                name={row.vendorName}
-                tileIcon={Wrench}
-                address={row.note && row.state !== "declined" ? row.note : undefined}
-                facts={<>{requestFacts(row)}</>}
-                amount={figure}
-                amountSubLabel={figureLabel}
-                dataAttr="service-vendor-request-row"
-                actions={
-                  <div className="flex items-center gap-1">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      data-attr="service-approve-bid"
-                      className="h-7 rounded-full px-3 text-xs"
-                      disabled={!row.canApprove || approving}
-                      aria-label={row.canApprove ? `Approve bid from ${row.vendorName}` : `Approve bid - ${row.vendorName} has not submitted a bid`}
-                      title={row.canApprove ? undefined : "No bid submitted yet"}
-                      onClick={() => onApprove(row)}
-                    >
-                      {approving ? "Approving…" : "Approve bid"}
-                    </Button>
-                    <RowActionsMenu
-                      label={row.vendorName}
-                      items={[
-                        { id: "message", label: "Message", onSelect: () => onMessage(row), dataAttr: "service-vendor-request-message" },
-                        row.state === "approved"
-                          ? null
-                          : { id: "remove", label: "Remove request", danger: true, onSelect: () => onRemove(row), dataAttr: "service-vendor-request-remove" },
-                      ]}
-                    />
-                  </div>
-                }
-              />
-            );
-          })}
-        </div>
-      )}
-    </div>
+        </>
+      }
+    >
+      {shown.map((row) => {
+        const total = row.bidTotalCents;
+        const figure = total != null ? formatServiceMoney(total) : row.estimateCents != null ? formatServiceMoney(row.estimateCents) : undefined;
+        const figureLabel = total != null ? "Bid" : row.estimateCents != null ? "Estimate" : undefined;
+        const approving = approvingBidId === row.bidId;
+        return (
+          <PortalApplicantRecordRow
+            key={row.key}
+            name={row.vendorName}
+            tileIcon={Wrench}
+            address={row.note && row.state !== "declined" ? row.note : undefined}
+            facts={<>{requestFacts(row)}</>}
+            amount={figure}
+            amountSubLabel={figureLabel}
+            dataAttr="service-vendor-request-row"
+            actions={
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="primary"
+                  data-attr="service-approve-bid"
+                  className="h-7 rounded-full px-3 text-xs"
+                  disabled={!row.canApprove || approving}
+                  aria-label={row.canApprove ? `Approve bid from ${row.vendorName}` : `Approve bid - ${row.vendorName} has not submitted a bid`}
+                  title={row.canApprove ? undefined : "No bid submitted yet"}
+                  onClick={() => onApprove(row)}
+                >
+                  {approving ? "Approving…" : "Approve bid"}
+                </Button>
+                <RowActionsMenu
+                  label={row.vendorName}
+                  items={[
+                    { id: "message", label: "Message", onSelect: () => onMessage(row), dataAttr: "service-vendor-request-message" },
+                    row.state === "approved"
+                      ? null
+                      : { id: "remove", label: "Remove request", danger: true, onSelect: () => onRemove(row), dataAttr: "service-vendor-request-remove" },
+                  ]}
+                />
+              </div>
+            }
+          />
+        );
+      })}
+    </RecordListBand>
   );
 }

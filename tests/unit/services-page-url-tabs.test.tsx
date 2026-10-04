@@ -144,12 +144,14 @@ describe("add-on request: Vendor & schedule renders the cycle UI", () => {
     expect(document.querySelector('[data-attr="service-stage-bar"]')).not.toBeNull();
     expect(document.body.textContent).toMatch(/Pending/);
     expect(document.querySelector('[data-attr="service-assign-select"]')).not.toBeNull();
-    // Vendors cannot take add-on services, so there is nobody to request bids from: no +.
-    expect(document.querySelector('[data-attr="service-request-more-vendors"]')).toBeNull();
+    // Vendors cannot take add-on services, so the band's round + assigns (Myself / teammates) rather than requesting vendors.
+    expect(document.querySelector('[data-attr="service-request-more-vendors"]')?.getAttribute("aria-label")).toBe("Assign");
+    expect(screen.queryByRole("button", { name: "Request more vendors" })).toBeNull();
+    expect(screen.getByPlaceholderText("Search vendors")).toBeTruthy();
     expect(document.body.textContent).not.toContain("No vendor for this service");
     expect(document.body.textContent).not.toContain("Not scheduled yet");
     // The empty list is exactly one standard card.
-    expect(document.querySelectorAll('[data-attr="service-vendor-requests-empty"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-attr="portal-list-empty-card"]')).toHaveLength(1);
   });
 
   it("derives the add-on stage bar from the request's own status", () => {

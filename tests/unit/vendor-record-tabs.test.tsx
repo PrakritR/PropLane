@@ -296,3 +296,22 @@ describe("vendor record header icons", () => {
     expect(panel).toContain('title="Remove vendor — notification preview"');
   });
 });
+
+describe("vendor record list tabs share the standard band", () => {
+  it("Services opens with the band: Requested · Active · Done, search and the round +, empty card under it", async () => {
+    renderDetail("services");
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull());
+    const band = document.querySelector('[data-attr="vendor-services-list"]')!;
+    expect([...band.querySelectorAll('[data-attr^="vendor-services-list-tab-"]')].map((b) => (b.textContent ?? "").replace(/\s*\d+$/, ""))).toEqual(["Requested", "Active", "Done"]);
+    expect(screen.getByPlaceholderText("Search services")).toBeTruthy();
+    expect(document.querySelector('[data-attr="vendor-services-add"]')).not.toBeNull();
+    expect(band.firstElementChild!.contains(screen.getByPlaceholderText("Search services"))).toBe(true);
+  });
+
+  it("Outgoing payments opens with the band: To pay · Scheduled · Paid and search", async () => {
+    renderDetail("invoices", vendor({ vendorUserId: undefined }));
+    await waitFor(() => expect(screen.getByText("No payments to Pacific Plumbing yet")).toBeTruthy());
+    expect(screen.getByPlaceholderText("Search outgoing payments")).toBeTruthy();
+    for (const label of ["To pay", "Scheduled", "Paid"]) expect(tabCount(label)).toMatch(new RegExp(`${label}\\s*0`));
+  });
+});

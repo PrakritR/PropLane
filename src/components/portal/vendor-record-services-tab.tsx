@@ -1,13 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Plus, Wrench } from "lucide-react";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { CalendarDays, Wrench } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { RecordListBand } from "@/components/portal/record-list-band";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -121,45 +118,25 @@ export function VendorRecordServicesTab({
   }, [onCreateService, pick, showToast, vendorId, vendorName]);
 
   return (
-    <div data-attr="vendor-services-list">
-      <PortalListControlStack
-        variant="command"
-        stickyDestinations={false}
-        destinationRow={
-          <LocalDestinationNav
-            appearance="command"
-            items={VENDOR_SERVICE_BUCKETS.map((bucket) => ({
-              id: bucket.id,
-              label: bucket.label,
-              count: counts[bucket.id],
-              dataAttr: `vendor-services-tab-${bucket.id}`,
-            }))}
-            activeId={tab}
-            onChange={(id) => setTab(id as VendorServiceBucket)}
-            ariaLabel="Service status"
-          />
-        }
-        search={{ value: search, onChange: setSearch, placeholder: "Search services", dataAttr: "vendor-services-search" }}
-        primary={
-          <PortalPrimaryIconAction
-            label="Add service"
-            icon={Plus}
-            data-attr="vendor-services-add"
-            onClick={() => {
-              setPick(requestable.length > 0 ? requestable[0]!.id : NEW_SERVICE);
-              setRequestOpen(true);
-            }}
-          />
-        }
-      />
-      <PortalRecordListSurface
+    <>
+      <RecordListBand
+        dataAttr="vendor-services-list"
+        ariaLabel="Service status"
+        tabs={VENDOR_SERVICE_BUCKETS.map((bucket) => ({ id: bucket.id, label: bucket.label, count: counts[bucket.id] }))}
+        activeId={tab}
+        onChange={(id) => setTab(id as VendorServiceBucket)}
+        search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
+        plus={{
+          label: "Add service",
+          dataAttr: "vendor-services-add",
+          onClick: () => {
+            setPick(requestable.length > 0 ? requestable[0]!.id : NEW_SERVICE);
+            setRequestOpen(true);
+          },
+        }}
         loading={!loaded}
         isEmpty={shown.length === 0}
-        emptyCard={
-          search.trim()
-            ? { title: portalEmptyNoMatchTitle("services", search), section: "services", tone: "muted", clear: { label: "Clear search", onClick: () => setSearch("") } }
-            : { title: `No ${tab} services with ${vendorName}`, section: "services" }
-        }
+        emptyTitle={search.trim() ? portalEmptyNoMatchTitle("services", search) : `No ${tab} services with ${vendorName}`}
       >
         {shown.map((item) => (
           <PortalApplicantRecordRow
@@ -178,7 +155,7 @@ export function VendorRecordServicesTab({
             rowId={item.workOrderId}
           />
         ))}
-      </PortalRecordListSurface>
+      </RecordListBand>
 
       <PortalDialog
         open={requestOpen}
@@ -206,6 +183,6 @@ export function VendorRecordServicesTab({
           dataAttr="vendor-services-request-select"
         />
       </PortalDialog>
-    </div>
+    </>
   );
 }

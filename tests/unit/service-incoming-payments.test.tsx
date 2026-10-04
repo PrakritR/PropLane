@@ -68,6 +68,8 @@ describe("incoming payments for a service", () => {
 
   it("shows the standard empty card with no charges", () => {
     render(<ServiceIncomingPaymentsList rows={[]} />);
-    expect(document.querySelector('[data-attr="service-incoming-payments-empty"]')).not.toBeNull();
+    // The band (tabs + search) opens the tab; the standard empty card sits under it.
+    expect(document.querySelector('[data-attr="service-incoming-payments"] input')).not.toBeNull();
+    expect(document.querySelector('[data-attr="portal-list-empty-card"]')).not.toBeNull();
   });
 });

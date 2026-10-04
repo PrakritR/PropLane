@@ -57,8 +57,11 @@ import { PortalRecordSectionChrome } from "@/components/portal/portal-record-sec
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
 import { ServiceCommunicationPane } from "@/components/portal/service-communication-pane";
+import { ServiceOutgoingPaymentsList } from "@/components/portal/service-outgoing-payments-list";
 import { ServiceIncomingPaymentsList } from "@/components/portal/service-incoming-payments-list";
 import { buildServiceIncomingRows } from "@/lib/service-incoming-payments";
 import { readChargesForManagerResident } from "@/lib/household-charges";
@@ -225,6 +228,8 @@ export function ManagerAllServicesPanel({
     if (reqBucket !== requestBucketProp) setReqBucket(requestBucketProp);
   }
   const [addServiceOpen, setAddServiceOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignPick, setAssignPick] = useState("me");
   // The URL names the tab (`/services/work-orders/scheduled`), so it selects it - on first load, on
   // back/forward, and when the page is reached from a link. A tab click writes the URL back.
   const urlTabSegment = lockedPropertyId || tabId !== "work-orders" ? null : serviceTabFromSegment(workOrderBucketProp);
@@ -934,45 +939,41 @@ export function ManagerAllServicesPanel({
     };
     const activeTab = serviceDetailTab ?? "service";
     const backHref = serviceRequestListHref(basePath, reqBucket);
+    // An add-on stays with the manager team (`assignableKindsFor`: a vendor takes tasks and
+    // maintenance only), so Assign offers yourself and teammates and nobody can be requested for bids.
+    const addOnAssignValue = detailRequest.assignee ? (detailRequest.assignee.id === userId ? "me" : `team:${detailRequest.assignee.id}`) : "";
+    const addOnAssignGroups = [
+      {
+        label: "Team",
+        options: [
+          ...(userId ? [{ value: "me", label: "Myself" }] : []),
+          ...teamMembers.filter((m) => m.userId !== userId).map((m) => ({ value: `team:${m.userId}`, label: m.name?.trim() || "Teammate" })),
+        ],
+      },
+    ];
+    const applyAddOnAssign = (value: string) => {
+      const id = value === "me" ? userId : value.replace(/^team:/, "");
+      if (!id) return;
+      const name = value === "me" ? "You" : teamMembers.find((m) => m.userId === id)?.name?.trim() || "Teammate";
+      updateServiceRequest(detailRequest.id, { assignee: { type: "team", id, name } });
+      setDataTick((t) => t + 1);
+      showToast(value === "me" ? "You're handling this yourself." : `Assigned ${name}.`);
+    };
     const ownContent =
       activeTab === "vendor-schedule" ? (
-        (() => {
-          // An add-on stays with the manager team (`assignableKindsFor`: a vendor takes tasks and
-          // maintenance only), so Assign offers yourself and teammates, nobody can be requested for
-          // bids, and the + is not drawn.
-          const current = detailRequest.assignee;
-          const assignValue = current ? (current.id === userId ? "me" : `team:${current.id}`) : "";
-          const assignGroups = [
-            {
-              label: "Team",
-              options: [
-                ...(userId ? [{ value: "me", label: "Myself" }] : []),
-                ...teamMembers.filter((m) => m.userId !== userId).map((m) => ({ value: `team:${m.userId}`, label: m.name?.trim() || "Teammate" })),
-              ],
-            },
-          ];
-          return (
-            <ServiceVendorCycleSection
-              stages={deriveAddOnStages(detailRequest.status)}
-              requests={[]}
-              assignValue={assignValue}
-              assignGroups={assignGroups}
-              approvingBidId={null}
-              emptyTitle="No vendors on this service"
-              onAssign={(value) => {
-                const id = value === "me" ? userId : value.replace(/^team:/, "");
-                if (!id) return;
-                const name = value === "me" ? "You" : teamMembers.find((m) => m.userId === id)?.name?.trim() || "Teammate";
-                updateServiceRequest(detailRequest.id, { assignee: { type: "team", id, name } });
-                setDataTick((t) => t + 1);
-                showToast(value === "me" ? "You're handling this yourself." : `Assigned ${name}.`);
-              }}
-              onApprove={() => undefined}
-              onMessage={() => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "communication"))}
-              onRemove={() => undefined}
-            />
-          );
-        })()
+        <ServiceVendorCycleSection
+          stages={deriveAddOnStages(detailRequest.status)}
+          requests={[]}
+          assignValue={addOnAssignValue}
+          assignGroups={addOnAssignGroups}
+          approvingBidId={null}
+          emptyTitle="No vendors on this service"
+          plus={{ label: "Assign", onClick: () => { setAssignPick(addOnAssignValue || "me"); setAssignOpen(true); } }}
+          onAssign={applyAddOnAssign}
+          onApprove={() => undefined}
+          onMessage={() => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "communication"))}
+          onRemove={() => undefined}
+        />
       ) : activeTab === "incoming-payments" ? (
         <ServiceIncomingPaymentsList
           rows={buildServiceIncomingRows({
@@ -981,7 +982,7 @@ export function ManagerAllServicesPanel({
           })}
         />
       ) : activeTab === "outgoing-payments" ? (
-        <PortalListEmptyCard title="Nothing to pay on this service" workspaceAware={false} dataAttr="service-request-outgoing-empty" />
+        <ServiceOutgoingPaymentsList rows={[]} busyId={null} onApproveAndPay={() => undefined} />
       ) : activeTab === "communication" ? (
         <ServiceCommunicationPane
           recordId={detailRequest.id}
@@ -1028,6 +1029,21 @@ export function ManagerAllServicesPanel({
     return (
       <>
         {renderRequestDetail(detailRequest, { actionsOnly: true })}
+        <PortalDialog
+          open={assignOpen}
+          onClose={() => setAssignOpen(false)}
+          title="Assign"
+          primaryAction={{
+            label: "Assign",
+            onClick: () => {
+              applyAddOnAssign(assignPick);
+              setAssignOpen(false);
+            },
+            dataAttr: "service-assign-submit",
+          }}
+        >
+          <FieldSingleSelect label="Assign to" value={assignPick} groups={addOnAssignGroups} onChange={setAssignPick} dataAttr="service-assign-dialog-select" />
+        </PortalDialog>
         <PortalRecordDetailPage
           pageTitle="Services"
           title={detailRequest.offerName}
