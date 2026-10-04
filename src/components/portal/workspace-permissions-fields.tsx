@@ -188,6 +188,93 @@ export function WorkspacePermissionsFields({
   );
 }
 
+const WORKSPACE_GRANT_OPTIONS: Array<{ id: "no" | "yes"; label: string }> = [
+  { id: "no", label: "No" },
+  { id: "yes", label: "Yes" },
+];
+
+/**
+ * The shared pill-style segmented control (radiogroup) used by every
+ * permission row: the per-module No access / View / Edit / Manage and the
+ * Workspace capabilities' No / Yes.
+ */
+function SegmentedRadioGroup<T extends string>({
+  label,
+  options,
+  value,
+  onSelect,
+  disabled,
+  dataAttrFor,
+  titleFor,
+}: {
+  label: string;
+  options: Array<{ id: T; label: string }>;
+  value: T;
+  onSelect: (next: T) => void;
+  disabled?: boolean;
+  dataAttrFor: (id: T) => string;
+  titleFor?: (id: T) => string | undefined;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="inline-flex rounded-full border border-border bg-[var(--secondary)]/50 p-0.5"
+    >
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          role="radio"
+          aria-checked={value === option.id}
+          disabled={disabled}
+          title={titleFor?.(option.id)}
+          data-attr={dataAttrFor(option.id)}
+          onClick={() => onSelect(option.id)}
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            value === option.id ? "bg-card text-primary shadow-sm" : "text-muted hover:text-foreground"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WorkspaceGrantRow({
+  label,
+  on,
+  disabled,
+  onChange,
+  dataAttr,
+}: {
+  label: string;
+  on: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+  dataAttr: string;
+}) {
+  return (
+    <div
+      className={`flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between ${
+        disabled ? "opacity-60" : ""
+      }`}
+      data-attr={dataAttr}
+    >
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      <SegmentedRadioGroup
+        label={label}
+        options={WORKSPACE_GRANT_OPTIONS}
+        value={on ? "yes" : "no"}
+        onSelect={(next) => onChange(next === "yes")}
+        disabled={disabled}
+        dataAttrFor={(id) => `${dataAttr}-${id}`}
+      />
+    </div>
+  );
+}
+
 export function WorkspaceGrantFields({
   value,
   onChange,
@@ -199,27 +286,21 @@ export function WorkspaceGrantFields({
 }) {
   return (
     <fieldset className="space-y-2" data-attr="team-workspace-grants">
-      <legend className="text-xs font-semibold text-foreground">Workspace</legend>
-      <label className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
-        <input
-          type="checkbox"
-          checked={value.addProperties === true}
-          disabled={disabled}
-          onChange={(e) => onChange({ ...value, addProperties: e.target.checked ? true : undefined })}
-          data-attr="team-grant-add-properties"
-        />
-        Add properties
-      </label>
-      <label className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
-        <input
-          type="checkbox"
-          checked={value.teams === true}
-          disabled={disabled}
-          onChange={(e) => onChange({ ...value, teams: e.target.checked ? true : undefined })}
-          data-attr="team-grant-invite-teammates"
-        />
-        Invite teammates
-      </label>
+      <legend className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Workspace</legend>
+      <WorkspaceGrantRow
+        label="Add properties"
+        on={value.addProperties === true}
+        disabled={disabled}
+        onChange={(on) => onChange({ ...value, addProperties: on ? true : undefined })}
+        dataAttr="team-grant-add-properties"
+      />
+      <WorkspaceGrantRow
+        label="Invite teammates"
+        on={value.teams === true}
+        disabled={disabled}
+        onChange={(on) => onChange({ ...value, teams: on ? true : undefined })}
+        dataAttr="team-grant-invite-teammates"
+      />
     </fieldset>
   );
 }
@@ -495,31 +576,15 @@ export function CoManagerPermissionsEditor({
             >
               <span className="text-sm font-medium text-foreground">{label}</span>
               <div className="flex flex-wrap items-center gap-1.5">
-                <div
-                  role="radiogroup"
-                  aria-label={`${label} access`}
-                  className="inline-flex rounded-full border border-border bg-[var(--secondary)]/50 p-0.5"
-                >
-                  {MODULE_ACCESS_OPTIONS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={access === option.id}
-                      disabled={disabled}
-                      title={option.hint}
-                      data-attr={`co-manager-${id}-${option.id}`}
-                      onClick={() => setLevels(id, accessToLevels(option.id, levels.notification))}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                        access === option.id
-                          ? "bg-card text-primary shadow-sm"
-                          : "text-muted hover:text-foreground"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedRadioGroup
+                  label={`${label} access`}
+                  options={MODULE_ACCESS_OPTIONS}
+                  value={access}
+                  disabled={disabled}
+                  titleFor={(optionId) => MODULE_ACCESS_OPTIONS.find((o) => o.id === optionId)?.hint}
+                  dataAttrFor={(optionId) => `co-manager-${id}-${optionId}`}
+                  onSelect={(optionId) => setLevels(id, accessToLevels(optionId, levels.notification))}
+                />
                 {/* Read is implied by every level above No access, so the only
                     remaining choice per module is whether alerts are sent. */}
                 {access !== "none" ? (

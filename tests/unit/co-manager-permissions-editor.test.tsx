@@ -10,7 +10,8 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { CoManagerPermissionsEditor } from "@/components/portal/workspace-permissions-fields";
+import { CoManagerPermissionsEditor, WorkspaceGrantFields } from "@/components/portal/workspace-permissions-fields";
+import type { WorkspaceCoManagerGrant } from "@/lib/workspace-co-manager-permissions";
 import { coManagerModuleAllowed, type CoManagerPermissions } from "@/lib/co-manager-permissions";
 
 afterEach(() => cleanup());
@@ -87,5 +88,29 @@ describe("CoManagerPermissionsEditor presets", () => {
     for (const id of ["properties", "applications", "residents", "leases", "payments", "bankAccount", "documents", "financials", "services", "promotion", "inbox", "calendar", "teams"] as const) {
       expect(coManagerModuleAllowed({ "prop-1": latest }, "prop-1", id, "delete")).toBe(true);
     }
+  });
+});
+
+describe("WorkspaceGrantFields", () => {
+  it("renders the Workspace capabilities as section label + segmented No/Yes rows, no checkboxes", () => {
+    const changes: WorkspaceCoManagerGrant[] = [];
+    render(<WorkspaceGrantFields value={{ addProperties: true }} onChange={(next) => changes.push(next)} />);
+    const legend = document.querySelector('[data-attr="team-workspace-grants"] legend')!;
+    expect(legend.textContent).toBe("Workspace");
+    expect(legend.className).toContain("uppercase");
+    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+
+    const group = screen.getByRole("radiogroup", { name: "Add properties" });
+    const [no, yes] = Array.from(group.querySelectorAll('[role="radio"]'));
+    expect(no.textContent).toBe("No");
+    expect(yes.textContent).toBe("Yes");
+    expect(yes.getAttribute("aria-checked")).toBe("true");
+    expect(no.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("radiogroup", { name: "Invite teammates" }).querySelector('[aria-checked="true"]')?.textContent).toBe("No");
+
+    fireEvent.click(no);
+    expect(changes.at(-1)).toEqual({ addProperties: undefined });
+    fireEvent.click(document.querySelector('[data-attr="team-grant-invite-teammates-yes"]')!);
+    expect(changes.at(-1)).toEqual({ addProperties: true, teams: true });
   });
 });
