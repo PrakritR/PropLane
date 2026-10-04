@@ -28,6 +28,8 @@ type Store = {
   bid: Row;
   workOrder: Row;
   offer: Row;
+  /** Ids the `status = "accepted"` lookup finds on the work order; empty means none. */
+  acceptedBidIds: string[];
 };
 let STORE: Store;
 let WRITES: Array<{ table: string; op: string; values?: Record<string, unknown>; filters: Array<[string, unknown]> }>;
@@ -68,7 +70,14 @@ function makeDb() {
         },
         then: (resolve: (v: unknown) => unknown) => {
           if (pending) WRITES.push({ table, op: pending.op, values: pending.values, filters: [...filters] });
-          return Promise.resolve({ data: pending ? [{ id: "x" }] : [], error: null }).then(resolve);
+          const acceptedLookup =
+            table === "work_order_bids" && filters.some(([c, v]) => c === "status" && v === "accepted");
+          const rows = pending
+            ? [{ id: "x" }]
+            : acceptedLookup
+              ? STORE.acceptedBidIds.map((id) => ({ id }))
+              : [];
+          return Promise.resolve({ data: rows, error: null }).then(resolve);
         },
       };
       return builder;
@@ -109,6 +118,7 @@ beforeEach(() => {
     bid: bidRow(),
     workOrder: { manager_user_id: "mgr-1", vendor_user_id: null, row_data: { id: "wo-1", title: "Leaky faucet", biddingOpen: true } },
     offer: { id: "offer-1" },
+    acceptedBidIds: [],
   };
 });
 
@@ -167,6 +177,82 @@ describe("approving a bid", () => {
     const woPatch = WRITES.find((w) => w.table === "portal_work_order_records" && w.op === "update");
     const rowData = woPatch!.values!.row_data as Record<string, unknown>;
     expect(rowData).toMatchObject({ scheduledAtIso: "2026-10-08T16:00:00.000Z", bucket: "scheduled", vendorCostCents: 20_000 });
+  });
+});
+
+/**
+ * Re-approving the SAME bid is the only way back from a half-applied approval, so it must finish
+ * what is missing and touch nothing that already landed.
+ */
+describe("re-approving an already-accepted bid", () => {
+  const acceptedBid = () =>
+    bidRow({
+      status: "accepted",
+      amount_cents: 20_000,
+      materials_cents: 2_500,
+      proposed_time: "2026-10-08T16:00:00.000Z",
+      bid_submitted_at: "2026-10-02T00:00:00.000Z",
+    });
+
+  it("leaves a work order already hired by that vendor alone and only re-runs the cleanup", async () => {
+    STORE.bid = acceptedBid();
+    STORE.workOrder = {
+      manager_user_id: "mgr-1",
+      vendor_user_id: "vendor-1",
+      row_data: {
+        id: "wo-1",
+        title: "Leaky faucet",
+        vendorId: "dir-1",
+        vendorAssignedAt: "2026-10-03T00:00:00.000Z",
+        // The visit was moved after the approval; a retry must not roll it back.
+        bucket: "scheduled",
+        scheduledAtIso: "2026-10-12T21:00:00.000Z",
+        biddingOpen: false,
+      },
+    };
+    const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
+    expect(result.ok).toBe(true);
+    expect(WRITES.find((w) => w.table === "portal_work_order_records" && w.op === "update")).toBeUndefined();
+    expect(WRITES.find((w) => w.table === "work_order_bids" && w.values?.status === "accepted")).toBeUndefined();
+    const withdraw = WRITES.find((w) => w.table === "work_order_vendor_offers" && w.values?.status === "withdrawn");
+    expect(withdraw).toBeTruthy();
+  });
+
+  it("applies the hire when the accept landed but the assign write did not", async () => {
+    STORE.bid = acceptedBid();
+    STORE.workOrder = {
+      manager_user_id: "mgr-1",
+      vendor_user_id: null,
+      row_data: { id: "wo-1", title: "Leaky faucet", biddingOpen: true },
+    };
+    const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
+    expect(result.ok).toBe(true);
+    const woPatch = WRITES.find((w) => w.table === "portal_work_order_records" && w.op === "update");
+    expect(woPatch).toBeTruthy();
+    expect(woPatch!.values!.vendor_user_id).toBe("vendor-1");
+    expect(woPatch!.values!.row_data).toMatchObject({ vendorCostCents: 20_000, bucket: "scheduled" });
+    // The bid is already accepted, so the status write is not repeated.
+    expect(WRITES.find((w) => w.table === "work_order_bids" && w.values?.status === "accepted")).toBeUndefined();
+  });
+
+  it("still refuses a DIFFERENT bid once one is accepted", async () => {
+    STORE.bid = bidRow({ amount_cents: 30_000, bid_submitted_at: "2026-10-02T00:00:00.000Z" });
+    STORE.acceptedBidIds = ["bid-winner"];
+    const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
+    expect(result.ok === false && result.status).toBe(409);
+    expect(WRITES).toHaveLength(0);
+  });
+
+  it("does not mistake its own accepted row for a rival on a retry", async () => {
+    STORE.bid = acceptedBid();
+    STORE.acceptedBidIds = ["bid-1"];
+    STORE.workOrder = {
+      manager_user_id: "mgr-1",
+      vendor_user_id: "vendor-1",
+      row_data: { id: "wo-1", vendorAssignedAt: "2026-10-03T00:00:00.000Z" },
+    };
+    const result = await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" });
+    expect(result.ok).toBe(true);
   });
 });
 

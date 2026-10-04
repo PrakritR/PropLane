@@ -744,6 +744,25 @@ export type AcceptBidSuccess = {
  *
  * Only a SUBMITTED BID qualifies (`bidCanBeApproved`): an estimate or a booked visit alone is
  * refused with a 422, so an estimate can never become a payment.
+ *
+ * ## Re-approving the SAME bid is a retry, and it is the only recovery path
+ *
+ * The approval is several writes, so a transient failure can leave it half applied. Calling this
+ * again with the same bid id re-enters instead of refusing, and does exactly what is still
+ * missing:
+ *
+ *  - the work order already names this bid's vendor (`vendor_user_id` plus a `vendorAssignedAt`
+ *    stamp) → the row is correct, so it is NOT rewritten. Re-applying it would roll a visit
+ *    since moved to another day back to the bid's `proposed_time` and restart the
+ *    "vendor silent after accept" clock. Only the rival-decline and offer-withdraw cleanup
+ *    re-runs, and both are conditional on the status they change, so they are idempotent.
+ *  - the hire never landed (no `vendor_user_id`, a different one, or no stamp) → the hire is
+ *    applied now. Without this an accepted bid whose assign write failed was unrecoverable:
+ *    every other exit refuses it (another bid 409s, `removeVendorRequest` refuses an approved
+ *    bid, re-requesting bids refuses an approved service) and the silent-vendor re-offer never
+ *    fires because it keys on the `vendorAssignedAt` that was never written.
+ *
+ * A DIFFERENT bid on a service that already has one accepted is still refused with a 409.
  */
 export async function acceptWorkOrderBid(
   db: Db,
@@ -868,7 +887,7 @@ export async function acceptWorkOrderBid(
 
   const { data: workOrder } = await db
     .from("portal_work_order_records")
-    .select("manager_user_id, resident_email, property_id, assigned_property_id, row_data")
+    .select("manager_user_id, vendor_user_id, resident_email, property_id, assigned_property_id, row_data")
     .eq("id", record.work_order_id)
     .maybeSingle();
 
@@ -877,10 +896,11 @@ export async function acceptWorkOrderBid(
   const rowData = (workOrder?.row_data ?? {}) as DemoManagerWorkOrderRow;
   const vendorName = winningVendor?.name || rowData.vendorName || "";
 
-  // A retry re-runs only the cleanup below. Re-applying the hire would overwrite live state with
-  // the bid's original terms: a visit since moved to another day would snap back to
-  // `proposed_time`, and the "vendor silent after accept" clock would start over.
-  if (workOrder && !retryOfAcceptedBid) {
+  // Already hired by THIS bid's vendor: the row is correct and must not be rewritten (see the
+  // retry contract in the header). Accepted but not hired: finish the half-applied approval.
+  const alreadyHiredByThisBid =
+    (workOrder?.vendor_user_id ?? null) === record.vendor_user_id && Boolean(rowData.vendorAssignedAt);
+  if (workOrder && !(retryOfAcceptedBid && alreadyHiredByThisBid)) {
     const totalCents = approvedAmountCents + record.materials_cents;
     const nextRowData: DemoManagerWorkOrderRow = {
       ...rowData,
