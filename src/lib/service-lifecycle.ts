@@ -27,69 +27,27 @@
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 import type { WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
-import { resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
+import { formatServiceMoney, resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
 import {
   deriveAddOnStages,
   deriveServiceStages,
+  deriveVendorRequestRows,
+  serviceIsVendorPayable,
   type AddOnStageInput,
+  type StageBarItem,
+  type VendorRequestRow,
   type VendorRequestState,
 } from "@/lib/work-order-bid-cycle";
 
-export const SERVICE_STAGE_IDS = ["open", "assigned", "scheduled", "completed"] as const;
-export type ServiceStage = (typeof SERVICE_STAGE_IDS)[number];
-
-export const SERVICE_STAGE_LABEL: Record<ServiceStage, string> = {
-  open: "Open",
-  assigned: "Assigned",
-  scheduled: "Scheduled",
-  completed: "Completed",
-};
-
-/** The tabs every service list renders, in order. */
-export const SERVICE_STAGE_TABS: ReadonlyArray<{ id: ServiceStage; label: string }> = SERVICE_STAGE_IDS.map((id) => ({
-  id,
-  label: SERVICE_STAGE_LABEL[id],
-}));
-
-/**
- * Old tab / bucket ids that may still arrive in a URL, a saved link or an email, mapped onto the
- * four stages. `active` / `current` / `upcoming` resolve to `scheduled`; the caller may refine
- * with data (an assigned row with no time belongs on `assigned`), but a link never falls home.
- */
-const LEGACY_STAGE_ALIASES: Record<string, ServiceStage> = {
-  open: "open",
-  pending: "open",
-  potential: "open",
-  requested: "open",
-  requests: "open",
-  new: "open",
-  "in-progress": "open",
-  overdue: "open",
-  assigned: "assigned",
-  approved: "assigned",
-  hired: "assigned",
-  scheduled: "scheduled",
-  active: "scheduled",
-  current: "scheduled",
-  upcoming: "scheduled",
-  completed: "completed",
-  complete: "completed",
-  done: "completed",
-  past: "completed",
-  closed: "completed",
-  paid: "completed",
-  declined: "completed",
-  denied: "completed",
-};
-
-export function parseServiceStage(raw: string | null | undefined): ServiceStage {
-  const key = (raw ?? "").trim().toLowerCase();
-  return LEGACY_STAGE_ALIASES[key] ?? "open";
-}
-
-export function isServiceStage(raw: string | null | undefined): raw is ServiceStage {
-  return (SERVICE_STAGE_IDS as readonly string[]).includes(raw ?? "");
-}
+export {
+  SERVICE_STAGE_IDS,
+  SERVICE_STAGE_LABEL,
+  SERVICE_STAGE_TABS,
+  isServiceStage,
+  parseServiceStage,
+  type ServiceStage,
+} from "@/lib/service-stage-ids";
+import { SERVICE_STAGE_IDS, SERVICE_STAGE_LABEL, type ServiceStage } from "@/lib/service-stage-ids";
 
 type BidData = { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendorOffer[] };
 
@@ -190,4 +148,152 @@ export const VENDOR_SERVICE_ACTION_LABEL = {
 export function completedPaymentFact(input: { vendorPayable: boolean; paid: boolean }): "Paid" | "To pay" | null {
   if (!input.vendorPayable) return null;
   return input.paid ? "Paid" : "To pay";
+}
+
+/* ------------------------------------ row facts ------------------------------------ */
+
+function shortDay(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function weekdayDay(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function clock(iso: string): string {
+  const d = new Date(iso);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}${m ? `:${String(m).padStart(2, "0")}` : ""}${h < 12 ? "am" : "pm"}`;
+}
+
+/** `Wed, Oct 8 · 9am` - a visit or start time as one short fact; empty when the time is unusable. */
+export function formatServiceWhen(iso: string | null | undefined): string {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return "";
+  return `${weekdayDay(iso)} · ${clock(iso)}`;
+}
+
+/**
+ * What one requested vendor's row says, as plain text (never a pill):
+ * "Requested Oct 3 · waiting" · "Estimate $180 · Oct 3" · "Visit Mon, Oct 6 · 4pm · $25 visit fee" ·
+ * "Bid $152 + $12 materials · can start Wed, Oct 8" · "Declined · <reason>".
+ */
+export function vendorRequestFact(request: VendorRequestRow): string {
+  const bidFact = () => {
+    const start = request.proposedTime ? weekdayDay(request.proposedTime) : "";
+    return [
+      `Bid ${formatServiceMoney(request.bidAmountCents)}${request.bidMaterialsCents > 0 ? ` + ${formatServiceMoney(request.bidMaterialsCents)} materials` : ""}`,
+      start ? `can start ${start}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
+  switch (request.state) {
+    case "requested": {
+      const day = shortDay(request.requestedAt);
+      return `Requested${day ? ` ${day}` : ""} · waiting`;
+    }
+    case "estimate":
+      return [`Estimate ${formatServiceMoney(request.estimateCents)}`, shortDay(request.estimateAt)].filter(Boolean).join(" · ");
+    case "visit_booked":
+    case "visit_done":
+      return [
+        `${request.state === "visit_done" ? "Visit done" : "Visit"} ${formatServiceWhen(request.visitAt)}`.trim(),
+        request.visitFeeCents > 0 ? `${formatServiceMoney(request.visitFeeCents)} visit fee` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "bid":
+      return bidFact();
+    case "approved":
+      return `Approved · ${bidFact()}`;
+    default:
+      return request.note?.trim() ? `Declined · ${request.note.trim()}` : "Declined";
+  }
+}
+
+/**
+ * The one fact a maintenance row carries under its title, by stage:
+ * Open "3 bids · lowest $152" / "2 estimates" / "Requested 3 vendors" / "New";
+ * Assigned "<assignee> · no time yet"; Scheduled "Wed, Oct 8 · 9am · <assignee>";
+ * Completed "To pay" / "Paid" / "<assignee>".
+ */
+export function workOrderStageFact(row: DemoManagerWorkOrderRow, data: BidData): string {
+  const stage = workOrderServiceStage(row, data);
+  const accepted = data.bids.find((bid) => bid.status === "accepted");
+  const assignee = resolveWorkOrderAssignee(row)?.name || accepted?.vendorName?.trim() || "";
+  if (stage === "assigned") return [assignee || "Assigned", "no time yet"].join(" · ");
+  if (stage === "scheduled") return [formatServiceWhen(row.scheduledAtIso) || "Scheduled", assignee].filter(Boolean).join(" · ");
+  if (stage === "completed") {
+    if ((row.status ?? "").trim().toLowerCase() === "cancelled") return "Cancelled";
+    return (
+      completedPaymentFact({ vendorPayable: serviceIsVendorPayable(row), paid: row.automationStatus === "paid" }) ||
+      assignee ||
+      "Completed"
+    );
+  }
+  const requests = deriveVendorRequestRows(data.bids, data.offers).filter((r) => r.state !== "declined");
+  const bids = requests.filter((r) => r.state === "bid" && r.bidTotalCents != null);
+  if (bids.length > 0) {
+    const lowest = Math.min(...bids.map((r) => r.bidTotalCents as number));
+    return `${bids.length} ${bids.length === 1 ? "bid" : "bids"} · lowest ${formatServiceMoney(lowest)}`;
+  }
+  const estimates = requests.filter((r) => vendorAnswerGroup(r.state) === "estimates");
+  if (estimates.length > 0) return `${estimates.length} ${estimates.length === 1 ? "estimate" : "estimates"}`;
+  if (requests.length > 0) return `Requested ${requests.length} ${requests.length === 1 ? "vendor" : "vendors"}`;
+  return "New";
+}
+
+/** The fact an add-on service request carries; it has no vendors, so there are no bids to count. */
+export function addOnStageFact(input: AddOnStageInput & { assignee?: { id: string; name?: string } | null }): string {
+  const stage = addOnServiceStage(input);
+  const status = (input.status ?? "").toLowerCase();
+  const who = input.assignee?.name?.trim() || "";
+  if (status === "denied") return "Declined";
+  if (stage === "assigned") return [who || "Assigned", "no time yet"].join(" · ");
+  if (stage === "scheduled") return [formatServiceWhen(input.proposedVisit?.iso) || "Scheduled", who].filter(Boolean).join(" · ");
+  if (stage === "completed") return who || "Completed";
+  return "New";
+}
+
+/* ------------------------------------- the stepper ------------------------------------- */
+
+/**
+ * The record's stage stepper: Open -> Assigned -> Scheduled -> Completed, plus Paid only for a job a
+ * vendor is paid for (self and team work create no outgoing payment).
+ */
+export function serviceStageSteps(
+  stage: ServiceStage,
+  opts: { vendorPayable: boolean; paid: boolean },
+): StageBarItem[] {
+  const ids: Array<ServiceStage | "paid"> = [...SERVICE_STAGE_IDS];
+  if (opts.vendorPayable) ids.push("paid");
+  const labels: Record<ServiceStage | "paid", string> = { ...SERVICE_STAGE_LABEL, paid: "Paid" };
+  const currentId: ServiceStage | "paid" = stage === "completed" && opts.vendorPayable && opts.paid ? "paid" : stage;
+  const currentIdx = ids.indexOf(currentId);
+  return ids.map((id, idx) => ({ id, label: labels[id], state: idx < currentIdx ? "done" : idx === currentIdx ? "current" : "todo" }));
+}
+
+export function workOrderStageSteps(row: DemoManagerWorkOrderRow, data: BidData): StageBarItem[] {
+  return serviceStageSteps(workOrderServiceStage(row, data), {
+    vendorPayable: serviceIsVendorPayable(row),
+    paid: row.automationStatus === "paid",
+  });
+}
+
+export function addOnStageSteps(input: AddOnStageInput): StageBarItem[] {
+  if ((input.status ?? "").toLowerCase() === "denied") {
+    return [
+      { id: "open", label: SERVICE_STAGE_LABEL.open, state: "done" },
+      { id: "declined", label: "Declined", state: "current" },
+    ];
+  }
+  return serviceStageSteps(addOnServiceStage(input), { vendorPayable: false, paid: false });
 }

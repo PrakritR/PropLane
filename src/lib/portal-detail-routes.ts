@@ -1,3 +1,5 @@
+import { SERVICE_STAGE_IDS, parseServiceStage, type ServiceStage } from "@/lib/service-stage-ids";
+
 /** Routed detail tabs for manager property inline detail (Appendix C2). */
 export const PROPERTY_DETAIL_TABS = [
   "preview",
@@ -1308,7 +1310,7 @@ export function serviceRequestListHref(basePath: string, bucket: ServiceRequestB
  * orders since both route through the one Services rail.
  */
 /**
- * A service record's rail: Service · Vendor & schedule · (Linked) Incoming payments · Outgoing
+ * A service record's rail: Service · Vendors · (Linked) Incoming payments · Outgoing
  * payments · Communication. Incoming = what the resident is charged for the service; Outgoing =
  * what the manager pays vendors for it. The old Overview and Photos tabs are the Service tab now
  * (the resident's photos render inside it), and Payments is Incoming payments - every old link
@@ -1316,7 +1318,7 @@ export function serviceRequestListHref(basePath: string, bucket: ServiceRequestB
  */
 export const SERVICE_DETAIL_TABS = [
   "service",
-  "vendor-schedule",
+  "vendors",
   "incoming-payments",
   "outgoing-payments",
   "communication",
@@ -1328,8 +1330,10 @@ const SERVICE_DETAIL_TAB_ALIASES: Record<string, ServiceDetailTabId> = {
   overview: "service",
   photos: "service",
   documents: "service",
-  "vendor-bids": "vendor-schedule",
-  schedule: "vendor-schedule",
+  // "Vendor & schedule" was the old name of Vendors; saved links keep working.
+  "vendor-schedule": "vendors",
+  "vendor-bids": "vendors",
+  schedule: "vendors",
   payments: "incoming-payments",
   invoice: "incoming-payments",
 };
@@ -1351,15 +1355,13 @@ export function serviceRequestDetailHref(
   return tab === DEFAULT_SERVICE_DETAIL_TAB ? path : `${path}/${tab}`;
 }
 
-/** Manager work order buckets (Appendix D5). */
-export const WORK_ORDER_BUCKETS = ["open", "scheduled", "completed"] as const;
-export type WorkOrderBucketId = (typeof WORK_ORDER_BUCKETS)[number];
+/** Manager Services tabs as the URL names them: the four service stages (`service-lifecycle.ts`). */
+export const WORK_ORDER_BUCKETS = SERVICE_STAGE_IDS;
+export type WorkOrderBucketId = ServiceStage;
 
+/** An old tab id (`done`, `pending`, `active`, ...) resolves onto the right stage; it never falls home. */
 export function parseWorkOrderBucket(raw: string | undefined | null): WorkOrderBucketId {
-  if (raw && (WORK_ORDER_BUCKETS as readonly string[]).includes(raw)) {
-    return raw as WorkOrderBucketId;
-  }
-  return "open";
+  return parseServiceStage(raw);
 }
 
 export function workOrderListHref(basePath: string, bucket: WorkOrderBucketId): string {
