@@ -311,12 +311,10 @@ export function parseResidentsTab(raw: string | undefined | null): ResidentsTabI
  * their profile, scoped to the viewing manager's portfolio in the panel.
  */
 /**
- * Prospects have no tenancy — Services has nothing to list or add yet.
- * Move-in forms are tenancy paperwork: a prospect has none to show or send.
+ * Prospects have no tenancy — Services has nothing to list or add yet. Move-in stays: it lists every
+ * form of the person's property, so a form can go out as soon as the application is approved.
  */
-const RESIDENT_DETAIL_TABS_POTENTIAL = RESIDENT_DETAIL_TABS.filter(
-  (tab) => tab !== "services" && tab !== "move-in",
-);
+const RESIDENT_DETAIL_TABS_POTENTIAL = RESIDENT_DETAIL_TABS.filter((tab) => tab !== "services");
 
 export const RESIDENT_DETAIL_TABS_BY_STAGE: Record<ResidentsTabId, readonly ResidentDetailTabId[]> = {
   potential: RESIDENT_DETAIL_TABS_POTENTIAL,
@@ -329,23 +327,26 @@ export function residentDetailTabsForStage(stage: ResidentsTabId): readonly Resi
 }
 
 /**
- * Manager Move-in hub (the one sidebar row): the Waiting / Submitted form inbox across properties,
- * then the move-in / move-out Inspections. Waiting is first and the default.
+ * Manager Move-in page (the one sidebar row): one tab per form the manager has added to a property,
+ * grouped by form name (`moveInFormTabGroups`); the tab id is a slug of the name. The bare `/move-in`
+ * lands on the first tab. Inspections is no longer a tab: `/move-in/inspections*` redirects to `/move-in`.
  */
-export const MOVE_IN_FORM_LIST_TABS = ["waiting", "submitted", "inspections"] as const;
-export type MoveInFormListTabId = (typeof MOVE_IN_FORM_LIST_TABS)[number];
-
-export function parseMoveInFormListTab(raw: string | undefined | null): MoveInFormListTabId {
-  return raw === "submitted" || raw === "inspections" ? raw : "waiting";
+export function moveInFormListHref(basePath: string, tab?: string): string {
+  return tab ? `${basePath}/move-in/${encodeURIComponent(tab)}` : `${basePath}/move-in`;
 }
 
-export function moveInFormListHref(basePath: string, tab: MoveInFormListTabId = "waiting"): string {
-  return `${basePath}/move-in/${tab}`;
-}
-
-/** The Inspections tab of the Move-in hub; `kind` is the Move-in / Move-out type inside it. */
+/**
+ * Inspection reports keep their address (`/move-in/inspections/{move-in|move-out}/{reportId}`) so the
+ * resident record's Inspections tab still opens them. The list level is not a page any more: it
+ * redirects to `/move-in` (next.config.ts).
+ */
 export function moveInInspectionsHref(basePath: string, kind?: "move-in" | "move-out"): string {
   return kind ? `${basePath}/move-in/inspections/${kind}` : `${basePath}/move-in/inspections`;
+}
+
+/** A form tab's URL segment: a lowercase slug (`moveInFormTabGroups` makes them). */
+export function isMoveInFormTabSlug(raw: string | undefined | null): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw ?? "") && (raw ?? "").length <= 70;
 }
 
 /** The resident record's Move-in tab. `residentId` is the application id the Residents routes use. */
@@ -1117,7 +1118,7 @@ export const RESIDENT_MOVE_IN_TABS = [
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
 export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = {
-  forms: "Forms",
+  forms: "Move-in",
   placement: "Your placement",
   housemates: "Housemates",
   info: "Info & rules",
@@ -1126,7 +1127,7 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
 
 /** Compact labels for house-details sub-tabs on phone-width layouts. */
 export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, string> = {
-  forms: "Forms",
+  forms: "Move-in",
   placement: "Placement",
   housemates: "Mates",
   info: "Rules",

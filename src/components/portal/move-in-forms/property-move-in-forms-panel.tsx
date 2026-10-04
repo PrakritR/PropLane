@@ -52,12 +52,7 @@ import {
   moveInFormTemplatePdfUrl,
   sendMoveInFormToCurrentResidents,
 } from "@/lib/move-in-forms/client";
-import {
-  isDefaultMoveInForm,
-  newMoveInFormTemplate,
-  readMoveInFormTemplates,
-  resetMoveInFormToDefault,
-} from "@/lib/move-in-forms/templates";
+import { newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
@@ -161,15 +156,9 @@ export function PropertyMoveInFormsPanel({
     return () => window.removeEventListener(MOVE_IN_FORMS_CHANGED, refresh);
   }, [refreshSent]);
 
-  /** First save materialises the starters array too: `templates` already includes them (and the three default forms). */
-  const persist = async (list: MoveInFormTemplate[], message: string, savedId?: string): Promise<boolean> => {
-    // The first save writes the starters out too. Only the form the manager actually saved keeps its
-    // own Sends; the untouched starters are stored as "Only when I send it" so saving one form never
-    // arms another to message residents.
-    const firstSave = !Array.isArray((sub as { moveInFormTemplates?: unknown }).moveInFormTemplates);
-    const next = firstSave
-      ? list.map((item) => (item.id.startsWith("starter-") && item.id !== savedId ? { ...item, trigger: "manual" as const } : item))
-      : list;
+  /** The stored list is exactly what the manager added; saving writes it back as is. */
+  const persist = async (list: MoveInFormTemplate[], message: string): Promise<boolean> => {
+    const next = list;
     if (!managerUserId || !saveTarget || !canEdit) {
       showToast("Could not save move-in forms.");
       return false;
@@ -199,7 +188,7 @@ export function PropertyMoveInFormsPanel({
 
   const saveFromEditor = async (template: MoveInFormTemplate, options: MoveInEditorSaveOptions): Promise<boolean> => {
     const adding = editor?.mode === "add";
-    const ok = await persist(upsertMoveInTemplate(templates, template), adding ? "Form created." : "Form saved.", template.id);
+    const ok = await persist(upsertMoveInTemplate(templates, template), adding ? "Form created." : "Form saved.");
     if (!ok) return false;
     if (options.sendToCurrent && propertyId) {
       try {
@@ -235,11 +224,6 @@ export function PropertyMoveInFormsPanel({
     const { list, copy } = duplicateMoveInTemplate(templates, template.id, newMoveInFormTemplate(template.source).id);
     if (!copy) return;
     await persist(list, template.source === "upload" ? "Duplicated. Upload its PDF before sending it." : "Duplicated. The copy is sent only when you send it.");
-  };
-
-  const resetTemplate = async (template: MoveInFormTemplate) => {
-    if (!(await confirm({ description: `Reset ${template.name.trim() || "this form"} to its default questions?` }))) return;
-    await persist(upsertMoveInTemplate(templates, resetMoveInFormToDefault(template)), "Reset to the default questions.", template.id);
   };
 
   const deleteTemplate = (template: MoveInFormTemplate): Promise<boolean> => persist(removeMoveInTemplate(templates, template.id), "Form deleted.");
@@ -290,12 +274,7 @@ export function PropertyMoveInFormsPanel({
                             Duplicate
                           </Button>
                         ) : null}
-                        {canEdit && isDefaultMoveInForm(template) ? (
-                          <Button type="button" variant="outline" data-attr="move-in-form-row-reset" onClick={() => void resetTemplate(template)}>
-                            Reset to default questions
-                          </Button>
-                        ) : null}
-                        {canEdit && !isDefaultMoveInForm(template) ? (
+                        {canEdit ? (
                           <Button type="button" variant="danger" data-attr="move-in-form-row-delete" onClick={() => void confirmAndDelete(template)}>
                             Delete
                           </Button>
@@ -362,7 +341,7 @@ export function PropertyMoveInFormsPanel({
           propertyId={propertyId}
           startStep={editor.startStep}
           onSave={saveFromEditor}
-          onDelete={editor.mode === "edit" && canEdit && !isDefaultMoveInForm(editor.template) ? deleteTemplate : undefined}
+          onDelete={editor.mode === "edit" && canEdit ? deleteTemplate : undefined}
           onClose={() => setEditor(null)}
           canUploadPdf={canUploadPdf}
         />

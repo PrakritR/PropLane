@@ -91,6 +91,32 @@ describe("purgeResidentPortalData", () => {
   });
 });
 
+describe("move-in form photos go with the account", () => {
+  it("a resident purge reclaims each of their form copies' folders in move-in-form-files before the rows go", async () => {
+    const chain = mockDeleteChain();
+    const { storage, removed } = mockStorage();
+    const db = serviceFixture(chain, storage);
+
+    await purgeResidentPortalData(db, { email: "resident@example.com", userId: "user-1" });
+
+    expect(db.from).toHaveBeenCalledWith("resident_move_in_forms");
+    // The stub's one form row is "app-1"; its folder holds the stubbed photo.
+    expect(removed.filter((r) => r.bucket === "move-in-form-files").flatMap((r) => r.paths)).toContain("app-1/idPhotoFront-1-abc.jpg");
+  });
+
+  it("a manager purge reclaims every form copy's folder, and the owner's whole lease-templates folder (original PDFs under move-in-forms/)", async () => {
+    const chain = mockDeleteChain();
+    const { storage, removed } = mockStorage();
+    const db = serviceFixture(chain, storage);
+
+    await purgeManagerPortalData(db, "mgr-user-1");
+
+    expect(removed.filter((r) => r.bucket === "move-in-form-files").flatMap((r) => r.paths)).toContain("app-1/idPhotoFront-1-abc.jpg");
+    // `<owner>/` is listed recursively, which is where `<owner>/move-in-forms/<formId>/` lives.
+    expect(removed.some((r) => r.bucket === "lease-templates" && r.paths.some((path) => path.startsWith("mgr-user-1/")))).toBe(true);
+  });
+});
+
 describe("purgeApplicationPortalData", () => {
   it("purges only application-scoped rows and reclaims photos", async () => {
     const chain = mockDeleteChain();

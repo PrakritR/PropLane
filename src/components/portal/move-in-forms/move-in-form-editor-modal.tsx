@@ -47,7 +47,7 @@ import { Input } from "@/components/ui/input";
 import type { ManagerCustomApplicationFieldType } from "@/lib/manager-listing-submission";
 import type { ResolvedApplicationField } from "@/lib/rental-application/application-field-catalog";
 import { moveInFormTemplatePdfUrl, uploadMoveInFormPdf } from "@/lib/move-in-forms/client";
-import { isDefaultMoveInForm, MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, resetMoveInFormToDefault } from "@/lib/move-in-forms/templates";
+import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
 import type {
   MoveInFormAudience,
   MoveInFormMoveOutDays,
@@ -74,6 +74,24 @@ export type MoveInEditorRoom = { id: string; label: string };
 /** An application or lease template of this property a form can be linked to. */
 export type MoveInEditorLinkOption = { id: string; label: string };
 export type MoveInEditorSaveOptions = { sendToCurrent: boolean };
+
+/**
+ * The "Linked application" / "Linked lease" choices. A linked template the property no longer has
+ * still gets an option, labelled as removed, so the manager can clear it back to "All" instead of
+ * being stuck filtering on an id they cannot see.
+ */
+function moveInLinkOptions(
+  templates: readonly MoveInEditorLinkOption[],
+  linkedIds: readonly string[],
+  noun: "application" | "lease",
+) {
+  return [
+    ...templates.map((item) => ({ value: item.id, label: item.label })),
+    ...linkedIds
+      .filter((id) => !templates.some((item) => item.id === id))
+      .map((id) => ({ value: id, label: `Removed ${noun}` })),
+  ];
+}
 
 function deriveFormName(fileName: string): string {
   const base = fileName.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ").trim();
@@ -124,7 +142,6 @@ export function MoveInFormEditorModal({
   const [sendNow, setSendNow] = useState(mode === "add");
   // "Send to current residents now" only makes sense for the two sends that residents are already past.
   const sendsToExistingResidents = draft.trigger === "lease-signed" || draft.trigger === "application-approved";
-  const isDefaultForm = isDefaultMoveInForm(initial);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [startsFrom, setStartsFrom] = useState<string>(initial.source === "upload" && mode === "add" ? "upload" : (initial.starterKey ?? "blank"));
@@ -156,8 +173,14 @@ export function MoveInFormEditorModal({
   const allProblems = [...problems.form, ...problems.questions, ...problems.who];
   const pdfUrl = pdfBlobUrl ?? (draft.pdf ? moveInFormTemplatePdfUrl("manager", draft.id, propertyId) : null);
   const roomOptions = useMemo(() => rooms.map((room) => ({ value: room.id, label: room.label })), [rooms]);
-  const applicationOptions = useMemo(() => applicationTemplates.map((item) => ({ value: item.id, label: item.label })), [applicationTemplates]);
-  const leaseOptions = useMemo(() => leaseTemplates.map((item) => ({ value: item.id, label: item.label })), [leaseTemplates]);
+  const applicationOptions = useMemo(
+    () => moveInLinkOptions(applicationTemplates, draft.linkedApplicationTemplateIds, "application"),
+    [applicationTemplates, draft.linkedApplicationTemplateIds],
+  );
+  const leaseOptions = useMemo(
+    () => moveInLinkOptions(leaseTemplates, draft.linkedLeaseTemplateIds, "lease"),
+    [leaseTemplates, draft.linkedLeaseTemplateIds],
+  );
 
   const patch = (next: Partial<MoveInFormTemplate>) => setDraft((prev) => ({ ...prev, ...next }));
   const setQuestions = (questions: MoveInFormQuestion[]) => patch({ questions });
@@ -224,6 +247,7 @@ export function MoveInFormEditorModal({
         source: "upload",
         questions: newMoveInFormTemplate("upload").questions,
         starterKey: undefined,
+        kind: "other" as const,
         pdf: prev.pdf ?? null,
       }));
       return;
@@ -231,7 +255,7 @@ export function MoveInFormEditorModal({
     const starter = MOVE_IN_FORM_STARTERS.find((item) => (item.starterKey ?? item.id) === value);
     setDraft((prev) => {
       const keepName = prev.name.trim() && prev.name !== previous?.name;
-      if (!starter) return { ...prev, source: "built", pdf: null, questions: [], starterKey: undefined };
+      if (!starter) return { ...prev, source: "built", pdf: null, questions: [], starterKey: undefined, kind: "other" as const };
       return {
         ...prev,
         source: "built",
@@ -240,6 +264,8 @@ export function MoveInFormEditorModal({
         name: keepName ? prev.name : starter.name,
         trigger: starter.trigger,
         due: starter.due,
+        kind: starter.kind,
+        moveOutDaysBefore: starter.moveOutDaysBefore,
         starterKey: value as MoveInFormStarterKey,
       };
     });
@@ -278,13 +304,6 @@ export function MoveInFormEditorModal({
     setSaving(false);
     if (ok) onClose();
     else setSaveError("Could not delete this form. Try again.");
-  };
-
-  const resetToDefault = async () => {
-    if (!(await confirm({ description: "Reset this form to its default questions? Your own questions are replaced." }))) return;
-    setDraft((prev) => resetMoveInFormToDefault(prev));
-    setPreviewIndex(0);
-    setPreviewAnswers({});
   };
 
   const focusQuestion = (key: string) => {
@@ -688,17 +707,7 @@ export function MoveInFormEditorModal({
         ) : null
       }
       dangerAction={
-        mode === "edit" && isDefaultForm ? (
-          <button
-            type="button"
-            className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
-            data-attr="move-in-form-reset-default"
-            disabled={saving}
-            onClick={() => void resetToDefault()}
-          >
-            Reset to default questions
-          </button>
-        ) : mode === "edit" && onDelete ? (
+        mode === "edit" && onDelete ? (
           <button
             type="button"
             className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700 disabled:opacity-45"

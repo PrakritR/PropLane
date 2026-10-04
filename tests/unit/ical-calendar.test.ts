@@ -56,4 +56,16 @@ describe("generateIcsCalendar", () => {
     expect(events[0]?.startDate).toBe("2026-08-10");
     expect(events[0]?.endDate).toBe("2026-08-10");
   });
+
+  it("cannot be made to inject a property through the calendar name", () => {
+    const body = generateIcsCalendar([{ start: "2026-08-10", end: "2026-08-10" }], {
+      calendarName: "Mine\r\nBEGIN:VEVENT\rX-EVIL:1\nSUMMARY:x",
+    });
+    // Every line of the feed is a known property; nothing the name carried starts its own line.
+    const lines = body.split("\r\n").filter(Boolean);
+    expect(lines.filter((line) => line.startsWith("BEGIN:VEVENT"))).toHaveLength(1);
+    expect(lines.some((line) => line.startsWith("X-EVIL") || line.startsWith("SUMMARY:x"))).toBe(false);
+    expect(body).not.toMatch(/\r(?!\n)/);
+    expect(lines.find((line) => line.startsWith("X-WR-CALNAME:"))).toBe("X-WR-CALNAME:Mine\\nBEGIN:VEVENTX-EVIL:1\\nSUMMARY:x");
+  });
 });

@@ -1,17 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
-  defaultMoveInForm, isDefaultMoveInForm, MOVE_IN_FORM_DEFAULT_IDS, MOVE_IN_FORM_ID_PATTERN, MOVE_IN_FORM_STARTERS,
+  defaultMoveInForm, MOVE_IN_FORM_DEFAULT_IDS, MOVE_IN_FORM_ID_PATTERN, MOVE_IN_FORM_STARTERS,
   moveInFormDueAt, moveInFormDueFor, newMoveInFormTemplate, normalizeMoveInFormTemplates, readMoveInFormSettings,
-  readMoveInFormTemplates, resetMoveInFormToDefault, templateAppliesToRoom, templateLinkMatches, withDefaultMoveInForms,
+  readMoveInFormTemplates, templateAppliesToRoom, templateLinkMatches,
 } from "@/lib/move-in-forms/templates";
 import { DEFAULT_MOVE_IN_FORM_SETTINGS } from "@/lib/move-in-forms/types";
 
 describe("move-in form starters", () => {
-  it("ships exactly five built starters: the checklist sends on lease signing, the other four by hand", () => {
-    expect(MOVE_IN_FORM_STARTERS.map((t) => t.starterKey)).toEqual([
-      "move-in-checklist", "key-receipt", "vehicle-parking", "pet-agreement", "emergency-contacts",
+  it("offers exactly eight built templates: the three kind forms with their own sends, the checklist on lease signing, the other four by hand", () => {
+    expect(MOVE_IN_FORM_STARTERS.map((t) => t.name)).toEqual([
+      "Intake form", "Move-in form", "Move-out form", "Move-in checklist", "Key receipt", "Vehicle and parking", "Pet agreement", "Emergency contacts",
     ]);
-    for (const starter of MOVE_IN_FORM_STARTERS) {
+    expect(MOVE_IN_FORM_STARTERS.map((t) => t.starterKey)).toEqual([
+      "intake-form", "move-in-form", "move-out-form", "move-in-checklist", "key-receipt", "vehicle-parking", "pet-agreement", "emergency-contacts",
+    ]);
+    expect(MOVE_IN_FORM_STARTERS.slice(0, 3).map((t) => [t.kind, t.trigger])).toEqual([
+      ["intake", "application-submitted"], ["move-in", "lease-signed"], ["move-out", "before-move-out"],
+    ]);
+    for (const starter of MOVE_IN_FORM_STARTERS.slice(3)) {
+      expect(starter.kind).toBe("other");
+    }
+    for (const starter of MOVE_IN_FORM_STARTERS.slice(3)) {
       expect("enabled" in starter).toBe(false);
       expect(starter.trigger).toBe(starter.starterKey === "move-in-checklist" ? "lease-signed" : "manual");
       expect(starter.source).toBe("built");
@@ -109,30 +118,29 @@ describe("normalizeMoveInFormTemplates", () => {
 });
 
 describe("readMoveInFormTemplates / readMoveInFormSettings", () => {
-  it("returns the three default forms and the five starters when the key was never written", () => {
-    for (const absent of [undefined, null, {}, { moveInFormSettings: {} }, "junk"]) {
-      const out = readMoveInFormTemplates(absent);
-      expect(out).toHaveLength(8);
-      expect(out.slice(0, 3).map((t) => t.id)).toEqual(["default-intake", "default-move-in", "default-move-out"]);
-      expect(out.filter((t) => t.trigger !== "manual").map((t) => t.starterKey ?? t.kind)).toEqual(["intake", "move-in", "move-out", "move-in-checklist"]);
+  it("returns no forms when the property never added one: nothing is injected", () => {
+    for (const absent of [undefined, null, {}, { moveInFormSettings: {} }, "junk", { moveInFormTemplates: undefined }, { moveInFormTemplates: "nope" }]) {
+      expect(readMoveInFormTemplates(absent)).toEqual([]);
     }
   });
 
-  it("returns the stored forms once the key exists, with the three default forms always pinned first", () => {
-    const empty = readMoveInFormTemplates({ moveInFormTemplates: [] });
-    expect(empty.map((t) => t.id)).toEqual(["default-intake", "default-move-in", "default-move-out"]);
-    // A list saved before these existed must not start messaging residents on its own.
-    expect(empty.every((t) => t.trigger === "manual")).toBe(true);
+  it("returns exactly the stored list, even when it is empty, and never re-adds a deleted form", () => {
+    expect(readMoveInFormTemplates({ moveInFormTemplates: [] })).toEqual([]);
     const stored = newMoveInFormTemplate("built");
     stored.name = "Mine";
-    expect(readMoveInFormTemplates({ moveInFormTemplates: [stored] }).map((t) => t.name)).toEqual(["Intake form", "Move-in form", "Move-out form", "Mine"]);
+    expect(readMoveInFormTemplates({ moveInFormTemplates: [stored] }).map((t) => t.name)).toEqual(["Mine"]);
+    const kept = readMoveInFormTemplates({ moveInFormTemplates: [stored, defaultMoveInForm("intake")] });
+    expect(kept.map((t) => t.id)).toEqual([stored.id, "default-intake"]);
   });
 
-  it("returns a fresh copy of the starters each time", () => {
-    const first = readMoveInFormTemplates(undefined);
-    const checklist = first.find((t) => t.starterKey === "move-in-checklist")!;
-    checklist.trigger = "manual";
-    expect(readMoveInFormTemplates(undefined).find((t) => t.starterKey === "move-in-checklist")!.trigger).toBe("lease-signed");
+  it("keeps a property's already-stored default forms as ordinary forms", () => {
+    const stored = [defaultMoveInForm("intake"), defaultMoveInForm("move-in"), defaultMoveInForm("move-out")];
+    const out = readMoveInFormTemplates({ moveInFormTemplates: stored });
+    expect(out.map((t) => t.name)).toEqual(["Intake form", "Move-in form", "Move-out form"]);
+    expect(out.map((t) => t.kind)).toEqual(["intake", "move-in", "move-out"]);
+    expect(out.map((t) => t.trigger)).toEqual(["application-submitted", "lease-signed", "before-move-out"]);
+    // Deleting one is just dropping it from the stored list.
+    expect(readMoveInFormTemplates({ moveInFormTemplates: stored.slice(1) }).map((t) => t.name)).toEqual(["Move-in form", "Move-out form"]);
   });
 
   it("defaults and sanitizes settings", () => {
@@ -214,14 +222,17 @@ describe("default kind forms", () => {
     expect(moveOut.questions.find((q) => q.key === "deposit_refund_method")!.options).toEqual(["Direct deposit", "Check", "Other"]);
   });
 
-  it("re-adds a deleted default and keeps every default before the other forms", () => {
-    const mine = newMoveInFormTemplate("built");
-    const edited = { ...defaultMoveInForm("move-in"), name: "Our move-in", trigger: "manual" as const };
-    const out = withDefaultMoveInForms([mine, edited]);
-    expect(out.map((t) => t.id)).toEqual(["default-intake", "default-move-in", "default-move-out", mine.id]);
-    expect(out[1]!.name).toBe("Our move-in");
-    expect(isDefaultMoveInForm(out[0]!)).toBe(true);
-    expect(isDefaultMoveInForm(mine)).toBe(false);
+  it("starting from the Intake, Move-in or Move-out template makes an ordinary form with the template's questions and sends", () => {
+    for (const [key, kind, name] of [["intake-form", "intake", "Intake form"], ["move-in-form", "move-in", "Move-in form"], ["move-out-form", "move-out", "Move-out form"]] as const) {
+      const made = newMoveInFormTemplate("built", key);
+      expect(made.id).toMatch(/^mif-/);
+      expect(made.name).toBe(name);
+      expect(made.kind).toBe(kind);
+      expect(made.questions).toEqual(defaultMoveInForm(kind).questions);
+      expect(made.trigger).toBe(defaultMoveInForm(kind).trigger);
+      expect(MOVE_IN_FORM_ID_PATTERN.test(made.id)).toBe(true);
+      expect(normalizeMoveInFormTemplates([made])[0]!.kind).toBe(kind);
+    }
   });
 
   it("reads a form stored before kinds existed as 'other', and pins a default's kind to its id", () => {
@@ -248,15 +259,6 @@ describe("default kind forms", () => {
     expect(form!.linkedApplicationTemplateIds).toEqual(["a", "b"]);
     expect(form!.linkedLeaseTemplateIds).toEqual([]);
     expect(normalizeMoveInFormTemplates([{ id: "f2", name: "F", moveOutDaysBefore: 5 }])[0]!.moveOutDaysBefore).toBe(14);
-  });
-
-  it("resets a default to its shipped questions but keeps its audience and links", () => {
-    const edited = { ...defaultMoveInForm("intake"), questions: [], trigger: "manual" as const, linkedApplicationTemplateIds: ["a"], audience: { kind: "whole-house" as const } };
-    const reset = resetMoveInFormToDefault(edited);
-    expect(reset.questions).toEqual(defaultMoveInForm("intake").questions);
-    expect(reset.trigger).toBe("application-submitted");
-    expect(reset.linkedApplicationTemplateIds).toEqual(["a"]);
-    expect(reset.audience).toEqual({ kind: "whole-house" });
   });
 });
 

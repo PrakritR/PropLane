@@ -10,7 +10,6 @@ import {
   encodeMultiSelectAnswer,
   parseMultiSelectAnswer,
 } from "@/lib/rental-application/custom-fields";
-import { isDefaultMoveInForm } from "@/lib/move-in-forms/templates";
 import type {
   MoveInFormAnswer,
   MoveInFormAudience,
@@ -262,14 +261,18 @@ export function moveInKindLabel(kind: MoveInFormKind): string {
   return MOVE_IN_KIND_OPTIONS.find((option) => option.value === kind)?.label ?? "Other";
 }
 
-/** "All applications" / "Standard application" / "2 applications": the linked templates, in plain words. */
+/**
+ * "All applications" / "Standard application" / "2 applications": the linked templates, in plain
+ * words. A link whose template the property no longer has reads as removed, so the row says so
+ * instead of naming a count the manager cannot account for.
+ */
 export function linkedTemplatesSummary(
   linkedIds: readonly string[],
   options: readonly { id: string; label: string }[],
   noun: "application" | "lease",
 ): string {
   if (linkedIds.length === 0) return `All ${noun}s`;
-  const names = linkedIds.map((id) => options.find((option) => option.id === id)?.label).filter((name): name is string => Boolean(name));
+  const names = linkedIds.map((id) => options.find((option) => option.id === id)?.label ?? `Removed ${noun}`);
   if (names.length === 1) return names[0]!;
   return `${linkedIds.length} ${noun}${linkedIds.length === 1 ? "" : "s"}`;
 }
@@ -328,9 +331,9 @@ export function upsertMoveInTemplate(list: readonly MoveInFormTemplate[], templa
   return exists ? list.map((item) => (item.id === template.id ? next : item)) : [...list, next];
 }
 
-/** The three default forms are never deleted (the server re-adds them); everything else can be. */
+/** Any form the manager added can be deleted. */
 export function removeMoveInTemplate(list: readonly MoveInFormTemplate[], id: string): MoveInFormTemplate[] {
-  return list.filter((item) => item.id !== id || isDefaultMoveInForm(item));
+  return list.filter((item) => item.id !== id);
 }
 
 /** A copy sits right after its original, with a new id, set to "only when I send it" so a duplicate never double-sends on its own. */

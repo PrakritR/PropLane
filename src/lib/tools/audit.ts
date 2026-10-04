@@ -28,6 +28,18 @@ export type AuditActor = {
   db: any;
 };
 
+/**
+ * The `audit_log.landlord_id` a fleet-wide cron pass writes under. Such a pass belongs to no one
+ * manager and runs as no user, but the scope column is still required; the nil uuid is never a
+ * real account, so it reads as "the system" wherever audit rows are listed.
+ */
+export const SYSTEM_AUDIT_SCOPE_ID = "00000000-0000-0000-0000-000000000000";
+
+/** The audit actor for a fleet-wide system pass (a reminder or dispatch sweep). */
+export function systemAuditActor(db: AuditActor["db"]): AuditActor {
+  return { landlordId: SYSTEM_AUDIT_SCOPE_ID, userId: SYSTEM_AUDIT_SCOPE_ID, db };
+}
+
 export type AuditOutcome =
   | { recorded: true }
   | { recorded: false; duplicate: true }

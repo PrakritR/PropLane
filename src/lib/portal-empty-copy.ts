@@ -39,8 +39,10 @@ export const PORTAL_EMPTY_COPY = {
   "residents.potential": T("No potential residents", "residents"),
   "residents.current": T("No current residents", "residents"),
   "residents.past": T("No past residents", "residents"),
-  "move-in.submitted": T("Nothing submitted yet", "move-in"),
-  "move-in.waiting": T("Nothing waiting", "move-in"),
+  // The manager has added no form to any property.
+  "move-in.forms": T("No move-in forms yet", "move-in"),
+  // A form's tab with no resident copy sent yet.
+  "move-in.copies": T("Nothing sent yet", "move-in"),
   "inspections.move-in": T("No move-in inspections", "inspections"),
   "inspections.move-out": T("No move-out inspections", "inspections"),
   "payments.pending": T("Nothing pending", "payments"),

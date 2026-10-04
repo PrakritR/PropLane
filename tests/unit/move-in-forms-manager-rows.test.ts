@@ -7,13 +7,15 @@ import {
   lateMoveInForms,
   moveInFormDaysLate,
   moveInFormFacts,
-  moveInFormFilterNames,
   moveInFormPlaceLine,
+  moveInFormNameKey,
   moveInFormTabCounts,
+  moveInFormTabGroups,
   moveInFormTitle,
 } from "@/lib/move-in-forms/manager-rows";
-import { describeMoveInDetails, orderResidentMoveInForms } from "@/components/portal/move-in-forms/resident-record-move-in-section";
-import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSummary } from "@/lib/move-in-forms/types";
+import { describeMoveInDetails, residentMoveInFormRows } from "@/components/portal/move-in-forms/resident-record-move-in-section";
+import { newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
+import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 
 // Oct 3, 2026, midday Pacific.
 const NOW = new Date("2026-10-03T19:00:00.000Z");
@@ -114,24 +116,66 @@ describe("list filtering", () => {
     form({ id: "3", status: "cancelled" }),
   ];
 
-  it("a cancelled request is on neither tab", () => {
-    expect(moveInFormTabCounts(list)).toEqual({ submitted: 1, waiting: 1 });
-    expect(filterMoveInForms(list, {}).map((f) => f.id)).toEqual(["1", "2"]);
+  it("a cancelled request is on no tab; waiting lists before submitted", () => {
+    const groups = moveInFormTabGroups([], list);
+    expect(groups.map((g) => g.id)).toEqual(["move-in-checklist", "pet-agreement"]);
+    expect(moveInFormTabCounts(groups, list)).toEqual({ "move-in-checklist": 1, "pet-agreement": 1 });
+    expect(filterMoveInForms(list, {}, NOW).map((f) => f.id)).toEqual(["2", "1"]);
   });
 
   it("filters by tab, property, form name and every typed word", () => {
-    expect(filterMoveInForms(list, { tab: "waiting" }).map((f) => f.id)).toEqual(["2"]);
+    expect(filterMoveInForms(list, { status: "waiting" }).map((f) => f.id)).toEqual(["2"]);
     expect(filterMoveInForms(list, { propertyId: "p1" }).map((f) => f.id)).toEqual(["1"]);
     expect(filterMoveInForms(list, { formName: "move-in CHECKLIST" }).map((f) => f.id)).toEqual(["2"]);
     expect(filterMoveInForms(list, { query: "maya 8th" }, NOW).map((f) => f.id)).toEqual(["2"]);
     expect(filterMoveInForms(list, { query: "maya brooklyn" }, NOW)).toEqual([]);
   });
 
-  it("the Form filter offers the starters plus any other name in the list, once", () => {
-    const names = moveInFormFilterNames([form({ formName: "Roof access" }), form({ formName: "move-in CHECKLIST" })]);
-    expect(names).toContain("Roof access");
-    expect(names.filter((n) => n.toLowerCase() === "move-in checklist")).toHaveLength(1);
-    expect(names).toHaveLength(6);
+});
+
+describe("tabs: one per form the manager added, grouped by name", () => {
+  it("normalizes a name by trimming, collapsing spaces and ignoring case", () => {
+    expect(moveInFormNameKey("  Pet   Agreement ")).toBe("pet agreement");
+    expect(moveInFormNameKey(undefined)).toBe("");
+  });
+
+  it("groups the same name across properties, alphabetically, with a slug id", () => {
+    const groups = moveInFormTabGroups(["Pet agreement", "intake form", "Intake Form ", "Key receipt", "pet  AGREEMENT"], []);
+    expect(groups).toEqual([
+      { id: "intake-form", key: "intake form", label: "Intake Form" },
+      { id: "key-receipt", key: "key receipt", label: "Key receipt" },
+      { id: "pet-agreement", key: "pet agreement", label: "Pet agreement" },
+    ]);
+  });
+
+  it("a form with no copies still has its tab, with a zero count", () => {
+    const groups = moveInFormTabGroups(["Move-in form", "Key receipt"], []);
+    expect(groups.map((g) => g.id)).toEqual(["key-receipt", "move-in-form"]);
+    expect(moveInFormTabCounts(groups, [])).toEqual({ "key-receipt": 0, "move-in-form": 0 });
+  });
+
+  it("a deleted or renamed form's copies still show under the name they were sent with", () => {
+    const sent = form({ id: "old", formName: "Roof access" });
+    const groups = moveInFormTabGroups(["Key receipt"], [sent, form({ id: "gone", formName: "Old checklist", status: "cancelled" })]);
+    // A cancelled copy alone never makes a tab.
+    expect(groups.map((g) => g.label)).toEqual(["Key receipt", "Roof access"]);
+    expect(moveInFormTabCounts(groups, [sent])).toEqual({ "key-receipt": 0, "roof-access": 1 });
+    expect(filterMoveInForms([sent], { formName: " roof ACCESS" }, NOW).map((f) => f.id)).toEqual(["old"]);
+    expect(filterMoveInForms([sent], { formName: "Key receipt" }, NOW)).toEqual([]);
+  });
+
+  it("copies of one name on different properties share a tab and a count", () => {
+    const a = form({ id: "a", propertyId: "p1", formName: "Pet agreement" });
+    const b = form({ id: "b", propertyId: "p2", formName: "pet agreement ", status: "submitted", submittedAt: "2026-10-01T20:00:00.000Z" });
+    const groups = moveInFormTabGroups(["Pet agreement"], [a, b]);
+    expect(groups).toHaveLength(1);
+    expect(moveInFormTabCounts(groups, [a, b])).toEqual({ "pet-agreement": 2 });
+  });
+
+  it("keeps slugs unique and off the router's own words", () => {
+    const groups = moveInFormTabGroups(["Pets!", "Pets?", "Inspections", "Ünïcode form", "!!!"], []);
+    expect(groups.map((g) => g.id)).toEqual(["form", "inspections-form", "pets", "pets-2", "unicode-form"]);
+    expect(new Set(groups.map((g) => g.id)).size).toBe(groups.length);
   });
 });
 
@@ -176,15 +220,41 @@ describe("answers grouped for the viewer", () => {
 });
 
 describe("resident record helpers", () => {
-  it("orders submitted first (as filed), then waiting by due date", () => {
-    const ordered = orderResidentMoveInForms([
-      form({ id: "w2", dueAt: "2026-10-09T06:59:59.000Z" }),
-      form({ id: "s2", status: "submitted", submittedAt: "2026-09-28T20:00:00.000Z" }),
-      form({ id: "w1", dueAt: "2026-10-02T06:59:59.000Z" }),
-      form({ id: "s1", status: "submitted", submittedAt: "2026-09-27T20:00:00.000Z" }),
-      form({ id: "x", status: "cancelled" }),
+  const template = (id: string, name: string): MoveInFormTemplate =>
+    ({ ...newMoveInFormTemplate("built"), id, name }) as MoveInFormTemplate;
+
+  it("one row per form of the property, in stored order: Not sent, Sent, Submitted", () => {
+    const rows = residentMoveInFormRows(
+      [template("t1", "Intake form"), template("t2", "Key receipt"), template("t3", "Pet agreement"), template("t4", "")],
+      [
+        form({ id: "k", formId: "t2", formName: "Key receipt" }),
+        form({ id: "p", formId: "t3", formName: "Pet agreement", status: "submitted", submittedAt: "2026-09-28T20:00:00.000Z" }),
+      ],
+    );
+    expect(rows.map((r) => [r.name, r.copy?.status ?? "not-sent"])).toEqual([
+      ["Intake form", "not-sent"], ["Key receipt", "sent"], ["Pet agreement", "submitted"],
     ]);
-    expect(ordered.map((f) => f.id)).toEqual(["s1", "s2", "w1", "w2"]);
+    expect(rows.every((r) => r.template !== null)).toBe(true);
+  });
+
+  it("a waiting copy wins over a submitted one; a cancelled copy is not a copy", () => {
+    const rows = residentMoveInFormRows([template("t1", "Key receipt")], [
+      form({ id: "old", formId: "t1", status: "submitted", submittedAt: "2026-09-20T20:00:00.000Z" }),
+      form({ id: "again", formId: "t1" }),
+      form({ id: "x", formId: "t1", status: "cancelled" }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.copy?.id).toBe("again");
+    expect(residentMoveInFormRows([template("t1", "Key receipt")], [form({ formId: "t1", status: "cancelled" })])[0]!.copy).toBeNull();
+  });
+
+  it("a copy of a deleted form still shows, after the property's forms, under its stored name", () => {
+    const rows = residentMoveInFormRows([template("t1", "Key receipt")], [form({ id: "z", formId: "gone", formName: "Old checklist" })]);
+    expect(rows.map((r) => [r.name, r.template === null, r.copy?.id ?? null])).toEqual([["Key receipt", false, null], ["Old checklist", true, "z"]]);
+  });
+
+  it("a property with no forms and no copies has no rows", () => {
+    expect(residentMoveInFormRows([], [])).toEqual([]);
   });
 
   it("describes the property's move-in details as facts, with blanks saying so", () => {

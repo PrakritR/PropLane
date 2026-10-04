@@ -175,7 +175,7 @@ export function DemoSectionRenderer({
       // The demo never writes: the page renders its empty state (no forms are ever loaded
       // or sent while demo mode is on).
       case "move-in":
-        return <ManagerMoveInFormsPage tab={tabId === "submitted" || tabId === "inspections" ? tabId : "waiting"} basePath={basePath} />;
+        return <ManagerMoveInFormsPage tab={tabId} basePath={basePath} />;
       case "residents":
         return <ManagerResidents tabId="current" />;
       case "leases":

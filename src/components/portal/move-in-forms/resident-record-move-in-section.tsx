@@ -1,18 +1,21 @@
 "use client";
 
 /**
- * Resident record › Move-in. Two cards, per docs/agents/record-page.md:
- *  - "Move-in forms": every form sent to this resident as flat rows (the sidebar list's facts and
- *    ⋯, minus "Open resident"), with Download all and the round + that opens the send popup
- *    already pointed at this resident.
+ * Resident record › Move-in (every resident stage). Two cards, per docs/agents/record-page.md:
+ *  - "Move-in forms": EVERY form of the resident's property (its stored list), one flat row each,
+ *    merged with the copies already sent: Not sent (⋯ Send), Sent with its due date (⋯ Remind /
+ *    Preview / Cancel) or Submitted (⋯ Open / Download PDF / Send again). A copy whose form was
+ *    since deleted still shows under the name it was sent with. Download all and the round + that
+ *    opens the send popup already pointed at this resident stay.
  *  - "Move-in details <first name> received": the property's existing move-in instructions,
  *    photos and video as plain facts, with an icon link to the property's Move-in tab.
  * Only facts that exist are shown; there is no "Opened" row because nothing records it.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { Download, ExternalLink, FileText } from "lucide-react";
+import { Download, ExternalLink, FileText, Send } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { PortalEntryRow } from "@/components/portal/portal-entry-row";
+import { Button } from "@/components/ui/button";
+import { PortalEntryRow, type PortalEntryRowFact } from "@/components/portal/portal-entry-row";
 import { PortalListGroupRowContext } from "@/components/portal/portal-list-group";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
@@ -21,7 +24,10 @@ import { MoveInFormViewer } from "@/components/portal/move-in-forms/move-in-form
 import { SendMoveInFormPopup } from "@/components/portal/move-in-forms/move-in-form-send-popup";
 import { MoveInFormMenuItems, useMoveInFormRowActions } from "@/components/portal/move-in-forms/move-in-form-row-actions";
 import { moveInFormEntryFacts } from "@/components/portal/move-in-forms/manager-move-in-forms-panel";
+import { useAppUi } from "@/components/providers/app-ui-provider";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useManagerMoveInForms } from "@/hooks/use-move-in-forms";
+import { usePropertyPipelineTick } from "@/hooks/use-property-pipeline-tick";
 import { track } from "@/lib/analytics/track-client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -29,25 +35,51 @@ import type { MockProperty } from "@/data/types";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { resolveManagerListingSubmissionForPropertyId } from "@/lib/manager-property-save-target";
+import { sendMoveInForm } from "@/lib/move-in-forms/client";
 import { moveInFormTab } from "@/lib/move-in-forms/manager-rows";
-import type { MoveInFormSummary } from "@/lib/move-in-forms/types";
+import { readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { propertyDetailHref } from "@/lib/portal-detail-routes";
 import { resolveResidentMoveInFromApplications } from "@/lib/resident-move-in-resolve";
 
-/** Submitted first, oldest to newest as filed, then what is still waiting by due date. */
-export function orderResidentMoveInForms(forms: MoveInFormSummary[]): MoveInFormSummary[] {
-  const stamp = (value: string | null) => value ?? "9999-12-31";
-  return forms
-    .filter((form) => moveInFormTab(form) !== null)
-    .sort((a, b) => {
-      const aTab = moveInFormTab(a) === "submitted" ? 0 : 1;
-      const bTab = moveInFormTab(b) === "submitted" ? 0 : 1;
-      if (aTab !== bTab) return aTab - bTab;
-      return aTab === 0
-        ? stamp(a.submittedAt).localeCompare(stamp(b.submittedAt))
-        : stamp(a.dueAt).localeCompare(stamp(b.dueAt)) || stamp(a.sentAt).localeCompare(stamp(b.sentAt));
-    });
+/** One form of the resident's property: its latest live copy, or none yet. */
+export type ResidentMoveInFormRow = {
+  /** The form's id; a copy of a deleted form keeps the id it was sent under. */
+  formId: string;
+  name: string;
+  /** The property's form, or null when it was deleted after this copy went out. */
+  template: MoveInFormTemplate | null;
+  /** The copy to show: the waiting one if any, else the newest submitted. Null = Not sent. */
+  copy: MoveInFormSummary | null;
+};
+
+/**
+ * Every form of the property (stored order), each with this resident's copy when one exists,
+ * then copies of forms the property no longer has. Cancelled copies are not copies.
+ */
+export function residentMoveInFormRows(templates: readonly MoveInFormTemplate[], copies: readonly MoveInFormSummary[]): ResidentMoveInFormRow[] {
+  const live = copies.filter((form) => moveInFormTab(form) !== null);
+  const stamp = (value: string | null | undefined) => (value ? new Date(value).getTime() || 0 : 0);
+  const pick = (formId: string): MoveInFormSummary | null => {
+    const mine = live.filter((form) => form.formId === formId);
+    const waiting = mine.filter((form) => form.status === "sent").sort((a, b) => stamp(b.sentAt) - stamp(a.sentAt))[0];
+    if (waiting) return waiting;
+    return mine.sort((a, b) => stamp(b.submittedAt) - stamp(a.submittedAt))[0] ?? null;
+  };
+  const rows: ResidentMoveInFormRow[] = [];
+  const seen = new Set<string>();
+  for (const template of templates) {
+    if (!template.name.trim() || seen.has(template.id)) continue;
+    seen.add(template.id);
+    rows.push({ formId: template.id, name: template.name.trim(), template, copy: pick(template.id) });
+  }
+  for (const form of live) {
+    if (seen.has(form.formId)) continue;
+    seen.add(form.formId);
+    rows.push({ formId: form.formId, name: form.formName, template: null, copy: pick(form.formId) });
+  }
+  return rows;
 }
 
 export type MoveInDetailsReceived = {
@@ -122,6 +154,7 @@ export function ResidentRecordMoveInSection({
 }) {
   const navigate = usePortalNavigate();
   const actions = useMoveInFormRowActions();
+  const { showToast } = useAppUi();
   const { list, loading, error, retry } = useManagerMoveInForms(userId, { applicationId });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<MoveInFormSummary | null>(null);
@@ -129,10 +162,42 @@ export function ResidentRecordMoveInSection({
   const demo = isDemoModeActive();
   const first = residentName.trim().split(/\s+/)[0] || "this resident";
 
-  const forms = useMemo(() => orderResidentMoveInForms(list.forms.filter((form) => form.applicationId === applicationId)), [list.forms, applicationId]);
+  // Every form the property has, as the stored list says (nothing is added for the manager).
+  const propertyTick = usePropertyPipelineTick();
+  const templates = useMemo(() => {
+    void propertyTick; // the property store changed: read the forms again
+    const hit = propertyId ? resolveManagerListingSubmissionForPropertyId(userId, propertyId) : null;
+    return hit ? readMoveInFormTemplates(hit.sub) : [];
+  }, [userId, propertyId, propertyTick]);
+  const rows = useMemo(
+    () => residentMoveInFormRows(templates, list.forms.filter((form) => form.applicationId === applicationId)),
+    [templates, list.forms, applicationId],
+  );
   const now = useMemo(() => new Date(), []);
-  const submitted = forms.filter((form) => form.status === "submitted");
-  const selectedForm = selected.size === 1 ? forms.find((form) => selected.has(form.id)) : undefined;
+  const submitted = rows.flatMap((row) => (row.copy?.status === "submitted" ? [row.copy] : []));
+  const selectedRow = selected.size === 1 ? rows.find((row) => selected.has(row.formId)) : undefined;
+  // The server sends only to an approved resident placed at a property with an email on file.
+  const canSend = useMemo(() => {
+    const row = readManagerApplicationRows().find((r) => r.id === applicationId);
+    return Boolean(row && row.bucket === "approved" && !row.withdrawnAt && residentEmail.trim() && propertyId);
+  }, [applicationId, residentEmail, propertyId]);
+  const [sending, setSending] = useState<string | null>(null);
+  const sendForm = async (row: ResidentMoveInFormRow) => {
+    if (!row.template || sending) return;
+    setSending(row.formId);
+    try {
+      await sendMoveInForm({ applicationId, formId: row.formId });
+      track("move_in_form_sent", { source: "resident_record_row" });
+      showToast(`${row.name} sent to ${first}`);
+      setSelected(new Set());
+    } catch (caught) {
+      showToast(caught instanceof Error && caught.message ? caught.message : "Could not send this form.");
+    } finally {
+      setSending(null);
+    }
+  };
+  const rowFacts = (row: ResidentMoveInFormRow): PortalEntryRowFact[] =>
+    row.copy ? moveInFormEntryFacts(row.copy, now) : [{ icon: Send, label: "Not sent" }];
 
   const details = useMemo(() => {
     const hit = propertyId ? resolveManagerListingSubmissionForPropertyId(userId, propertyId) : null;
@@ -179,45 +244,62 @@ export function ResidentRecordMoveInSection({
         <PortalListGroupRowContext.Provider value>
           <PortalRecordListSurface
             className="!pb-0 max-lg:!pb-0 lg:!pb-0"
-            isEmpty={forms.length === 0}
+            isEmpty={rows.length === 0}
             loading={loading}
             loadError={error ? "Couldn't load move-in forms" : undefined}
             onRetry={retry}
             emptyCard={{
-              title: `No move-in forms sent to ${first}`,
+              title: "No move-in forms for this property",
               section: "move-in",
-              actions: demo ? [] : [{ label: "Send a form", onClick: () => setSendOpen(true), dataAttr: "resident-move-in-empty-send" }],
+              actions:
+                demo || !propertyId
+                  ? []
+                  : [{ label: "Open Forms", onClick: () => navigate(propertyDetailHref(basePath, "all", propertyId, "move-in")), dataAttr: "resident-move-in-empty-open-forms" }],
             }}
             onBulkClear={() => setSelected(new Set())}
             bulkCount={selected.size}
             bulkActions={
-              selectedForm ? (
+              selectedRow ? (
                 <PortalSectionActionRow variant="header">
-                  <MoveInFormMenuItems form={selectedForm} actions={actions} onOpen={open} includeResident={false} />
+                  {selectedRow.copy ? (
+                    <MoveInFormMenuItems form={selectedRow.copy} actions={actions} onOpen={open} includeResident={false} />
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={PORTAL_BULK_BAR_BTN}
+                      data-attr="resident-move-in-row-send"
+                      disabled={!canSend || sending !== null}
+                      title={canSend ? undefined : "Approve this resident's application first."}
+                      onClick={() => void sendForm(selectedRow)}
+                    >
+                      Send
+                    </Button>
+                  )}
                 </PortalSectionActionRow>
               ) : undefined
             }
             dataAttr="resident-move-in-forms-list"
           >
             <div className="divide-y divide-border/70">
-              {forms.map((form) => (
+              {rows.map((row) => (
                 <PortalEntryRow
-                  key={form.id}
+                  key={row.formId}
                   tile={{ kind: "glyph", icon: FileText }}
-                  title={form.formName}
-                  facts={moveInFormEntryFacts(form, now)}
-                  checked={selected.has(form.id)}
+                  title={row.name}
+                  facts={rowFacts(row)}
+                  checked={selected.has(row.formId)}
                   onSelectedChange={(checked) =>
                     setSelected((current) => {
                       const next = new Set(current);
-                      if (checked) next.add(form.id);
-                      else next.delete(form.id);
+                      if (checked) next.add(row.formId);
+                      else next.delete(row.formId);
                       return next;
                     })
                   }
-                  onOpen={() => open(form)}
+                  onOpen={row.copy ? () => open(row.copy!) : undefined}
                   omitActionView
-                  selectLabel={form.formName}
+                  selectLabel={row.name}
                   dataAttr="resident-move-in-form-row"
                 />
               ))}

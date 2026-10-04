@@ -5,6 +5,8 @@ import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { managerSectionAllowedForTier } from "@/lib/manager-access";
+import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server";
 import { managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
@@ -20,7 +22,7 @@ import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submis
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
-import { MAX_FILES_PER_FORM, MAX_FILES_PER_QUESTION, MAX_SIGNATURES_PER_QUESTION } from "./limits";
+import { MAX_FILES_PER_FORM, MAX_FILES_PER_QUESTION, MAX_SIGNATURES_PER_QUESTION, MAX_UPLOAD_REQUEST_BYTES } from "./limits";
 import { emailManagerOfMoveInFormSubmission, emitMoveInFormEvent } from "./move-in-form-events.server";
 import {
   MOVE_IN_FORM_ID_PATTERN, moveInFormDefaultKindOfId, moveInFormDueFor, readMoveInFormSettings, readMoveInFormTemplates,
@@ -42,9 +44,26 @@ export class MoveInFormError extends Error {
   }
 }
 
+/**
+ * Move-in is a Pro and Business module: the page paywalls it for a Free manager, and so does the API
+ * (the page alone is a button, not a gate). The same tier rule as the sidebar and `subscriptionGated`:
+ * a co-manager with no portfolio of their own inherits their best linked owner's plan.
+ */
+export async function assertMoveInPlan(managerUserId: string): Promise<void> {
+  const tier = await getManagerPortalNavSubscriptionTier(managerUserId);
+  if (!managerSectionAllowedForTier("move-in", tier)) {
+    throw new MoveInFormError("Move-in forms require the Pro or Business plan. Upgrade in Settings > Subscription.", 402);
+  }
+}
+
+/** The route's gate: every manager call passes it; a resident answers a form already sent to them. */
+export async function assertMoveInPlanForActor(actor: MoveInFormActor): Promise<void> {
+  if (actor.role === "manager") await assertMoveInPlan(actor.context.userId);
+}
+
 const TABLE = "resident_move_in_forms";
 export const MOVE_IN_FORM_FILES_BUCKET = "move-in-form-files";
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = MAX_UPLOAD_REQUEST_BYTES;
 const FILE_URL_SECONDS = 300;
 const REMIND_COOLDOWN_MS = 5 * 60_000;
 const KEY_PATTERN = /^[A-Za-z0-9_-]{1,80}$/;
@@ -184,7 +203,8 @@ function toRecord(row: MoveInFormRow, viewer: "manager" | "resident"): MoveInFor
   return {
     id: row.id,
     applicationId: row.application_id,
-    managerUserId: row.manager_user_id,
+    // A resident has no use for the manager's account id.
+    ...(viewer === "resident" ? {} : { managerUserId: row.manager_user_id }),
     propertyId: row.property_id,
     propertyLabel: row.property_label,
     roomLabel: row.room_label,
@@ -363,6 +383,18 @@ function pdfPathTrusted(path: string, ownerId: string, formId: string): boolean 
 type PdfCache = Map<string, { sha256: string } | null>;
 
 /**
+ * Whether a storage download failed because the object is not there. A missing PDF is a form the
+ * manager has not finished — a quiet skip. Any other download failure is the bucket being
+ * unreachable, which is worth retrying and must not read as "nothing to send".
+ */
+function storageObjectMissing(error: unknown): boolean {
+  const detail = error as { status?: unknown; statusCode?: unknown; message?: unknown } | null;
+  const status = Number(detail?.status ?? detail?.statusCode ?? NaN);
+  if (Number.isFinite(status)) return status === 400 || status === 404;
+  return /not ?found|missing|does not exist|no such/i.test(String(detail?.message ?? ""));
+}
+
+/**
  * The questions (and PDF fingerprint) a resident will be asked. A template lives in property
  * JSON a client can write, so its PDF path is never trusted: it must sit under the property
  * owner's own move-in-forms prefix, and the fingerprint is recomputed from the stored bytes.
@@ -383,7 +415,8 @@ async function buildSnapshot(
   let entry = cache.get(pdf.storagePath);
   if (entry === undefined) {
     const { data, error } = await db.storage.from(LEASE_TEMPLATE_BUCKET).download(pdf.storagePath);
-    entry = error || !data ? null : { sha256: sha256(new Uint8Array(await data.arrayBuffer())) };
+    if (error && !storageObjectMissing(error)) throw new MoveInFormError("Could not read the form's PDF.", 500);
+    entry = data ? { sha256: sha256(new Uint8Array(await data.arrayBuffer())) } : null;
     cache.set(pdf.storagePath, entry);
   }
   if (!entry) return null;
@@ -476,11 +509,41 @@ async function templateLinksAdmit(db: SupabaseClient, property: PropertyFacts, r
 /* --------------------------------------------------------------- dispatch */
 
 /**
+ * The login whose CONFIRMED email is this address, or null. An application submitted as a guest carries
+ * whatever address was typed into it, so a notice to that address could reach a stranger. The in-portal
+ * form is always created; only the notice waits for an address a person has proven they own.
+ */
+async function confirmedAccountFor(db: SupabaseClient, email: string): Promise<{ id: string; email: string } | null> {
+  try {
+    const wanted = email.trim().toLowerCase();
+    if (!wanted) return null;
+    const { data: profile } = await db.from("profiles").select("id").ilike("email", wanted.replace(/[\\%_]/g, "\\$&")).limit(1).maybeSingle();
+    const id = typeof profile?.id === "string" ? profile.id : "";
+    if (!id) return null;
+    const { data } = await db.auth.admin.getUserById(id);
+    const user = data?.user;
+    if (!user?.email_confirmed_at || (user.email ?? "").trim().toLowerCase() !== wanted) return null;
+    return { id, email: wanted };
+  } catch {
+    return null;
+  }
+}
+
+/** What one residency's dispatch did: forms sent, and sends that errored out. */
+export type MoveInFormDispatchResult = { sent: number; failed: number };
+
+/**
  * Sends every form whose trigger matches to a residency. Called from server events
  * (lease fully signed, application approved) with an id the SERVER read, never one from a
  * request body. Idempotent (a form the residency already has, waiting or submitted, is skipped),
  * best-effort, and never throws into its caller: a form that fails to go out must not break signing
  * a lease.
+ *
+ * Because nothing throws, the result carries `failed`: how many sends errored out. A caller that
+ * owns a retry (the daily move-out sweep's day claim) needs to tell a quiet pass from a broken one,
+ * which a `sent` of zero alone cannot say. A form skipped on purpose — already held, wrong room,
+ * links that do not admit it, a PDF the manager never uploaded — is not a failure; a bucket or table
+ * that could not be read is.
  */
 export async function dispatchMoveInFormsForResidency(
   applicationId: string,
@@ -490,16 +553,32 @@ export async function dispatchMoveInFormsForResidency(
     db?: SupabaseClient;
     /** `before-move-out` only: days left on the lease. A form goes once its "N days before" has been reached. */
     daysUntilLeaseEnd?: number;
+    /**
+     * The manager (and property) a caller read from a stored row, when the application id itself came
+     * from client-writable JSON (a lease's `axisId`). A residency owned by anyone else is skipped.
+     */
+    expect?: { managerUserId: string; propertyId?: string | null };
   } = {},
-): Promise<{ sent: number }> {
+): Promise<MoveInFormDispatchResult> {
   try {
     const db = options.db ?? createSupabaseServiceRoleClient();
     const residency = await readResidency(db, applicationId);
     // An intake form goes out the moment an application is submitted; everything else waits for approval.
     const eligible = trigger === "application-submitted" ? residency?.inPlay : residency?.approved;
-    if (!residency || !eligible || !residency.identity.property_id || !residency.identity.resident_email) return { sent: 0 };
+    if (!residency || !eligible || !residency.identity.property_id || !residency.identity.resident_email) return { sent: 0, failed: 0 };
     const property = await readProperty(db, residency.identity.property_id);
-    if (!property) return { sent: 0 };
+    if (!property) return { sent: 0, failed: 0 };
+    // Automatic sends obey the same plan as the page: a Free owner's forms do not go out on their own.
+    if (!managerSectionAllowedForTier("move-in", await getManagerPortalNavSubscriptionTier(property.ownerId))) return { sent: 0, failed: 0 };
+    const expected = options.expect;
+    if (expected) {
+      const propertyId = (expected.propertyId ?? "").trim();
+      if (
+        residency.identity.manager_user_id !== expected.managerUserId ||
+        property.ownerId !== expected.managerUserId ||
+        (propertyId && residency.identity.property_id !== propertyId)
+      ) return { sent: 0, failed: 0 };
+    }
     // The property's actual owner, not a stale stamp on the application.
     const room = resolveRoom(property, residency);
     const dispatchable = property.templates.filter((template) =>
@@ -509,10 +588,11 @@ export async function dispatchMoveInFormsForResidency(
       // A whole-house form is one per lease: the primary signer gets it, roommates do not.
       !(options.secondaryMember && template.audience.kind === "whole-house") &&
       templateAppliesToRoom(template, room.id));
-    if (dispatchable.length === 0) return { sent: 0 };
+    if (dispatchable.length === 0) return { sent: 0, failed: 0 };
     const cache: PdfCache = new Map();
     const already = await liveFormIds(db, residency.id);
     let sent = 0;
+    let failed = 0;
     for (const template of dispatchable) {
       if (already.has(template.id)) continue;
       try {
@@ -525,31 +605,47 @@ export async function dispatchMoveInFormsForResidency(
         });
         if (!result.created) continue;
         sent++;
-        void emitMoveInFormEvent(db, { row: result.row, event: "sent" }).catch(() => undefined);
+        // The Intake form goes out when an application is SUBMITTED, possibly as a guest with an unproven
+        // address: notify only an address that belongs to a confirmed login, addressed to that login.
+        // Every other trigger follows a manager's decision about a known resident.
+        const notice = trigger === "application-submitted"
+          ? await confirmedAccountFor(db, result.row.resident_email)
+          : { id: result.row.resident_user_id, email: result.row.resident_email };
+        if (notice) {
+          void emitMoveInFormEvent(db, { row: { ...result.row, resident_user_id: notice.id, resident_email: notice.email }, event: "sent" }).catch(() => undefined);
+        }
       } catch (error) {
+        failed++;
         console.error("[move-in-forms] dispatch failed for one form", error instanceof Error ? error.name : "unknown");
       }
     }
-    return { sent };
+    return { sent, failed };
   } catch (error) {
     console.error("[move-in-forms] dispatch failed", error instanceof Error ? error.name : "unknown");
-    return { sent: 0 };
+    return { sent: 0, failed: 1 };
   }
 }
 
 /**
  * The lease-signed seam: a lease names its primary signer's application (`axisId`) and any
- * joint members'. Best-effort like the dispatch it wraps, so a caller can `void` it.
+ * joint members'. Those ids live in the lease's client-writable `row_data`, so the caller must
+ * pass the manager and property the SERVER read from the lease row's own columns: a residency
+ * owned by another manager (or on another property) is never dispatched to. With no manager
+ * nothing is sent. Best-effort like the dispatch it wraps, so a caller can `void` it.
  */
 export async function dispatchMoveInFormsForSignedLease(
   lease: { axisId?: string | null; jointLeaseMembers?: { applicationId?: string | null }[] | null },
+  scope: { managerUserId?: string | null; propertyId?: string | null },
 ): Promise<void> {
   try {
+    const managerUserId = (scope.managerUserId ?? "").trim();
+    if (!managerUserId) return;
+    const expect = { managerUserId, propertyId: scope.propertyId ?? null };
     const primary = lease.axisId?.trim();
-    if (primary) await dispatchMoveInFormsForResidency(primary, "lease-signed");
+    if (primary) await dispatchMoveInFormsForResidency(primary, "lease-signed", { expect });
     for (const member of lease.jointLeaseMembers ?? []) {
       const id = member?.applicationId?.trim();
-      if (id && id !== primary) await dispatchMoveInFormsForResidency(id, "lease-signed", { secondaryMember: true });
+      if (id && id !== primary) await dispatchMoveInFormsForResidency(id, "lease-signed", { secondaryMember: true, expect });
     }
   } catch {
     // Never break signing a lease.
@@ -579,8 +675,9 @@ export function dispatchMoveInFormsForResidencyAfterResponse(
 
 export function dispatchMoveInFormsForSignedLeaseAfterResponse(
   lease: Parameters<typeof dispatchMoveInFormsForSignedLease>[0],
+  scope: Parameters<typeof dispatchMoveInFormsForSignedLease>[1],
 ): void {
-  afterResponse(() => dispatchMoveInFormsForSignedLease(lease));
+  afterResponse(() => dispatchMoveInFormsForSignedLease(lease, scope));
 }
 
 /* ------------------------------------------------------------- manager API */
@@ -681,6 +778,10 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
   }
   const template = property.templates.find((item) => item.id === input.formId);
   if (!template) throw new MoveInFormError("Form not found.", 404);
+  // The snapshot depends on the form and the property, never on the resident: build it once, before
+  // anything is inserted, so an unfinished form fails the whole send instead of half of it.
+  const snapshot = await buildSnapshot(db, template, property.ownerId);
+  if (!snapshot) throw new MoveInFormError("This form is not ready to send. Finish its questions, add a signature, and upload its PDF first.", 409);
   const { data: leases, error } = await db.from("portal_lease_pipeline_records")
     .select("axis_id:row_data->>axisId,signed:row_data->>fullySignedAt,voided:row_data->>voidedAt,members:row_data->jointLeaseMembers")
     .eq("manager_user_id", property.ownerId).eq("property_id", property.id);
@@ -696,7 +797,6 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
     }
   }
   const auditKey = await audit(actor, "send_existing", { property_id: property.id, form_id: template.id });
-  const cache: PdfCache = new Map();
   let sent = 0;
   for (const [applicationId, secondary] of applicationIds) {
     const residency = await readResidency(db, applicationId);
@@ -707,8 +807,6 @@ export async function sendMoveInFormToCurrentResidents(actor: MoveInFormActor, r
     const room = resolveRoom(property, residency);
     if (!templateAppliesToRoom(template, room.id)) continue;
     if (!(await templateLinksAdmit(db, property, residency, template))) continue;
-    const snapshot = await buildSnapshot(db, template, property.ownerId, cache);
-    if (!snapshot) throw new MoveInFormError("This form is not ready to send. Finish its questions, add a signature, and upload its PDF first.", 409);
     const result = await insertRow(db, {
       residency, ownerId: property.ownerId, roomLabel: room.label, template, snapshot,
       dueAt: dueFor(template, residency),
@@ -939,7 +1037,7 @@ export async function saveMoveInFormDraft(actor: MoveInFormActor, id: string, ra
 
 /** Re-encodes an upload (strips metadata, bounds size); the declared type is never trusted. */
 async function normalizeImage(file: File, kind: "photo" | "signature"): Promise<{ bytes: Buffer; contentType: string; ext: "jpg" | "png" }> {
-  if (!file.size || file.size > MAX_IMAGE_BYTES) throw new MoveInFormError("Choose an image smaller than 10 MB.");
+  if (!file.size || file.size > MAX_IMAGE_BYTES) throw new MoveInFormError("Choose an image smaller than 4.5 MB.");
   const source = Buffer.from(await file.arrayBuffer());
   try {
     const metadata = await sharp(source, { limitInputPixels: 40_000_000 }).metadata();

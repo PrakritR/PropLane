@@ -8,9 +8,12 @@ resident reads and signs. Plan: studio lane claude-3, `move-in-forms-1003`.
 
 - **Definitions** live on the property: `listingSubmission.moveInFormTemplates`
   (and `moveInFormSettings`), beside `propertyApplicationTemplates`. Read them
-  only through `src/lib/move-in-forms/templates.ts` (`readMoveInFormTemplates`
-  returns the five starters when the key was never written: the checklist sends on lease
-  signing, the other four are manual).
+  only through `src/lib/move-in-forms/templates.ts` (`readMoveInFormTemplates` returns exactly
+  the stored list: **nothing is added for the manager**, so a property that never added a form
+  has none). The eight templates (`MOVE_IN_FORM_STARTERS`: Intake form, Move-in form, Move-out
+  form, Move-in checklist, Key receipt, Vehicle and parking, Pet agreement, Emergency contacts)
+  are only offered under "Start from a template"; picking one makes an ordinary form with a
+  fresh `mif-` id, the template's questions and its own Sends.
 - **Instances** are rows of `public.resident_move_in_forms`
   (`supabase/migrations/20261003120000_resident_move_in_forms.sql`), one per
   (residency, form): `status` is `sent | submitted | cancelled`. A partial
@@ -81,6 +84,13 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   "quiet": they do not clear the list cache or fire `MOVE_IN_FORMS_CHANGED`. The photo cap is the
   shared `limits.ts` constant.
 - **Only the property owner uploads the original PDF** (403 for a co-manager, who can still build the form).
+- **Original PDFs are served inline: a deliberate exception.** Every other file answers as an attachment, but the
+  uploaded original is read in place (the resident reads, then signs, the real document), so `originalPdf` in the route
+  answers `inline`. The safeguards that make this acceptable: `Content-Security-Policy: sandbox` (no script, forms,
+  or same-origin access if the file is ever opened as a page), `X-Content-Type-Options: nosniff`, `Content-Type:
+  application/pdf` fixed (never taken from the upload), `Cache-Control: private, no-store`, a sanitized filename, and
+  an upload that must be a PDF within the 8 MB cap, read back and fingerprinted by the server. Do not add a second
+  inline response.
 - **Dispatch is best-effort and idempotent.** It never throws into a lease or
   application save, and running it twice sends nothing new.
 - **No on/off switch.** A form is a plain row, like an application template. Whether it
@@ -88,25 +98,67 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   is approved / only when I send it, edited in the form editor); any form can be sent by hand.
   Stored forms that carried `enabled: false` are read as `trigger: "manual"`, so nothing that
   was sending stops and nothing that was off starts. Duplicates and copies to another property
-  start as "only when I send it". A property that never saved its forms auto-sends nothing: the
-  server reads unsaved built-in defaults as "manual", and the first save stores untouched starters
-  as manual, so only a form the manager saved with a trigger messages residents.
+  start as "only when I send it". Dispatch uses the stored forms and nothing else, so a property
+  that never added a form sends nothing on its own.
 - **The editor is the application editor's frame** (`AddWorkspace`: Form, Questions, live
   resident view, red Delete on the left in edit) and its Questions step draws each question
   through `BuilderQuestionCard`, the same row the application editor uses.
 - The table is classified in `account-purge-manifest.ts`; clients hold no
   privileges on it (RLS on, no policies).
-- **Move-in hub.** The manager's `/portal/move-in` is one page with tabs Waiting (default) | Submitted | Inspections. Waiting and Submitted filter by Property and Form kind (Intake, Move-in, Move-out, Other; `summary.kind`, an unstamped copy reads as Other). Inspections mounts `InspectionsPanel` (`/portal/move-in/inspections/{move-in|move-out}[/{reportId}]`; Move-in / Move-out is its Type filter) and takes the page's tab row as its own. `/portal/inspections/...` redirects there; `docs/agents/inspections.md` owns the reports.
+- **Delete resident erases the forms too.** `resident_move_in_forms` is a target of
+  `purge-manager-resident.ts` (matched by login, email and application id, scoped on `manager_user_id`) and is in the
+  `purge_manager_resident_rows_v2` allowlist (`20261003220000_purge_v2_move_in_forms.sql`, rebuilt from the
+  `20261003150000` body, deposits still included). After the transaction commits, each deleted form's folder in
+  `move-in-form-files` is removed. Account deletion (`purge-portal-account-data.ts`) does the same for a resident's
+  copies and a manager's, and a manager's `lease-templates/<ownerId>/` walk takes the original PDFs under
+  `move-in-forms/`. The same migration forces the bucket private (`on conflict (id) do update`).
+- **The lease-signed seam never trusts the ids in the lease JSON.** A lease's `axisId` and
+  `jointLeaseMembers[].applicationId` are client-writable, so `dispatchMoveInFormsForSignedLease(lease, { managerUserId,
+  propertyId })` takes the manager and property from the lease ROW's own columns and skips any residency whose
+  `manager_user_id`, property owner or `property_id` differs. The daily move-out sweep applies the same pairing
+  (`options.expect`). No manager on the lease row means nothing is sent.
+- **Plan gate.** Move-in is a Pro and Business module. The page paywalls it (`subscriptionGated`), and so does the API:
+  `/api/move-in-forms` answers every manager call from a Free manager with 402 (`assertMoveInPlanForActor`, the same
+  `getManagerPortalNavSubscriptionTier` + `managerSectionAllowedForTier("move-in")` rule as the sidebar), and automatic
+  dispatch sends nothing for a Free owner. Residents are never gated: they answer a form already sent to them.
+  Inspections has no server-side tier gate of its own; this one does not copy it.
+- **Request size.** The route counts bytes as they stream in (`read-body.ts`), never trusting `content-length`: JSON
+  bodies stop at 800 KB, resident image uploads at 4.5 MB (Vercel's body cap), an original PDF at 11 MB. The browser
+  shrinks a photo over 4 MB to JPEG before upload (`fit-image.ts`) or refuses it with a plain message.
+- **A resident's API record has no `managerUserId`** (`toRecord` omits it for the resident viewer).
+- **The Intake notice needs a confirmed login.** The Intake form is created when an application is submitted, possibly
+  as a guest whose address is only typed. The in-portal form is always created, but the "form waiting" notice is sent
+  only when a login with a confirmed email owns that address, and goes to that login. Every other trigger follows a
+  manager's decision about a known resident and notifies as before.
+- **Move-in page (sidebar).** `/portal/move-in` has **one tab per form the manager has added**, not per kind.
+  The tabs come from the stored forms of every property in the active workspace
+  (`manager-forms.ts`: `storedMoveInFormNames`, same store the send popup reads) merged with the form names on the loaded copies
+  (`moveInFormTabGroups`), grouped by name (trimmed, collapsed spaces, case-insensitive), alphabetical, tab id = a slug of the name
+  (`inspections`, `waiting`, `submitted` are reserved and get a `-form` suffix). A form with no copies still has its tab
+  ("Nothing sent yet"), and a deleted or renamed form's existing copies keep a tab under the name they were sent with. Each tab lists
+  every resident's copy of that name, sent and submitted together (cancelled excluded), ordered late first, then waiting by due date, then
+  submitted newest first (`filterMoveInForms({ formName })` / `sortMoveInFormsForTab`); the tab count is its row count. Filter is Property and
+  Status (Waiting / Submitted). The bare `/portal/move-in`, and a slug that matches no form, show the first tab. With no form anywhere the
+  page is one empty state, "No move-in forms yet", with an Add form button that goes to Properties. **There is no Inspections tab**:
+  `/portal/inspections`, `/portal/move-in/inspections` and `/portal/move-in/inspections/{move-in|move-out}` redirect to `/portal/move-in`
+  (`next.config.ts`). A single report (`.../inspections/{move-in|move-out}/{reportId}`) keeps its page so the resident record's Inspections
+  tab still opens it; inspection data and `/api/inspections` are untouched. Resident side: the first My home tab is labelled "Move-in"
+  (route `/resident/move-in/forms`, unchanged) and holds every form sent to them.
+- **Resident record › Move-in** (every stage, potential included) lists **every form of that resident's property** (its stored list) merged with the
+  copies already sent (`residentMoveInFormRows`): one row per form, **Not sent** (row menu Send, which calls `sendMoveInForm` for that residency;
+  disabled until the application is approved, as the server requires an approved residency with a property and an email), **Sent** with its
+  due date (Remind / Preview form / Cancel request) or **Submitted** (Open / Download PDF / Send again). A waiting copy wins over an older submitted
+  one; a copy of a since-deleted form still shows under its stored name. A property with no forms shows "No move-in forms for this property"
+  with a button to its Forms.
 
-## Kinds, default forms, triggers and links (Move-in hub, plan `move-in-hub-1003`)
+## Kinds, templates, triggers and links (Move-in hub, plan `move-in-hub-1003`)
 
-- **Three default forms on every property**: `default-intake`, `default-move-in`, `default-move-out`
-  (`templates.ts`: `defaultMoveInForm`, `withDefaultMoveInForms`). `readMoveInFormTemplates` and the
-  listing normalizer always pin them first and re-add one a client dropped, so they cannot be deleted
-  (the row menu offers "Reset to default questions" instead, `resetMoveInFormToDefault`). A template's
-  `kind` (`intake | move-in | move-out | other`) is fixed by those ids; stored forms without a kind read
-  as `other`. The kind rides on the sent copy's `snapshot.kind` and is what the Waiting/Submitted
-  "Form" filter uses.
+- **Nothing is added automatically.** The Intake, Move-in and Move-out forms are templates (`starterKey` `intake-form`, `move-in-form`,
+  `move-out-form`, with `kind` `intake | move-in | move-out`), offered beside the five older ones under "Start from a template". A form the
+  manager adds is an ordinary form: editable and deletable (confirm dialog), with no pinned rows and no "Reset to default questions".
+  A property that already stored the old injected `default-intake` / `default-move-in` / `default-move-out` forms keeps them as ordinary
+  forms (the id still fixes their kind: `moveInFormDefaultKindOfId`, `defaultMoveInForm`). `kind` rides on the sent copy's `snapshot.kind`;
+  the manager's tabs follow the form's name, not its kind.
 - **Sends**: `application-submitted | application-approved | lease-signed | before-move-out | manual`.
   `before-move-out` + `moveOutDaysBefore` (7/14/30) is sent by the daily `sweepMoveOutForms` (8 o'clock
   Pacific hour of the `dispatch-reminders` tick) for fully signed, not voided leases ending within 30
@@ -118,8 +170,7 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   row's `leaseGenerationTemplateId || leaseTemplateId`, else the lease its application template maps to.
   Dispatch and "Send to current residents" skip a non-matching residency; an unknown id never matches a
   non-empty link list. A manual Send ignores links.
-- **Nothing auto-sends without the manager's save**: a never-saved property, and a default form a saved
-  list did not hold (restored as "Only when I send it"), send nothing on their own. The first save
-  stores the defaults with their shown Sends.
+- **Nothing auto-sends unless the manager added the form**: a property that never added one sends nothing on its own, and
+  a deleted form is gone (it is never restored).
 - **Resident access**: a resident who submitted an application and holds a sent form gets nav stage
   `application_submitted_forms` (`hasMoveInForms` on the access state): My home opens for Forms only.

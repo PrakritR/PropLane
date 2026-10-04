@@ -29,6 +29,28 @@ function literalEmail(email: string): string {
   return email.replace(/[\\%_]/g, "\\$&");
 }
 
+/** Private bucket behind `resident_move_in_forms`; photos and signatures sit under `<formId>/`. */
+const MOVE_IN_FORM_FILES_BUCKET = "move-in-form-files";
+
+/**
+ * Reclaim the photo and signature bytes of move-in form copies matching one column, before the
+ * rows (which are the only index to their ids) go. `match` picks the account's rows.
+ */
+async function purgeMoveInFormFiles(
+  db: ServiceDb,
+  column: "manager_user_id" | "resident_user_id" | "resident_email",
+  value: string,
+): Promise<void> {
+  if (!value) return;
+  const rows = await loadAccountCleanupRows<{ id: string }>((from, to) => {
+    const query = db.from("resident_move_in_forms").select("id").order("id").range(from, to);
+    return column === "resident_email" ? query.ilike(column, literalEmail(value)) : query.eq(column, value);
+  });
+  for (const row of rows) {
+    if (typeof row.id === "string" && row.id) await purgeAccountStorageFolder(db, MOVE_IN_FORM_FILES_BUCKET, row.id);
+  }
+}
+
 const SHARED_ACCOUNT_TABLES = new Set([
   "notification_preferences", "agent_user_preferences", "device_push_tokens",
   "phone_verifications", "sms_consent", "resident_housemate_sharing",
@@ -217,6 +239,10 @@ export async function purgeResidentPortalData(
   }
   for (const report of inspections.values()) await purgeAccountStorageFolder(db, "inspection-evidence", `${report.manager_user_id}/${report.id}`);
 
+  // Move-in form photos and signatures, while the rows that name their folders still exist.
+  await purgeMoveInFormFiles(db, "resident_user_id", userId);
+  await purgeMoveInFormFiles(db, "resident_email", email);
+
   // Keep the application rows (and therefore the paths) until bytes are gone.
   for (const id of photoReclaimIds) await purgeAccountStorageFolder(db, "application-documents", `application/${applicationPhotoFolderKey(id)}`);
   await purgeResidentScheduledMessages(db, email, userId, input.complete !== false);
@@ -279,9 +305,11 @@ export async function purgeManagerPortalData(db: ServiceDb, managerUserId: strin
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 
   await removeManagerDocumentObjects(db, managerUserId);
+  await purgeMoveInFormFiles(db, "manager_user_id", managerUserId);
   for (const id of managerApplicationIds) await purgeAccountStorageFolder(db, "application-documents", `application/${applicationPhotoFolderKey(id)}`);
   for (const [bucket, folder] of [
     ["manager-documents", `manager/${managerUserId}`], ["listing-photos", managerUserId],
+    // `<owner>/` is walked recursively, so it already holds `<owner>/move-in-forms/<formId>/` (original PDFs).
     ["lease-templates", managerUserId], ["inspection-evidence", managerUserId],
     ["sms-media", `manager/${managerUserId}`],
   ]) await purgeAccountStorageFolder(db, bucket, folder);

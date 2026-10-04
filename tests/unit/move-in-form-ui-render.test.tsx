@@ -2,9 +2,9 @@
 /**
  * Render-level proof for the move-in form UI: the shared question renderer draws every type, the
  * resident checklist and one-question-per-screen flow save and submit through the move-in forms
- * client (mocked here, since the API has its own tests), and the property Forms tab lists the three
- * pinned default forms (Intake, Move-in, Move-out) then the five starters as plain rows (no on/off
- * state), like the Applications list. The builder has three steps: Form, Questions, Who & when.
+ * client (mocked here, since the API has its own tests), and the property Forms tab lists exactly the
+ * forms the manager added as plain rows (no on/off state, every one deletable), like the Applications
+ * list; nothing is added for the manager, and the eight templates sit under "Start from a template". The builder has three steps: Form, Questions, Who & when.
  */
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,7 @@ import { MoveInFormQuestionField } from "@/components/move-in-forms/move-in-form
 import { MoveInFormLivePreview } from "@/components/portal/move-in-forms/move-in-form-live-preview";
 import { ResidentMoveInForms } from "@/components/portal/move-in-forms/resident-move-in-forms";
 import { PropertyMoveInFormsPanel } from "@/components/portal/move-in-forms/property-move-in-forms-panel";
+import { MoveInFormChooser } from "@/components/portal/move-in-forms/move-in-form-chooser";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { createPropertyApplicationTemplate } from "@/lib/property-application-templates";
 import { defaultMoveInForm, MOVE_IN_FORM_STARTERS, newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
@@ -291,8 +292,10 @@ describe("resident My home › Forms", () => {
 const getUser = () => import("@testing-library/user-event").then((m) => m.default);
 
 describe("property Move-in › Forms", () => {
-  const sub = createDefaultListingSubmission();
-  sub.rooms = [{ ...sub.rooms[0]!, id: "room-1", name: "Room 1" }];
+  const blank = createDefaultListingSubmission();
+  blank.rooms = [{ ...blank.rooms[0]!, id: "room-1", name: "Room 1" }];
+  // A property whose manager added all eight templates; nothing here is added behind their back.
+  const sub = { ...blank, moveInFormTemplates: [...MOVE_IN_FORM_STARTERS] } as typeof blank;
   const base = {
     saveTarget: { mode: "listing" as const, saveId: "p1" },
     managerUserId: "m1",
@@ -303,7 +306,6 @@ describe("property Move-in › Forms", () => {
     chooserOpen: false,
     onChooserOpenChange: vi.fn(),
   };
-  const DEFAULT_NAMES = ["Intake form", "Move-in form", "Move-out form"];
 
   const rowOf = (name: string): HTMLElement => {
     const row = screen.getAllByRole("listitem").find((item) => within(item).queryByText(name));
@@ -317,11 +319,11 @@ describe("property Move-in › Forms", () => {
     });
   }
 
-  it("lists the three default forms first, then the five starters, as plain rows: no Turned off, no greyed rows", () => {
+  it("lists the stored forms in order as plain rows: no Turned off, no greyed rows", () => {
     render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
     const rows = screen.getAllByRole("listitem");
     expect(rows).toHaveLength(8);
-    const expected = [...DEFAULT_NAMES, ...MOVE_IN_FORM_STARTERS.map((starter) => starter.name)];
+    const expected = MOVE_IN_FORM_STARTERS.map((starter) => starter.name);
     expected.forEach((name, index) => expect(within(rows[index]!).getByText(name)).toBeTruthy());
     expect(screen.queryByText("Turned off")).toBeNull();
     expect(screen.queryByText("0 sent")).toBeNull();
@@ -339,7 +341,7 @@ describe("property Move-in › Forms", () => {
   });
 
   it("a form linked to a property template names it in the Linked to fact", () => {
-    const linked = { ...MOVE_IN_FORM_STARTERS[1]!, linkedApplicationTemplateIds: ["tplA"], linkedLeaseTemplateIds: ["l1", "l2"] };
+    const linked = { ...MOVE_IN_FORM_STARTERS.find((t) => t.starterKey === "key-receipt")!, linkedApplicationTemplateIds: ["tplA"], linkedLeaseTemplateIds: ["l1", "l2"] };
     const withTemplates = {
       ...sub,
       moveInFormTemplates: [linked],
@@ -359,12 +361,35 @@ describe("property Move-in › Forms", () => {
     expect((await screen.findAllByText("1 of 3 residents")).length).toBeGreaterThan(0);
   });
 
-  it("an empty stored list still shows the three default forms, so there is no empty state", () => {
-    render(<PropertyMoveInFormsPanel {...base} sub={{ ...sub, moveInFormTemplates: [] }} />);
-    expect(screen.queryByText("No move-in forms for this property")).toBeNull();
-    const rows = screen.getAllByRole("listitem");
-    expect(rows).toHaveLength(3);
-    DEFAULT_NAMES.forEach((name, index) => expect(within(rows[index]!).getByText(name)).toBeTruthy());
+  it("a property that never added a form, and one with an empty stored list, show an empty Forms list", () => {
+    for (const empty of [blank, { ...blank, moveInFormTemplates: [] }]) {
+      cleanup();
+      render(<PropertyMoveInFormsPanel {...base} sub={empty as typeof blank} />);
+      expect(screen.getByText("No move-in forms for this property")).toBeTruthy();
+      expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+      expect(screen.getByRole("button", { name: "New form" })).toBeTruthy();
+    }
+  });
+
+  it("the chooser's templates are the eight forms, and picking one hands back its key", async () => {
+    const onPick = vi.fn();
+    render(<MoveInFormChooser open onClose={vi.fn()} copySources={[]} onPick={onPick} />);
+    fireEvent.click(await screen.findByText("Start from a template"));
+    const names = ["Intake form", "Move-in form", "Move-out form", "Move-in checklist", "Key receipt", "Vehicle and parking", "Pet agreement", "Emergency contacts"];
+    for (const name of names) expect(await screen.findByText(name)).toBeTruthy();
+    fireEvent.click(screen.getByText("Intake form"));
+    expect(onPick).toHaveBeenCalledWith({ kind: "starter", starterKey: "intake-form" });
+  });
+
+  it("adding the Intake form from a template saves exactly that one form, with its questions and Sends", async () => {
+    const user = await getUser();
+    const { onChooserOpenChange } = base;
+    render(<PropertyMoveInFormsPanel {...base} sub={blank} chooserOpen onChooserOpenChange={onChooserOpenChange} />);
+    fireEvent.click(await screen.findByText("Start from a template"));
+    await act(async () => {
+      await user.click(await screen.findByText("Intake form"));
+    });
+    expect((await screen.findAllByText("Legal name")).length).toBeGreaterThan(0);
   });
 
   it("the chooser offers build, upload and template, and a template opens the builder", async () => {
@@ -382,18 +407,17 @@ describe("property Move-in › Forms", () => {
     expect(screen.queryByRole("menuitem", { name: "Reset to default questions" })).toBeNull();
   });
 
-  it("a default form's row menu has no Delete, and offers Reset to default questions instead", async () => {
-    render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
-    for (const name of DEFAULT_NAMES) {
+  it("every form's row menu offers Delete, the Intake, Move-in and Move-out forms included, and no reset", async () => {
+    for (const name of ["Intake form", "Move-in form", "Move-out form"]) {
       cleanup();
       render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
       await openMenu(name);
-      for (const item of ["Edit", "Duplicate", "Reset to default questions"]) expect(await screen.findByRole("menuitem", { name: item })).toBeTruthy();
-      expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+      for (const item of ["Edit", "Duplicate", "Delete"]) expect(await screen.findByRole("menuitem", { name: item })).toBeTruthy();
+      expect(screen.queryByRole("menuitem", { name: "Reset to default questions" })).toBeNull();
     }
   });
 
-  it("saves the whole list (defaults, starters) plus the copy on the first save, the copy sent only by hand", async () => {
+  it("saves the stored list plus the copy; the copy is sent only by hand and the others keep their Sends", async () => {
     const user = await getUser();
     render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
     await openMenu("Move-in checklist");
@@ -403,12 +427,9 @@ describe("property Move-in › Forms", () => {
     await waitFor(() => expect(persist).toHaveBeenCalled());
     const saved = persist.mock.calls[0]![2] as { moveInFormTemplates: Array<{ id: string; name: string; trigger: string; kind: string; enabled?: boolean }> };
     expect(saved.moveInFormTemplates).toHaveLength(9);
-    expect(saved.moveInFormTemplates.slice(0, 3).map((t) => t.id)).toEqual(["default-intake", "default-move-in", "default-move-out"]);
-    // The default forms keep their own Sends; every untouched starter (and the copy) is stored by-hand, so
-    // saving one form never arms another to message residents.
     expect(saved.moveInFormTemplates.map((t) => t.trigger)).toEqual([
       "application-submitted", "lease-signed", "before-move-out",
-      "manual", "manual", "manual", "manual", "manual", "manual",
+      "lease-signed", "manual", "manual", "manual", "manual", "manual",
     ]);
     expect(saved.moveInFormTemplates[4]!.name).toBe("Move-in checklist (copy)");
     expect(saved.moveInFormTemplates[4]!.kind).toBe("other");
@@ -431,7 +452,23 @@ describe("property Move-in › Forms", () => {
     const saved = persist.mock.calls[0]![2] as { moveInFormTemplates: Array<{ id: string }> };
     expect(saved.moveInFormTemplates).toHaveLength(7);
     expect(saved.moveInFormTemplates.some((t) => t.id === "starter-vehicle-parking")).toBe(false);
-    expect(saved.moveInFormTemplates.slice(0, 3).map((t) => t.id)).toEqual(["default-intake", "default-move-in", "default-move-out"]);
+    ask.mockRestore();
+  });
+
+  it("deleting the Intake form drops it from the stored list, and it is not added back", async () => {
+    const user = await getUser();
+    const ask = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<PropertyMoveInFormsPanel {...base} sub={sub} />);
+    await openMenu("Intake form");
+    const deleteItem = await screen.findByRole("menuitem", { name: "Delete" });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await user.click(deleteItem);
+    });
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    const saved = persist.mock.calls[0]![2] as { moveInFormTemplates: Array<{ id: string; name: string }> };
+    expect(saved.moveInFormTemplates.map((t) => t.name)).not.toContain("Intake form");
+    expect(saved.moveInFormTemplates).toHaveLength(7);
     ask.mockRestore();
   });
 
@@ -450,40 +487,7 @@ describe("property Move-in › Forms", () => {
     expect(persist).not.toHaveBeenCalled();
     ask.mockRestore();
   });
-
-  it("Reset to default questions restores the shipped questions and keeps the form's audience and links", async () => {
-    const user = await getUser();
-    const ask = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const edited = {
-      ...defaultMoveInForm("intake"),
-      questions: [q("mine", { label: "My own question" })],
-      trigger: "manual" as const,
-      audience: { kind: "whole-house" as const },
-      linkedApplicationTemplateIds: ["tplA"],
-    };
-    render(<PropertyMoveInFormsPanel {...base} sub={{ ...sub, moveInFormTemplates: [edited] }} />);
-    await openMenu("Intake form");
-    await act(async () => {
-      await user.click(await screen.findByRole("menuitem", { name: "Reset to default questions" }));
-    });
-    await waitFor(() => expect(persist).toHaveBeenCalled());
-    const saved = persist.mock.calls[0]![2] as { moveInFormTemplates: MoveInFormTemplateLike[] };
-    const intake = saved.moveInFormTemplates.find((t) => t.id === "default-intake")!;
-    expect(intake.questions.map((item) => item.label)).toEqual(defaultMoveInForm("intake").questions.map((item) => item.label));
-    expect(intake.trigger).toBe("application-submitted");
-    expect(intake.audience).toEqual({ kind: "whole-house" });
-    expect(intake.linkedApplicationTemplateIds).toEqual(["tplA"]);
-    ask.mockRestore();
-  });
 });
-
-type MoveInFormTemplateLike = {
-  id: string;
-  trigger: string;
-  audience: unknown;
-  linkedApplicationTemplateIds: string[];
-  questions: Array<{ label: string }>;
-};
 
 describe("builder popup", () => {
   const rooms = [{ id: "room-1", label: "Room 1" }, { id: "room-2", label: "Room 2" }];
@@ -639,22 +643,19 @@ describe("builder popup", () => {
     expect(attr("move-in-form-delete")).toBeNull();
   });
 
-  it("a default form has no Delete even when one is offered; it offers Reset to default questions instead", async () => {
+  it("a form stored under one of the old Intake / Move-in / Move-out ids is an ordinary form: Delete, no reset", async () => {
     const onDelete = vi.fn().mockResolvedValue(true);
     await openBuilder(defaultMoveInForm("move-in"), "edit", 0, onDelete);
-    expect(attr("move-in-form-delete")).toBeNull();
-    expect(screen.getByRole("button", { name: "Reset to default questions" })).toBeTruthy();
+    expect(attr("move-in-form-delete")).toBeTruthy();
+    expect(attr("move-in-form-reset-default")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset to default questions" })).toBeNull();
   });
 
-  it("Reset to default questions in the editor restores the shipped questions", async () => {
-    const ask = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const shipped = defaultMoveInForm("intake");
-    await openBuilder({ ...shipped, questions: [q("mine", { label: "My own question" })] }, "edit", 1);
-    expect(screen.getAllByText("My own question").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "Reset to default questions" }));
-    expect((await screen.findAllByText(shipped.questions[0]!.label)).length).toBeGreaterThan(0);
-    expect(screen.queryByText("My own question")).toBeNull();
-    ask.mockRestore();
+  it("changing 'Start from' to the Intake form template loads its questions, kind and Sends", async () => {
+    await openBuilder(newMoveInFormTemplate("built", "intake-form"), "add", 0);
+    expect(attr("move-in-form-reset-default")).toBeNull();
+    const intake = MOVE_IN_FORM_STARTERS.find((t) => t.starterKey === "intake-form")!;
+    expect(newMoveInFormTemplate("built", "intake-form")).toMatchObject({ name: "Intake form", kind: "intake", trigger: intake.trigger });
   });
 
   it("draws questions with the application editor's question rows and adds, edits and removes one", async () => {
