@@ -468,9 +468,15 @@ describe("unread results do not cascade", () => {
       // Simulate the persisted-read notification emitted when the opened thread is read.
       EMAIL_INBOX.unread = false;
       fireEvent(window, new Event("portal-inbox-changed"));
-      await waitFor(() => expect(screen.queryByText("Dana Ramirez")).toBeNull());
-      expect(screen.getByText("Second Unread")).toBeTruthy();
-      expect(screen.getByTestId("embedded-email-thread").getAttribute("data-thread-id")).toBe(EMAIL_INBOX.id);
+      // One settled state, not three samples: the read row has left Unread, the other unread
+      // row is untouched, and the pane opened by the click is still the one on screen. Waiting
+      // on the row's disappearance alone returns on the first paint that satisfies it, so a
+      // loaded runner could read the pane while the list was still settling.
+      await waitFor(() => {
+        expect(screen.queryByText("Dana Ramirez")).toBeNull();
+        expect(screen.getByText("Second Unread")).toBeTruthy();
+        expect(screen.getByTestId("embedded-email-thread").getAttribute("data-thread-id")).toBe(EMAIL_INBOX.id);
+      });
       expect(second.unread).toBe(true);
       fireEvent.click(screen.getByRole("button", { name: "Back" }));
       await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());

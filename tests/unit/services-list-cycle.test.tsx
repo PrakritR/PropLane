@@ -72,8 +72,11 @@ describe("the stage fact on a row", () => {
   it("Assigned: <assignee> · no time yet", () => {
     expect(workOrderStageFact(wo({ vendorId: "d1", vendorName: "Rapid Pipes" }), { bids: [], offers: [] })).toBe("Rapid Pipes · no time yet");
   });
-  it("Scheduled: Wed, Oct 8 · 9am · <assignee>", () => {
-    const iso = new Date(2026, 9, 8, 9, 0).toISOString();
+  it("Scheduled: Thu, Oct 8 · 9am · <assignee>", () => {
+    // The fact is stamped in Pacific (`service-time-labels.ts`), so the instant has to be a
+    // fixed UTC one — 9am PDT — not `new Date(2026, 9, 8, 9, 0)`, which is 9am in whatever zone
+    // the runner happens to be in and prints "2am" on a UTC machine like CI.
+    const iso = "2026-10-08T16:00:00.000Z";
     expect(workOrderStageFact(wo({ bucket: "scheduled", scheduledAtIso: iso, vendorId: "d1", vendorName: "Rapid Pipes" }), { bids: [], offers: [] })).toBe("Thu, Oct 8 · 9am · Rapid Pipes");
   });
   it("Completed: To pay / Paid / <assignee>", () => {

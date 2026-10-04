@@ -47,13 +47,26 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Split `"Acme <hi@acme.com>"` → { name: "Acme", email: "hi@acme.com" }. */
+/**
+ * Split `"Acme <hi@acme.com>"` → { name: "Acme", email: "hi@acme.com" }.
+ *
+ * Index scan, not `/^\s*(.*?)\s*<([^>]+)>\s*$/`: that pattern's `\s*(.*?)\s*` is ambiguous,
+ * so a `From` header an outside sender controls — a long run of tabs with no closing `>` —
+ * backtracks quadratically (CodeQL js/polynomial-redos). Angled form means the value ends
+ * in `>` and the address is what follows the last `<`, which is exactly what the regex
+ * resolved to after backtracking.
+ */
 export function parseEmailAddress(raw: string): { name: string; email: string } {
   const value = raw.trim();
-  const angled = value.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
-  if (angled) {
-    const name = angled[1]!.replace(/^["']|["']$/g, "").trim();
-    return { name, email: angled[2]!.trim().toLowerCase() };
+  const open = value.lastIndexOf("<");
+  if (open >= 0 && value.endsWith(">")) {
+    const address = value.slice(open + 1, -1);
+    if (address.length > 0 && !address.includes(">")) {
+      return {
+        name: value.slice(0, open).trim().replace(/^["']|["']$/g, "").trim(),
+        email: address.trim().toLowerCase(),
+      };
+    }
   }
   return { name: "", email: value.toLowerCase() };
 }
@@ -101,11 +114,52 @@ export function parseInboundEmailWebhook(payload: unknown): ParsedInboundEmail |
   };
 }
 
+/**
+ * Drop every `<!-- … -->` comment, including one only revealed by removing an earlier
+ * comment that spliced `<!--` back together.
+ *
+ * Index scan, not `/<!--[\s\S]*?-->/g`: a single `replace` pass can leave a `<!--` behind
+ * (CodeQL js/incomplete-multi-character-sanitization) and that lazy pattern backtracks
+ * quadratically on mail full of unterminated `<!--` (js/polynomial-redos).
+ */
+function stripHtmlComments(html: string): string {
+  let out = html;
+  for (;;) {
+    const open = out.indexOf("<!--");
+    if (open < 0) return out;
+    const close = out.indexOf("-->", open + 4);
+    // An unterminated comment runs to the end of the document, as a parser would treat it.
+    if (close < 0) return out.slice(0, open);
+    out = `${out.slice(0, open)}${out.slice(close + 3)}`;
+  }
+}
+
+const SCRIPT_OR_STYLE_OPEN = /<(script|style)\b/i;
+const SCRIPT_CLOSE = /<\/script[^>]*>/i;
+const STYLE_CLOSE = /<\/style[^>]*>/i;
+
+/**
+ * Drop every `<script>` / `<style>` element with its contents. Looped for the same reason
+ * as the comments above: one pass of `/<(script|style)[\s\S]*?<\/\1>/gi` can leave a
+ * `<script` in the output, and its lazy body backtracks on untrusted mail.
+ */
+function stripScriptAndStyleElements(html: string): string {
+  let out = html;
+  for (;;) {
+    const open = SCRIPT_OR_STYLE_OPEN.exec(out);
+    if (!open) return out;
+    const rest = out.slice(open.index + open[0].length);
+    const close = (open[1]!.toLowerCase() === "script" ? SCRIPT_CLOSE : STYLE_CLOSE).exec(rest);
+    // No closing tag: the element runs to the end, so nothing after it survives either.
+    out = close
+      ? `${out.slice(0, open.index)}${rest.slice(close.index + close[0].length)}`
+      : out.slice(0, open.index);
+  }
+}
+
 /** Minimal, dependency-free HTML → text: drop scripts/styles, keep line breaks. */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
+  return stripScriptAndStyleElements(stripHtmlComments(html))
     .replace(/<\s*br\s*\/?>/gi, "\n")
     .replace(/<\s*\/\s*(p|div|tr|li|h[1-6])\s*>/gi, "\n")
     .replace(/<[^>]+>/g, "")
