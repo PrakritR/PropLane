@@ -33,23 +33,17 @@ import {
   type ManagerBundleRow,
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
-  type ManagerRoomTermPrice,
 } from "@/lib/manager-listing-submission";
 import {
   LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
-import { listingPricingLeaseTabs, listingPricingTabToLeaseTerm, termEntryHasOwnPrice } from "@/lib/listing-fee-scope";
+import { listingPricingLeaseTabs, listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import {
   feeVisibilityForTerms,
   roomFeeTermScope,
   roomPricingFeeVisibility,
 } from "@/lib/room-term-fees";
-import {
-  termPriceFieldText,
-  writeRoomTermPrice,
-  writeTermPriceEntry,
-} from "@/lib/listing-house-defaults";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import {
@@ -161,72 +155,6 @@ function displayFeeRow(
   };
 }
 
-function roomHasOwnTermPricing(room: ManagerRoomSubmission, term: string): boolean {
-  return termEntryHasOwnPrice(room.termPricing?.[term]);
-}
-
-function clearRoomTermPricing(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
-  if (!room.termPricing?.[term]) return room;
-  const next = { ...room.termPricing };
-  delete next[term];
-  return { ...room, termPricing: Object.keys(next).length > 0 ? next : undefined };
-}
-
-function seedRoomTermFromLongTerm(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
-  const seed = {
-    monthlyRent: room.monthlyRent > 0 ? room.monthlyRent : undefined,
-    securityDeposit: room.securityDeposit,
-    utilitiesEstimate: room.utilitiesEstimate,
-    pricingMode: room.pricingMode,
-  };
-  const cleaned = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined && v !== ""));
-  return {
-    ...room,
-    termPricing: {
-      ...(room.termPricing ?? {}),
-      [term]: cleaned,
-    },
-  };
-}
-
-function bundleHasOwnTermPricing(bundle: ManagerBundleRow, term: string): boolean {
-  const entry = bundle.termPricing?.[term];
-  return Boolean(entry && Object.keys(entry).length > 0);
-}
-
-function clearBundleTermPricing(bundle: ManagerBundleRow, term: string): ManagerBundleRow {
-  if (!bundle.termPricing?.[term]) return bundle;
-  const next = { ...bundle.termPricing };
-  delete next[term];
-  return { ...bundle, termPricing: Object.keys(next).length > 0 ? next : undefined };
-}
-
-function seedBundleTermFromLongTerm(bundle: ManagerBundleRow, term: string): ManagerBundleRow {
-  const rent = parseMoneyAmount(bundle.price ?? "");
-  const seed: ManagerRoomTermPrice = {
-    monthlyRent: rent > 0 ? rent : undefined,
-    securityDeposit: bundle.securityDeposit,
-    utilitiesEstimate: bundle.utilitiesEstimate,
-  };
-  const cleaned = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined && v !== ""));
-  return {
-    ...bundle,
-    termPricing: {
-      ...(bundle.termPricing ?? {}),
-      [term]: cleaned,
-    },
-  };
-}
-
-function writeBundleTermPrice(
-  bundle: ManagerBundleRow,
-  term: string,
-  field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit",
-  value: string,
-): ManagerBundleRow {
-  return { ...bundle, termPricing: writeTermPriceEntry(bundle.termPricing, term, field, value) };
-}
-
 function subjectTitle(subject: PropertyPricingSubject, sub: ManagerListingSubmissionV1): string {
   if (subject.kind === "room") {
     const room = sub.rooms.find((r) => r.id === subject.roomId);
@@ -271,13 +199,6 @@ export function PropertyRoomPricingWorkspace({
   const dirty = useMemo(() => JSON.stringify(draft) !== baseline, [draft, baseline]);
 
   const leaseTerms = useMemo(() => resolveAllowedLeaseTerms(draft), [draft]);
-  const extraLeaseTerms = useMemo(
-    () =>
-      leaseTerms.filter(
-        (t) => t !== LONG_TERM_LEASE_TERM && t !== SHORT_TERM_LEASE_TERM && t !== "Airbnb",
-      ),
-    [leaseTerms],
-  );
   /*
    * Month-to-month surcharge, Custom start surcharge and Partial months follow what is
    * OFFERED: the room's own Leases offered when it restricts them, else the listing's.
@@ -308,9 +229,6 @@ export function PropertyRoomPricingWorkspace({
     out.push({ id: LONG_TERM_LEASE_TERM, label: "Long-term", summary: "" });
     if (leaseTerms.includes(SHORT_TERM_LEASE_TERM) || draft.shortTermRentalsAllowed) {
       out.push({ id: SHORT_TERM_LEASE_TERM, label: "Short term", summary: "" });
-    }
-    for (const term of extraLeaseTerms) {
-      out.push({ id: term, label: term, summary: "" });
     }
     return out.map((s) => {
       if (s.id === "bundle") return s;
@@ -343,14 +261,9 @@ export function PropertyRoomPricingWorkspace({
         const nightly = room.shortTermRent?.trim();
         return { ...s, summary: nightly ? `$${nightly.replace(/^\$/, "")}/night` : "—" };
       }
-      const term = listingPricingTabToLeaseTerm(s.id) ?? s.id;
-      if (!roomHasOwnTermPricing(room, term)) {
-        return { ...s, summary: "Same as long-term" };
-      }
-      const rent = room.termPricing?.[term]?.monthlyRent;
-      return { ...s, summary: rent && rent > 0 ? `$${rent.toLocaleString("en-US")}/mo` : "—" };
+      return s;
     });
-  }, [draft, extraLeaseTerms, leaseTerms, subject]);
+  }, [draft, leaseTerms, subject]);
 
   const activeStepId = steps[step]?.id ?? LONG_TERM_LEASE_TERM;
   const activeTerm =
@@ -401,7 +314,6 @@ export function PropertyRoomPricingWorkspace({
           const copyValue = draft.roomPricingMeta?.[room.id]?.copyFromRoomIdByTerm?.[activeTerm] ?? "";
           const isStay = isStayLeaseTerm(quoteTerm);
           const isBaseLong = quoteTerm === LONG_TERM_LEASE_TERM;
-          const isCustomMonthlyTerm = !isBaseLong && !isStay;
           const priceSource = roomPricingSourceLabel(draft.roomPricingMeta?.[room.id]);
           const stepTitle =
             activeStepId === SHORT_TERM_LEASE_TERM
@@ -499,92 +411,6 @@ export function PropertyRoomPricingWorkspace({
                     showMonthToMonthSurcharge={allowM2m && isBaseLong}
                     showCustomStartSurcharge={allowCustomStart && isBaseLong}
                   />
-                ) : isCustomMonthlyTerm ? (
-                  <>
-                    <ToggleRow
-                      label="Same as long-term"
-                      checked={!roomHasOwnTermPricing(room, quoteTerm)}
-                      onChange={(same) => {
-                        if (same) updateRoom(room.id, clearRoomTermPricing(room, quoteTerm));
-                        else updateRoom(room.id, seedRoomTermFromLongTerm(room, quoteTerm));
-                      }}
-                      dataAttr="property-room-pricing-same-as-long-term"
-                    />
-                    {roomHasOwnTermPricing(room, quoteTerm) ? (
-                      <>
-                        <FactRow label="Rent /mo">
-                          <MoneyInput
-                            label="Rent"
-                            value={
-                              termPriceFieldText(room.termPricing?.[quoteTerm], "monthlyRent") ||
-                              (room.monthlyRent > 0 ? String(room.monthlyRent) : "")
-                            }
-                            onChange={(v) =>
-                              updateRoom(
-                                room.id,
-                                writeRoomTermPrice(room, quoteTerm, "monthlyRent", v),
-                              )
-                            }
-                          />
-                        </FactRow>
-                        <FactRow label="Utilities /mo">
-                          <MoneyInput
-                            label="Utilities"
-                            value={
-                              termPriceFieldText(room.termPricing?.[quoteTerm], "utilitiesEstimate") ||
-                              room.utilitiesEstimate ||
-                              ""
-                            }
-                            onChange={(v) =>
-                              updateRoom(
-                                room.id,
-                                writeRoomTermPrice(room, quoteTerm, "utilitiesEstimate", v),
-                              )
-                            }
-                          />
-                        </FactRow>
-                        <FactRow label="Deposit">
-                          <MoneyInput
-                            label="Deposit"
-                            value={
-                              termPriceFieldText(room.termPricing?.[quoteTerm], "securityDeposit") ||
-                              room.securityDeposit ||
-                              ""
-                            }
-                            onChange={(v) =>
-                              updateRoom(
-                                room.id,
-                                writeRoomTermPrice(room, quoteTerm, "securityDeposit", v),
-                              )
-                            }
-                          />
-                        </FactRow>
-                        <FeeRows
-                          sub={draft}
-                          patch={patch}
-                          roomId={room.id}
-                          roomName={room.name?.trim() || "Room"}
-                          term={quoteTerm}
-                        />
-                        <ArrangementStandardFeeRows
-                          count={1}
-                          row={feeRowForStep(room, quoteTerm, false)}
-                          onPatch={(feePatch) =>
-                            updateRoom(room.id, patchStandardFeesForTerm(room, quoteTerm, false, feePatch))
-                          }
-                          showMonthToMonth={allowM2m}
-                          showCustomStart={allowCustomStart}
-                          scope={feeScope}
-                          storage="term"
-                          inheritedRow={inheritedFeesForTerm(room, false)}
-                        />
-                      </>
-                    ) : (
-                      <p className="text-[13px] font-semibold text-muted">
-                        Uses this room&apos;s long-term rent, utilities, deposit, and fees.
-                      </p>
-                    )}
-                  </>
                 ) : (
                   <>
                     <FactRow label="Rent /mo">
@@ -880,8 +706,6 @@ export function PropertyRoomPricingWorkspace({
           const copyValue = bundle.copyFromBundleIdByTerm?.[activeTerm] ?? "";
           const isStay = activeStepId === SHORT_TERM_LEASE_TERM;
           const isBaseLong = activeStepId === LONG_TERM_LEASE_TERM;
-          const isCustomMonthlyTerm = !isBaseLong && !isStay;
-          const customTerm = listingPricingTabToLeaseTerm(activeStepId) ?? activeStepId;
           const bundleLabel = bundle.label?.trim() || "Bundle";
           const bundleFeeScopeId = bundle.id;
           const stepTitle =
@@ -947,71 +771,6 @@ export function PropertyRoomPricingWorkspace({
                       roomName={bundleLabel}
                       term={quoteTerm}
                     />
-                  </>
-                ) : isCustomMonthlyTerm ? (
-                  <>
-                    <ToggleRow
-                      label="Same as long-term"
-                      checked={!bundleHasOwnTermPricing(bundle, customTerm)}
-                      onChange={(same) => {
-                        if (same) patchBundle(clearBundleTermPricing(bundle, customTerm));
-                        else patchBundle(seedBundleTermFromLongTerm(bundle, customTerm));
-                      }}
-                      dataAttr="property-bundle-pricing-same-as-long-term"
-                    />
-                    {bundleHasOwnTermPricing(bundle, customTerm) ? (
-                      <>
-                        <FactRow label="Rent /mo">
-                          <MoneyInput
-                            label="Bundle rent"
-                            value={
-                              termPriceFieldText(bundle.termPricing?.[customTerm], "monthlyRent") ||
-                              (bundleRentMonthly > 0 ? String(bundleRentMonthly) : "")
-                            }
-                            onChange={(v) =>
-                              patchBundle(writeBundleTermPrice(bundle, customTerm, "monthlyRent", v))
-                            }
-                          />
-                        </FactRow>
-                        <FactRow label="Utilities /mo">
-                          <MoneyInput
-                            label="Bundle utilities"
-                            value={
-                              termPriceFieldText(bundle.termPricing?.[customTerm], "utilitiesEstimate") ||
-                              bundle.utilitiesEstimate ||
-                              ""
-                            }
-                            onChange={(v) =>
-                              patchBundle(writeBundleTermPrice(bundle, customTerm, "utilitiesEstimate", v))
-                            }
-                          />
-                        </FactRow>
-                        <FactRow label="Deposit">
-                          <MoneyInput
-                            label="Bundle deposit"
-                            value={
-                              termPriceFieldText(bundle.termPricing?.[customTerm], "securityDeposit") ||
-                              bundle.securityDeposit ||
-                              ""
-                            }
-                            onChange={(v) =>
-                              patchBundle(writeBundleTermPrice(bundle, customTerm, "securityDeposit", v))
-                            }
-                          />
-                        </FactRow>
-                        <FeeRows
-                          sub={draft}
-                          patch={patch}
-                          roomId={bundleFeeScopeId}
-                          roomName={bundleLabel}
-                          term={quoteTerm}
-                        />
-                      </>
-                    ) : (
-                      <p className="text-[13px] font-semibold text-muted">
-                        Uses this bundle&apos;s long-term rent, utilities, and deposit.
-                      </p>
-                    )}
                   </>
                 ) : (
                   <>

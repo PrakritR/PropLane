@@ -35,7 +35,7 @@ import { PropertyLeaseClausePaperEditor } from "@/components/portal/property-lea
 import { PropertyLeaseDocumentNotice, propertyLeaseNeedsAssistantReview } from "@/components/portal/property-lease-document-notice";
 import { buildLeaseModalAssistantContext } from "@/lib/lease-assistant-context";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
-import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   scopeLeaseDocumentHtmlForInlinePreview,
   stripDisclosureReviewFromLeaseHtml,
@@ -57,7 +57,6 @@ import {
 import {
   applyPropertyLeaseDocumentMode,
   documentModeFromLease,
-  draftFieldsFromLeaseSource,
   leaseSourceFromDraft,
   PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS,
   type PropertyLeaseDocumentMode,
@@ -68,15 +67,18 @@ import { summarizeImportIssues } from "@/lib/pdf-import/import-issue-summary";
 import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
 import { extractLeaseSectionsFromHtml } from "@/lib/import-staging/lease-html-sections";
 import { useConfirm } from "@/components/providers/app-ui-provider";
-import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { track } from "@/lib/analytics/track-client";
-import { PropertyFormUsedForMapping } from "@/components/portal/property-form-used-for-mapping";
 import { PropertyFormFeeForCurrentForm } from "@/components/portal/property-form-resolved-fee";
-import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import {
+  allowedTermsAfterLeaseOptions,
   deriveLeaseKindFromStayTerms,
+  LEASE_OPTION_TERM,
+  leaseOptionFlags,
+  leaseTermsAllowOptions,
   offeredStayTypeTerms,
+  setLeaseOptionOnTemplates,
   stayTypeLabelForLeaseKindDisplay,
+  type LeaseOptionKey,
 } from "@/lib/property-form-stay-type-routing";
 
 async function sha256Text(value: string): Promise<string> {
@@ -89,8 +91,6 @@ async function sha256Text(value: string): Promise<string> {
 const LEASE_ADD_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "long-term", label: "Long-term" },
   { value: "short-term", label: "Short term" },
-  { value: "month-to-month", label: "Month-to-month" },
-  { value: "custom-start", label: "Custom start" },
 ];
 
 /** Steps are Name, Document, Preview; the import review box is on Document. */
@@ -104,6 +104,32 @@ const DOCUMENT_STEP_INDEX = 1;
  */
 /** Select value standing for "no link" (a select option cannot carry null). */
 const NO_LINK = "__none__";
+
+/** One option of a long-term lease: a checkbox and its label, nothing under it. */
+function LeaseOptionCheckbox({
+  label,
+  checked,
+  dataAttr,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  dataAttr: string;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-[52px] cursor-pointer items-center gap-3 border-b border-border/80 py-2.5 last:border-b-0">
+      <input
+        type="checkbox"
+        className="h-4 w-4 rounded border-border text-primary"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        data-attr={dataAttr}
+      />
+      <span className={WIZARD_LABEL_CLASS}>{label}</span>
+    </label>
+  );
+}
 
 export const LEASE_PREVIEW_DOCUMENT_SCOPE = "lease-document-preview-scope";
 
@@ -161,10 +187,13 @@ export function PropertyLeaseFormModal({
   demoMode?: boolean;
   canDelete?: boolean;
   onClose: () => void;
-  /** `extra.applications`: the property's applications after this save — the Used-for mapping's edits. */
+  /**
+   * `extra.applications`: the property's applications after this save. `extra.allowedLeaseTerms`:
+   * the listing's allowed terms after "Allow custom dates" / "Allow month-to-month" changed.
+   */
   onSave: (
     nextTemplates: PropertyLeaseTemplate[],
-    extra?: { applications?: PropertyApplicationTemplate[] },
+    extra?: { applications?: PropertyApplicationTemplate[]; allowedLeaseTerms?: string[] },
   ) => boolean | Promise<boolean>;
   onDelete?: () => void;
   /** Reload listing submission after assistant confirms a lease edit. */
@@ -231,7 +260,6 @@ export function PropertyLeaseFormModal({
   const [leaseAddType, setLeaseAddType] = useState("long-term");
   const [routingLeaseTemplates, setRoutingLeaseTemplates] = useState<PropertyLeaseTemplate[]>([]);
   const [routingApplicationTemplates, setRoutingApplicationTemplates] = useState<PropertyApplicationTemplate[]>([]);
-  const formSetup = usePropertyFormSetupSettings(propertyId);
   const replaceLeaseFileRef = useRef<HTMLInputElement>(null);
 
   // F013: inline duplicate-name validation — another lease already saved on
@@ -401,24 +429,34 @@ export function PropertyLeaseFormModal({
     setDraft((d) => ({ ...d, ...applied.draftFields }));
   };
 
+  const initialOptionFlags = useMemo(
+    () => leaseOptionFlags(template?.applicationLeaseTerms ?? []),
+    [template],
+  );
+  const optionFlags = leaseOptionFlags(applicationLeaseTerms);
+  const showLeaseOptions =
+    mode === "edit"
+      ? template?.kind !== "short-term" && leaseTermsAllowOptions(applicationLeaseTerms)
+      : leaseAddType !== "short-term";
+  const toggleLeaseOption = (option: LeaseOptionKey, on: boolean) => {
+    setError(null);
+    if (mode === "edit" && template?.id) {
+      // The terms the lease routes (applicationLeaseTerms) are the stored form of the checkbox.
+      setRoutingLeaseTemplates((current) => setLeaseOptionOnTemplates(current, template.id, option, on));
+      return;
+    }
+    const term = LEASE_OPTION_TERM[option];
+    setApplicationLeaseTerms((current) =>
+      on ? (current.includes(term) ? current : [...current, term]) : current.filter((t) => t !== term),
+    );
+  };
+
   const applyLeaseAddType = useCallback(
     (nextType: string) => {
       setLeaseAddType(nextType);
       if (nextType === "short-term") {
         handleDocumentModeChange("proplane_short_term");
-        return;
-      }
-      if (nextType === "month-to-month") {
-        handleDocumentModeChange("proplane_long_term");
-        setApplicationLeaseTerms(["Month-to-Month"]);
-        return;
-      }
-      if (nextType === "custom-start") {
-        setError(null);
-        setDocumentMode("proplane_long_term");
-        setKind("long-term");
-        setApplicationLeaseTerms([CUSTOM_LEASE_TERM]);
-        setDraft((d) => ({ ...d, ...draftFieldsFromLeaseSource("custom_builder") }));
+        setApplicationLeaseTerms([]);
         return;
       }
       handleDocumentModeChange("proplane_long_term");
@@ -435,7 +473,8 @@ export function PropertyLeaseFormModal({
     const srcKind = normalizeLeaseTemplateKind(src.kind);
     setLabel(`${src.label.trim()} copy`);
     setKind(srcKind);
-    setApplicationLeaseTerms([...(src.applicationLeaseTerms ?? [])]);
+    // A copy never inherits "Allow custom dates" / "Allow month-to-month": a term routes to one lease.
+    setApplicationLeaseTerms([]);
     setLinkedApplicationTemplateId(src.linkedApplicationTemplateId ?? null);
     setDocumentMode(documentModeFromLease(srcSource, srcKind));
     setDraft(srcDraft);
@@ -634,8 +673,24 @@ export function PropertyLeaseFormModal({
 
     const savingLeaseId = mode === "add" ? (addModeLeaseTemplateId ?? makePropertyLeaseTemplateId()) : template?.id ?? "";
     const nextApplicationLink = linkedApplicationTemplateId;
-    // The Used-for mapping's applications (application first, then lease) ride along.
-    const saveExtra = { applications: routingApplicationTemplates };
+    // The property's applications ride along; so do the listing's allowed terms when an option changed.
+    const saveExtra: { applications: PropertyApplicationTemplate[]; allowedLeaseTerms?: string[] } = {
+      applications: routingApplicationTemplates,
+    };
+    const touchedOptions: LeaseOptionKey[] =
+      mode === "add"
+        ? (["custom", "monthToMonth"] as const).filter((key) => optionFlags[key])
+        : (["custom", "monthToMonth"] as const).filter((key) => optionFlags[key] !== initialOptionFlags[key]);
+    const withAllowedTerms = (finalTemplates: PropertyLeaseTemplate[]) => {
+      if (touchedOptions.length > 0) {
+        saveExtra.allowedLeaseTerms = allowedTermsAfterLeaseOptions(
+          resolveAllowedLeaseTerms(sub),
+          finalTemplates,
+          touchedOptions,
+        );
+      }
+      return finalTemplates;
+    };
 
     setSaving(true);
     try {
@@ -660,7 +715,12 @@ export function PropertyLeaseFormModal({
           linkedApplicationTemplateId: nextApplicationLink,
           offered,
         };
-        const next = [...routingLeaseTemplates, created];
+        // "Allow custom dates" / "Allow month-to-month" on a new long-term lease: the same routed terms.
+        const createdWithOptions = touchedOptions.reduce(
+          (list, key) => setLeaseOptionOnTemplates(list, created.id, key, true),
+          [...routingLeaseTemplates, created] as PropertyLeaseTemplate[],
+        );
+        const next = withAllowedTerms(createdWithOptions);
         if (!(await Promise.resolve(onSave(next, saveExtra)))) return;
         if (leaseFields.leaseTemplateImportReview) {
           track("lease_import_reviewed", { template_id: created.id, import_kind: "property_template", artifact_mode: "converted" });
@@ -680,15 +740,17 @@ export function PropertyLeaseFormModal({
       }
 
       const resolvedKind = deriveLeaseKindFromStayTerms(applicationLeaseTerms);
-      const next = updatePropertyLeaseTemplate(routingLeaseTemplates, template.id, {
-        label: trimmedLabel,
-        kind: resolvedKind,
-        applicationLeaseTerms,
-        linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
-        linkedApplicationTemplateId: nextApplicationLink,
-        offered,
-        ...leaseFields,
-      });
+      const next = withAllowedTerms(
+        updatePropertyLeaseTemplate(routingLeaseTemplates, template.id, {
+          label: trimmedLabel,
+          kind: resolvedKind,
+          applicationLeaseTerms,
+          linkedGuarantorLeaseTemplateId: linkedGuarantorTemplateId,
+          linkedApplicationTemplateId: nextApplicationLink,
+          offered,
+          ...leaseFields,
+        }),
+      );
       if (!(await Promise.resolve(onSave(next, saveExtra)))) return;
       if (leaseFields.leaseTemplateImportReview) {
         track("lease_import_reviewed", { template_id: template.id, import_kind: "property_template", artifact_mode: "converted" });
@@ -955,6 +1017,22 @@ export function PropertyLeaseFormModal({
                 />
               </PropertyFormWizardRow>
             )}
+            {showLeaseOptions ? (
+              <>
+                <LeaseOptionCheckbox
+                  label="Allow custom dates"
+                  checked={optionFlags.custom}
+                  dataAttr="property-lease-allow-custom-dates"
+                  onChange={(on) => toggleLeaseOption("custom", on)}
+                />
+                <LeaseOptionCheckbox
+                  label="Allow month-to-month"
+                  checked={optionFlags.monthToMonth}
+                  dataAttr="property-lease-allow-month-to-month"
+                  onChange={(on) => toggleLeaseOption("monthToMonth", on)}
+                />
+              </>
+            ) : null}
             {mode === "add" ? (
               <PropertyFormWizardRow label="Start from">
                 <PropertyFormStartFromSelect
@@ -1063,24 +1141,6 @@ export function PropertyLeaseFormModal({
               setLabel(next);
             }}
           />
-          {mode === "edit" ? (
-            <PropertyFormUsedForMapping
-              sub={sub}
-              pipelineOrder={formSetup.leasingPipeline.pipelineOrder}
-              mode="lease"
-              currentLeaseId={template?.id}
-              leaseTemplates={routingLeaseTemplates}
-              applicationTemplates={routingApplicationTemplates}
-              onLeaseTemplatesChange={(next) => {
-                setRoutingLeaseTemplates(next);
-                // The Used-for card is the one source of "Type of lease": keep this lease's own terms in step.
-                const mine = next.find((row) => row.id === template?.id);
-                if (mine) setApplicationLeaseTerms([...(mine.applicationLeaseTerms ?? [])]);
-              }}
-              onApplicationTemplatesChange={setRoutingApplicationTemplates}
-              onError={(message) => setError(message)}
-            />
-          ) : null}
           {mode === "edit" && template?.id ? (
             <PropertyFormFeeForCurrentForm
               sub={sub}

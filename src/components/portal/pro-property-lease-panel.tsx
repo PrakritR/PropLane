@@ -704,7 +704,13 @@ export function ManagerPropertyLeasePanel({
           editingTemplateId ? () => handleDelete(editingTemplateId) : undefined
         }
         onSave={async (nextTemplates, extra) => {
-          if (!(await persistTemplates(nextTemplates, undefined, extra?.applications))) {
+          if (
+            !(await persistTemplates(
+              nextTemplates,
+              extra?.allowedLeaseTerms ? { allowedLeaseTerms: extra.allowedLeaseTerms } : undefined,
+              extra?.applications,
+            ))
+          ) {
             showToast("Could not save lease.");
             return false;
           }

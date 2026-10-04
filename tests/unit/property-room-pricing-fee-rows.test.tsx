@@ -107,3 +107,21 @@ describe("Application fee and Lease fee per step", () => {
     expect(screen.queryByLabelText("Private room long-term lease fee")).toBeNull();
   });
 });
+
+describe("stay-type steps", () => {
+  it("are Long-term and Short term only; custom dates and month-to-month have no step of their own", () => {
+    open(listing());
+    const rail = (id: string) => document.querySelector(`[data-attr="listing-v2-rail-${id}"]`);
+    expect(rail("Long-term")).not.toBeNull();
+    expect(rail("Short-Term Stay")).not.toBeNull();
+    expect(rail("Custom")).toBeNull();
+    expect(rail("Month-to-Month")).toBeNull();
+    expect(screen.queryAllByRole("button", { name: /^Custom/ })).toHaveLength(0);
+  });
+
+  it("keeps the month-to-month and custom-start surcharges on the Long-term row", () => {
+    open(listing());
+    expect(rowLabel("Month-to-month surcharge").length).toBeGreaterThan(0);
+    expect(rowLabel("Custom start surcharge").length).toBeGreaterThan(0);
+  });
+});
