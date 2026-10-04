@@ -340,6 +340,18 @@ function normalizeEmail(value: unknown): string {
 }
 
 /**
+ * The composite map key for "this owner's <email | house label>". ONE builder,
+ * shared by every writer and reader of those maps: two separators (a space in
+ * the reader, a NUL in the writer) silently made every lookup miss and showed a
+ * partially granted co-manager turns about houses they were never granted.
+ * The separator is escaped, never a literal control byte, so the file stays
+ * text to `grep` and `file`.
+ */
+function ownerScopedKey(ownerId: string, value: string): string {
+  return `${ownerId}\u0000${value}`;
+}
+
+/**
  * The houses each person (by email) has an application or residency on, per
  * owner — the source the SMS `residency` tag already trusts. Every house is
  * kept (a person on two houses is shown under both); nothing is guessed from
@@ -359,7 +371,7 @@ async function loadPersonHousesByOwner(
     // same name is ambiguous, and an ambiguous match is worse than none.
     for (const alias of new Set([house.label.trim().toLowerCase(), ...house.aliases.map((a) => a.trim().toLowerCase())])) {
       if (!alias) continue;
-      const key = `${house.ownerUserId}\u0000${alias}`;
+      const key = ownerScopedKey(house.ownerUserId, alias);
       const current = idByOwnerAndLabel.get(key);
       if (current === undefined) idByOwnerAndLabel.set(key, id);
       else if (current !== id) idByOwnerAndLabel.set(key, "");
@@ -390,9 +402,9 @@ async function loadPersonHousesByOwner(
         if (bucket === "pending" && clean(rd.stage).toLowerCase() === "in progress") continue;
         const explicit = clean(rd.propertyId);
         const label = clean(rd.property).toLowerCase();
-        const houseId = explicit || (label ? idByOwnerAndLabel.get(`${ownerId} ${label}`) ?? "" : "");
+        const houseId = explicit || (label ? idByOwnerAndLabel.get(ownerScopedKey(ownerId, label)) ?? "" : "");
         if (!houseId) continue;
-        const key = `${ownerId} ${email}`;
+        const key = ownerScopedKey(ownerId, email);
         const set = out.get(key) ?? new Set<string>();
         set.add(houseId);
         out.set(key, set);
@@ -433,7 +445,7 @@ export async function emailThreadHouses(
     const rd = (record.row_data && typeof record.row_data === "object" ? record.row_data : {}) as Record<string, unknown>;
     const ownerId = clean(record.owner_user_id);
     const email = normalizeEmail(record.participant_email) || normalizeEmail(rd.email);
-    const houses = ownerId && email ? personHouses.get(`${ownerId} ${email}`) : undefined;
+    const houses = ownerId && email ? personHouses.get(ownerScopedKey(ownerId, email)) : undefined;
     out.set(
       record.id,
       houses ? [...houses].map((id) => ({ propertyId: id, label: houseLabels.get(id)?.label ?? id })) : [],
@@ -493,6 +505,19 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
   return restrictOtherOwnersThreads(db, scope, visible, houseLabels);
 }
 
+/**
+ * The houses the viewer may act on under `ownerId`: granted at the level this
+ * scope was resolved for, narrowed to the active workspace. The one answer to
+ * "which of that owner's houses are mine right now" - the turn filter and the
+ * append gate on a shared conversation both read it.
+ */
+export function grantedHouseIdsForOwner(scope: CommunicationScope, ownerId: string): Set<string> {
+  const granted = scope.grantedHousesByOwner.get(clean(ownerId)) ?? new Set<string>();
+  return new Set(
+    [...granted].filter((id) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(id)),
+  );
+}
+
 /** Threads that are another owner's person-conversation, not an assistant / team / agent thread. */
 function isSharedPersonThread(record: StoredInboxThreadRecord, viewerId: string): boolean {
   const owner = clean(record.owner_user_id);
@@ -524,13 +549,12 @@ async function restrictOtherOwnersThreads<T extends StoredInboxThreadRecord>(
       continue;
     }
     const owner = clean(record.owner_user_id);
-    const granted = scope.grantedHousesByOwner.get(owner) ?? new Set<string>();
-    const allowed = new Set([...granted].filter((id) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(id)));
+    const allowed = grantedHouseIdsForOwner(scope, owner);
     const rowData = (record.row_data && typeof record.row_data === "object" ? record.row_data : {}) as Record<string, unknown>;
     const email = normalizeEmail(record.participant_email) || normalizeEmail(rowData.email);
     const person = new Set<string>([
       ...record.houses.map((h) => h.propertyId),
-      ...(personHouses.get(`${owner} ${email}`) ?? []),
+      ...(personHouses.get(ownerScopedKey(owner, email)) ?? []),
     ]);
     const restricted = restrictThreadToHouses(rowData, { allowed, personHouses: person });
     if (!restricted) continue;

@@ -9,7 +9,7 @@
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { CalendarSync, Download, RefreshCw, Filter, Settings2, Trash2, X } from "lucide-react";
+import { CalendarSync, Download, RefreshCw, Filter, Send, Settings2, Trash2, Upload, X } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 
@@ -89,6 +89,23 @@ describe("list command band contract", () => {
   it("accepts the Export CSV glyph (N025)", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     renderStack({ actions: <PortalIconAction icon={Download} label="Export CSV" /> });
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  // Both bands ship these: Properties' "Import your portfolio" (studio C2) and
+  // Applications' "Send application link" (docs/portal-list-section-layout.md
+  // § Command bar vocabulary). Rendering them must not trip the guard.
+  it("accepts the Import portfolio and Send application link glyphs", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    renderStack({
+      actions: (
+        <>
+          <PortalIconAction icon={Upload} label="Import your portfolio" />
+          <PortalIconAction icon={Send} label="Send application link" />
+        </>
+      ),
+    });
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });

@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { InboxThreadMessageChannel } from "@/lib/portal-inbox-storage";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
-import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
+import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
+import { resolveAgentCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import {
   ensureSmsIncludesPortalLink,
   type ResidentSmsLinkKind,
@@ -971,6 +972,15 @@ export async function deliverPortalInboxMessage(
     automated?: boolean;
     /** The thread this turn was already written into by the caller (see `deliverPortalMessageThreadSide`). */
     alreadyRecordedInThreadId?: string;
+    /**
+     * The workspace this send speaks for, when it has no browser cookie to read
+     * one from (a scheduled message, a cron). The recipient scope is narrowed to
+     * it exactly as the interactive route narrows to the active workspace:
+     * without it an "All residents" broadcast scheduled in workspace A reached
+     * the residents of EVERY workspace the manager owns. `null` / omitted keeps
+     * the un-narrowed behaviour (a legacy row, or an unpartitioned account).
+     */
+    senderWorkspaceId?: string | null;
   },
 ): Promise<
   | { ok: true; recipientCount: number; emailOutcomes: InboxEmailOutcome[]; smsOutcomes: InboxSmsOutcome[] }
@@ -1031,9 +1041,21 @@ export async function deliverPortalInboxMessage(
   // (mirrors send-inbox-message) since profiles.role may not literally be "admin".
   const senderIsAdmin = senderRole === "admin" || (await userHoldsAdminRole(db, opts.senderUserId));
   if (!senderIsAdmin) {
+    // Same narrowing the interactive route applies: the workspace this send
+    // speaks for plus the houses the sender is granted.
+    const workspaceId = opts.senderWorkspaceId?.trim() ?? "";
+    const reach =
+      workspaceId && ["manager", "owner", "pro"].includes(senderRole)
+        ? recipientReachFromScope(
+            await resolveAgentCommunicationScope(
+              { db, userId: opts.senderUserId, workspace: { id: workspaceId } },
+              "edit",
+            ),
+          )
+        : undefined;
     const { allowed } = await filterRecipientsBySenderScope(
       db,
-      { id: opts.senderUserId, email: senderEmail, role: senderRole, isAdmin: false },
+      { id: opts.senderUserId, email: senderEmail, role: senderRole, isAdmin: false, reach },
       recipients,
     );
     if (allowed.length === 0) {

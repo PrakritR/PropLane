@@ -152,6 +152,15 @@ describe("/api/webhooks/twilio/sms", () => {
     expect(runVendorAgentSessionTurn).not.toHaveBeenCalled();
   });
 
+  it("a configured auth token ALWAYS requires a signature, deployed or not", async () => {
+    // Off Vercel and off NODE_ENV=production, a request that simply left the
+    // header out was accepted - so a self-hosted or staging runtime took forged
+    // inbound SMS, carrier STOP/START keywords included.
+    const res = await POST(smsRequest({ From: "+12065550001", Body: "hola" }, null));
+    expect(res.status).toBe(403);
+    expect(runVendorAgentSessionTurn).not.toHaveBeenCalled();
+  });
+
   it("silently drops unknown numbers with an empty TwiML 200", async () => {
     vi.mocked(resolveVendorAgentSessionForInbound).mockResolvedValue({ kind: "unknown_phone" });
     const res = await POST(smsRequest({ From: "+19998887777", To: WORK_NUMBER, Body: "who dis" }));

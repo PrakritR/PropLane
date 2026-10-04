@@ -97,8 +97,10 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerMayFileLeaseUnderProperty: (...a: unknown[]) => managerMayFileLeaseUnderProperty(...(a as [])),
 }));
 vi.mock("@/lib/household-charge-payment-eligibility.server", () => ({
-  enrichHouseholdChargesFromPropertyRecords: async (_db: unknown, charges: Array<Record<string, unknown>>) =>
-    charges.map((c) => ({ ...c, axisPaymentsEnabledSnapshot: PAYABLE_IN_PROPLANE, managerStripeConnectReadySnapshot: true })),
+  enrichHouseholdChargesFromPropertyRecordsResult: async (_db: unknown, charges: Array<Record<string, unknown>>) => ({
+    charges: charges.map((c) => ({ ...c, axisPaymentsEnabledSnapshot: PAYABLE_IN_PROPLANE, managerStripeConnectReadySnapshot: true })),
+    lookupFailed: false,
+  }),
 }));
 vi.mock("@/lib/documents/document-auto-file-hooks.server", () => ({
   autoFileLeaseDocument: (...a: unknown[]) => autoFileLeaseDocument(...(a as [])),
@@ -990,10 +992,13 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
   const charge = (id: string, kind: string, status: string, amount = "$300.00") => ({
     id,
     status,
+    created_at: "2026-10-03T12:00:00.000Z",
     row_data: {
       id,
       kind,
       status,
+      // Created after the gate shipped: creation time is what makes a line gate.
+      createdAt: "2026-10-03T12:00:00.000Z",
       applicationId: APPLICATION_ID,
       residentEmail: RESIDENT_EMAIL,
       residentUserId: RESIDENT_ID,
@@ -1004,6 +1009,8 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
       amountLabel: amount,
       balanceLabel: status === "paid" ? "$0.00" : amount,
       dueAtSigning: true,
+      // Stamped when the charge was created: only a stamped line gates the signature.
+      axisPaymentsEnabledSnapshot: true,
     },
   });
   const sign = (extra: Record<string, unknown> = {}) =>

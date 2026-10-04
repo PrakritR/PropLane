@@ -631,6 +631,35 @@ export async function changePersistedInboxThreadFolders(
   }
 }
 
+/**
+ * Clear one conversation's turns through the route's own explicit action.
+ *
+ * An ordinary save is append-only on the server, so emptying `messages` in a
+ * posted row no longer removes anything: shrinking history is a separate,
+ * audited action (`clearMessages`).
+ */
+export async function clearInboxThreadMessagesOnServer(
+  key: string,
+  threadId: string,
+  placeholder: { preview?: string; subject?: string; from?: string },
+): Promise<boolean> {
+  if (!canUse() || !threadId.trim()) return false;
+  if (isDemoModeActive()) return true;
+  try {
+    const res = await fetch("/api/portal-inbox-threads", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "clearMessages", scope: key, id: threadId.trim(), placeholder }),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
+    return data.ok !== false;
+  } catch {
+    return false;
+  }
+}
+
 export async function persistInboxAwait(key: string, threads: PersistedInboxThread[]): Promise<boolean> {
   if (!canUse()) return false;
   const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];

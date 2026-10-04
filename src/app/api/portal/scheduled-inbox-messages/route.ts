@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
+import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import {
   createScheduledInboxMessage,
   generateScheduledInboxMessageId,
@@ -10,6 +11,36 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
+
+/**
+ * The workspace the manager is composing in, stamped on the row so delivery -
+ * which runs in a cron with no cookie - narrows the recipients to it. `null`
+ * means the account is not partitioned, which narrows nothing, as today.
+ *
+ * Fails CLOSED: on the delivery side an absent workspace means "narrow
+ * nothing", so swallowing a failed scope read here would have widened an "All
+ * residents" broadcast to every workspace the manager owns - the exact bug the
+ * stamp exists to close, reached through an error path instead. The schedule is
+ * refused and retried rather than stamped with a workspace nobody resolved.
+ */
+async function composingWorkspaceId(
+  ctx: { db: PortalActor["db"]; userId: string },
+): Promise<{ ok: true; workspaceId: string | null } | { ok: false }> {
+  try {
+    const scope = await resolveCommunicationScope(ctx.db, ctx.userId, "edit");
+    return { ok: true, workspaceId: scope.activeWorkspaceId };
+  } catch {
+    return { ok: false };
+  }
+}
+
+const WORKSPACE_UNRESOLVED = NextResponse.json(
+  {
+    error: "We could not confirm which workspace this is for. Try scheduling it again in a moment.",
+    code: "WORKSPACE_UNRESOLVED",
+  },
+  { status: 503 },
+);
 
 type PortalRole = "manager" | "resident";
 
@@ -222,6 +253,9 @@ export async function POST(req: Request) {
         String(recipientProfile?.full_name ?? "").trim() ||
         (resolvedEmail.includes("@") ? resolvedEmail : "Co-manager");
 
+      const coManagerWorkspace = await composingWorkspaceId(ctx);
+      if (!coManagerWorkspace.ok) return WORKSPACE_UNRESOLVED;
+
       const record = await createScheduledInboxMessage(ctx.db, {
         id: generateScheduledInboxMessageId(),
         managerUserId: ctx.userId,
@@ -239,6 +273,7 @@ export async function POST(req: Request) {
         senderUserId: ctx.userId,
         senderName: ctx.name,
         senderEmail: ctx.email,
+        workspaceId: coManagerWorkspace.workspaceId,
       });
 
       return NextResponse.json({ ok: true, message: record });
@@ -248,6 +283,9 @@ export async function POST(req: Request) {
     if (recipientEmail && !broadcastCategories.length) {
       recipientUserId = await resolveManagerUserIdForEmail(ctx.db, recipientEmail);
     }
+
+    const composingWorkspace = await composingWorkspaceId(ctx);
+    if (!composingWorkspace.ok) return WORKSPACE_UNRESOLVED;
 
     const record = await createScheduledInboxMessage(ctx.db, {
       id: generateScheduledInboxMessageId(),
@@ -269,6 +307,7 @@ export async function POST(req: Request) {
       deliverViaSms: body.deliverViaSms === true,
       senderPortal: "manager",
       senderUserId: ctx.userId,
+      workspaceId: composingWorkspace.workspaceId,
     });
 
     return NextResponse.json({ ok: true, message: record });

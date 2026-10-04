@@ -181,7 +181,35 @@ type InboxThread = {
   aiDraft?: InboxAiDraft;
   aiDraftQueue?: InboxAiDraft[];
   resolvedAiDraftIds?: string[];
+  /** The houses this conversation is about, already narrowed to the ones this account holds. */
+  houses?: { propertyId: string; label: string }[];
+  rootHouseId?: string;
 };
+
+/**
+ * The house a reply into this conversation is about, or "" when none can be named.
+ *
+ * `houses` is already narrowed to the houses this account holds, so the single
+ * one is the answer when there is one; with several, the reply belongs to the
+ * newest turn's house - the conversation actually being answered. This is the
+ * same house the server would stamp, and naming it is what keeps a co-manager's
+ * ordinary reply from being refused on a conversation spanning houses they only
+ * partly hold.
+ */
+function replyHouseIdFor(thread: InboxThread): string {
+  const granted = new Set(
+    (thread.houses ?? []).map((house) => house.propertyId?.trim()).filter((id): id is string => Boolean(id)),
+  );
+  if (granted.size === 1) return [...granted][0]!;
+  if (granted.size === 0) return (thread.rootHouseId ?? "").trim();
+  const messages = thread.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const house = messages[index]?.houseId?.trim() ?? "";
+    if (house && granted.has(house)) return house;
+  }
+  const root = (thread.rootHouseId ?? "").trim();
+  return root && granted.has(root) ? root : "";
+}
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
   if (isPropLaneAssistantInboxThread(thread)) return false;
@@ -858,6 +886,7 @@ export const ManagerInbox = forwardRef<
       }
 
       const replyId = `reply-${Date.now().toString(36)}`;
+      const replyHouseId = replyHouseIdFor(thread);
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
       const subject = emailReplySubjectFor(thread.subject);
       // The bubble wears the channel the reply is leaving on — email first when
@@ -877,6 +906,11 @@ export const ManagerInbox = forwardRef<
         attachments: attachmentMeta.length ? attachmentMeta : undefined,
         channel: replyChannel,
         ...(emailAllowed ? { subject } : {}),
+        // Which house the reply is about, when the conversation names exactly
+        // one. On another owner's conversation `houses` is already narrowed to
+        // the houses this account holds, so a co-manager granted just one of a
+        // merged conversation's houses names it instead of replying untagged.
+        ...(replyHouseId ? { houseId: replyHouseId } : {}),
       };
       persistInboxRef.current = false;
       setLocal((current) =>

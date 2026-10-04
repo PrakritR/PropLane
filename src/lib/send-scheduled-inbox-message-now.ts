@@ -87,6 +87,9 @@ export async function sendScheduledInboxMessageNow(
       eventCategory: "messages" as const,
       senderRole: residentOriginated ? "resident" : undefined,
       messageId: `scheduled:${active.id}`,
+      // The workspace the manager composed in, so the recipient scope narrows
+      // here exactly as it does on an immediate send.
+      senderWorkspaceId: residentOriginated ? null : active.workspaceId ?? null,
     };
 
     async function run(channel: Channel, preclaimed?: { outcome: string; token: string | null }): Promise<void> {

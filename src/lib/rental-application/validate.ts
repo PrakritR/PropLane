@@ -82,7 +82,10 @@ function hasIncomeValue(monthly: string, annual: string, other: string): boolean
 }
 
 function validEnteredMoney(value: string): boolean {
-  return /^\s*\$?\s*(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?\s*$/.test(value);
+  // Trim instead of a second `\s*`: `^\s*\$?\s*` let two quantifiers carve the
+  // same leading whitespace run, backtracking polynomially (CodeQL
+  // js/polynomial-redos). Same inputs accepted as before.
+  return /^\$?\s*(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(value.trim());
 }
 
 export type ValidateRentalWizardStepOptions = {

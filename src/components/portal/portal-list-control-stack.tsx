@@ -3,7 +3,6 @@
 import { Children, Fragment, isValidElement, useEffect, useRef, type ReactElement, type ReactNode } from "react";
 import {
   BookOpen,
-  Upload,
   CalendarClock,
   CalendarOff,
   CalendarPlus,
@@ -14,10 +13,12 @@ import {
   Phone,
   RefreshCw,
   Search,
+  Send,
   Settings,
   Settings2,
   Share2,
   Filter,
+  Upload,
   Wrench,
   X,
   type LucideIcon,
@@ -52,7 +53,8 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   CalendarClock, // Availability (Calendar band)
   Download, // Export CSV (N025)
   Coins, // Plan credit (admin Accounts, S27)
-  Upload, // Upload / Import (documents, leases, properties) — already in the doc's vocabulary
+  Upload, // Upload / Import (documents, leases, properties)
+  Send, // Send application link (Applications band)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */

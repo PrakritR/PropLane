@@ -3,6 +3,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { MANAGER_INBOX_STORAGE_KEY } from "@/lib/portal-inbox-storage";
 import { contactArchiveThreadId } from "@/lib/communication-resident-placeholders";
 import {
+  clearInboxThreadMessagesOnServer,
   deleteInboxThreadIds,
   changePersistedInboxThreadFolders,
   loadPersistedInbox,
@@ -324,7 +325,15 @@ export async function clearPersistedInboxThread(
     stagePersistedInboxRows(storageKey, next);
     return { ok: true, next };
   }
-  const ok = await upsertPersistedInboxRows(storageKey, changed, next);
+  // An ordinary save can only ADD turns, so emptying `messages` in a posted row
+  // removes nothing server-side. A conversation the server already holds is
+  // cleared through the route's explicit, audited `clearMessages` action; a row
+  // that does not exist yet is still created by the ordinary upsert.
+  const existed = prev.some((thread) => threadMatchesClearId(thread, id));
+  const ok = existed
+    ? await clearInboxThreadMessagesOnServer(storageKey, id, placeholder)
+    : await upsertPersistedInboxRows(storageKey, changed, next);
   if (!ok) return { ok: false, next: prev };
+  if (existed) stagePersistedInboxRows(storageKey, next);
   return { ok: true, next };
 }

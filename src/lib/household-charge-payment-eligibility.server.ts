@@ -15,14 +15,18 @@ import { validateManagerConnectForDestinationCharge } from "@/lib/stripe-connect
 async function managerStripeConnectReadyByManagerId(
   db: SupabaseClient,
   managerIds: string[],
-): Promise<Map<string, boolean>> {
+): Promise<{ ready: Map<string, boolean>; lookupFailed: boolean }> {
   const out = new Map<string, boolean>();
-  if (managerIds.length === 0) return out;
+  if (managerIds.length === 0) return { ready: out, lookupFailed: false };
 
-  const { data: profiles } = await db
+  const { data: profiles, error } = await db
     .from("profiles")
     .select("id, stripe_connect_account_id")
     .in("id", managerIds);
+  // A failed read leaves every snapshot undefined, which reads as "payable" -
+  // so the resident would be held at 402 behind a checkout that may not work.
+  // The caller turns this into the retryable answer instead.
+  if (error) return { ready: out, lookupFailed: true };
 
   let stripe: ReturnType<typeof getStripe> | null = null;
   try {
@@ -49,7 +53,7 @@ async function managerStripeConnectReadyByManagerId(
     out.set(id, result.ok);
   }
 
-  return out;
+  return { ready: out, lookupFailed: false };
 }
 
 export async function resolveListingForHouseholdCharge(
@@ -91,16 +95,33 @@ export async function enrichHouseholdChargesFromPropertyRecords(
   db: SupabaseClient,
   charges: HouseholdCharge[],
 ): Promise<HouseholdCharge[]> {
-  if (charges.length === 0) return charges;
+  return (await enrichHouseholdChargesFromPropertyRecordsResult(db, charges)).charges;
+}
+
+/**
+ * The same enrichment, with whether either property read actually succeeded.
+ *
+ * A caller that only renders a Pay button can ignore a failed read (the row
+ * simply shows as not payable); a caller that GATES on payability cannot - a
+ * transient read error would otherwise look exactly like "this property
+ * collects offline". The at-signing gate reads `lookupFailed` and fails closed.
+ */
+export async function enrichHouseholdChargesFromPropertyRecordsResult(
+  db: SupabaseClient,
+  charges: HouseholdCharge[],
+): Promise<{ charges: HouseholdCharge[]; lookupFailed: boolean }> {
+  if (charges.length === 0) return { charges, lookupFailed: false };
+  let lookupFailed = false;
 
   const propertyIds = [...new Set(charges.map((c) => c.propertyId?.trim()).filter(Boolean))] as string[];
   const listingByPropertyId = new Map<string, ManagerListingSubmissionV1 | null>();
 
   if (propertyIds.length > 0) {
-    const { data } = await db
+    const { data, error } = await db
       .from("manager_property_records")
       .select("id, property_data")
       .in("id", propertyIds);
+    if (error) lookupFailed = true;
     for (const row of data ?? []) {
       listingByPropertyId.set(String(row.id), listingFromPropertyData(row.property_data));
     }
@@ -108,14 +129,17 @@ export async function enrichHouseholdChargesFromPropertyRecords(
 
   const managerIds = [...new Set(charges.map((c) => c.managerUserId?.trim()).filter(Boolean))] as string[];
   const listingsByManager = new Map<string, Array<{ buildingName: string; listing: ManagerListingSubmissionV1 | null }>>();
-  const connectReadyByManager = await managerStripeConnectReadyByManagerId(db, managerIds);
+  const connect = await managerStripeConnectReadyByManagerId(db, managerIds);
+  const connectReadyByManager = connect.ready;
+  if (connect.lookupFailed) lookupFailed = true;
 
   if (managerIds.length > 0) {
-    const { data } = await db
+    const { data, error } = await db
       .from("manager_property_records")
       .select("manager_user_id, property_data")
       .in("manager_user_id", managerIds)
       .limit(500);
+    if (error) lookupFailed = true;
     for (const row of data ?? []) {
       const managerId = String(row.manager_user_id ?? "").trim();
       if (!managerId) continue;
@@ -128,7 +152,7 @@ export async function enrichHouseholdChargesFromPropertyRecords(
     }
   }
 
-  return charges.map((charge) => {
+  const enriched = charges.map((charge) => {
     const managerId = charge.managerUserId?.trim() ?? "";
     let listing = listingByPropertyId.get(charge.propertyId?.trim() ?? "") ?? null;
     if (!listing) {
@@ -144,4 +168,5 @@ export async function enrichHouseholdChargesFromPropertyRecords(
       managerStripeConnectReadySnapshot: managerId ? connectReadyByManager.get(managerId) : undefined,
     };
   });
+  return { charges: enriched, lookupFailed };
 }

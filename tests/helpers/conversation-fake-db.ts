@@ -22,7 +22,7 @@ function cell(row: Row, column: string): unknown {
 function parseOr(filter: string): Array<(row: Row) => boolean> {
   // `col.eq."value"` , `col.is.null`
   const parts: string[] = [];
-  let depth = 0;
+  const depth = 0;
   let current = "";
   let inQuote = false;
   for (const ch of filter) {
@@ -66,6 +66,7 @@ export function createConversationFakeDb(seed: Record<string, Row[]> = {}): Fake
     const predicates: Array<(row: Row) => boolean> = [];
     let orderBy: { column: string; ascending: boolean } | null = null;
     let max = Infinity;
+    let offset = 0;
     const run = () => {
       let rows = table(name).filter((row) => predicates.every((p) => p(row)));
       if (orderBy) {
@@ -76,7 +77,7 @@ export function createConversationFakeDb(seed: Record<string, Row[]> = {}): Fake
           return ascending ? left.localeCompare(right) : right.localeCompare(left);
         });
       }
-      return rows.slice(0, max).map((row) => ({ ...row }));
+      return rows.slice(offset, offset + max).map((row) => ({ ...row }));
     };
     const builder: Record<string, unknown> = {
       eq(column: string, value: unknown) {
@@ -106,6 +107,11 @@ export function createConversationFakeDb(seed: Record<string, Row[]> = {}): Fake
       },
       limit(n: number) {
         max = n;
+        return builder;
+      },
+      range(from: number, to: number) {
+        offset = from;
+        max = to - from + 1;
         return builder;
       },
       maybeSingle() {

@@ -43,16 +43,28 @@ export function scopeLeaseDocumentStyles(css: string, scopeSelector: string): st
 }
 
 function stripHtmlTags(value: string): string {
-  return value.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  // `>?` so an unterminated `<script` is dropped too: `<[^>]+>` alone left it in
+  // the "plain text". Run to a fixpoint rather than once: a single removal pass
+  // over nested markup can re-form the tag it just split, so the loop is what
+  // makes the strip sound (CodeQL js/incomplete-multi-character-sanitization).
+  let stripped = value;
+  let previous: string;
+  do {
+    previous = stripped;
+    stripped = stripped.replace(/<[^>]*>?/g, "");
+  } while (stripped !== previous);
+  return stripped.replace(/\s+/g, " ").trim();
 }
 
 function decodeBasicEntities(value: string): string {
+  // `&amp;` last: decoding it first turns `&amp;lt;` into `&lt;` and then into a
+  // real `<` — a double unescape (CodeQL js/double-escaping).
   return value
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
 }
 
 function slugifySectionTitle(title: string): string {

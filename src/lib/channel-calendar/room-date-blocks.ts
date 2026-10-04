@@ -13,6 +13,13 @@ import { normalizeE164 } from "@/lib/phone-e164";
 
 export const ROOM_DATE_BLOCKS_CHANGED = "axis:room-date-blocks-changed";
 
+/** Crypto-strong hex suffix for runtimes without `crypto.randomUUID`. */
+function randomUidSuffix(): string {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 type BlockRow = {
   openEnded?: unknown;
   bookingStatus?: unknown;
@@ -122,10 +129,12 @@ export async function saveRoomDateBlock(
   const residentName = input.residentName?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim().toLowerCase() ?? "";
   const residentPhone = normalizeE164(input.residentPhone) ?? "";
+  // Always crypto-strong: the uid becomes the block's record id, and a
+  // Math.random fallback made it guessable (CodeQL js/insecure-randomness).
   const uid =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
-      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      : `${Date.now().toString(36)}${randomUidSuffix()}`;
   const block: RoomDateBlock = {
     id: input.id?.trim() || roomDateBlockRecordId(userId, uid),
     propertyId: input.propertyId,

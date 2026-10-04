@@ -174,7 +174,10 @@ function deleteVendorFromServer(id: string) {
 }
 
 export function makeVendorId(): string {
-  return `vendor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  // crypto, not Math.random: the id becomes the vendor record key the portal
+  // scopes reads and writes by, so it must not be guessable (CodeQL
+  // js/insecure-randomness). Same `vendor-<base36>-<6>` shape as before.
+  return `vendor-${Date.now().toString(36)}-${crypto.randomUUID().replace(/-/g, "").slice(0, 6)}`;
 }
 
 /**

@@ -190,7 +190,11 @@ export async function sendWorkOrderVendorOffers(
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
 
   const marketplace = body.marketplace;
-  const marketplaceEnabled = marketplace?.enabled !== false;
+  // Opt IN, never out. The broadcast fans an offer out to strangers matched by
+  // trade and radius, so a caller that says nothing about the marketplace -
+  // the assistant tool, any older client - sends only to the vendors the
+  // manager actually named.
+  const marketplaceEnabled = marketplace?.enabled === true;
   const tradeLabel = (marketplace?.trade ?? rowData.category ?? "Maintenance").toString().trim();
   const radiusMi = Math.min(50, Math.max(1, Math.round(Number(marketplace?.radiusMi ?? 5))));
   let matchedCount = 0;
@@ -206,9 +210,16 @@ export async function sendWorkOrderVendorOffers(
       });
       matchedCount = marketplaceUserIds.length;
       const managerUserId = String(workOrder.manager_user_id);
+      // Only the vendors this send can actually reach get a roster row: the cap
+      // used to be applied AFTER the loop, so a match of 200 copied 200 vendors'
+      // work email and phone into the manager's directory to contact 10.
+      let room = Math.max(0, MAX_VENDORS_PER_SEND - new Set(vendorIds).size);
       for (const vendorUserId of marketplaceUserIds) {
+        if (room <= 0) break;
         const directoryId = await ensureDirectoryVendorOnManagerRoster(db, managerUserId, vendorUserId);
-        if (directoryId) vendorIds.push(directoryId);
+        if (!directoryId || vendorIds.includes(directoryId)) continue;
+        vendorIds.push(directoryId);
+        room -= 1;
       }
     }
   }

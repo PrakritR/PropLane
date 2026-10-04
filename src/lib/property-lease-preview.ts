@@ -387,17 +387,45 @@ export function buildPropertyLeasePreview(
   };
 }
 
+/**
+ * Remove every `pattern` match, repeating until the text stops changing. One
+ * pass is not enough on nested markup: dropping the inner block of
+ * `<scr<script>x</script>ipt>` re-forms a real `<script` from what is left
+ * either side of it, so the loop — not the single `.replace()` — is what makes
+ * the removal sound (CodeQL js/incomplete-multi-character-sanitization).
+ *
+ * The pass cap keeps a hostile document from turning this into a quadratic
+ * scan; past it the caller's tag strip is still the backstop that leaves no tag
+ * behind, and only text inside a pathologically nested block can survive.
+ */
+function removeMatchesToFixpoint(value: string, pattern: RegExp): string {
+  let remaining = value;
+  let previous: string;
+  let passes = 0;
+  do {
+    previous = remaining;
+    remaining = remaining.replace(pattern, "");
+    passes += 1;
+  } while (remaining !== previous && passes < 10);
+  return remaining;
+}
+
 export function stripLeaseHtmlToPlainText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
+  // `<\/script[^>]*>` closes on the `</script >`, `</script foo="bar">` and
+  // `</script\t\n bar>` end-tag forms that a bare `<\/script>` missed (CodeQL
+  // js/bad-tag-filter).
+  let stripped = removeMatchesToFixpoint(html, /<script[\s\S]*?<\/script[^>]*>/gi);
+  stripped = removeMatchesToFixpoint(stripped, /<style[\s\S]*?<\/style[^>]*>/gi);
+  // `<[^>]*>?` drops an unterminated `<script` too, and `&amp;` is decoded last
+  // so `&amp;lt;` cannot become a real `<` (js/double-escaping).
+  return stripped
+    .replace(/<[^>]*>?/g, " ")
     .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
 }

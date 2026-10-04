@@ -139,6 +139,33 @@ describe("S4 - active workspace and granted houses narrow who can be messaged", 
     expect(emails(res.allowed)).toEqual(["co-own-resident@example.test"]);
   });
 
+  it("a tour inquiry naming the owner as host is still narrowed to the inquiry's house", async () => {
+    // The funnel evidence branch used to return true on `managerIds.includes(hostId)`
+    // alone, so a co-manager granted one house could message any inquirer who
+    // named that owner - whatever house they asked about.
+    const database = createMemoryDb({
+      account_link_invites: [{ inviter_user_id: OWNER, invitee_user_id: CO, status: "accepted", workspace_id: W1 }],
+      portal_schedule_records: [
+        {
+          id: "axis_admin_partner_inquiries_v1",
+          row_data: {
+            payload: [
+              { email: "asked-h1@example.test", managerUserId: OWNER, propertyId: "h1" },
+              { email: "asked-h2@example.test", managerUserId: OWNER, propertyId: "h2" },
+            ],
+          },
+        },
+      ],
+    });
+    const reach = reachFor({ houses: ["h1", "h2"], granted: { [OWNER]: ["h1"] }, activeWorkspaceId: W1 });
+    const res = await filterRecipientsBySenderScope(database as never, sender(CO, reach), [
+      { email: "asked-h1@example.test", userId: null },
+      { email: "asked-h2@example.test", userId: null },
+    ]);
+    expect(emails(res.allowed)).toEqual(["asked-h1@example.test"]);
+    expect(emails(res.blocked)).toEqual(["asked-h2@example.test"]);
+  });
+
   it("a co-manager recipient counts only for the workspace they were invited to", async () => {
     const asW1 = await filterRecipientsBySenderScope(db() as never, sender(OWNER, reachFor({ houses: ["h1"], activeWorkspaceId: W1 })), [{ email: "co@example.test", userId: CO }]);
     expect(emails(asW1.allowed)).toEqual(["co@example.test"]);

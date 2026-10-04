@@ -169,10 +169,16 @@ export function unifiedItemStatusBucket(item: UnifiedItem): RequestStatusBucket 
 }
 
 // Restrict photo links to http(s) or inline image data URLs before they reach an
-// <a href> / <Image src> sink — inlined as a guard clause at each call site so
-// CodeQL's xss-through-dom barrier recognition sees the check (see commit 924bd45
-// for the same fix pattern elsewhere).
-const SAFE_PHOTO_HREF_RE = /^(?:data:image\/|https?:\/\/)/;
+/**
+ * `<a href>` / `<Image src>` barrier for a stored photo URL. Tested inline as a
+ * guard clause at each call site so CodeQL's xss-through-dom barrier recognition
+ * sees the check — see commit 924bd45 for the same fix pattern elsewhere. Fully
+ * anchored over a charset with no HTML meta-characters: the earlier prefix-only
+ * scheme test still let `<` and `"` reach the attribute, so it was not
+ * recognised as a barrier at all.
+ */
+const SAFE_PHOTO_HREF_RE =
+  /^(?:data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[A-Za-z0-9._~:/?#@!$&*+,;=%()[\]-]+)$/i;
 
 function priorityClass(p: string) {
   const x = p.toLowerCase();

@@ -68,11 +68,15 @@ async function propertyOwnerAndForms(
   db: Db,
   propertyId: string,
 ): Promise<{ ownerUserId: string; forms: PropertyApplicationTemplate[] } | null> {
-  const { data } = await db
+  const { data, error } = await db
     .from("manager_property_records")
     .select("manager_user_id, property_data")
     .eq("id", propertyId)
     .maybeSingle();
+  // A failed read is NOT "the property has no owner". Swallowing it answered
+  // `{ required: false }` and let an ungated tour through on a workspace that
+  // requires an application first; the tour routes surface a throw as a 500.
+  if (error) throw error;
   const row = data as { manager_user_id?: unknown; property_data?: unknown } | null;
   const ownerUserId = text(row?.manager_user_id);
   if (!ownerUserId) return null;

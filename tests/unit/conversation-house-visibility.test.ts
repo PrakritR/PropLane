@@ -67,6 +67,36 @@ describe("restrictThreadToHouses - only the turns about the viewer's houses", ()
     expect(restricted.messages).toEqual([]);
   });
 
+  it("the list row's own house identity is recomputed from the turns they may read", () => {
+    // A send stamps the thread's top-level house from the LATEST turn, so this
+    // row names house 2 while only house 1's turns survive the filter.
+    const latestIsH2 = {
+      ...merged(),
+      propertyId: "H2",
+      propertyTitle: "2 Second Ave",
+      subject: "2 Second Ave \u2014 Leak",
+      rootHouseLabel: "2 Second Ave",
+      rootSubject: "1 First St \u2014 Leak",
+      messages: [
+        { id: "m2", from: "Resident", body: "about house 1 again", at: "Oct 2, 10:00 AM", houseId: "H1", houseLabel: "1 First St", subject: "1 First St \u2014 Leak" },
+        { id: "m4", from: "Manager", body: "about house 2", at: "Oct 3, 9:00 AM", houseId: "H2", houseLabel: "2 Second Ave", subject: "2 Second Ave \u2014 Leak" },
+      ],
+    };
+    const restricted = restrictThreadToHouses(latestIsH2, view(["H1"], ["H1", "H2"]))!;
+    expect(restricted.propertyId).toBe("H1");
+    expect(restricted.propertyTitle).toBe("1 First St");
+    expect(restricted.rootHouseLabel).toBe("1 First St");
+    expect(restricted.subject).toBe("1 First St \u2014 Leak");
+  });
+
+  it("leaves the identity alone when the stored house is one of theirs", () => {
+    const onH1 = { ...merged(), propertyId: "H1", propertyTitle: "1 First St", subject: "1 First St \u2014 Leak" };
+    const restricted = restrictThreadToHouses(onH1, view(["H1"], ["H1", "H2"]))!;
+    expect(restricted.propertyId).toBe("H1");
+    expect(restricted.propertyTitle).toBe("1 First St");
+    expect(restricted.subject).toBe("1 First St \u2014 Leak");
+  });
+
   it("a conversation with nothing about their houses is not theirs at all", () => {
     expect(restrictThreadToHouses(merged(), view(["H9"], ["H1", "H2"]))).toBeNull();
   });
@@ -131,6 +161,33 @@ describe("filterVisibleInboxThreadRecords applies D2 to another owner's thread",
     const house2 = { ...merged(), rootHouseId: "H2", messages: [{ id: "x", body: "h2", at: "Oct 2", houseId: "H2" }] };
     const result = await filterVisibleInboxThreadRecords(db, coScope(["H1"]), [record("t2", house2)]);
     expect(result).toEqual([]);
+  });
+
+  it("hides an untagged turn when the person is on a house the viewer was never granted", async () => {
+    // The conversation names only H1, but this person has an application on H2
+    // under the same owner. The untagged turn could be about either, so the
+    // viewer granted only H1 must not see it. The person-house map is what says
+    // so - a mismatched lookup key made it empty and showed the turn.
+    const db = createConversationFakeDb({
+      manager_application_records: [
+        { id: "a1", manager_user_id: OWNER, resident_email: "r@x.co", row_data: { bucket: "approved", propertyId: "H1" } },
+        { id: "a2", manager_user_id: OWNER, resident_email: "r@x.co", row_data: { bucket: "approved", propertyId: "H2" } },
+      ],
+    });
+    const onlyH1 = {
+      ...merged(),
+      propertyId: "H1",
+      rootHouseId: "H1",
+      messages: [
+        { id: "m2", from: "Resident", body: "about house 1 again", at: "Oct 2, 10:00 AM", houseId: "H1" },
+        { id: "m3", from: "Resident", body: "no house at all", at: "Oct 3, 9:00 AM" },
+      ],
+    };
+    const [visible] = await filterVisibleInboxThreadRecords(db, coScope(["H1"]), [
+      { ...record("t3", onlyH1), participant_email: "r@x.co" },
+    ]);
+    expect(visible).toBeDefined();
+    expect((visible!.row_data as { messages: { id: string }[] }).messages.map((m) => m.id)).toEqual(["m2"]);
   });
 
   it("never filters the owner's own conversation", async () => {

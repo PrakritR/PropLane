@@ -271,7 +271,7 @@ export const createChargeTool = defineWriteTool({
 
     const smsTest = currentSmsTestTransport();
     const charge: HouseholdCharge & { smsTestSessionId?: string } = {
-      id: `hc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `hc_${Date.now()}_${crypto.randomUUID().replace(/-/g, "").slice(0, 6)}`,
       createdAt: new Date().toISOString(),
       residentEmail: target.residentEmail,
       residentName: target.residentName,

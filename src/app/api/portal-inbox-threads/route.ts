@@ -4,12 +4,22 @@ import { visibleManagerSmsProjectionIds } from "@/lib/sms/sms-projection-inbox.s
 import type { SmsProjectionSummary } from "@/lib/sms/sms-projection.server";
 import { portalInboxReadObservation, type PortalInboxReadRecord } from "@/lib/portal-inbox-read-state.server";
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   filterVisibleInboxThreadRecords,
+  grantedHouseIdsForOwner,
   resolveCommunicationScope,
   type CommunicationScope,
 } from "@/lib/communication/conversation-visibility.server";
 import { buildClientPortalInboxThreadUpsert, isServerReservedInboxThreadId } from "@/lib/portal-inbox-thread-upsert";
+import {
+  clearedInboxThreadRowData,
+  mergeInboxThreadRowData,
+  storedThreadMessageIds,
+  type ThreadAppendRule,
+  type ThreadMergeRefusal,
+} from "@/lib/communication/shared-thread-merge";
+import { threadHouseIds } from "@/lib/communication/conversation-house-filter";
 import {
   ADMIN_INBOX_SCOPE,
   applyPortalInboxThreadScope,
@@ -18,6 +28,7 @@ import {
   RESIDENT_INBOX_SCOPE,
   resolveInboxScopeUser,
   VENDOR_INBOX_SCOPE,
+  type InboxScopeUser,
 } from "@/lib/portal-inbox-thread-scope";
 import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
@@ -43,6 +54,115 @@ function normalizeInboxRow(row: Record<string, unknown>): PersistedInboxThread {
     id: String(stored.id ?? "").trim(),
     email: String(stored.email ?? stored.participantEmail ?? stored.participant_email ?? "").trim().toLowerCase(),
   } as PersistedInboxThread;
+}
+
+const APPEND_REFUSALS: Record<ThreadMergeRefusal, string> = {
+  inbound_turn_not_authorable: "Only the sender can add their own message to a shared conversation.",
+  owner_turn_not_authorable: "Only the sender can add their own message to a shared conversation.",
+  house_not_granted: "That message names a house you were not granted.",
+};
+
+/**
+ * What this caller may add to a row they are looking at.
+ *
+ * Append-only applies in EVERY scope. The manager scope reaches another owner's
+ * conversation through a Communication grant (a `delegate`); the resident and
+ * vendor scopes reach a manager-owned row because the caller IS the person it is
+ * with (a `participant`). Both are someone else's row, so the server attributes
+ * the turn; only a row the caller owns keeps the body's attribution.
+ */
+function appendRuleForCaller(input: {
+  user: InboxScopeUser;
+  priorOwnerUserId: string | null | undefined;
+  priorParticipantEmail: string | null | undefined;
+  priorRowData: unknown;
+  scope: CommunicationScope | null;
+}): ThreadAppendRule {
+  const priorOwner = String(input.priorOwnerUserId ?? "").trim();
+  if (!priorOwner || priorOwner === input.user.id) return { kind: "owner" };
+
+  const authorUserId = input.user.id;
+  const authorName = String(input.user.name ?? "").trim() || input.user.email || "A teammate";
+  if (input.scope) {
+    return {
+      kind: "delegate",
+      allowedHouses: grantedHouseIdsForOwner(input.scope, priorOwner),
+      conversationHouseIds: threadHouseIds(asRowData(input.priorRowData)),
+      authorUserId,
+      authorName,
+    };
+  }
+
+  const callerEmail = String(input.user.email ?? "").trim().toLowerCase();
+  const participant = String(input.priorParticipantEmail ?? "").trim().toLowerCase();
+  if (callerEmail && participant && callerEmail === participant) {
+    const rowData = asRowData(input.priorRowData);
+    return {
+      kind: "participant",
+      authorUserId,
+      authorName,
+      conversationHouseId:
+        String(rowData.propertyId ?? rowData.assignedPropertyId ?? rowData.rootHouseId ?? "").trim(),
+    };
+  }
+
+  // Neither the owner, a granted co-manager, nor the person it is with: nothing
+  // to add. The scope filter should not have returned this row at all.
+  return {
+    kind: "delegate",
+    allowedHouses: new Set<string>(),
+    conversationHouseIds: [],
+    authorUserId,
+    authorName,
+  };
+}
+
+function asRowData(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** How many turns a row is holding right now (not counting what an earlier clear tombstoned). */
+function turnCountOf(rowData: unknown): number {
+  const messages = asRowData(rowData).messages;
+  return Array.isArray(messages) ? messages.length : 0;
+}
+
+/** The PropLane Assistant conversation, the one thread whose turns may be cleared. */
+function isAssistantInboxThreadId(id: string): boolean {
+  return id.startsWith("agent_notice_") || id.startsWith("resident-agent-");
+}
+
+/**
+ * Message ids held by this conversation's OTHER stored rows.
+ *
+ * The list GET folds several rows into one person conversation, so the body
+ * legitimately carries sibling rows' turns; appending those to the canonical
+ * row would duplicate them. Reading the ids the body NAMES can only ever
+ * suppress an append, so a body that names the wrong siblings loses its own
+ * turn rather than planting anything.
+ */
+async function collapsedSiblingMessageIds(
+  db: SupabaseClient,
+  scopeKey: string,
+  canonicalId: string,
+  row: PersistedInboxThread,
+): Promise<string[]> {
+  const ids = [
+    ...new Set(
+      (Array.isArray(row.sourceThreadIds) ? row.sourceThreadIds : [])
+        .map((value) => String(value).trim())
+        .filter((value) => value && value !== canonicalId),
+    ),
+  ].slice(0, 50);
+  if (ids.length === 0) return [];
+  const { data } = await db
+    .from("portal_inbox_thread_records")
+    .select("row_data")
+    .in("id", ids)
+    .eq("scope", scopeKey);
+  return (Array.isArray(data) ? data : []).flatMap((sibling) =>
+    storedThreadMessageIds((sibling as { row_data?: unknown }).row_data),
+  );
 }
 
 export async function GET(request: Request) {
@@ -250,7 +370,7 @@ export async function GET(request: Request) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "deleteIds" | "replace" | "changeFolder" | "markRead";
+      action?: "upsert" | "delete" | "deleteIds" | "replace" | "changeFolder" | "markRead" | "clearMessages";
       scope?: string;
       folderAction?: "archive" | "restore";
       id?: string;
@@ -258,6 +378,7 @@ export async function POST(req: Request) {
       row?: Record<string, unknown>;
       rows?: Record<string, unknown>[];
       sources?: { id?: unknown; observation?: unknown }[];
+      placeholder?: { preview?: unknown; subject?: unknown; from?: unknown };
     };
 
     const scopeKey = String(
@@ -265,7 +386,9 @@ export async function POST(req: Request) {
         ? (body.rows?.[0]?.scope ?? "")
         : body.action === "upsert"
           ? (body.row?.scope ?? "")
-          : body.action === "changeFolder" || body.action === "markRead" ? body.scope : "",
+          : body.action === "changeFolder" || body.action === "markRead" || body.action === "clearMessages"
+            ? body.scope
+            : "",
     ).trim();
 
     const ctx = await resolveInboxScopeUser(scopeKey);
@@ -329,6 +452,67 @@ export async function POST(req: Request) {
         }
       }
       return NextResponse.json({ ok: !failed, results }, { status: failed ? 500 : 200 });
+    }
+
+    // Clearing a conversation's turns is the ONE way history shrinks, so it is
+    // its own explicit, audited action rather than a side effect of saving a
+    // row: an ordinary save is append-only. Offered on the PropLane Assistant
+    // conversation, which the server recreates, so the row stays and empties.
+    if (body.action === "clearMessages") {
+      const id = String(body.id ?? "").trim();
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      if (!isAssistantInboxThreadId(id)) {
+        return NextResponse.json({ error: "Only the Assistant conversation can be cleared." }, { status: 400 });
+      }
+      const clearScope =
+        scopeKey === MANAGER_INBOX_SCOPE ? await resolveCommunicationScope(ctx.db, ctx.user.id, "delete") : null;
+      let clearQuery = ctx.db
+        .from("portal_inbox_thread_records")
+        .select("id, owner_user_id, participant_email, scope, thread_type, row_data")
+        .eq("id", id)
+        .eq("scope", scopeKey);
+      clearQuery = applyPortalInboxThreadScope(clearQuery, ctx.user, clearScope?.ownerIds ?? [], {
+        participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
+      }) as typeof clearQuery;
+      const { data: clearTarget, error: clearError } = await clearQuery.maybeSingle();
+      if (clearError) return NextResponse.json({ error: clearError.message }, { status: 500 });
+      if (!clearTarget) return NextResponse.json({ error: "Record not found." }, { status: 404 });
+      // An assistant conversation belongs to ONE account; only that account clears it.
+      if (String((clearTarget as { owner_user_id?: string | null }).owner_user_id ?? "").trim() !== ctx.user.id) {
+        return NextResponse.json({ error: "Record not found." }, { status: 404 });
+      }
+      const placeholder = (body.placeholder ?? {}) as { preview?: unknown; subject?: unknown; from?: unknown };
+      const cleared = clearedInboxThreadRowData((clearTarget as { row_data?: unknown }).row_data, {
+        preview: typeof placeholder.preview === "string" ? placeholder.preview : "",
+        subject: typeof placeholder.subject === "string" ? placeholder.subject : undefined,
+        from: typeof placeholder.from === "string" ? placeholder.from : undefined,
+      });
+      const { error: writeError } = await ctx.db
+        .from("portal_inbox_thread_records")
+        .update({ row_data: cleared, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("scope", scopeKey)
+        .eq("owner_user_id", ctx.user.id);
+      if (writeError) return NextResponse.json({ error: writeError.message }, { status: 500 });
+      await ctx.db
+        .from("audit_log")
+        .insert({
+          actor_user_id: ctx.user.id,
+          landlord_id: ctx.user.id,
+          action: "inbox_thread_cleared",
+          tool_name: "inbox_thread_cleared",
+          input_summary: { threadId: id, scope: scopeKey },
+          result_summary: {
+            clearedMessages: turnCountOf((clearTarget as { row_data?: unknown }).row_data),
+          },
+          dedupe_key: null,
+          created_at: new Date().toISOString(),
+        })
+        .then(({ error }) => {
+          // The clear already happened; a missing audit row must not undo it, but it must not be silent.
+          if (error) console.error("[portal-inbox-threads] clear audit insert failed", error.message);
+        });
+      return NextResponse.json({ ok: true });
     }
 
     if (body.action === "changeFolder") {
@@ -473,12 +657,33 @@ export async function POST(req: Request) {
           owner_user_id?: string | null;
           participant_email?: string | null;
           scope?: string | null;
+          row_data?: unknown;
         };
         // Ownership, recipient, scope and type are the stored row's, never the body's.
         record.owner_user_id = prior.owner_user_id ?? record.owner_user_id;
         record.participant_email = prior.participant_email ?? null;
         record.scope = prior.scope ?? record.scope;
         record.thread_type = (existing[0] as { thread_type?: string | null }).thread_type ?? null;
+        // Conversation history is append-only, for the owner as much as for a
+        // co-manager: a body is a claim about history, and the only complete
+        // copy is the stored one. Clearing or editing a turn has its own action.
+        const rule = appendRuleForCaller({
+          user: ctx.user,
+          priorOwnerUserId: prior.owner_user_id,
+          priorParticipantEmail: prior.participant_email,
+          priorRowData: prior.row_data,
+          scope: upsertScope,
+        });
+        const merged = mergeInboxThreadRowData({
+          stored: prior.row_data,
+          requested: normalized as unknown as Record<string, unknown>,
+          rule,
+          knownElsewhere: await collapsedSiblingMessageIds(ctx.db, scopeKey, id, normalized),
+        });
+        if (!merged.ok) {
+          return NextResponse.json({ error: APPEND_REFUSALS[merged.reason] }, { status: 403 });
+        }
+        record.row_data = merged.rowData;
       } else if (isTeamThreadId(id) || (ctx.user.role !== "admin" && isServerReservedInboxThreadId(id))) {
         continue;
       } else if (ctx.user.role !== "admin") {

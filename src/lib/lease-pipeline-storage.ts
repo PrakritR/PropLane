@@ -513,7 +513,8 @@ export function leaseLandlordPartyNameFromHtml(html: string): string | null {
   const match = html.match(
     /<th[^>]*>\s*Landlord\s*\/\s*Operator\s*<\/th>\s*<td[^>]*>[\s\S]*?<strong>([^<]*)<\/strong>/i,
   );
-  const name = match?.[1]?.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+  // `&amp;` last, or `&amp;lt;` decodes twice into a real `<` (CodeQL js/double-escaping).
+  const name = match?.[1]?.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim();
   return name || null;
 }
 
