@@ -29,6 +29,7 @@ import {
   XCircle,} from "lucide-react";
 import {
   applicationDetailHref,
+  bookingRecordHref,
   documentRecordHref,
   inspectionDetailHref,
   leaseDetailHref,
@@ -52,6 +53,7 @@ import {
   workOrderDetailHref,
   type ApplicationBucketId,
   type ApplicationDetailTabId,
+  type BookingDetailTabId,
   type DocumentDetailTabId,
   type LeaseDetailTabId,
   type LeasePipelineTabId,
@@ -641,11 +643,27 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   },
   booking: {
     basePathDefault: "/portal",
-    ownGroups: [{ label: "Booking", ids: [{ id: "overview", label: "Overview" }] }],
-    headerActions: [{ id: "edit", label: "Edit booking", icon: Pencil }, { id: "message", label: "Message", icon: Mail }, { id: "download", label: "Download", icon: Download }],
+    // Studio plan services-vendors-1004: BOOKING: Booking · Guest, LINKED: Payments, then
+    // Communication (the shared trio). The Booking section keeps the `overview` id.
+    ownGroups: [
+      { label: "Booking", ids: [
+        { id: "overview", label: "Booking" },
+        { id: "guest", label: "Guest" },
+      ] },
+      { label: "Linked", ids: [{ id: "payments", label: "Payments" }] },
+    ],
+    // Message is the filled primary (there is no check-in-details action to lead with); Edit is
+    // dropped by the page for a channel stay, which only the channel can change.
+    headerActions: [
+      { id: "message", label: "Message", icon: Mail, tone: "primary" },
+      { id: "edit", label: "Edit", icon: Pencil },
+    ],
     hasDocuments: false,
     hasActivity: false,
-    href: (ctx) => genericHref(ctx.basePath ?? "/portal", "bookings"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      return (recordId, tab) => bookingRecordHref(basePath, recordId, tab as BookingDetailTabId);
+    },
   },
   document: {
     basePathDefault: "/portal",

@@ -90,3 +90,40 @@ describe("one header row", () => {
     expect(pref).toContain("managerCalendarViewStorageKey(isPhone)");
   });
 });
+
+describe("Agenda (studio plan services-vendors-1004)", () => {
+  const views = readFileSync(join(process.cwd(), "src/components/portal/manager-calendar-views.tsx"), "utf8");
+  const agenda = views.slice(views.indexOf("export function CalendarAgendaView"), views.indexOf("export function CalendarDayPanel"));
+
+  it("rows wear a neutral tile, not the type colour", () => {
+    expect(agenda).not.toContain("kindStyle(");
+    expect(agenda).not.toContain("var(--k)");
+    expect(agenda).toContain("calendar-agenda-tile");
+  });
+
+  it("the type fact names who has it: Service · vendor, Task · teammate, Tour", async () => {
+    const { agendaTypeFact } = await import("@/components/portal/manager-calendar-views");
+    const item = (kind: "service" | "task" | "tour", assigneeLabel?: string) => ({ kind, meeting: { assigneeLabel } as never });
+    expect(agendaTypeFact(item("service", "Rapid Pipes"))).toBe("Service · Rapid Pipes");
+    expect(agendaTypeFact(item("task", "Jordan Lee"))).toBe("Task · Jordan Lee");
+    expect(agendaTypeFact(item("tour", "Ignored"))).toBe("Tour");
+    expect(agendaTypeFact(item("service"))).toBe("Service");
+  });
+
+  it("the day header is solid and sticks at the one measured offset", () => {
+    expect(agenda).toContain("bg-background");
+    expect(agenda).toContain("top-[var(--portal-calendar-header-top,0px)]");
+    expect(panels.match(/"--portal-calendar-header-top"/g)).toHaveLength(1);
+  });
+
+  it("the empty strip has no + of its own - the header + is the only create", () => {
+    expect(panels).not.toContain("calendar-empty-add");
+    const strip = views.slice(views.indexOf("export function CalendarEmptyStrip"), views.indexOf("legend"));
+    expect(strip).not.toContain("addMenu");
+  });
+
+  it("a row and its Open menu item go through the record opener, with the dialog as fallback", () => {
+    expect(panels).toContain("onOpenItem={openAgendaItem}");
+    expect(panels).toContain("calendar-event-open-record");
+  });
+});

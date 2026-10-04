@@ -113,7 +113,6 @@ export function ManagerBookingsListView({
             <BookingsRowOverflow
               key={key}
               label={name}
-              onView={() => navigate(href)}
               onEditDates={!isChannelBookingSource(entry.source) ? () => onEditBlock ? onEditBlock(entry) : navigate(href) : undefined}
               onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
               onCancel={

@@ -11,6 +11,7 @@
  * bucket (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 
+import { useState } from "react";
 import { CalendarDays, CheckCircle2, ListChecks, UserRound } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { compactTaskRoomLabel } from "@/lib/manager-task-display";
@@ -91,12 +92,13 @@ export function TaskListCardRow({
   onOpen: () => void;
   dataAttr?: string;
 }) {
+  const [nowMs] = useState(() => Date.now());
   const assigneeName = task.assignee?.name?.trim() ?? "";
   const room = compactTaskRoomLabel(task.roomLabel);
   const place = [propertyLabel, room].filter(Boolean).join(" · ") || "No property";
   const completed = showDoneDate || task.completed;
   const completedOn = completed ? formatPortalRowDate(task.updatedAt) : "";
-  const overdueOn = !completed && taskDueState(task, Date.now()) === "overdue";
+  const overdueOn = !completed && taskDueState(task, nowMs) === "overdue";
   const overdueDate = !overdueOn
     ? ""
     : task.start && task.end
@@ -122,7 +124,7 @@ export function TaskListCardRow({
                 {overdueDate ? `Overdue · was due ${overdueDate}` : "Overdue"}
               </PortalRowFact>
             ) : (
-              <PortalRowFact icon={CalendarDays}>{taskDueLabel(task, formatRange)}</PortalRowFact>
+              <PortalRowFact icon={CalendarDays}>{taskDueLabel(task, formatRange, nowMs)}</PortalRowFact>
             )}
           </>
         )

@@ -183,7 +183,7 @@ export function DemoSectionRenderer({
       case "payments":
         return <ManagerPayments />;
       case "task-list":
-        return <ManagerTaskList tabId={tabId === "completed" ? "completed" : "in-progress"} basePath={basePath} />;
+        return <ManagerTaskList tabId={tabId === "completed" ? "completed" : "open"} basePath={basePath} />;
       case "services":
         return (
           <ManagerAllServicesPanel

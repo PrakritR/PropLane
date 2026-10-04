@@ -19,7 +19,6 @@ import { loadLifecycleAutomation } from "@/lib/task-lifecycle-automation.server"
 import { loadPropertyOverridesForManagers } from "@/lib/settings/property-overrides.server";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { isManagerTaskLate } from "@/lib/manager-task-display";
 import { managerTaskListHref } from "@/lib/portal-detail-routes";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { shouldNotifyManagerOfApplicationSubmit } from "@/lib/application-submitted-notification.server";
@@ -370,7 +369,6 @@ export async function sendTaskAssigneeEmail(input: {
   if (!to) return { sent: false, error: "assignee_email_missing" };
 
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
-  const late = isManagerTaskLate(input.task);
   const tasksUrl = `${origin}${managerTaskListHref("/portal", "open")}`;
   const dueLabel = input.task.dueDate
     ? new Date(input.task.dueDate).toLocaleString("en-US", { timeZone: "America/Los_Angeles" })

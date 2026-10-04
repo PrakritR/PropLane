@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Download, Mail, Pencil } from "lucide-react";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
-import { RecordFactCard, RecordFactRow, RecordStatTiles, StatTile } from "@/components/portal/portal-record-overview-kit";
+import { RecordFactCard, RecordFactRow, RecordRowsCard, type RecordRowItem } from "@/components/portal/portal-record-overview-kit";
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import { BookingsRemoveStayDialog } from "@/components/portal/bookings-remove-stay-dialog";
@@ -17,10 +16,13 @@ import type { BlockDatesDraft } from "@/components/portal/bookings-block-dates-m
 import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-dates-residents";
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
-import { addDaysToDateKey, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
+import { addDaysToDateKey, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRateLabel, bookingStatusLabel, canCancelBooking, canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
-import { bookingRecordHref, managerBookingListHref } from "@/lib/portal-detail-routes";
+import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
+import { bookingNights, bookingRateSummary, guestPastStays } from "@/lib/channel-calendar/booking-record";
+import { readHouseholdCharges } from "@/lib/household-charges";
+import { dateKey } from "@/lib/room-availability-calendar";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
@@ -39,39 +41,82 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const [removingStay, setRemovingStay] = useState<PropertyBookingEntry | null>(null);
   const entry = entries.find((candidate) => bookingEntryKey(candidate) === bookingId || bookingLegacyEntryKey(candidate) === bookingId);
   useEffect(() => {
-    if (entry && bookingEntryKey(entry) !== bookingId) navigate(bookingRecordHref(basePath, bookingEntryKey(entry), tabProp === "communication" ? "communication" : "overview"));
+    if (entry && bookingEntryKey(entry) !== bookingId) navigate(bookingRecordHref(basePath, bookingEntryKey(entry), parseBookingDetailTab(tabProp)));
   }, [entry, bookingId, basePath, tabProp, navigate]);
   const removeStayDialog = removingStay ? <BookingsRemoveStayDialog key={bookingEntryKey(removingStay)} entry={removingStay} onClose={() => setRemovingStay(null)} onChanged={() => onRefresh?.()} /> : null;
   if (!entry) return <>{removeStayDialog}<PortalDataTableEmpty icon="default" message={loading ? "Loading…" : "Booking not found."} /></>;
-  const tab = tabProp === "communication" ? "communication" : "overview";
+  const tab = parseBookingDetailTab(tabProp);
   const channel = isChannelBookingSource(entry.source);
   const name = isChannelBookingSource(entry.source) ? bookingGuestLabel(entry.summary, entry.source) : entry.summary;
   const resident = residentOptions.find((option) => option.email === entry.residentEmail || option.name === entry.residentName || option.name === entry.summary);
+  const guestEmail = entry.residentEmail || resident?.email || "";
   const sourceTarget = channel ? null : bookingOpenTarget(entry, basePath);
   const backHref = managerBookingListHref(basePath, "upcoming");
   const range = formatBookingStayRange(entry.start, addDaysToDateKey(entry.end, 1), entry.openEnded);
-  const nights = Math.max(1, Math.round((Date.parse(entry.end) - Date.parse(entry.start)) / 86400000) + 1);
+  const nights = bookingNights(entry);
   const conflicts = channel ? bookingConflictsFor(entries.filter((candidate) => candidate !== entry), entry) : [];
-  const sections = { ...recordSections("manager", "booking", { basePath }), headerActions: [
-    ...(!channel ? [{ id: "edit", label: "Edit booking", icon: Pencil }] : []),
-    { id: "message", label: "Message", icon: Mail }, { id: "download", label: "Download", icon: Download },
-  ] };
+  const today = dateKey(new Date());
+  const base = recordSections("manager", "booking", { basePath });
+  const sections = { ...base, headerActions: base.headerActions.filter((action) => action.id !== "edit" || !channel) };
   const onAction = (action: string) => {
     if (action === "edit") setEditing(true);
     if (action === "message") navigate(bookingRecordHref(basePath, bookingId, "communication"));
-    if (action === "download") {
-      const blob = new Blob([JSON.stringify({ guest: name, property: entry.propertyLabel, room: entry.roomLabel, dates: range, status: bookingStatusLabel(entry), rate: bookingRateLabel(entry), source: bookingSourceLabel(entry.source), notes: entry.reason ?? "" }, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "booking.json"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
   };
+  const place = bookingPlaceLine(entry.propertyLabel, entry.roomLabel);
+  const channelLabel = channel ? [bookingSourceLabel(entry.source), entry.sourceUid].filter(Boolean).join(" · ") : sourceTarget ? "" : entry.stayDetails?.source || (entry.source === "block" ? "Direct" : bookingSourceLabel(entry.source));
+  const stayDetailRows = Object.entries(entry.stayDetails ?? {}).filter(([key, value]) => key !== "source" && value);
+  const checkTimes = [entry.stayDetails?.earlyCheckIn && `Check-in ${entry.stayDetails.earlyCheckIn}`, entry.stayDetails?.lateCheckOut && `Check-out ${entry.stayDetails.lateCheckOut}`].filter(Boolean).join(" · ");
+  const status = bookingStatusLabel(entry);
+
+  let body: ReactNode;
+  if (tab === "communication") {
+    body = renderRecordSection("communication", { role: "manager", kind: "booking", kindLabel: "booking", recordId: bookingId, recordLabel: name, propertyId: entry.propertyId, contactIds: guestEmail ? [guestEmail] : undefined });
+  } else if (tab === "guest") {
+    const past = guestPastStays(entry, entries, today);
+    body = (
+      <RecordFactCard title="Guest" dataAttr="booking-guest-card">
+        <RecordFactRow label="Name" value={name} />
+        <RecordFactRow label="Email" value={guestEmail || "—"} />
+        <RecordFactRow label="Phone" value={entry.residentPhone || "—"} />
+        <RecordFactRow label="Past stays" value={past.count === 0 ? "None yet" : `${past.count} · ${past.latest ? `last ${formatBookingStayRange(past.latest.start, addDaysToDateKey(past.latest.end, 1))}` : ""}`} />
+      </RecordFactCard>
+    );
+  } else if (tab === "payments") {
+    const summary = bookingRateSummary(entry);
+    const charges = entry.applicationId ? readHouseholdCharges().filter((charge) => charge.applicationId === entry.applicationId) : [];
+    const rows: RecordRowItem[] = [
+      ...(summary ? [{ id: "stay", title: summary.total ? "Stay total" : "Rate", sub: summary.calc, figure: summary.total ?? bookingRateLabel(entry) }] : [{ id: "rate", title: "Rate", sub: `${nights} ${nights === 1 ? "night" : "nights"}`, figure: bookingRateLabel(entry) }]),
+      ...charges.map((charge) => ({
+        id: charge.id,
+        title: charge.title,
+        sub: charge.status === "paid" ? "Paid" : charge.status === "cancelled" ? "Cancelled" : "To pay",
+        figure: charge.amountLabel,
+        href: paymentRecordDetailHref(basePath, "incoming", charge.status === "paid" ? "paid" : "pending", charge.id),
+      })),
+    ];
+    body = <RecordRowsCard title="Payments" rows={rows} dataAttr="booking-payments-card" />;
+  } else {
+    body = (
+      <RecordFactCard title="Booking" dataAttr="booking-overview-facts">
+        <RecordFactRow label="Dates" value={`${range}${entry.openEnded ? " · open-ended" : ` · ${nights} ${nights === 1 ? "night" : "nights"}`}`} />
+        <RecordFactRow label="Where" value={place} />
+        {channelLabel ? <RecordFactRow label="Channel" value={channelLabel} /> : null}
+        {sourceTarget ? <RecordFactRow label="Source" value={<Link className="text-primary" href={sourceTarget.href}>{entry.source === "hold" ? "Application" : bookingSourceLabel(entry.source)}</Link>} /> : null}
+        {checkTimes ? <RecordFactRow label="Check-in / out" value={checkTimes} /> : null}
+        <RecordFactRow label="Status" value={status} />
+        <RecordFactRow label="Rate" value={bookingRateLabel(entry)} />
+        {entry.lastSyncedAt ? <RecordFactRow label="Last synced" value={new Date(entry.lastSyncedAt).toLocaleString()} /> : null}
+        {entry.reason ? <RecordFactRow label="Notes" value={entry.reason} /> : null}
+        {stayDetailRows.filter(([key]) => key !== "earlyCheckIn" && key !== "lateCheckOut").map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
+        {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{conflict.summary} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}
+      </RecordFactCard>
+    );
+  }
   return <>
-    <PortalRecordDetailPage pageTitle="Bookings" title={name} subtitle={`${entry.propertyLabel} · ${entry.roomLabel}`} avatarName={name} backHref={backHref} backLabel="Back to bookings" hideBackText bareHeader dataAttrBack="booking-detail-back" iconTitleActions pinScrollBody>
-      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} /><BookingsRowOverflow label={name} onCancel={canCancelBooking(entry) ? () => setCancelling(true) : canRemoveChannelStay(entry) ? () => setRemovingStay(entry) : undefined} cancelLabel={canRemoveChannelStay(entry) ? "Remove stay" : undefined} /></PortalRecordActions>
+    <PortalRecordDetailPage pageTitle="Bookings" title={name} subtitle={place} avatarName={name} backHref={backHref} backLabel="Back to bookings" hideBackText bareHeader dataAttrBack="booking-detail-back" iconTitleActions pinScrollBody>
+      <PortalRecordActions><PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" /><BookingsRowOverflow label={name} onCancel={canCancelBooking(entry) ? () => setCancelling(true) : canRemoveChannelStay(entry) ? () => setRemovingStay(entry) : undefined} cancelLabel={canRemoveChannelStay(entry) ? "Remove stay" : undefined} /></PortalRecordActions>
       <PortalRecordSectionChrome sections={sections} recordId={bookingId} activeId={tab} title={name} subtitle={entry.propertyLabel} backHref={backHref} backLabel="All bookings" ariaLabel="Booking sections" onHeaderAction={onAction}>
-        {tab === "communication" ? renderRecordSection("communication", { role: "manager", kind: "booking", kindLabel: "booking", recordId: bookingId, recordLabel: name, propertyId: entry.propertyId, contactIds: (entry.residentEmail || resident?.email) ? [entry.residentEmail || resident!.email] : undefined }) : <div className="space-y-4" data-attr="booking-overview-facts">
-          <RecordStatTiles><StatTile label="Dates" value={range} detail={entry.openEnded ? "Open-ended" : `${nights} ${nights === 1 ? "night" : "nights"}`} dataAttr="booking-dates" /><StatTile label="Room" value={entry.roomLabel} dataAttr="booking-room" /><StatTile label="Rate" value={bookingRateLabel(entry)} dataAttr="booking-rate" /><StatTile label="Status" value={bookingStatusLabel(entry)} dataAttr="booking-status" /></RecordStatTiles>
-          <div className="grid gap-4 lg:grid-cols-2"><RecordFactCard title="Guest"><RecordFactRow label="Name" value={name} /><RecordFactRow label="Email" value={entry.residentEmail || resident?.email || "—"} /><RecordFactRow label="Phone" value={entry.residentPhone || "—"} /></RecordFactCard><RecordFactCard title="Stay"><RecordFactRow label="Property" value={entry.propertyLabel} /><RecordFactRow label="Room" value={entry.roomLabel} /><RecordFactRow label="Source" value={sourceTarget ? <Link className="text-primary" href={sourceTarget.href}>{(entry.source === "hold" ? "Application" : bookingSourceLabel(entry.source))}</Link> : entry.stayDetails?.source || (entry.source === "block" ? "Direct" : bookingSourceLabel(entry.source))} />{entry.sourceUid ? <RecordFactRow label="Calendar event" value={entry.sourceUid} /> : null}{entry.lastSyncedAt ? <RecordFactRow label="Last synced" value={new Date(entry.lastSyncedAt).toLocaleString()} /> : null}{entry.reason ? <RecordFactRow label="Notes" value={entry.reason} /> : null}{Object.entries(entry.stayDetails ?? {}).filter(([key, value]) => key !== "source" && value).map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage", earlyCheckIn: "Early check-in", lateCheckOut: "Late check-out" } as Record<string, string>)[key] ?? key} value={value} />)}{conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{conflict.summary} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}</RecordFactCard></div>
-        </div>}
+        {body}
       </PortalRecordSectionChrome>
     </PortalRecordDetailPage>
     {removeStayDialog}

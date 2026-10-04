@@ -513,22 +513,22 @@ export function managerBookingListHref(
  * come from `src/lib/portals/record-sections.ts`; this is the URL contract
  * they and `render-portal-section.tsx` both read.
  */
-export const BOOKING_DETAIL_TABS = [
-  "overview",
-  "guest",
-  "charges",
-  "communication",
-  "documents",
-  "activity",
-] as const;
+export const BOOKING_DETAIL_TABS = ["overview", "guest", "payments", "communication"] as const;
 export type BookingDetailTabId = (typeof BOOKING_DETAIL_TABS)[number];
 export const DEFAULT_BOOKING_DETAIL_TAB: BookingDetailTabId = "overview";
+
+/** Tabs declared before the page rendered them (charges, documents, activity) land on their nearest home. */
+const BOOKING_DETAIL_TAB_ALIASES: Record<string, BookingDetailTabId> = {
+  charges: "payments",
+  documents: "overview",
+  activity: "overview",
+};
 
 export function parseBookingDetailTab(raw: string | undefined | null): BookingDetailTabId {
   if (raw && (BOOKING_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as BookingDetailTabId;
   }
-  return DEFAULT_BOOKING_DETAIL_TAB;
+  return (raw && BOOKING_DETAIL_TAB_ALIASES[raw]) || DEFAULT_BOOKING_DETAIL_TAB;
 }
 
 /**

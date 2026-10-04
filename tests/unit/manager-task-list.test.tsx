@@ -102,11 +102,13 @@ describe("ManagerTaskList", () => {
   });
 
   it("renders the task list shell and add row", async () => {
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^Open/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Overdue/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^Done/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Assigned/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Scheduled/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Completed/i })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Overdue/i })).not.toBeInTheDocument();
     // The dashed ADD row is the only add path — the toolbar's Add button was
     // the same action a second time on the same screen.
     await waitFor(() => {
@@ -120,7 +122,7 @@ describe("ManagerTaskList", () => {
 
   it("renders grouped task rows with record menus", async () => {
     tasks.push(makeTask());
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
@@ -142,16 +144,16 @@ describe("ManagerTaskList", () => {
 
   it("marks only the task whose action menu was opened as done", async () => {
     tasks.push(makeTask());
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Fix the porch light/i }), { key: "ArrowDown" });
-    await screen.findByRole("menuitem", { name: "Mark done" });
-    expect(screen.getByRole("menuitem", { name: "Mark done" })).toBeInTheDocument();
+    await screen.findByRole("menuitem", { name: "Complete" });
+    expect(screen.getByRole("menuitem", { name: "Complete" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Mark done" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Complete" }));
     await waitFor(() => {
       expect(updateManagerTask).toHaveBeenCalledWith("mgr-1", "task-1", { completed: true });
     });
@@ -160,7 +162,7 @@ describe("ManagerTaskList", () => {
   it("filters the list from the command-bar search like Properties", async () => {
     tasks.push(makeTask({ id: "task-1", title: "Fix the porch light" }));
     tasks.push(makeTask({ id: "task-2", title: "Replace filter" }));
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    render(<ManagerTaskList tabId="open" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
