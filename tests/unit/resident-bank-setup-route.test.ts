@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   user: { id: "resident-1", email: "resident@example.test" } as { id: string; email: string } | null,
   residentRole: true,
+  testWorkspace: false,
   customerId: "cus_resident",
   setup: { id: "seti_resident", customer: "cus_resident", status: "requires_action",
     client_secret: "seti_secret", payment_method_types: ["us_bank_account"],
@@ -23,7 +24,9 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () =
 vi.mock("@/lib/auth/resident-role-access", () => ({ authorizeResidentRole: async () => state.residentRole }));
 vi.mock("@/lib/test-workspaces/effects.server", () => ({
   TestWorkspaceProviderDisabledError: class TestWorkspaceProviderDisabledError extends Error {},
-  assertTestWorkspaceProviderEffectAllowed: async () => {},
+  assertTestWorkspaceProviderEffectAllowed: async () => {
+    if (state.testWorkspace) throw new (await import("@/lib/test-workspaces/effects.server")).TestWorkspaceProviderDisabledError("test");
+  },
 }));
 vi.mock("@/lib/stripe", () => ({ getStripe: () => ({ setupIntents: {
   list: (...args: unknown[]) => state.list(...args),
@@ -45,6 +48,7 @@ describe("resident saved bank verification resume", () => {
     vi.clearAllMocks();
     state.user = { id: "resident-1", email: "resident@example.test" };
     state.residentRole = true;
+    state.testWorkspace = false;
     state.customerId = "cus_resident";
     state.setup = { id: "seti_resident", customer: "cus_resident", status: "requires_action",
       client_secret: "seti_secret", payment_method_types: ["us_bank_account"],
@@ -80,6 +84,21 @@ describe("resident saved bank verification resume", () => {
     state.residentRole = false;
     const response = await POST(postRequest());
     expect(response.status).toBe(403);
+    expect(state.retrieve).not.toHaveBeenCalled();
+    expect(state.verify).not.toHaveBeenCalled();
+    const resume = await GET(listRequest());
+    expect(resume.status).toBe(403);
+    expect(state.list).not.toHaveBeenCalled();
+  });
+
+  it("refuses a test-workspace actor before any Stripe read or verification", async () => {
+    state.testWorkspace = true;
+    const verify = await POST(postRequest());
+    expect(verify.status).toBe(403);
+    const resume = await GET(listRequest());
+    expect(resume.status).toBe(403);
+    expect(state.retrieve).not.toHaveBeenCalled();
+    expect(state.list).not.toHaveBeenCalled();
     expect(state.verify).not.toHaveBeenCalled();
   });
 

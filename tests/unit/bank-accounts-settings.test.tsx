@@ -6,11 +6,20 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
   useOptionalAppUi: () => null,
 }));
+// The verification sheet has its own suite (payout-verify-sheet.test.tsx); here a
+// stub reports the outcome the flow reacts to. The embedded Stripe component must
+// never mount in the Add-bank flow, so it is stubbed visibly to assert absence.
+vi.mock("@/components/portal/payout-verify-sheet", () => ({
+  PayoutVerifySheet: ({ open, onVerified }: { open: boolean; onVerified?: (status: "verified" | "pending") => void }) =>
+    open ? (
+      <button type="button" data-attr="stub-verify-sheet" onClick={() => onVerified?.("pending")}>
+        verify sheet
+      </button>
+    ) : null,
+}));
 vi.mock("@/components/stripe-connect-embedded", () => ({
-  StripeConnectEmbedded: ({ component, onExit }: { component: string; onExit?: () => void }) => (
-    <button type="button" data-attr="stub-onboarding" onClick={() => onExit?.()}>
-      {component}
-    </button>
+  StripeConnectEmbedded: ({ component }: { component: string }) => (
+    <div data-attr="stub-embedded">{component}</div>
   ),
 }));
 vi.mock("@/components/portal/payout-bank-sheet", async (importOriginal) => ({
@@ -22,11 +31,30 @@ vi.mock("@/lib/native/detect-native", () => ({ isNativeRuntimeSync: () => false 
 import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-settings-page";
 import { AddBankFlow, addBankFlowStart } from "@/components/portal/add-bank-flow";
 import { removeDefaultRefusal } from "@/lib/stripe-external-accounts.server";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 
-type Dest = { id: string; kind: "bank" | "card"; label: string; last4: string; status: string; default: boolean };
+type Dest = {
+  id: string;
+  kind: "bank" | "card";
+  label: string;
+  last4: string;
+  status: "new" | "validated" | "verified" | "errored" | "unknown";
+  payable: boolean;
+  instantEligible: boolean;
+  default: boolean;
+};
 
-const chase: Dest = { id: "ba_1", kind: "bank", label: "Chase", last4: "1487", status: "verified", default: true };
-const wells: Dest = { id: "ba_2", kind: "bank", label: "Wells Fargo", last4: "9921", status: "verified", default: false };
+const chase: Dest = { id: "ba_1", kind: "bank", label: "Chase", last4: "1487", status: "verified", payable: true, instantEligible: false, default: true };
+const wells: Dest = { id: "ba_2", kind: "bank", label: "Wells Fargo", last4: "9921", status: "verified", payable: true, instantEligible: false, default: false };
+
+type Identity = {
+  status: "verified" | "pending" | "needs_info" | "restricted";
+  isApplicationCollected: boolean;
+  fallbackToEmbedded: boolean;
+  canSubmit?: boolean;
+};
+const identityVerified: Identity = { status: "verified", isApplicationCollected: true, fallbackToEmbedded: false, canSubmit: true };
+const identityNeeded: Identity = { status: "needs_info", isApplicationCollected: true, fallbackToEmbedded: false, canSubmit: true };
 
 function balance(opts: { identity?: "done" | "needed"; bank?: boolean } = {}) {
   const identity = opts.identity ?? "done";
@@ -35,6 +63,9 @@ function balance(opts: { identity?: "done" | "needed"; bank?: boolean } = {}) {
     availableCents: 100_000,
     withdrawableCents: 100_000,
     heldCents: 0,
+    releasePendingCents: 0,
+    recoveryOutstandingCents: 0,
+    recoveryReservedCents: 0,
     instantAvailableCents: 0,
     pendingCents: 0,
     onTheWayCents: 0,
@@ -47,9 +78,15 @@ function balance(opts: { identity?: "done" | "needed"; bank?: boolean } = {}) {
 
 type Calls = { url: string; method: string; body: unknown }[];
 
-function stubFetch(opts: { destinations: Dest[]; bal?: ReturnType<typeof balance>; afterOnboarding?: Dest[] }) {
+function stubFetch(opts: {
+  destinations: Dest[];
+  bal?: ReturnType<typeof balance>;
+  afterVerify?: Dest[];
+  identity?: Identity;
+  identityStatus?: number;
+}) {
   const calls: Calls = [];
-  let onboardingDone = false;
+  let verifyDone = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -59,8 +96,15 @@ function stubFetch(opts: { destinations: Dest[]; bal?: ReturnType<typeof balance
       if (url.endsWith("/payouts/balance")) {
         return new Response(JSON.stringify(opts.bal ?? balance({ bank: opts.destinations.length > 0 })), { status: 200 });
       }
+      if (url.endsWith("/identity") && method === "GET") {
+        const status = opts.identityStatus ?? 200;
+        return new Response(
+          JSON.stringify(status === 200 ? (opts.identity ?? identityVerified) : { error: "Payout setup is unavailable. Contact support." }),
+          { status },
+        );
+      }
       if (url.endsWith("/bank-accounts") && method === "GET") {
-        const list = onboardingDone && opts.afterOnboarding ? opts.afterOnboarding : opts.destinations;
+        const list = verifyDone && opts.afterVerify ? opts.afterVerify : opts.destinations;
         return new Response(JSON.stringify({ destinations: list }), { status: 200 });
       }
       if (url.includes("/bank-accounts/")) return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -68,11 +112,12 @@ function stubFetch(opts: { destinations: Dest[]; bal?: ReturnType<typeof balance
       return new Response(JSON.stringify({}), { status: 200 });
     }),
   );
-  return { calls, markOnboardingDone: () => (onboardingDone = true) };
+  return { calls, markVerified: () => (verifyDone = true) };
 }
 
 afterEach(() => {
   cleanup();
+  resetSharedGets();
   vi.unstubAllGlobals();
 });
 
@@ -158,50 +203,91 @@ describe("Bank row ⋯ menu", () => {
   });
 });
 
-describe("Add bank flow branches on onboarding readiness", () => {
-  it("addBankFlowStart: identity not done goes to onboarding; done or in review goes to the bank sheet", () => {
-    expect(addBankFlowStart("needed")).toBe("onboarding");
-    expect(addBankFlowStart(null)).toBe("onboarding");
-    expect(addBankFlowStart("done")).toBe("bank");
-    expect(addBankFlowStart("pending")).toBe("bank");
+describe("Add bank flow branches on identity readiness", () => {
+  it("addBankFlowStart: identity due goes to the in-app verify sheet; verified or in review goes to the bank sheet; anything Stripe-hosted is blocked", () => {
+    expect(addBankFlowStart(identityNeeded)).toBe("verify");
+    expect(addBankFlowStart({ ...identityNeeded, canSubmit: undefined })).toBe("verify");
+    expect(addBankFlowStart(identityVerified)).toBe("bank");
+    expect(addBankFlowStart({ ...identityVerified, status: "pending" })).toBe("bank");
+    // a co-manager who cannot submit the owner's identity still adds a bank once it is verified
+    expect(addBankFlowStart({ ...identityVerified, canSubmit: false })).toBe("bank");
+    // ...but cannot start verification themselves
+    expect(addBankFlowStart({ ...identityNeeded, canSubmit: false })).toBe("blocked");
+    // legacy/express or an unmappable requirement is a support error, never an embedded fallback
+    expect(addBankFlowStart({ ...identityNeeded, isApplicationCollected: false })).toBe("blocked");
+    expect(addBankFlowStart({ ...identityNeeded, fallbackToEmbedded: true })).toBe("blocked");
+    expect(addBankFlowStart({ ...identityVerified, fallbackToEmbedded: true })).toBe("blocked");
+    expect(addBankFlowStart(null)).toBe("blocked");
   });
 
-  it("not ready: opens Stripe's embedded onboarding; leaving it with no bank continues into the bank sheet", async () => {
-    stubFetch({ destinations: [], bal: balance({ identity: "needed" }) });
+  it("not ready: opens the in-app verify sheet, never Stripe's embedded onboarding; finishing it with no bank continues into the bank sheet", async () => {
+    stubFetch({ destinations: [], bal: balance({ identity: "needed" }), identity: identityNeeded });
     render(<AddBankFlow open onClose={() => {}} portal="manager" />);
-    const onboarding = await screen.findByText("account_onboarding");
+    const verify = await screen.findByText("verify sheet");
     expect(screen.queryByText("bank sheet")).not.toBeInTheDocument();
-    fireEvent.click(onboarding);
+    expect(screen.queryByText("account_onboarding")).not.toBeInTheDocument();
+    fireEvent.click(verify);
     expect(await screen.findByText("bank sheet")).toBeInTheDocument();
+    expect(screen.queryByText("account_onboarding")).not.toBeInTheDocument();
   });
 
-  it("the onboarding popup is one full-width body: no context rail and no preview pane to squeeze Stripe's component", async () => {
-    stubFetch({ destinations: [], bal: balance({ identity: "needed" }) });
+  it("a blocked account is one full-width popup with an explicit support error: no context rail, no preview pane, no embedded fallback", async () => {
+    stubFetch({ destinations: [], bal: balance({ identity: "needed" }), identity: { ...identityNeeded, isApplicationCollected: false } });
     render(<AddBankFlow open onClose={() => {}} portal="manager" />);
-    await screen.findByText("account_onboarding");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Contact support");
     expect(document.querySelector("[data-popup-form]")).not.toBeNull();
     expect(document.querySelector("[data-popup-context]")).toBeNull();
     expect(document.querySelector("[data-popup-preview]")).toBeNull();
+    expect(screen.queryByText("account_onboarding")).not.toBeInTheDocument();
+    expect(screen.queryByText("verify sheet")).not.toBeInTheDocument();
+    expect(screen.queryByText("bank sheet")).not.toBeInTheDocument();
   });
 
-  it("not ready: leaving onboarding with a bank already added closes the flow and reports it", async () => {
+  it("blocked: an unmappable requirement, a co-manager who cannot verify, and an unavailable identity route each stop with a message", async () => {
+    stubFetch({ destinations: [], identity: { ...identityNeeded, fallbackToEmbedded: true } });
+    const first = render(<AddBankFlow open onClose={() => {}} portal="manager" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Stripe sign-in outside PropLane");
+    expect(screen.queryByText("account_onboarding")).not.toBeInTheDocument();
+    first.unmount();
+
+    stubFetch({ destinations: [], identity: { ...identityNeeded, canSubmit: false } });
+    const second = render(<AddBankFlow open onClose={() => {}} portal="manager" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("The payout account owner must verify their identity");
+    expect(screen.queryByText("verify sheet")).not.toBeInTheDocument();
+    second.unmount();
+
+    stubFetch({ destinations: [], identityStatus: 503 });
+    render(<AddBankFlow open onClose={() => {}} portal="manager" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Payout setup is unavailable");
+    expect(screen.queryByText("bank sheet")).not.toBeInTheDocument();
+  });
+
+  it("not ready: finishing verification with a bank already added closes the flow and reports it", async () => {
     const onClose = vi.fn();
     const onAdded = vi.fn();
-    const { markOnboardingDone } = stubFetch({ destinations: [], afterOnboarding: [chase], bal: balance({ identity: "needed" }) });
+    const { markVerified } = stubFetch({ destinations: [], afterVerify: [chase], bal: balance({ identity: "needed" }), identity: identityNeeded });
     render(<AddBankFlow open onClose={onClose} portal="manager" onAdded={onAdded} />);
-    const onboarding = await screen.findByText("account_onboarding");
-    markOnboardingDone();
-    fireEvent.click(onboarding);
+    const verify = await screen.findByText("verify sheet");
+    markVerified();
+    fireEvent.click(verify);
     await waitFor(() => expect(onAdded).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
     expect(screen.queryByText("bank sheet")).not.toBeInTheDocument();
   });
 
-  it("ready: opens the in-app bank sheet directly, no onboarding", async () => {
+  it("ready: opens the in-app bank sheet directly, no verify sheet and no onboarding", async () => {
     stubFetch({ destinations: [chase] });
     render(<AddBankFlow open onClose={() => {}} portal="manager" />);
     expect(await screen.findByText("bank sheet")).toBeInTheDocument();
+    expect(screen.queryByText("verify sheet")).not.toBeInTheDocument();
     expect(screen.queryByText("account_onboarding")).not.toBeInTheDocument();
+  });
+
+  it("reads identity from the portal's own connect base (vendor)", async () => {
+    const { calls } = stubFetch({ destinations: [chase] });
+    render(<AddBankFlow open onClose={() => {}} portal="vendor" />);
+    expect(await screen.findByText("bank sheet")).toBeInTheDocument();
+    expect(calls.some((c) => c.url === "/api/vendor/stripe-connect/identity" && c.method === "GET")).toBe(true);
   });
 
   it("the Bank accounts + on the page routes through the same flow", async () => {

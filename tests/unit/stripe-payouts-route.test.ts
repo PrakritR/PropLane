@@ -793,3 +793,30 @@ describe("Security review — a thrown Stripe error's own message never reaches 
     expectNoLeakButLogged(res.status, await res.json());
   });
 });
+
+describe("payout balance GET never renders an unavailable provider as an empty success", () => {
+  const cases = [
+    ["manager", () => managerBalance()],
+    ["vendor", () => vendorBalance()],
+  ] as const;
+
+  for (const [portal, read] of cases) {
+    it(`${portal}: missing Stripe credentials answer 503, not a zeroed snapshot`, async () => {
+      (fakeStripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Missing STRIPE_SECRET_KEY"));
+      const res = await read();
+      const body = await res.json();
+      expect(res.status).toBe(503);
+      expect(body).toEqual({ error: "Payout balances are temporarily unavailable." });
+    });
+
+    it(`${portal}: an unreadable saved account fails visibly and keeps the saved id`, async () => {
+      (fakeStripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("socket hang up"));
+      const res = await read();
+      const body = await res.json();
+      expect(res.status).toBeGreaterThanOrEqual(500);
+      expect(body).not.toHaveProperty("availableCents");
+      expect(body).not.toHaveProperty("setup");
+      expect(resolvedOwnerId).toBeTruthy();
+    });
+  }
+});

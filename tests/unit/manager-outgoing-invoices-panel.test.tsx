@@ -2,7 +2,7 @@
 // Operations > Outgoing payments (studio C2-OUT1 / C2-OUT2): the row reads "Due / Pays / Paid <date>" plus the method,
 // a row opens a record page (Payment · Communication) and the header offers only what the server can do.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ManagerOutgoingInvoicesPanel } from "@/components/portal/manager-outgoing-invoices-panel";
 
@@ -31,11 +31,16 @@ const base = {
 const VENDOR_BILLED = { ...base, id: "inv-vendor", status: "approved" };
 const MANAGER_BILLED = { ...base, id: "inv-mine", status: "approved", managerEntered: true, serviceTitle: "Closet door", totalCents: 13200 };
 
-function mockFetch() {
+function mockFetch(balance?: { availableCents: number; defaultPaymentSource: string }) {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-    const body = String(url).startsWith("/api/manager/vendor-invoices?status")
+    const path = String(url);
+    const body = path.startsWith("/api/manager/vendor-invoices?status")
       ? { invoices: [VENDOR_BILLED, MANAGER_BILLED], payouts: [], totals: { owedCents: 0, paidThisYearCents: 0 } }
-      : {};
+      : path === "/api/portal/proplane-balance" && balance
+        ? { enabled: true, availableCents: balance.availableCents }
+        : path === "/api/portal/payment-preferences" && balance
+          ? { defaultPaymentSource: balance.defaultPaymentSource }
+          : {};
     return { ok: true, status: 200, json: async () => body } as Response;
   }));
 }
@@ -51,10 +56,23 @@ describe("Outgoing payments list", () => {
     renderPanel();
     await waitFor(() => expect(screen.getAllByText("Brightline Plumbing").length).toBeGreaterThan(0));
     expect(screen.getAllByText(/^Due Sep 17, 2026$/).length).toBe(2);
-    expect(screen.getAllByText("PropLane balance").length).toBeGreaterThan(0);
+    // The planned method defaults to the card/bank rail: the PropLane balance is
+    // offered (and becomes the planned method) only once the balance is enabled
+    // for this manager, so a to-pay row never promises a rail that is not on.
+    expect(screen.getAllByText("Card or bank account").length).toBe(2);
+    expect(screen.queryByText("PropLane balance")).toBeNull();
     expect(screen.getAllByText("$1,000.00").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$132.00").length).toBeGreaterThan(0);
     expect(screen.queryByText(/Approved/)).toBeNull();
+  });
+
+  it("offers the PropLane balance in Pay vendor, with the available figure, only when the balance is enabled and covers the bill", async () => {
+    mockFetch({ availableCents: 500_000, defaultPaymentSource: "balance" });
+    renderPanel({ paymentId: "inv-vendor" });
+    await waitFor(() => expect(screen.getByText("Billed by")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Pay now" }));
+    await waitFor(() => expect(screen.getAllByText(/PropLane balance/).length).toBeGreaterThan(0));
+    expect(screen.getAllByText(/PropLane balance · \$5,000\.00 available/).length).toBeGreaterThan(0);
   });
 
   it("shows the standard empty card, not a bare sentence, on an empty tab", async () => {

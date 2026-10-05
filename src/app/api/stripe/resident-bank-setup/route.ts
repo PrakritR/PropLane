@@ -20,13 +20,13 @@ async function scopedSetup(id: string) {
   const { data: { user } } = await auth.auth.getUser();
   if (!user?.email) return { error: NextResponse.json({ error: "Not authenticated." }, { status: 401 }) };
   const db = createSupabaseServiceRoleClient();
-  await assertTestWorkspaceProviderEffectAllowed({ userId: user.id, kind: "payment",
-    summary: "Saved bank verification refused for a test workspace.", db });
   const { data: profile, error } = await db.from("profiles").select("stripe_customer_id, role").eq("id", user.id).maybeSingle();
   if (error) throw error;
   if (!(await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role }))) {
     return { error: NextResponse.json({ error: "Resident access required." }, { status: 403 }) };
   }
+  await assertTestWorkspaceProviderEffectAllowed({ userId: user.id, kind: "payment",
+    summary: "Saved bank verification refused for a test workspace.", db });
   const customerId = profile?.stripe_customer_id?.trim();
   if (!customerId) return { error: NextResponse.json({ error: "Bank setup is not yours." }, { status: 403 }) };
   const stripe = getStripe();

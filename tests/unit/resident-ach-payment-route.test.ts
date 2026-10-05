@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
   testWorkspace: false,
   intent: { id: "pi_manual", status: "requires_action",
     next_action: { type: "verify_with_microdeposits" } } as Record<string, unknown>,
-  load: vi.fn(), verify: vi.fn(), reconcile: vi.fn(),
+  load: vi.fn(), verify: vi.fn(), reconcile: vi.fn(), retrieve: vi.fn(), create: vi.fn(), credit: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -28,11 +28,15 @@ vi.mock("@/lib/test-workspaces/effects.server", () => {
   };
 });
 vi.mock("@/lib/stripe", () => ({ getStripe: () => ({ paymentIntents: {
-  retrieve: async () => state.intent,
+  retrieve: async (...args: unknown[]) => { state.retrieve(...args); return state.intent; },
+  create: (...args: unknown[]) => state.create(...args),
   verifyMicrodeposits: (...args: unknown[]) => state.verify(...args),
 } }) }));
 vi.mock("@/lib/resident-checkout-claim.server", () => ({
   loadResidentManualAchAttemptForPaymentIntent: (...args: unknown[]) => state.load(...args),
+}));
+vi.mock("@/lib/household-captured-source.server", () => ({
+  creditVerifiedHouseholdManualSource: (...args: unknown[]) => state.credit(...args),
 }));
 vi.mock("@/lib/stripe-household-charge", () => ({
   reconcileResidentManualAchPaymentIntent: (...args: unknown[]) => state.reconcile(...args),
@@ -64,16 +68,42 @@ describe("resident bank payment actor and provider gate", () => {
     state.residentRole = false;
     const response = await POST(request({ paymentIntentId: "pi_manual", descriptorCode: "SM1234" }));
     expect(response.status).toBe(403);
+    expect(state.retrieve).not.toHaveBeenCalled();
     expect(state.load).not.toHaveBeenCalled();
     expect(state.verify).not.toHaveBeenCalled();
   });
 
-  it("requires the original actor claim and test-workspace gate before microdeposit verification", async () => {
+  it("applies the test-workspace gate before any Stripe call, then the original-actor claim before verification", async () => {
     state.testWorkspace = true;
-    const response = await POST(request({ paymentIntentId: "pi_manual", descriptorCode: "SM1234" }));
-    expect(response.status).toBe(403);
+    const refused = await POST(request({ paymentIntentId: "pi_manual", descriptorCode: "SM1234" }));
+    expect(refused.status).toBe(403);
+    expect(state.retrieve).not.toHaveBeenCalled();
+    expect(state.load).not.toHaveBeenCalled();
+    expect(state.verify).not.toHaveBeenCalled();
+
+    state.testWorkspace = false;
+    state.load.mockRejectedValueOnce(new Error("Resident attempt does not belong to this actor."));
+    const notYours = await POST(request({ paymentIntentId: "pi_manual", descriptorCode: "SM1234" }));
+    expect(notYours.status).toBe(403);
     expect(state.load).toHaveBeenCalledWith(expect.anything(), state.intent, "resident-1");
     expect(state.verify).not.toHaveBeenCalled();
+  });
+
+  it("reopens the exact original PaymentIntent through GET without creating or verifying anything", async () => {
+    const response = await GET(new Request("http://localhost/api/stripe/resident-ach-payment?payment_intent_id=pi_manual"));
+    expect(response.status).toBe(200);
+    expect(state.retrieve).toHaveBeenCalledTimes(1);
+    expect(state.retrieve).toHaveBeenCalledWith("pi_manual");
+    expect(state.create).not.toHaveBeenCalled();
+    expect(state.verify).not.toHaveBeenCalled();
+    expect(state.load).toHaveBeenCalledWith(expect.anything(), state.intent, "resident-1");
+    expect(await response.json()).toMatchObject({ paymentIntentId: "pi_manual", chargeIds: ["hc_1"],
+      bankStatus: "verification", subtotalCents: 120500, totalCents: 121000 });
+  });
+
+  it("never credits a source from GET until the exact PaymentIntent is paid", async () => {
+    await GET(new Request("http://localhost/api/stripe/resident-ach-payment?payment_intent_id=pi_manual"));
+    expect(state.credit).not.toHaveBeenCalled();
   });
 
   it("verifies an exact resident attempt and returns only its processing state", async () => {

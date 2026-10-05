@@ -94,6 +94,18 @@ its claim and client secret; a failed event cannot release a slot while that PI
 could still confirm. Manager-assisted collection stays card only; a resident
 must authorize their own bank account in Payments.
 
+**Claim, source and route order.** Every marked payment (`source_arbitration_v`
+metadata) goes: resident role → test-workspace effect gate → Stripe, on every new
+PI/SI route (`resident-ach-payment`, `resident-bank-setup`, and the SetupIntent
+POST of `resident-payment-methods`); a nonresident or test-workspace caller never reaches a
+provider call. Reopening after close or reload is `GET` on the exact original
+PI/SI only: no new claim, no new PI, no credit until the PI is paid. Once exactly
+paid, the card verify route, manual-ACH route, synchronous autopay and the
+webhook each call the matching `creditVerifiedHousehold{Checkout,Manual,Autopay}Source`
+(`household-captured-source.server.ts`) before success; failure is 409/review, never
+a swallowed hold insert. Source, slot and funds model: `financials.md` § Source
+arbitration. Manager-assisted collection is card-only and settles by webhook.
+
 Before activating this migration, inventory old open household Checkout sources
 and resolve each to terminally expired and unpaid or reconcile its exact paid
 source. A legacy open session may have no charge-side session reference, so the
@@ -422,7 +434,13 @@ always use the central source allocator described above, independently of
 `PROPLANE_BALANCE_ENABLED`; the fee math remains the same. See
 `.lavish/night/build-vendor-pay.md` for the older funding model's context.
 
-**The destination is per-manager when they are ready.**
+**Marked household captures have no Connect destination** (`destinationAccountId`
+is null, claim terms reject one); the platform captures and the central source
+allocator credits the exact owner. The paragraph below describes the historical
+and application-fee/autopay-era routing.
+
+**The destination is per-manager when they are ready (historical household
+sessions, application fees).**
 `resolveConnectDestinationIfReady` (`src/lib/stripe-connect.ts`) reads that
 manager's own `profiles.stripe_connect_account_id` and returns the account id
 only when transfers are active and `payouts_enabled`. Otherwise the session
@@ -433,8 +451,8 @@ fees (`application-fee-checkout.server.ts`), and autopay
 ONLY when Stripe reports the account can actually receive money; an
 existing-but-unfinished account reads as "incomplete"
 (`src/lib/stripe-setup-state.ts`). Coverage:
-`tests/unit/manager-connect-destination-routing.test.ts` (per-manager
-destination isolation + hold when not onboarded),
+`tests/unit/manager-connect-destination-routing.test.ts` (claim owner isolation,
+platform capture with no destination for marked household checkout),
 `tests/unit/stripe-connect.test.ts` (the resolver gate), and
 `tests/unit/stripe-setup-state.test.ts` (the UI truth mapping).
 

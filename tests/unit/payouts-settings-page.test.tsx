@@ -87,6 +87,15 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
     expect(screen.getByRole("button", { name: "Withdraw" })).not.toBeDisabled();
   });
 
+  it("the vendor schedule row shows the withdrawable amount, never the held-inclusive available figure", async () => {
+    stubFetch({ ...readyBalance, availableCents: 428_000, withdrawableCents: 100_000, heldCents: 328_000,
+      schedule: { interval: "weekly", nextPayoutAt: "2026-09-26T00:00:00.000Z" } });
+    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    const row = (await screen.findByText("Next payout")).closest("div")!.parentElement!;
+    expect(row).toHaveTextContent("$1,000.00");
+    expect(row).not.toHaveTextContent("$4,280.00");
+  });
+
   it("hides the Set up section once ready", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
     await screen.findByText("$4,280.00");

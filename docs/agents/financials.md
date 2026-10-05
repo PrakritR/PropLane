@@ -7,6 +7,54 @@ The ordinary `/api/portal-household-charges` full-list mirror carries charge edi
 
 `unmarkPaid` refuses settled or ambiguous receipts with 409 while there is no accounting-safe reversal; Payments offers no Undo or Move to pending on a recorded charge. Returning a service photo never marks its charge paid. The currently unused short-to-long application-fee projection cancels a clean unpaid obligation without a paid date or provider source, preserves any actual receipt or in-flight source, and does not mint a server waiver audit. A new Checkout cannot begin when a same-manager/property/resident legacy paid fee lacks application identity. The manager application detail receipt is read from the exact application's owned claim, charge and ledger source; a current listing quote never proves payment, and a failed read never appears as “Not received.”
 
+# Source arbitration, classified held funds and payment claims (payment audit)
+
+Migrations `20261004220000` (vendor/service claims), `221000` (source arbitration),
+`230000` (resident claims, see `resident-payments.md`) and `231000` (classified
+withdrawal) are **unapplied to DEV** and not safe for mixed-version writers. An
+old writer cannot be retrofitted: activate only with the coherent callers below,
+the marked-event webhook routing, and the old money routes/crons quiesced.
+`232000` (application-claim retention) is applied.
+
+- **One source per captured payment.** Money enters the books only through a
+  verified source: the exact Stripe Charge (captured, unrefunded, exact amount,
+  no refund history before first settlement) behind a PaymentIntent/session.
+  Callers: `household-captured-source.server.ts` (card verify, manual ACH,
+  autopay, Checkout), `vendor-captured-source.server.ts`, the application-fee
+  fulfillment. RPCs: `verify_platform_hold_source`, `credit_verified_platform_hold`,
+  `credit_verified_platform_income_mirror`. A failed source credit is review/409;
+  nothing swallows it and nothing marks a charge paid before it.
+- **`classified_held` isolates new money.** A NEW verified source row is
+  `platform_payment_holds.status = 'classified_held'` so the legacy
+  `status='held'` transfer scanners never see it; old rows keep `held` and their
+  history, no bulk conversion. The product still says Held / available / unknown.
+  `reject_legacy_classified_balance_debit` fences a legacy debit on an account
+  with classified backing; completed legacy replays are preserved.
+- **Reserve, then call the provider.** Release, refund, recovery and withdrawal
+  reserve under the hold lock first (`reserve_platform_hold_transfer`,
+  `reserve_platform_money_refund`, `reserve_platform_owner_recovery`,
+  `reserve_platform_classified_withdrawal`). An unknown or errored provider
+  outcome keeps the reservation and the source; only exact provider metadata
+  or the original idempotency key reconciles it. Absent results stay review.
+- **Funds readers fail visibly.** `read_platform_hold_owner_funds` and
+  `readPayoutSnapshot` page exhaustively and propagate failures; the manager and
+  vendor payout balance routes answer 503/409 for missing credentials or an
+  inaccessible saved account, never a zeroed snapshot. Cards, Schedule and the
+  Withdraw maximum use `withdrawableCents`, never the held-inclusive total.
+  Offline receipts never enter wallet, held or withdrawable.
+- **Vendor/service claims.** Approve & pay for a service claims it first
+  (`claim_work_order_vendor_payment`); the default card/ACH path returns an
+  embedded Checkout client secret (settled only by the verified webhook/verify),
+  the balance path moves through `payVendorFromBalance` and releases the claim only
+  on a clean insufficient-balance answer. The payable is the accepted labor cost
+  from the stored row/bid, never the request body. Completion goes through
+  `complete_work_order_record` (stored owner kept).
+- **Account deletion.** Source, claim and refund-evidence tables retain exact
+  terms with identity detached; classify each in `account-purge-manifest.ts`.
+- **Webhook.** Events carrying `source_arbitration_v` route to the coherent
+  handlers in `api/stripe/webhook/route.ts` before any legacy handler and fail
+  the delivery when settlement or the source credit fails.
+
 # Financials Phase 0: chart of accounts + write-through ledger
 
 **`public.chart_of_accounts` is the runtime source of truth for account

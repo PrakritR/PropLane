@@ -27,6 +27,16 @@ vi.mock("@/lib/work-order-expenses", () => ({
   })),
 }));
 
+// The default (card / ACH) path now STARTS an embedded Stripe Checkout and
+// settles only on the verified webhook. Stripe itself is never reached: the
+// stripe layer is stubbed and every call is recorded.
+const createCheckout = vi.fn();
+vi.mock("@/lib/stripe", () => ({ getStripe: () => ({ checkout: { sessions: { retrieve: vi.fn() } } }) }));
+vi.mock("@/lib/stripe-axis-ach-checkout", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/stripe-axis-ach-checkout")>()),
+  createAxisAchCheckoutSession: (...args: unknown[]) => createCheckout(...args),
+}));
+
 const flagState: { enabled: boolean } = { enabled: false };
 vi.mock("@/lib/proplane-balance/flag", () => ({
   proplaneBalanceEnabled: () => flagState.enabled,
@@ -96,13 +106,24 @@ class FakeQuery {
   }
 }
 
-function makeDb(tables: Record<string, Row[]>) {
-  const log = { inserts: [] as Array<{ table: string; row: Row }>, upserts: [] as Array<{ table: string; row: Row }> };
+type RpcCall = { name: string; args: Record<string, unknown> };
+type RpcOverride = (name: string, args: Record<string, unknown>) => { data: unknown; error: { message: string } | null } | undefined;
+
+function makeDb(tables: Record<string, Row[]>, rpcOverride?: RpcOverride) {
+  const log = {
+    inserts: [] as Array<{ table: string; row: Row }>,
+    upserts: [] as Array<{ table: string; row: Row }>,
+    rpcs: [] as RpcCall[],
+  };
   return {
     log,
-    // Claim / release / paid-merge RPCs from migration 20261004220000, as ledger-free stubs.
+    // Claim / release / finish / paid-merge RPCs from migration 20261004220000, as ledger-free stubs.
     async rpc(name: string, args: Record<string, unknown>) {
+      log.rpcs.push({ name, args });
+      const overridden = rpcOverride?.(name, args);
+      if (overridden) return overridden;
       if (name === "mark_work_order_payment_paid") return { data: args.p_patch, error: null };
+      if (name === "finish_work_order_vendor_checkout") return { data: true, error: null };
       return { data: null, error: null };
     },
     from(table: string) {
@@ -146,6 +167,14 @@ describe("approve-pay — PropLane balance payment source", () => {
     flagState.enabled = false;
     payVendorFromBalance.mockReset();
     vi.mocked(recordVendorPayoutSettled).mockClear();
+    createCheckout.mockReset();
+    createCheckout.mockImplementation(async (_stripe: unknown, req: { fixedFeeBreakdown: { totalCents: number; residentAddedFeeCents: number } }) => ({
+      mode: "embedded",
+      clientSecret: "cs_secret_1",
+      sessionId: "cs_test_1",
+      totalCents: req.fixedFeeBreakdown.totalCents,
+      processingFeeCents: req.fixedFeeBreakdown.residentAddedFeeCents,
+    }));
   });
 
   it("flag OFF: paymentChannel 'balance' is refused (400), never calls the ledger", async () => {
@@ -158,13 +187,19 @@ describe("approve-pay — PropLane balance payment source", () => {
     expect(body.error).toContain("not enabled");
     expect(payVendorFromBalance).not.toHaveBeenCalled();
     expect(db.log.upserts).toEqual([]);
+    // Refused before the claim: nothing was claimed, so there is nothing to release.
+    expect(db.log.rpcs).toEqual([]);
   });
 
   it("flag ON: pays instantly from the balance, marks the work order paid with channel 'balance', records a settled payout with no Stripe transfer id", async () => {
     const db = makeDb(baseTables());
     signIn(db);
     flagState.enabled = true;
-    payVendorFromBalance.mockResolvedValue({ ok: true, payerEntryId: "e-out", payeeEntryId: "e-in" });
+    let rpcsAtLedgerCall: string[] = [];
+    payVendorFromBalance.mockImplementation(async () => {
+      rpcsAtLedgerCall = db.log.rpcs.map((r) => r.name);
+      return { ok: true, payerEntryId: "e-out", payeeEntryId: "e-in" };
+    });
 
     const res = await POST(postBody({ paymentChannel: "balance" }));
     expect(res.status).toBe(200);
@@ -181,6 +216,19 @@ describe("approve-pay — PropLane balance payment source", () => {
     );
     // No Checkout redirect for a balance payment.
     expect(body).not.toHaveProperty("checkoutUrl");
+    expect(body).not.toHaveProperty("clientSecret");
+    expect(createCheckout).not.toHaveBeenCalled();
+
+    // The service is claimed BEFORE the ledger moves, then marked paid through the RPC.
+    const names = db.log.rpcs.map((r) => r.name);
+    expect(names).toEqual(["claim_work_order_vendor_payment", "mark_work_order_payment_paid"]);
+    expect(db.log.rpcs[0]!.args).toMatchObject({
+      p_work_order: WORK_ORDER, p_manager: MANAGER, p_vendor: VENDOR, p_amount: 12_500, p_channel: "balance",
+    });
+    expect(db.log.rpcs[1]!.args).toMatchObject({
+      p_work_order: WORK_ORDER, p_manager: MANAGER, p_vendor: VENDOR, p_amount: 12_500, p_channel: "balance", p_session: null,
+    });
+    expect(rpcsAtLedgerCall).toEqual(["claim_work_order_vendor_payment"]);
   });
 
   it("flag ON, insufficient balance: 422 with the shortfall, nothing written (no expense/upsert), falls back to the card path", async () => {
@@ -212,19 +260,134 @@ describe("approve-pay — PropLane balance payment source", () => {
     // Nothing was marked paid or booked — the manager can still pay by card.
     expect(db.log.upserts).toEqual([]);
     expect(recordVendorPayoutSettled).not.toHaveBeenCalled();
+    // The claim taken before the ledger attempt is released so the card path is free again.
+    expect(db.log.rpcs.map((r) => r.name)).toEqual(["claim_work_order_vendor_payment", "release_work_order_balance_claim"]);
+    expect(db.log.rpcs[1]!.args).toEqual({ p_work_order: WORK_ORDER, p_manager: MANAGER });
   });
 
-  it("flag ON but paymentChannel omitted (default ACH): unaffected — never touches the balance ledger", async () => {
+  it("flag ON, short balance but the release RPC fails: 503, never a 422 that invites a card retry over a live claim", async () => {
+    const db = makeDb(baseTables(), (name) =>
+      name === "release_work_order_balance_claim" ? { data: null, error: { message: "boom" } } : undefined,
+    );
+    signIn(db);
+    flagState.enabled = true;
+    payVendorFromBalance.mockResolvedValue({
+      ok: false, code: "insufficient_balance", availableCents: 5_000, requestedCents: 12_500, shortfallCents: 7_500,
+    });
+    const res = await POST(postBody({ paymentChannel: "balance" }));
+    expect(res.status).toBe(503);
+    expect(recordVendorPayoutSettled).not.toHaveBeenCalled();
+  });
+
+  it("flag ON, any OTHER ledger failure: 503 'being reconciled', the claim is KEPT (no release) and nothing is marked paid", async () => {
     const db = makeDb(baseTables());
     signIn(db);
     flagState.enabled = true;
-    // settleOnly skips starting a real Stripe Checkout session (untouched by
-    // this build either way) — what this test asserts is narrower and
-    // independent of that: the balance ledger is never consulted when the
-    // channel isn't explicitly "balance", flag on or not.
-    const res = await POST(postBody({ settleOnly: true }));
-    expect(res.status).toBe(200);
+    payVendorFromBalance.mockResolvedValue({ ok: false, code: "ledger_error", error: "timeout" });
+    const res = await POST(postBody({ paymentChannel: "balance" }));
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toContain("reconciled");
+    expect(db.log.rpcs.map((r) => r.name)).toEqual(["claim_work_order_vendor_payment"]);
+    expect(recordVendorPayoutSettled).not.toHaveBeenCalled();
+  });
+
+  it("flag ON, the ledger call throws (response lost): 503, the claim is KEPT so no other rail can pay twice", async () => {
+    const db = makeDb(baseTables());
+    signIn(db);
+    flagState.enabled = true;
+    payVendorFromBalance.mockRejectedValue(new Error("socket hang up"));
+    const res = await POST(postBody({ paymentChannel: "balance" }));
+    expect(res.status).toBe(503);
+    expect(db.log.rpcs.map((r) => r.name)).toEqual(["claim_work_order_vendor_payment"]);
+  });
+
+  it("flag ON, the service is already claimed (claim RPC refuses): 409 and the ledger is never touched", async () => {
+    const db = makeDb(baseTables(), (name) =>
+      name === "claim_work_order_vendor_payment" ? { data: null, error: { message: "Payment already started" } } : undefined,
+    );
+    signIn(db);
+    flagState.enabled = true;
+    const res = await POST(postBody({ paymentChannel: "balance" }));
+    expect(res.status).toBe(409);
     expect(payVendorFromBalance).not.toHaveBeenCalled();
+    expect(db.log.rpcs.map((r) => r.name)).toEqual(["claim_work_order_vendor_payment"]);
+  });
+
+  it("flag ON but paymentChannel omitted (default ACH): never touches the balance ledger, STARTS an embedded Checkout and settles nothing inline", async () => {
+    const db = makeDb(baseTables());
+    signIn(db);
+    flagState.enabled = true;
+    const res = await POST(postBody());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { clientSecret?: string; sessionId?: string; expenseEntryIds: string[] };
+    expect(body.clientSecret).toBe("cs_secret_1");
+    expect(body.sessionId).toBe("cs_test_1");
+    expect(body.expenseEntryIds).toEqual([]);
+
+    expect(payVendorFromBalance).not.toHaveBeenCalled();
+    // Payment is settled only by the verified webhook/verify: no paid-merge, no payout row, no inline bookkeeping.
+    expect(db.log.rpcs.map((r) => r.name)).toEqual(["claim_work_order_vendor_payment", "finish_work_order_vendor_checkout"]);
+    expect(db.log.rpcs[0]!.args).toMatchObject({
+      p_work_order: WORK_ORDER, p_manager: MANAGER, p_vendor: VENDOR, p_amount: 12_500, p_channel: "ach",
+    });
+    expect(db.log.rpcs[1]!.args).toMatchObject({ p_work_order: WORK_ORDER, p_manager: MANAGER, p_session: "cs_test_1" });
+    expect(recordVendorPayoutSettled).not.toHaveBeenCalled();
+    expect(db.log.upserts).toEqual([]);
+
+    expect(createCheckout).toHaveBeenCalledTimes(1);
+    expect(createCheckout.mock.calls[0]![1]).toMatchObject({
+      mode: "embedded",
+      amountCents: 12_500,
+      paymentMethod: "ach",
+      destinationAccountId: null,
+      metadata: expect.objectContaining({ work_order_id: WORK_ORDER, manager_user_id: MANAGER, vendor_user_id: VENDOR, invoice_cents: "12500" }),
+    });
+  });
+
+  it("the payable comes from the stored row, not the request body: a forged cost, vendor and materials change nothing", async () => {
+    const db = makeDb(baseTables());
+    signIn(db);
+    const res = await POST(
+      postBody({
+        paymentChannel: "card",
+        vendorCostCents: 999_999,
+        materialsCostCents: 50_000,
+        workOrder: { ...workOrderRow, vendorCostCents: 999_999, vendorUserId: "attacker", propertyId: "prop_evil" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(db.log.rpcs[0]).toMatchObject({
+      name: "claim_work_order_vendor_payment",
+      args: { p_vendor: VENDOR, p_amount: 12_500, p_channel: "card" },
+    });
+    const req = createCheckout.mock.calls[0]![1] as { amountCents: number; metadata: Record<string, string>; paymentMethod: string };
+    expect(req.amountCents).toBe(12_500);
+    expect(req.paymentMethod).toBe("card");
+    expect(req.metadata.vendor_user_id).toBe(VENDOR);
+    // Materials are not part of the payable: the Checkout total is the labor cost alone.
+    expect(req.metadata.invoice_cents).toBe("12500");
+  });
+
+  it("an accepted bid's labor cost wins over the stored row cost", async () => {
+    const tables = baseTables();
+    tables.work_order_bids = [{ work_order_id: WORK_ORDER, status: "accepted", amount_cents: 20_000, materials_cents: 3_000, vendor_directory_id: "vd_1" }];
+    const db = makeDb(tables);
+    signIn(db);
+    const res = await POST(postBody({ paymentChannel: "ach" }));
+    expect(res.status).toBe(200);
+    expect(db.log.rpcs[0]!.args).toMatchObject({ p_amount: 20_000 });
+    expect((createCheckout.mock.calls[0]![1] as { amountCents: number }).amountCents).toBe(20_000);
+  });
+
+  it("a service with no assigned vendor or under $1.00 is refused 400 before any claim or Stripe call", async () => {
+    const tables = baseTables();
+    tables.portal_work_order_records = [{ id: WORK_ORDER, manager_user_id: MANAGER, vendor_user_id: null, row_data: workOrderRow }];
+    const db = makeDb(tables);
+    signIn(db);
+    const res = await POST(postBody());
+    expect(res.status).toBe(400);
+    expect(db.log.rpcs).toEqual([]);
+    expect(createCheckout).not.toHaveBeenCalled();
   });
 
   it("reuses the SAME double-pay guard for a balance payment: an existing paid payout refuses with 409 before any ledger call", async () => {

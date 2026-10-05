@@ -169,9 +169,9 @@ function AddressControl({
  * resulting token id.
  *
  * A legacy `stripe_dashboard.type: "express"` account, or any requirement key
- * this module does not know how to draw a field for, mounts Stripe's embedded
- * `account_onboarding` component in this same sheet instead (Decide 2 of the
- * plan) — never a half-drawn form.
+ * this module does not know how to draw a field for, shows an explicit support
+ * message in this same sheet — never a half-drawn form and never a fallback to
+ * a Stripe-hosted or embedded sign-in.
  */
 export function PayoutVerifySheet({
   open,

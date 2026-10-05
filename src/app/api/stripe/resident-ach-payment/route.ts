@@ -96,12 +96,14 @@ export async function POST(req: Request) {
       { status: 400 });
   }
   try {
-    const stripe = getStripe();
-    const before = await stripe.paymentIntents.retrieve(id);
     const db = createSupabaseServiceRoleClient();
-    await loadResidentManualAchAttemptForPaymentIntent(db, before, userId);
+    // Role (above) and the test-workspace effect gate both precede every
+    // provider call, including the read that proves the original actor.
     await assertTestWorkspaceProviderEffectAllowed({ userId, kind: "payment",
       summary: "Bank microdeposit verification refused for a test workspace.", db });
+    const stripe = getStripe();
+    const before = await stripe.paymentIntents.retrieve(id);
+    await loadResidentManualAchAttemptForPaymentIntent(db, before, userId);
     if (before.status !== "requires_action" ||
         before.next_action?.type !== "verify_with_microdeposits") {
       return NextResponse.json({ error: "This bank payment is not awaiting verification." }, { status: 409 });
