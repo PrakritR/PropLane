@@ -316,7 +316,8 @@ async function mirrorGlForLedgerRow(
   }
 }
 
-export async function syncLedgerChargeEntry(
+/** Mirror the receivable and income without also posting a paid charge's cash leg. */
+export async function syncLedgerChargeOnlyEntry(
   db: SupabaseClient,
   charge: HouseholdCharge,
 ): Promise<void> {
@@ -325,7 +326,13 @@ export async function syncLedgerChargeEntry(
     const ledgerEntryId = await upsertLedgerEntryRow(db, row);
     await mirrorGlForLedgerRow(db, row, ledgerEntryId);
   }
+}
 
+export async function syncLedgerChargeEntry(
+  db: SupabaseClient,
+  charge: HouseholdCharge,
+): Promise<void> {
+  await syncLedgerChargeOnlyEntry(db, charge);
   if (charge.status === "paid") {
     await syncLedgerPaymentEntry(db, charge, charge.paidAt);
   }

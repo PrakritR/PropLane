@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const syncLedger = vi.hoisted(() => vi.fn());
+const syncCharge = vi.hoisted(() => vi.fn());
 const creditHold = vi.hoisted(() => vi.fn());
 const findHold = vi.hoisted(() => vi.fn());
 const cancelReminders = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerPaymentEntry: syncLedger }));
+vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerChargeOnlyEntry: syncCharge, syncLedgerPaymentEntry: syncLedger }));
 vi.mock("@/lib/stripe-platform-hold.server", () => ({
   creditPlatformHold: creditHold, findPlatformHold: findHold,
 }));
@@ -34,6 +35,7 @@ const savedCharge = {
 const chargeRow = {
   id: "hc_historical", manager_user_id: "manager-1", property_id: "property-1",
   resident_email: "applicant@example.com", kind: "application_fee", status: "paid",
+  created_at: "2026-09-30T16:30:00.000Z",
   row_data: savedCharge,
 };
 
@@ -47,6 +49,7 @@ describe("bound historical application fee financial repair", () => {
     matches = [chargeRow];
     ledgerRows = [{ id: "existing-payment-ledger" }];
     syncLedger.mockResolvedValue(undefined);
+    syncCharge.mockResolvedValue(undefined);
     findHold.mockResolvedValue(null);
     creditHold.mockResolvedValue({ credited: true });
     cancelReminders.mockResolvedValue(undefined);
@@ -89,6 +92,10 @@ describe("bound historical application fee financial repair", () => {
     const first = await fulfillApplicationFeePayment(db as never, stripe as never, session as never);
     expect(first).toMatchObject({ legacy: true, chargeId: "hc_historical", alreadyPaid: true });
     expect(syncLedger).toHaveBeenCalledWith(expect.anything(), savedCharge, paidAt, session.id);
+    expect(syncCharge).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      id: savedCharge.id, createdAt: chargeRow.created_at,
+    }));
+    expect(syncCharge.mock.invocationCallOrder[0]).toBeLessThan(syncLedger.mock.invocationCallOrder[0]);
     expect(creditHold).toHaveBeenCalledWith(expect.anything(), {
       ownerUserId: "manager-1", ownerRole: "manager", source: "application_fee",
       sourceId: "cs_historical", amountCents: 5000, stripeChargeId: "ch_historical",
@@ -97,7 +104,26 @@ describe("bound historical application fee financial repair", () => {
       .not.toContain("manager_application_records");
     await fulfillApplicationFeePayment(db as never, stripe as never, session as never);
     expect(syncLedger).toHaveBeenCalledTimes(2);
+    expect(syncCharge).toHaveBeenCalledTimes(2);
     expect(creditHold).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the same paid source retryable when charge/GL origin posting fails", async () => {
+    syncCharge.mockRejectedValueOnce(new Error("origin ledger unavailable"));
+    await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))
+      .rejects.toThrow(/origin ledger unavailable/);
+    expect(syncLedger).not.toHaveBeenCalled();
+    expect(creditHold).not.toHaveBeenCalled();
+    await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))
+      .resolves.toMatchObject({ legacy: true, chargeId: savedCharge.id });
+  });
+
+  it("refuses to book historical income into the repair month without an origin date", async () => {
+    matches = [{ ...chargeRow, created_at: "" }];
+    await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))
+      .rejects.toThrow(/origin date needs review/);
+    expect(syncCharge).not.toHaveBeenCalled();
+    expect(syncLedger).not.toHaveBeenCalled();
   });
 
   it("rejects missing, duplicate, foreign, or differently priced paid sources", async () => {
