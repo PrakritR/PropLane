@@ -65,6 +65,36 @@ export function isLegacyFixedLeaseTerm(term: string | null | undefined): boolean
   return t === "3-Month" || t === "6-Month" || t === "9-Month" || t === "12-Month";
 }
 
+/**
+ * A stored lease term read as one the system knows. Listings written before the four lease types carry free
+ * text ("12 months", "6 months", "month-to-month", "custom", "nightly", "weekly"); none of it is in
+ * {@link LISTING_LEASE_TERM_OPTION_SET}, so reading it as-is left the listing offering NOTHING while the editor
+ * (which falls back to Long term) showed Long term on. Anything already known is kept exactly; short-stay words
+ * (nightly, weekly, short-term) read as Short-Term Stay, Airbnb as Airbnb, and every other non-blank value as
+ * Long-term. Blank or non-text is null.
+ */
+export function normalizeLegacyLeaseTerm(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const term = raw.trim();
+  if (!term) return null;
+  if (LISTING_LEASE_TERM_OPTION_SET.has(term)) return term;
+  const key = term.toLowerCase();
+  if (key === "airbnb") return AIRBNB_LEASE_TERM;
+  if (/(night|week|daily|short|stay|vacation)/.test(key)) return SHORT_TERM_LEASE_TERM;
+  return LONG_TERM_LEASE_TERM;
+}
+
+/** The stored terms with every legacy value normalized and repeats dropped, in the order first seen. */
+export function normalizeLegacyLeaseTerms(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    const term = normalizeLegacyLeaseTerm(entry);
+    if (term && !out.includes(term)) out.push(term);
+  }
+  return out;
+}
+
 export type LeaseTermOption = (typeof LEASE_TERM_OPTIONS)[number];
 
 /** Standard lease lengths plus short-term when offered on a listing. */

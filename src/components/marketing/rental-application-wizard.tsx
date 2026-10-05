@@ -149,7 +149,8 @@ import {
 import { ManagerLinkGate } from "@/components/marketing/manager-link-gate";
 import { ApplicationUnavailableContactManager } from "@/components/marketing/application-unavailable-contact-manager";
 import { RentalApplicationFinishPanel } from "@/components/marketing/rental-application-finish-panel";
-import type { IssuedLinkedFormView } from "@/lib/application-linked-form-requests";
+import type { LinkedFormListItem } from "@/components/marketing/linked-forms-finish-list";
+import { fetchLinkedFormsForApplication } from "@/lib/linked-form-requests-client";
 import {
   activeWizardProgressPct,
   canNavigateToWizardStep,
@@ -523,7 +524,7 @@ function RentalApplicationWizardInner({
     groupPropertyId?: string;
     hasCosigner?: "yes" | "no" | null;
     /** Forms the template's rules owe after this submit, from the submit response. */
-    linkedForms?: IssuedLinkedFormView[];
+    linkedForms?: LinkedFormListItem[];
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
@@ -2173,6 +2174,13 @@ function RentalApplicationWizardInner({
         portalFlow: stashedConfirm.portalFlow,
         setupHref: stashedConfirm.setupHref,
       });
+      // The confirmation was stashed before the forms were known: ask for what is owed so a remount after Stripe still lists it.
+      void fetchLinkedFormsForApplication(stashedConfirm.axisId).then((owed) => {
+        if (owed.length === 0) return;
+        setPostSubmit((prev) =>
+          prev && prev.axisId === stashedConfirm.axisId && !prev.linkedForms?.length ? { ...prev, linkedForms: owed } : prev,
+        );
+      });
       const keepPid =
         stashedConfirm.propertyId.trim() ||
         searchParams.get("propertyId")?.trim() ||
@@ -2379,6 +2387,9 @@ function RentalApplicationWizardInner({
           setErrors({});
           setChargeTick((n) => n + 1);
           const isGuest = !feeStepUserId;
+          // A paid application is promoted on the server, so the submit response never reached this browser:
+          // read what the template's rules owe so the finish screen lists it.
+          const owedForms = await fetchLinkedFormsForApplication(axisId);
           const confirmPayload = {
             axisId,
             email: emailForMarks,
@@ -2387,6 +2398,7 @@ function RentalApplicationWizardInner({
             mailtoHref,
             guestFlow: isGuest,
             portalFlow: mode === "portal" && !isGuest,
+            ...(owedForms.length > 0 ? { linkedForms: owedForms } : {}),
           };
           rememberApplicationFeeSubmitConfirm({
             sessionId,

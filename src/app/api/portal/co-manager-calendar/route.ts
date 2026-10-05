@@ -14,6 +14,7 @@ import {
 } from "@/lib/test-workspaces/index.server";
 import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import { readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { calendarPersonLabel } from "@/lib/calendar-people";
 
 export const runtime = "nodejs";
 
@@ -174,13 +175,13 @@ export async function GET(req: Request) {
 
       if (inviterId) {
         peers.set(inviterId, {
-          label: inviterId === user.id ? "You" : textField(row, "inviter_display_name") || textField(row, "inviter_axis_id") || inviterId,
+          label: inviterId === user.id ? "You" : textField(row, "inviter_display_name"),
           isSelf: inviterId === user.id,
         });
       }
       if (inviteeId && inviteeMayUseCalendar) {
         peers.set(inviteeId, {
-          label: inviteeId === user.id ? "You" : textField(row, "invitee_display_name") || textField(row, "invitee_axis_id") || inviteeId,
+          label: inviteeId === user.id ? "You" : textField(row, "invitee_display_name"),
           isSelf: inviteeId === user.id,
         });
       }
@@ -236,8 +237,17 @@ export async function GET(req: Request) {
       if (row.id) recordsById.set(row.id, row);
     }
 
+    // Names for the people row: select-only, and only for peers that already passed every access check above.
+    const profileNames = new Map<string, { name: string; email: string }>();
+    const { data: profileRows } = await db.from("profiles").select("id, full_name, email").in("id", peerIds);
+    for (const raw of (profileRows ?? []) as Array<Record<string, unknown>>) {
+      const profileId = textField(raw, "id");
+      if (profileId) profileNames.set(profileId, { name: textField(raw, "full_name"), email: textField(raw, "email") });
+    }
+
     const result = peerIds.map((peerId) => {
       const meta = peers.get(peerId)!;
+      const profile = profileNames.get(peerId);
       const { availKey } = expectedManagerScheduleRecordIds(peerId, propertyId);
       const availRecord = recordsById.get(availKey);
       const slots = scheduleRecordOwnedByPeer(availRecord, peerId)
@@ -246,7 +256,7 @@ export async function GET(req: Request) {
 
       return {
         userId: peerId,
-        label: meta.label,
+        label: calendarPersonLabel({ userId: peerId, label: meta.label, name: profile?.name, email: profile?.email }),
         isSelf: meta.isSelf,
         slots,
         kindSlots: peerKindSlots(recordsById, peerId),

@@ -724,6 +724,24 @@ export function cosignerLinkOwedByTemplate(
   return template.linkedCosignerApplicationTemplateId?.trim() || null;
 }
 
+/**
+ * The co-signer form an application owes when its answer is "Yes": the template's own "Co-signer form" link, else
+ * (Property default) the property's default co-signer template, the same one the co-signer's link resolves to
+ * (`publishedApplicationTemplateForApplicant`). Long term only, like `cosignerLinkOwedByTemplate`.
+ */
+export function cosignerTemplateIdOwedByApplication(
+  template: PropertyApplicationTemplate | null | undefined,
+  submission: Pick<ManagerListingSubmissionV1, "propertyApplicationTemplates">,
+  leases: readonly StayLease[] = [],
+): string | null {
+  if (!template || !applicationAllowsCosigner(template, leases)) return null;
+  return (
+    cosignerLinkOwedByTemplate(template, leases) ??
+    publishedApplicationTemplateForApplicant(submission, "cosigner")?.id ??
+    null
+  );
+}
+
 /* ───────────────────────── Long term / Short term grouping ───────────────────────── */
 
 export type ApplicationGroupRow = {

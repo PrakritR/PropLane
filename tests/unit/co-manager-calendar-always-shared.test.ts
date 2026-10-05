@@ -105,6 +105,7 @@ const KIND_TYPE = "manager_kind_availability";
 
 type PeerBody = {
   userId: string;
+  label: string;
   slots: string[];
   kindSlots: { services: string[]; tasks: string[] };
   sharesAvailability?: unknown;
@@ -186,6 +187,32 @@ describe("availability is always shared", () => {
 
     expect(result.peers.map((p) => p.userId)).not.toContain(BLIND);
     expect(JSON.stringify(result.peers)).not.toContain("2026-10-06:30");
+  });
+
+  it("labels a peer by display name, else email local part, never by their user id", async () => {
+    mocks.tables.profiles = [
+      { id: OWNER, full_name: "Olive Owner", email: "olive@example.com" },
+      { id: PEER, full_name: "", email: "maya.chen@example.com" },
+    ];
+    const emailOnly = await load(OWNER);
+    expect(emailOnly.peers.find((p) => p.userId === PEER)?.label).toBe("maya.chen");
+    expect(emailOnly.peers.find((p) => p.userId === OWNER)?.label).toBe("You");
+
+    mocks.tables.profiles = [{ id: PEER, full_name: "Maya Chen", email: "maya.chen@example.com" }];
+    const named = await load(OWNER);
+    expect(named.peers.find((p) => p.userId === PEER)?.label).toBe("Maya Chen");
+
+    mocks.tables.profiles = [];
+    const nothing = await load(OWNER);
+    const label = nothing.peers.find((p) => p.userId === PEER)?.label;
+    expect(label).toBe("Co-manager");
+    expect(JSON.stringify(nothing.peers.map((p) => p.label))).not.toContain(PEER);
+  });
+
+  it("uses the display name the invite carries when there is one", async () => {
+    mocks.tables.account_link_invites = [{ ...invite(PEER, { calendar: { read: true } }), invitee_display_name: "Priya Nair" }];
+    const result = await load(OWNER);
+    expect(result.peers.find((p) => p.userId === PEER)?.label).toBe("Priya Nair");
   });
 
   it("still refuses a viewer who holds no calendar grant on the house", async () => {

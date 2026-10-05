@@ -90,6 +90,26 @@ describe("linked forms are owed on submit", () => {
     }
   });
 
+  it("owes the property's default co-signer form when the template's Co-signer form is Property default", async () => {
+    const fixture = buildListing();
+    const listing = {
+      ...fixture.listing,
+      propertyApplicationTemplates: fixture.listing.propertyApplicationTemplates.map((template) =>
+        template.id === fixture.mainId ? { ...template, linkedCosignerApplicationTemplateId: null } : template,
+      ),
+    };
+    const db = createLinkedFormFakeDb({
+      manager_property_records: [{ id: "property-1", manager_user_id: "manager-1", property_data: { listingSubmission: listing } }],
+    });
+    const row = applicationRow({}, { applicationTemplateId: fixture.mainId, customFieldAnswers: [] });
+    const issued = await createLinkedFormRequestsForSubmit(db, { applicationId: row.id, row: row as never });
+    expect(issued.map((form) => `${form.formKind}:${form.formId}`)).toEqual([`application:${fixture.cosignerId}`]);
+    expect(db.tables.application_form_requests).toHaveLength(1);
+
+    const no = applicationRow({}, { applicationTemplateId: fixture.mainId, customFieldAnswers: [], hasCosigner: "no" });
+    expect(await createLinkedFormRequestsForSubmit(db, { applicationId: "PROPLANE-APP00002", row: { ...no, id: "PROPLANE-APP00002" } as never })).toEqual([]);
+  });
+
   it("resolves each application form's own fee on the server", async () => {
     const { db, mainId, cosignerId } = seedDb();
     const resolve = (await import("@/lib/application-fee-checkout.server")).resolveApplicationFeeProperty as ReturnType<typeof vi.fn>;
