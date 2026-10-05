@@ -231,11 +231,11 @@ describe("approve-pay — PropLane balance payment source", () => {
     const db = makeDb(baseTables());
     signIn(db);
     flagState.enabled = true;
-    // settleOnly skips starting a real Stripe Checkout session (untouched by
+    // A sub-$1 job skips starting a real Stripe Checkout session (untouched by
     // this build either way) — what this test asserts is narrower and
     // independent of that: the balance ledger is never consulted when the
     // channel isn't explicitly "balance", flag on or not.
-    const res = await POST(postBody({ settleOnly: true }));
+    const res = await POST(postBody({ vendorCostCents: 0 }));
     expect(res.status).toBe(200);
     expect(payVendorFromBalance).not.toHaveBeenCalled();
   });

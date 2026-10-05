@@ -190,6 +190,18 @@ describe("approve-pay double-pay guard", () => {
     }
   });
 
+  it("settleOnly is not a client-reachable escape hatch: the route strips it and the guard still refuses", async () => {
+    // `settleOnly` skips the guard because it records a payment the Stripe webhook already took.
+    // The route builds the core's input from an allowlist, so the body can never set it.
+    const db = makeDb(baseTables(paidPayout));
+    signIn(db);
+    const res = await POST(postBody({ settleOnly: true }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("existing_payout");
+    expect(db.log.inserts).toEqual([]);
+    expect(db.log.upserts).toEqual([]);
+  });
+
   it("names the vendor's invoice as the rail when the blocking payout belongs to one", async () => {
     const tables = baseTables({ ...paidPayout, invoice_id: "inv_1" });
     tables.vendor_invoices = [{ id: "inv_1", estimate_visit_bid_id: null }];

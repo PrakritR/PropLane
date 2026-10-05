@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
 import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
 import { payVendorFromBalance } from "@/lib/proplane-balance/ledger.server";
-import { canTransitionVendorInvoice, mapVendorInvoiceRow, VENDOR_INVOICE_SELECT, type VendorInvoiceStatus } from "@/lib/vendor-invoices";
+import { canTransitionVendorInvoice, isVendorInvoicePaymentRefusal, mapVendorInvoiceRow, VENDOR_INVOICE_SELECT, type VendorInvoiceStatus } from "@/lib/vendor-invoices";
 import { track } from "@/lib/analytics/posthog";
 
 export const runtime = "nodejs";
@@ -51,17 +51,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const vendorUserId = String(existing.vendor_user_id ?? "").trim();
     if (!vendorUserId) return NextResponse.json({ error: "Invoice has no vendor." }, { status: 400 });
 
-    // A refused claim is the double-pay guard answering, not a server fault: the invoice is
-    // already paid through another rail, already claimed by another source, or not payable.
-    // The sibling offline route answers 409 for the same throw; a 500 here left the client
-    // unable to tell "already paid another way" from "PropLane broke".
+    // Only a deliberate refusal is a 409: the job is already paid through another rail, the
+    // invoice is in the wrong state, or it is not this manager's. The same call also reads the
+    // invoice, resolves the workspace scope and creates the bill, and a database fault in any of
+    // those must stay a 500 — "this invoice cannot be paid" would tell the manager it is already
+    // handled and stop them retrying a payment that never happened.
     try {
       await claimInvoicePayment(auth.db, auth.userId, id, "balance");
     } catch (e) {
-      return NextResponse.json(
-        { error: e instanceof Error ? e.message : "This invoice cannot be paid from the balance." },
-        { status: 409 },
-      );
+      const message = e instanceof Error ? e.message : "This invoice cannot be paid from the balance.";
+      if (isVendorInvoicePaymentRefusal(e)) return NextResponse.json({ error: message }, { status: 409 });
+      console.error("[pay-from-balance] could not claim the invoice; nothing was paid", {
+        invoiceId: id,
+        managerUserId: auth.userId,
+        error: message,
+      });
+      return NextResponse.json({ error: message }, { status: 500 });
     }
 
     // The move is ONE transaction, so `ok: false` means the database said no and

@@ -43,7 +43,12 @@ export async function GET(req: Request) {
  *
  * A work order that already has a `pending` / `paid` vendor payout answers 409 with
  * `code: "existing_payout"` and the payout itself, naming the rail that already covers it.
- * There is no override — the client warning is the courtesy, this is the guard. */
+ * There is no override — the client warning is the courtesy, this is the guard.
+ *
+ * The core's input is built field by field from an ALLOWLIST, never spread from the body. A
+ * compile-time `as {...}` strips nothing at runtime, so spreading let a caller set internal
+ * flags: `settleOnly` skips the double-pay guard (it records a payment the webhook already took)
+ * and is passed only by `completeVendorPayFromStripeSession`, server side. */
 export async function POST(req: Request) {
   try {
     const auth = await getReportsAuthContext({ preferRole: "manager" });
@@ -65,7 +70,15 @@ export async function POST(req: Request) {
     const result = await approveAndPayWorkOrder(
       auth.db,
       { userId: auth.userId, email: auth.email, isAdmin: auth.role === "admin" },
-      body,
+      {
+        workOrder: body.workOrder,
+        category: body.category,
+        vendorCostCents: body.vendorCostCents,
+        materialsCostCents: body.materialsCostCents,
+        materialsMemo: body.materialsMemo,
+        workDoneSummary: body.workDoneSummary,
+        paymentChannel: body.paymentChannel === "balance" ? "balance" : "ach",
+      },
     );
     if (!result.ok) {
       if ("existingPayout" in result) {

@@ -12,7 +12,7 @@ const payVendorFromBalance = vi.fn(async () => {
   if (moveResult.throws) throw new Error("ledger unavailable");
   return moveResult.value;
 });
-const claimInvoicePayment = vi.fn(async () => undefined);
+const claimInvoicePayment = vi.fn(async (): Promise<unknown> => undefined);
 const settleInvoicePayment = vi.fn(async () => undefined);
 
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
@@ -30,6 +30,7 @@ vi.mock("@/lib/reports/auth", () => ({
 }));
 
 import { POST } from "@/app/api/vendor/invoices/[id]/pay-from-balance/route";
+import { VendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
 
 const MANAGER = "mgr-1";
 const INVOICE = "inv-1";
@@ -88,6 +89,7 @@ const call = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   moveResult.throws = false;
+  claimInvoicePayment.mockImplementation(async () => undefined);
   fakeDb();
 });
 
@@ -120,6 +122,26 @@ describe("pay from the PropLane balance", () => {
     expect(fake.payoutDeletes).toEqual([]);
     expect(fake.invoiceUpdates).toEqual([]);
     expect(settleInvoicePayment).not.toHaveBeenCalled();
+  });
+
+  it("a refused claim is 409 — the job is already paid through another rail", async () => {
+    claimInvoicePayment.mockImplementation(async () => {
+      throw new VendorInvoicePaymentRefusal("This service is already paid through Approve + pay.");
+    });
+    const res = await call();
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain("Approve + pay");
+    expect(payVendorFromBalance).not.toHaveBeenCalled();
+  });
+
+  it("a DATABASE FAULT while claiming is 500, never the refusal — the manager must retry", async () => {
+    claimInvoicePayment.mockImplementation(async () => {
+      throw new Error("could not connect to server");
+    });
+    const res = await call();
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toContain("could not connect");
+    expect(payVendorFromBalance).not.toHaveBeenCalled();
   });
 
   it("keeps the claim once the money HAS moved", async () => {

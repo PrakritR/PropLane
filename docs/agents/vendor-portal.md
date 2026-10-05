@@ -312,6 +312,17 @@ an acknowledgement could only ever write an audit record for a payment that woul
 The only remaining failure classes are told apart rather than collapsed into the refusal: a
 payout claim that fails for any reason other than "a row is already there" answers **500** with
 the real error, and a checkout that never starts hands its claim back so the job stays payable.
+On the invoice rails the same split is carried by `VendorInvoicePaymentRefusal`
+(`src/lib/vendor-invoices.ts`): a deliberate no (cross-rail double pay, wrong status, not this
+manager's invoice, or a `VP409` / `P0001` raise from `claim_vendor_invoice_payment` /
+`manage_outgoing_invoice`) answers **409**; a database fault answers **500** and is logged. Telling
+a manager "already handled" when PropLane simply broke is the one answer that stops them retrying
+a payment that never happened.
+
+`settleOnly` is the webhook's own flag — it records a payment Stripe already took, so it skips the
+guard and moves no money. It is never read from a request body: `POST /api/portal/work-orders/approve-pay`
+builds the core's input field by field from an allowlist (a compile-time `as {...}` strips nothing
+at runtime), and only `completeVendorPayFromStripeSession` passes it.
 
 ## A failed payout is told to somebody
 
