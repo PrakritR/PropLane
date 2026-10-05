@@ -131,7 +131,7 @@ describe("POST /api/stripe/application-fee-verify", () => {
   it("repairs an exact bound historical payment without promoting an arbitrary application", async () => {
     const { fulfillApplicationFeePayment } = await import("@/lib/application-fee-fulfillment.server");
     vi.mocked(fulfillApplicationFeePayment).mockResolvedValueOnce({
-      chargeId: "hc_historical", alreadyPaid: true, managerUserId: "manager-1", legacy: true,
+      chargeId: "hc_applicant@example.com_historical", alreadyPaid: true, managerUserId: "manager-1", legacy: true,
     });
     retrieve.mockResolvedValueOnce(paidSession({
       metadata: { purpose: "rental_application_fee", resident_email: APPLICANT,
@@ -140,8 +140,20 @@ describe("POST /api/stripe/application-fee-verify", () => {
     const { POST } = await import("@/app/api/stripe/application-fee-verify/route");
     const res = await POST(post({ sessionId: "cs_test_app_fee" }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ paid: true, chargeId: "hc_historical", alreadyPaid: true,
-      applicationPromoted: false });
+    const json = await res.json();
+    expect(json).toMatchObject({ paid: true, alreadyPaid: true, applicationPromoted: false });
+    expect(json.chargeId).toBeUndefined();
+    expect(JSON.stringify(json)).not.toContain("applicant@example.com");
+    vi.mocked(fulfillApplicationFeePayment).mockResolvedValueOnce({
+      chargeId: "hc_applicant@example.com_historical", alreadyPaid: true, managerUserId: "manager-1", legacy: true,
+    });
+    retrieve.mockResolvedValueOnce(paidSession({
+      metadata: { purpose: "rental_application_fee", resident_email: APPLICANT,
+        property_id: "mgr-demo-pioneer" },
+    }));
+    const wrongEmail = await POST(post({ sessionId: "cs_test_app_fee", expectedEmail: "other@example.com" }));
+    expect(wrongEmail.status).toBe(200);
+    expect(JSON.stringify(await wrongEmail.json())).not.toContain("applicant@example.com");
     expect(promoteIncomplete).not.toHaveBeenCalled();
     expect(orphanReport).not.toHaveBeenCalled();
   });
@@ -232,7 +244,7 @@ describe("POST /api/stripe/application-fee-verify", () => {
     expect(json.paid).toBe(true);
     expect(json.emailMatches).toBe(true);
     expect(json.propertyId).toBe("mgr-demo-pioneer");
-    expect(json.chargeId).toBe("hc-app-fee-1");
+    expect(json.chargeId).toBeUndefined();
     expect(json.applicationPromoted).toBe(true);
     expect(json.applicationAxisId).toBe("AXIS-PROMOTED-1");
     // The whole payload, not just the removed `residentEmail` key.

@@ -1,7 +1,8 @@
 import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility.server";
+import { listingFromPropertyData } from "@/lib/household-charge-payment-eligibility";
 import type { HouseholdCharge, RecurringRentProfile } from "@/lib/household-charges";
 import { filterChargesEligibleForPaymentReminders } from "@/lib/household-charges";
-import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   loadManagerAutomationSettings,
   loadScheduledMessageOverrides,
@@ -12,12 +13,7 @@ import { projectScheduledPaymentMessages, type ScheduledPaymentMessage } from "@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 function listingFromPropertyRow(propertyData: unknown): ManagerListingSubmissionV1 | null {
-  if (!propertyData || typeof propertyData !== "object") return null;
-  const submission = (propertyData as { listingSubmission?: unknown }).listingSubmission;
-  if (!submission || typeof submission !== "object") return null;
-  const v = (submission as { v?: unknown }).v;
-  if (v !== 1) return null;
-  return normalizeManagerListingSubmissionV1(submission as ManagerListingSubmissionV1);
+  return listingFromPropertyData(propertyData);
 }
 
 export async function loadManagerRentProfiles(
