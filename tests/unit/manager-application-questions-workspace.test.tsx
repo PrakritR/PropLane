@@ -836,6 +836,13 @@ describe("application promo codes alongside a legacy template waiver", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Promo code" }), { target: { value: "inherit10" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await screen.findByText("INHERIT10");
+    // Evidence: the fee + promo-code step as a manager sees it after the waiver
+    // switch was removed. Set EVIDENCE_DIR to dump it for a screenshot.
+    if (process.env.EVIDENCE_DIR) {
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(process.env.EVIDENCE_DIR, { recursive: true });
+      writeFileSync(`${process.env.EVIDENCE_DIR}/application-fee-promo-codes.body.html`, document.body.innerHTML, "utf8");
+    }
     const post = fetchMock.mock.calls.find(([url, init]) => url === "/api/manager/application-fee-waivers" && init?.method === "POST");
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ code: "INHERIT10", appliesTo: "application", propertyIds: ["mgr-house-1"] });
     jumpRail("sections");
