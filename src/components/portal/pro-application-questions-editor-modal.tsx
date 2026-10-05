@@ -9,7 +9,6 @@ import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/compo
 import {
   FloatingLabelField,
   MoneyInput,
-  PanelSection,
   StepColumn,
   StepHeading,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -289,14 +288,8 @@ export function ManagerApplicationQuestionsEditorModal({
   const [variant, setVariant] = useState<ApplicationFormVariant>("standard");
   const [templateLabel, setTemplateLabel] = useState("");
   const [templateLabelError, setTemplateLabelError] = useState<string | null>(null);
-  // P003: this application's OWN fee/promo — null = "use the account
-  // default". Local, dirty-tracked state saved through the normal
-  // commitSave/Save flow (unlike the account-level `formSetup.patch`, which
-  // saves immediately) — a fee override is part of the template record.
   // The application's own fee, as typed dollars ("" = this application sets none and its rooms follow the older fallbacks).
   const [feeText, setFeeText] = useState("");
-  const [waiverOverrideEnabled, setWaiverOverrideEnabled] = useState(false);
-  const [waiverOverrideCode, setWaiverOverrideCode] = useState("");
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
   const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(() => new Set());
   // The ADD flow's template chooser — which section it targets, or null when closed.
@@ -401,8 +394,6 @@ export function ManagerApplicationQuestionsEditorModal({
         ? centsToMoneyText(applicationTemplate.feeCentsOverride)
         : "",
     );
-    setWaiverOverrideEnabled(Boolean(applicationTemplate?.waiverCodeOverride));
-    setWaiverOverrideCode(applicationTemplate?.waiverCodeOverride ?? "");
     const importName =
       templateDraft?.importProvenance?.sourceName ??
       applicationTemplate?.publishedQuestionConfig?.importProvenance?.sourceName;
@@ -807,6 +798,8 @@ export function ManagerApplicationQuestionsEditorModal({
     // The application's own Application fee (captain, Oct 3 2026): typed here, stored on the template, and
     // read by the ONE fee resolver under a room's own override. Blank = this application sets none.
     const feeCentsOverride = moneyTextToCents(feeText);
+    // Legacy template codes remain intact on unrelated form edits. Managers
+    // create current codes through FormPromoCodesRow's server-owned API.
     const waiverCodeOverride = applicationTemplate?.waiverCodeOverride ?? null;
     if (isTemplateEditor && templates && onPersistSubmission) {
       const trimmed = templateLabel.trim();
