@@ -126,6 +126,8 @@ describe("submitWorkOrderBid — accept-between-read-and-write", () => {
 /** Payout half of the same chain. */
 let PAYOUT_BIDS: Array<{ amount_cents: number | null; status: string | null }>;
 let PAYOUT_INSERTS: Array<Record<string, unknown>>;
+/** Predicates the retry path narrows the payout row with — the job's own payout is the invoice-less one. */
+let PAYOUT_FILTERS: Array<[string, string, unknown]>;
 
 function makePayoutDb() {
   return {
@@ -147,7 +149,14 @@ function makePayoutDb() {
           }),
           update: vi.fn(() => builder),
           select: vi.fn(() => builder),
-          eq: vi.fn(() => builder),
+          eq: vi.fn((column: string, value: unknown) => {
+            PAYOUT_FILTERS.push(["eq", column, value]);
+            return builder;
+          }),
+          is: vi.fn((column: string, value: unknown) => {
+            PAYOUT_FILTERS.push(["is", column, value]);
+            return builder;
+          }),
           maybeSingle: async () => ({ data: null, error: null }),
         };
         return builder;
@@ -160,6 +169,7 @@ function makePayoutDb() {
 describe("payoutVendorForWorkOrder — the anchor", () => {
   beforeEach(() => {
     PAYOUT_INSERTS = [];
+    PAYOUT_FILTERS = [];
   });
 
   const OPTS = { workOrderId: "wo-1", managerUserId: "mgr-1", vendorUserId: "vendor-1", amountCents: 999_00 };
@@ -168,6 +178,10 @@ describe("payoutVendorForWorkOrder — the anchor", () => {
     PAYOUT_BIDS = [{ amount_cents: 50_000, status: "accepted" }];
     await payoutVendorForWorkOrder(makePayoutDb() as never, OPTS);
     expect(PAYOUT_INSERTS[0]?.amount_cents).toBe(50_000);
+    // The insert's row carries no invoice, and the retry that follows a lost insert narrows to
+    // that same invoice-less row — never the estimate-visit fee's payout on the same job.
+    expect(PAYOUT_INSERTS[0]?.invoice_id).toBeUndefined();
+    expect(PAYOUT_FILTERS).toContainEqual(["is", "invoice_id", null]);
   });
 
   it("pays nothing when the job was bid but no bid is accepted", async () => {

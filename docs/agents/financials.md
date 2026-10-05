@@ -310,6 +310,8 @@ job, vendor refund route, and balance/statement/reconciliation surface — is
 `false` / `off`) in an environment to fall back to the pre-feature behavior
 (no `vendor_banking_*` row is written, fee/schedule math returns 0).
 
+**Withdraw-only manager payouts (`MANUAL_PAYOUT_POLICY_ENABLED`, `src/lib/manual-payout-policy-flag.ts`)** is a separate, **default OFF** flag whose own doc comment is the contract. On, a new manager Connect account is created on manual payouts and the hourly `/api/cron/manual-payout-policy` job converts the existing ones in bounded, resumable batches (`ensureManualPayoutPolicy` is withdraw-only: it never touches a bank destination, skips test workspaces, and re-running it leaves an already-manual account alone), and both schedule routes (`/api/stripe/payouts/schedule`, `/api/vendor/payouts/schedule`) answer **422** "Payouts are withdrawal-only." to anything but `manual`. Off keeps today's split - vendors on manual, managers on weekly Friday deposits.
+
 # Financials Phase 5: AP bills, budgets, owner statements
 
 **Schema** — `supabase/migrations/20260712120000_manager_bills_ap.sql`: `manager_bills`, `manager_budgets`, `manager_property_owners`, `manager_reserve_policies`, `manager_owner_distributions`; `vendor_invoices.bill_id` FK to `manager_bills`.
