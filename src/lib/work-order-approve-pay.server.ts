@@ -33,7 +33,6 @@ import {
   type ExistingVendorPayoutSummary,
 } from "@/lib/vendor-payout-guard";
 import type { VendorPayoutStatus } from "@/lib/vendor-payouts";
-import { isVisitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 import { centsToUsd } from "@/lib/reports/money";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { WorkOrderActionFailure } from "@/lib/work-order-bids.server";
@@ -111,10 +110,16 @@ export type ApprovePaySuccess = {
  * proceeding on an unread table.
  *
  * A service can carry several payout rows, because the estimate-visit fee is a
- * SECOND invoice on the same `work_order_id` (`VISIT-<bid id>`). Paying that
- * $50 fee is not paying the job, so its payout is not a double-pay warning —
- * and the read must not assume one row either, or the fee's existence alone
- * made every later Approve + pay refuse.
+ * SECOND invoice on the same `work_order_id`. Paying that $50 fee is not paying
+ * the job, so its payout is not a double-pay warning — and the read must not
+ * assume one row either, or the fee's existence alone made every later
+ * Approve + pay refuse.
+ *
+ * Only the server-written `estimate_visit_bid_id` marks a visit fee. The invoice
+ * NUMBER cannot: it arrives verbatim in the vendor's own submission body, so
+ * reading the exemption off a `VISIT-` prefix let the assigned vendor number
+ * their own job bill that way and have this guard wave the second payout
+ * through. An invoice id that does not come back is not exempt either.
  */
 export async function findBlockingVendorPayout(
   db: Db,
@@ -142,16 +147,14 @@ export async function findBlockingVendorPayout(
   if (invoiceIds.length > 0) {
     const { data: invoices, error: invoiceError } = await db
       .from("vendor_invoices")
-      .select("id, invoice_number")
+      .select("id, estimate_visit_bid_id")
       .in("id", invoiceIds);
     if (invoiceError) {
       return { ok: false, error: `Could not check for an existing payout: ${invoiceError.message}` };
     }
-    for (const invoice of (invoices ?? []) as Array<{ id?: unknown; invoice_number?: unknown }>) {
+    for (const invoice of (invoices ?? []) as Array<{ id?: unknown; estimate_visit_bid_id?: unknown }>) {
       const id = invoice.id == null ? "" : String(invoice.id);
-      if (id && isVisitFeeInvoiceNumber(invoice.invoice_number == null ? "" : String(invoice.invoice_number))) {
-        visitFeeInvoiceIds.add(id);
-      }
+      if (id && invoice.estimate_visit_bid_id != null) visitFeeInvoiceIds.add(id);
     }
   }
   const row = candidates.find((candidate) => !candidate.invoice_id || !visitFeeInvoiceIds.has(candidate.invoice_id));

@@ -349,24 +349,30 @@ export async function sendWorkOrderVendorOffers(
     const managerPropertyLabel = newService
       ? [rowData.propertyName, rowData.unit && rowData.unit !== "—" ? rowData.unit : ""].filter(Boolean).join(" · ") || undefined
       : rowData.propertyName || undefined;
-    const emitOffer = (
+    // One transition, two emits — so only the first publishes the outbound webhook, which carries
+    // no audience and would otherwise reach every subscribed integrator twice per offer.
+    let webhookPublished = false;
+    const emitOffer = async (
       suffix: string,
       propertyLabel: string | undefined,
       recipients: WorkOrderEventInput["recipients"],
-    ) =>
-      recipients.length === 0
-        ? Promise.resolve(undefined)
-        : workOrderEvent(db, {
-            eventId: `${eventIdBase}${suffix}`,
-            event,
-            managerUserId: String(workOrder.manager_user_id),
-            workOrderId,
-            senderUserId: actor.userId,
-            senderEmail: actor.email,
-            senderName: actor.fullName,
-            facts: { ...sharedFacts, propertyLabel },
-            recipients,
-          }).catch(() => undefined);
+    ) => {
+      if (recipients.length === 0) return;
+      const suppressOutboundWebhook = webhookPublished;
+      webhookPublished = true;
+      await workOrderEvent(db, {
+        eventId: `${eventIdBase}${suffix}`,
+        event,
+        managerUserId: String(workOrder.manager_user_id),
+        workOrderId,
+        senderUserId: actor.userId,
+        senderEmail: actor.email,
+        senderName: actor.fullName,
+        facts: { ...sharedFacts, propertyLabel },
+        recipients,
+        suppressOutboundWebhook,
+      }).catch(() => undefined);
+    };
     await emitOffer(
       "",
       workOrderGeneralArea(rowData),

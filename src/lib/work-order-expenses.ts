@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { isCategoryDeductible, WORK_ORDER_CATEGORY_TO_EXPENSE, type WorkOrderCategory } from "@/lib/reports/categories";
 import { postGlExpenseEntry } from "@/lib/reports/gl-posting";
-import { isVisitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 
 export type WorkOrderCompleteInput = {
   workOrderId: string;
@@ -32,9 +31,9 @@ function linesClosedByPostedRow(row: PostedExpenseRow, jobBillInvoiceIds: Readon
   // nothing on top of it.
   //
   // The estimate-visit fee rides the same rail as a SECOND invoice on the same service
-  // (`VISIT-<bid id>`, `work-order-visit-fee-invoice.server.ts`), so it carries the job's
-  // `source_work_order_id` too. A $50 visit fee is not the job's labor: treating it as the whole
-  // bill suppressed the accepted bid's expense entirely, so it closes neither line.
+  // (`work-order-visit-fee-invoice.server.ts`), so it carries the job's `source_work_order_id`
+  // too. A $50 visit fee is not the job's labor: treating it as the whole bill suppressed the
+  // accepted bid's expense entirely, so it closes neither line.
   const invoiceId = row.source_vendor_invoice_id == null ? "" : String(row.source_vendor_invoice_id);
   if (invoiceId) return jobBillInvoiceIds.has(invoiceId) ? ["labor", "materials"] : [];
   return [row.category_code === "materials" ? "materials" : "labor"];
@@ -44,22 +43,32 @@ function linesClosedByPostedRow(row: PostedExpenseRow, jobBillInvoiceIds: Readon
  * Of these `vendor_invoices` ids, the ones that are the job's own bill rather than an
  * estimate-visit fee. A read failure returns `null`, which the caller turns into a refusal: not
  * knowing which invoice an expense came from means not knowing what is posted.
+ *
+ * A visit fee is recognised ONLY by the server-written `estimate_visit_bid_id`, never by a
+ * `VISIT-` invoice number, which arrives verbatim in the vendor's own submission body — reading it
+ * there let the assigned vendor number their own job bill that way and have the completion post
+ * labor and materials on top of the paid bill.
+ *
+ * Everything else counts as the job's bill, including an id that did not come back. Both unknowns
+ * fail in the same direction as the read failure above: a row that may already account for the
+ * job's whole cost closes both lines rather than letting a second one post.
  */
 async function jobBillInvoiceIds(
   db: SupabaseClient,
   invoiceIds: readonly string[],
 ): Promise<ReadonlySet<string> | null> {
   if (invoiceIds.length === 0) return new Set<string>();
-  const { data, error } = await db.from("vendor_invoices").select("id, invoice_number").in("id", [...invoiceIds]);
+  const { data, error } = await db
+    .from("vendor_invoices")
+    .select("id, estimate_visit_bid_id")
+    .in("id", [...invoiceIds]);
   if (error) return null;
-  const out = new Set<string>();
-  for (const row of (data ?? []) as Array<{ id?: unknown; invoice_number?: unknown }>) {
+  const visitFees = new Set<string>();
+  for (const row of (data ?? []) as Array<{ id?: unknown; estimate_visit_bid_id?: unknown }>) {
     const id = row.id == null ? "" : String(row.id);
-    if (!id) continue;
-    if (isVisitFeeInvoiceNumber(row.invoice_number == null ? "" : String(row.invoice_number))) continue;
-    out.add(id);
+    if (id && row.estimate_visit_bid_id != null) visitFees.add(id);
   }
-  return out;
+  return new Set(invoiceIds.filter((id) => !visitFees.has(id)));
 }
 
 /**

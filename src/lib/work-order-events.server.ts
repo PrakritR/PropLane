@@ -271,6 +271,14 @@ export type WorkOrderEventInput = {
   now?: Date;
   /** Who is acting. Defaults to manager; a vendor or resident actor triggers the cross-party split above. */
   senderAudience?: WorkOrderEventAudience;
+  /**
+   * Set on every emit but the first when ONE transition is delivered as several emits (the
+   * cross-party split below, or a caller that sends one audience a narrower set of facts).
+   * `enqueueWebhookEvent` writes a fresh `webhook_deliveries` row per call with no idempotency
+   * key, and the payload is derived from the event and the work order alone, so without this an
+   * integrator received the same transition twice.
+   */
+  suppressOutboundWebhook?: boolean;
 };
 
 /**
@@ -315,6 +323,7 @@ async function workOrderEventImpl(
           recipients: crossParty,
           senderAudience: undefined,
           // The webhook already went out with the first half.
+          suppressOutboundWebhook: true,
           workOrderId: input.workOrderId,
         }).catch(() => undefined);
       }
@@ -323,7 +332,7 @@ async function workOrderEventImpl(
   }
   // An invoice decision with no linked work order has no work-order id to
   // publish; everything else goes out as before.
-  if (!input.workOrderId.startsWith("invoice:")) {
+  if (!input.workOrderId.startsWith("invoice:") && !input.suppressOutboundWebhook) {
     const outbound = outboundWebhook(input.event, input.workOrderId, input.occurredAt);
     // Outbound webhooks. Never throws in here — a webhook problem must not fail
     // the transition that produced it.

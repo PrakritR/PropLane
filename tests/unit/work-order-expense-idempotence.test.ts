@@ -33,7 +33,7 @@ function makeDb(
 ) {
   const inserts: Row[] = [];
   let reads = 0;
-  const invoices = hooks.invoices ?? [{ id: "inv-1", invoice_number: "INV-1001" }];
+  const invoices = hooks.invoices ?? [{ id: "inv-1", estimate_visit_bid_id: null }];
   const from = (table: string) => {
     expect(["manager_expense_entries", "vendor_invoices"]).toContain(table);
     const filters: Array<[string, unknown]> = [];
@@ -141,12 +141,13 @@ describe("a settled vendor invoice is the job's whole vendor cost", () => {
 });
 
 /**
- * The estimate-visit fee is a SECOND invoice on the same service (`VISIT-<bid id>`), filed against
- * the same work order. A $50 visit fee is not the job's $500 labor: treating it as the whole bill
- * suppressed the accepted bid's expense entirely.
+ * The estimate-visit fee is a SECOND invoice on the same service, filed against the same work
+ * order. A $50 visit fee is not the job's $500 labor: treating it as the whole bill suppressed the
+ * accepted bid's expense entirely. Only the server-written `estimate_visit_bid_id` says so — the
+ * invoice NUMBER is the vendor's own input, so a `VISIT-` prefix there must change nothing.
  */
 describe("an estimate-visit fee invoice is not the job's bill", () => {
-  const visitFeeInvoices: Row[] = [{ id: "inv-1", invoice_number: "VISIT-bid-1" }];
+  const visitFeeInvoices: Row[] = [{ id: "inv-1", estimate_visit_bid_id: "bid-1" }];
 
   it("closes neither line", async () => {
     const { db } = makeDb([invoiceRow()], { invoices: visitFeeInvoices });
@@ -166,6 +167,36 @@ describe("an estimate-visit fee invoice is not the job's bill", () => {
     const { db } = makeDb([invoiceRow()], { invoiceReadError: "statement timeout" });
     const read = await readPostedWorkOrderExpenseLines(db, MANAGER, JOB);
     expect(read.ok).toBe(false);
+  });
+
+  // The invoice number is whatever the vendor typed into their own submission; the assigned vendor
+  // numbering their job bill "VISIT-…" must not let the completion post labor on top of it.
+  it("is not recognised from a VISIT- invoice number alone", async () => {
+    const { db, inserts } = makeDb([invoiceRow()], {
+      invoices: [{ id: "inv-1", invoice_number: "VISIT-bid-1", estimate_visit_bid_id: null }],
+    });
+    const read = await readPostedWorkOrderExpenseLines(db, MANAGER, JOB);
+    expect(read.ok && [...read.posted]).toEqual([
+      ["labor", "exp-invoice"],
+      ["materials", "exp-invoice"],
+    ]);
+    const ids = await createExpensesFromWorkOrder(db, MANAGER, completion);
+    expect(inserts).toEqual([]);
+    expect(ids).toEqual(["exp-invoice"]);
+  });
+
+  // An id that does not come back is an unknown, and unknowns fail in the same direction as a read
+  // failure: the row may already be the job's whole cost, so it closes both lines.
+  it("treats an invoice id that no longer resolves as the job's own bill", async () => {
+    const { db, inserts } = makeDb([invoiceRow()], { invoices: [] });
+    const read = await readPostedWorkOrderExpenseLines(db, MANAGER, JOB);
+    expect(read.ok && [...read.posted]).toEqual([
+      ["labor", "exp-invoice"],
+      ["materials", "exp-invoice"],
+    ]);
+    const ids = await createExpensesFromWorkOrder(db, MANAGER, completion);
+    expect(inserts).toEqual([]);
+    expect(ids).toEqual(["exp-invoice"]);
   });
 });
 
