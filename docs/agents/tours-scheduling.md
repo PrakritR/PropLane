@@ -489,8 +489,18 @@ lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the gr
   calendar read is not listed at all. Legacy `calendar_share_settings` rows are never read; do not
   reintroduce a share toggle. One stable colour and initials per person
   (`PERSON_COLORS`/`buildCalendarPeople`, `src/lib/calendar-people.ts`) from the user-id sort, so
-  hiding someone in the people row never repaints the others. A person's own hours are editable only
+  hiding someone in the people row never repaints the others. **A person is named, never numbered:**
+  `calendarPersonLabel` (the one decision, used for the label and the initials alike) takes the
+  display name, else the local part of their email, else "Co-manager" — a uuid or an Axis id is never
+  shown, which is what the row used to fall back to. A person's own hours are editable only
   by that person; a booked item opens its own record rather than the availability popup.
+- **A channel calendar is a WRITE on the house.** Linking, unlinking and syncing an Airbnb /
+  Booking.com / VRBO calendar — and the cache-miss path that mints a connection row with its secret
+  public export token — need the Calendar module at **edit**
+  (`managerCanWriteCalendarForProperty`, `managerCanWriteCalendarForProperties` for a whole
+  portfolio in two round trips), not the read access the availability row grants, and the legacy
+  `properties` read grant does not stand in for it. The connect modal lists only writable houses
+  (and scopes "Entire workspace" to them) as a hint; every write re-checks on the server.
 
 ## Application before a tour (workspace setting, Oct 3 2026)
 

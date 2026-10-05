@@ -110,10 +110,33 @@ visit happened; refused 422 before the visit time) files one vendor invoice per 
 (`invoice_number = VISIT-<bid id>`, unique index in
 `20261003231000_work_order_bid_estimates.sql`, `ensureVisitFeeInvoice`) for the stored fee. It rides
 the normal Approve & pay rail; `isGenuineVisitFeeInvoice` is what lets it be paid although that vendor
-was never hired, and only when it matches a real bid whose visit happened at that fee. The job's own
-invoice (`ensureSubmittedVendorInvoiceForMarkedDone`) ignores `VISIT-` invoices. The job payout is
-built only when the service is completed AND assigned to a vendor
+was never hired, and only when it matches a real bid whose visit happened at that fee.
+
+**Which invoice is a visit fee is a SERVER decision, never the invoice number.** The marker is
+`vendor_invoices.estimate_visit_bid_id` (`20261004150000_vendor_invoice_estimate_visit_marker.sql`),
+written only by `ensureVisitFeeInvoice`. `invoice_number` arrives verbatim in the vendor's own
+submission body, so a `VISIT-` prefix there is vendor-controlled input: reading it let the assigned
+vendor number their own job bill that way and walk past both the double-pay guard and the job-expense
+guard. Everything that has to tell the two apart reads the column —
+`isGenuineVisitFeeInvoice`, the job's own invoice (`ensureSubmittedVendorInvoiceForMarkedDone`,
+which ignores marked rows), `findBlockingVendorPayout`, and the posted-expense read. A visit fee
+closes NEITHER expense line of the job (`linesClosedByPostedRow`): a paid $50 visit is not the
+accepted bid's labor, and treating it as the whole bill suppressed the job's own expense. A read
+that cannot tell them apart refuses rather than posting.
+
+Two vendor invoices therefore exist against one service, so a payout is unique per
+**(work order, invoice)**, not per work order — see
+[`vendor-portal.md`](vendor-portal.md) § The payout timeline.
+
+The job payout is built only when the service is completed AND assigned to a vendor
 (`serviceIsVendorPayable`): yourself and teammates never create an outgoing row.
+
+**Mark done books the accepted bid's cost, not the client's.** `POST /api/portal/work-orders/complete`
+reads the `accepted` bid itself (`amount_cents` / `materials_cents` / `vendor_directory_id`) exactly as
+approve-and-pay does, and a body figure stands in only when no bid was accepted (a directly-assigned
+job). More than one accepted bid answers 409 rather than guessing which one is the payout anchor. A
+completion carrying no cost at all posts nothing and reads nothing — marking a job done is not a money
+move.
 
 **Inside the service record** (rail and header icons: see One vocabulary above).
 The Service tab is ONE page (`ServiceDetailsSection`, no Details / Photos / Activity sub-tabs and no stat
@@ -196,6 +219,17 @@ silent: those fields still hold THAT vendor's approved figure, and the competito
 no business reading it. The vendor panel's own `vendorCanSeeFullWorkOrderSite` redaction is
 presentation on top of this projection, never instead of it.
 
+**The general area is never a street address.** A property NAMED after its address ("123 Main St,
+Seattle, WA") used to publish that name as the area, because the old rule simply took the text before
+the first comma. `workOrderGeneralArea` now drops any part that reads as a street line, keeps the
+city, and answers "Nearby" when nothing left is safe to show.
+
+**The offer notification carries the same projection.** `sendWorkOrderVendorOffers` emits the
+vendors' copy with the general area and no unit, and the manager's own copy as a SEPARATE event that
+says the house's real name — one emit naming the site to both audiences is how an address reached an
+offered vendor by email. The emits are deduped on their own event ids, so a retry notifies nobody
+twice.
+
 **RLS** (`work_order_bids_vendor_read` / `work_order_bids_manager_read`):
 BOTH sides are `FOR SELECT` only — vendor by `vendor_user_id = auth.uid()`,
 manager by `manager_user_id = auth.uid()` (denormalized onto the bid row at
@@ -224,6 +258,14 @@ maintenance service uses.
   assignee, the job's visit the visit, a finished job completes an approved add-on).
 - **Privacy is unchanged.** An offered vendor is served the projected row (`projectWorkOrderForOfferedVendor`:
   general area only, no resident, and no `linkedServiceRequestId`).
+- **The link is manager-owned.** `POST /api/portal-work-orders` strips `linkedServiceRequestId` and
+  `linkedWorkOrderId` from a RESIDENT's write and restores only what the server already stored: a
+  resident who could set it would hide their own service from every manager list and count
+  (`withoutLinkedVendorJobs`) and skip the manager's new-service notice.
+- **The job describes only what the manager published.** `buildAddOnVendorJobRow` takes the add-on's
+  `offerDescription` (else its title) and never the resident's own `notes` — free text a merely
+  offered vendor has no business reading. A job saved before that rule may still hold those notes, so
+  the offered-vendor projection replaces an add-on job's `description` with its title.
 - `assignableKindsFor("vendor")` now includes `service`, but an add-on's own assignee picker stays team-only; a
   vendor is on an add-on only by being sent the job.
 

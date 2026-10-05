@@ -3396,7 +3396,6 @@ export function ListingEditorV2({
       );
     }
     return preview;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, submission, previewRoomId]);
 
   return (

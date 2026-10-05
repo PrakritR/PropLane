@@ -47,7 +47,9 @@ override row. The form named may be another **application** template or a
 **move-in** form (`LinkedFormRef.kind`); the editor's dropdown lists both with
 each form's own fee as a plain fact (`application-linked-form-options.ts`). A
 template's co-signer link is read as a derived rule on "Co-signer planned"
-rather than stored twice.
+rather than stored twice: `cosignerTemplateIdOwedByApplication` resolves the template's own
+"Co-signer form" link, else — on (Property default) — the property's default co-signer template, the
+same one the co-signer's own link resolves to. Long term only.
 
 On submit the server evaluates the **published** template's rules against the
 answers and writes one `application_form_requests` row per matched form
@@ -86,7 +88,10 @@ Schema: `supabase/migrations/20261004130000_linked_form_requests.sql` —
   nothing may silently replace a link already out there: the surfaces say "Link
   shared" and offer an explicit `LINKED_FORM_NEW_LINK_LABEL` instead.
 - One link covers exactly **one request** and expires after
-  `LINKED_FORM_LINK_TTL_DAYS` = 30 days (the column default says the same).
+  `LINKED_FORM_LINK_TTL_DAYS` = 30 days (the column default says the same). `expires_at` is the
+  LINK's life, not the form's: it is the deadline `redeemLinkedFormToken` enforces when someone opens
+  `/f/<token>`. An owed form never expires for the applicant, a helper who already redeemed a live
+  link stays recognised, and a fresh link is minted on demand.
 - **A helper needs their own resident account.** `/f/<token>` makes a visitor
   sign in or create one and comes straight back; redeeming
   (`POST /api/linked-form-requests/redeem`, body = the token and nothing else)
@@ -103,10 +108,27 @@ A linked form that is itself an application **charges its own fee to whoever
 fills it** (`src/lib/linked-form-fee.server.ts`). The amount is never read from a
 request body: it is re-resolved from the stored listing — the template's own
 `feeCentsOverride`, else the listing's application fee for the application's
-term — the same chain the applicant's own fee uses. The checkout carries
-`LINKED_FORM_FEE_PURPOSE`, so the application-fee webhook and verify paths
-(which would mark the APPLICANT's fee paid) never see it. A move-in form never
+term — the same chain the applicant's own fee uses. A move-in form never
 charges.
+
+- **`fee_cents` null on an application form means UNRESOLVED, never free.** A resolved "no fee"
+  stores 0, so null only ever means the pricing lookup failed when the request was written
+  (`linkedFormFeeUnresolved`). The submit gate re-resolves it from the stored listing
+  (`resolveUnresolvedLinkedFormFee`) and **fails closed**: a fee that still cannot be read refuses
+  the submit with 503 `FEE_UNRESOLVED` rather than letting the form through as free. The legacy
+  co-signer completion hook (`completeOpenLinkedFormRequestByForm`) carries no signed-in payer, so it
+  finishes an application form only when the fee is 0 or already paid — an unresolved or owed fee
+  leaves the request owed for its own paid submit.
+- **The payment is settled twice over, idempotently.** The checkout carries
+  `LINKED_FORM_FEE_PURPOSE`, so the application-fee webhook and verify paths (which would mark the
+  APPLICANT's fee paid) never see it; it has its own branch instead
+  (`markLinkedFormFeePaidFromStripeSession`), bound to the metadata the server stamped (request,
+  payer, manager) and re-checked against the stored request. Webhook and the payer's own verify share
+  one writer (`recordLinkedFormFeePayment`), so a payer who closes the tab is still recorded: the
+  request's paid flags are paid-sticky, and the money is booked write-through to the ledger as one
+  `other_cost` "Form fee" charge keyed on the Checkout session id (`hc_linked_form_fee_<session>`),
+  which keeps its first booking date so a replay never moves it between reporting periods. The
+  `application_fee` kind stays reserved for the applicant's own fee.
 
 ## Invariants
 
@@ -124,8 +146,14 @@ charges.
   `GET/POST /api/linked-form-requests/[id]` (`share`, `send_email` — manager
   only, `not_needed`, `fee_checkout`, `fee_verify`),
   `POST /api/linked-form-requests/redeem`. None of them ever returns a token or
-  its hash.
+  its hash. **Every POST changes state, so a manager acting on one needs the Applications/Residents
+  module at EDIT**, not read (`resolveLinkedFormViewerRole(..., { level: "edit" })`); a read-only
+  co-manager is not a manager for it and, unless they are also the applicant or helper, gets the same
+  404 as for a request that does not exist. GET stays at read.
 - **A guest applicant has no `applicant_user_id`** (it is nullable on purpose);
-  the request is still written and reachable through its link.
+  the request is still written and reachable through its link. The bound id comes **only from the
+  authenticated session** of a resident writing their own application — never from the submitted row,
+  which is client-authored and would let a submitter attach someone else's account to the request.
+  Redeem and the resident lists re-derive a guest's applicant from the verified email.
 - A missed completion hook leaves the row owed, which the manager can mark done —
   it never blocks the form that was actually submitted.

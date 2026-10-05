@@ -12,7 +12,7 @@ and the stored terms; do not re-declare it.
 
 | Type | Stored term | Term and dates | Charges |
 | --- | --- | --- | --- |
-| Long-term | `Long-term` (retired `3/6/9/12-Month` read as this) | fixed, start + end (or a manager-offered length) | first month, then monthly rent |
+| Long-term | `Long-term` (retired `3/6/9/12-Month` and pre-four-types free text read as this) | fixed, start + end (or a manager-offered length) | first month, then monthly rent |
 | Short-term | `Short-Term Stay` (`Airbnb` reads as this) | check-in + check-out | one stay total from the nightly rate |
 | Custom | `Custom` | the applicant's own start + end | prorated first and last month, monthly between |
 | Month-to-month | `Month-to-Month` | start only, rolling, no end date | monthly rent, plus the optional **month-to-month surcharge** (never in Seattle) |
@@ -43,7 +43,19 @@ and the stored terms; do not re-declare it.
   a Seattle listing: `listingOffersMonthToMonthSurcharge` (listing-fees.ts) is the one predicate (hidden row, amount
   0 in `listingPresetFeeAmountIfEnabled`, no fold into Seattle rent, no lease-document line, no quote add-on).
   A rollover tenancy (`rolloverToMonthToMonth`) is billed as the lease it continues and prints no surcharge. The
-  custom-start surcharge still applies to a custom-dated lease.
+  custom-start surcharge still applies to a custom-dated lease. **The jurisdiction is resolved from the stored
+  property record FIRST**, before the submission (`listingFoldsAllMonthlyFeesIntoRent(sub, listingProperty)`),
+  so every caller that has the property must pass it — `buildListingQuote`, `listingOffersMonthToMonthSurcharge`,
+  `resolveRoomTermFees` and the leasing-SMS listing facts all take `listingProperty`. A listing whose
+  submission never recorded a city is otherwise quoted a surcharge Seattle forbids.
+- **A legacy stored term is read as the type it stands for.** Listings written before the four types carry free
+  text ("12 months", "month-to-month", "nightly"); `normalizeLegacyLeaseTerm` /
+  `normalizeLegacyLeaseTerms` fold short-stay words onto Short-Term Stay, `Airbnb` onto Airbnb and anything else
+  non-blank onto Long-term, and `POST /api/property-records` normalizes `allowedLeaseTerms` on the way in so the
+  saved payload and the editor agree. Reading the raw text left such a listing offering NOTHING while Basics
+  showed Long term on, and the save was refused with "Choose at least one lease term". An EMPTY list is left
+  exactly as written — it is a deliberate "no stays offered" payload, and that refusal is the only thing telling
+  the manager the save did not do what they asked.
 - Coverage: `tests/unit/lease-types-four.test.ts`.
 
 ## Resident lease visibility and signing (Sep 2026 hotfix)

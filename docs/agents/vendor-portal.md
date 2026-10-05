@@ -248,7 +248,7 @@ also incidentally fixes the same latent gap on the manager's demo Payments page 
 after the existing bookkeeping-only `markWorkOrderPaid` write. It attempts a
 `stripe.transfers.create` (destination = the vendor's Connect account, amount = the work
 order's `vendorCostCents` labor cost — materials are not transferred, they're the manager's
-own expense) and always writes exactly one `vendor_payouts` row per work order (`status:
+own expense) and always writes exactly one `vendor_payouts` row per work order on this rail (`status:
 "paid"` with the transfer id, or `"failed"` with a human-readable reason for any error: no
 Connect account, incomplete onboarding, Stripe not configured, insufficient platform balance,
 etc.). It never throws — approve-pay's manager-facing "Approved and paid." always succeeds
@@ -281,10 +281,22 @@ failed / skipped**, built by `vendorPayoutTimeline` (`src/lib/vendor-payout-time
 from data already on the `vendor_payouts` row and its work order. A step whose
 timestamp is genuinely unknown renders as "—"; nothing here guesses a date.
 
-Because exactly one `vendor_payouts` row exists per work order, the only way to
-pay a vendor twice is to ALSO record an off-platform payment. That is now
-refused rather than merely warned about: `approve-pay` answers **409** naming
-the existing payout when one is `pending` or `paid`, and proceeds only with
+A payout is unique per **(work order, invoice)**, not per work order
+(`vendor_payouts_work_order_invoice_unique`,
+`20261004140000_vendor_payout_work_order_invoice_unique.sql`). A service can carry two vendor
+invoices — the job's own bill and the estimate-visit fee (`VISIT-<bid id>`, one per bid, see
+[`services-system.md`](services-system.md)) — and the older index let a paid $50 visit fee consume
+the service's only payout slot, after which the job's own invoice could never be claimed
+(`claim_vendor_invoice_payment` raised 23505). The replacement is strictly looser: one payout per
+(work order, invoice) on the invoice rail, and still exactly one non-invoice payout per work order on
+the approve-and-pay rail (a null `invoice_id` collapses to one sentinel key, since a plain unique
+index treats nulls as distinct).
+
+Database uniqueness is therefore no longer the double-pay guard: `findBlockingVendorPayout`
+(`src/lib/work-order-approve-pay.server.ts`) is, and it refuses on any payout that already moved
+money for the job, across both rails. The only way to pay a vendor twice is to ALSO record an
+off-platform payment, and that is refused rather than merely warned about: `approve-pay` answers
+**409** naming the existing payout when one is `pending` or `paid`, and proceeds only with
 `acknowledgeExistingPayout: true`, which writes a
 `vendor_double_pay_acknowledged` row to `audit_log` before the write runs. The
 client's warning card is the courtesy; the 409 is the guard
@@ -322,7 +334,11 @@ star-rated review per service that is **completed or at least estimated** (a
 `vendorCostCents`/`vendorPriceSetAt` — `vendorHasGivenEstimate`), re-derived
 by the POST route from the DB (422 when neither; 403 for another workspace or
 a `vendorUserId` that is not the service's vendor); the vendor record's Add
-review dialog picks among those services. A review is never editable; the vendor
+review dialog picks among those services. The reviewer may change their own review for
+`VENDOR_REVIEW_EDIT_WINDOW_DAYS` = **14 days** — `canEditVendorReview` is the one decision behind
+the Edit review menu item, the dialog and the PATCH route, and the route additionally filters on
+`vendorReviewEditWindowFloorIso()` so the window holds in the database too; an unreadable
+`created_at` fails closed. Nobody but the reviewer ever edits one, and the vendor
 may reply once. `vendor_reviews`
 (`supabase/migrations/20260925000000_vendor_reviews.sql`), unique on
 `work_order_id`, keyed by `vendor_user_id` rather than
