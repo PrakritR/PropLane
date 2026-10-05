@@ -2,14 +2,17 @@ import "server-only";
 
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { connectAccountReadyForAchPayouts, retrieveManagerConnectAccountOrNull } from "@/lib/stripe-connect";
+import { retrieveManagerConnectAccountOrNull } from "@/lib/stripe-connect";
+import { resolvePayoutsReadiness } from "@/lib/stripe-payouts-readiness.server";
 import {
   claimWithdrawal,
+  claimClassifiedWithdrawal,
   ensureBalanceAccountId,
   reverseWithdrawalClaim,
   stampWithdrawalTransfer,
 } from "@/lib/proplane-balance/ledger.server";
 import type { BalanceOwnerKind } from "@/lib/proplane-balance/types";
+import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
 
 export type WithdrawFromBalanceResult =
   | { ok: true; transferId: string; payoutId: string; payoutPending: false }
@@ -53,12 +56,19 @@ export async function withdrawFromBalance(
     return { ok: false, status: 402, error: "Finish Stripe payout setup before withdrawing." };
   }
   const account = await retrieveManagerConnectAccountOrNull(stripe, connectAccountId);
-  if (!account || !connectAccountReadyForAchPayouts(account)) {
+  if (!account || account.id !== connectAccountId ||
+      account.metadata?.axis_user_id !== opts.ownerUserId ||
+      !resolvePayoutsReadiness(account).ready) {
     return { ok: false, status: 402, error: "Finish Stripe payout setup before withdrawing." };
   }
 
   const accountId = await ensureBalanceAccountId(db, opts.ownerKind, opts.ownerUserId);
-  const claim = await claimWithdrawal(db, { accountId, amountCents: opts.amountCents });
+  const classified = proplaneBalanceEnabled();
+  const claim = classified
+    ? await claimClassifiedWithdrawal(db, { accountId, ownerKind: opts.ownerKind,
+      ownerUserId: opts.ownerUserId, amountCents: opts.amountCents,
+      destinationAccountId: connectAccountId })
+    : await claimWithdrawal(db, { accountId, amountCents: opts.amountCents });
   if (!claim.ok) {
     if (claim.code === "conflict") return { ok: false, status: 409, error: claim.error };
     if (claim.code === "insufficient_balance") {
@@ -78,11 +88,22 @@ export async function withdrawFromBalance(
         amount: opts.amountCents,
         currency: "usd",
         destination: connectAccountId,
-        metadata: { proplane_balance_withdrawal: claim.idempotencyKey, owner_kind: opts.ownerKind, owner_user_id: opts.ownerUserId },
+        metadata: { proplane_balance_withdrawal: claim.idempotencyKey,
+          proplane_balance_entry_id: claim.entryId,
+          owner_kind: opts.ownerKind, owner_user_id: opts.ownerUserId },
       },
       { idempotencyKey: `balance-withdrawal-transfer:${claim.idempotencyKey}` },
     );
   } catch (e) {
+    if (classified) {
+      // Stripe can create a transfer and then lose its response. The debit
+      // and source reservation stay in force until exact-key reconciliation.
+      await db.from("proplane_balance_entries")
+        .update({ withdrawal_provider_status: "unknown" })
+        .eq("id", claim.entryId).is("stripe_object_id", null);
+      return { ok: false, status: 409,
+        error: "The withdrawal is being verified. Do not submit it again." };
+    }
     const message = e instanceof Error ? e.message : "Stripe transfer failed.";
     await reverseWithdrawalClaim(db, { entryId: claim.entryId, accountId, amountCents: opts.amountCents }).catch(
       (reverseError) => console.error("[proplane-balance] could not reverse withdrawal claim", reverseError),
@@ -90,13 +111,53 @@ export async function withdrawFromBalance(
     return { ok: false, status: 500, error: message };
   }
 
-  await stampWithdrawalTransfer(db, { entryId: claim.entryId, transferId: transfer.id });
+  if (classified) {
+    const transferDestination = typeof transfer.destination === "string"
+      ? transfer.destination : transfer.destination?.id;
+    if (transfer.amount !== opts.amountCents || transfer.currency !== "usd" ||
+        transferDestination !== connectAccountId ||
+        transfer.metadata?.proplane_balance_withdrawal !== claim.idempotencyKey ||
+        transfer.metadata?.proplane_balance_entry_id !== claim.entryId ||
+        transfer.metadata?.owner_kind !== opts.ownerKind ||
+        transfer.metadata?.owner_user_id !== opts.ownerUserId) {
+      throw new Error("Withdrawal transfer does not match its frozen source claim.");
+    }
+    const { data: finished, error: finishError } = await db.rpc("finish_platform_classified_withdrawal", {
+      p_entry: claim.entryId, p_key: claim.idempotencyKey,
+      p_destination: connectAccountId, p_transfer: transfer.id,
+    });
+    if (finishError || finished?.stripe_object_id !== transfer.id) {
+      throw new Error(finishError?.message ?? "Withdrawal transfer could not be recorded.");
+    }
+  } else {
+    await stampWithdrawalTransfer(db, { entryId: claim.entryId, transferId: transfer.id });
+  }
 
   try {
     const payout = await stripe.payouts.create(
-      { amount: opts.amountCents, currency: "usd", method: "standard", metadata: { proplane_balance_withdrawal: claim.idempotencyKey, proplane_balance_transfer_id: transfer.id } },
+      { amount: opts.amountCents, currency: "usd", method: "standard", metadata: {
+        proplane_balance_withdrawal: claim.idempotencyKey,
+        proplane_balance_entry_id: claim.entryId,
+        proplane_balance_transfer_id: transfer.id } },
       { stripeAccount: connectAccountId, idempotencyKey: `balance-withdrawal-payout:${claim.idempotencyKey}` },
     );
+    if (classified) {
+      if (payout.amount !== opts.amountCents || payout.currency !== "usd" ||
+          payout.method !== "standard" ||
+          payout.metadata?.proplane_balance_withdrawal !== claim.idempotencyKey ||
+          payout.metadata?.proplane_balance_entry_id !== claim.entryId ||
+          payout.metadata?.proplane_balance_transfer_id !== transfer.id) {
+        throw new Error("Withdrawal payout does not match its frozen source claim.");
+      }
+      const { data: stamped, error: stampError } = await db.from("proplane_balance_entries")
+        .update({ withdrawal_payout_id: payout.id, withdrawal_provider_status: "payout_created" })
+        .eq("id", claim.entryId).eq("stripe_object_id", transfer.id)
+        .eq("withdrawal_destination_account_id", connectAccountId)
+        .select("id").maybeSingle();
+      if (stampError || stamped?.id !== claim.entryId) {
+        throw new Error("Withdrawal payout could not be recorded.");
+      }
+    }
     return { ok: true, transferId: transfer.id, payoutId: payout.id, payoutPending: false };
   } catch (e) {
     const message = e instanceof Error ? e.message : "The transfer completed but the automatic payout failed.";

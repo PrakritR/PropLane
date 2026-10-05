@@ -169,37 +169,72 @@ export async function recordVendorPayoutSettled(
     platformFeeCents?: number;
     destination?: "destination_charge" | "hold" | null;
     stripeChargeId?: string | null;
+    platformHoldId?: string | null;
   },
 ): Promise<void> {
   const nowIso = new Date().toISOString();
   const extras =
-    opts.platformFeeCents !== undefined || opts.destination !== undefined || opts.stripeChargeId !== undefined
+    opts.platformFeeCents !== undefined || opts.destination !== undefined || opts.stripeChargeId !== undefined || opts.platformHoldId !== undefined
       ? {
           platform_fee_cents: opts.platformFeeCents ?? 0,
           destination: opts.destination ?? null,
           stripe_charge_id: opts.stripeChargeId ?? null,
+          platform_hold_id: opts.platformHoldId ?? null,
         }
       : {};
-  const { data: existing } = await db
+  const { data: existing, error: readError } = await db
     .from("vendor_payouts")
-    .select("id")
+    .select("id, manager_user_id, vendor_user_id, amount_cents, status, stripe_transfer_id, stripe_charge_id, platform_fee_cents, destination, platform_hold_id")
     .eq("work_order_id", opts.workOrderId)
     .maybeSingle();
+  if (readError) throw new Error(`Could not read the service payout: ${readError.message}`);
   if (existing?.id) {
-    await db
+    if (existing.manager_user_id !== opts.managerUserId || existing.vendor_user_id !== opts.vendorUserId ||
+      Number(existing.amount_cents) !== opts.amountCents) {
+      throw new Error("Service payout terms no longer match the paid service.");
+    }
+    if (existing.stripe_transfer_id && opts.stripeTransferId && existing.stripe_transfer_id !== opts.stripeTransferId) {
+      throw new Error("Service payout transfer no longer matches the paid service.");
+    }
+    if (existing.stripe_charge_id && opts.stripeChargeId && existing.stripe_charge_id !== opts.stripeChargeId) {
+      throw new Error("Service payout charge no longer matches the paid service.");
+    }
+    if (existing.platform_hold_id && opts.platformHoldId && existing.platform_hold_id !== opts.platformHoldId) {
+      throw new Error("Service payout source hold no longer matches the paid service.");
+    }
+    if (opts.platformFeeCents !== undefined && existing.status !== "pending" &&
+      Number(existing.platform_fee_cents) !== opts.platformFeeCents) {
+      throw new Error("Service payout fee no longer matches the paid service.");
+    }
+    if (existing.destination && opts.destination && existing.destination !== opts.destination) {
+      throw new Error("Service payout destination no longer matches the paid service.");
+    }
+    if (!["pending", "paid", "partially_refunded", "refunded"].includes(String(existing.status))) {
+      throw new Error("Service payout has an incompatible status.");
+    }
+    const refundRecorded = existing.status === "partially_refunded" || existing.status === "refunded";
+    const { data: updated, error: updateError } = await db
       .from("vendor_payouts")
       .update({
-        status: "paid",
-        amount_cents: opts.amountCents,
-        stripe_transfer_id: opts.stripeTransferId ?? null,
-        failure_reason: null,
+        ...(refundRecorded ? {} : { status: "paid", failure_reason: null }),
+        ...(!existing.stripe_transfer_id && opts.stripeTransferId ? { stripe_transfer_id: opts.stripeTransferId } : {}),
         updated_at: nowIso,
-        ...extras,
+        ...(existing.status === "pending" && opts.platformFeeCents !== undefined ? { platform_fee_cents: opts.platformFeeCents } : {}),
+        ...(!existing.destination && opts.destination ? { destination: opts.destination } : {}),
+        ...(!existing.stripe_charge_id && opts.stripeChargeId ? { stripe_charge_id: opts.stripeChargeId } : {}),
+        ...(!existing.platform_hold_id && opts.platformHoldId ? { platform_hold_id: opts.platformHoldId } : {}),
       })
-      .eq("id", existing.id);
+      .eq("id", existing.id)
+      .eq("manager_user_id", opts.managerUserId)
+      .eq("vendor_user_id", opts.vendorUserId)
+      .eq("amount_cents", opts.amountCents)
+      .eq("status", existing.status)
+      .select("id")
+      .maybeSingle();
+    if (updateError || !updated?.id) throw new Error(`Could not record the settled service payout: ${updateError?.message ?? "row changed"}`);
     return;
   }
-  await db.from("vendor_payouts").insert({
+  const { error: insertError } = await db.from("vendor_payouts").insert({
     manager_user_id: opts.managerUserId,
     vendor_user_id: opts.vendorUserId,
     work_order_id: opts.workOrderId,
@@ -210,6 +245,7 @@ export async function recordVendorPayoutSettled(
     updated_at: nowIso,
     ...extras,
   });
+  if (insertError) throw new Error(`Could not record the settled service payout: ${insertError.message}`);
 }
 
 const RETRYABLE_VENDOR_PAYOUT_FAILURE = /not connected|onboarding|Connect|payout account/i;

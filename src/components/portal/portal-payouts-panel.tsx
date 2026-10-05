@@ -31,12 +31,13 @@ export type PortalPayoutScheduleInterval = "daily" | "weekly" | "monthly" | "man
 
 export type PortalPayoutHistoryRow = {
   id: string;
+  kind?: "source_movement";
   amountCents: number;
   feeCents: number;
   netCents: number;
-  method: "standard" | "instant";
+  method: "standard" | "instant" | null;
   status: "pending" | "in_transit" | "paid" | "failed" | "canceled" | "returned";
-  destinationLast4: string;
+  destinationLast4: string | null;
   createdAt: string;
   arrivalDate: string | null;
   initiatedInApp: boolean;
@@ -61,7 +62,9 @@ export type PortalPayoutBalance = {
   instantAvailableCents: number;
   pendingCents: number;
   onTheWayCents: number;
+  payoutReconciliationPending?: boolean;
   heldCents?: number;
+  releasePendingCents?: number;
   withdrawableCents?: number;
   availableNote?: string;
   bank: PortalPayoutBank | null;
@@ -185,7 +188,8 @@ export function ScheduleCard({
   );
 }
 
-function payoutMethodLabel(method: "standard" | "instant"): string {
+function payoutMethodLabel(method: "standard" | "instant" | null): string {
+  if (method === null) return "Source movement";
   return method === "instant" ? "Instant" : "Standard";
 }
 
@@ -203,6 +207,7 @@ function PayoutHistoryRow({
   onRetry: (row: PortalPayoutHistoryRow) => void;
 }) {
   const isReturned = row.status === "returned" || row.status === "failed";
+  const isSource = row.kind === "source_movement";
   const TileIcon = row.method === "instant" ? Zap : ArrowUp;
   const sentDate = formatDate(row.createdAt);
   const arrivedDate = row.status === "paid" ? formatDate(row.arrivalDate) : null;
@@ -210,12 +215,14 @@ function PayoutHistoryRow({
   const returnedDate = formatDate(row.arrivalDate) ?? sentDate;
   const hasReceipt = Boolean(row.receiptUrl);
   const canRetry = row.status === "failed";
-  const rowLabel = `${payoutMethodLabel(row.method)} payout of ${formatMoney(row.amountCents, currency)}`;
+  const rowLabel = isSource ? `${row.serviceLabel ?? "Held on PropLane"} · ${formatMoney(row.amountCents, currency)}`
+    : `${payoutMethodLabel(row.method)} payout of ${formatMoney(row.amountCents, currency)}`;
 
   return (
     <PortalPropertyRecordRow
       title={formatMoney(row.amountCents, currency)}
-      address={`${payoutMethodLabel(row.method)} · Bank ····${row.destinationLast4}`}
+      address={isSource ? row.serviceLabel ?? "Held on PropLane"
+        : `${payoutMethodLabel(row.method)}${row.destinationLast4 ? ` · Bank ····${row.destinationLast4}` : ""}`}
       leading={
         <div
           aria-hidden
@@ -229,7 +236,7 @@ function PayoutHistoryRow({
       }
       facts={
         <>
-          {sentDate ? <PortalRowFact icon={Calendar}>Sent {sentDate}</PortalRowFact> : null}
+          {sentDate ? <PortalRowFact icon={Calendar}>{isSource ? "Recorded" : "Sent"} {sentDate}</PortalRowFact> : null}
           {arrivedDate ? <PortalRowFact icon={Landmark}>Arrived {arrivedDate}</PortalRowFact> : null}
           {arrivesDate ? <PortalRowFact icon={Landmark}>Arrives {arrivesDate}</PortalRowFact> : null}
           {row.method === "instant" ? <PortalRowFact icon={Zap}>Fee {formatMoney(row.feeCents, currency)}</PortalRowFact> : null}
@@ -238,7 +245,7 @@ function PayoutHistoryRow({
               Returned by the bank {returnedDate ?? ""} · back in Available
             </PortalRowFact>
           ) : null}
-          {portal === "vendor" && row.serviceLabel ? <PortalRowFact icon={Wrench}>{row.serviceLabel}</PortalRowFact> : null}
+          {portal === "vendor" && !isSource && row.serviceLabel ? <PortalRowFact icon={Wrench}>{row.serviceLabel}</PortalRowFact> : null}
         </>
       }
       trailing={

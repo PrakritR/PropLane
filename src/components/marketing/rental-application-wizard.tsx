@@ -2270,6 +2270,7 @@ function RentalApplicationWizardInner({
         const data = (await res.json().catch(() => ({}))) as {
           paid?: boolean;
           processing?: boolean;
+          processingReason?: "bank_clearing" | "recipient_routing";
           error?: string;
           propertyId?: string | null;
           emailMatches?: boolean;
@@ -2307,7 +2308,9 @@ function RentalApplicationWizardInner({
         }
         if (!data.paid) {
           setFeeReturnError(data.processing
-            ? "Your bank transfer is still processing. Retry verification after it clears."
+            ? data.processingReason === "recipient_routing"
+              ? "Payment was captured. Manager payout routing is still processing. Retry verification shortly."
+              : "Your bank transfer is still processing. Retry verification after it clears."
             : typeof data.error === "string" ? data.error : "Payment not completed yet.");
           return;
         }

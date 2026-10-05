@@ -583,7 +583,7 @@ export function ManagerPaymentsLedgerPanel({
   const revertToPending = async (paidRows: DemoManagerPaymentLedgerRow[]) => {
     for (const row of paidRows) {
       if (row.householdChargeId) {
-        if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) {
+        if (await markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) {
           await restoreFutureRemindersForPendingCharge(row.householdChargeId).catch(() => undefined);
         }
       } else {
@@ -633,7 +633,7 @@ export function ManagerPaymentsLedgerPanel({
     let ok = 0;
     for (const row of targets) {
       if (row.householdChargeId) {
-        if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) ok += 1;
+        if (await markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) ok += 1;
       } else {
         markManagerPaymentLedgerPending(row.id);
         ok += 1;
@@ -1496,7 +1496,7 @@ export function ManagerPaymentsLedgerPanel({
 
   const moveToPending = async (row: DemoManagerPaymentLedgerRow) => {
     if (row.householdChargeId) {
-      if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) {
+      if (await markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) {
         onRowsChanged?.();
         onScheduleChanged?.();
         await restoreFutureRemindersForPendingCharge(row.householdChargeId).catch(() => undefined);

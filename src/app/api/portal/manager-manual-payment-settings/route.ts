@@ -19,6 +19,7 @@ import {
 } from "@/lib/payment-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
 import {
   listingPaymentWaiverCodeMatchesServer,
   waiverGrantedFromPromoCodeServer,
@@ -208,6 +209,9 @@ export async function PATCH(req: Request) {
     } = body;
     if (workspaceDefaultPaymentMethod !== undefined && workspaceDefaultPaymentMethod !== "balance" && workspaceDefaultPaymentMethod !== "ach") {
       return NextResponse.json({ error: "Choose a valid payment method." }, { status: 400 });
+    }
+    if (workspaceDefaultPaymentMethod === "balance" && !proplaneBalanceEnabled()) {
+      return NextResponse.json({ error: "PropLane balance is unavailable." }, { status: 409 });
     }
     const feePayerUpdates = parsePropertyServiceFeePayerUpdates(propertyServiceFeePayers);
     const hasSettingsPatch = Object.keys(rest).length > 0;

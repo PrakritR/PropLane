@@ -147,21 +147,32 @@ type FakeStripeConfig = {
   availableCents: number;
   instantAvailableCents: number;
   bankInstantEligible: boolean;
+  cardFunding?: "credit" | "debit";
+  cardPayoutMethods?: string[];
   payoutCreate?: ReturnType<typeof vi.fn>;
   payoutRetrieve?: ReturnType<typeof vi.fn>;
   payoutList?: ReturnType<typeof vi.fn>;
 };
+let resolvedOwnerId = "owner-1";
+let forcedProviderOwnerId: string | null = null;
 
 function makeFakeStripe(config: FakeStripeConfig) {
+  let lastCreatedPayout: Record<string, unknown> | null = null;
+  const createPayout = config.payoutCreate ?? vi.fn(async (params: Record<string, unknown>) => {
+    lastCreatedPayout = { ...params, id: "po_1", status: "pending", arrival_date: null };
+    return lastCreatedPayout;
+  });
   return {
     accounts: {
-      retrieve: vi.fn().mockResolvedValue({
+      retrieve: vi.fn().mockImplementation(async () => ({
         id: "acct_owner",
+        metadata: { axis_user_id: forcedProviderOwnerId ?? resolvedOwnerId },
         details_submitted: true,
         // Readiness (`stripe-payouts-readiness.server.ts`) requires Stripe's
         // own `payouts_enabled` on top of a payable default destination —
         // matches every test in this file expecting `setup.ready`.
         payouts_enabled: true,
+        capabilities: { transfers: "active" },
         requirements: { currently_due: [], pending_verification: [] },
         external_accounts: {
           data: [
@@ -183,12 +194,13 @@ function makeFakeStripe(config: FakeStripeConfig) {
               object: "card",
               brand: "Visa",
               last4: "4242",
-              funding: "debit",
+              funding: config.cardFunding ?? "debit",
+              available_payout_methods: config.cardPayoutMethods ?? ["instant"],
               default_for_currency: false,
             },
           ],
         },
-      }),
+      })),
       update: vi.fn().mockResolvedValue({
         settings: { payouts: { schedule: { interval: "manual" } } },
       }),
@@ -201,8 +213,8 @@ function makeFakeStripe(config: FakeStripeConfig) {
       }),
     },
     payouts: {
-      create: config.payoutCreate ?? vi.fn().mockResolvedValue({ id: "po_1", status: "pending", arrival_date: null }),
-      retrieve: config.payoutRetrieve ?? vi.fn().mockResolvedValue({ id: "po_1", status: "pending", arrival_date: null }),
+      create: createPayout,
+      retrieve: config.payoutRetrieve ?? vi.fn(async () => lastCreatedPayout),
       list: config.payoutList ?? vi.fn().mockResolvedValue({ data: [] }),
     },
   } as unknown as Stripe;
@@ -216,7 +228,10 @@ vi.mock("@/lib/stripe-connect", async () => {
   const actual = await vi.importActual<typeof import("@/lib/stripe-connect")>("@/lib/stripe-connect");
   return {
     ...actual,
-    resolveManagerConnectAccountId: async () => connectAccountId,
+    resolveManagerConnectAccountId: async (_db: unknown, ownerId: string) => {
+      resolvedOwnerId = ownerId;
+      return connectAccountId;
+    },
   };
 });
 
@@ -247,6 +262,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   sessionUser = { id: "caller-1" };
   connectAccountId = "acct_owner";
+  resolvedOwnerId = "owner-1";
+  forcedProviderOwnerId = null;
   payoutContext.payoutOwnerUserId = "owner-1";
   payoutContext.canEditBankAccount = true;
   payoutContext.isCoManagerForPayout = false;
@@ -272,6 +289,20 @@ describe("POST /api/stripe/payouts/create — auth", () => {
     );
     expect(res.status).toBe(422);
     expect(fakeDb.rows).toHaveLength(0);
+  });
+});
+
+describe("saved Connect account ownership", () => {
+  it("refuses a foreign saved account before balance reconciliation or payout create", async () => {
+    forcedProviderOwnerId = "other-owner";
+    const balance = await managerBalance();
+    expect(balance.status).toBe(500);
+    expect(fakeStripe.balance.retrieve).not.toHaveBeenCalled();
+    const create = await managerCreate(jsonRequest("http://x/api/stripe/payouts/create",
+      { amountCents: 5000, method: "standard" }));
+    expect(create.status).toBe(409);
+    expect(fakeDb.rows).toHaveLength(0);
+    expect(fakeStripe.payouts.create).not.toHaveBeenCalled();
   });
 });
 
@@ -319,7 +350,7 @@ describe("POST /api/stripe/payouts/create — 422 over balance, server re-reads 
     fakeStripe = makeFakeStripe({ availableCents: 100_000, instantAvailableCents: 500, bankInstantEligible: true });
 
     const res = await managerCreate(
-      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 50_000, method: "instant" }),
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 50_000, method: "instant", destinationId: "card_debit" }),
     );
     expect(res.status).toBe(422);
     const body = await res.json();
@@ -327,7 +358,8 @@ describe("POST /api/stripe/payouts/create — 422 over balance, server re-reads 
   });
 
   it("computes fee/net server-side and sends Stripe the net amount for Instant", async () => {
-    const payoutCreate = vi.fn().mockResolvedValue({ id: "po_2", status: "pending", arrival_date: null });
+    const payoutCreate = vi.fn(async (params: Record<string, unknown>) =>
+      ({ ...params, id: "po_2", status: "pending", arrival_date: null }));
     fakeStripe = makeFakeStripe({
       availableCents: 100_000,
       instantAvailableCents: 100_000,
@@ -336,7 +368,7 @@ describe("POST /api/stripe/payouts/create — 422 over balance, server re-reads 
     });
 
     const res = await managerCreate(
-      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 100_000, method: "instant" }),
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 100_000, method: "instant", destinationId: "card_debit" }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -345,6 +377,24 @@ describe("POST /api/stripe/payouts/create — 422 over balance, server re-reads 
       expect.objectContaining({ amount: 99_000, method: "instant" }),
       expect.objectContaining({ stripeAccount: "acct_owner" }),
     );
+  });
+
+  it("rejects an explicitly selected credit or unqualified card before a payout claim", async () => {
+    fakeStripe = makeFakeStripe({ availableCents: 100_000, instantAvailableCents: 100_000,
+      bankInstantEligible: true, cardFunding: "credit" });
+    const credit = await managerCreate(jsonRequest("http://x/api/stripe/payouts/create",
+      { amountCents: 5000, method: "instant", destinationId: "card_debit" }));
+    expect(credit.status).toBe(422);
+    expect(fakeDb.rows).toHaveLength(0);
+    expect(fakeStripe.payouts.create).not.toHaveBeenCalled();
+
+    fakeStripe = makeFakeStripe({ availableCents: 100_000, instantAvailableCents: 100_000,
+      bankInstantEligible: true, cardPayoutMethods: [] });
+    const unknown = await managerCreate(jsonRequest("http://x/api/stripe/payouts/create",
+      { amountCents: 5000, method: "instant", destinationId: "card_debit" }));
+    expect(unknown.status).toBe(422);
+    expect(fakeDb.rows).toHaveLength(0);
+    expect(fakeStripe.payouts.create).not.toHaveBeenCalled();
   });
 
   it("422s when no Connect account exists yet, without ever calling Stripe", async () => {
@@ -393,12 +443,12 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
     expect(first.status).toBe(200);
 
     // No webhook ever arrived, but Stripe itself now reports the payout paid.
+    const firstPayout = await (fakeStripe.payouts.create as ReturnType<typeof vi.fn>).mock.results[0]!.value;
     (fakeStripe.payouts.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "po_1",
-      status: "paid",
-      arrival_date: 1_790_000_000,
+      ...firstPayout, status: "paid", arrival_date: 1_790_000_000,
     });
-    (fakeStripe.payouts.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "po_2", status: "pending", arrival_date: null });
+    (fakeStripe.payouts.create as ReturnType<typeof vi.fn>).mockImplementation(async (params: Record<string, unknown>) =>
+      ({ ...params, id: "po_2", status: "pending", arrival_date: null }));
 
     const second = await managerCreate(
       jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
@@ -430,7 +480,7 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
     ]);
 
     const res = await managerCreate(
-      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 100_000, method: "instant" }),
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 100_000, method: "instant", destinationId: "card_debit" }),
     );
     expect(res.status).toBe(200);
 
@@ -446,6 +496,15 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
       fee_cents: 1000,
       method: "instant",
     });
+    expect(fakeDb.rows[0]?.row_data).toMatchObject({ inAppPayout: {
+      originalClaimId: "claim-1", stripeAmountCents: 99_000, destinationId: "card_debit" } });
+    const originalPayout = await (fakeStripe.payouts.create as ReturnType<typeof vi.fn>).mock.results[0]!.value;
+    (fakeStripe.payouts.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...originalPayout, status: "paid" });
+    const replay = await managerCreate(jsonRequest("http://x/api/stripe/payouts/create",
+      { amountCents: 5000, method: "standard" }));
+    expect(replay.status).toBe(200);
+    expect(fakeDb.rows.find((row) => row.id === "hook-1")).toMatchObject({ status: "paid" });
   });
 
   it("retries a transient stamp failure once, and the payout still succeeds", async () => {
@@ -457,7 +516,7 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
     expect(fakeDb.rows[0]).toMatchObject({ stripe_payout_id: "po_1", status: "pending" });
   });
 
-  it("recovers an unstamped claim by matching Stripe's own payout list, and writes off one Stripe never saw", async () => {
+  it("adopts only an exact unstamped payout and keeps absent legacy claims reserved", async () => {
     const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString();
     fakeDb = makeFakeDb([
       {
@@ -471,10 +530,14 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
         status: "pending",
         initiated_in_app: true,
         created_at: twentyMinutesAgo,
+        row_data: { inAppPayout: { version: 1, destinationId: "ba_default", stripeAmountCents: 5000 } },
       },
     ]);
     (fakeStripe.payouts.list as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: [{ id: "po_lost", amount: 5000, method: "standard", status: "in_transit", arrival_date: null }],
+      data: [{ id: "po_lost", amount: 5000, currency: "usd", method: "standard",
+        destination: "ba_default", metadata: { proplane_in_app_claim: "orphan-matched",
+          owner_user_id: "owner-1", stripe_account_id: "acct_owner" },
+        status: "in_transit", arrival_date: null }],
     });
     const recovered = await managerCreate(
       jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
@@ -482,8 +545,8 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
     expect(recovered.status).toBe(200);
     expect(fakeDb.rows.find((r) => r.id === "orphan-matched")).toMatchObject({ stripe_payout_id: "po_lost", status: "in_transit" });
 
-    // A second orphan older than the grace window with NO matching Stripe
-    // payout is written off as failed so it can never block Pay out.
+    // A historical unmarked orphan has no exact immutable terms. Age and
+    // amount alone cannot release the claim or authorize another payout.
     fakeDb = makeFakeDb([
       {
         id: "orphan-unconfirmed",
@@ -499,11 +562,56 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
       },
     ]);
     (fakeStripe.payouts.list as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [] });
-    const unblocked = await managerCreate(
+    const blocked = await managerCreate(
       jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
     );
-    expect(unblocked.status).toBe(200);
-    expect(fakeDb.rows.find((r) => r.id === "orphan-unconfirmed")).toMatchObject({ status: "failed" });
+    expect(blocked.status).toBe(409);
+    expect(fakeDb.rows.find((r) => r.id === "orphan-unconfirmed")).toMatchObject({ status: "pending" });
+  });
+
+  it("keeps an ambiguous create reserved and adopts only the frozen original claim", async () => {
+    const providerPayouts: Array<Record<string, unknown>> = [];
+    const payoutCreate = vi.fn(async (params: Record<string, unknown>) => {
+      providerPayouts.push({ ...params, id: "po_timeout", status: "pending", arrival_date: null });
+      throw new Error("connection reset after create");
+    });
+    fakeStripe = makeFakeStripe({ availableCents: 100_000, instantAvailableCents: 100_000,
+      bankInstantEligible: true, payoutCreate,
+      payoutList: vi.fn(async () => ({ data: providerPayouts, has_more: false })) });
+    const first = await managerCreate(jsonRequest("http://x/api/stripe/payouts/create",
+      { amountCents: 5000, method: "standard" }));
+    expect(first.status).toBe(409);
+    expect(fakeDb.rows[0]).toMatchObject({ status: "pending" });
+    expect(fakeDb.rows[0]?.stripe_payout_id).toBeUndefined();
+    expect(fakeDb.rows[0]?.row_data).toMatchObject({ inAppPayout: {
+      destinationId: "ba_default", stripeAmountCents: 5000 } });
+
+    const retry = await managerCreate(jsonRequest("http://x/api/stripe/payouts/create",
+      { amountCents: 5000, method: "standard" }));
+    expect(retry.status).toBe(409);
+    expect(fakeDb.rows[0]).toMatchObject({ stripe_payout_id: "po_timeout", status: "pending" });
+    expect(payoutCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not adopt a same-amount payout with another claim or incomplete provider history", async () => {
+    const claim = { id: "orphan-exact", manager_user_id: "owner-1", stripe_connect_account_id: "acct_owner",
+      stripe_payout_id: null, amount_cents: 5000, fee_cents: 0, method: "standard",
+      status: "pending", initiated_in_app: true, created_at: new Date().toISOString(),
+      row_data: { inAppPayout: { version: 1, destinationId: "ba_default", stripeAmountCents: 5000 } } };
+    fakeDb = makeFakeDb([claim]);
+    (fakeStripe.payouts.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: [{ id: "po_other", amount: 5000, currency: "usd", method: "standard",
+        destination: "ba_default", metadata: { proplane_in_app_claim: "another" } }], has_more: false });
+    const wrongClaim = await managerCreate(jsonRequest("http://x/api/stripe/payouts/create",
+      { amountCents: 5000, method: "standard" }));
+    expect(wrongClaim.status).toBe(409);
+    expect(fakeDb.rows[0]).toMatchObject({ status: "pending", stripe_payout_id: null });
+
+    (fakeStripe.payouts.list as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [], has_more: true });
+    const incomplete = await managerCreate(jsonRequest("http://x/api/stripe/payouts/create",
+      { amountCents: 5000, method: "standard" }));
+    expect(incomplete.status).toBe(409);
+    expect(fakeDb.rows[0]).toMatchObject({ status: "pending", stripe_payout_id: null });
   });
 });
 
@@ -578,7 +686,7 @@ describe("POST /api/vendor/payouts/create — VENDOR_BANKING_ENABLED Instant fee
   it("flag off: Instant withdrawal keeps the shared 1% fee (unchanged)", async () => {
     vendorBankingFlagState.enabled = false;
     const res = await vendorCreate(
-      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 100_000, method: "instant" }),
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 100_000, method: "instant", destinationId: "card_debit" }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -588,7 +696,7 @@ describe("POST /api/vendor/payouts/create — VENDOR_BANKING_ENABLED Instant fee
   it("flag on: Instant withdrawal uses the vendor-specific 1.5% fee instead", async () => {
     vendorBankingFlagState.enabled = true;
     const res = await vendorCreate(
-      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 100_000, method: "instant" }),
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 100_000, method: "instant", destinationId: "card_debit" }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -608,7 +716,7 @@ describe("POST /api/vendor/payouts/create — VENDOR_BANKING_ENABLED Instant fee
   it("flag on: the manager route is completely unaffected — still the shared 1%", async () => {
     vendorBankingFlagState.enabled = true;
     const res = await managerCreate(
-      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 100_000, method: "instant" }),
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 100_000, method: "instant", destinationId: "card_debit" }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -644,7 +752,7 @@ describe("Security review — a thrown Stripe error's own message never reaches 
   // instead of the generic 500 — a different, equally leak-free path: the
   // raw Stripe message never reaches the body either way.
   function expectNoLeakViaRelink(status: number, body: Record<string, unknown>) {
-    expect(status).toBe(200);
+    expect(status).toBe(409);
     expect(body).toMatchObject({ needsRelink: true });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain("acct_owner");

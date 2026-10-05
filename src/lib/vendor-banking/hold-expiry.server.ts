@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { refundPlatformHold } from "@/lib/stripe-platform-hold.server";
 import type { PlatformHoldRow } from "@/lib/stripe-platform-hold";
+import { directInvoiceIdFromHoldSourceId } from "@/lib/stripe-platform-hold";
 import { recordVendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.server";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 
@@ -41,7 +42,7 @@ async function resolvePayerForHold(
   const { data: wo } = await db
     .from("portal_work_order_records")
     .select("manager_user_id, row_data")
-    .eq("id", hold.sourceId)
+    .eq("id", directInvoiceIdFromHoldSourceId(hold.sourceId) ?? hold.sourceId)
     .maybeSingle();
   if (wo) {
     const rowData = (wo as { row_data?: { title?: string } }).row_data;
@@ -50,7 +51,7 @@ async function resolvePayerForHold(
   const { data: inv } = await db
     .from("vendor_invoices")
     .select("manager_user_id, invoice_number")
-    .eq("id", hold.sourceId)
+    .eq("id", directInvoiceIdFromHoldSourceId(hold.sourceId) ?? hold.sourceId)
     .maybeSingle();
   if (inv) {
     const row = inv as { manager_user_id: string; invoice_number: string | null };
@@ -69,7 +70,7 @@ async function readOriginalChargeAndFee(
     .from("vendor_banking_ledger_entries")
     .select("kind, amount_cents")
     .eq("vendor_user_id", vendorUserId)
-    .eq("source_id", sourceId)
+    .eq("source_id", directInvoiceIdFromHoldSourceId(sourceId) ?? sourceId)
     .in("kind", ["charge", "platform_fee"]);
   if (error) return { grossCents: 0, feeCents: 0 };
   let grossCents = 0;

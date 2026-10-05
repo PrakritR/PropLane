@@ -82,6 +82,8 @@ export const DELETE_ORDER = [
   // 1. child rows, and the GL/vendor chains that must clear first
   "gl_journal_lines",
   "ledger_entries",
+  "resident_charge_payment_slots",
+  "resident_checkout_attempts",
   "security_deposit_ledger",
   "resident_autopay_settings",
   "resident_autopay_runs",
@@ -99,6 +101,7 @@ export const DELETE_ORDER = [
   "manager_door_count_snapshots",
   "manager_invite_link_redemptions",
   "application_fee_waiver_redemptions",
+  "application_fee_payment_claims",
   "document_share_links",
   "portal_record_share_links",
   "manager_house_public_links",
@@ -113,9 +116,17 @@ export const DELETE_ORDER = [
   // References portal_work_order_records (cascade), same as vendor_invoices/vendor_payouts.
   "vendor_reviews",
   "vendor_invoices",
+  // Source arbitration children precede both their payout and held-charge
+  // parents. The source refund evidence table has only opaque Stripe ids and
+  // is retained independently for exact provider reconciliation.
+  "platform_hold_refund_transfer_legs",
+  "platform_source_consumption_legs",
+  "platform_hold_refund_attempts",
+  "platform_hold_transfer_attempts",
   "vendor_payouts",
   // Platform-held funds awaiting a Connect destination; financial like vendor_payouts.
   "platform_payment_holds",
+  "payout_destination_cache_refreshes",
   // night/vendor-pay ledger account row (owner_key is a manager or vendor id, not an FK);
   // financial like vendor_invoices/vendor_payouts above.
   "proplane_balance_accounts",

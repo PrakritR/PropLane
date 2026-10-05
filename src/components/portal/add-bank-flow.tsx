@@ -3,27 +3,32 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { PayoutBankSheet } from "@/components/portal/payout-bank-sheet";
-import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
+import { PayoutVerifySheet, type VerifyStatus } from "@/components/portal/payout-verify-sheet";
 import type { PortalPayoutsPortalKind } from "@/components/portal/portal-payouts-panel";
 
-/** Server bases per portal: the payouts API (balance) and the Connect API (account session, bank accounts). */
+/** Server bases per portal for account identity and bank destinations. */
 export const ADD_BANK_BASES: Record<PortalPayoutsPortalKind, { apiBase: string; connectBase: string }> = {
   manager: { apiBase: "/api/stripe", connectBase: "/api/stripe/connect" },
   vendor: { apiBase: "/api/vendor", connectBase: "/api/vendor/stripe-connect" },
 };
 
-type FlowStep = "checking" | "onboarding" | "bank";
+type FlowStep = "checking" | "verify" | "bank" | "blocked";
 
 /**
  * The one decision the Add-bank flow makes: a connected account that has not
- * finished identity (no account yet, or requirements still due) goes through
- * Stripe's embedded onboarding first — Stripe collects whatever identity it
- * legally requires there, so PropLane never shows it as a separate step. An
- * account whose identity is done (or already submitted for review) goes
- * straight to the in-app bank sheet.
+ * finished identity uses the in-app verification sheet. A verified or pending
+ * identity can add a bank if its bank-write permission allows it, including a
+ * co-manager who cannot submit the owner's identity form.
  */
-export function addBankFlowStart(identity: "done" | "needed" | "pending" | null | undefined): "onboarding" | "bank" {
-  return identity === "done" || identity === "pending" ? "bank" : "onboarding";
+export function addBankFlowStart(identity: {
+  status?: VerifyStatus;
+  isApplicationCollected?: boolean;
+  fallbackToEmbedded?: boolean;
+  canSubmit?: boolean;
+} | null): "verify" | "bank" | "blocked" {
+  if (!identity || !identity.isApplicationCollected || identity.fallbackToEmbedded) return "blocked";
+  if (identity.status === "verified" || identity.status === "pending") return "bank";
+  return identity.canSubmit === false ? "blocked" : "verify";
 }
 
 /**
@@ -31,10 +36,8 @@ export function addBankFlowStart(identity: "done" | "needed" | "pending" | null 
  * Bank accounts +, and Finances Withdraw when there is no bank yet). Always in
  * PropLane's own popup: never a new tab, never an Account Link.
  *
- *  - not ready to receive payouts → Stripe embedded onboarding; when it exits
- *    the bank list is re-read, and if onboarding added no bank the flow
- *    continues straight into the bank sheet.
- *  - ready → the in-app bank sheet (link instantly, or routing and account).
+ *  - identity due → in-app owner identity verification.
+ *  - identity verified or pending → in-app manual bank/debit card sheet.
  */
 export function AddBankFlow({
   open,
@@ -48,8 +51,9 @@ export function AddBankFlow({
   /** A bank now exists on the account (added in the sheet or during onboarding). */
   onAdded?: () => void;
 }) {
-  const { apiBase, connectBase } = ADD_BANK_BASES[portal];
+  const { connectBase } = ADD_BANK_BASES[portal];
   const [step, setStep] = useState<FlowStep>("checking");
+  const [blockedMessage, setBlockedMessage] = useState("");
   const runRef = useRef(0);
 
   useEffect(() => {
@@ -57,24 +61,33 @@ export function AddBankFlow({
     const run = ++runRef.current;
     setStep("checking");
     void (async () => {
-      let identity: "done" | "needed" | "pending" | null = null;
+      let identity: { status?: VerifyStatus; isApplicationCollected?: boolean; fallbackToEmbedded?: boolean; canSubmit?: boolean } | null = null;
       try {
-        const res = await fetch(`${apiBase}/payouts/balance`, { credentials: "include" });
+        const res = await fetch(`${connectBase}/identity`, { credentials: "include" });
         if (res.ok) {
-          const body = (await res.json().catch(() => null)) as { setup?: { identity?: "done" | "needed" | "pending" } } | null;
-          identity = body?.setup?.identity ?? null;
+          identity = await res.json();
+        } else {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          setBlockedMessage(body.error ?? "Payout setup is unavailable. Contact support.");
         }
       } catch {
-        identity = null;
+        setBlockedMessage("Payout setup is unavailable. Try again shortly.");
       }
-      if (runRef.current === run) setStep(addBankFlowStart(identity));
+      if (runRef.current === run) {
+        const next = addBankFlowStart(identity);
+        if (next === "blocked" && identity) setBlockedMessage(identity.canSubmit === false
+          ? "The payout account owner must verify their identity before a bank can be added."
+          : "This payout account needs a Stripe sign-in outside PropLane. Contact support to review payout setup.");
+        setStep(next);
+      }
     })();
     return () => {
       runRef.current++;
     };
-  }, [open, apiBase]);
+  }, [open, connectBase]);
 
-  const onOnboardingExit = useCallback(async () => {
+  const onVerified = useCallback(async (status: VerifyStatus) => {
+    if (status !== "verified" && status !== "pending") return;
     const run = ++runRef.current;
     setStep("checking");
     let hasBank = false;
@@ -99,7 +112,7 @@ export function AddBankFlow({
   return (
     <>
       <Modal
-        open={open && step !== "bank"}
+        open={open && (step === "checking" || step === "blocked")}
         title="Add a bank account"
         onClose={onClose}
         panelClassName="max-w-2xl"
@@ -108,14 +121,11 @@ export function AddBankFlow({
         assistantStrip={false}
         dataAttr="add-bank-flow"
       >
-        {step === "onboarding" ? (
-          <div className="min-h-[24rem] w-full" data-attr="add-bank-onboarding">
-            <StripeConnectEmbedded connectBase={connectBase} component="account_onboarding" onExit={() => void onOnboardingExit()} />
-          </div>
-        ) : (
+        {step === "blocked" ? <p role="alert" className="text-sm text-danger">{blockedMessage}</p> : (
           <div role="status" aria-label="Loading" className="h-48 w-full animate-pulse rounded-xl bg-accent/40" />
         )}
       </Modal>
+      <PayoutVerifySheet open={open && step === "verify"} onClose={onClose} connectBase={connectBase} onVerified={(status) => void onVerified(status)} />
       <PayoutBankSheet
         open={open && step === "bank"}
         onClose={onClose}

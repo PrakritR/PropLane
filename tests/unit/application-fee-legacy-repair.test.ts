@@ -2,14 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const syncLedger = vi.hoisted(() => vi.fn());
 const syncCharge = vi.hoisted(() => vi.fn());
-const creditHold = vi.hoisted(() => vi.fn());
+const creditSource = vi.hoisted(() => vi.fn());
 const findHold = vi.hoisted(() => vi.fn());
+const findIntentHold = vi.hoisted(() => vi.fn());
 const cancelReminders = vi.hoisted(() => vi.fn());
+const releaseSource = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerChargeOnlyEntry: syncCharge, syncLedgerPaymentEntry: syncLedger }));
 vi.mock("@/lib/stripe-platform-hold.server", () => ({
-  creditPlatformHold: creditHold, findPlatformHold: findHold,
+  findPlatformHold: findHold, findPlatformHoldByPaymentIntent: findIntentHold,
 }));
 vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({ cancelFuturePaymentRemindersForCharge: cancelReminders }));
+vi.mock("@/lib/platform-hold-release.server", () => ({ releaseVerifiedPlatformHoldsForOwner: releaseSource }));
 
 import { fulfillApplicationFeePayment } from "@/lib/application-fee-fulfillment.server";
 
@@ -44,14 +47,23 @@ describe("bound historical application fee financial repair", () => {
   let stripe: Record<string, unknown>;
   let db: Record<string, unknown>;
   let ledgerRows: { id: string }[];
+  let persistedHold: Record<string, unknown> | null;
   beforeEach(() => {
     vi.clearAllMocks();
     matches = [chargeRow];
     ledgerRows = [{ id: "existing-payment-ledger" }];
     syncLedger.mockResolvedValue(undefined);
     syncCharge.mockResolvedValue(undefined);
-    findHold.mockResolvedValue(null);
-    creditHold.mockResolvedValue({ credited: true });
+    releaseSource.mockResolvedValue({ transferred: 0, pending: 1 });
+    persistedHold = null;
+    findHold.mockImplementation(async () => persistedHold?.sourceId === session.id ? persistedHold : null);
+    findIntentHold.mockImplementation(async () => persistedHold);
+    creditSource.mockImplementation(async () => {
+      persistedHold ??= { id: "hold-historical", ownerUserId: "manager-1", ownerRole: "manager",
+        source: "application_fee", sourceId: session.id,
+        amountCents: 5000, status: "held", stripeChargeId: "ch_historical" };
+      return { data: [{ hold_id: persistedHold.id, credited: true }], error: null };
+    });
     cancelReminders.mockResolvedValue(undefined);
     db = {
       from: vi.fn((table: string) => {
@@ -72,6 +84,8 @@ describe("bound historical application fee financial repair", () => {
         }
         throw new Error(`Unexpected table ${table}`);
       }),
+      rpc: vi.fn(async (name: string, args: Record<string, unknown>) =>
+        name === "credit_verified_platform_hold" ? creditSource(args) : { data: true, error: null }),
     };
     stripe = {
       paymentIntents: { retrieve: vi.fn().mockResolvedValue({ id: "pi_historical", status: "succeeded",
@@ -96,16 +110,30 @@ describe("bound historical application fee financial repair", () => {
       id: savedCharge.id, createdAt: chargeRow.created_at,
     }));
     expect(syncCharge.mock.invocationCallOrder[0]).toBeLessThan(syncLedger.mock.invocationCallOrder[0]);
-    expect(creditHold).toHaveBeenCalledWith(expect.anything(), {
-      ownerUserId: "manager-1", ownerRole: "manager", source: "application_fee",
-      sourceId: "cs_historical", amountCents: 5000, stripeChargeId: "ch_historical",
-    });
+    expect(creditSource).toHaveBeenCalledWith(expect.objectContaining({
+      p_owner: "manager-1", p_owner_role: "manager", p_source: "application_fee",
+      p_source_id: "cs_historical", p_original_net: 5000,
+      p_charge: "ch_historical", p_payment_intent: "pi_historical",
+    }));
     expect((db.from as ReturnType<typeof vi.fn>).mock.calls.map(([table]) => table))
       .not.toContain("manager_application_records");
     await fulfillApplicationFeePayment(db as never, stripe as never, session as never);
     expect(syncLedger).toHaveBeenCalledTimes(2);
     expect(syncCharge).toHaveBeenCalledTimes(2);
-    expect(creditHold).toHaveBeenCalledTimes(2);
+    expect(creditSource).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses the canonical PI-first allocation on a Checkout-bound legacy replay", async () => {
+    persistedHold = { id: "hold-pi-first", ownerUserId: "manager-1", ownerRole: "manager",
+      source: "application_fee", sourceId: "pi_historical", amountCents: 5000,
+      status: "held", stripeChargeId: "ch_historical" };
+    const result = await fulfillApplicationFeePayment(db as never, stripe as never, session as never);
+    expect(result).toMatchObject({ legacy: true, chargeId: "hc_historical" });
+    expect(creditSource).toHaveBeenCalledOnce();
+    expect(releaseSource).toHaveBeenCalledWith(db, { ownerUserId: "manager-1",
+      holdId: "hold-pi-first", stripe });
+    expect(findHold).toHaveBeenCalledWith(db, "application_fee", session.id);
+    expect(findIntentHold).toHaveBeenCalledWith(db, "pi_historical");
   });
 
   it("keeps the same paid source retryable when charge/GL origin posting fails", async () => {
@@ -113,7 +141,7 @@ describe("bound historical application fee financial repair", () => {
     await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))
       .rejects.toThrow(/origin ledger unavailable/);
     expect(syncLedger).not.toHaveBeenCalled();
-    expect(creditHold).not.toHaveBeenCalled();
+    expect(creditSource).not.toHaveBeenCalled();
     await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))
       .resolves.toMatchObject({ legacy: true, chargeId: savedCharge.id });
   });
@@ -135,7 +163,7 @@ describe("bound historical application fee financial repair", () => {
         .rejects.toThrow();
     }
     expect(syncLedger).not.toHaveBeenCalled();
-    expect(creditHold).not.toHaveBeenCalled();
+    expect(creditSource).not.toHaveBeenCalled();
   });
 
   it("rejects refund reservations and mismatched provider evidence before creating any hold", async () => {
@@ -154,16 +182,16 @@ describe("bound historical application fee financial repair", () => {
     await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))
       .rejects.toThrow(/PaymentIntent does not match/);
     expect(syncLedger).not.toHaveBeenCalled();
-    expect(creditHold).not.toHaveBeenCalled();
+    expect(creditSource).not.toHaveBeenCalled();
   });
 
   it("leaves a captured source retryable if ledger or hold repair fails", async () => {
     ledgerRows = [];
     await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))
       .rejects.toThrow(/ledger needs repair/);
-    expect(creditHold).not.toHaveBeenCalled();
+    expect(creditSource).not.toHaveBeenCalled();
     ledgerRows = [{ id: "existing-payment-ledger" }];
-    creditHold.mockRejectedValueOnce(new Error("hold store unavailable"));
+    creditSource.mockRejectedValueOnce(new Error("hold store unavailable"));
     await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))
       .rejects.toThrow(/hold store unavailable/);
     await expect(fulfillApplicationFeePayment(db as never, stripe as never, session as never))

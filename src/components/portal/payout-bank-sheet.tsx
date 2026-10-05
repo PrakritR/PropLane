@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
-import { CreditCard, Landmark, Link2 } from "lucide-react";
+import { CreditCard, Landmark } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -23,11 +23,13 @@ export type PayoutDestinationSummary = {
   kind: "bank" | "card";
   label: string;
   last4: string;
-  status: "verified" | "verifying" | "errored";
+  status: "new" | "validated" | "verified" | "errored" | "unknown";
+  payable: boolean;
+  instantEligible: boolean;
   default: boolean;
 };
 
-type BankMode = "instant" | "manual" | "card";
+type BankMode = "manual" | "card";
 
 // Client bundle only — Next.js inlines `NEXT_PUBLIC_*` vars at build time.
 // Same pattern as `stripe-checkout-modal.tsx`.
@@ -100,7 +102,7 @@ function BankSheetContent({
   const stripe = useStripe();
   const elements = useElements();
 
-  const [mode, setMode] = useState<BankMode>("instant");
+  const [mode, setMode] = useState<BankMode>("manual");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,36 +110,6 @@ function BankSheetContent({
   const [routingNumber, setRoutingNumber] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [accountType, setAccountType] = useState<"checking" | "savings">("checking");
-
-  async function addViaFinancialConnections() {
-    if (!stripe) {
-      setError("Stripe failed to load.");
-      return;
-    }
-    const session = await postJson<{ clientSecret: string }>(`${apiBase}/financial-connections/session`, {});
-    if (!session.ok) {
-      setError(session.error);
-      return;
-    }
-    const result = await stripe.collectFinancialConnectionsAccounts({ clientSecret: session.data.clientSecret });
-    if (result.error || !result.financialConnectionsSession) {
-      setError(result.error?.message ?? "Could not link your bank.");
-      return;
-    }
-    const account = result.financialConnectionsSession.accounts[0];
-    if (!account) {
-      setError("No bank account was linked.");
-      return;
-    }
-    const attached = await postJson<{ destination: PayoutDestinationSummary }>(`${apiBase}/financial-connections/attach`, {
-      accountId: account.id,
-    });
-    if (!attached.ok) {
-      setError(attached.error);
-      return;
-    }
-    onAdded(attached.data.destination);
-  }
 
   async function addViaManualBank() {
     if (!stripe) {
@@ -202,8 +174,7 @@ function BankSheetContent({
     setError(null);
     setSubmitting(true);
     try {
-      if (mode === "instant") await addViaFinancialConnections();
-      else if (mode === "manual") await addViaManualBank();
+      if (mode === "manual") await addViaManualBank();
       else await addViaCard();
     } finally {
       setSubmitting(false);
@@ -228,13 +199,6 @@ function BankSheetContent({
       }
     >
       <div className="space-y-2">
-        <ModeRow
-          active={mode === "instant"}
-          onSelect={() => setMode("instant")}
-          icon={<Link2 className="size-4" aria-hidden />}
-          title="Link instantly"
-          dataAttr="bank-mode-instant"
-        />
         <ModeRow
           active={mode === "manual"}
           onSelect={() => setMode("manual")}
@@ -312,7 +276,7 @@ function BankSheetContent({
         <div className="mt-4">
           <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-muted">Debit card</label>
           <div className="rounded-xl border border-border bg-card px-3 py-3" data-attr="bank-card-element">
-            <CardElement options={{ hidePostalCode: true }} />
+            <CardElement options={{ hidePostalCode: true, disableLink: true }} />
           </div>
         </div>
       ) : null}

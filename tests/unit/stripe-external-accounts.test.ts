@@ -121,6 +121,7 @@ const card = (over: Partial<Stripe.Card> = {}): Stripe.Card =>
     brand: "Visa",
     last4: "4242",
     funding: "debit",
+    available_payout_methods: ["instant"],
     default_for_currency: false,
     ...over,
   }) as Stripe.Card;
@@ -135,8 +136,10 @@ describe("listPayoutDestinations", () => {
 
     const destinations = await listPayoutDestinations(stripe, "acct_1");
     expect(destinations).toEqual([
-      { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "verified", default: true },
-      { id: "card_1", kind: "card", label: "Visa", last4: "4242", status: "verified", default: false },
+      { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "verified",
+        payable: true, instantEligible: false, default: true },
+      { id: "card_1", kind: "card", label: "Visa", last4: "4242", status: "verified",
+        payable: true, instantEligible: true, default: false },
     ]);
     const serialized = JSON.stringify(destinations);
     // Only last4 digits ever appear — no full account/card number field exists on the shape.
@@ -150,7 +153,7 @@ describe("listPayoutDestinations", () => {
       external_accounts: { data: [bankAccount({ id: "ba_2", status: "errored" }), bankAccount({ id: "ba_3", status: "validated" })] },
     });
     const destinations = await listPayoutDestinations(stripe, "acct_1");
-    expect(destinations.map((d) => d.status)).toEqual(["errored", "verifying"]);
+    expect(destinations.map((d) => d.status)).toEqual(["errored", "validated"]);
   });
 });
 
@@ -309,14 +312,13 @@ describe("removePayoutDestination", () => {
 });
 
 describe("verifyPayoutDestinationMicroDeposits", () => {
-  it("posts amounts to the raw verify endpoint", async () => {
+  it("rejects the unsupported Connect external-account verify endpoint without a provider write", async () => {
     const stripe = makeFakeStripe();
     (stripe.rawRequest as ReturnType<typeof vi.fn>).mockResolvedValue(bankAccount({ status: "verified" }));
     const result = await verifyPayoutDestinationMicroDeposits(stripe, "acct_1", "ba_1", [32, 45]);
-    expect(result).toMatchObject({ ok: true, destination: { status: "verified" } });
-    expect(stripe.rawRequest).toHaveBeenCalledWith("POST", "/v1/accounts/acct_1/external_accounts/ba_1/verify", {
-      amounts: [32, 45],
-    });
+    expect(result).toMatchObject({ ok: false, status: 400,
+      error: "This payout bank account does not use in-app microdeposit verification." });
+    expect(stripe.rawRequest).not.toHaveBeenCalled();
   });
 });
 
@@ -352,7 +354,8 @@ describe("payout destinations cache", () => {
   it("replaces every cached row for the owner", async () => {
     fakeDb.tables.payout_destinations_cache.push({ owner_user_id: "owner-1", stripe_external_account_id: "old" });
     await replacePayoutDestinationsCache(fakeDb.client as never, "owner-1", "acct_1", [
-      { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "verified", default: true },
+      { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "verified",
+        payable: true, instantEligible: false, default: true },
     ]);
     expect(fakeDb.tables.payout_destinations_cache).toHaveLength(1);
     expect(fakeDb.tables.payout_destinations_cache[0]).toMatchObject({
@@ -373,6 +376,7 @@ describe("payout destinations cache", () => {
   it("refreshPayoutDestinationsCacheFromStripe reads live and writes the cache in one step", async () => {
     const stripe = makeFakeStripe();
     (stripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "acct_1", metadata: { axis_user_id: "owner-1" },
       external_accounts: { data: [bankAccount({ status: "verified" })] },
     });
     const destinations = await refreshPayoutDestinationsCacheFromStripe(stripe, fakeDb.client as never, "owner-1", "acct_1");
@@ -389,5 +393,25 @@ describe("payout destinations cache", () => {
     expect(fakeDb.tables.payout_destinations_cache).toEqual([
       { owner_user_id: "owner-1", stripe_external_account_id: "ba_existing" },
     ]);
+  });
+
+  it("does not let a slow older provider read overwrite a newer cache refresh", async () => {
+    const stripe = makeFakeStripe();
+    let resolveOld!: (value: unknown) => void;
+    const slowOld = new Promise((resolve) => { resolveOld = resolve; });
+    (stripe.accounts.retrieve as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() => slowOld)
+      .mockResolvedValueOnce({ id: "acct_1", metadata: { axis_user_id: "owner-1" },
+        external_accounts: { data: [bankAccount({ id: "ba_new" })] } });
+    const oldRefresh = refreshPayoutDestinationsCacheFromStripe(stripe, fakeDb.client as never,
+      "owner-1", "acct_1");
+    await Promise.resolve();
+    await refreshPayoutDestinationsCacheFromStripe(stripe, fakeDb.client as never,
+      "owner-1", "acct_1");
+    resolveOld({ id: "acct_1", metadata: { axis_user_id: "owner-1" },
+      external_accounts: { data: [bankAccount({ id: "ba_old" })] } });
+    await oldRefresh;
+    expect(fakeDb.tables.payout_destinations_cache.map((row) => row.stripe_external_account_id))
+      .toEqual(["ba_new"]);
   });
 });

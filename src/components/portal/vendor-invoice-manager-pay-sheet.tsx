@@ -17,6 +17,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { Button } from "@/components/ui/button";
 
 export type VendorInvoicePayLineItem = { description: string; quantity: number; amountCents: number };
 
@@ -42,40 +44,63 @@ export function VendorInvoiceManagerPaySheet({
 }) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [platformFeeCents, setPlatformFeeCents] = useState(0);
+  const [processingFeeCents, setProcessingFeeCents] = useState(0);
+  const [totalCents, setTotalCents] = useState(0);
+  const [method, setMethod] = useState<"card" | "ach">("card");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const inFlight = useRef(false);
+  const inFlight = useRef<string | null>(null);
+  const requestEpoch = useRef(0);
   const invoiceId = invoice?.id ?? null;
+  const currentInvoiceId = useRef(invoiceId);
+  currentInvoiceId.current = invoiceId;
 
   const start = useCallback(async () => {
-    if (!invoiceId || inFlight.current) return;
-    inFlight.current = true;
+    if (!invoiceId || inFlight.current === invoiceId) return;
+    const epoch = ++requestEpoch.current;
+    inFlight.current = invoiceId;
+    const current = () => currentInvoiceId.current === invoiceId && requestEpoch.current === epoch;
     setLoading(true);
     setError(null);
     setClientSecret(null);
     try {
-      const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(invoiceId)}/pay`, { method: "POST", credentials: "include" });
+      const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(invoiceId)}/pay`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentMethod: method }),
+      });
       const body = (await res.json().catch(() => ({}))) as {
         clientSecret?: string;
         platformFeeCents?: number;
+        processingFeeCents?: number;
+        totalCents?: number;
         error?: string;
       };
+      if (!current()) return;
       if (!res.ok || !body.clientSecret) {
         setError(body.error ?? "Could not start this payment.");
         return;
       }
       setClientSecret(body.clientSecret);
       setPlatformFeeCents(body.platformFeeCents ?? 0);
+      setProcessingFeeCents(body.processingFeeCents ?? 0);
+      setTotalCents(body.totalCents ?? 0);
     } catch {
-      setError("Could not start this payment. Nothing has been charged.");
+      if (current()) setError("Could not start this payment. Check its status before retrying.");
     } finally {
-      setLoading(false);
-      inFlight.current = false;
+      if (current()) { setLoading(false); inFlight.current = null; }
     }
-  }, [invoiceId]);
+  }, [invoiceId, method]);
 
   useEffect(() => {
-    if (invoiceId) void start();
+    requestEpoch.current++;
+    inFlight.current = null;
+    setClientSecret(null);
+    setPlatformFeeCents(0);
+    setProcessingFeeCents(0);
+    setTotalCents(0);
+    setMethod("card");
+    setLoading(false);
+    setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceId]);
 
@@ -83,13 +108,12 @@ export function VendorInvoiceManagerPaySheet({
   // Derived from the server's own response (never re-read from an env var
   // client-side, which would be `undefined` in the browser bundle) — 0 until
   // the checkout starts, then the real bps this specific payment charged.
-  const feePercent = invoice && invoice.totalCents > 0 ? Math.round((platformFeeCents / invoice.totalCents) * 1000) / 10 : 0;
 
   return (
     <Modal
       open={Boolean(invoice)}
       title={invoice?.invoiceNumber ? `Pay invoice ${invoice.invoiceNumber}` : "Pay invoice"}
-      onClose={onClose}
+      onClose={() => { requestEpoch.current++; inFlight.current = null; onClose(); }}
       assistantStrip={false}
       contextPanel={<PopupRecordPreview rows={[{ label: "Vendor", value: invoice?.vendorName }, { label: "Invoice", value: invoice?.invoiceNumber }]} />}
       previewLabel="Payment preview"
@@ -119,15 +143,16 @@ export function VendorInvoiceManagerPaySheet({
             ) : invoice.memo ? (
               <p className="mt-2 border-t border-border/70 pt-2 text-muted">{invoice.memo}</p>
             ) : null}
-            {feePercent > 0 ? (
-              <div className="mt-2 border-t border-border/70 pt-2 text-xs text-muted" data-attr="vendor-invoice-pay-fee-disclosure">
-                You pay {formatMoney(invoice.totalCents)} plus Stripe&apos;s processing cost. PropLane&apos;s {feePercent}% fee
-                ({formatMoney(platformFeeCents)}) comes out of the vendor&apos;s side — they net {formatMoney(netToVendorCents)}.
-              </div>
-            ) : null}
+            {clientSecret ? <dl className="mt-2 space-y-1 border-t border-border/70 pt-2 text-sm" data-attr="vendor-invoice-pay-fee-disclosure">
+              <div className="flex justify-between"><dt>Processing fee</dt><dd>{formatMoney(processingFeeCents)}</dd></div>
+              <div className="flex justify-between font-semibold"><dt>You pay</dt><dd>{formatMoney(totalCents)}</dd></div>
+              {platformFeeCents > 0 ? <div className="flex justify-between"><dt>PropLane fee from vendor</dt><dd>{formatMoney(platformFeeCents)}</dd></div> : null}
+              <div className="flex justify-between"><dt>Vendor receives</dt><dd>{formatMoney(netToVendorCents)}</dd></div>
+            </dl> : null}
           </div>
 
-          {loading ? <p className="text-center text-sm text-muted">Preparing secure payment…</p> : null}
+          {!clientSecret ? <FieldSingleSelect label="Pay with" value={method} disabled={loading} onChange={(value) => setMethod(value as "card" | "ach")} options={[{ value: "card", label: "Card" }, { value: "ach", label: "Bank account" }]} /> : null}
+          {!clientSecret ? <Button type="button" variant="primary" disabled={loading} onClick={() => start()} data-attr="vendor-invoice-pay-start">{loading ? "Preparing…" : "Continue to payment"}</Button> : null}
           {error ? (
             <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               <p>{error}</p>

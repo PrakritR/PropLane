@@ -44,7 +44,9 @@ type BankAccountRow = {
   kind: "bank" | "card";
   label: string;
   last4: string;
-  status: "verified" | "verifying";
+  status: "new" | "validated" | "verified" | "errored" | "unknown";
+  payable: boolean;
+  instantEligible: boolean;
   default: boolean;
 };
 
@@ -80,21 +82,24 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
     void fetch("/api/manager/comms-credit-pool", { credentials: "include" }).then(res => res.ok ? res.json() : null).then(body => { if (active) setCreditPurchases(body?.purchases ?? []); }).catch(() => {});
     return () => { active = false; };
   }, [portal]);
-  const [defaultMethod, setDefaultMethod] = useState("balance");
+  const [defaultMethod, setDefaultMethod] = useState("ach");
+  const [balanceMethodEnabled, setBalanceMethodEnabled] = useState(false);
   const [methodLoaded, setMethodLoaded] = useState(false);
   const [methodBusy, setMethodBusy] = useState(false);
   useEffect(() => {
     if (portal !== "manager" || !workspace?.id) return;
     let active = true;
     setMethodLoaded(false);
-    void fetch(`/api/portal/manager-manual-payment-settings?workspaceId=${encodeURIComponent(workspace.id)}`, { credentials: "include" })
-      .then(async res => { const body = await res.json(); if (!res.ok) throw new Error(body.error); return body; })
-      .then(body => { if (active) { setDefaultMethod(body.workspacePaymentSettings?.[workspace.id]?.defaultPaymentMethod ?? "balance"); setMethodLoaded(true); } })
+    void Promise.all([
+      fetch(`/api/portal/manager-manual-payment-settings?workspaceId=${encodeURIComponent(workspace.id)}`, { credentials: "include" }).then(async res => { const body = await res.json(); if (!res.ok) throw new Error(body.error); return body; }),
+      fetch("/api/portal/proplane-balance", { credentials: "include" }).then(async res => { if (!res.ok) throw new Error("Balance unavailable"); return res.json() as Promise<{ enabled?: boolean }>; }),
+    ])
+      .then(([body, capability]) => { if (active) { const enabled = capability.enabled === true; setBalanceMethodEnabled(enabled); const saved = body.workspacePaymentSettings?.[workspace.id]?.defaultPaymentMethod; setDefaultMethod(enabled && saved === "balance" ? "balance" : "ach"); setMethodLoaded(true); } })
       .catch(() => { if (active) showToast("Could not load payment preferences."); });
     return () => { active = false; };
   }, [portal, workspace?.id, showToast]);
   async function saveMethod(value: string) {
-    if (!workspace?.owned || !methodLoaded || methodBusy) return;
+    if (!workspace?.owned || !methodLoaded || methodBusy || (value === "balance" && !balanceMethodEnabled)) return;
     setMethodBusy(true);
     try {
       const res = await fetch("/api/portal/manager-manual-payment-settings", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId: workspace.id, workspaceDefaultPaymentMethod: value }) });
@@ -118,6 +123,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
   const [withdrawToId, setWithdrawToId] = useState<string | null>(null);
 
   const [bankRows, setBankRows] = useState<BankAccountRow[] | null>(null);
+  const [bankLoadError, setBankLoadError] = useState<string | null>(null);
   const [bankRoute, setBankRoute] = useState<"live" | "fallback" | "loading">("loading");
 
   const loadBalance = useCallback(async () => {
@@ -146,29 +152,30 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
   // alone). `PayoutDestination.status` includes "errored", which a bank row
   // never was — fold it into "verifying" rather than claiming "verified".
   const loadBankAccounts = useCallback(async () => {
+    setBankLoadError(null);
+    setBankRoute("loading");
     try {
       const res = await fetch(`${connectBase}/bank-accounts`, { credentials: "include" });
       if (!res.ok) {
-        setBankRoute("fallback");
+        setBankLoadError("Could not verify payout bank accounts.");
         return;
       }
       const body = (await res.json().catch(() => null)) as { destinations?: unknown } | null;
       if (!body || !Array.isArray(body.destinations)) {
-        setBankRoute("fallback");
+        setBankLoadError("Could not verify payout bank accounts.");
         return;
       }
-      const rows = body.destinations as Array<{
-        id: string;
-        kind: "bank" | "card";
-        label: string;
-        last4: string;
-        status: "verified" | "verifying" | "errored";
-        default: boolean;
-      }>;
-      setBankRows(rows.map((r) => ({ ...r, status: r.status === "verified" ? "verified" : "verifying" })));
+      const rows = body.destinations as BankAccountRow[];
+      if (!rows.every((row) => typeof row.id === "string" && typeof row.last4 === "string" &&
+          typeof row.payable === "boolean" && typeof row.instantEligible === "boolean" &&
+          ["new", "validated", "verified", "errored", "unknown"].includes(row.status))) {
+        setBankLoadError("Could not verify payout bank accounts.");
+        return;
+      }
+      setBankRows(rows);
       setBankRoute("live");
     } catch {
-      setBankRoute("fallback");
+      setBankLoadError("Could not verify payout bank accounts.");
     }
   }, [connectBase]);
 
@@ -244,7 +251,9 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
                 kind: "bank",
                 label: balance.bank.bankName,
                 last4: balance.bank.last4,
-                status: balance.bank.verifiedAt ? "verified" : "verifying",
+                status: balance.bank.verifiedAt ? "verified" : "unknown",
+                payable: false,
+                instantEligible: false,
                 default: true,
               },
             ]
@@ -262,13 +271,13 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
     const accounts: PayoutWithdrawAccount[] =
       bankRoute === "live" && bankRows
         ? bankRows
-            .filter((row) => row.status === "verified")
+            .filter((row) => row.payable)
             .map((row) => ({
               id: row.id,
               label: row.label,
               last4: row.last4,
               kind: row.kind,
-              instantEligible: row.kind === "card",
+              instantEligible: row.instantEligible,
             }))
         : balance
           ? bankToWithdrawAccounts(balance.bank)
@@ -278,16 +287,17 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
     );
   }, [bankRoute, bankRows, balance, withdrawToSelectedId]);
 
-  if (loading) {
+  if (loading || bankRoute === "loading") {
     return <PortalRecordListSurface loading dataAttr="payouts-settings-loading" />;
   }
-  if (loadError || !balance) {
+  if (loadError || bankLoadError || !balance) {
     return (
       <PortalRecordListSurface
-        loadError={loadError ?? "Could not load payouts."}
+        loadError={loadError ?? bankLoadError ?? "Could not load payouts."}
         onRetry={() => {
           setLoading(true);
           void loadBalance();
+          void loadBankAccounts();
         }}
         dataAttr="payouts-settings-error"
       />
@@ -295,11 +305,8 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
   }
 
   const ready = balance.setup.ready;
-  const hasBank = effectiveBankRows.length > 0;
+  const hasBank = effectiveBankRows.some((row) => row.payable);
   const withdrawableCents = withdrawableCentsFromSnapshot(balance);
-  const pendingFact = balance.onTheWayCents > 0
-    ? `${formatMoney(balance.onTheWayCents, balance.currency)} pending`
-    : null;
   const removeBlocked = removeTarget != null && removeTarget.default && effectiveBankRows.length > 1;
 
   return (
@@ -325,17 +332,21 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
         dataAttr="payouts-settings-bank-remove-confirm"
       />
 
-      <PortalSettingsSection title="PropLane balance" action={<PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="payouts-settings-withdraw" disabled={!ready || !hasBank || withdrawableCents <= 0} onClick={() => { track("payout_withdraw_started", { portal }); setWithdrawOpen(true); }} />}>
+      <PortalSettingsSection title="PropLane balance" action={<PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="payouts-settings-withdraw" disabled={!ready || !hasBank || balance.payoutReconciliationPending || withdrawableCents <= 0} onClick={() => { track("payout_withdraw_started", { portal }); setWithdrawOpen(true); }} />}>
         <PortalSettingsGroup>
-          <PortalSettingsRow label="Available"><span data-attr="payouts-settings-available">{formatMoney(balance.availableCents, balance.currency)}</span></PortalSettingsRow>
+          <PortalSettingsRow label="Available to withdraw"><span data-attr="payouts-settings-available">{formatMoney(withdrawableCents, balance.currency)}</span></PortalSettingsRow>
+          {(balance.heldCents ?? 0) > 0 ? <PortalSettingsRow label="Held pending bank"><span data-attr="payouts-settings-held">{formatMoney(balance.heldCents ?? 0, balance.currency)}</span></PortalSettingsRow> : null}
+          {(balance.releasePendingCents ?? 0) > 0 ? <PortalSettingsRow label="Release pending"><span data-attr="payouts-settings-release-pending">{formatMoney(balance.releasePendingCents ?? 0, balance.currency)}</span></PortalSettingsRow> : null}
+          {balance.pendingCents > 0 ? <PortalSettingsRow label="Pending payments"><span data-attr="payouts-settings-payment-pending">{formatMoney(balance.pendingCents, balance.currency)}</span></PortalSettingsRow> : null}
+          {balance.onTheWayCents > 0 ? <PortalSettingsRow label="On the way"><span data-attr="payouts-settings-payout-on-way">{formatMoney(balance.onTheWayCents, balance.currency)}</span></PortalSettingsRow> : null}
+          {balance.payoutReconciliationPending ? <PortalSettingsRow label="Payout status"><span>Checking a prior withdrawal</span></PortalSettingsRow> : null}
 
           {balance.availableNote ? <PortalSettingsRow label="Funds status"><span data-attr="payouts-settings-available-note">{balance.availableNote}</span></PortalSettingsRow> : null}
-          {pendingFact ? <PortalSettingsRow label="On the way"><span>{pendingFact}</span></PortalSettingsRow> : null}
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
       {portal === "manager" ? <PortalSettingsSection title="Paying vendors and bills"><PortalSettingsGroup>
-        <PortalSettingsRow label="Default payment method"><FieldSingleSelect label="Default payment method" hideLabel variant="cell" value={defaultMethod} disabled={!methodLoaded || methodBusy || !workspace?.owned} onChange={value => void saveMethod(value)} options={[{ value: "balance", label: "PropLane balance" }, { value: "ach", label: "Bank account" }]} /></PortalSettingsRow>
+        <PortalSettingsRow label="Default payment method"><FieldSingleSelect label="Default payment method" hideLabel variant="cell" value={defaultMethod} disabled={!methodLoaded || methodBusy || !workspace?.owned} onChange={value => void saveMethod(value)} options={[...(balanceMethodEnabled ? [{ value: "balance", label: "PropLane balance" }] : []), { value: "ach", label: "Bank account" }]} /></PortalSettingsRow>
       </PortalSettingsGroup></PortalSettingsSection> : null}
       {portal === "vendor" ? <ProplaneBalanceCard portal={portal} /> : null}
 
@@ -358,7 +369,10 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
                 </p>
                 {row.default || row.status !== "verified" ? (
                   <span className="shrink-0 text-sm text-muted">
-                    {[row.default ? "Default" : null, row.status !== "verified" ? "Verifying" : null].filter(Boolean).join(" · ")}
+                    {[row.default ? "Default" : null,
+                      row.status === "new" ? "Added" : row.status === "validated" ? "Validated"
+                        : row.status === "errored" ? "Needs attention" : row.status === "unknown" ? "Unavailable" : null]
+                      .filter(Boolean).join(" · ")}
                   </span>
                 ) : null}
                 {bankRoute === "live" ? (
@@ -382,7 +396,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
       {/* Schedule */}
       {portal === "vendor" ? <ScheduleCard
         schedule={balance.schedule}
-        availableCents={balance.availableCents}
+        availableCents={withdrawableCents}
         currency={balance.currency}
         portal={portal}
         onChange={(interval) => {
@@ -406,10 +420,14 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
 
       {/* History */}
       {portal === "manager" ? <PortalSettingsSection title="Payouts"><PortalSettingsGroup>
-          {hasBank ? <PortalSettingsRow label="Withdraw to"><FieldSingleSelect label="Withdraw to" hideLabel variant="cell" value={withdrawToSelectedId} disabled={effectiveBankRows.length < 2} onChange={id => setWithdrawToId(id)} options={effectiveBankRows.map(row => ({ value: row.id, label: `${row.label} ····${row.last4}`, disabled: row.status !== "verified" }))} /></PortalSettingsRow> : null}
+          {hasBank ? <PortalSettingsRow label="Withdraw to"><FieldSingleSelect label="Withdraw to" hideLabel variant="cell" value={withdrawToSelectedId} disabled={effectiveBankRows.length < 2} onChange={id => setWithdrawToId(id)} options={effectiveBankRows.map(row => ({ value: row.id, label: `${row.label} ····${row.last4}`, disabled: !row.payable }))} /></PortalSettingsRow> : null}
         {balance.history.length ? balance.history.map(row => <PortalSettingsRow key={row.id} label={formatMoney(row.amountCents, balance.currency)}>
-          <span className="text-sm text-muted">{row.method === "instant" ? "Instant" : "Standard"} · ····{row.destinationLast4}</span>
-          <span className="text-sm">{row.status.replaceAll("_", " ")} · {formatDate(row.createdAt)}</span>
+          <span className="text-sm text-muted">{row.kind === "source_movement"
+            ? row.serviceLabel ?? "Held on PropLane"
+            : `${row.method === "instant" ? "Instant" : "Standard"}${row.destinationLast4 ? ` · ····${row.destinationLast4}` : ""}`}</span>
+          <span className="text-sm">{row.kind === "source_movement"
+            ? row.status === "paid" ? "Moved to Stripe" : row.status === "canceled" ? "Refunded" : "Captured"
+            : row.status.replaceAll("_", " ")} · {formatDate(row.createdAt)}</span>
           {row.status === "failed" || row.receiptUrl ? <BankRowMenu rowId={row.id} label="Payout">
             {row.status === "failed" ? <Button variant="outline" onClick={() => { setRetryRow(row); setWithdrawOpen(true); }}>Retry</Button> : null}
             {row.receiptUrl?.startsWith("https:") ? <Button variant="outline" onClick={() => window.open(row.receiptUrl!, "_blank", "noopener")}>Receipt</Button> : null}
@@ -450,7 +468,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
         instantAvailableCents={balance.instantAvailableCents}
         accounts={withdrawAccounts}
         initialAmountCents={retryRow?.amountCents}
-        initialMethod={retryRow?.method}
+        initialMethod={retryRow?.method ?? undefined}
         onSuccess={(result) => {
           closeWithdraw();
           track("payout_withdraw_completed", { portal, method: result.method, amount_cents: result.amountCents });

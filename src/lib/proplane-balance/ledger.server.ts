@@ -8,6 +8,9 @@ import {
   type BalanceOwnerKind,
   type BalanceSnapshot,
 } from "@/lib/proplane-balance/types";
+import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
+import { existingClassifiedSpendParts, selectClassifiedSpendParts } from "@/lib/platform-balance-spend.server";
+import { selectManagerWithdrawalParts, selectVendorWithdrawalParts } from "@/lib/platform-balance-spend.server";
 
 const CURRENCY = "usd";
 
@@ -134,14 +137,40 @@ export async function payVendorFromBalance(
   const workspaceAccountId = await ensureWorkspaceBalanceAccountId(db, opts.managerUserId);
   const vendorAccountId = await ensureVendorBalanceAccountId(db, opts.vendorUserId);
 
-  const { data, error } = await db.rpc("proplane_balance_move", {
-    p_payer_account_id: workspaceAccountId,
-    p_payee_account_id: vendorAccountId,
-    p_amount_cents: opts.amountCents,
-    p_payer_kind: "vendor_payment_out",
-    p_payee_kind: "vendor_payment_in",
-    p_idempotency_root: opts.idempotencyRoot,
-  });
+  let sourceParts: Awaited<ReturnType<typeof existingClassifiedSpendParts>> = null;
+  if (proplaneBalanceEnabled()) {
+    try {
+      sourceParts = await existingClassifiedSpendParts(db, workspaceAccountId,
+        opts.idempotencyRoot, opts.amountCents);
+      if (!sourceParts) {
+        const selection = await selectClassifiedSpendParts(db, workspaceAccountId,
+          opts.managerUserId, opts.amountCents);
+        if (selection.eligibleCents < opts.amountCents) {
+          return { ok: false, code: "insufficient_balance",
+            availableCents: selection.eligibleCents, requestedCents: opts.amountCents,
+            shortfallCents: opts.amountCents - selection.eligibleCents };
+        }
+        sourceParts = selection.parts;
+      }
+    } catch (reason) {
+      return { ok: false, code: "error", error: reason instanceof Error ? reason.message : String(reason) };
+    }
+  }
+
+  const { data, error } = sourceParts
+    ? await db.rpc("platform_balance_move_from_sources", {
+      p_owner: opts.managerUserId, p_payee_account: vendorAccountId,
+      p_amount: opts.amountCents, p_root: opts.idempotencyRoot,
+      p_components: sourceParts,
+    })
+    : await db.rpc("proplane_balance_move", {
+      p_payer_account_id: workspaceAccountId,
+      p_payee_account_id: vendorAccountId,
+      p_amount_cents: opts.amountCents,
+      p_payer_kind: "vendor_payment_out",
+      p_payee_kind: "vendor_payment_in",
+      p_idempotency_root: opts.idempotencyRoot,
+    });
 
   if (error) {
     const insufficient = parseInsufficientBalanceError(error.message);
@@ -170,6 +199,52 @@ export type ClaimWithdrawalResult =
   | { ok: false; code: "conflict"; error: string }
   | { ok: false; code: "insufficient_balance"; availableCents: number }
   | { ok: false; code: "error"; error: string };
+
+/** Reserve a new withdrawal against an exact cleared source vector in one
+ * owner/source/wallet transaction. A provider timeout leaves this debit in
+ * place for exact-key reconciliation; the source is never made available by
+ * a catch block. */
+export async function claimClassifiedWithdrawal(
+  db: SupabaseClient,
+  opts: { accountId: string; ownerKind: BalanceOwnerKind; ownerUserId: string;
+    amountCents: number; destinationAccountId: string },
+): Promise<ClaimWithdrawalResult> {
+  if (!Number.isSafeInteger(opts.amountCents) || opts.amountCents <= 0 ||
+      !opts.destinationAccountId.trim()) {
+    return { ok: false, code: "error", error: "Classified withdrawal terms are invalid." };
+  }
+  try {
+    const selected = opts.ownerKind === "workspace"
+      ? await selectManagerWithdrawalParts(db, opts.accountId, opts.ownerUserId, opts.amountCents)
+      : await selectVendorWithdrawalParts(db, opts.accountId, opts.ownerUserId, opts.amountCents);
+    if (selected.eligibleCents < opts.amountCents) {
+      return { ok: false, code: "insufficient_balance", availableCents: selected.eligibleCents };
+    }
+    const key = `withdrawal:${randomUUID()}`;
+    const { data, error } = await db.rpc("reserve_platform_classified_withdrawal", {
+      p_account: opts.accountId, p_owner: opts.ownerUserId,
+      p_kind: opts.ownerKind, p_amount: opts.amountCents, p_key: key,
+      p_destination: opts.destinationAccountId, p_parts: selected.parts,
+    });
+    if (error) {
+      if (isUniqueViolation(error)) return { ok: false, code: "conflict",
+        error: "A withdrawal is already in progress for this account." };
+      const insufficient = parseInsufficientBalanceError(error.message);
+      if (insufficient) return { ok: false, code: "insufficient_balance",
+        availableCents: insufficient.availableCents };
+      return { ok: false, code: "error", error: error.message };
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.id || row.idempotency_key !== key ||
+        row.withdrawal_destination_account_id !== opts.destinationAccountId ||
+        row.amount_cents !== -opts.amountCents) {
+      return { ok: false, code: "error", error: "Classified withdrawal reservation changed." };
+    }
+    return { ok: true, entryId: row.id, idempotencyKey: key };
+  } catch (reason) {
+    return { ok: false, code: "error", error: reason instanceof Error ? reason.message : String(reason) };
+  }
+}
 
 /**
  * Claim-before-call: writes the debit BEFORE any Stripe request, same pattern

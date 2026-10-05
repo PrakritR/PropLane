@@ -40,8 +40,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import { buildRegistry } from "@/lib/tools/registry";
 import { assertFinancialsTier } from "@/lib/reports/auth";
 import { payoutVendorForWorkOrder, recordVendorPayoutSettled } from "@/lib/stripe-vendor-payout";
-import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
-import { createAxisAchCheckoutSession, VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
+import { createAxisAchCheckoutSession } from "@/lib/stripe-axis-ach-checkout";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
 import { emitVendorAssigned } from "@/lib/work-order-vendor-messages.server";
 import { executeWrite, previewWrite } from "./fake-agent-ctx";
@@ -642,7 +641,7 @@ describe("complete_work_order", () => {
     if (res.ok) expect(res.preview.fields.find((l) => l.label === "Labor")!.value).toContain("$400.00");
   });
 
-  it("execute logs expenses, completes the row, and audits one-shot", async () => {
+  it("execute completes without recording unpaid expenses and audits one-shot", async () => {
     const tables = baseTables();
     const ctx = makeCtx(tables);
     const res = await executeWrite(completeWorkOrderTool, ctx, {
@@ -654,8 +653,7 @@ describe("complete_work_order", () => {
     expect(res.ok).toBe(true);
 
     const expenses = tables.manager_expense_entries ?? [];
-    expect(expenses.length).toBe(2);
-    expect(expenses.every((e) => e.manager_user_id === "manager_a")).toBe(true);
+    expect(expenses.length).toBe(0);
     const row = tables.portal_work_order_records![0]!.row_data as Row;
     expect(row.bucket).toBe("completed");
     expect(row.vendorCostCents).toBe(40000);
@@ -707,72 +705,29 @@ describe("approve_and_pay_work_order", () => {
     }
   });
 
-  it("execute opens one invoice checkout, holds the payment as pending, and short-circuits on retry", async () => {
+  it("execute sends the manager to payment review without starting Checkout or a payout", async () => {
     const tables = baseTables();
     const ctx = makeCtx(tables);
     const res = await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.reply).toContain("Open checkout to pay the invoice");
-
-    // The invoice is the accepted bid's labor, paid to the vendor's Connect account.
-    expect(vi.mocked(createAxisAchCheckoutSession)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(createAxisAchCheckoutSession).mock.calls[0]![1]).toMatchObject({
-      amountCents: 40000,
-      destinationAccountId: "acct_vendor",
-      metadata: { work_order_id: "wo1", manager_user_id: "manager_a", vendor_user_id: "vendor_user_1" },
-    });
-    // Nothing is paid until Checkout completes; the webhook settles it.
+    if (res.ok) expect(res.reply).toContain("/portal/services/work-orders/completed/wo1?approve_pay=1");
+    expect(vi.mocked(createAxisAchCheckoutSession)).not.toHaveBeenCalled();
     const row = tables.portal_work_order_records![0]!.row_data as Row;
     expect(row.automationStatus).not.toBe("paid");
-    expect(row.pendingVendorPay).toMatchObject({ sessionId: "cs_1", category: "plumbing" });
-    expect(tables.vendor_payouts).toEqual([expect.objectContaining({ work_order_id: "wo1", amount_cents: 40000, status: "pending" })]);
+    expect(row.pendingVendorPay).toBeUndefined();
+    expect(tables.vendor_payouts ?? []).toHaveLength(0);
     expect(vi.mocked(payoutVendorForWorkOrder)).not.toHaveBeenCalled();
     expect(auditRows(tables)[0]!.dedupe_key).toBe("approve_and_pay_work_order:manager_a:wo1");
 
     const again = await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
-    // Nothing is paid yet, so the retry must not claim it was.
+    // A duplicate agent turn cannot create a payment claim or imply payment.
     expect(again.ok).toBe(true);
     if (again.ok) {
-      expect(again.reply).toContain("already in progress");
+      expect(again.reply).toContain("Payment review is already open");
       expect(again.reply).not.toContain("paid.");
     }
-    expect(vi.mocked(createAxisAchCheckoutSession)).toHaveBeenCalledTimes(1);
-    expect(tables.vendor_payouts).toHaveLength(1);
-  });
-
-  it("the paid checkout marks the work order paid and settles the payout once, even on replay", async () => {
-    const tables = baseTables();
-    const ctx = makeCtx(tables);
-    const res = await executeWrite(approveAndPayWorkOrderTool, ctx, { workOrderId: "wo1", category: "plumbing" });
-    expect(res.ok).toBe(true);
-
-    const session = {
-      id: "cs_1",
-      customer_email: "manager@example.com",
-      metadata: {
-        purpose: VENDOR_INVOICE_PAY_PURPOSE,
-        work_order_id: "wo1",
-        manager_user_id: "manager_a",
-        vendor_user_id: "vendor_user_1",
-        invoice_cents: "40000",
-      },
-    } as never;
-    await completeVendorPayFromStripeSession(ctx.db as never, session);
-
-    const row = tables.portal_work_order_records![0]!.row_data as Row;
-    expect(row.automationStatus).toBe("paid");
-    expect(vi.mocked(recordVendorPayoutSettled)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(recordVendorPayoutSettled).mock.calls[0]![1]).toMatchObject({
-      workOrderId: "wo1",
-      vendorUserId: "vendor_user_1",
-      amountCents: 40000,
-    });
-    // Checkout already moved the money; settling never starts a second transfer.
-    expect(vi.mocked(payoutVendorForWorkOrder)).not.toHaveBeenCalled();
-
-    // Stripe redelivers webhooks: a replay settles nothing twice.
-    await completeVendorPayFromStripeSession(ctx.db as never, session);
-    expect(vi.mocked(recordVendorPayoutSettled)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(createAxisAchCheckoutSession)).not.toHaveBeenCalled();
+    expect(tables.vendor_payouts ?? []).toHaveLength(0);
   });
 
   it("execute tier-gates before anything happens", async () => {

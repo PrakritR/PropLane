@@ -59,14 +59,24 @@ export async function POST(req: Request) {
       materialsMemo?: string;
       workDoneSummary?: string;
       /** `"balance"` (night/vendor-pay) pays instantly from the manager's PropLane balance; ignored (treated as `"ach"`) while the flag is off. */
-      paymentChannel?: "ach" | "balance";
+      paymentChannel?: "card" | "ach" | "balance";
       acknowledgeExistingPayout?: unknown;
     };
 
     const result = await approveAndPayWorkOrder(
       auth.db,
       { userId: auth.userId, email: auth.email, isAdmin: auth.role === "admin" },
-      { ...body, acknowledgeExistingPayout: body.acknowledgeExistingPayout === true },
+      {
+        workOrder: body.workOrder,
+        category: body.category,
+        vendorCostCents: body.vendorCostCents,
+        materialsCostCents: body.materialsCostCents,
+        materialsMemo: body.materialsMemo,
+        workDoneSummary: body.workDoneSummary,
+        paymentChannel: body.paymentChannel,
+        acknowledgeExistingPayout: body.acknowledgeExistingPayout === true,
+        settleOnly: false,
+      },
     );
     if (!result.ok) {
       if ("existingPayout" in result) {
@@ -93,7 +103,7 @@ export async function POST(req: Request) {
       ok: true,
       workOrder: result.workOrder,
       expenseEntryIds: result.expenseEntryIds,
-      ...(result.checkoutUrl ? { checkoutUrl: result.checkoutUrl, sessionId: result.sessionId } : {}),
+      ...(result.clientSecret ? { clientSecret: result.clientSecret, sessionId: result.sessionId } : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed.";

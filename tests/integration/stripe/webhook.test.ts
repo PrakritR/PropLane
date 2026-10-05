@@ -2,6 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mockCheckoutSession, mockCheckoutSessionCompletedEvent } from "../../mocks/stripe/events";
 
 const recordPaidManagerCheckoutSession = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const fulfillApplicationFee = vi.hoisted(() => vi.fn().mockResolvedValue({ chargeId: "hc_app" }));
+const promoteApplicationFee = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true, promoted: true }));
+const assertCheckoutPiClaim = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const legacyPiFailure = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const legacyAutopayFailure = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
+vi.mock("@/lib/application-fee-fulfillment.server", () => ({
+  fulfillApplicationFeePayment: fulfillApplicationFee,
+  promoteClaimedApplicationAfterFee: promoteApplicationFee,
+}));
 
 vi.mock("next/headers", () => ({
   headers: vi.fn().mockResolvedValue(new Headers({ "stripe-signature": "sig_test" })),
@@ -36,6 +46,13 @@ vi.mock("@/lib/stripe-application-fee", () => ({
 
 vi.mock("@/lib/stripe-household-charge", () => ({
   markHouseholdChargePaidFromStripeSession: vi.fn().mockResolvedValue({ ok: true }),
+}));
+
+vi.mock("@/lib/stripe-webhook-financials", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/stripe-webhook-financials")>()),
+  assertMarkedCheckoutPaymentIntentClaim: assertCheckoutPiClaim,
+  handlePaymentIntentFailed: legacyPiFailure,
+  handleAutopayPaymentIntentFailed: legacyAutopayFailure,
 }));
 
 import { getStripe } from "@/lib/stripe";
@@ -75,12 +92,52 @@ describe("POST /api/stripe/webhook", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
   });
 
+  it.each(["payment_intent.payment_failed", "payment_intent.succeeded"])(
+    "attests a marked card Checkout PI on %s without a second settlement or legacy failure",
+    async (type) => {
+      const paymentIntent = { id: "pi_checkout", metadata: {
+        source_arbitration_v: "1", purpose: "household_charge",
+        resident_attempt_token: "attempt-card", payment_method: "card",
+      } };
+      const db = { from: vi.fn() };
+      const stripe = { webhooks: { constructEvent: vi.fn().mockReturnValue({
+        type, data: { object: paymentIntent },
+      }) } };
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+      vi.mocked(getStripe).mockReturnValue(stripe as never);
+      const response = await webhook(checkoutRequest());
+      expect(response.status).toBe(200);
+      expect(assertCheckoutPiClaim).toHaveBeenCalledWith(db, stripe, paymentIntent);
+      expect(legacyPiFailure).not.toHaveBeenCalled();
+      expect(legacyAutopayFailure).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns 400 without stripe signature", async () => {
     const { headers } = await import("next/headers");
     vi.mocked(headers).mockResolvedValueOnce(new Headers());
     const req = new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" });
     const res = await webhook(req);
     expect(res.status).toBe(400);
+  });
+
+  it("returns 500 for a captured application fee whose financial fulfillment failed", async () => {
+    const session = mockCheckoutSession({ id: "cs_app_fee", mode: "payment", status: "complete",
+      payment_status: "paid", metadata: { purpose: "rental_application_fee", application_id: "app-1",
+        attempt_token: "attempt-1", property_id: "property-1", manager_user_id: "manager-1" } });
+    const query = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({
+      data: { manager_user_id: "manager-1" }, error: null,
+    }) };
+    query.select.mockReturnValue(query);
+    query.eq.mockReturnValue(query);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({ from: vi.fn(() => query) } as never);
+    vi.mocked(getStripe).mockReturnValue({
+      webhooks: { constructEvent: vi.fn().mockReturnValue(mockCheckoutSessionCompletedEvent(session)) },
+    } as never);
+    fulfillApplicationFee.mockRejectedValueOnce(new Error("ledger write failed"));
+    const res = await webhook(checkoutRequest());
+    expect(res.status).toBe(500);
+    expect(promoteApplicationFee).not.toHaveBeenCalled();
   });
 
   it("processes checkout.session.completed", async () => {

@@ -69,7 +69,7 @@ export async function GET() {
         allowClearStale: false,
       });
       const requirements = await getIdentityRequirements(stripe, accountId);
-      return NextResponse.json(requirements);
+      return NextResponse.json({ ...requirements, canSubmit: userId === payoutOwnerUserId });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {

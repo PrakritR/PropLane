@@ -14,7 +14,7 @@ import { acceptWorkOrderBid, vendorNamesById, type WorkOrderActor } from "@/lib/
 import { sendWorkOrderVendorOffers, vendorDirectoryRowsById } from "@/lib/work-order-offers.server";
 import { emitVendorAssigned } from "@/lib/work-order-vendor-messages.server";
 import { approveAndPayWorkOrder } from "@/lib/work-order-approve-pay.server";
-import { createExpensesFromWorkOrder, mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
+import { mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
 import { syncWorkOrderToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { buildVendorVisitEmail } from "@/lib/vendor-visit-email";
@@ -1060,7 +1060,7 @@ export const completeWorkOrderTool = defineWriteTool({
         propertyId: owned.row.propertyId || owned.row.assignedPropertyId,
         vendorId: owned.row.vendorId,
       };
-      const expenseEntryIds = await createExpensesFromWorkOrder(ctx.db, ctx.landlordId, completion);
+      const expenseEntryIds: string[] = [];
       const merged = mergeWorkOrderCompletion(owned.row, completion, expenseEntryIds);
       const { error } = await ctx.db
         .from("portal_work_order_records")
@@ -1072,12 +1072,9 @@ export const completeWorkOrderTool = defineWriteTool({
       await updateAuditResult(ctx, dedupeKey, {
         vendorCostCents: costs.vendorCostCents ?? 0,
         materialsCostCents: costs.materialsCostCents ?? 0,
-        expenseEntryCount: expenseEntryIds.length,
+        expenseEntryCount: 0,
       });
-      const costPart = costs.vendorCostCents
-        ? ` Logged ${centsLabel(costs.vendorCostCents)} labor${costs.materialsCostCents ? ` + ${centsLabel(costs.materialsCostCents)} materials` : ""} to expenses.`
-        : "";
-      return { reply: `Marked "${owned.row.title || owned.id}" completed.${costPart}`, resultSummary: { workOrderId: owned.id, expenseEntryIds } };
+      return { reply: `Marked "${owned.row.title || owned.id}" completed. Payment has not been recorded.`, resultSummary: { workOrderId: owned.id, expenseEntryIds } };
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { error: "complete_failed" }, { clearDedupeKey: true });
       throw new Error(e instanceof Error ? e.message : "The work order could not be completed.");
@@ -1115,7 +1112,7 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     // Materials booked mirror the approve-pay pipeline: an accepted bid's
     // materials when one exists, else none.
     const materialsCents = bid?.materialsCents ?? 0;
-    const channel = "ach" as const;
+    const channel = "card" as const;
     const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category as WorkOrderCategory] ?? "maintenance";
     const lines = [
       { label: "Work order", value: owned.row.title || owned.id },
@@ -1150,7 +1147,7 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     }
     const bid = await findAcceptedBid(ctx, owned.id);
     const laborCents = bid?.amountCents ?? owned.row.vendorCostCents ?? 0;
-    const channel = "ach" as const;
+    const channel = "card" as const;
 
     // One-shot dedupe: vendor_payouts is one row per work order, so a retry can
     // never double-transfer — but the audit intent is still recorded first.
@@ -1166,10 +1163,21 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       // flight — normally an invoice checkout waiting to be paid.
       if (audit.duplicate) {
         return {
-          reply: "Approve and pay is already in progress for this work order. Finish the open checkout to pay it; nothing new was charged.",
+          reply: `Payment review is already open for this service. Open /portal/services/work-orders/completed/${encodeURIComponent(owned.id)}?approve_pay=1 to complete it; nothing new was charged.`,
         };
       }
       throw new Error("Could not record the action; nothing was approved or paid.");
+    }
+
+    // Embedded Checkout must be mounted in the manager's browser. Starting a
+    // session in a tool would strand its client secret and pending payout.
+    if (owned.vendorUserId && laborCents >= 100) {
+      const paymentUrl = `/portal/services/work-orders/completed/${encodeURIComponent(owned.id)}?approve_pay=1`;
+      await updateAuditResult(ctx, dedupeKey, { laborCents, paymentChannel: channel, paymentUrl });
+      return {
+        reply: `Open ${paymentUrl} to review and complete payment for "${owned.row.title || owned.id}". No payment has been submitted yet.`,
+        resultSummary: { workOrderId: owned.id, laborCents, paymentChannel: channel, paymentUrl },
+      };
     }
 
     // The same completion + markWorkOrderPaid + best-effort Stripe payout +
@@ -1197,12 +1205,6 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       paymentChannel: channel,
       expenseEntryCount: result.expenseEntryIds.length,
     });
-    if (result.checkoutUrl) {
-      return {
-        reply: `Approve and pay is ready for "${owned.row.title || owned.id}". Open checkout to pay the invoice plus Stripe’s cost.`,
-        resultSummary: { workOrderId: owned.id, laborCents, paymentChannel: channel, checkoutUrl: result.checkoutUrl },
-      };
-    }
     const payoutPart =
       laborCents > 0 && owned.vendorUserId
         ? ` A ${centsLabel(laborCents)} transfer to ${owned.row.vendorName || "the vendor"} was initiated (the vendor sees the payout status in their portal).`

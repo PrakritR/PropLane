@@ -10,6 +10,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { axisAchCheckoutPaid, axisAchCheckoutProcessing } from "@/lib/stripe-axis-ach-checkout";
 import { fulfillApplicationFeePayment, promoteClaimedApplicationAfterFee } from "@/lib/application-fee-fulfillment.server";
+import { DestinationSourcePendingError } from "@/lib/platform-destination-source.server";
 import { reportOrphanedApplicationFeePayment } from "@/lib/report-orphaned-application-fee.server";
 import {
   isApplicationFeeCheckoutSession,
@@ -175,6 +176,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       paid,
       processing,
+      ...(processing ? { processingReason: "bank_clearing" } : {}),
       paymentStatus: session.payment_status,
       sessionId: session.id,
       propertyId: session.metadata?.property_id ?? null,
@@ -202,6 +204,12 @@ export async function POST(req: Request) {
         : {}),
     });
   } catch (e) {
+    if (e instanceof DestinationSourcePendingError) {
+      return NextResponse.json({ paid: false, processing: true,
+        processingReason: "recipient_routing", paymentStatus: "paid",
+        error: "Payment was captured. Manager payout routing is still processing; check again shortly." },
+      { status: 202 });
+    }
     const message = e instanceof Error ? e.message : "Failed to verify session";
     if (message.includes("STRIPE_SECRET_KEY") || message.includes("Missing STRIPE")) {
       return NextResponse.json({ error: "Stripe is not configured on the server." }, { status: 503 });

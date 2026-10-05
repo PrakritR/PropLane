@@ -94,7 +94,7 @@ async function reconcileOnePaymentIntent(
 ): Promise<void> {
   const managerUserId = pi.metadata?.manager_user_id?.trim();
   const managerPayoutCents = Number(pi.metadata?.manager_payout_cents ?? "");
-  if (!managerUserId || !Number.isFinite(managerPayoutCents) || managerPayoutCents <= 0) {
+  if (!managerUserId || !Number.isSafeInteger(managerPayoutCents) || managerPayoutCents <= 0) {
     result.skipped += 1;
     return;
   }
@@ -133,9 +133,10 @@ async function reconcileOnePaymentIntent(
       ? await stripe.charges.retrieve(chargeId, { expand: ["balance_transaction"] })
       : chargeRef;
   const balanceTransaction = typeof charge.balance_transaction === "string" ? null : charge.balance_transaction;
-  const availableOnIso = balanceTransaction?.available_on
-    ? new Date(balanceTransaction.available_on * 1000).toISOString()
-    : new Date().toISOString();
+  if (!balanceTransaction?.available_on || !Number.isSafeInteger(balanceTransaction.available_on)) {
+    throw new Error("Resident balance credit is waiting for Stripe clearing evidence.");
+  }
+  const availableOnIso = new Date(balanceTransaction.available_on * 1000).toISOString();
 
   const accountId = await ensureWorkspaceBalanceAccountId(db, managerUserId);
   const credit = await creditResidentPaymentPending(db, {

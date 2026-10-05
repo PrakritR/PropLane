@@ -8,15 +8,16 @@ import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/li
 export async function authorizeOutgoingInvoice(db: SupabaseClient, managerId: string, invoiceId: string) {
   const { data: invoice, error } = await db.from("vendor_invoices").select("*").eq("id", invoiceId).eq("manager_user_id", managerId).maybeSingle();
   if (error) throw new Error(error.message);
-  if (!invoice || invoice.voided_at || !invoice.work_order_id) throw new Error("Invoice not found.");
-  const { data: service, error: serviceError } = await db.from("portal_work_order_records").select("property_id, vendor_user_id").eq("id", invoice.work_order_id).eq("manager_user_id", managerId).maybeSingle();
-  if (serviceError) throw new Error(serviceError.message);
-  const scope = await resolveActiveWorkspaceRowScope(db, managerId);
-  if (!service || !rowAllowedInWorkspaceScope(scope, service.property_id)) throw new Error("Invoice not found.");
-  // An estimate-visit fee is owed to a vendor who was never hired for the job, so it is exempt from
-  // the "assigned to this vendor" rule - but only when it matches a real bid whose visit happened.
-  if (invoice.status !== "paid" && service.vendor_user_id !== invoice.vendor_user_id && !(await isGenuineVisitFeeInvoice(db, invoice))) {
-    throw new Error("Service must be assigned to this vendor.");
+  if (!invoice || invoice.voided_at) throw new Error("Invoice not found.");
+  if (invoice.work_order_id) {
+    const { data: service, error: serviceError } = await db.from("portal_work_order_records").select("property_id, vendor_user_id").eq("id", invoice.work_order_id).eq("manager_user_id", managerId).maybeSingle();
+    if (serviceError) throw new Error(serviceError.message);
+    const scope = await resolveActiveWorkspaceRowScope(db, managerId);
+    if (!service || !rowAllowedInWorkspaceScope(scope, service.property_id)) throw new Error("Invoice not found.");
+    // Visit fees are owed to a vendor who was not hired for the service.
+    if (invoice.status !== "paid" && service.vendor_user_id !== invoice.vendor_user_id && !(await isGenuineVisitFeeInvoice(db, invoice))) {
+      throw new Error("Service must be assigned to this vendor.");
+    }
   }
   return invoice;
 }

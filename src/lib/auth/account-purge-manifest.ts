@@ -143,6 +143,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { emails: ["resident_email"], preserveFinancial: true },
   },
   {
+    // Retain the exact captured cart/provider terms in the manager's books
+    // while detaching the resident identity from the claim.
+    table: "resident_checkout_attempts",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
+  },
+  {
     table: "security_deposit_ledger",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -302,6 +310,30 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 1,
     manager: { ids: ["owner_user_id"], preserveFinancial: true },
     vendor: { ids: ["owner_user_id"], preserveFinancial: true },
+  },
+  {
+    table: "platform_hold_transfer_attempts",
+    phase: 1,
+    manager: { ids: ["owner_user_id"], preserveFinancial: true },
+    vendor: { ids: ["owner_user_id"], preserveFinancial: true },
+  },
+  {
+    table: "platform_hold_refund_attempts",
+    phase: 1,
+    manager: { ids: ["owner_user_id"], preserveFinancial: true },
+    vendor: { ids: ["owner_user_id"], preserveFinancial: true },
+  },
+  {
+    table: "platform_hold_refund_transfer_legs",
+    phase: 1,
+    manager: { ids: ["owner_user_id"], preserveFinancial: true },
+    vendor: { ids: ["owner_user_id"], preserveFinancial: true },
+  },
+  {
+    table: "platform_source_consumption_legs",
+    phase: 1,
+    manager: { ids: ["owner_user_id"], preserveFinancial: true },
+    vendor: { ids: ["owner_user_id", "beneficiary_user_id"], preserveFinancial: true },
   },
   {
     // night/vendor-pay, PROPLANE_BALANCE_ENABLED. `owner_key` holds the
@@ -1075,6 +1107,8 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  resident_charge_payment_slots: "Identity-free child of a charge, checkout attempt, or autopay run; those account-owned parents delete it by cascade.",
+  platform_source_refund_evidence: "Opaque Stripe refund/charge evidence can arrive before an owned allocation; retain it to prevent a later payment replay from minting refunded funds, then reconcile by exact provider source.",
   portal_inbox_thread_aliases: "Child of portal_inbox_thread_records; the old ids a folded conversation answers to are deleted by cascade with it.",
   sms_projection_cutover: "Global SMS migration readiness only; contains no account data.",
   vendor_work_identity_runtime: "Global sponsored-identity runtime limits; it contains no account data.",

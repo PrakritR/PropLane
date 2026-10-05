@@ -597,4 +597,16 @@ describe("Stripe return verification recovery", () => {
     expect(screen.getByRole("button", { name: "Retry verification" })).toBeTruthy();
     expectNoDraftWrites();
   });
+
+  it("shows captured card payout routing as retryable without calling it bank clearing", async () => {
+    checkoutReturn("cs_card_routing");
+    stubFetch({ verifyResponse: async () => new Response(JSON.stringify({ paid: false, processing: true,
+      processingReason: "recipient_routing", paymentStatus: "paid", propertyId: PID }), { status: 202 }) });
+
+    await mountWizard();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Payment was captured. Manager payout routing is still processing");
+    expect(alert).not.toHaveTextContent("bank transfer");
+    expectNoDraftWrites();
+  });
 });
