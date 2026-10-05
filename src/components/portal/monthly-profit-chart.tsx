@@ -228,15 +228,19 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
   // (a profit-only series, which carries no revenue or expense, falls back to its running profit).
   const running = useMemo<RunningPoint[]>(() => {
     const hasSplit = points.some(p => p.revenue !== 0 || p.expense !== 0);
+    // Accumulated in a plain loop, not a `map` callback: a closure that reassigns
+    // render-scope variables trips `react-hooks/immutability`.
+    const rows: RunningPoint[] = [];
     let cumRev = 0;
     let cumExp = 0;
     let cumProfit = 0;
-    return points.map(p => {
+    for (const p of points) {
       cumRev += p.revenue;
       cumExp += p.expense;
       cumProfit += p.profit;
-      return { ...p, cumRev, cumExp, cumNet: hasSplit ? cumRev - cumExp : cumProfit, netMonth: hasSplit ? p.revenue - p.expense : p.profit };
-    });
+      rows.push({ ...p, cumRev, cumExp, cumNet: hasSplit ? cumRev - cumExp : cumProfit, netMonth: hasSplit ? p.revenue - p.expense : p.profit });
+    }
+    return rows;
   }, [points]);
 
   useEffect(() => {

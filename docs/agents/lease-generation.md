@@ -19,10 +19,16 @@ and the stored terms; do not re-declare it.
 
 - Manager: the "Lease terms" multi-select picks which are offered (stored in `allowedLeaseTerms`,
   unchanged; existing properties keep what they effectively offered). It appears in the live property
-  editor's Pricing step and in the legacy add-listing form, and both write through the one helper
-  `leaseTermsPatchForTypes` (`manager-listing-submission.ts`) — never their own field math, so a
-  listing still carrying the retired Airbnb stay or fixed 3/6/9/12 lengths keeps them while its type
-  stays ticked. Applicant: ONE "Lease term" select lists
+  editor's Pricing step and in the legacy add-listing form. The Basics step's **"Stays you offer"**
+  is the coarser third writer — the two stays, Long term and/or Short term, where Month-to-month and
+  Custom count as Long term and Airbnb as Short term (`staysPatch` in `src/lib/listing-stays.ts`,
+  which also keeps `shortTermRentalsAllowed` in step and refuses turning the last stay off). All
+  three write through the one helper `leaseTermsPatchForTypes` (`manager-listing-submission.ts`) —
+  never their own field math, so a listing still carrying the retired Airbnb stay or fixed 3/6/9/12
+  lengths keeps them while its type stays ticked. **Those same two stays are the only sections the
+  Pricing, Application, Lease and Move-in lists group by** (`StaySectionKey`): there is no "Both"
+  section, an item that applies to both stays is listed in each, and a section only shows when the
+  listing offers the stay (hiding one never deletes anything). Applicant: ONE "Lease term" select lists
   only the enabled types (`applicantTermOptions`), and preselects when exactly one is enabled. There is no
   separate "Length" select.
 - Everything is server-derived from the stored term and dates through `resolveStayPricing`, the ledger and

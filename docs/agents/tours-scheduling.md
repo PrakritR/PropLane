@@ -441,10 +441,18 @@ Coverage: `tests/unit/tools/tours.test.ts`, `tests/unit/tools/calendar-tools.tes
 
 ## Services and tasks availability
 
-Kind-scoped calendar availability lives at `axis_mgr_avail_slots_v2_<uid>_kind_<services|tasks|inspections|moves>`
-(record type `manager_kind_availability`, `src/lib/manager-availability-kinds.ts`) — never read
-by the public tour route, unlike tours' own `manager_availability` / `manager_property_availability`
-keys. `src/lib/manager-schedule-suggest.ts` is the one time-suggestion engine for these kinds:
+**There are exactly three availability kinds: Tours, Services and Tasks**
+(`AVAILABILITY_KINDS`, `src/lib/manager-availability-kinds.ts`). Inspections and move-ins/outs
+were their own kinds and are Tasks now: nothing writes them any more, but already-saved runs are
+still read as task availability (`LEGACY_TASK_AVAILABILITY_KINDS`,
+`readKeysForKindStorageKeys`), so no manager loses painted hours, and a write to Tasks folds a
+legacy run in. `normalizeAvailabilityKind` is the one place a stored or legacy kind name is folded
+onto the three.
+
+Kind-scoped calendar availability lives at `axis_mgr_avail_slots_v2_<uid>_kind_<services|tasks>`
+(record type `manager_kind_availability`; the legacy `_kind_<inspections|moves>` keys are read-only)
+— never read by the public tour route, unlike tours' own `manager_availability` /
+`manager_property_availability` keys. `src/lib/manager-schedule-suggest.ts` is the one time-suggestion engine for these kinds:
 painted availability books, a PropLane pick only proposes, and neither ever overrides anything
 already scheduled.
 
@@ -457,11 +465,11 @@ lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the gr
 
 - **Storage is unchanged: dated slot sets.** Tours still go to the per-house
   `manager_property_availability` keys (the picked **Properties**, or every house for All houses);
-  Services, Tasks, Inspections and Move-ins/outs go to the per-manager kind keys. **Everything** is
-  not a stored kind — it writes every kind, Tasks included — and a run open for all five reads as
+  Services and Tasks go to the per-manager kind keys. **Everything** is not a stored kind — it
+  writes every kind, Tasks included (`isEverythingKinds`) — and a run open for all three reads as
   the plain hatch, anything narrower as a tinted band with a stripe per type. The public tour route
-  and `listOpenTourSlots` still read only the tour keys, so a Services-only or Inspections-only
-  window is never offered to a guest and an Everything or Tours window is.
+  and `listOpenTourSlots` still read only the tour keys, so a Services-only or Tasks-only window is
+  never offered to a guest and an Everything or Tours window is.
 - **"Every week" is dated slots for the next 26 weeks** (`EVERY_WEEK_HORIZON_WEEKS`), never a
   recurrence rule the tour readers would not know. That is what makes **Clear week** honest: it
   removes only the viewed week's slots (and, with the 9 to 5 default on, excludes the week's default
@@ -474,6 +482,15 @@ lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the gr
   are per manager and already apply to every house.
 - The grid draws the same default band guests are offered (the manager's tour settings,
   `defaultTourGridEnabled`), never clickable; only painted bands open the popup.
+- **Availability is always shared, and there is no opt-in.** `GET /api/portal/co-manager-calendar`
+  returns every peer who holds calendar READ on that house (`coManagerModuleAllowed(…, "calendar",
+  "read")` / `managerHasCalendarAccessForProperty`), and whoever passes that check sees everyone
+  else's open hours — a teammate merely assigned the property is NOT a grant, and a peer without
+  calendar read is not listed at all. Legacy `calendar_share_settings` rows are never read; do not
+  reintroduce a share toggle. One stable colour and initials per person
+  (`PERSON_COLORS`/`buildCalendarPeople`, `src/lib/calendar-people.ts`) from the user-id sort, so
+  hiding someone in the people row never repaints the others. A person's own hours are editable only
+  by that person; a booked item opens its own record rather than the availability popup.
 
 ## Application before a tour (workspace setting, Oct 3 2026)
 
