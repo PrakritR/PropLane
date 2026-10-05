@@ -3403,15 +3403,19 @@ export function markPastDueHouseholdChargesPaid(
   return { markedIds: [...targets] };
 }
 
-export function markHouseholdChargePending(
+export async function markHouseholdChargePending(
   chargeId: string,
   managerUserId: string | null,
   opts?: ChargeManagerScopeOpts,
-): boolean {
+): Promise<boolean> {
   const rows = readAll();
   const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (i === -1) return false;
   if (rows[i]!.status === "pending") return true;
+  // A settled source has no accounting-safe correction path yet. Wait for
+  // server authorization before changing the browser copy.
+  const confirmed = await postHouseholdPayloadAwait({ action: "unmarkPaid", id: chargeId }).catch(() => false);
+  if (!confirmed) return false;
   const next = [...rows];
   // Clear dueDateLabel so parseDueDateLabelToDate returns null → isHouseholdChargeOverdue is false
   // → the charge lands in the Pending bucket, not Overdue, regardless of the original due date.
@@ -3427,16 +3431,6 @@ export function markHouseholdChargePending(
   };
   next[i] = updated;
   writeAll(next);
-  // Reverting a paid charge is an explicit, deliberate action. Route it through
-  // the dedicated `unmarkPaid` server action — the full-list "replace" mirror can
-  // no longer downgrade a paid charge (paid is sticky server-side), so this is the
-  // only path that persists the revert.
-  void postHouseholdPayloadAwait({
-    action: "unmarkPaid",
-    id: chargeId,
-  }).then((ok) => {
-    if (ok) emit();
-  });
   return true;
 }
 
@@ -5156,16 +5150,29 @@ export function shortToLongTermUpgradeBreakdown(
   const totalDue = depositDelta + moveInDelta;
 
   return {
-    applicationFee: { amount: appFeeAmount, waived: true, label: appFeeAmount > 0 ? `$${appFeeAmount.toFixed(2)} (waived — already paid)` : "Waived" },
+    applicationFee: { amount: appFeeAmount, waived: true, label: appFeeAmount > 0 ? `$${appFeeAmount.toFixed(2)} (not charged again)` : "No additional fee" },
     moveInFee: { amount: longTermMoveIn, delta: moveInDelta, label: moveInDelta > 0 ? `$${moveInDelta.toFixed(2)} balance` : "Fully paid" },
     securityDeposit: { amount: longTermDeposit, delta: depositDelta, label: depositDelta > 0 ? `$${depositDelta.toFixed(2)} balance` : "Fully paid" },
     totalDue,
   };
 }
 
+/** A conversion projection cancels an unpaid obligation without inventing cash or waiver authority. */
+export function projectShortToLongTermApplicationFeeCharge(charge: HouseholdCharge): HouseholdCharge {
+  if (!["pending", "failed"].includes(charge.status) || charge.paidAt || charge.paidMethod ||
+      charge.paidAmountCents || charge.stripeCheckoutSessionId || charge.stripePaymentStatus) return charge;
+  return {
+    ...charge,
+    status: "cancelled",
+    balanceLabel: "$0.00",
+    title: "Application fee (no additional charge for conversion)",
+  };
+}
+
 /**
  * Creates the delta charges when a resident upgrades from short-term to long-term.
- * Marks application fee as waived. Only creates new delta lines — idempotent per applicationId.
+ * The application fee projection is noncash; server waiver audit fields are
+ * deliberately not created by this browser-only helper.
  */
 export function recordShortToLongTermConversionCharges(
   row: DemoApplicantRow,
@@ -5193,12 +5200,11 @@ export function recordShortToLongTermConversionCharges(
   const rows = readAll();
   const created: HouseholdCharge[] = [];
 
-  // Mark application fee paid/waived
+  // A paid receipt remains its exact source; an unpaid conversion obligation
+  // becomes noncash cancelled. The ordinary mirror cannot mint a waiver audit.
   const appFeeId = applicationFeeChargeIdForApplication(applicationId);
   const appFeeIdx = rows.findIndex((r) => r.id === appFeeId || (r.kind === "application_fee" && r.applicationId === applicationId));
-  if (appFeeIdx !== -1 && rows[appFeeIdx]!.status !== "paid") {
-    rows[appFeeIdx] = { ...rows[appFeeIdx]!, status: "paid", paidAt: new Date().toISOString(), balanceLabel: "$0.00", title: "Application fee (waived — already paid short-term)" };
-  }
+  if (appFeeIdx !== -1) rows[appFeeIdx] = projectShortToLongTermApplicationFeeCharge(rows[appFeeIdx]!);
 
   const makeId = (suffix: string) => `hc_upgrade_${chargeKeyPart(applicationId)}_${suffix}`;
 
