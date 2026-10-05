@@ -331,7 +331,21 @@ the vendor's ledger credit outright.
 A held claim cannot outlive its attempt. The session carries `expires_at` (30 minutes, Stripe's
 floor), and `releaseInvoicePaymentClaim` (`src/lib/vendor-invoice-claim.server.ts` — the one owner
 of that undo) hands the claim back on a failure to open the session, on
-`checkout.session.expired`, and on `checkout.session.async_payment_failed`. The paid webhook
+`checkout.session.expired`, and on `checkout.session.async_payment_failed`.
+
+**One Stripe session per claim, and only that session may give the claim back.** The idempotency
+key is `vendor-invoice:<invoice>:<claim>`, not invoice-wide: Stripe keeps a key for 24 hours and
+replays the first response, so a key that outlived the 30-minute session handed an abandon-and-retry
+the dead session's client secret and stranded the fresh claim — leaving the invoice unpayable,
+unschedulable and undeletable by every rail. A re-submit of the same claim still replays one
+session; a new claim gets a new one. The claiming session id is stamped on
+`vendor_invoices.checkout_session_id`, and releasing is a compare-and-swap on `payment_claim` (plus
+that session id when the caller knows it), so a replayed `expired` event for an abandoned attempt
+is a no-op rather than freeing a live payment's claim. The pending `vendor_payouts` row is swept
+only once nothing holds the invoice and it is unpaid — an unconditional delete crossed rails: a
+replayed `stripe` expiry wiped the balance rail's payout row while `payment_claim` stayed
+`balance`, `settle_vendor_invoice_payment` then flipped zero rows, and the payout record vanished
+along with the block on Approve + pay. The paid webhook
 converts the held claim into the settled payout through the same `settleInvoicePayment` the other
 rails run, and every write it does is keyed on the claim rather than on the invoice's status, so a
 retry after a failed write redoes it instead of skipping it.

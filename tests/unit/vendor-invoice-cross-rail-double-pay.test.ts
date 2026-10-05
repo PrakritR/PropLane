@@ -30,21 +30,53 @@ const MANAGER = "mgr-1";
 const WO = "wo-1";
 
 let tables: Record<string, Row[]>;
-const rpc = vi.fn(async () => ({ error: null }));
+// Mirrors `claim_vendor_invoice_payment`: the first claim stamps the rail on the invoice and
+// inserts the pending payout row that IS the claim; a same-rail re-claim changes nothing.
+const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => {
+  if (name === "claim_vendor_invoice_payment") {
+    const invoice = (tables.vendor_invoices ?? []).find((r) => r.id === params.p_invoice);
+    if (invoice && invoice.payment_claim == null) {
+      invoice.payment_claim = params.p_rail;
+      (tables.vendor_payouts ??= []).push({
+        id: "po-claim",
+        work_order_id: invoice.work_order_id,
+        invoice_id: invoice.id,
+        manager_user_id: params.p_manager,
+        vendor_user_id: invoice.vendor_user_id,
+        amount_cents: invoice.total_cents,
+        status: "pending",
+      });
+    }
+  }
+  return { error: null };
+});
 
 function fakeDb() {
   return {
     rpc,
     from(table: string) {
       const filters: Array<[string, unknown]> = [];
+      const negated: Array<[string, unknown]> = [];
+      let patch: Row | null = null;
       const rows = () =>
-        (tables[table] ?? []).filter((r) => filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)));
+        (tables[table] ?? []).filter(
+          (r) =>
+            filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)) &&
+            negated.every(([c, v]) => r[c] !== v),
+        );
+      const apply = () => {
+        const matched = rows();
+        if (patch) for (const r of matched) Object.assign(r, patch);
+        return matched;
+      };
       const q: Record<string, unknown> = {
         select: () => q,
         eq: (c: string, v: unknown) => (filters.push([c, v]), q),
+        neq: (c: string, v: unknown) => (negated.push([c, v]), q),
         in: (c: string, v: unknown[]) => (filters.push([c, v]), q),
-        maybeSingle: async () => ({ data: rows()[0] ?? null, error: null }),
-        then: (resolve: (v: { data: Row[]; error: null }) => unknown) => Promise.resolve({ data: rows(), error: null }).then(resolve),
+        update: (p: Row) => ((patch = p), q),
+        maybeSingle: async () => ({ data: apply()[0] ?? null, error: null }),
+        then: (resolve: (v: { data: Row[]; error: null }) => unknown) => Promise.resolve({ data: apply(), error: null }).then(resolve),
       };
       return q;
     },
@@ -136,6 +168,10 @@ describe("Stripe invoice pay", () => {
     expect(result).toMatchObject({ ok: true, clientSecret: "cs_1" });
     expect(rpc).toHaveBeenCalledWith("claim_vendor_invoice_payment", { p_invoice: "inv-job", p_manager: MANAGER, p_rail: "stripe" });
     expect(rpc.mock.invocationCallOrder[0]!).toBeLessThan(createCheckout.mock.invocationCallOrder[0]!);
+    // The claim now exists as a pending payout, which is what refuses Approve + pay, and it is
+    // tied to the session holding it so only that session's expiry can give it back.
+    expect(tables.vendor_payouts).toMatchObject([{ invoice_id: "inv-job", status: "pending" }]);
+    expect(tables.vendor_invoices![0]).toMatchObject({ payment_claim: "stripe", checkout_session_id: "sess_1" });
   });
 
   it("a read fault on the payout table is 500, not a double-pay refusal", async () => {

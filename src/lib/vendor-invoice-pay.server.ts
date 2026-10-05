@@ -15,7 +15,7 @@ import {
   claimInvoicePayment,
   settleInvoicePayment,
 } from "@/lib/vendor-invoice-settlement.server";
-import { releaseInvoicePaymentClaim } from "@/lib/vendor-invoice-claim.server";
+import { readInvoicePaymentClaimId, releaseInvoicePaymentClaim } from "@/lib/vendor-invoice-claim.server";
 import { isVendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
 
 export const VENDOR_INVOICE_DIRECT_PAY_PURPOSE = "vendor_invoice_direct_pay";
@@ -79,9 +79,12 @@ export async function startVendorInvoicePayCheckout(
   // A standalone invoice (no service) has no job for a second rail to pay, so there is nothing to
   // claim; `assertNoCrossRailPayout` is a no-op for it and for an estimate-visit fee.
   const claimsPayout = Boolean(row.work_order_id?.trim());
+  let claimId: string | null = null;
   try {
-    if (claimsPayout) await claimInvoicePayment(db, opts.managerUserId, row.id, "stripe");
-    else await assertNoCrossRailPayout(db, row);
+    if (claimsPayout) {
+      await claimInvoicePayment(db, opts.managerUserId, row.id, "stripe");
+      claimId = await readInvoicePaymentClaimId(db, opts.managerUserId, row.id);
+    } else await assertNoCrossRailPayout(db, row);
   } catch (e) {
     const message = e instanceof Error ? e.message : "This service has already been paid.";
     if (isVendorInvoicePaymentRefusal(e)) return { ok: false, status: 409, error: message };
@@ -100,6 +103,19 @@ export async function startVendorInvoicePayCheckout(
     );
   };
 
+  // A claim with no row to point at cannot be tied to one session, and an untied claim is the
+  // stranded kind: nothing would ever release it. Refuse now rather than open a checkout.
+  if (claimsPayout && !claimId) {
+    await releaseClaim();
+    console.error("[vendor-invoice-pay] claimed the invoice but found no claim row", { invoiceId: row.id });
+    return { ok: false, status: 500, error: "Could not reserve this invoice for payment; nothing was charged." };
+  }
+
+  // The short expiry exists to bound how long a CLAIM is held. A standalone invoice holds no
+  // claim, so it keeps Stripe's own 24-hour default — the window its invoice-wide idempotency key
+  // already matches, which is what stops a retry replaying a session that has died.
+  const expiresAtUnix = claimsPayout ? Math.floor(Date.now() / 1000) + VENDOR_INVOICE_CHECKOUT_TTL_SECONDS : undefined;
+
   // Everything from here on can fail without a cent moving — Stripe refusing the session, a
   // Connect lookup timing out — and every one of those must hand the claim back, or an invoice
   // nobody paid stays unpayable by any rail until it expires.
@@ -110,7 +126,13 @@ export async function startVendorInvoicePayCheckout(
     const origin = resolveShareableAppOrigin();
     const label = row.invoice_number ? `Invoice ${row.invoice_number}` : row.memo?.trim() || "Vendor invoice";
     result = await createAxisAchCheckoutSession(stripe, {
-      idempotencyKey: `vendor-invoice:${row.id}`,
+      // Scoped to the CLAIM, not the invoice. Stripe keeps an idempotency key for 24 hours and
+      // replays the first response, so an invoice-wide key outlived the 30-minute session it
+      // created: after an abandon-and-retry it handed back the expired session's client secret,
+      // the checkout died in the browser, and the fresh claim was never released — leaving the
+      // invoice unpayable, unschedulable and undeletable by every rail. A re-submit of the SAME
+      // claim still replays (one session per claim); a new claim gets a new session.
+      idempotencyKey: `vendor-invoice:${row.id}:${claimId ?? "unclaimed"}`,
       residentEmail: opts.managerEmail,
       amountCents: invoiceCents,
       productName: label.slice(0, 120),
@@ -129,7 +151,7 @@ export async function startVendorInvoicePayCheckout(
       feePayer: "resident",
       extraApplicationFeeCents: platformFeeCents,
       returnUrl: `${origin}/portal/finances?invoice_pay=success&session_id={CHECKOUT_SESSION_ID}`,
-      expiresAtUnix: Math.floor(Date.now() / 1000) + VENDOR_INVOICE_CHECKOUT_TTL_SECONDS,
+      expiresAtUnix,
     });
   } catch (e) {
     await releaseClaim();
@@ -141,6 +163,40 @@ export async function startVendorInvoicePayCheckout(
     await releaseClaim();
     return { ok: false, status: 500, error: "Could not start invoice checkout." };
   }
+  // Belt and braces behind the per-claim key: a session that is already expired or complete can
+  // never be paid, and it will never emit another `expired` event to free the claim either.
+  if (result.status === "expired" || result.status === "complete" || (result.expiresAtUnix != null && result.expiresAtUnix <= Math.floor(Date.now() / 1000))) {
+    await releaseClaim();
+    console.error("[vendor-invoice-pay] Stripe returned a session that cannot be paid", {
+      invoiceId: row.id,
+      sessionId: result.sessionId,
+      status: result.status,
+      expiresAtUnix: result.expiresAtUnix,
+    });
+    return { ok: false, status: 500, error: "Could not start invoice checkout." };
+  }
+
+  // Ties the claim to the session that holds it, so only THAT session's expiry or bounced debit
+  // releases it — a replayed event for an abandoned attempt must not free a live payment's claim.
+  if (claimsPayout) {
+    const { data: tied } = await db
+      .from("vendor_invoices")
+      .update({ checkout_session_id: result.sessionId, updated_at: new Date().toISOString() })
+      .eq("id", row.id)
+      .eq("manager_user_id", opts.managerUserId)
+      .eq("payment_claim", "stripe")
+      .select("id")
+      .maybeSingle();
+    if (!(tied as { id?: unknown } | null)?.id) {
+      await releaseClaim();
+      console.error("[vendor-invoice-pay] could not tie the claim to its checkout session", {
+        invoiceId: row.id,
+        sessionId: result.sessionId,
+      });
+      return { ok: false, status: 500, error: "Could not reserve this invoice for payment; nothing was charged." };
+    }
+  }
+
   return {
     ok: true,
     clientSecret: result.clientSecret,
@@ -162,7 +218,7 @@ export async function releaseVendorInvoiceDirectPayClaim(
   const invoiceId = session.metadata.invoice_id?.trim();
   const managerUserId = session.metadata.manager_user_id?.trim();
   if (!invoiceId || !managerUserId) return;
-  await releaseInvoicePaymentClaim(db, managerUserId, invoiceId, "stripe");
+  await releaseInvoicePaymentClaim(db, managerUserId, invoiceId, "stripe", { checkoutSessionId: session.id });
 }
 
 /**

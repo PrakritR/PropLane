@@ -87,8 +87,19 @@ export type AxisAchCheckoutInput = {
   expiresAtUnix?: number;
 };
 
+/**
+ * `status` / `expiresAtUnix` come straight off the created session so a caller that set
+ * `expiresAtUnix` can tell a live session from one Stripe replayed off an idempotency key: a
+ * replayed body can describe a session that has already expired, and its client secret looks
+ * perfectly valid.
+ */
+type AxisAchCheckoutSessionState = {
+  status: string | null;
+  expiresAtUnix: number | null;
+};
+
 export type AxisAchCheckoutResult =
-  | {
+  | ({
       mode: "embedded";
       clientSecret: string;
       sessionId: string;
@@ -98,8 +109,8 @@ export type AxisAchCheckoutResult =
       platformFeeCents: number;
       totalCents: number;
       paymentMethod: ResidentAxisPaymentMethod;
-    }
-  | {
+    } & AxisAchCheckoutSessionState)
+  | ({
       mode: "hosted";
       url: string;
       sessionId: string;
@@ -109,7 +120,7 @@ export type AxisAchCheckoutResult =
       platformFeeCents: number;
       totalCents: number;
       paymentMethod: ResidentAxisPaymentMethod;
-    };
+    } & AxisAchCheckoutSessionState);
 
 export function axisAchCheckoutPaid(session: Stripe.Checkout.Session): boolean {
   return session.payment_status === "paid" || session.payment_status === "no_payment_required";
@@ -428,6 +439,8 @@ export async function createAxisAchCheckoutSession(
       mode: "embedded",
       clientSecret: session.client_secret,
       sessionId: session.id,
+      status: session.status ?? null,
+      expiresAtUnix: session.expires_at ?? null,
       ...feeResultBase,
     };
   }
@@ -445,6 +458,8 @@ export async function createAxisAchCheckoutSession(
     mode: "hosted",
     url: session.url,
     sessionId: session.id,
+    status: session.status ?? null,
+    expiresAtUnix: session.expires_at ?? null,
     ...feeResultBase,
   };
 }
