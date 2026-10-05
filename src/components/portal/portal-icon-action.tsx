@@ -23,6 +23,11 @@ import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
  * command bars these buttons sit in scroll horizontally (`overflow-x-auto`), which would clip an
  * absolutely-positioned child. `align="end"` right-aligns to the button so a header action at the
  * viewport's right edge never overflows; otherwise it is centred (clamped to stay on screen).
+ *
+ * It sits above every other layer in the stack — the dialog stack (z-90/91), the listing wizard
+ * overlay (z-80), the field-select menus (z-10060) and the phone sheet (z-10070/10071) — because an
+ * icon action is the chrome of all of them and the native `title` is gone. `pointer-events-none`
+ * means a layer above nothing can be blocked by it.
  */
 function useIconTip(label: string, align: "center" | "end") {
   const [tip, setTip] = useState<{ top: number; left?: number; right?: number } | null>(null);
@@ -62,7 +67,7 @@ function useIconTip(label: string, align: "center" | "end") {
             data-slot="portal-icon-tooltip"
             style={{ top: tip.top, left: tip.left, right: tip.right }}
             className={cn(
-              "pointer-events-none fixed z-50 whitespace-nowrap rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium leading-none text-white shadow-md transition-opacity duration-100 dark:bg-neutral-100 dark:text-neutral-900",
+              "pointer-events-none fixed z-[10090] whitespace-nowrap rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium leading-none text-white shadow-md transition-opacity duration-100 dark:bg-neutral-100 dark:text-neutral-900",
               align === "center" && "-translate-x-1/2",
               shown ? "opacity-100" : "opacity-0",
             )}

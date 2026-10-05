@@ -45,6 +45,7 @@ import { sendMoveInForm } from "@/lib/move-in-forms/client";
 import { moveInFormTab } from "@/lib/move-in-forms/manager-rows";
 import { readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
+import type { DemoApplicantRow } from "@/data/demo-portal";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { propertyDetailHref } from "@/lib/portal-detail-routes";
 
@@ -87,48 +88,6 @@ export function residentMoveInFormRows(templates: readonly MoveInFormTemplate[],
   return rows;
 }
 
-export type MoveInDetailsReceived = {
-  instructions: string;
-  photos: string;
-  video: string;
-};
-
-const NONE = "None added";
-
-/** What the property's existing move-in data gives this resident. Facts only; blanks say so. */
-export function describeMoveInDetails(
-  resolved: {
-    instructions: string | null;
-    houseInstructions: string | null;
-    roomLabel: string;
-    moveInPhotoDataUrls: string[];
-    houseMoveInPhotoDataUrls: string[];
-    moveInVideoDataUrl: string | null;
-    houseMoveInVideoDataUrl: string | null;
-    residentSection: { instructions: string | null; photoDataUrls: string[]; videoDataUrl: string | null } | null;
-  } | null,
-  entireHome: boolean,
-): MoveInDetailsReceived {
-  if (!resolved) return { instructions: NONE, photos: NONE, video: NONE };
-  const scopes: string[] = [];
-  if (resolved.houseInstructions) scopes.push("The whole house");
-  if (resolved.instructions) {
-    const room = resolved.roomLabel.trim();
-    scopes.push(entireHome || !room || /not assigned/i.test(room) ? "The whole house" : room);
-  }
-  if (resolved.residentSection?.instructions) scopes.push("Their own space");
-  const photoCount =
-    resolved.moveInPhotoDataUrls.length +
-    resolved.houseMoveInPhotoDataUrls.length +
-    (resolved.residentSection?.photoDataUrls.length ?? 0);
-  const hasVideo = Boolean(resolved.moveInVideoDataUrl || resolved.houseMoveInVideoDataUrl || resolved.residentSection?.videoDataUrl);
-  return {
-    instructions: scopes.length ? [...new Set(scopes)].join(" · ") : NONE,
-    photos: photoCount ? String(photoCount) : NONE,
-    video: hasVideo ? "Added" : NONE,
-  };
-}
-
 export type ResidentMoveInSubTab = "info" | "rules" | "roommates" | "forms";
 
 const SUB_TAB_LABELS: Record<ResidentMoveInSubTab, string> = {
@@ -152,6 +111,7 @@ export function ResidentRecordMoveInSection({
   houseDetailsHref,
   onOpenResident,
   currentResidentId,
+  leaseExecuted,
   initialSubTab,
 }: {
   userId: string;
@@ -173,6 +133,12 @@ export function ResidentRecordMoveInSection({
   onOpenResident?: (residentId: string) => void;
   /** This resident's own id when it differs from `applicationId`; never listed as a roommate. */
   currentResidentId?: string;
+  /**
+   * Whether a given application's lease is fully executed — the line between a potential resident
+   * and a roommate. The record page reads the lease pipeline once for its whole list and hands the
+   * answer down; without it nobody is a roommate, which is the safe reading, not a guess.
+   */
+  leaseExecuted?: (row: DemoApplicantRow) => boolean;
   initialSubTab?: ResidentMoveInSubTab;
 }) {
   const navigate = usePortalNavigate();
@@ -236,9 +202,9 @@ export function ResidentRecordMoveInSection({
     const allRows = readManagerApplicationRows();
     return {
       data: buildResidentMoveInHubData({ propertyId, sub, row: allRows.find((r) => r.id === applicationId), residentEmail }),
-      roommates: deriveResidentRoommates({ rows: allRows, propertyId, selfApplicationId: applicationId, selfResidentId: currentResidentId, sub, now: new Date() }),
+      roommates: deriveResidentRoommates({ rows: allRows, propertyId, selfApplicationId: applicationId, selfResidentId: currentResidentId, sub, now: new Date(), leaseExecuted: leaseExecuted ?? (() => false) }),
     };
-  }, [userId, applicationId, propertyId, residentEmail, currentResidentId, propertyTick]);
+  }, [userId, applicationId, propertyId, residentEmail, currentResidentId, leaseExecuted, propertyTick]);
 
   const open = (form: MoveInFormSummary) => {
     track("move_in_form_opened", { status: form.status });

@@ -13,7 +13,7 @@ import {
   moveInFormTabGroups,
   moveInFormTitle,
 } from "@/lib/move-in-forms/manager-rows";
-import { describeMoveInDetails, residentMoveInFormRows } from "@/components/portal/move-in-forms/resident-record-move-in-section";
+import { residentMoveInFormRows } from "@/components/portal/move-in-forms/resident-record-move-in-section";
 import { newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
 import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 
@@ -255,24 +255,5 @@ describe("resident record helpers", () => {
 
   it("a property with no forms and no copies has no rows", () => {
     expect(residentMoveInFormRows([], [])).toEqual([]);
-  });
-
-  it("describes the property's move-in details as facts, with blanks saying so", () => {
-    expect(describeMoveInDetails(null, false)).toEqual({ instructions: "None added", photos: "None added", video: "None added" });
-    expect(
-      describeMoveInDetails(
-        {
-          instructions: "Use the side door",
-          houseInstructions: "Code is on the fridge",
-          roomLabel: "Room 5",
-          moveInPhotoDataUrls: ["a", "b"],
-          houseMoveInPhotoDataUrls: ["c"],
-          moveInVideoDataUrl: "v",
-          houseMoveInVideoDataUrl: null,
-          residentSection: null,
-        },
-        false,
-      ),
-    ).toEqual({ instructions: "The whole house · Room 5", photos: "3", video: "Added" });
   });
 });

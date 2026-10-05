@@ -290,8 +290,14 @@ export function ManagerInspectionsPage({ kind = "move-in", reportId, recordTab, 
 /** The Move-in page's tab row, handed to the manager list so the page keeps one control stack. */
 export type InspectionsHubTabs = { destinations: DestinationNavItem[]; activeId: string; ariaLabel: string };
 
-export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, residentBucket, residentTypeFilter, hubTabs }: {
+export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, embeddedAddRequest, residentBucket, residentTypeFilter, hubTabs }: {
   role: InspectionRole; applicationId?: string; initialKind?: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
+  /**
+   * Embedded in a resident record: the record's own band owns the "Add inspection" control, but the
+   * create flow lives here (the roster row already knows the resident, the room and the move date).
+   * The parent asks for one by bumping this counter, so there is never a second create path.
+   */
+  embeddedAddRequest?: number;
   /** Manager list inside the Move-in page: the page's tabs lead the one control stack and Move-in / Move-out moves into the Filter's Type field. */
   hubTabs?: InspectionsHubTabs;
   /** Embedded in a resident record: wraps the Move-in / Move-out tabs in the record's one section header card. */
@@ -322,6 +328,7 @@ export function InspectionsPanel({ role, applicationId, initialKind = "move-in",
       routeBase={routeBase}
       embeddedInResident={embeddedInResident}
       embeddedToolbar={embeddedToolbar}
+      embeddedAddRequest={embeddedAddRequest}
       residentBucket={residentBucket}
       residentTypeFilter={residentTypeFilter}
       hubTabs={hubTabs}
@@ -329,10 +336,11 @@ export function InspectionsPanel({ role, applicationId, initialKind = "move-in",
   );
 }
 
-function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, residentBucket, residentTypeFilter, hubTabs }: {
+function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false, embeddedToolbar, embeddedAddRequest, residentBucket, residentTypeFilter, hubTabs }: {
   userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
   hubTabs?: InspectionsHubTabs;
   embeddedToolbar?: (destinationRow: ReactNode) => ReactNode;
+  embeddedAddRequest?: number;
   residentBucket?: ResidentInspectionTab;
   residentTypeFilter?: ResidentInspectionTypeFilter;
 }) {
@@ -503,6 +511,22 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     else if (embeddedResidency?.canCreate) openResidency(embeddedResidency);
   };
   const embeddedEditDisabled = !embeddedPrimaryReport && !embeddedResidency?.canCreate;
+
+  // The embedding record's band asked for an inspection (its counter moved): answer with the
+  // panel's own flow. Re-runs with an unchanged counter fall out on the first line, so an
+  // unmemoized `openEmbeddedInspection` in the deps cannot fire it twice.
+  const servedAddRequest = useRef(embeddedAddRequest ?? 0);
+  useEffect(() => {
+    const asked = embeddedAddRequest ?? 0;
+    if (asked === servedAddRequest.current) return;
+    servedAddRequest.current = asked;
+    if (!embeddedScope || loading) return;
+    if (embeddedEditDisabled) {
+      showToast("Assign this resident a room before starting an inspection.");
+      return;
+    }
+    openEmbeddedInspection();
+  }, [embeddedAddRequest, embeddedScope, loading, embeddedEditDisabled, openEmbeddedInspection, showToast]);
 
   if (detail) {
     const editor = <InspectionEditor ref={editorRef} embedded={embeddedInResident || (role === "manager" && Boolean(routeBase))} initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;

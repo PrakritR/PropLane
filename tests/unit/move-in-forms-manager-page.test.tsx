@@ -217,18 +217,27 @@ describe("resident record › Move-in", () => {
     expect(await screen.findByText("Quiet after 10pm.")).toBeTruthy();
   });
 
-  it("Roommates lists the other approved residents at the property and opens one", async () => {
+  // A roommate is somebody who actually lives there: `residentDirectoryStage`'s "current".
+  // An approved application nobody has signed is still only a potential resident, and a tenancy
+  // whose move-out date has passed is over — neither is a roommate.
+  it("Roommates lists only the current residents at the property and opens one", async () => {
     stored.peers = [
-      { id: "app-2", name: "Maya Chen", bucket: "approved", propertyId: "p1", withdrawnAt: null, manualResidentDetails: { roomNumber: "Room 2", moveInDate: "2020-01-01" } },
-      { id: "app-3", name: "Elsewhere Person", bucket: "approved", propertyId: "p9", withdrawnAt: null },
+      { id: "app-2", name: "Maya Chen", bucket: "approved", propertyId: "p1", withdrawnAt: null, manuallyAdded: true, manualResidentDetails: { roomNumber: "Room 2", moveInDate: "2020-01-01" } },
+      { id: "app-3", name: "Elsewhere Person", bucket: "approved", propertyId: "p9", withdrawnAt: null, manuallyAdded: true },
       { id: "app-4", name: "Pending Person", bucket: "pending", propertyId: "p1", withdrawnAt: null },
+      { id: "app-5", name: "Unsigned Person", bucket: "approved", propertyId: "p1", withdrawnAt: null, manualResidentDetails: { roomNumber: "Room 5", moveInDate: "2020-01-01" } },
+      { id: "app-6", name: "Moved Out Person", bucket: "approved", propertyId: "p1", withdrawnAt: null, manuallyAdded: true, manualResidentDetails: { roomNumber: "Room 6", moveInDate: "2020-01-01", moveOutDate: "2020-06-01" } },
+      { id: "app-7", name: "Signed Person", bucket: "approved", propertyId: "p1", withdrawnAt: null, manualResidentDetails: { roomNumber: "Room 7", moveInDate: "2020-01-01" } },
     ];
     const open = vi.fn();
-    render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="roommates" onOpenResident={open} />);
+    render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="roommates" onOpenResident={open} leaseExecuted={(row) => row.id === "app-7"} />);
     fireEvent.click(await screen.findByText("Maya Chen"));
     expect(open).toHaveBeenCalledWith("app-2");
+    expect(screen.getByText("Signed Person")).toBeTruthy();
     expect(screen.queryByText("Elsewhere Person")).toBeNull();
     expect(screen.queryByText("Pending Person")).toBeNull();
+    expect(screen.queryByText("Unsigned Person")).toBeNull();
+    expect(screen.queryByText("Moved Out Person")).toBeNull();
     cleanup();
     stored.peers = [];
     render(<ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" initialSubTab="roommates" />);

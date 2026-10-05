@@ -370,6 +370,19 @@ const applicationsSettingsEntry = getSettingsEntryPoint("applications");
 const paymentsSettingsEntry = getSettingsEntryPoint("payments");
 const toursSettingsEntry = getSettingsEntryPoint("tours");
 
+/**
+ * Whether Approve / Decline are a real move on this application.
+ *
+ * `bucket === "pending"` alone is not the answer: a resident-withdrawn row keeps its bucket (the
+ * closeout is the resident's, not a manager decision) and an unfinished draft has never been
+ * submitted — the server refuses a decision on both, so neither is ever offered one. One predicate
+ * for the header actions, the footer actions and the handlers behind them.
+ */
+function applicationAwaitsDecision(row: DemoApplicantRow | null | undefined): boolean {
+  if (!row || row.bucket !== "pending") return false;
+  return !isWithdrawnApplicationRow(row) && !isInProgressApplicationRow(row);
+}
+
 function residentRoomRentSuffix(
   room: { monthlyRent?: number; shortTermRent?: string },
   isShortTerm: boolean,
@@ -576,6 +589,9 @@ export function ManagerResidents({
   const [hcTick, setHcTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [leaseTick, setLeaseTick] = useState(0);
+  // Move-in → Forms owns the "Add inspection" control; the embedded InspectionsPanel owns the
+  // create flow. Bumping this counter is how the band asks it for one.
+  const [addInspectionRequest, setAddInspectionRequest] = useState(0);
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [srTick, setSrTick] = useState(0);
   const [inboxTick, setInboxTick] = useState(0);
@@ -895,6 +911,15 @@ export function ManagerResidents({
     void leaseTick;
     return executedLeaseIdentities(userId);
   }, [leaseTick, userId]);
+
+  // The same answer the directory rows use, for anything that needs it per row (the Move-in hub's
+  // Roommates list): a tenancy starts at the executed lease, not the approval.
+  const applicationLeaseExecuted = useCallback(
+    (row: DemoApplicantRow) =>
+      executedLeaseKeys.axisIds.has(normalizeApplicationAxisId(row.id)) ||
+      Boolean(row.email?.trim() && executedLeaseKeys.emails.has(row.email.trim().toLowerCase())),
+    [executedLeaseKeys],
+  );
 
   const loadedDirectoryRows = useMemo<ActiveResident[]>(() => {
     void hcTick;
@@ -2903,7 +2928,7 @@ export function ManagerResidents({
   const residentApplicationTabFooterActions = selectedApplicationRow ? (() => {
     const row = selectedApplicationRow;
     const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
-    const decidable = row.bucket === "pending" && !undecidable;
+    const decidable = applicationAwaitsDecision(row);
     const actions = [portalIconActionSpec({ id: "download", label: "Download", icon: Download,
       dataAttr: "resident-application-download-footer", onClick: () => runApplicationPdfDownload(row, showToast) })];
     if (undecidable && shouldOfferApplicationCompletionReminder(row)) actions.unshift(portalIconActionSpec({
@@ -3237,9 +3262,9 @@ export function ManagerResidents({
     );
     let actions = sections.headerActions;
     if (resolvedDetailTab === "application") {
-      actions = actions.filter((a) => a.id !== "upload");
-      // Approve / Decline only while the application is still waiting on a decision.
-      if (selectedApplicationRow?.bucket !== "pending") {
+      // Approve / Decline only while the application is still waiting on a decision: a
+      // resident-withdrawn row and an unfinished draft both keep `bucket === "pending"`.
+      if (!applicationAwaitsDecision(selectedApplicationRow)) {
         actions = actions.filter((a) => a.id !== "approve" && a.id !== "decline");
       }
       if (
@@ -3418,9 +3443,7 @@ export function ManagerResidents({
         }
         return;
       case "upload":
-        setResidentUploadKindPreset(
-          resolvedDetailTab === "application" ? "application" : resolvedDetailTab === "lease" ? "lease" : "other",
-        );
+        setResidentUploadKindPreset(resolvedDetailTab === "lease" ? "lease" : "other");
         setResidentUploadOpen(true);
         return;
       case "add-charge":
@@ -3440,12 +3463,12 @@ export function ManagerResidents({
         setResidentUploadKindPreset("application");
         setResidentUploadOpen(true);
         return;
-      // Approve / Decline are only offered while the application is pending; the handlers say so too.
+      // Approve / Decline are only offered while a decision is still on the table; the handlers say so too.
       case "approve":
-        if (selectedApplicationRow?.bucket === "pending") setApprovePreviewRow(selectedApplicationRow);
+        if (applicationAwaitsDecision(selectedApplicationRow)) setApprovePreviewRow(selectedApplicationRow);
         return;
       case "decline":
-        if (selectedApplicationRow?.bucket === "pending") void declineApplicationRow(selectedApplicationRow);
+        if (applicationAwaitsDecision(selectedApplicationRow)) void declineApplicationRow(selectedApplicationRow);
         return;
       case "download":
         if (resolvedDetailTab === "application" && selectedApplicationRow) {
@@ -3688,8 +3711,10 @@ export function ManagerResidents({
                                       role="manager"
                                       applicationId={selectedApplicationRow?.id ?? selected.id}
                                       embeddedInResident
+                                      embeddedAddRequest={addInspectionRequest}
                                     />
                                   }
+                                  onAddInspection={() => setAddInspectionRequest((n) => n + 1)}
                                   initialSubTab={detailTabProp === "inspections" ? "forms" : undefined}
                                   propertyHref={
                                     selected.propertyId
@@ -3705,6 +3730,7 @@ export function ManagerResidents({
                                     navigate(residentDetailHref(portalBase, residentsTab, residentId, "overview"))
                                   }
                                   currentResidentId={selected.id}
+                                  leaseExecuted={applicationLeaseExecuted}
                                 />
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "communication" ? (

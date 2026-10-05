@@ -12,6 +12,7 @@ import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fi
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
 import { splitLineList } from "@/data/manager-listing-presets";
+import { residentDirectoryStage } from "@/lib/current-resident";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { MockProperty } from "@/data/types";
 import {
@@ -396,7 +397,15 @@ function placedPropertyId(row: DemoApplicantRow): string {
   );
 }
 
-/** Other approved residents placed at the same property, derived from the stored application rows. */
+/**
+ * The other people actually living at this property, derived from the stored application rows.
+ *
+ * "Roommate" means a CURRENT resident, which is `residentDirectoryStage`'s answer and nothing
+ * looser: an approved row whose lease nobody executed is still only a potential resident, and one
+ * whose tenancy ended (a move-out date gone by, a previous-resident stage) has moved out. Both are
+ * excluded — listing either as a roommate tells the manager somebody lives there who does not.
+ * `leaseExecuted` is supplied by the caller because the answer lives in the lease pipeline.
+ */
 export function deriveResidentRoommates(input: {
   rows: readonly DemoApplicantRow[];
   propertyId: string;
@@ -404,8 +413,9 @@ export function deriveResidentRoommates(input: {
   selfResidentId?: string;
   sub: ManagerListingSubmissionV1 | null;
   now: Date;
+  leaseExecuted: (row: DemoApplicantRow) => boolean;
 }): ResidentRoommateRow[] {
-  const { rows, propertyId, selfApplicationId, selfResidentId, sub, now } =
+  const { rows, propertyId, selfApplicationId, selfResidentId, sub, now, leaseExecuted } =
     input;
   if (!propertyId) return [];
   const property = sub
@@ -445,10 +455,16 @@ export function deriveResidentRoommates(input: {
   const out: ResidentRoommateRow[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
-    if (row.bucket !== "approved" || row.withdrawnAt) continue;
+    if (row.withdrawnAt) continue;
     if (row.id === selfApplicationId || row.id === selfResidentId) continue;
     if (selfEmail && row.email?.trim().toLowerCase() === selfEmail) continue;
     if (placedPropertyId(row) !== propertyId || seen.has(row.id)) continue;
+    if (
+      residentDirectoryStage(row, { leaseExecuted: leaseExecuted(row) }, now.getTime()) !==
+      "current"
+    ) {
+      continue;
+    }
     seen.add(row.id);
     const mine = placement(row);
     const when = mine.moveInIso ? new Date(mine.moveInIso) : null;

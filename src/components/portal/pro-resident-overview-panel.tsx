@@ -313,19 +313,18 @@ export function ResidentOverviewPanel({
               icon: "payments",
               title: row.chargeTitle,
               fact: (() => {
-                const due =
-                  /^\d{4}-\d{2}-\d{2}$/.test((row.dueDate ?? "").trim())
-                    ? formatPortalListDate(row.dueDate)
-                    : row.dueDate;
+                const raw = (row.dueDate ?? "").trim();
+                const due = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? formatPortalListDate(raw) : raw;
                 // dueDate text can already read "Before lease signing" / "By Oct 5" — fold the case
-                // so it reads "Due before lease signing", never "Due Before …".
-                const dueText = /^(before|by)\b/i.test(due.trim())
-                  ? due.trim().replace(/^./, (c) => c.toLowerCase())
+                // so it reads "Due before lease signing", never "Due Before …". Every bucket reads
+                // it mid-sentence, so every bucket gets the fold.
+                const dueText = /^(before|by)\b/i.test(due)
+                  ? due.replace(/^./, (c) => c.toLowerCase())
                   : due;
                 return row.bucket === "paid"
-                  ? `Paid ${due}`
+                  ? `Paid ${dueText}`
                   : row.bucket === "overdue"
-                    ? `Overdue · ${due}`
+                    ? `Overdue · ${dueText}`
                     : `Due ${dueText}`;
               })(),
               urgent: row.bucket === "overdue",

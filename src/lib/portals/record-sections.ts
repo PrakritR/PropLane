@@ -947,8 +947,10 @@ export function recordSections(
   if (def.hasActivity) {
     trioItems.push({ id: "activity", label: "Activity", href: (recordId: string) => hrefFor(recordId, "activity") });
   }
-  // No group label: Communication/Documents/Activity read as universal record
-  // chrome, not a labeled category the way "Money" or "People" are.
+  // Unlabeled by default: Communication/Documents/Activity read as universal
+  // record chrome, not a labeled category the way "Money" or "People" are. A
+  // kind that wants them named says so with `trioLabel` (the resident rail
+  // closes with "Records").
   if (trioItems.length > 0) {
     groups.push({ label: def.trioLabel ?? "", items: trioItems });
   }
