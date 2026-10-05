@@ -1539,7 +1539,7 @@ export function ResidentPaymentsPanel({
               {checkout?.totalCents != null ? formatUsd(checkout.totalCents) : confirmTotalLabel}
             </p>
             <p className="text-xs text-muted">
-              {checkout?.totalCents == null ? "Final total and fees appear before you confirm." :
+              {checkout?.totalCents == null ? "Processing fee: Pending quote" :
               (checkout.processingFeeCents ?? 0) + (checkout.axisFeeCents ?? 0) > 0
                 ? `Processing fee ${formatUsd((checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0))}`
                 : "Processing fee: None"}

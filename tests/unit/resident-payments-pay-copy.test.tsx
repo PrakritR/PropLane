@@ -127,7 +127,7 @@ describe("resident charges modal — one checkout sheet", () => {
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog.textContent ?? "").toContain("$1,205.00"));
-    expect(dialog.textContent ?? "").toContain("Final total and fees appear before you confirm.");
+    expect(dialog.textContent ?? "").toContain("Processing fee: Pending quote");
     expect(dialog.textContent ?? "").not.toContain("Processing fee: None");
     expect(dialog.querySelector('[data-attr="resident-payments-confirm-pay"]')).toBeNull();
     expect(dialog.textContent ?? "").not.toContain("Continue to Stripe");
