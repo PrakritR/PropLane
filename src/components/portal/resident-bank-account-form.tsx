@@ -166,7 +166,7 @@ export function ResidentBankAccountForm({
             <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} required />
             <span>{kind === "payment"
               ? `I authorize PropLane to debit this bank account once for $${((amountCents ?? 0) / 100).toFixed(2)} for the charges shown. I can revoke authorization by contacting PropLane before the debit is processed.`
-              : "I authorize PropLane to save this bank account and debit it for payments I approve, and for recurring autopay only if I separately enable it. I can revoke authorization by contacting PropLane with 30 days' notice."}</span>
+              : "I authorize PropLane to save this bank account and debit it for payments I approve, and for recurring autopay only if I separately enable it. I can revoke authorization by contacting PropLane."}</span>
           </label>
           <Button type="submit" disabled={busy || !consent}>{busy ? "Confirming…" : kind === "payment" ? "Pay from bank" : "Save bank account"}</Button>
         </form>
