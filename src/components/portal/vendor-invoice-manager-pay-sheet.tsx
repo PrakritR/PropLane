@@ -53,7 +53,7 @@ export function VendorInvoiceManagerPaySheet({
   const requestEpoch = useRef(0);
   const invoiceId = invoice?.id ?? null;
   const currentInvoiceId = useRef(invoiceId);
-  currentInvoiceId.current = invoiceId;
+  useEffect(() => { currentInvoiceId.current = invoiceId; }, [invoiceId]);
 
   const start = useCallback(async () => {
     if (!invoiceId || inFlight.current === invoiceId) return;

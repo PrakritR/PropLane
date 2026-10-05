@@ -122,7 +122,7 @@ export function ManagerOutgoingPaymentDetail({
 
   const workOrderId = workOrder?.id ?? null;
   const currentWorkOrderId = useRef(workOrderId);
-  currentWorkOrderId.current = workOrderId;
+  useEffect(() => { currentWorkOrderId.current = workOrderId; }, [workOrderId]);
   const checkoutSecret = checkout?.workOrderId === workOrderId ? checkout.secret : null;
   useEffect(() => {
     payRequestEpoch.current++;

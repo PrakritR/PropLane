@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRequestGuard } from "@/lib/use-request-guard";
 import type { LucideIcon } from "lucide-react";
 import {
   Calendar,
@@ -257,8 +258,7 @@ export function ManagerWorkOrdersPanel({
   const [approvePayRow, setApprovePayRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [approvePayBusy, setApprovePayBusy] = useState(false);
   const [approvePayCheckoutSecret, setApprovePayCheckoutSecret] = useState<string | null>(null);
-  const approvePayEpoch = useRef(0);
-  const approvePayTarget = useRef<string | null>(null);
+  const approvePayGuard = useRequestGuard();
   const [approveInvoiceBusy, setApproveInvoiceBusy] = useState(false);
   const [pendingServiceInvoiceId, setPendingServiceInvoiceId] = useState<string | null>(null);
   // night/vendor-pay: an additional payment source in the confirm modal,
@@ -791,9 +791,8 @@ export function ManagerWorkOrdersPanel({
    * paid (bookkeeping status only — see APPROVE_PAY_CONFIRM_THRESHOLD_CENTS for the
    * one-tap vs confirm-preview gate). */
   const submitApprovePay = async (row: DemoManagerWorkOrderRow, paymentChannel: "card" | "ach" | "balance" = "card") => {
-    const epoch = ++approvePayEpoch.current;
-    approvePayTarget.current = row.id;
-    const current = () => approvePayEpoch.current === epoch && approvePayTarget.current === row.id;
+    const epoch = approvePayGuard.begin(row.id);
+    const current = () => approvePayGuard.isCurrent(epoch, row.id);
     setApprovePayBusy(true);
     try {
       // /demo: mark paid locally — never hits the real payout/bookkeeping route.
@@ -831,8 +830,7 @@ export function ManagerWorkOrdersPanel({
 
   const approvePay = (row: DemoManagerWorkOrderRow) => {
     const { vendorCostCents } = approvePayDefaults(row);
-    approvePayEpoch.current++;
-    approvePayTarget.current = row.id;
+    approvePayGuard.begin(row.id);
     setApprovePayCheckoutSecret(null);
     setApprovePayBalance(null);
     setApprovePayRow(row);
@@ -843,8 +841,7 @@ export function ManagerWorkOrdersPanel({
 
   useEffect(() => {
     if (routeWorkOrder && new URLSearchParams(window.location.search).get("approve_pay") === "1") {
-      approvePayEpoch.current++;
-      approvePayTarget.current = routeWorkOrder.id;
+      approvePayGuard.begin(routeWorkOrder.id);
       setApprovePayRow(routeWorkOrder);
       const url = new URL(window.location.href);
       url.searchParams.delete("approve_pay");
@@ -1985,7 +1982,7 @@ export function ManagerWorkOrdersPanel({
 
       <Modal
         open={Boolean(approvePayRow)}
-        onClose={() => { approvePayEpoch.current++; approvePayTarget.current = null; setApprovePayRow(null); setApprovePayCheckoutSecret(null); }}
+        onClose={() => { approvePayGuard.cancel(); setApprovePayRow(null); setApprovePayCheckoutSecret(null); }}
         title="Approve & pay"
         description={
           approvePayRow ? `${approvePayRow.propertyName} · ${approvePayRow.title}` : undefined
@@ -2012,7 +2009,7 @@ export function ManagerWorkOrdersPanel({
         }
       >
         {approvePayCheckoutSecret ? (
-          <StripeEmbeddedCheckout clientSecret={approvePayCheckoutSecret} onComplete={() => { approvePayEpoch.current++; approvePayTarget.current = null; setApprovePayCheckoutSecret(null); setApprovePayRow(null); void syncManagerWorkOrdersFromServer(); showToast("Payment submitted. Bank transfers may take several days to clear."); }} />
+          <StripeEmbeddedCheckout clientSecret={approvePayCheckoutSecret} onComplete={() => { approvePayGuard.cancel(); setApprovePayCheckoutSecret(null); setApprovePayRow(null); void syncManagerWorkOrdersFromServer(); showToast("Payment submitted. Bank transfers may take several days to clear."); }} />
         ) : approvePayRow ? (
           <div className="space-y-3">
             <ServiceInvoiceDocument
