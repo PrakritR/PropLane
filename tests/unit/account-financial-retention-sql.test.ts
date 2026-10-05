@@ -90,15 +90,20 @@ it("detaches a real application-fee claim without an id or row_data column and b
   [applicationId, managerId, residentEmail, `hc_${applicationId}`, terms]);
 
   // An existing tombstone exercises the empty id_columns conflict path.
-  await db.query(`insert into account_deleted_record_identities(
+  const { rows: [initialTombstone] } = await db.query<{ marker_id: string }>(`insert into account_deleted_record_identities(
     table_name,record_id,identity_hashes,id_columns,email_columns
-  ) values('application_fee_payment_claims',$1,array[account_identity_hash($2)],'{}','{}')`,
+  ) values('application_fee_payment_claims',$1,array[account_identity_hash($2)],'{}','{}') returning marker_id`,
   [applicationId, residentEmail]);
   const { rows: [preserved] } = await db.query<{ account_preserve_financial_records: number }>(
     "select account_preserve_financial_records($1,$2,$3,$4,$5)",
     ["application_fee_payment_claims", residentId, residentEmail, [], ["resident_email"]],
   );
   expect(preserved.account_preserve_financial_records).toBe(1);
+  const { rows: [replayedPurge] } = await db.query<{ account_preserve_financial_records: number }>(
+    "select account_preserve_financial_records($1,$2,$3,$4,$5)",
+    ["application_fee_payment_claims", residentId, residentEmail, [], ["resident_email"]],
+  );
+  expect(replayedPurge.account_preserve_financial_records).toBe(0);
   await db.query("delete from auth.users where id=$1", [residentId]);
   const { rows: [claim] } = await db.query<Record<string, unknown>>(
     "select * from application_fee_payment_claims where application_id=$1", [applicationId]);
@@ -109,11 +114,11 @@ it("detaches a real application-fee claim without an id or row_data column and b
     recipient_net_cents: 5000, provider_params: terms, status: "settled",
   });
   expect(claim.resident_email).toMatch(/^deleted-.+@deleted.invalid$/);
-  const { rows: [tombstone] } = await db.query<{ id_columns: string[]; email_columns: string[] }>(
-    "select id_columns,email_columns from account_deleted_record_identities where table_name='application_fee_payment_claims' and record_id=$1",
+  const { rows: [tombstone] } = await db.query<{ marker_id: string; id_columns: string[]; email_columns: string[] }>(
+    "select marker_id,id_columns,email_columns from account_deleted_record_identities where table_name='application_fee_payment_claims' and record_id=$1",
     [applicationId],
   );
-  expect(tombstone).toMatchObject({ id_columns: [], email_columns: ["resident_email"] });
+  expect(tombstone).toMatchObject({ marker_id: initialTombstone.marker_id, id_columns: [], email_columns: ["resident_email"] });
   await expect(db.query("update application_fee_payment_claims set resident_email=$2 where application_id=$1",
     [applicationId, residentEmail])).rejects.toThrow(/Deleted resident identity/);
   await expect(db.query("update application_fee_payment_claims set application_id=$2 where application_id=$1",
