@@ -123,6 +123,8 @@ import {
 type PayConfirmState = {
   chargeIds: string[];
   method: ResidentAxisPaymentMethod;
+  /** An exact existing bank PI was loaded; opening this modal must not create another payment. */
+  resumePaymentIntentId?: string;
 };
 
 type CheckoutState = {
@@ -830,11 +832,12 @@ export function ResidentPaymentsPanel({
       showToast(result.error ?? "Bank payment needs review.");
       return;
     }
-    setPayConfirm(null);
+    setPayModalStep("pay");
     setCheckout({ key: checkoutKey(result.chargeIds, "ach"), chargeIds: result.chargeIds,
       paymentMethod: "ach", clientSecret: result.clientSecret, mode: "manual_ach",
       paymentIntentId, bankStatus: result.bankStatus, subtotalCents: result.subtotalCents,
       totalCents: result.totalCents, loading: false, error: null });
+    setPayConfirm({ chargeIds: result.chargeIds, method: "ach", resumePaymentIntentId: paymentIntentId });
     await syncHouseholdChargesFromServer(true, { skipReconcile: true });
     refresh();
   }, [refresh, showToast]);
@@ -846,7 +849,7 @@ export function ResidentPaymentsPanel({
     loadCheckoutRef.current = loadCheckout;
   }, [loadCheckout]);
   useEffect(() => {
-    if (!payConfirm) return;
+    if (!payConfirm || payConfirm.resumePaymentIntentId) return;
     void loadCheckoutRef.current(payConfirm.chargeIds, payConfirm.method);
   }, [payConfirm]);
 
@@ -1095,7 +1098,7 @@ export function ResidentPaymentsPanel({
             Tap <span className="font-semibold text-foreground">Pay {row.balanceLabel}</span> above to pay through
             PropLane secure checkout, or message your manager if something looks wrong.
           </p>
-        ) : !achPayable ? (
+        ) : row.status !== "processing" && !achPayable ? (
           <p className="mb-4 leading-relaxed text-sm text-muted">
             Your property manager will update this charge when online payment is available or when they record payment
             manually.
@@ -1617,6 +1620,11 @@ export function ResidentPaymentsPanel({
 
   if (chargeIdProp && detailMoveInGroup) {
     const group = detailMoveInGroup;
+    const processingRefs = group.items.filter((item) => item.status === "processing")
+      .map((item) => item.stripeCheckoutSessionId);
+    const manualIntentId = processingRefs.length > 0 &&
+      processingRefs.every((ref) => ref === processingRefs[0]) && processingRefs[0]?.startsWith("pi_")
+      ? processingRefs[0] : null;
     const payableIds = filterChargesForPayMethod(group.items.filter((c) => isPayableHouseholdCharge(c))).map(
       (c) => c.id,
     );
@@ -1636,6 +1644,12 @@ export function ResidentPaymentsPanel({
           inlineActions
           actions={
             <PortalTableDetailActions>
+              {manualIntentId ? (
+                <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN}
+                  data-attr="resident-payments-resume-bank" onClick={() => resumeManualAch(manualIntentId)}>
+                  Verify bank or check status
+                </Button>
+              ) : null}
               {payableIds.length > 0 ? (
                 <Button
                   type="button"
@@ -1679,7 +1693,7 @@ export function ResidentPaymentsPanel({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{item.title || "Charge"}</p>
                   <p className="text-xs text-muted">
-                    {item.status === "processing" ? "Bank transfer clearing" : chargeDueLabel(item)}
+                    {item.status === "processing" ? residentChargeListDueLabel(item) : chargeDueLabel(item)}
                   </p>
                 </div>
                 <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{item.balanceLabel}</span>

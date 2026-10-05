@@ -1427,10 +1427,14 @@ function shouldDisplayChargeInPayments(charge: HouseholdCharge, now = new Date()
   return due.getTime() <= endOfNextMonth.getTime();
 }
 
-/** Resident Payments list + dashboard: failed stays owed; processing is clearing. */
+/** A manual bank PI may still need microdeposit verification; the charge alone cannot attest clearing. */
 export function residentChargeListDueLabel(charge: HouseholdCharge): string {
   if (charge.status === "failed") return "Card declined. Pay again";
-  if (charge.status === "processing") return "Bank transfer clearing";
+  if (charge.status === "processing") {
+    return charge.stripeCheckoutSessionId?.startsWith("pi_")
+      ? "Bank payment pending"
+      : "Bank transfer clearing";
+  }
   return chargeDueLabel(charge);
 }
 

@@ -103,10 +103,19 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => {
 vi.mock("@/components/stripe-embedded-checkout", () => ({
   StripeEmbeddedCheckout: () => <div data-testid="stripe-checkout" />,
 }));
+vi.mock("@/components/portal/resident-bank-account-form", () => ({
+  ResidentBankAccountForm: ({ intentId }: { intentId: string }) => <div data-testid="bank-form">{intentId}</div>,
+}));
 
 const checkoutBodies: Array<{ chargeIds: string[] }> = [];
+const manualRequests: Array<{ method: string }> = [];
 vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
+  if (url.includes("/api/stripe/resident-ach-payment?payment_intent_id=pi_move_in")) {
+    manualRequests.push({ method: init?.method ?? "GET" });
+    return new Response(JSON.stringify({ clientSecret: "pi_secret_move_in", chargeIds: ["rent1", "dep", "fee", "clean"],
+      bankStatus: "verification", subtotalCents: 230000, totalCents: 230000 }), { status: 200 });
+  }
   if (url.includes("/api/portal/household-charge-checkout") || url.includes("checkout")) {
     const body = JSON.parse(String(init?.body ?? "{}")) as { chargeIds: string[] };
     checkoutBodies.push(body);
@@ -135,6 +144,11 @@ afterEach(() => {
   resetResidentLedgerCache();
   navigated.length = 0;
   checkoutBodies.length = 0;
+  manualRequests.length = 0;
+  for (const row of CHARGES) {
+    row.status = "pending";
+    row.stripeCheckoutSessionId = undefined;
+  }
 });
 
 const rowTexts = (container: HTMLElement) =>
@@ -199,5 +213,18 @@ describe("one move-in payment", () => {
     expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
     expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
     await waitFor(() => expect(checkoutBodies.at(-1)?.chargeIds.slice().sort()).toEqual(["clean", "dep", "fee", "nov", "rent1"]));
+  });
+
+  it("resumes one exact move-in bank intent from the group detail without a new checkout", async () => {
+    for (const row of CHARGES.slice(0, 4)) {
+      row.status = "processing";
+      row.stripeCheckoutSessionId = "pi_move_in";
+    }
+    render(<ResidentPaymentsPanel bucket="pending" chargeId="movein:maya@example.com|prop-8th" />);
+    expect(await screen.findAllByText("Bank payment pending")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "Verify bank or check status" }));
+    expect(await screen.findByTestId("bank-form")).toHaveTextContent("pi_move_in");
+    expect(manualRequests).toEqual([{ method: "GET" }]);
+    expect(checkoutBodies).toHaveLength(0);
   });
 });
