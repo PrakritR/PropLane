@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { track } from "@/lib/analytics/track-client";
 import { Button } from "@/components/ui/button";
-import { Select, Input } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -809,6 +809,7 @@ export function ResidentPaymentsPanel({
           clientSecret: null,
           loading: false,
           error: "Could not start payment.",
+          canRetry: true,
         });
       }
     },
@@ -819,7 +820,7 @@ export function ResidentPaymentsPanel({
     const ids = [...new Set(chargeIds.map((id) => id.trim()).filter(Boolean))];
     if (ids.length === 0) return;
     setCheckout(null);
-    setPayModalStep("pay");
+    setPayModalStep("select");
     setPayConfirm({ chargeIds: ids, method });
   }, []);
 
@@ -850,35 +851,31 @@ export function ResidentPaymentsPanel({
     refresh();
   }, [refresh, showToast]);
 
-  // Each load creates a payment session, so it must fire only when the
-  // selection or method changes — never because a callback identity did.
-  const loadCheckoutRef = useRef(loadCheckout);
-  useEffect(() => {
-    loadCheckoutRef.current = loadCheckout;
-  }, [loadCheckout]);
-  useEffect(() => {
-    if (!payConfirm || payConfirm.resumePaymentIntentId) return;
-    void loadCheckoutRef.current(payConfirm.chargeIds, payConfirm.method);
-  }, [payConfirm]);
-
   const selectPayModalMethod = useCallback((method: ResidentAxisPaymentMethod) => {
     setPaymentMethod(method);
     setCheckout(null);
-    setPayModalStep("select");
-    setPayConfirm((prev) => (prev ? { ...prev, method } : null));
+    setPayConfirm((prev) => (prev && !prev.resumePaymentIntentId ? { ...prev, method } : prev));
   }, []);
 
+  const checkoutStartRef = useRef(false);
+  const continuePayModal = useCallback(async () => {
+    if (!payConfirm || payConfirm.resumePaymentIntentId || checkoutStartRef.current ||
+        (payModalStep === "pay" && (!checkout?.error || !checkout.canRetry))) return;
+    checkoutStartRef.current = true;
+    setPayModalStep("pay");
+    try {
+      await loadCheckout(payConfirm.chargeIds, payConfirm.method);
+    } finally {
+      checkoutStartRef.current = false;
+    }
+  }, [checkout?.canRetry, checkout?.error, loadCheckout, payConfirm, payModalStep]);
+
   const closePayModal = useCallback(() => {
+    if (checkoutStartRef.current) return;
     setPayConfirm(null);
     setPayModalStep("select");
     setCheckout(null);
   }, []);
-
-  const continuePayModal = useCallback(async () => {
-    if (!payConfirm) return;
-    setPayModalStep("pay");
-    await loadCheckout(payConfirm.chargeIds, payConfirm.method);
-  }, [loadCheckout, payConfirm]);
 
   // A move-in row stands for its lines: ticking it selects every one of them,
   // so Pay and the bulk bar keep working on real charge ids only.
@@ -1224,46 +1221,6 @@ export function ResidentPaymentsPanel({
       checkout.clientSecret,
   );
 
-  const payMethodDropdownOptions = useMemo(
-    () =>
-      paymentMethodOptions.map((option) => ({
-        id: option.id,
-        title: option.title,
-      })),
-    [paymentMethodOptions],
-  );
-
-  const renderPayModalMethodFooter = () => {
-    if (!payConfirm || payMethodDropdownOptions.length === 0) return null;
-    const selectedOption = payMethodDropdownOptions.find((option) => option.id === payConfirm.method);
-    return (
-      <div className="mt-auto space-y-2 border-t border-border pt-4">
-        <label htmlFor="resident-payments-pay-method-select" className="text-xs font-semibold text-muted">
-          Payment method
-        </label>
-        <Select
-          aria-label="Payment method"
-          value={payConfirm.method}
-          data-attr="resident-payments-pay-method-select"
-          onChange={(event) => {
-            selectPayModalMethod(event.target.value as ResidentAxisPaymentMethod);
-          }}
-        >
-          {payMethodDropdownOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.title}
-            </option>
-          ))}
-        </Select>
-        {selectedOption ? (
-          <p className="text-xs text-muted">
-            Secure checkout opens in this window. Apple Pay and Google Pay appear when supported.
-          </p>
-        ) : null}
-      </div>
-    );
-  };
-
   const showPayActions =
     paymentsUnlocked &&
     unpaidPayableCharges.length > 0 &&
@@ -1582,20 +1539,30 @@ export function ResidentPaymentsPanel({
               {checkout?.totalCents != null ? formatUsd(checkout.totalCents) : confirmTotalLabel}
             </p>
             <p className="text-xs text-muted">
-              {(checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0) > 0
+              {checkout?.totalCents == null ? "Final total and fees appear before you confirm." :
+              (checkout.processingFeeCents ?? 0) + (checkout.axisFeeCents ?? 0) > 0
                 ? `Processing fee ${formatUsd((checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0))}`
                 : "Processing fee: None"}
             </p>
           </div>
-          {checkout?.mode !== "manual_ach" ? renderPaymentMethodPicker(confirmCharges, {
+          {payModalStep === "select" ? renderPaymentMethodPicker(confirmCharges, {
             selected: payConfirm.method,
             onSelect: (method) => selectPayModalMethod(method),
           }) : null}
-          {checkout?.loading ? (
+          {payModalStep === "select" ? (
+            <Button type="button" variant="primary" data-attr="resident-payments-continue"
+              onClick={() => continuePayModal()}>
+              Continue with {residentPaymentMethodLabel(payConfirm.method)}
+            </Button>
+          ) : checkout?.loading ? (
             <p className="text-sm text-muted">Loading secure checkout…</p>
           ) : checkout?.error ? (
             <div className="rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="resident-payment-error">
               <p>{checkout.error}</p>
+              {checkout.canRetry ? <Button type="button" variant="outline" className="mt-3"
+                data-attr="resident-payments-retry" onClick={() => continuePayModal()}>
+                Retry {residentPaymentMethodLabel(payConfirm.method)}
+              </Button> : null}
             </div>
           ) : checkout?.mode === "manual_ach" && checkout.clientSecret && checkout.paymentIntentId ? (
             <ResidentBankAccountForm key={checkout.paymentIntentId} kind="payment"

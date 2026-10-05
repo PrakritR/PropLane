@@ -85,10 +85,11 @@ vi.mock("@/components/stripe-embedded-checkout", () => ({
   StripeEmbeddedCheckout: () => <div data-testid="stripe-checkout" />,
 }));
 
+const checkoutRequests: RequestInit[] = [];
 vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   if (url.includes("household-charge-checkout") || url.includes("checkout")) {
-    void init;
+    checkoutRequests.push(init ?? {});
     return new Response(JSON.stringify({ clientSecret: "cs_test", subtotalCents: 120500, totalCents: 120500 }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -113,32 +114,39 @@ afterEach(() => {
   cleanup();
   resetResidentLedgerCache();
   navigated.length = 0;
+  checkoutRequests.length = 0;
 });
 
-// C2-RJ11 (studio-redesign-0929): the amount sheet and the card sheet are ONE
-// sheet — charges, a Processing fee line, the card/bank picker and the embedded
-// checkout (which carries the single Pay button). There is no "Continue to
-// Stripe" step and no second Pay button of the panel's own.
+// Selection is local until Continue freezes the chosen method and asks the
+// server for its exact priced claim.
 describe("resident charges modal — one checkout sheet", () => {
-  it('shows "$1,205.00" and a processing-fee line, never "Continue to Stripe" or the word Stripe', async () => {
+  it('shows "$1,205.00" and pending fee disclosure without claiming a final fee before Continue', async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog.textContent ?? "").toContain("$1,205.00"));
-    expect(dialog.textContent ?? "").toMatch(/Processing fee/);
+    expect(dialog.textContent ?? "").toContain("Final total and fees appear before you confirm.");
+    expect(dialog.textContent ?? "").not.toContain("Processing fee: None");
     expect(dialog.querySelector('[data-attr="resident-payments-confirm-pay"]')).toBeNull();
     expect(dialog.textContent ?? "").not.toContain("Continue to Stripe");
     expect(dialog.textContent ?? "").not.toMatch(/\bStripe\b/);
+    expect(checkoutRequests).toHaveLength(0);
   });
 
-  it("opens the embedded checkout straight away, without a confirm step", async () => {
+  it("opens embedded Card checkout only after explicit Continue", async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
 
     await screen.findByRole("dialog");
+    expect(checkoutRequests).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Card.*Apple Pay/ }));
+    expect(checkoutRequests).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Continue with Card/ }));
     await waitFor(() => expect(screen.getByTestId("stripe-checkout")).toBeTruthy());
+    expect(checkoutRequests).toHaveLength(1);
+    expect(JSON.parse(String(checkoutRequests[0]?.body))).toMatchObject({ paymentMethod: "card" });
   });
 });
