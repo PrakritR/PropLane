@@ -66,7 +66,6 @@ export async function POST(req: Request) {
       );
     }
 
-    let chargeId: string | null = null;
     let alreadyPaid = false;
     let depositChargeId: string | null = null;
     let applicationPromoted = false;
@@ -83,7 +82,6 @@ export async function POST(req: Request) {
     if (paid) {
       const db = createSupabaseServiceRoleClient();
       const result = await fulfillApplicationFeePayment(db, stripe, session);
-      chargeId = result.chargeId;
       alreadyPaid = result.alreadyPaid;
       if (!("legacy" in result)) {
       // The current claimed Checkout collects the application fee alone.
@@ -183,7 +181,6 @@ export async function POST(req: Request) {
       emailMatches:
         expectedEmail.length > 0 &&
         expectedEmail === normalizedEmail(session.metadata?.resident_email ?? session.customer_email),
-      chargeId,
       alreadyPaid,
       depositChargeId,
       applicationPromoted,

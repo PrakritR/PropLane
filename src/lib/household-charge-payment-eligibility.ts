@@ -14,6 +14,12 @@ export function listingFromPropertyData(propertyData: unknown): ManagerListingSu
   const submission = (propertyData as { listingSubmission?: unknown }).listingSubmission;
   if (!submission || typeof submission !== "object") return null;
   if ((submission as { v?: unknown }).v !== 1) return null;
+  // Some older/test property rows carry only a partial v1 payload. They are
+  // not a trustworthy payment-policy source, and the normalizer requires these
+  // collections. A malformed unrelated listing must not break a paid charge's
+  // reminder cleanup or a resident's charge list.
+  if (!Array.isArray((submission as { rooms?: unknown }).rooms) ||
+      !Array.isArray((submission as { bathrooms?: unknown }).bathrooms)) return null;
   return normalizeManagerListingSubmissionV1(submission as ManagerListingSubmissionV1);
 }
 

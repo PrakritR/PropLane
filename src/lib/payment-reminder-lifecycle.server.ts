@@ -61,7 +61,7 @@ async function projectFutureRemindersForCharge(
       createSettingsScopeCache(),
     ),
     loadScheduledMessageOverrides(db, managerUserId),
-    loadListingByPropertyId(db),
+    loadListingByPropertyId(db, charge.propertyId?.trim() ? [charge.propertyId.trim()] : []),
     loadSentReminderDedupIds(db, [charge.id]),
   ]);
 

@@ -200,9 +200,21 @@ export async function loadHouseholdChargesForCheckout(
       return { ok: false, status: 403, error: "You do not have access to one of the selected charges." };
     }
 
-    const listing =
-      listingFromPropertyData(propertyRecord?.property_data) ??
-      (await resolveListingForHouseholdCharge(db, charge, managerUserId));
+    // A charge pinned to a property must use that property's current listing.
+    // A missing or malformed row cannot inherit permissive defaults or borrow
+    // another same-named listing from the manager's portfolio.
+    const listing = propertyId
+      ? listingFromPropertyData(propertyRecord?.property_data)
+      : await resolveListingForHouseholdCharge(db, charge, managerUserId);
+
+    if (propertyId && !listing) {
+      return {
+        ok: false,
+        status: 422,
+        code: "UNRESOLVED_LISTING",
+        error: "This property's payment settings could not be confirmed. Try again after the listing is saved.",
+      };
+    }
 
     if (!axisPaymentsEnabledOnListing(listing)) {
       return {
