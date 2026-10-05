@@ -103,9 +103,9 @@ other public listing reads (`public, s-maxage=60, stale-while-revalidate=600`).
 `manager_syndication_feeds` (`supabase/migrations/20260920203000_listing_syndication.sql`,
 `20260927134258_listing_syndication_per_workspace.sql`) follows
 `manager_house_public_links`'s shape exactly: service-role only, `revoke all
-... from anon, authenticated`. The manager-facing "Zillow feed URL" settings
-row (Settings → Integrations → Posting, `ZillowFeedRow` in
-`integrations-posting-panel.tsx`, with the "N of M listings posting" fact) reads/creates it through
+... from anon, authenticated`. The manager-facing settings row lives on
+Settings → Integrations → Posting, owned by
+[`integrations.md`](integrations.md); it reads/creates the feed through
 `GET /api/manager/syndication-feed`, an authenticated route that resolves the
 caller's ACTIVE workspace (`resolveWorkspaceFromSettingsRequest` — explicit
 `?workspaceId=`, else the workspace-switcher cookie, else the viewer's own
