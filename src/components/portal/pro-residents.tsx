@@ -5,7 +5,7 @@ import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Bell, Check, Download, Trash2, Undo2, X, Link2, Mail, RotateCw, Settings as SettingsIcon, Pencil, Send, ScrollText, Upload } from "lucide-react";
+import { Bell, Check, Download, Trash2, Undo2, X, Link2, Mail, RefreshCw, Settings as SettingsIcon, Pencil, Send, ScrollText, Upload } from "lucide-react";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -2923,35 +2923,6 @@ export function ManagerResidents({
     return <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />;
   })() : null;
 
-  /**
-   * The screening panel already publishes the run action for this tab — "Run
-   * background check" when there is no report, "Run again" when there is — so
-   * a second button that opens the same modal was pure duplication: the footer
-   * read "Run again · Download · Request screening", three buttons for two
-   * actions.
-   *
-   * What is left is the case the panel does NOT cover: the applicant has not
-   * authorized a check yet. There is nothing to run, and the useful move is to
-   * chase the applicant, so that is what the button says.
-   */
-  const residentBackgroundCheckTabFooterActions = selectedApplicationRow ? (
-    <>
-      {applicationShowsBackgroundCheck(selectedApplicationRow) &&
-      !selectedApplicationRow.application?.consentCredit &&
-      shouldOfferApplicationCompletionReminder(selectedApplicationRow) ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="resident-application-screening-reminder"
-          onClick={() => void openApplicationCompletionReminderPreview(selectedApplicationRow)}
-        >
-          Send reminder
-        </Button>
-      ) : null}
-    </>
-  ) : null;
-
   const residentLeaseTabFooterActions =
     selected && residentLease ? (
       <LeasePrimaryHeaderActions
@@ -3105,7 +3076,7 @@ export function ManagerResidents({
 
   const residentDetailBottomBarActions = useMemo(() => {
     if (resolvedDetailTab === "background-check" && showResidentApplication) {
-      return residentBackgroundCheckTabFooterActions;
+      return null;
     }
     if (resolvedDetailTab === "application" && showResidentApplication) {
       return null;
@@ -3127,7 +3098,6 @@ export function ManagerResidents({
     showResidentApplication,
     showResidentLease,
     residentApplicationTabFooterActions,
-    residentBackgroundCheckTabFooterActions,
     residentLeaseTabFooterActions,
     paymentIdProp,
     embeddedPaymentFooterActions,
@@ -3290,8 +3260,18 @@ export function ManagerResidents({
         actions = actions.filter((a) => a.id !== "run-check");
       } else if (check) {
         actions = actions.map((a) =>
-          a.id === "run-check" ? { id: "run-check", label: "Run new check", icon: RotateCw } : a,
+          a.id === "run-check" ? { id: "run-check", label: "Run new check", icon: RefreshCw } : a,
         );
+      }
+      // The consent reminder lives in this row, not as header actions (which would replace the
+      // record's own header icons on this tab).
+      if (
+        selectedApplicationRow &&
+        applicationShowsBackgroundCheck(selectedApplicationRow) &&
+        !selectedApplicationRow.application?.consentCredit &&
+        shouldOfferApplicationCompletionReminder(selectedApplicationRow)
+      ) {
+        actions = [{ id: "remind-application", label: "Send reminder", icon: Bell }, ...actions];
       }
     }
     if (

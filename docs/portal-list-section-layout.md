@@ -18,7 +18,7 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   number, payouts). Vocabulary: Filter `Filter` (funnel) · Settings/Defaults
   `Settings` (the gear) · Share link `Share2` · Add availability `CalendarPlus` · Block
   dates `CalendarOff` · Link calendars `CalendarSync` · Update from sheet
-  `RefreshCw` · Vendor catalog `BookOpen` · Payment setup `Wrench` ·
+  `RefreshCw` · Send reminder `Bell` · Vendor catalog `BookOpen` · Payment setup `Wrench` ·
   Set up messaging `Phone` · Export CSV `Download` · Plan credit `Coins`
   (admin Accounts only — a global per-plan default, not a per-row action) ·
   Import your portfolio `Upload` (Properties) · Send application link `Send`
