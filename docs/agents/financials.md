@@ -83,6 +83,8 @@ Phase 3 excludes non-income accounts properly.
 
 **Reports** — `src/lib/reports/queries/gl-reports.ts`: `queryTrialBalance`, `queryBalanceSheet`, `queryGeneralLedger`, `queryCashFlowStatement` (simplified bank-account view). Registered in `MANAGER_REPORT_IDS`, `runManagerReport`, Finances portal tabs, and `run_financial_report` AI tool.
 
+Balance Sheet reads the same owner, property, and as-of GL totals as Trial Balance. It includes the signed balance of still-open income and expense accounts as one “Unclosed earnings” equity row; closing journals move that balance into posted equity, so closed nominal accounts add zero. A true GL imbalance remains visible rather than being plugged.
+
 **Historical repair** — `POST /api/admin/backfill-gl` (admin-gated) sweeps existing ledger + expense rows through the posting service once per environment; never on page load.
 
 **Deploy:** `npm run db:push` for `gl_journal_*` tables before GL posting will succeed in dev/staging/production.
