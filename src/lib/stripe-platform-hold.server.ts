@@ -290,6 +290,8 @@ export async function transferHoldsForOwner(
 export function holdSourceFromCheckoutPurpose(purpose: string | undefined): PlatformHoldSource | null {
   if (purpose === "household_charge") return "household_charge";
   if (purpose === "rental_application_fee") return "application_fee";
+  // A linked form's own fee is booked like the application fee it derives from (manager income, held when no Connect).
+  if (purpose === "linked_form_fee") return "application_fee";
   if (purpose === "vendor_invoice_pay" || purpose === "vendor_invoice_direct_pay") return "vendor_invoice";
   return null;
 }

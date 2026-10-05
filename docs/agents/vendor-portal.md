@@ -248,7 +248,7 @@ also incidentally fixes the same latent gap on the manager's demo Payments page 
 after the existing bookkeeping-only `markWorkOrderPaid` write. It attempts a
 `stripe.transfers.create` (destination = the vendor's Connect account, amount = the work
 order's `vendorCostCents` labor cost — materials are not transferred, they're the manager's
-own expense) and always writes exactly one `vendor_payouts` row per work order (`status:
+own expense) and always writes exactly one `vendor_payouts` row per work order on this rail (`status:
 "paid"` with the transfer id, or `"failed"` with a human-readable reason for any error: no
 Connect account, incomplete onboarding, Stripe not configured, insufficient platform balance,
 etc.). It never throws — approve-pay's manager-facing "Approved and paid." always succeeds
@@ -281,14 +281,96 @@ failed / skipped**, built by `vendorPayoutTimeline` (`src/lib/vendor-payout-time
 from data already on the `vendor_payouts` row and its work order. A step whose
 timestamp is genuinely unknown renders as "—"; nothing here guesses a date.
 
-Because exactly one `vendor_payouts` row exists per work order, the only way to
-pay a vendor twice is to ALSO record an off-platform payment. That is now
-refused rather than merely warned about: `approve-pay` answers **409** naming
-the existing payout when one is `pending` or `paid`, and proceeds only with
-`acknowledgeExistingPayout: true`, which writes a
-`vendor_double_pay_acknowledged` row to `audit_log` before the write runs. The
-client's warning card is the courtesy; the 409 is the guard
-(`src/lib/vendor-payout-guard.ts`).
+A payout is unique per **(work order, invoice)**, not per work order
+(`vendor_payouts_work_order_invoice_unique`,
+`20261004140000_vendor_payout_work_order_invoice_unique.sql`). A service can carry two vendor
+invoices — the job's own bill and the estimate-visit fee (`VISIT-<bid id>`, one per bid, see
+[`services-system.md`](services-system.md)) — and the older index let a paid $50 visit fee consume
+the service's only payout slot, after which the job's own invoice could never be claimed
+(`claim_vendor_invoice_payment` raised 23505). The replacement is strictly looser: one payout per
+(work order, invoice) on the invoice rail, and still exactly one non-invoice payout per work order on
+the approve-and-pay rail (a null `invoice_id` collapses to one sentinel key, since a plain unique
+index treats nulls as distinct).
+
+Database uniqueness is therefore no longer the only double-pay guard.
+`vendor_payout_cross_rail_conflict` + the `vendor_payouts_cross_rail_guard` trigger
+(`20261004160000_vendor_payout_cross_rail_guard.sql`) arbitrate the race in the database under a
+per-work-order advisory lock, and `findBlockingVendorPayout`
+(`src/lib/work-order-approve-pay.server.ts`) is the friendly pre-check in front of it: it refuses on
+any payout that already moved money for the job, across both rails.
+
+**A service is paid once, through one rail, and there is no override.** `approve-pay` answers
+**409** with `code: "existing_payout"` naming the existing payout and the rail that holds it
+("already paid through Approve + pay" / "through the vendor's invoice") whenever one is `pending`
+or `paid`; the invoice rails (offline, balance, Stripe) answer 409 the same way. The client's
+warning card is the courtesy and disables the pay button; the 409 is the guard
+(`src/lib/vendor-payout-guard.ts`). The earlier
+`acknowledgeExistingPayout` escape hatch (and its `vendor_double_pay_acknowledged` audit row) is
+gone: once the database arbitrates, a second payout for the same job cannot be inserted at all, so
+an acknowledgement could only ever write an audit record for a payment that would never happen.
+
+The only remaining failure classes are told apart rather than collapsed into the refusal: a
+payout claim that fails for any reason other than "a row is already there" answers **500** with
+the real error, and a checkout that never starts hands its claim back so the job stays payable.
+On the invoice rails the same split is carried by `VendorInvoicePaymentRefusal`
+(`src/lib/vendor-invoices.ts`): a deliberate no (cross-rail double pay, wrong status, not this
+manager's invoice, or a `VP409` / `P0001` raise from `claim_vendor_invoice_payment` /
+`manage_outgoing_invoice`) answers **409**; a database fault answers **500** and is logged. Telling
+a manager "already handled" when PropLane simply broke is the one answer that stops them retrying
+a payment that never happened.
+
+**Every rail claims before it charges.** Approve + pay claims (`claimWorkOrderPayout`), the
+offline and balance invoice rails claim (`claim_vendor_invoice_payment`), and the Stripe direct
+invoice rail claims too, at the moment the embedded checkout opens — a job-linked invoice reserves
+the payout before the card is touched, so Approve + pay and the other invoice rails are refused by
+the database while the attempt is open. Checking without claiming was the one hole left: a manager
+could open the checkout, run Approve + pay, and then complete the card payment — the second charge
+went through and only its bookkeeping was refused, after which the retry lost the payout row and
+the vendor's ledger credit outright.
+
+A held claim cannot outlive its attempt. The session carries `expires_at` (30 minutes, Stripe's
+floor), and `releaseInvoicePaymentClaim` (`src/lib/vendor-invoice-claim.server.ts` — the one owner
+of that undo) hands the claim back on a failure to open the session, on
+`checkout.session.expired`, and on `checkout.session.async_payment_failed`.
+
+**One Stripe session per claim, and only that session may give the claim back.** The idempotency
+key is `vendor-invoice:<invoice>:<claim>`, not invoice-wide: Stripe keeps a key for 24 hours and
+replays the first response, so a key that outlived the 30-minute session handed an abandon-and-retry
+the dead session's client secret and stranded the fresh claim — leaving the invoice unpayable,
+unschedulable and undeletable by every rail. A re-submit of the same claim still replays one
+session; a new claim gets a new one. The claiming session id is stamped on
+`vendor_invoices.checkout_session_id`, and releasing is a compare-and-swap on `payment_claim` (plus
+that session id when the caller knows it), so a replayed `expired` event for an abandoned attempt
+is a no-op rather than freeing a live payment's claim. The pending `vendor_payouts` row is swept
+only once nothing holds the invoice and it is unpaid — an unconditional delete crossed rails: a
+replayed `stripe` expiry wiped the balance rail's payout row while `payment_claim` stayed
+`balance`, `settle_vendor_invoice_payment` then flipped zero rows, and the payout record vanished
+along with the block on Approve + pay.
+
+**Only Stripe decides whether a session is dead.** The body `createAxisAchCheckoutSession` returns
+may be a 24-hour idempotency replay of this claim's first request, so its `status` and `expires_at`
+describe the session as it was *created*. When that body looks unusable the rail retrieves the live
+session and acts on it: genuinely `expired` releases the claim (scoped to that session id);
+`complete` keeps it and answers 409 "already processing", because an ACH debit settles for days
+with the session complete and the invoice still `approved`, and that claim is backing real money;
+a lookup that cannot be completed also keeps it. Trusting the replayed `expires_at` released a
+claim mid-debit and let Approve + pay pay the vendor a second time.
+
+**Every claiming rail releases on every no-money-moved failure** — Stripe on a failed session
+start or a dead session, balance on a refused ledger move, and offline when `settleInvoicePayment`
+refuses or faults (the release's `.neq("status", "paid")` makes it a no-op if the settle RPC had
+actually committed). A release that cannot finish **throws**: the webhook answers 500 and Stripe
+redelivers, because nothing else ever runs the sweep — the session has already fired its one
+`expired` event, and a retried payment goes through `claim_vendor_invoice_payment`, whose
+unguarded insert would hit the (work order, invoice) unique index and surface a raw 500. The paid webhook
+converts the held claim into the settled payout through the same `settleInvoicePayment` the other
+rails run, and every write it does is keyed on the claim rather than on the invoice's status, so a
+retry after a failed write redoes it instead of skipping it.
+
+`settleOnly` is the webhook's own flag — it records a payment Stripe already took, so it skips the
+guard and moves no money. It is never read from a request body: `POST /api/portal/work-orders/approve-pay`
+builds the core's input field by field from an allowlist (a compile-time `as {...}` strips nothing
+at runtime), and only `completeVendorPayFromStripeSession` passes it.
 
 ## A failed payout is told to somebody
 
@@ -322,7 +404,11 @@ star-rated review per service that is **completed or at least estimated** (a
 `vendorCostCents`/`vendorPriceSetAt` — `vendorHasGivenEstimate`), re-derived
 by the POST route from the DB (422 when neither; 403 for another workspace or
 a `vendorUserId` that is not the service's vendor); the vendor record's Add
-review dialog picks among those services. A review is never editable; the vendor
+review dialog picks among those services. The reviewer may change their own review for
+`VENDOR_REVIEW_EDIT_WINDOW_DAYS` = **14 days** — `canEditVendorReview` is the one decision behind
+the Edit review menu item, the dialog and the PATCH route, and the route additionally filters on
+`vendorReviewEditWindowFloorIso()` so the window holds in the database too; an unreadable
+`created_at` fails closed. Nobody but the reviewer ever edits one, and the vendor
 may reply once. `vendor_reviews`
 (`supabase/migrations/20260925000000_vendor_reviews.sql`), unique on
 `work_order_id`, keyed by `vendor_user_id` rather than

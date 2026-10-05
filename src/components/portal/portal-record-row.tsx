@@ -32,6 +32,18 @@ export function PortalRecordRowStatus({ tone, text }: PortalRecordRowStatusWord)
 export type PortalRecordRowLeadingShape = "square" | "round";
 
 /**
+ * `<img src>` barrier for a stored photo URL (a service's photo reaches this row
+ * from local storage, so it is not trusted input). Same anchored expression the
+ * other photo surfaces use — `resident-services-panel.tsx`,
+ * `vendor-work-orders-panel.tsx`, `service-details-section.tsx` — and tested
+ * inline right where the value reaches the attribute so CodeQL's
+ * js/xss-through-dom barrier recognition sees it. A prefix-only scheme test is
+ * not a barrier: it still lets `<` and `"` into the attribute.
+ */
+const SAFE_PHOTO_HREF_RE =
+  /^(?:data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[A-Za-z0-9._~:/?#@!$&*+,;=%()[\]-]+)$/i;
+
+/**
  * The square icon tile a record row opens with (Pricing, House details, Move-in,
  * Lease, Applications — the studio replica's `UI.row({ tile })`). Pass it as
  * `leading` with `leadingShape="square"`.
@@ -270,7 +282,24 @@ export function PortalPropertyRecordRow({
   return (
     <div
       id={rowId}
+      data-openable={openable ? "" : undefined}
+      // The body button is the keyboard / screen-reader target, but a click ANYWHERE on the card opens the
+      // record - the tile, the right-hand figure and the padding included (a vendor record's Services rows
+      // were only clickable on their text). Anything interactive inside (the body button itself, the ⋯, an
+      // inline action, the selection box) keeps its own click, and a portaled menu or dialog React-bubbles
+      // through here but is not DOM-contained, so it never opens the row.
+      onClick={
+        openable
+          ? (event) => {
+              const target = event.target;
+              if (!(target instanceof Element) || !event.currentTarget.contains(target)) return;
+              if (target.closest('button, a, input, select, textarea, label, [role="menuitem"], [data-portal-row-ignore]')) return;
+              onOpen?.();
+            }
+          : undefined
+      }
       className={cn(
+        openable && "cursor-pointer",
         // One white card per property when the row stands alone — no group
         // heading, no repeated status badge — with the row title opening the
         // record and a separate 44px selection target. Inside a
@@ -367,6 +396,7 @@ export function PortalApplicantRecordRow({
   kind = "applicant",
   tileLabel,
   tileIcon,
+  tileImage,
   // Every existing caller (residents, tours, applications, leases, vendors,
   // bookings, payments) renders this tile with none opting into a shape, so
   // the default must keep the pre-`leadingShape` look — the wide rounded
@@ -389,6 +419,11 @@ export function PortalApplicantRecordRow({
    * name (a service with no requester, an unassigned task). The property glyph.
    */
   tileIcon?: LucideIcon;
+  /**
+   * A real photo in the tile (a service's first photo) instead of initials or a
+   * glyph. Decorative: the row's title already names the record.
+   */
+  tileImage?: string;
   /** Square keeps today's wide rectangular tile; round gives a circular avatar. */
   leadingShape?: PortalRecordRowLeadingShape;
 }) {
@@ -399,11 +434,27 @@ export function PortalApplicantRecordRow({
     .map((part) => part[0]!.toUpperCase())
     .join("");
   const tileRounding = leadingShape === "round" ? "rounded-full" : "rounded-[10px]";
+  // An unusable or unsafe photo falls through to the glyph / initials tile.
+  const tilePhoto = (tileImage ?? "").trim();
   return (
     <PortalPropertyRecordRow
       title={name}
       leading={
-        kind === "cosigner" || tileIcon ? (
+        tilePhoto && SAFE_PHOTO_HREF_RE.test(tilePhoto) ? (
+          <div
+            data-slot="portal-row-photo-tile"
+            className={cn(
+              "overflow-hidden bg-accent/60",
+              leadingShape === "round"
+                ? "h-[4.125rem] w-[4.125rem] max-md:h-[3.125rem] max-md:w-[3.125rem]"
+                : "h-[4.125rem] w-[5.5rem] max-md:h-12 max-md:w-14",
+              tileRounding,
+            )}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={tilePhoto} alt="" className="size-full object-cover" loading="lazy" />
+          </div>
+        ) : kind === "cosigner" || tileIcon ? (
           <div
             aria-hidden
             data-slot={tileIcon ? "portal-row-glyph-tile" : undefined}

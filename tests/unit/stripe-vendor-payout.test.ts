@@ -21,6 +21,8 @@ describe("recordVendorPayoutSettled", () => {
     const inserts: Row[] = [];
     const builder = {
       eq: () => builder,
+      // The job's OWN payout is the invoice-less row (the visit fee's payout carries an invoice id).
+      is: () => builder,
       select: () => builder,
       maybeSingle: async () => failure === "read" ? { data: null, error: { message: "read failed" } }
         : { data: existing, error: null },
@@ -32,6 +34,7 @@ describe("recordVendorPayoutSettled", () => {
           updates.push(row);
           const updateBuilder = {
             eq: () => updateBuilder,
+            is: () => updateBuilder,
             select: () => updateBuilder,
             maybeSingle: async () => failure === "update" ? { data: null, error: { message: "update failed" } }
               : { data: { id: existing?.id }, error: null },
@@ -149,6 +152,12 @@ function fakeDb(opts: {
             };
             const builder: Record<string, unknown> = {
               eq: (column: string, value: unknown) => {
+                filters.push([column, value]);
+                return builder;
+              },
+              // The job's OWN payout row: `invoice_id is null`. The estimate-visit fee's payout
+              // (invoice_id set) is a different bill and must never be re-claimed as the job's.
+              is: (column: string, value: unknown) => {
                 filters.push([column, value]);
                 return builder;
               },
@@ -312,6 +321,7 @@ describe("payoutVendorForWorkOrder", () => {
     // The re-claim is a compare-and-swap on the failed status, so two concurrent
     // re-drives still produce exactly one transfer.
     expect(updateFilters[0]).toContainEqual(["status", "failed"]);
+    expect(updateFilters[0]).toContainEqual(["invoice_id", null]);
     expect(updated[0]).toMatchObject({ status: "pending", failure_reason: null });
     expect(transferCreate).toHaveBeenCalledTimes(1);
     expect(updated.at(-1)).toMatchObject({ status: "paid", stripe_transfer_id: "tr_retry" });

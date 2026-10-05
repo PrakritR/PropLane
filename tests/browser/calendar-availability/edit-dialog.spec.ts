@@ -5,6 +5,11 @@
  * serves it through request interception (no dev server, no accounts, no DB).
  * Only data providers / navigation / app-UI provider are stubbed.
  *
+ * It mounts the panel the way the manager Calendar page does (`studioGrid`,
+ * `availabilityKeysByKind`, `coManagerPeers`, one house), so what runs here is
+ * the shared calendar a manager actually sees: three availability kinds, one
+ * colour and initials per person, and the people row.
+ *
  *   npx playwright test --config tests/browser/calendar-availability.config.ts
  *
  * Set EVIDENCE_DIR to also write reviewer screenshots there.
@@ -67,140 +72,174 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-/** The grid renders once for the phone strip and once for the desktop week; CSS hides one. */
-const cell = (page: Page, label: string) => page.locator(`[aria-label="${label}"]`).filter({ visible: true });
+/** A phone opens the calendar on Agenda; switch it to Week through the real control. */
+async function showWeekOnPhone(page: Page) {
+  await page.locator('[data-attr="calendar-view-mode"]').filter({ visible: true }).first().click();
+  await page.getByRole("option", { name: "Week", exact: true }).click();
+}
 
-type Fixture = { mondayDs: string; wednesdayDs: string; painted: string[] };
+/** Painted availability on the manager grid: one block per run, labelled by kind. */
+const blocks = (page: Page) => page.locator('[data-attr="calendar-availability-block"]');
+const block = (page: Page, text: string) => blocks(page).filter({ hasText: text });
+const dialog = (page: Page) => page.locator(".modal-panel").first();
+const written = (page: Page) => page.evaluate(() => (window as unknown as { __written?: Written }).__written ?? []);
+
+type Fixture = {
+  toursKey: string;
+  servicesKey: string;
+  tasksKey: string;
+  mondayDs: string;
+  wednesdayDs: string;
+  thursdayDs: string;
+  fridayDs: string;
+  painted: string[];
+  servicesPainted: string[];
+  tasksPainted: string[];
+};
 type Written = { key: string; slots: string[] }[];
 
-test("grid: 'Tours' label, 'N open' day headers, small ×, hover-only '+'", async ({ page }) => {
+async function fixture(page: Page) {
+  return (await page.evaluate(() => (window as unknown as { __fixture: Fixture }).__fixture)) as Fixture;
+}
+
+test("grid: three availability kinds, per-person colour + initials, shared people row", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("http://calendar-fixture.test/");
-  const fx = (await page.evaluate(() => (window as unknown as { __fixture: Fixture }).__fixture)) as Fixture;
 
-  // Painted block reads the category ("Tours"), not "Open".
-  const mondayCell = cell(page, `Open details for 10 am on ${fx.mondayDs}`);
-  await expect(mondayCell).toBeVisible();
-  await expect(mondayCell).toContainText("Tours");
-  await expect(mondayCell).toContainText("10");
-  await expect(page.locator("body")).not.toContainText(/\bOpen\b\s*\n?\s*10/);
+  // Exactly three kinds exist (inspections and move-ins fold into Tasks), and
+  // each painted run reads its own kind — never a bare "Open".
+  await expect(page.locator('[data-attr="calendar-legend"]')).toContainText("Tours");
+  await expect(page.locator('[data-attr="calendar-legend"]')).toContainText("Services");
+  await expect(page.locator('[data-attr="calendar-legend"]')).toContainText("Tasks");
+  await expect(page.locator('[data-attr="calendar-legend"]')).not.toContainText(/inspection|move/i);
+  await expect(blocks(page)).toHaveCount(4);
+  await expect(block(page, "Tours")).toHaveCount(2);
+  await expect(block(page, "Services")).toHaveCount(1);
+  await expect(block(page, "Tasks")).toHaveCount(1);
+  await expect(block(page, "Services").first()).toContainText("9 – 10 am");
+  await expect(block(page, "Tasks").first()).toContainText("12 – 1 pm");
 
-  // Small × on the first cell of an open run (not a chip).
-  await expect(page.locator('[data-attr="calendar-remove-availability-slot"]').first()).toBeVisible();
+  // Availability is shared with everyone on the workspace calendar: one row of
+  // people, each with their own colour and initials, and every block says whose
+  // it is. No opt-in — sharing is not a setting any more.
+  const people = page.locator('[data-attr="calendar-people-row"]');
+  await expect(people).toBeVisible();
+  await expect(people).toContainText("You");
+  await expect(people).toContainText("Jules Park");
+  await expect(people.locator('[data-attr="calendar-person-toggle"]')).toHaveCount(2);
+  await expect(blocks(page).first()).toContainText("YO");
+  const colors = await people.locator('[data-attr="calendar-person-chip"]').evaluateAll((nodes) =>
+    nodes.map((node) => getComputedStyle(node).backgroundColor),
+  );
+  expect(colors).toHaveLength(2);
+  expect(new Set(colors).size).toBe(2);
 
-  // Day headers say "N open" (never "0 EVENTS").
-  await expect(page.locator("body")).toContainText("3 open");
-  await expect(page.locator("body")).toContainText("2 open");
-  await expect(page.locator("body")).not.toContainText(/0 events/i);
-
-  // Empty cells carry a faint "+" and never the word "Add".
-  const emptyCell = cell(page, `Add 9 am on ${fx.mondayDs}`);
-  await expect(emptyCell).toBeVisible();
-  await expect(emptyCell).toHaveText("+");
-  await expect(page.locator("button", { hasText: /^Add$/ })).toHaveCount(0);
-
+  // Each run carries its own small × — "Remove <kind> availability <hours>".
+  await expect(page.locator('[aria-label="Remove Services availability 9 – 10 am"]')).toHaveCount(1);
+  await expect(page.locator('[aria-label="Remove Tasks availability 12 – 1 pm"]')).toHaveCount(1);
   await shot(page, "01-grid-desktop", { fullPage: true });
+
+  // Hiding a person on the row takes their hours off the grid.
+  await people.locator('[data-attr="calendar-person-toggle"][data-person="fixture-manager"]').click();
+  await expect(blocks(page)).toHaveCount(0);
+  await shot(page, "02-grid-person-hidden");
+  await people.locator('[data-attr="calendar-person-toggle"][data-person="fixture-manager"]').click();
+  await expect(blocks(page)).toHaveCount(4);
   expect(errors).toEqual([]);
 });
 
-test("click a block → edit dialog is the create form, prefilled; Save changes rewrites; Delete block removes", async ({
-  page,
-}) => {
+test("click a block → the availability dialog is prefilled; Save rewrites the hours; Delete removes them", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("http://calendar-fixture.test/");
-  const fx = (await page.evaluate(() => (window as unknown as { __fixture: Fixture }).__fixture)) as Fixture;
+  const fx = await fixture(page);
 
-  await cell(page, `Open details for 10 am on ${fx.mondayDs}`).click();
-  const dialog = page.locator(".modal-panel");
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("Edit availability block");
-  // No delete-only "half hour" picker any more.
-  await expect(dialog.locator('[aria-label="Half hour to delete"]')).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "Save changes" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Delete block" })).toBeVisible();
-  // Prefilled from the clicked block: Monday only, 10:00 → 11:30, once.
-  // The time pickers are the shared listbox `Select` (a trigger button whose
-  // text is the picked value, options carry role="option").
-  const startTrigger = dialog.locator('label:has-text("Start time") + div button[aria-haspopup="listbox"]');
-  const endTrigger = dialog.locator('label:has-text("End time") + div button[aria-haspopup="listbox"]');
-  await expect(dialog).toContainText("Mon · 10 am-11:30 am · this week only");
-  await expect(startTrigger).toHaveText(/10 am/);
-  await expect(endTrigger).toHaveText(/11:30 am/);
-  await expect(dialog.getByRole("button", { name: "Mon", exact: true })).toHaveClass(/bg-primary/);
-  await shot(page, "02-edit-dialog-prefilled");
+  await block(page, "10 – 11:30 am").first().click();
+  await expect(dialog(page)).toContainText("Your availability");
+  // Prefilled from the clicked run: its kind, its single date, its hours.
+  await expect(dialog(page).locator('[data-attr="calendar-availability-kinds"]')).toHaveText("Tours");
+  await expect(dialog(page).locator('[data-attr="calendar-availability-on"]')).toHaveText("A date");
+  await expect(dialog(page).locator('[data-attr="calendar-availability-date"]')).toHaveValue(fx.mondayDs);
+  await expect(dialog(page).locator('[data-attr="calendar-availability-from"]')).toHaveText(/10 am/);
+  await expect(dialog(page).locator('[data-attr="calendar-availability-to"]')).toHaveText(/11:30 am/);
+  await shot(page, "03-edit-dialog-prefilled");
 
-  // Change end to 12:00 (slot 24) and save.
-  await endTrigger.click();
-  await page.getByRole("option", { name: /^12 pm$/ }).click();
-  await expect(endTrigger).toHaveText(/12 pm/);
-  await expect(dialog).toContainText("Mon · 10 am-12 pm · this week only");
-  await shot(page, "03-edit-dialog-end-changed");
-  await dialog.getByRole("button", { name: "Save changes" }).click();
-  await expect(dialog).toBeHidden();
-  const written = (await page.evaluate(() => (window as unknown as { __written: Written }).__written)) as Written;
-  const last = written.at(-1)!;
-  expect(last.slots).toEqual(
-    [`${fx.mondayDs}:20`, `${fx.mondayDs}:21`, `${fx.mondayDs}:22`, `${fx.mondayDs}:23`, `${fx.wednesdayDs}:28`, `${fx.wednesdayDs}:29`].sort(),
+  // Extend to noon (slot 24 exclusive) and save.
+  await dialog(page).locator('[data-attr="calendar-availability-to"]').click();
+  await page.getByRole("option", { name: "12 pm", exact: true }).click();
+  await dialog(page).locator('[data-attr="calendar-availability-save"]').click();
+  await expect(dialog(page)).toBeHidden();
+  await expect.poll(async () => (await written(page)).at(-1)?.slots).toEqual(
+    [
+      `${fx.mondayDs}:20`,
+      `${fx.mondayDs}:21`,
+      `${fx.mondayDs}:22`,
+      `${fx.mondayDs}:23`,
+      `${fx.wednesdayDs}:28`,
+      `${fx.wednesdayDs}:29`,
+    ].sort(),
   );
-  const toasts = await page.evaluate(() => (window as unknown as { __toasts?: string[] }).__toasts ?? []);
-  expect(toasts).toContain("Availability updated");
-  await expect(cell(page, `Open details for 10 am on ${fx.mondayDs}`)).toContainText("10");
-  await expect(page.locator("body")).toContainText("4 open");
+  await expect(block(page, "10 am – 12 pm").or(block(page, "10 – 12 pm")).first()).toBeVisible();
   await shot(page, "04-grid-after-save", { fullPage: true });
 
-  // Delete the Wednesday block from the dialog.
-  await cell(page, `Open details for 2 pm on ${fx.wednesdayDs}`).click();
-  await expect(dialog).toBeVisible();
-  await shot(page, "05-edit-dialog-wednesday");
-  await dialog.getByRole("button", { name: "Delete block" }).click();
-  await expect(dialog).toBeHidden();
-  const written2 = (await page.evaluate(() => (window as unknown as { __written: Written }).__written)) as Written;
-  expect(written2.at(-1)!.slots).toEqual(
-    [`${fx.mondayDs}:20`, `${fx.mondayDs}:21`, `${fx.mondayDs}:22`, `${fx.mondayDs}:23`].sort(),
+  // Re-open and delete the block: Monday's tour hours go, Wednesday's stay.
+  await block(page, "Tours").first().click();
+  await dialog(page).locator('[data-attr="calendar-availability-delete"]').click();
+  await expect(dialog(page)).toBeHidden();
+  await expect.poll(async () => (await written(page)).at(-1)?.slots).toEqual(
+    [`${fx.wednesdayDs}:28`, `${fx.wednesdayDs}:29`],
   );
-  await expect(page.locator("body")).toContainText("0 open");
-  await shot(page, "06-grid-after-delete", { fullPage: true });
+  await expect(block(page, "Tours")).toHaveCount(1);
+  await expect(block(page, "Tours").first()).toContainText("2 – 3 pm");
+  await shot(page, "05-grid-after-delete", { fullPage: true });
   expect(errors).toEqual([]);
 });
 
-test("day header appends '· N booked' only when a tour is booked", async ({ page }) => {
+test("a services run is its own kind: editing it never touches the tours record", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("http://calendar-fixture.test/?booked");
-  const fx = (await page.evaluate(() => (window as unknown as { __fixture: Fixture }).__fixture)) as Fixture;
-  // Monday: 3 painted half hours, one consumed by the booked tour → 2 open · 1 booked.
-  await expect(page.locator("body")).toContainText("2 open · 1 booked");
-  await expect(page.locator("body")).toContainText("2 open");
-  await expect(page.locator("body")).not.toContainText(/0 events/i);
-  await expect(cell(page, `Open details for 11 am on ${fx.mondayDs}`)).toContainText(/Sam Rivera|Tour/);
-  await shot(page, "11-grid-with-booked-tour", { fullPage: true });
+  await page.goto("http://calendar-fixture.test/");
+  const fx = await fixture(page);
+
+  await block(page, "Services").first().click();
+  await expect(dialog(page).locator('[data-attr="calendar-availability-kinds"]')).toHaveText("Services");
+  await expect(dialog(page).locator('[data-attr="calendar-availability-date"]')).toHaveValue(fx.thursdayDs);
+  await shot(page, "06-services-dialog-prefilled");
+  await dialog(page).locator('[data-attr="calendar-availability-delete"]').click();
+  await expect(dialog(page)).toBeHidden();
+
+  // Services hours live under the per-manager services record, never the tours
+  // key the public booking route reads — so only that key was written.
+  await expect.poll(async () => (await written(page)).map((w) => w.key)).toEqual([fx.servicesKey]);
+  expect((await written(page)).at(-1)!.slots).toEqual([]);
+  await expect(block(page, "Services")).toHaveCount(0);
+  await expect(block(page, "Tours")).toHaveCount(2);
+  await expect(block(page, "Tasks")).toHaveCount(1);
+  await shot(page, "07-grid-after-services-delete", { fullPage: true });
 });
 
-test("mobile: day strip reads 'N open' and the dialog fits the phone", async ({ page }) => {
+test("mobile: the week keeps all three kinds and the people row, and the dialog fits the phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("http://calendar-fixture.test/");
-  const fx = (await page.evaluate(() => (window as unknown as { __fixture: Fixture }).__fixture)) as Fixture;
-  await expect(page.locator("body")).toContainText("3 open");
-  await expect(page.locator("body")).not.toContainText(/0 events/i);
-  await shot(page, "07-grid-mobile", { fullPage: true });
-  await cell(page, `Open details for 10 am on ${fx.mondayDs}`).click();
-  const dialog = page.locator(".modal-panel");
-  await expect(dialog).toContainText("Edit availability block");
-  await shot(page, "08-edit-dialog-mobile");
-  // The actions sit below the fold on a phone; the dialog body must scroll to them.
-  const save = dialog.getByRole("button", { name: "Save changes" });
-  const del = dialog.getByRole("button", { name: "Delete block" });
-  await save.scrollIntoViewIfNeeded();
-  await expect(save).toBeInViewport();
-  await expect(del).toBeInViewport();
-  await shot(page, "09-edit-dialog-mobile-actions");
-  await del.click();
-  await expect(dialog).toBeHidden();
-  const written = (await page.evaluate(() => (window as unknown as { __written: Written }).__written)) as Written;
-  expect(written.at(-1)!.slots).toEqual([`${fx.wednesdayDs}:28`, `${fx.wednesdayDs}:29`]);
-  await expect(page.locator("body")).toContainText("0 open");
+  // A phone opens on Agenda by design (`defaultManagerCalendarViewMode`).
+  await showWeekOnPhone(page);
+  await expect(block(page, "Tours")).toHaveCount(2);
+  await expect(block(page, "Services")).toHaveCount(1);
+  await expect(block(page, "Tasks")).toHaveCount(1);
+  await expect(page.locator('[data-attr="calendar-people-row"]')).toBeVisible();
+  await shot(page, "08-grid-mobile", { fullPage: true });
+
+  await block(page, "Tasks").first().click();
+  await expect(dialog(page)).toContainText("Your availability");
+  await expect(dialog(page).locator('[data-attr="calendar-availability-kinds"]')).toHaveText("Tasks");
+  const box = (await dialog(page).boundingBox())!;
+  expect(box.width).toBeLessThanOrEqual(390);
+  await shot(page, "09-edit-dialog-mobile");
+  await dialog(page).locator('[data-attr="calendar-availability-delete"]').click();
+  await expect(dialog(page)).toBeHidden();
+  await expect.poll(async () => (await written(page)).at(-1)?.slots).toEqual([]);
+  await expect(block(page, "Tasks")).toHaveCount(0);
   await shot(page, "10-grid-mobile-after-delete", { fullPage: true });
 });

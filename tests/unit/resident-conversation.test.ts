@@ -77,6 +77,27 @@ function seededDb(extra: Seed = {}): FakeDb {
   });
 }
 
+/**
+ * `count` more managers, each a manager in `profile_roles`, each owning one
+ * default workspace the resident is linked to through an application. Ids sort
+ * ascending with the index, so any ceiling applied in id order is predictable.
+ */
+function linkedManagers(db: FakeDb, count: number): { managerId: string; workspaceId: string; email: string }[] {
+  const made: { managerId: string; workspaceId: string; email: string }[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const suffix = String(i + 10).padStart(12, "0");
+    const managerId = `99999999-0000-4000-8000-${suffix}`;
+    const workspaceId = `cccccccc-0000-4000-8000-${suffix}`;
+    const email = `many${i + 10}@x.co`;
+    (db.tables.profiles ??= []).push({ id: managerId, email, full_name: `Many Manager ${i + 10}`, role: "manager" });
+    (db.tables.profile_roles ??= []).push({ user_id: managerId, role: "manager" });
+    (db.tables.portal_workspaces ??= []).push({ id: workspaceId, owner_user_id: managerId, name: `Many Homes ${i + 10}`, is_default: true });
+    (db.tables.manager_application_records ??= []).push({ manager_user_id: managerId, resident_email: "resident@x.co", row_data: { bucket: "approved" } });
+    made.push({ managerId, workspaceId, email });
+  }
+  return made;
+}
+
 let turnCounter = 0;
 function summary(over: Record<string, unknown>): Record<string, unknown> {
   turnCounter += 1;
@@ -396,8 +417,10 @@ describe("folding texts into the resident's conversation", () => {
 
 describe("applyResidentConversationExtras - rows with no workspace key are named from their own manager email", () => {
   const roles = (...ids: string[]) => ({ profile_roles: ids.map((user_id) => ({ user_id, role: "manager" })) });
+  // `threadType` is the server's column (a browser's upsert always writes it
+  // null), so it is what marks a row whose stored email the SERVER chose.
   const unkeyed = (over: Partial<PersistedInboxThread> = {}) =>
-    storedRow({ id: "thread-legacy", from: "Property manager", conversationKey: undefined, workspaceId: undefined, ...over });
+    storedRow({ id: "thread-legacy", from: "Property manager", threadType: "portal_message", conversationKey: undefined, workspaceId: undefined, ...over });
 
   it("a legacy row whose email is the linked manager's account email is titled with that manager", async () => {
     const { rows } = await applyResidentConversationExtras(
@@ -453,10 +476,66 @@ describe("applyResidentConversationExtras - rows with no workspace key are named
     expect(rows[0]!.counterparty).toBeUndefined();
   });
 
+  it("a row a BROWSER wrote is never named from its email, even when the email is a linked manager's", async () => {
+    // The oracle this closes: the resident POSTs a row naming a guessed
+    // address and reads back whether the list titles it with a manager.
+    const forgedEmail = { ...unkeyed({ email: "m1@x.co" }), threadType: null } as PersistedInboxThread;
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles(M1)),
+      { id: R, mayReadResidentTexts: false },
+      [forgedEmail],
+    );
+    expect(rows[0]!.counterparty).toBeUndefined();
+    expect(JSON.stringify(rows)).not.toContain("Maya");
+  });
+
+  it("a manager whose profile stores a MIXED-CASE email is still matched", async () => {
+    const db = seededDb(roles(M1));
+    db.tables.profiles!.find((row) => row.id === M1)!.email = "Maya.Manager@X.co";
+    const { rows } = await applyResidentConversationExtras(db, { id: R, mayReadResidentTexts: false }, [
+      unkeyed({ email: "maya.manager@x.co" }),
+    ]);
+    expect(rows[0]!.counterparty).toMatchObject({ name: "Maya Manager", workspaceId: W1 });
+  });
+
+  it("a wildcard in a row's email never widens the lookup into another manager", async () => {
+    const { rows } = await applyResidentConversationExtras(
+      seededDb(roles(M1, M2)),
+      { id: R, mayReadResidentTexts: false },
+      [unkeyed({ email: "%@x.co" })],
+    );
+    expect(rows[0]!.counterparty).toBeUndefined();
+    expect(JSON.stringify(rows)).not.toContain("Maya");
+  });
+
   it("the PropLane Assistant row is never given a manager", async () => {
     const assistant = storedRow({ id: "resident-agent-x", threadType: "resident_agent", from: "PropLane Assistant", email: "m1@x.co", conversationKey: undefined, workspaceId: undefined } as Partial<PersistedInboxThread>);
     const { rows } = await applyResidentConversationExtras(seededDb(roles(M1)), { id: R, mayReadResidentTexts: false }, [assistant]);
     expect(rows[0]!.counterparty).toBeUndefined();
+  });
+
+  it("guessing from many addresses at once is capped, while every keyed conversation is still named", async () => {
+    const emailDb = seededDb();
+    const guessed = linkedManagers(emailDb, 26);
+    const { rows: byEmailRows } = await applyResidentConversationExtras(
+      emailDb,
+      { id: R, mayReadResidentTexts: false },
+      guessed.map((manager, i) => unkeyed({ id: `legacy-${i}`, email: manager.email })),
+    );
+    expect(byEmailRows.filter((row) => row.counterparty).length).toBe(24);
+
+    // The SAME 26 managers reached through the resident's own `ws:` keys: a
+    // real conversation is never left unnamed by that ceiling.
+    const keyedDb = seededDb();
+    const keyed = linkedManagers(keyedDb, 26);
+    const { rows: keyedRows } = await applyResidentConversationExtras(
+      keyedDb,
+      { id: R, mayReadResidentTexts: false },
+      keyed.map((manager, i) =>
+        storedRow({ id: `keyed-${i}`, conversationKey: `ws:${manager.workspaceId}`, workspaceId: manager.workspaceId }),
+      ),
+    );
+    expect(keyedRows.filter((row) => row.counterparty).length).toBe(26);
   });
 });
 

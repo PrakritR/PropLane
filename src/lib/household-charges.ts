@@ -15,6 +15,7 @@ import {
 } from "@/lib/rent-fold-in";
 import { feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from "@/lib/listing-fees";
 import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
+import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
@@ -1760,7 +1761,7 @@ function resolveRowSubmissionRoom(
   const baseSub = prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
   if (!baseSub) return { sub: null, room: null, prop: prop ?? null };
   return {
-    sub: withRoomTermFeesForRow(baseSub, row, prop?.unitLabel),
+    sub: withRoomTermFeesForRow(baseSub, row, prop?.unitLabel, prop),
     room: roomForRow(baseSub, row, prop?.unitLabel),
     prop: prop ?? null,
   };
@@ -1775,6 +1776,7 @@ function withRoomTermFeesForRow<T extends ManagerListingSubmissionV1>(
   sub: T,
   row: Pick<DemoApplicantRow, "assignedRoomChoice" | "application" | "manualResidentDetails" | "signedMonthlyRent">,
   unitLabel: string | null | undefined,
+  prop?: RentRuleAddress | null,
 ): T {
   return submissionWithApplicationRoomFees(
     sub,
@@ -1788,6 +1790,7 @@ function withRoomTermFeesForRow<T extends ManagerListingSubmissionV1>(
       leaseTerm: row.application?.leaseTerm,
       rentalType: row.application?.rentalType,
       applicationTemplateId: row.application?.applicationTemplateId,
+      listingProperty: prop ?? null,
     },
   ) as T;
 }
@@ -4284,7 +4287,7 @@ export function recordApprovedApplicationCharges(
     prop?.listingSubmission?.v === 1
       ? normalizeManagerListingSubmissionV1(prop.listingSubmission as ManagerListingSubmissionV1)
       : null;
-  const sub = baseSub ? withRoomTermFeesForRow(baseSub, row, prop?.unitLabel) : null;
+  const sub = baseSub ? withRoomTermFeesForRow(baseSub, row, prop?.unitLabel, prop) : null;
 
   // The resident's browser doesn't have the manager's listing catalog, so getPropertyById()
   // returns null there. Without the listing we can't determine proration method or daily rates,

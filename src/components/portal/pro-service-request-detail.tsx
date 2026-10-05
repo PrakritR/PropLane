@@ -1,14 +1,18 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Check, CheckCircle2, Mail, Pencil, Trash2, XCircle } from "lucide-react";
-import { Input, Textarea } from "@/components/ui/input";
+import { Mail, MoreHorizontal, Pencil } from "lucide-react";
+import { Textarea } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { PopupMessagePreview, PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
-import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
+import { portalIconActionSpec, portalLabeledPrimarySpec } from "@/components/portal/portal-icon-action-spec";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ServiceEditPopup } from "@/components/portal/service-edit-popup";
+import { addOnHeaderNextStep, serviceHeaderMenuItems } from "@/lib/service-header-next-step";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import {
   PortalNotificationPreviewModal,
@@ -27,7 +31,7 @@ import {
   attachProposedVisitToServiceRequest,
   deleteServiceRequest,
   denyServiceRequest,
-  updateServiceRequest,
+  markServiceRequestDone,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
@@ -70,6 +74,8 @@ export function ManagerServiceRequestDetail({
   onCollapsed,
   allowDelete = true,
   onMessage,
+  onMarkDone,
+  onEdit,
   actionsOnly = false,
 }: {
   req: ServiceRequest;
@@ -81,6 +87,13 @@ export function ManagerServiceRequestDetail({
   allowDelete?: boolean;
   /** Jump to the record's Communication tab (manager full-page record). */
   onMessage?: () => void;
+  /**
+   * The header's "Mark done" (an approved add-on's next step). A host whose add-on has a vendor job finishes
+   * that job too; without one the add-on is simply marked done.
+   */
+  onMarkDone?: () => void;
+  /** The header's Edit. Without it the detail opens its own edit popup (the resident record's embed). */
+  onEdit?: () => void;
   /** Publish header icons + modals only — no inline fact body (overview uses registry cards). */
   actionsOnly?: boolean;
   /**
@@ -91,14 +104,12 @@ export function ManagerServiceRequestDetail({
   onFooterActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const { showToast } = useAppUi();
-  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: req.managerUserId });
+  const { teamMembers } = useWorkAssignmentDirectory({ managerUserId: req.managerUserId });
   const needsReturn = serviceRequestHasDeposit(req.deposit);
   const description = req.offerDescription?.trim() ?? "";
   const showDescription =
     description.length > 0 && description !== "Add-on service booked through the resident portal.";
-  const [editingCharges, setEditingCharges] = useState(false);
-  const [editPrice, setEditPrice] = useState(() => moneyFieldValue(req.price ?? ""));
-  const [editDeposit, setEditDeposit] = useState(() => moneyFieldValue(req.deposit ?? ""));
+  const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [decisionKind, setDecisionKind] = useState<DecisionKind | null>(null);
   const [decisionBusy, setDecisionBusy] = useState(false);
@@ -109,46 +120,17 @@ export function ManagerServiceRequestDetail({
   const [denyReasonOpen, setDenyReasonOpen] = useState(false);
   const [denyReason, setDenyReason] = useState("");
 
-  useEffect(() => {
-    setEditPrice(moneyFieldValue(req.price ?? ""));
-    setEditDeposit(moneyFieldValue(req.deposit ?? ""));
-    setEditingCharges(false);
-  }, [req.id, req.price, req.deposit]);
-
-  useEffect(() => {
-    if (!editingCharges) return;
-    const el = document.getElementById(`service-request-price-${req.id}`) as HTMLInputElement | null;
-    el?.focus();
-    el?.select();
-  }, [editingCharges, req.id]);
-
   const chargesSummary = managerServiceRequestPricingSummary(req);
   const depositSummary = needsReturn && req.deposit?.trim() ? req.deposit.trim() : null;
 
-  const cancelEditing = () => {
-    setEditPrice(moneyFieldValue(req.price ?? ""));
-    setEditDeposit(moneyFieldValue(req.deposit ?? ""));
-    setEditingCharges(false);
-  };
-
-  const saveCharges = () => {
-    updateServiceRequest(req.id, {
-      price: editPrice.trim(),
-      deposit: editDeposit.trim(),
-    });
-    onUpdated();
-    setEditingCharges(false);
-    showToast("Charges updated.");
-  };
-
   const openApprovePreview = () => {
-    const price = (editPrice.trim() || moneyFieldValue(req.price ?? "")) ?? "";
+    const price = moneyFieldValue(req.price ?? "");
     if (!price) {
       showToast("Set a service fee before approving.");
       return;
     }
     const priceLabel = price.startsWith("$") ? price : `$${price}`;
-    const depositRaw = editDeposit.trim();
+    const depositRaw = moneyFieldValue(req.deposit ?? "");
     setDecisionDraft(
       buildServiceRequestApprovedNotice({
         residentName: req.residentName,
@@ -191,16 +173,10 @@ export function ManagerServiceRequestDetail({
     setDecisionBusy(true);
     try {
       if (kind === "approve") {
-        const price = (editPrice.trim() || moneyFieldValue(req.price ?? "")) ?? "";
+        const price = moneyFieldValue(req.price ?? "");
         if (!price) {
           showToast("Set a service fee before approving.");
           return;
-        }
-        if (price !== moneyFieldValue(req.price ?? "") || editDeposit.trim() !== moneyFieldValue(req.deposit ?? "")) {
-          updateServiceRequest(req.id, {
-            price,
-            deposit: editDeposit.trim(),
-          });
         }
         approveServiceRequest(req.id, draft?.body, draft?.assignee);
         onUpdated();
@@ -264,19 +240,25 @@ export function ManagerServiceRequestDetail({
     req.residentEmail ||
     "Resident";
 
+  // Message · Edit · ⋯ · the ONE labeled primary (Approve, then Mark done): the same header a maintenance service has.
+  const nextStep = addOnHeaderNextStep(req);
+  const markDone = () => {
+    if (onMarkDone) onMarkDone();
+    else {
+      const done = markServiceRequestDone(req.id);
+      onUpdated();
+      showToast(done ? "Marked done." : "Approve this request first.");
+    }
+  };
+  const headerMenu = serviceHeaderMenuItems("add-on", {
+    canDecline: req.status === "pending",
+    canDelete: allowDelete,
+  });
+  const runMenu = (id: "decline" | "cancel" | "delete") => {
+    if (id === "decline") openDenyReasonStep();
+    else if (id === "delete") setDeleteOpen(true);
+  };
   const headerActionSpecs: PortalAdaptiveAction[] = [];
-  if (req.status === "pending") {
-    headerActionSpecs.push(
-      portalIconActionSpec({
-        id: "approve",
-        label: "Approve",
-        icon: CheckCircle2,
-        tone: "primary",
-        dataAttr: "service-request-approve",
-        onClick: openApprovePreview,
-      }),
-    );
-  }
   if (onMessage) {
     headerActionSpecs.push(
       portalIconActionSpec({
@@ -288,48 +270,50 @@ export function ManagerServiceRequestDetail({
       }),
     );
   }
-  if (req.status === "pending") {
-    if (editingCharges) {
-      headerActionSpecs.push(
-        portalIconActionSpec({
-          id: "save-charges",
-          label: "Save",
-          icon: Check,
-          tone: "primary",
-          onClick: saveCharges,
-        }),
-      );
-    } else {
-      headerActionSpecs.push(
-        portalIconActionSpec({
-          id: "edit-charges",
-          label: "Edit",
-          icon: Pencil,
-          dataAttr: "service-request-edit-charges",
-          onClick: () => setEditingCharges(true),
-        }),
-      );
-    }
+  if (req.status === "pending" || req.status === "approved") {
     headerActionSpecs.push(
       portalIconActionSpec({
-        id: "deny",
-        label: "Deny",
-        icon: XCircle,
-        tone: "danger",
-        dataAttr: "service-request-deny",
-        onClick: openDenyReasonStep,
+        id: "edit",
+        label: "Edit",
+        icon: Pencil,
+        dataAttr: "service-request-edit",
+        onClick: () => (onEdit ? onEdit() : setEditOpen(true)),
       }),
     );
   }
-  if (allowDelete) {
+  if (headerMenu.length > 0) {
+    const menuItems = headerMenu.map((item) => (
+      <DropdownMenuItem
+        key={item.id}
+        className="text-red-600"
+        data-attr={item.id === "decline" ? "service-request-deny" : "service-request-delete"}
+        onSelect={() => runMenu(item.id)}
+      >
+        {item.label}
+      </DropdownMenuItem>
+    ));
+    headerActionSpecs.push({
+      id: "more",
+      node: (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <PortalIconAction ring icon={MoreHorizontal} label="More" data-attr="record-header-action-more" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="record-action-menu">
+            {menuItems}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+      menuItem: <>{menuItems}</>,
+    });
+  }
+  if (nextStep) {
     headerActionSpecs.push(
-      portalIconActionSpec({
-        id: "delete",
-        label: "Delete",
-        icon: Trash2,
-        tone: "danger",
-        dataAttr: "service-request-delete",
-        onClick: () => setDeleteOpen(true),
+      portalLabeledPrimarySpec({
+        id: nextStep.key,
+        label: nextStep.label,
+        dataAttr: nextStep.key === "approve" ? "service-request-approve" : "service-request-mark-done",
+        onClick: nextStep.key === "approve" ? openApprovePreview : markDone,
       }),
     );
   }
@@ -341,7 +325,7 @@ export function ManagerServiceRequestDetail({
 
   // Keyed on WHAT the row offers, not the node: the JSX is rebuilt every render,
   // so publishing on identity would loop the parent's state forever.
-  const detailActionsSignature = [req.status, allowDelete, editingCharges, Boolean(onMessage)].join("|");
+  const detailActionsSignature = [req.status, allowDelete, Boolean(onMessage), Boolean(onMarkDone), Boolean(onEdit)].join("|");
   const onFooterActionsChangeRef = useRef(onFooterActionsChange);
   const detailActionsRef = useRef(detailActions);
   useLayoutEffect(() => {
@@ -367,69 +351,18 @@ export function ManagerServiceRequestDetail({
         <p>
           Service: <span className="text-foreground">{req.offerName}</span>
         </p>
-        {req.status === "pending" && editingCharges ? (
-          <div className="grid gap-3 pt-1 sm:max-w-md sm:grid-cols-2">
-            <div>
-              <label
-                htmlFor={`service-request-price-${req.id}`}
-                className="mb-1 block text-xs font-medium text-muted"
-              >
-                Charges
-              </label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted">
-                  $
-                </span>
-                <Input
-                  id={`service-request-price-${req.id}`}
-                  value={editPrice}
-                  onChange={(e) => setEditPrice(sanitizeMoneyInput(e.target.value))}
-                  placeholder={req.priceLimit?.trim() ? moneyFieldValue(req.priceLimit) : "0"}
-                  inputMode="decimal"
-                  className="pl-8 tabular-nums"
-                  aria-label="Service fee"
-                />
-              </div>
-            </div>
-            {needsReturn || editDeposit.trim() ? (
-              <div>
-                <label
-                  htmlFor={`service-request-deposit-${req.id}`}
-                  className="mb-1 block text-xs font-medium text-muted"
-                >
-                  Deposit
-                </label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted">
-                    $
-                  </span>
-                  <Input
-                    id={`service-request-deposit-${req.id}`}
-                    value={editDeposit}
-                    onChange={(e) => setEditDeposit(sanitizeMoneyInput(e.target.value))}
-                    placeholder="0"
-                    inputMode="decimal"
-                    className="pl-8 tabular-nums"
-                    aria-label="Deposit"
-                  />
-                </div>
-              </div>
+        <p>
+          Charges:{" "}
+          <span className="tabular-nums text-foreground">
+            {chargesSummary}
+            {depositSummary ? (
+              <>
+                {" "}
+                · Deposit: {depositSummary}
+              </>
             ) : null}
-          </div>
-        ) : (
-          <p>
-            Charges:{" "}
-            <span className="tabular-nums text-foreground">
-              {chargesSummary}
-              {depositSummary ? (
-                <>
-                  {" "}
-                  · Deposit: {depositSummary}
-                </>
-              ) : null}
-            </span>
-          </p>
-        )}
+          </span>
+        </p>
         {showDescription ? <p className="pt-1">{description}</p> : null}
         {req.priceLimit?.trim() && !req.price?.trim() ? (
           <p>
@@ -488,8 +421,16 @@ export function ManagerServiceRequestDetail({
         confirmBusyLabel={decisionKind === "deny" ? "Denying…" : "Approving…"}
         assigneeKind={decisionKind === "approve" ? "service" : undefined}
         assigneeTeamMembers={decisionKind === "approve" ? teamMembers : undefined}
-        assigneeVendors={decisionKind === "approve" ? vendors : undefined}
+        assigneeVendors={undefined}
         onConfirm={(skip, channels, draft) => void applyDecision(skip, channels, draft)}
+      />
+
+      <ServiceEditPopup
+        open={editOpen && !onEdit}
+        target={{ kind: "add-on", request: req }}
+        managerUserId={req.managerUserId || null}
+        onClose={() => setEditOpen(false)}
+        onSaved={onUpdated}
       />
 
       <ConfirmDeleteModal

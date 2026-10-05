@@ -26,14 +26,14 @@ export const GRID_DEFAULT_TO = 19 * 60;
 export const GRID_STEP_MINUTES = 30;
 export const GRID_DAY_END = 24 * 60;
 
-export type CalendarItemKind = "tour" | "service" | "task" | "inspection" | "busy";
+/** Inspections, move-ins/outs and every house task are `task` here: the calendar has three kinds. */
+export type CalendarItemKind = "tour" | "service" | "task" | "busy";
 
 /** Type colours (the tab dots are the legend). Hex so they read in light and dark. */
 export const CALENDAR_KIND_COLOR: Record<CalendarItemKind, string> = {
   tour: "#2a78d6",
   service: "#eb6834",
   task: "#1baf7a",
-  inspection: "#64748b",
   busy: "#94a3b8",
 };
 
@@ -41,20 +41,18 @@ export const CALENDAR_KIND_LABEL: Record<CalendarItemKind, string> = {
   tour: "Tour",
   service: "Service",
   task: "Task",
-  inspection: "Inspection",
   busy: "Busy",
 };
 
-/** Availability stripe colours: Tours blue, Services orange, Inspections slate, Move-ins/outs violet. */
-export const AVAILABILITY_KIND_COLOR: Partial<Record<AvailabilityKind, string>> = {
+/** Availability stripe colours: Tours blue, Services orange, Tasks green. */
+export const AVAILABILITY_KIND_COLOR: Record<AvailabilityKind, string> = {
   tours: "#2a78d6",
   services: "#eb6834",
-  inspections: "#64748b",
-  moves: "#8b5cf6",
+  tasks: "#1baf7a",
 };
 
-/** The kinds a typed band can show a stripe for (Tasks only ever rides on Everything). */
-export const AVAILABILITY_STRIPE_ORDER: readonly AvailabilityKind[] = ["tours", "services", "inspections", "moves"];
+/** The kinds a typed band can show a stripe for. */
+export const AVAILABILITY_STRIPE_ORDER: readonly AvailabilityKind[] = ["tours", "services", "tasks"];
 
 export function calendarItemKind(meeting: {
   kind?: "partner" | "tour" | "service" | "task";
@@ -63,7 +61,7 @@ export function calendarItemKind(meeting: {
 }): CalendarItemKind {
   if (meeting.googleCalendarPrivate) return "busy";
   if (meeting.kind === "service") return "service";
-  if (meeting.kind === "task") return /inspection/i.test(meeting.title ?? "") ? "inspection" : "task";
+  if (meeting.kind === "task") return "task";
   if (meeting.kind === "tour" || meeting.kind === "partner") return "tour";
   return "service";
 }
@@ -200,8 +198,8 @@ export type CalendarTabId = "all" | "tours" | "services" | "tasks";
 
 /**
  * Which bands a tab draws (C2-CALA6): All shows every band, Tours only windows
- * that include Tours, Services only those with Services, Tasks only
- * Everything (the one window that includes Tasks). The default 9 to 5 is a
+ * that include Tours, Services only those with Services, Tasks only those
+ * with Tasks. The default 9 to 5 is a
  * tours concept, so it shows on All and Tours.
  */
 export function bandsForTab(runs: readonly GridOpenRun[], tab: CalendarTabId): GridBand[] {
@@ -240,12 +238,12 @@ export function bandPaint(kinds: readonly AvailabilityKind[]): BandPaint {
   return stripes.length === 0 ? { plain: true, stripes: [] } : { plain: false, stripes };
 }
 
-/** "Everything" or the named types, e.g. "Tours, Services". */
-export function bandKindsLabel(kinds: readonly AvailabilityKind[], long = true): string {
-  if (kinds.length === 0 || isEverythingKinds(kinds)) return "Everything";
-  return AVAILABILITY_STRIPE_ORDER.filter((kind) => kinds.includes(kind))
-    .map((kind) => (kind === "moves" && !long ? "Move-ins/outs" : AVAILABILITY_KIND_LABELS[kind]))
-    .join(", ");
+/** The named types, e.g. "Tours, Services" (all three read "Tours, Services, Tasks"). */
+export function bandKindsLabel(kinds: readonly AvailabilityKind[], _long = true): string {
+  const names = AVAILABILITY_STRIPE_ORDER.filter((kind) => kinds.includes(kind)).map(
+    (kind) => AVAILABILITY_KIND_LABELS[kind],
+  );
+  return names.length === 0 ? "Open hours" : names.join(", ");
 }
 
 /** Distinct band type labels on screen, for the legend under the grid. */

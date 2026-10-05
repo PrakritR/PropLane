@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { ServiceListRowMenu } from "@/components/portal/service-list-row-menu";
-import { managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
+import { managerServiceRequestCardFigure, managerServiceRowFacts } from "@/lib/manager-service-list-row";
 import { managerServiceRequestRowMenuItems, managerServiceRowMenuItems } from "@/lib/manager-service-row-menu";
 import {
   fetchVendorInvoiceIdForWorkOrder,
@@ -50,8 +50,9 @@ import {
 } from "@/lib/portal-detail-routes";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
-import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { PortalListGroupRowContext } from "@/components/portal/portal-list-group";
+import { cn } from "@/lib/utils";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
@@ -107,7 +108,13 @@ import {
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
-import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
+import { ServiceEditPopup } from "@/components/portal/service-edit-popup";
+import { ServiceWhoCard } from "@/components/portal/service-who-card";
+import { useAddOnVendorJob } from "@/components/portal/use-add-on-vendor-job";
+import { applyVendorJobToAddOn, linkedVendorJobFor, withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
+import { buildServicePipeline } from "@/lib/service-pipeline";
+import { serviceCommunicationParties } from "@/lib/service-communication-scope";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -116,24 +123,22 @@ import { useShallowTabId } from "@/components/ui/tabs";
 import { fetchWorkOrderBids, type WorkOrderBid } from "@/lib/work-order-bids";
 import { fetchWorkOrderVendorOffers, type WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
 import {
+  applyAcceptedBid,
   managerServiceListCostFigure,
   resolveWorkOrderAssignee,
 } from "@/lib/manager-service-workflow";
-import { countSubmittedBids } from "@/lib/work-order-bid-cycle";
+import { countSubmittedBids, serviceIsVendorPayable } from "@/lib/work-order-bid-cycle";
 import {
-  SERVICE_STAGE_LABEL,
   SERVICE_STAGE_TABS,
   addOnServiceStage,
-  addOnStageFact,
   addOnStageSteps,
   formatServiceWhen,
   workOrderServiceStage,
-  workOrderStageFact,
   type ServiceStage,
 } from "@/lib/service-lifecycle";
-import { AddOnCycleSection } from "@/components/portal/service-vendor-cycle-section";
+import { ServiceVendorPipeline, type VendorsIntent } from "@/components/portal/service-vendor-cycle-section";
 import { ServiceAssignDialog } from "@/components/portal/service-assign-dialog";
-import { AddOnEditDialog, ServiceDetailsSection } from "@/components/portal/service-details-section";
+import { ServiceDetailsSection } from "@/components/portal/service-details-section";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
 import { addOnActivityEvents } from "@/lib/service-activity";
@@ -214,7 +219,7 @@ export function ManagerAllServicesPanel({
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
-  const { teamMembers } = useWorkAssignmentDirectory({ managerUserId: userId });
+  const { teamMembers, vendors: rosterVendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const pathname = usePathname();
   const [propertyTick, setPropertyTick] = useState(0);
   const [dataTick, setDataTick] = useState(0);
@@ -243,6 +248,8 @@ export function ManagerAllServicesPanel({
   const [addChargeOpen, setAddChargeOpen] = useState(false);
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [editRequestOpen, setEditRequestOpen] = useState(false);
+  /** The add-on's Vendors section opens on this tab (the header's next step, the Who's doing it card). */
+  const [vendorsIntent, setVendorsIntent] = useState<VendorsIntent | null>(null);
   // The URL names the tab (`/services/work-orders/scheduled`), so it selects it - on first load, on
   // back/forward, and when the page is reached from a link. A tab click writes the URL back.
   // Old tab ids (`done`, `pending`, `active`, ...) resolve through `parseServiceStage`, so a saved link
@@ -308,7 +315,7 @@ export function ManagerAllServicesPanel({
     return directoryResidentEmailSet(readManagerApplicationRows());
   }, [applicationTick]);
 
-  const workOrders = useMemo<DemoManagerWorkOrderRow[]>(() => {
+  const allWorkOrders = useMemo<DemoManagerWorkOrderRow[]>(() => {
     void dataTick;
     if (!userId) return [];
     // Owner rows + linked-property rows for co-managers with services access.
@@ -320,6 +327,10 @@ export function ManagerAllServicesPanel({
       .filter((r) => !r.residentEmail?.trim() || isLinkedToDirectoryResident(r.residentEmail, directoryEmails));
   }, [userId, dataTick, directoryEmails]);
 
+  // An add-on's vendor job (`add-on-vendor-job.ts`) is a work order behind the scenes: the two models keep
+  // separate lists and counts, so the Services lists never draw it as a service of its own.
+  const workOrders = useMemo(() => withoutLinkedVendorJobs(allWorkOrders), [allWorkOrders]);
+
   const serviceRequests = useMemo<ServiceRequest[]>(() => {
     void dataTick;
     if (!userId) return [];
@@ -327,8 +338,10 @@ export function ManagerAllServicesPanel({
     // managerUserId alone (stale/mis-stamped rows still show for property owners).
     return readAllServiceRequests()
       .filter((r) => moduleRowVisibleToPortalUser(r, userId, "services"))
-      .filter((r) => !r.residentEmail?.trim() || isLinkedToDirectoryResident(r.residentEmail, directoryEmails));
-  }, [userId, dataTick, directoryEmails]);
+      .filter((r) => !r.residentEmail?.trim() || isLinkedToDirectoryResident(r.residentEmail, directoryEmails))
+      // Once a vendor is on the add-on's job, the add-on reads Assigned / Scheduled / Completed with it.
+      .map((r) => applyVendorJobToAddOn(r, linkedVendorJobFor(r, allWorkOrders)));
+  }, [userId, dataTick, directoryEmails, allWorkOrders]);
 
   // C253: bid counts for the Overview tile and the list row's glyph fact — one
   // batched fetch (no workOrderId = every bid across this manager's work orders,
@@ -466,6 +479,16 @@ export function ManagerAllServicesPanel({
     return bucketedRequests.find((r) => r.id === decoded) ?? null;
   }, [serviceRequestIdProp, bucketedRequests]);
 
+  const detailJob = useMemo(() => (detailRequest ? linkedVendorJobFor(detailRequest, allWorkOrders) : null), [detailRequest, allWorkOrders]);
+  const addOnJob = useAddOnVendorJob({
+    request: detailRequest,
+    job: detailJob,
+    managerUserId: userId ?? null,
+    propertyLabel: detailRequest && resolveRequestPropertyLabel(detailRequest) !== "—" ? resolveRequestPropertyLabel(detailRequest) : "",
+    showToast,
+    onChanged: () => setDataTick((t) => t + 1),
+  });
+
   const propertyFilterLabel = useMemo(() => {
     if (propertyFilters.length === 0) return "";
     if (propertyFilters.length === 1) {
@@ -567,11 +590,13 @@ export function ManagerAllServicesPanel({
     return chips;
   }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel, assigneeFilter, assigneeFilterOptions, lockedPropertyId]);
 
-  const renderRequestDetail = (req: ServiceRequest, opts?: { actionsOnly?: boolean }) => {
+  const renderRequestDetail = (req: ServiceRequest, opts?: { actionsOnly?: boolean; onEdit?: () => void; onMarkDone?: () => void }) => {
     return (
       <ManagerServiceRequestDetail
         req={req}
         actionsOnly={opts?.actionsOnly}
+        onEdit={opts?.onEdit}
+        onMarkDone={opts?.onMarkDone}
         onFooterActionsChange={setDetailFooterActions}
         propertyLabel={resolveRequestPropertyLabel(req)}
         onUpdated={() => setDataTick((t) => t + 1)}
@@ -822,6 +847,28 @@ export function ManagerAllServicesPanel({
       : addOnRequest
         ? managerServiceRequestCardFigure(addOnRequest)
         : undefined;
+    const rowBids = maintenanceRow ? allBids.filter((bid) => bid.workOrderId === maintenanceRow.id) : [];
+    const acceptedBid = rowBids.find((bid) => bid.status === "accepted");
+    // The vendor's bill rides on a completed vendor job; an approved add-on is billed to the resident.
+    const billedWorkOrder = maintenanceRow ? applyAcceptedBid(maintenanceRow, rowBids) : null;
+    const bill =
+      billedWorkOrder && row.state === "completed" && costFigure && serviceIsVendorPayable(billedWorkOrder)
+        ? { amount: costFigure, paid: billedWorkOrder.automationStatus === "paid" }
+        : addOnRequest && addOnRequest.status !== "pending" && addOnRequest.status !== "denied" && costFigure
+          ? { amount: costFigure, paid: addOnRequest.servicePaid }
+          : null;
+    const rowFacts = managerServiceRowFacts({
+      state: row.state,
+      createdIso: row.createdIso,
+      scheduledIso: row.scheduledIso || row.proposedVisit?.iso,
+      completedIso: maintenanceRow
+        ? maintenanceRow.completedAt
+        : addOnRequest?.returnedAt || addOnRequest?.deniedAt || addOnRequest?.approvedAt,
+      assigneeName: maintenanceRow
+        ? resolveWorkOrderAssignee(maintenanceRow)?.name || acceptedBid?.vendorName
+        : addOnRequest?.assignee?.name,
+      bill,
+    });
     const menuItems = maintenanceRow
       ? managerServiceRowMenuItems(maintenanceRow, {
           bidCount,
@@ -922,16 +969,8 @@ export function ManagerAllServicesPanel({
         row={row}
         omitProperty={omitPropertyInSubtitle}
         figure={costFigure}
-        stageFact={
-          maintenanceRow
-            ? workOrderStageFact(maintenanceRow, {
-                bids: allBids.filter((bid) => bid.workOrderId === maintenanceRow.id),
-                offers: allOffers.filter((offer) => offer.workOrderId === maintenanceRow.id),
-              })
-            : addOnRequest
-              ? addOnStageFact(addOnRequest)
-              : undefined
-        }
+        facts={rowFacts}
+        photoUrl={maintenanceRow?.photoDataUrls?.find((url) => url.trim()) || undefined}
         menu={
           menuItems.length > 0 ? (
             <ServiceListRowMenu title={row.title} items={menuItems} onAction={onMenuAction} />
@@ -966,12 +1005,38 @@ export function ManagerAllServicesPanel({
       showToast(next.id === userId ? "You're handling this yourself." : `Assigned ${next.name}.`);
     };
     const propertyForModals = detailRequest.propertyId?.trim() || undefined;
+    const vendorsHref = serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "vendors");
+    const sendToVendors = () => {
+      setVendorsIntent({ tab: "available", nonce: (vendorsIntent?.nonce ?? 0) + 1 });
+      if (activeTab !== "vendors") navigate(vendorsHref);
+    };
+    const pipeline = buildServicePipeline({
+      job: detailJob,
+      offers: addOnJob.offers,
+      bids: addOnJob.bids,
+      roster: rosterVendors,
+      jobTrade: "",
+    });
+    const hiredVendor = detailRequest.assignee?.type === "vendor";
     const ownContent =
       activeTab === "vendors" ? (
-        <AddOnCycleSection
-          currentStage={addOnServiceStage(detailRequest)}
-          assignee={detailRequest.assignee ?? null}
-          onOpenAssign={() => setAssignOpen(true)}
+        <ServiceVendorPipeline
+          pipeline={pipeline}
+          trade="General"
+          intent={vendorsIntent}
+          sending={addOnJob.sending}
+          approvingBidId={addOnJob.approvingBidId}
+          allowMarketplace={!isDemoModeActive()}
+          onSend={addOnJob.send}
+          onWithdraw={(request) => void addOnJob.withdraw(request)}
+          onApprove={(request) => void addOnJob.approve(request)}
+          onSchedule={() => {
+            if (detailJob) setScheduleVisitRow(detailJob);
+          }}
+          onMarkDone={() => void addOnJob.markDone()}
+          onPay={() => void addOnJob.pay()}
+          onMessage={() => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "communication"))}
+          onOpenVendor={(vendorId) => navigate(vendorDetailHref(basePath, vendorId))}
         />
       ) : activeTab === "incoming-payments" ? (
         <ServiceIncomingPaymentsList
@@ -986,33 +1051,47 @@ export function ManagerAllServicesPanel({
       ) : activeTab === "communication" ? (
         <ServiceCommunicationPane
           recordId={detailRequest.id}
+          linkedWorkOrderId={detailJob?.id ?? detailRequest.linkedWorkOrderId}
           recordLabel={detailRequest.offerName}
           propertyId={detailRequest.propertyId}
-          resident={{ name: detailRequest.residentName, email: detailRequest.residentEmail }}
+          basePath={basePath}
+          parties={serviceCommunicationParties({
+            resident: { name: detailRequest.residentName, email: detailRequest.residentEmail },
+            offers: addOnJob.offers,
+            bids: addOnJob.bids,
+            roster: rosterVendors,
+          })}
         />
       ) : (
         <ServiceDetailsSection
           stages={addOnStageSteps(detailRequest)}
-          photos={[]}
-          activity={addOnActivityEvents(detailRequest)}
-          onEdit={detailRequest.status === "pending" ? () => setEditRequestOpen(true) : undefined}
-          details={
-        renderRecordSection("overview", {
-          role: "manager",
-          kind: "service",
-          kindLabel: "service",
-          recordId: detailRequest.id,
-          recordLabel: detailRequest.offerName,
-          overviewTiles: [
-            { id: "status", label: "Status", value: detailRequest.status.toLowerCase() === "denied" ? "Declined" : SERVICE_STAGE_LABEL[addOnServiceStage(detailRequest)] },
-            { id: "vendor", label: "Assigned to", value: detailRequest.assignee?.name ?? "Not assigned" },
-            { id: "cost", label: "Cost", value: managerServiceRequestPricingSummary(detailRequest) },
-            { id: "requested", label: "Requested", value: formatPortalListDate(detailRequest.requestedAt) },
-          ],
-          overviewNeeds: !detailRequest.assignee
-            ? [{ id: "assign-vendor", title: "Assign a vendor", onClick: () => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "vendors")) }]
-            : [],
-          overviewCards: [
+          who={
+            <ServiceWhoCard
+              who={
+                detailRequest.assignee
+                  ? {
+                      name: detailRequest.assignee.name?.trim() || "Assigned",
+                      kind: hiredVendor ? "vendor" : "team",
+                      trade: hiredVendor ? (rosterVendors.find((v) => v.id === detailRequest.assignee?.id)?.trade ?? "") : "",
+                      visit: formatServiceWhen(detailRequest.proposedVisit?.iso),
+                      price: hiredVendor && detailJob ? managerServiceListCostFigure(detailJob, addOnJob.acceptedBid) : managerServiceRequestPricingSummary(detailRequest).replace(/^—$/, ""),
+                      approved: hiredVendor && Boolean(addOnJob.acceptedBid),
+                    }
+                  : null
+              }
+              finished={detailRequest.status === "returned" || detailRequest.status === "denied"}
+              onAssignTeam={() => setAssignOpen(true)}
+              onSendToVendors={sendToVendors}
+              onReschedule={detailJob ? () => setScheduleVisitRow(detailJob) : undefined}
+              onOpenVendor={
+                hiredVendor && detailRequest.assignee && rosterVendors.some((v) => v.id === detailRequest.assignee?.id)
+                  ? () => navigate(vendorDetailHref(basePath, detailRequest.assignee!.id))
+                  : undefined
+              }
+              onMessage={() => navigate(serviceRequestDetailHref(basePath, reqBucket, detailRequest.id, "communication"))}
+            />
+          }
+          cards={[
             {
               id: "request",
               title: "Request",
@@ -1029,22 +1108,24 @@ export function ManagerAllServicesPanel({
                 { label: "Resident", value: detailRequest.residentName },
               ],
             },
-            {
-              id: "assignment",
-              title: "Assignment",
-              rows: [
-                { label: "Assigned to", value: detailRequest.assignee?.name ?? "—" },
-                { label: "Visit", value: formatServiceWhen(detailRequest.proposedVisit?.iso) || "—" },
-              ],
-            },
-          ],
-        })
-          }
+          ]}
+          photos={[]}
+          activity={addOnActivityEvents(detailRequest)}
         />
       );
     return (
       <>
-        {renderRequestDetail(detailRequest, { actionsOnly: true })}
+        {renderRequestDetail(detailRequest, {
+          actionsOnly: true,
+          onEdit: () => setEditRequestOpen(true),
+          onMarkDone: () => void addOnJob.markDone(),
+        })}
+        <ScheduleServiceVisitModal
+          open={scheduleVisitRow !== null}
+          row={scheduleVisitRow}
+          onClose={() => setScheduleVisitRow(null)}
+          onScheduled={() => setDataTick((t) => t + 1)}
+        />
         <ServiceAssignDialog
           open={assignOpen}
           onClose={() => setAssignOpen(false)}
@@ -1078,17 +1159,12 @@ export function ManagerAllServicesPanel({
             initialMemo={detailRequest.offerName}
           />
         ) : null}
-        <AddOnEditDialog
+        <ServiceEditPopup
           open={editRequestOpen}
-          title={detailRequest.offerName}
-          price={(detailRequest.price ?? "").replace(/^\$/, "")}
-          deposit={(detailRequest.deposit ?? "").replace(/^\$/, "")}
+          target={{ kind: "add-on", request: detailRequest }}
+          managerUserId={userId ?? null}
           onClose={() => setEditRequestOpen(false)}
-          onSave={({ price, deposit }) => {
-            updateServiceRequest(detailRequest.id, { price, deposit });
-            setDataTick((t) => t + 1);
-            showToast("Charges updated.");
-          }}
+          onSaved={() => setDataTick((t) => t + 1)}
         />
         <PortalRecordDetailPage
           pageTitle="Services"
@@ -1200,9 +1276,18 @@ export function ManagerAllServicesPanel({
 
   const servicesBody = (
     <>
-      <div className="svc30 overflow-hidden rounded-xl border border-border bg-card shadow-sm" data-svc-page={serviceState}>
+      {/*
+        * Rows share one joined card with the header. An empty tab drops that outer
+        * chrome: the empty card carries its own border, so keeping both drew a box
+        * in a box. Empty = header card, then the one empty card (like Properties).
+        */}
+      <div
+        className={cn("svc30", !servicesListIsEmpty && "overflow-hidden rounded-xl border border-border bg-card shadow-sm")}
+        data-svc-page={serviceState}
+        data-svc-empty={servicesListIsEmpty ? "true" : undefined}
+      >
       <PortalListControlStack
-        className="plp-header-card !border-0 !shadow-none !rounded-none bg-transparent"
+        className={cn("plp-header-card", servicesListIsEmpty ? "mb-2 max-lg:mb-1.5" : "!border-0 !shadow-none !rounded-none bg-transparent")}
         variant="command"
         embedded={false}
         stickyDestinations={false}
@@ -1224,14 +1309,17 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface className="plp-listsurface border-t border-border" isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface className={cn("plp-listsurface", !servicesListIsEmpty && "border-t border-border pb-0 lg:pb-0 max-lg:pb-0")} isEmpty={servicesListIsEmpty} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>
       ) : null}>
-          <div data-attr="services-flat-list">
-            {visibleUnifiedRows.map((row) => renderServiceRow(row, Boolean(lockedPropertyId)))}
-          </div>
+          {/* Flush rows: the joined card draws one hairline between rows and ends at the last one. */}
+          <PortalListGroupRowContext.Provider value={true}>
+            <div data-attr="services-flat-list" className="divide-y divide-border/60">
+              {visibleUnifiedRows.map((row) => renderServiceRow(row, Boolean(lockedPropertyId)))}
+            </div>
+          </PortalListGroupRowContext.Provider>
       </PortalRecordListSurface>
       </div>
 
@@ -1267,9 +1355,10 @@ export function ManagerAllServicesPanel({
         }}
       />
 
-      <EditServiceWorkOrderModal
+      <ServiceEditPopup
         open={editWorkOrderRow !== null}
-        row={editWorkOrderRow}
+        target={editWorkOrderRow ? { kind: "maintenance", row: editWorkOrderRow } : null}
+        managerUserId={userId ?? null}
         onClose={() => setEditWorkOrderRow(null)}
         onSaved={() => {
           clearSelection();

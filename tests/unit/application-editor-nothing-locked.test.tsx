@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * Nothing in the application editor is locked except what the application cannot work without: every
- * question's words are editable (household and identity included) and the applicant wizard asks the
- * question the way the template words it; a household question can be deleted and the application is then
- * for one person with no co-signer; the six undeletable built-ins are a short, named list.
+ * Nothing in the application editor is locked: every question's words, type, Required, choices, order and
+ * on/off are editable (household and identity included) and the applicant wizard asks the question the way
+ * the template words it; a household question can be deleted and the application is then for one person with
+ * no co-signer. Changing the type of a built-in the system reads detaches it (after a confirm).
  */
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -24,7 +24,6 @@ import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import {
   applicationConfigForVariant,
   editorVisibleDisabledApplicationFields,
-  NEVER_DISABLED_STANDARD_KEYS,
   resolveListingApplicationFields,
   STANDARD_APPLICATION_FIELD_CATALOG,
   type ApplicationConfigSlice,
@@ -152,7 +151,7 @@ describe("the Group application row opens Group application", () => {
 });
 
 describe("household and identity questions are editable and the applicant wizard asks them as worded", () => {
-  it("the open household question's text, choices, Required and Delete are all live; Type stays fixed", () => {
+  it("the open household question's text, choices, Required, Type and Delete are all live", () => {
     render(<Harness />);
     openSection("household");
     fireEvent.click(rowFor("Group application").querySelector(`[data-attr="${PREFIX}-question-open"]`) as HTMLElement);
@@ -160,6 +159,8 @@ describe("household and identity questions are editable and the applicant wizard
     expect(document.querySelector(`[data-attr="${PREFIX}-question-label-text"]`)).toBeNull();
     expect(document.querySelector(`[data-attr="${PREFIX}-question-required"]`)).not.toBeNull();
     expect(document.querySelector(`[data-attr="${PREFIX}-question-delete"]`)).not.toBeNull();
+    expect(document.querySelector(`[data-attr="${PREFIX}-question-type"]`)).not.toBeNull();
+    expect(document.querySelector(`[data-attr="${PREFIX}-question-type-text"]`)).toBeNull();
     // Each choice can be reworded; none can be added, removed or moved (the wizard reads their stored values).
     expect(document.querySelector('[data-attr="application-question-option-0"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="application-question-option-add"]')).toBeNull();
@@ -307,41 +308,59 @@ describe("a household question can be deleted and the application still submits"
   });
 });
 
-describe("the undeletable list is short and named", () => {
-  const LOCKED = [NAME, "personal-phone", "personal-email", "property-property", "property-room-choices-1st-3rd", "property-lease-term"];
+describe("the identity floor: full legal name and email are always asked; everything else is open", () => {
+  const FLOOR = [NAME, "personal-email"];
 
-  it("is exactly name, phone, email, property, first room choice and lease term", () => {
-    expect([...NEVER_DISABLED_STANDARD_KEYS].sort()).toEqual([...LOCKED].sort());
-  });
-
-  it("every other built-in deletes, every listed one does not", () => {
+  it("every built-in deletes except full legal name and email, which stay on", () => {
     const slice = startSlice();
     const state = { slice, disabledSectionIds: [] };
     for (const def of STANDARD_APPLICATION_FIELD_CATALOG) {
       const field = fieldOf(slice, def.standardKey);
       const next = applyApplicationEditorChange(state, { kind: "delete-question", sectionId: def.section, questionId: field.id }, ctxFor(slice));
-      if (LOCKED.includes(def.standardKey)) expect(next, def.standardKey).toBe(state);
+      if (FLOOR.includes(def.standardKey)) expect(next.slice.disabledStandardApplicationKeys, def.standardKey).not.toContain(def.standardKey);
       else expect(next.slice.disabledStandardApplicationKeys, def.standardKey).toContain(def.standardKey);
     }
   });
 
-  it("the editor draws Delete for the rest and none for the listed ones", () => {
+  it("the editor offers Delete, Type, Required, wording and order on every question except name and email, which can only be reworded and moved", () => {
     const sections = applicationSectionsForEditor({ ...ctxFor(startSlice()), disabledSectionIds: [] });
     const questions = sections.flatMap((section) => section.questions);
-    for (const def of STANDARD_APPLICATION_FIELD_CATALOG) {
-      const question = questions.find((q) => q.id === fieldOf(startSlice(), def.standardKey).id)!;
-      expect(question.can?.remove !== false, def.standardKey).toBe(!LOCKED.includes(def.standardKey));
+    expect(questions.length).toBeGreaterThan(30);
+    for (const q of questions) {
+      const floor = q.label === "Full legal name" || q.label === "Email";
+      expect(q.can?.remove !== false, q.label).toBe(!floor);
+      expect(q.can?.type !== false, q.label).toBe(!floor);
+      expect(q.can?.required !== false, q.label).toBe(!floor);
+      expect(q.can?.label, q.label).not.toBe(false);
+      expect(q.can?.move, q.label).not.toBe(false);
     }
-    // Every question's words can be edited.
-    expect(questions.every((q) => q.can?.label !== false)).toBe(true);
   });
 
-  it("a section holding an undeletable question is locked on; the household section is not", () => {
+  it("only the section holding name and email is locked on; the others are live", () => {
     render(<Harness />);
     const sw = (id: string) => document.querySelector(`[data-attr="${PREFIX}-section-switch-${id}"]`) as HTMLButtonElement;
     expect(sw("personal").disabled).toBe(true);
-    expect(sw("property").disabled).toBe(true);
-    expect(sw("household").disabled).toBe(false);
+    expect(document.querySelector(`[data-attr="${PREFIX}-section-lock-personal"]`)).not.toBeNull();
+    for (const id of ["property", "household"]) expect(sw(id).disabled).toBe(false);
+  });
+
+  it("Required toggles off on phone, never on name or email", () => {
+    let slice = startSlice();
+    slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, "personal-phone").id, patch: { required: false } });
+    expect(fieldOf(slice, "personal-phone").required).toBe(false);
+    for (const key of FLOOR) {
+      slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, key).id, patch: { required: false } });
+      expect(fieldOf(slice, key).required, key).toBe(true);
+    }
+  });
+
+  it("name and email can be reworded but keep their type", () => {
+    let slice = startSlice();
+    const emailType = fieldOf(slice, "personal-email").type;
+    slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, "personal-email").id, patch: { label: "Best email" } });
+    slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, "personal-email").id, patch: { type: "long_text" } });
+    expect(fieldOf(slice, "personal-email").label).toBe("Best email");
+    expect(fieldOf(slice, "personal-email").type).toBe(emailType);
   });
 });
 

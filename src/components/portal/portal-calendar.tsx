@@ -16,11 +16,9 @@ import {
   ADMIN_AVAILABILITY_STORAGE_KEY,
   managerPropertyAvailabilityStorageKey,
   readAvailabilityDateSetForStorageKey,
-  readCalendarShareAvailability,
   registerManagerForProperty,
   syncScheduleRecordsFromServer,
   writeAvailabilityDateSetForStorageKeyToServer,
-  writeCalendarShareAvailability,
 } from "@/lib/demo-admin-scheduling";
 import {
   MANAGER_KIND_AVAILABILITY_KINDS,
@@ -35,7 +33,6 @@ import {
 import {
   coManagerOverlaysFromPeers,
   listPropertyCalendarPeers,
-  propertyHasMultipleCalendarManagers,
   type CoManagerCalendarPeerDto,
 } from "@/lib/co-manager-calendar";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -129,7 +126,6 @@ function PortalCalendarManager({
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [shareTourModalOpen, setShareTourModalOpen] = useState(false);
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
-  const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
   const calendarView: CalendarViewTabId =
     portal === "manager" && !schedulingHub ? parseCalendarViewTab(calendarViewProp) : "all";
@@ -267,14 +263,12 @@ function PortalCalendarManager({
     if (portal !== "manager" || !userId || !soleCalendarPropertyId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clear co-manager state when scope is unavailable
       setCoManagerPeers([]);
-      setShareAvailability(false);
       return;
     }
     let cancelled = false;
     const loadPeers = async () => {
       await syncScheduleRecordsFromServer();
       if (cancelled) return;
-      setShareAvailability(readCalendarShareAvailability(userId, soleCalendarPropertyId));
       try {
         const res = await fetch(
           `/api/portal/co-manager-calendar?propertyId=${encodeURIComponent(soleCalendarPropertyId)}`,
@@ -283,7 +277,6 @@ function PortalCalendarManager({
         if (!res.ok) {
           const localPeers = listPropertyCalendarPeers(userId, soleCalendarPropertyId).map((peer) => ({
             ...peer,
-            sharesAvailability: peer.isSelf ? readCalendarShareAvailability(userId, soleCalendarPropertyId) : false,
             slots: [] as string[],
           }));
           if (!cancelled) setCoManagerPeers(localPeers);
@@ -296,7 +289,6 @@ function PortalCalendarManager({
           setCoManagerPeers(
             listPropertyCalendarPeers(userId, soleCalendarPropertyId).map((peer) => ({
               ...peer,
-              sharesAvailability: peer.isSelf ? readCalendarShareAvailability(userId, soleCalendarPropertyId) : false,
               slots: [],
             })),
           );
@@ -333,23 +325,6 @@ function PortalCalendarManager({
   const coManagerAvailabilityOverlays = useMemo(
     () => (userId ? coManagerOverlaysFromPeers(coManagerPeers, userId) : []),
     [coManagerPeers, userId],
-  );
-
-  const showCoManagerCoordination =
-    portal === "manager" &&
-    Boolean(soleCalendarPropertyId && userId && propertyHasMultipleCalendarManagers(userId, soleCalendarPropertyId));
-
-  const setShareAvailabilityPreference = useCallback(
-    (next: boolean) => {
-      if (!userId || !soleCalendarPropertyId) return;
-      setShareAvailability(next);
-      writeCalendarShareAvailability(userId, soleCalendarPropertyId, next);
-      setCoManagerPeers((prev) =>
-        prev.map((peer) => (peer.isSelf ? { ...peer, sharesAvailability: next } : peer)),
-      );
-      showToast(next ? "Co-managers can see your availability for this house." : "Your availability is private.");
-    },
-    [userId, soleCalendarPropertyId, showToast],
   );
 
   // Register this manager as a tour host for the selected property so the public
@@ -794,23 +769,6 @@ function PortalCalendarManager({
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
-                {showCoManagerCoordination && availabilityView ? (
-                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm shadow-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 accent-primary"
-                      checked={shareAvailability}
-                      onChange={(e) => setShareAvailabilityPreference(e.target.checked)}
-                    />
-                    <span>
-                      <span className="font-semibold text-foreground">Share availability with co-managers</span>
-                      <span className="mt-0.5 block text-xs text-muted">
-                        Linked managers on this house can see when you are open for tours. You only see their
-                        availability when they opt in too.
-                      </span>
-                    </span>
-                  </label>
-                ) : null}
                 {propertiesLoading && managerProperties.length === 0 ? (
                   <p className="text-sm text-muted">Loading houses from the backend…</p>
                 ) : (
@@ -857,7 +815,8 @@ function PortalCalendarManager({
               (availabilityView || tasksOnlyView) && calendarScheduledTourFilter ? calendarScheduledTourFilter : undefined
             }
             scheduledMeetingFilter={scheduledMeetingFilter}
-            coManagerAvailabilityOverlays={showCoManagerCoordination ? coManagerAvailabilityOverlays : undefined}
+            coManagerAvailabilityOverlays={coManagerAvailabilityOverlays}
+            coManagerPeers={portal === "manager" ? coManagerPeers : undefined}
             externalMeetings={portal === "manager" ? mergedExternalMeetings : undefined}
             onGoogleCalendarRefresh={() => setGoogleCalendarTick((n) => n + 1)}
             // Recompute the view-tab counts as soon as a tour is confirmed,

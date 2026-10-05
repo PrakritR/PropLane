@@ -249,14 +249,10 @@ export function syncPropertyApplicationTemplatesFromListing(
       applicationTemplateHasManagerEdits(t),
   );
   const merged = [...nextSeeded, ...manual, ...preservedSeeded];
-  const hasShortTerm = merged.some((t) => t.formVariant === "short_term");
-  return syncLegacyApplicationFieldsFromTemplates(
-    {
-      ...sub,
-      shortTermRentalsAllowed: hasShortTerm || Boolean(sub.shortTermRentalsAllowed),
-    },
-    merged,
-  );
+  // The seeded short-term form always exists (it is a default, not a choice), so its presence says nothing
+  // about the stays on offer: leave `shortTermRentalsAllowed` to the listing ("Stays you offer"). Forcing it on
+  // here flipped a long-term-only listing to short-term the moment any application was saved.
+  return syncLegacyApplicationFieldsFromTemplates(sub, merged);
 }
 
 export function submissionAfterRemovingApplicationTemplate(

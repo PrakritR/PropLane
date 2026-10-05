@@ -80,8 +80,9 @@ vi.mock("@/components/portal/pro-portal-settings-panels", () => ({
 vi.mock("@/components/portal/settings-module-page", () => ({
   SettingsModulePage: ({ tab }: { tab: string }) => <div data-testid={`pane-module-${tab}`} />,
 }));
-vi.mock("@/components/portal/manager-sheet-link-panel", () => ({
-  ManagerSheetLinkPanel: () => <div data-testid="pane-spreadsheets" />,
+vi.mock("@/components/portal/manager-integrations-panel", () => ({
+  INTEGRATIONS_TAB_PARAM: "integration",
+  ManagerIntegrationsPanel: () => <div data-testid="pane-spreadsheets" />,
 }));
 vi.mock("@/components/portal/google-calendar-connect-panel", () => ({
   GoogleCalendarConnectPanel: () => <div data-testid="pane-google-calendar" />,

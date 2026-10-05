@@ -12,7 +12,7 @@ import { notifyWorkOrderEvent } from "@/lib/work-order-notification.server";
 import { buildVendorBidOfferEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderActionFailure, WorkOrderActor } from "@/lib/work-order-bids.server";
-import { workOrderEvent } from "@/lib/work-order-events.server";
+import { workOrderEvent, type WorkOrderEventInput } from "@/lib/work-order-events.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
 import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
@@ -24,6 +24,7 @@ import {
 } from "@/lib/work-order-marketplace-match.server";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
 
 function expiresLabel(at: Date): string {
   return at.toLocaleString("en-US", { timeZone: "America/Los_Angeles", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -325,36 +326,67 @@ export async function sendWorkOrderVendorOffers(
       channel: "services",
     });
     const newService = body.newService === true;
-    await workOrderEvent(db, {
-      eventId: `${workOrderId}:${newService ? "vendor_new_service" : "vendor_offered"}:${sent.slice().sort().join(",")}`,
-      event: newService ? "vendor_new_service" : "vendor_offered",
-      managerUserId: String(workOrder.manager_user_id),
-      workOrderId,
-      senderUserId: actor.userId,
-      senderEmail: actor.email,
-      senderName: actor.fullName,
-      facts: {
-        reference: rowData.reference || "Work order",
-        title: rowData.title || "Work order",
-        propertyLabel: rowData.propertyName || undefined,
-        scheduledFor: rowData.scheduled || undefined,
-        offerCount: sent.length,
-        expiresLabel: expiresAt ? expiresLabel(expiresAt) : undefined,
-        emergency: rowData.priority === "Emergency",
-        ...(newService
-          ? {
-              propertyLabel: [rowData.propertyName, rowData.unit && rowData.unit !== "—" ? rowData.unit : ""].filter(Boolean).join(" · ") || undefined,
-              scheduledFor: undefined,
-              vendorName: offeredVendors[0]?.name || undefined,
-              url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/work-orders`,
-            }
-          : {}),
-      },
-      recipients: [
-        ...offeredVendors.map((vendor) => ({ audience: "vendor" as const, userId: vendor.vendorUserId ?? undefined, email: vendor.email || undefined })),
-        ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
-      ],
-    }).catch(() => undefined);
+    const event = newService ? "vendor_new_service" : "vendor_offered";
+    const eventIdBase = `${workOrderId}:${event}:${sent.slice().sort().join(",")}`;
+    // An offered vendor has not been hired, so nothing in this notification may name the site: it
+    // carries the same general-area projection the vendor portal is served
+    // (`projectWorkOrderForOfferedVendor`), and the unit is dropped outright. The manager's own copy
+    // is a separate emit, because it is about their own house and says its real name.
+    const sharedFacts = {
+      reference: rowData.reference || "Work order",
+      title: rowData.title || "Work order",
+      scheduledFor: newService ? undefined : rowData.scheduled || undefined,
+      offerCount: sent.length,
+      expiresLabel: expiresAt ? expiresLabel(expiresAt) : undefined,
+      emergency: rowData.priority === "Emergency",
+      ...(newService
+        ? {
+            vendorName: offeredVendors[0]?.name || undefined,
+            url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/work-orders`,
+          }
+        : {}),
+    };
+    const managerPropertyLabel = newService
+      ? [rowData.propertyName, rowData.unit && rowData.unit !== "—" ? rowData.unit : ""].filter(Boolean).join(" · ") || undefined
+      : rowData.propertyName || undefined;
+    // One transition, two emits — so only the first publishes the outbound webhook, which carries
+    // no audience and would otherwise reach every subscribed integrator twice per offer.
+    let webhookPublished = false;
+    const emitOffer = async (
+      suffix: string,
+      propertyLabel: string | undefined,
+      recipients: WorkOrderEventInput["recipients"],
+    ) => {
+      if (recipients.length === 0) return;
+      const suppressOutboundWebhook = webhookPublished;
+      webhookPublished = true;
+      await workOrderEvent(db, {
+        eventId: `${eventIdBase}${suffix}`,
+        event,
+        managerUserId: String(workOrder.manager_user_id),
+        workOrderId,
+        senderUserId: actor.userId,
+        senderEmail: actor.email,
+        senderName: actor.fullName,
+        facts: { ...sharedFacts, propertyLabel },
+        recipients,
+        suppressOutboundWebhook,
+      }).catch(() => undefined);
+    };
+    await emitOffer(
+      "",
+      workOrderGeneralArea(rowData),
+      offeredVendors.map((vendor) => ({
+        audience: "vendor" as const,
+        userId: vendor.vendorUserId ?? undefined,
+        email: vendor.email || undefined,
+      })),
+    );
+    await emitOffer(
+      ":manager",
+      managerPropertyLabel,
+      managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+    );
   }
 
   track("work_order_vendor_offer_sent", actor.userId, { work_order_id: workOrderId, vendor_count: sent.length });
@@ -543,6 +575,7 @@ async function notifyManagerOfDeclinedOffer(
       note: input.reason ?? undefined,
       toUserIds: recipientIds,
       audience: "manager",
+      serviceId: input.workOrderId,
     });
   } catch {
     // Swallowed on purpose: the vendor said no, and that answer must survive a mail outage.

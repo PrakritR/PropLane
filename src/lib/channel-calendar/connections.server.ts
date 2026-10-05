@@ -9,7 +9,7 @@ import {
   type ChannelCalendarImportedRange,
   type ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
-import { resolveShareableAppOrigin } from "@/lib/app-url";
+import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 export function mintChannelCalendarExportToken(): string {
   return randomBytes(24).toString("base64url");
@@ -48,12 +48,56 @@ export function mergeChannelImportedRanges(
   return [...kept, ...importedRangesToUnavailable(connectionId, imported)];
 }
 
-export function buildExportCalendarUrl(exportToken: string, browserOrigin?: string): string {
-  const trimmed = browserOrigin?.trim().replace(/\/$/, "");
-  if (trimmed) {
-    return `${trimmed}/api/calendar/export/${encodeURIComponent(exportToken)}.ics`;
+/**
+ * Reduce a caller-supplied origin to a clean `http(s)://host[:port]` or null.
+ * A client once sent the origin percent-encoded (`https%3A%2F%2Fproplane.ai`),
+ * which produced a feed link Airbnb rejected, so it is decoded defensively and
+ * must then parse as a plain http(s) origin.
+ */
+export function sanitizeCalendarOrigin(raw: string | undefined | null): string | null {
+  let value = raw?.trim() ?? "";
+  if (!value) return null;
+  for (let i = 0; i < 2 && /%[0-9a-f]{2}/i.test(value); i += 1) {
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      return null;
+    }
   }
-  const origin = resolveShareableAppOrigin(browserOrigin);
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A localhost origin, and only outside production. `resolveRequestOrigin` builds the candidate from
+ * the caller-controlled Host / x-forwarded-host header, so a production request arriving as
+ * `Host: localhost:3000` must never get a feed URL Airbnb cannot fetch.
+ */
+function isLocalDevOrigin(origin: string): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  const host = new URL(origin).hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+/**
+ * The feed URL is always `https://<host>/api/calendar/export/<token>.ics` on the
+ * canonical server-side origin. The request origin is honoured only for
+ * localhost development so lane servers keep their own port.
+ */
+export function buildExportCalendarUrl(exportToken: string, requestOrigin?: string): string {
+  const candidate = sanitizeCalendarOrigin(requestOrigin);
+  const origin =
+    candidate && isLocalDevOrigin(candidate)
+      ? candidate
+      : sanitizeCalendarOrigin(process.env.NEXT_PUBLIC_CANONICAL_APP_URL) ??
+        sanitizeCalendarOrigin(resolveEmailLinkBaseUrl()) ??
+        PRODUCTION_APP_ORIGIN;
   return `${origin}/api/calendar/export/${encodeURIComponent(exportToken)}.ics`;
 }
 

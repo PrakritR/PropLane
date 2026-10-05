@@ -10,12 +10,19 @@ if (url && !["127.0.0.1", "localhost"].includes(new URL(url).hostname)) {
 const suite = url ? describe : describe.skip;
 const db = new Pool({ connectionString: url, max: 8 });
 const migration = readFileSync("supabase/migrations/20261004220000_vendor_invoice_stripe_checkout_claim.sql", "utf8");
+// Landed from the prakrit rung: the server-written visit-fee marker, the cross-rail payout guard,
+// and the reconciliation that makes both claim functions use them.
+const visitMarker = readFileSync("supabase/migrations/20261004150000_vendor_invoice_estimate_visit_marker.sql", "utf8");
+const crossRailGuard = readFileSync("supabase/migrations/20261004160000_vendor_payout_cross_rail_guard.sql", "utf8");
+const reconcile = readFileSync("supabase/migrations/20261005120000_reconcile_vendor_payment_claims.sql", "utf8");
 
-async function invoiceFixture(opts: { workOrderId?: string; visitFee?: boolean } = {}) {
-  const manager = randomUUID(), vendor = randomUUID(), invoice = randomUUID(), bill = randomUUID();
+async function invoiceFixture(opts: { workOrderId?: string; visitFee?: boolean;
+  existing?: { manager: string; vendor: string }; invoiceNumber?: string } = {}) {
+  const manager = opts.existing?.manager ?? randomUUID(), vendor = opts.existing?.vendor ?? randomUUID();
+  const invoice = randomUUID(), bill = randomUUID();
   const amount = 12345;
-  await db.query("insert into auth.users(id) values($1),($2)", [manager, vendor]);
-  if (opts.workOrderId) {
+  if (!opts.existing) await db.query("insert into auth.users(id) values($1),($2)", [manager, vendor]);
+  if (opts.workOrderId && !opts.existing) {
     await db.query("insert into public.portal_work_order_records(id,manager_user_id,vendor_user_id,row_data) values($1,$2,$3,$4)",
       [opts.workOrderId, manager, opts.visitFee ? randomUUID() : vendor, {}]);
   }
@@ -27,7 +34,9 @@ async function invoiceFixture(opts: { workOrderId?: string; visitFee?: boolean }
   await db.query("insert into public.manager_bills(id,manager_user_id,vendor_id,work_order_id,description,amount_cents,status) values($1,$2,$3,$4,'Vendor invoice',$5,'approved')",
     [bill, manager, vendor, opts.workOrderId ?? null, amount]);
   await db.query("insert into public.vendor_invoices(id,manager_user_id,vendor_user_id,vendor_id,work_order_id,invoice_number,total_cents,status,bill_id,currency) values($1,$2,$3,$4,$5,$6,$7,'approved',$8,'usd')",
-    [invoice, manager, vendor, vendor, opts.workOrderId ?? null, opts.visitFee ? `VISIT-${bidId}` : `INV-${invoice}`, amount, bill]);
+    [invoice, manager, vendor, vendor, opts.workOrderId ?? null,
+      opts.invoiceNumber ?? (opts.visitFee ? `VISIT-${bidId}` : `INV-${invoice}`), amount, bill]);
+  if (opts.visitFee) await db.query("update public.vendor_invoices set estimate_visit_bid_id=$1 where id=$2", [bidId, invoice]);
   await db.query("update public.manager_bills set vendor_invoice_id=$1 where id=$2", [invoice, bill]);
   return { manager, vendor, invoice, bill, amount, workOrderId: opts.workOrderId };
 }
@@ -52,6 +61,10 @@ suite("payment claim migration on local PostgreSQL", () => {
     `);
     await db.query(migration);
     await db.query(migration); // additive migration must be safe to re-apply
+    await db.query(visitMarker);
+    await db.query(crossRailGuard);
+    await db.query(reconcile);
+    await db.query(reconcile);
     // The disposable minimal fixture lacks production's client table grants;
     // expose the table here so the trigger, not a missing grant, is tested.
     await db.query("grant usage on schema public to authenticated; grant select,insert,update on public.manager_expense_entries to authenticated");
@@ -209,6 +222,47 @@ suite("payment claim migration on local PostgreSQL", () => {
       expect.objectContaining({ work_order_id: f.workOrderId, invoice_id: null }),
       expect.objectContaining({ work_order_id: null, invoice_id: f.invoice }),
     ]));
+  });
+
+  async function approvePayJob() {
+    const manager = randomUUID(), vendor = randomUUID(), service = `wo_${randomUUID()}`;
+    await db.query("insert into auth.users(id) values($1),($2)", [manager, vendor]);
+    await db.query("insert into public.portal_work_order_records(id,manager_user_id,vendor_user_id,row_data) values($1,$2,$3,'{}')", [service, manager, vendor]);
+    return { manager, vendor, service };
+  }
+
+  it("one job is never paid twice across rails: an Approve + pay claim blocks the job's own invoice claim", async () => {
+    const job = await approvePayJob();
+    await db.query("select public.claim_work_order_vendor_payment($1,$2,$3,12345,'balance',null)", [job.service, job.manager, job.vendor]);
+    const f = await invoiceFixture({ workOrderId: job.service, existing: { manager: job.manager, vendor: job.vendor } });
+    await expect(db.query("select public.claim_vendor_invoice_payment($1,$2,'balance')", [f.invoice, job.manager]))
+      .rejects.toMatchObject({ code: "VP409" });
+    expect((await db.query("select count(*)::int as n from public.vendor_payouts where work_order_id=$1", [job.service])).rows[0].n).toBe(1);
+  });
+
+  it("the job's invoice claim blocks a later Approve + pay claim (database trigger or the approved-invoice rule, never both paying)", async () => {
+    const job = await approvePayJob();
+    const f = await invoiceFixture({ workOrderId: job.service, existing: { manager: job.manager, vendor: job.vendor } });
+    await db.query("select public.claim_vendor_invoice_payment($1,$2,'balance')", [f.invoice, job.manager]);
+    await expect(db.query("select public.claim_work_order_vendor_payment($1,$2,$3,12345,'balance',null)", [job.service, job.manager, job.vendor])).rejects.toThrow();
+    expect((await db.query("select count(*)::int as n from public.vendor_payouts where work_order_id=$1 and invoice_id is null", [job.service])).rows[0].n).toBe(0);
+  });
+
+  it("the trigger arbitrates even a raw insert from any writer: a payout on the other rail is refused (VP409)", async () => {
+    const job = await approvePayJob();
+    const f = await invoiceFixture({ workOrderId: job.service, existing: { manager: job.manager, vendor: job.vendor } });
+    await db.query("select public.claim_vendor_invoice_payment($1,$2,'stripe')", [f.invoice, job.manager]);
+    await expect(db.query("insert into public.vendor_payouts(manager_user_id,vendor_user_id,work_order_id,amount_cents,status) values($1,$2,$3,500,'pending')", [job.manager, job.vendor, job.service]))
+      .rejects.toMatchObject({ code: "VP409" });
+  });
+
+  it("a vendor-typed VISIT- invoice number is NOT a visit fee: without the server marker the claim is an ordinary job payout and still cross-rail guarded", async () => {
+    const job = await approvePayJob();
+    await db.query("select public.claim_work_order_vendor_payment($1,$2,$3,12345,'balance',null)", [job.service, job.manager, job.vendor]);
+    const f = await invoiceFixture({ workOrderId: job.service, existing: { manager: job.manager, vendor: job.vendor },
+      invoiceNumber: `VISIT-${randomUUID()}` });
+    await expect(db.query("select public.claim_vendor_invoice_payment($1,$2,'balance')", [f.invoice, job.manager]))
+      .rejects.toMatchObject({ code: "VP409" });
   });
 
   it("retries a failed service payout but blocks pending and paid ones", async () => {

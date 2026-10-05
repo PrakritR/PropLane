@@ -172,6 +172,10 @@ export const DELETE_ORDER = [
   "property_utility_allocations",
   "manager_assistant_email_inbound",
   "scheduled_inbox_channel_deliveries",
+  // Linked forms owed after an application is submitted; both cascade from the application record, and the
+  // link rows reference the requests, so they clear first.
+  "resident_account_links",
+  "application_form_requests",
   // 2. the account's own rows
   "manager_property_access",
   "manager_property_owners",

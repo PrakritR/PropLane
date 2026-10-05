@@ -5,8 +5,13 @@ import {
 } from "@/lib/demo-admin-scheduling";
 import {
   MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
+  AVAILABILITY_KINDS,
+  MANAGER_KIND_AVAILABILITY_KINDS,
+  legacyTaskKeysForStorageKey,
   managerKindAvailabilityStorageKey,
+  normalizeAvailabilityKind,
   parseManagerKindAvailabilityStorageKey,
+  readKeysForKindStorageKeys,
 } from "@/lib/manager-availability-kinds";
 import {
   expectedManagerScheduleRecordIds,
@@ -43,7 +48,7 @@ describe("portal-schedule-record-scope", () => {
     expect(managerScheduleRecordIdOwnedByUser(kindKey, userId, "manager_availability")).toBe(false);
   });
 
-  it("treats Inspections and Move-ins/outs availability (C2-CALA2) as kind-scoped, owner-only and never tour-visible", () => {
+  it("keeps the retired Inspections and Move-ins/outs records owner-only and never tour-visible (they read as Tasks; a Tasks save may still empty them)", () => {
     for (const kind of ["inspections", "moves"] as const) {
       const own = managerKindAvailabilityStorageKey(userId, kind);
       expect(parseManagerKindAvailabilityStorageKey(own)).toEqual({ userId, kind });
@@ -57,6 +62,29 @@ describe("portal-schedule-record-scope", () => {
       ).toBe(false);
       expect(managerScheduleRecordIdOwnedByUser(own, userId, "manager_availability")).toBe(false);
     }
+  });
+
+  it("a manager can only be available for three kinds, and the kind keys are the services and tasks ones", () => {
+    expect([...AVAILABILITY_KINDS]).toEqual(["tours", "services", "tasks"]);
+    expect([...MANAGER_KIND_AVAILABILITY_KINDS]).toEqual(["services", "tasks"]);
+  });
+
+  it("folds a retired inspections or moves key onto tasks on read, and onto nothing else", () => {
+    expect(normalizeAvailabilityKind("inspections")).toBe("tasks");
+    expect(normalizeAvailabilityKind("moves")).toBe("tasks");
+    expect(normalizeAvailabilityKind("services")).toBe("services");
+    expect(normalizeAvailabilityKind("everything")).toBeNull();
+    const tasksKey = managerKindAvailabilityStorageKey(userId, "tasks");
+    expect(readKeysForKindStorageKeys([tasksKey]).sort()).toEqual(
+      [
+        tasksKey,
+        managerKindAvailabilityStorageKey(userId, "inspections"),
+        managerKindAvailabilityStorageKey(userId, "moves"),
+      ].sort(),
+    );
+    const servicesKey = managerKindAvailabilityStorageKey(userId, "services");
+    expect(readKeysForKindStorageKeys([servicesKey])).toEqual([servicesKey]);
+    expect(legacyTaskKeysForStorageKey(servicesKey)).toEqual([]);
   });
 
   it("allows calendar share keys only for the owning manager", () => {

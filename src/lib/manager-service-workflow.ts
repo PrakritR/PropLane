@@ -20,6 +20,55 @@ export type ManagerServiceNextStep = {
   label: string;
 };
 
+/** The ONE approved bid of a service, when it has one. */
+export function acceptedBidOf(bids: readonly WorkOrderBid[] | undefined | null): WorkOrderBid | null {
+  return bids?.find((bid) => bid.status === "accepted") ?? null;
+}
+
+/**
+ * The service row as the approved bid says it is. The server's `approve_bid` writes the hire onto the row
+ * (vendor, price, booked visit) and the manager's browser picks that up on its next sync, so a row read
+ * from the local mirror can still say "nobody" for a job that was approved - the older way, or in another
+ * tab. The accepted bid is the source of truth: fill in whatever the row is missing (the vendor, the visit
+ * time, the price) so the stage, the stepper, the Who card and the Vendors pipeline all agree. A row already
+ * held by a teammate (or by yourself) is left alone, and a row that already says everything is returned as is.
+ */
+export function applyAcceptedBid(row: DemoManagerWorkOrderRow, bids: readonly WorkOrderBid[] | undefined | null): DemoManagerWorkOrderRow {
+  const accepted = acceptedBidOf(bids);
+  if (!accepted) return row;
+  if (row.selfAssigned || row.assignee?.type === "team") return row;
+  const vendorId = row.vendorId ?? accepted.vendorDirectoryId ?? accepted.vendorUserId ?? undefined;
+  const vendorName = row.vendorName ?? (accepted.vendorName?.trim() || undefined);
+  const scheduledAtIso = row.scheduledAtIso ?? accepted.proposedTime ?? undefined;
+  const vendorCostCents = row.vendorCostCents ?? accepted.amountCents ?? undefined;
+  const materialsCostCents = row.materialsCostCents ?? (accepted.amountCents != null ? accepted.materialsCents : undefined);
+  // Like the server's approve_bid: a booked visit moves the service to Scheduled (unless it is already finished).
+  const bookVisit = Boolean(scheduledAtIso) && row.bucket !== "completed" && row.bucket !== "scheduled";
+  if (
+    !bookVisit &&
+    vendorId === row.vendorId &&
+    vendorName === row.vendorName &&
+    scheduledAtIso === row.scheduledAtIso &&
+    vendorCostCents === row.vendorCostCents &&
+    materialsCostCents === row.materialsCostCents &&
+    !row.biddingOpen
+  ) {
+    return row;
+  }
+  return {
+    ...row,
+    vendorId,
+    vendorName,
+    vendorUserId: row.vendorUserId ?? accepted.vendorUserId ?? null,
+    scheduledAtIso,
+    vendorCostCents,
+    materialsCostCents,
+    biddingOpen: false,
+    biddingResolvedAt: row.biddingResolvedAt ?? accepted.updatedAt,
+    ...(bookVisit ? { bucket: "scheduled" as const, status: "Scheduled" } : {}),
+  };
+}
+
 export function resolveWorkOrderAssignee(row: DemoManagerWorkOrderRow): ManagerServiceAssignee {
   if (row.assignee?.type === "team") {
     return { kind: "team", id: row.assignee.id, name: row.assignee.name };

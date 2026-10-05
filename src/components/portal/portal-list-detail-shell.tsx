@@ -89,6 +89,12 @@ export function PortalDetailHeader({
    * icon + `aria-label`; this only chooses where and how big the slot renders.
    */
   iconTitleActions = false,
+  /**
+   * Phone: keep the name on ONE line (ellipsis) and let the icons size to their
+   * content instead of splitting the row in half. For a record whose phone header
+   * is two icons (Edit + ⋯), so the name and address fit.
+   */
+  titleSingleLine = false,
   dataAttrBack = "portal-detail-back",
 }: {
   title: string;
@@ -106,6 +112,7 @@ export function PortalDetailHeader({
   inlineActions?: boolean;
   inlineActionsClassName?: string;
   iconTitleActions?: boolean;
+  titleSingleLine?: boolean;
   dataAttrBack?: string;
 }) {
   // The record's own actions (Approve · Download, listed Preview pen / share /
@@ -133,14 +140,21 @@ export function PortalDetailHeader({
             <span className={hideBackText ? "sr-only" : "max-md:sr-only"}>{backLabel}</span>
           </button>
         ) : null}
-        <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1", iconTitleActions && hasActions && "max-w-[9rem] md:max-w-[15rem]")}>
+        <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1", iconTitleActions && hasActions && (titleSingleLine ? "md:max-w-[15rem]" : "max-w-[9rem] md:max-w-[15rem]"))}>
           {leading ? <span className="shrink-0">{leading}</span> : null}
           {!leading && avatarName ? (
             <InboxAvatar name={avatarName} className="h-9 w-9 text-[11px] md:h-10 md:w-10 md:text-[12px]" />
           ) : null}
           {/* The record's name is the page's title: it reads as one, not as a list row. */}
           <div className="min-w-0">
-            <p className="truncate max-md:line-clamp-2 max-md:whitespace-normal text-[15px] font-bold tracking-tight text-foreground md:text-[17px]">{title}</p>
+            <p
+              className={cn(
+                "truncate text-[15px] font-bold tracking-tight text-foreground md:text-[17px]",
+                !titleSingleLine && "max-md:line-clamp-2 max-md:whitespace-normal",
+              )}
+            >
+              {title}
+            </p>
             {subtitle ? <p className="truncate text-[12.5px] text-muted">{subtitle}</p> : null}
           </div>
         </div>
@@ -151,7 +165,7 @@ export function PortalDetailHeader({
             inlineActions
               ? "flex max-w-[min(70%,24rem)] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] md:max-w-none [&::-webkit-scrollbar]:hidden"
               : iconTitleActions
-                ? "flex min-w-0 flex-1 basis-0 items-center gap-1.5"
+                ? cn("flex min-w-0 flex-1 basis-0 items-center gap-1.5", titleSingleLine && "max-md:flex-none max-md:basis-auto")
                 : "hidden shrink-0 items-center gap-1.5 md:flex",
             !hasActions && "!hidden",
             inlineActionsClassName,
@@ -159,7 +173,12 @@ export function PortalDetailHeader({
         >
           {actions}
           {iconTitleActions && !inlineActions ? (
-            <PortalTitleActionsHost className="flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button]:!size-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!p-0" />
+            <PortalTitleActionsHost
+              className={cn(
+                "flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button:not([data-labeled-primary])]:!size-9 [&_button:not([data-labeled-primary])]:!min-h-0 [&_button:not([data-labeled-primary])]:!rounded-full [&_button:not([data-labeled-primary])]:!p-0",
+                titleSingleLine && "max-md:flex-none max-md:basis-auto",
+              )}
+            />
           ) : (
             <PortalTitleActionsHost
               breakpoint={inlineActions ? undefined : "md-up"}

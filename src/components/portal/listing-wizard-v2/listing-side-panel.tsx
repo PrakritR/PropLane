@@ -22,6 +22,7 @@ import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { useMemo, useState } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
 import { PanelLine, PanelSection, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   buildListingQuote,
   splitQuoteLinesBySigning,
@@ -305,6 +306,8 @@ export function PricingReceiptPanel({
   lockLeaseTerm = false,
   plainReceipt = false,
   allowCustomStart = false,
+  allowMonthToMonthStart = false,
+  listingProperty = null,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: (next: Partial<ManagerListingSubmissionV1>) => void;
@@ -318,6 +321,14 @@ export function PricingReceiptPanel({
   /** Property Pricing — no "Due at signing" heading (C2-R30-9). */
   plainReceipt?: boolean;
   allowCustomStart?: boolean;
+  /** The lease can be priced as month-to-month (a long-term lease with the optional Month-to-month surcharge). */
+  allowMonthToMonthStart?: boolean;
+  /**
+   * The stored property record. The jurisdiction resolver reads it FIRST, so the manager's preview
+   * agrees with the lease and the ledger on a legacy listing whose submission never recorded a city
+   * (the Seattle rule is what decides whether the Month-to-month surcharge exists at all).
+   */
+  listingProperty?: RentRuleAddress | null;
 }) {
   const rooms = sub.rooms ?? [];
   const room = roomId ? rooms.find((r) => r.id === roomId) ?? null : null;
@@ -338,10 +349,11 @@ export function PricingReceiptPanel({
         arrangementCount: plainReceipt && hasRoom ? arrangementCount : undefined,
         residentSlot: plainReceipt && residentIndex > 0 ? residentIndex + 1 : undefined,
         startKind: plainReceipt ? startKind : "std",
+        listingProperty,
       }),
     // `hasRoom` stands in for `room` itself: the quote only needs to know a room is picked, and
     // `room` is derived from `sub` + `roomId`, which are already dependencies.
-    [sub, roomId, leaseTerm, plainReceipt, hasRoom, arrangementCount, residentIndex, startKind],
+    [sub, roomId, leaseTerm, plainReceipt, hasRoom, arrangementCount, residentIndex, startKind, listingProperty],
   );
   const wholePlace = isEntireHomeListing(sub);
   const ownRoomSigning = roomHasOwnPaymentAtSigning(sub, roomId, leaseTerm);
@@ -422,6 +434,7 @@ export function PricingReceiptPanel({
       : arrangementSummaryLine(room);
 
   const startOptions: { value: ListingQuoteStartKind; label: string }[] = [{ value: "std", label: "Standard start" }];
+  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
   if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
 
   const residentOptions = Array.from({ length: arrangementCount }, (_, i) => ({
@@ -598,6 +611,8 @@ export function BundleWholePricingReceiptPanel({
   leaseTerm,
   leaseTerms,
   allowCustomStart = false,
+  allowMonthToMonthStart = false,
+  listingProperty = null,
 }: {
   sub: ManagerListingSubmissionV1;
   kind: "bundle" | "whole";
@@ -605,6 +620,10 @@ export function BundleWholePricingReceiptPanel({
   leaseTerm: string;
   leaseTerms: string[];
   allowCustomStart?: boolean;
+  /** The lease can be priced as month-to-month (a long-term lease with the optional Month-to-month surcharge). */
+  allowMonthToMonthStart?: boolean;
+  /** The stored property record — see {@link PricingReceiptPanel}. */
+  listingProperty?: RentRuleAddress | null;
 }) {
   const [startKind, setStartKind] = useState<ListingQuoteStartKind>("std");
   const bundle =
@@ -619,8 +638,9 @@ export function BundleWholePricingReceiptPanel({
         leaseTerm,
         startKind,
         useEntireHomeRent: kind === "whole",
+        listingProperty,
       }),
-    [sub, leaseTerm, startKind, kind],
+    [sub, leaseTerm, startKind, kind, listingProperty],
   );
 
   const label =
@@ -650,6 +670,7 @@ export function BundleWholePricingReceiptPanel({
   const startOptions: { value: ListingQuoteStartKind; label: string }[] = [
     { value: "std", label: "Standard start" },
   ];
+  if (allowMonthToMonthStart) startOptions.push({ value: "m2m", label: "Month-to-month" });
   if (allowCustomStart) startOptions.push({ value: "cst", label: "Custom start date" });
 
   const allArr = leaseTerms
@@ -667,6 +688,7 @@ export function BundleWholePricingReceiptPanel({
         roomId: null,
         leaseTerm: term,
         useEntireHomeRent: kind === "whole",
+        listingProperty,
       });
       if (q.isStay && q.nightlyRate) return `${term} ${usd(q.nightlyRate)}/night`;
       if (!q.isStay && q.monthlyRent > 0) return `${term} ${usd(q.monthlyRent)}/mo`;

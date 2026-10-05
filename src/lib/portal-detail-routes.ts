@@ -635,9 +635,10 @@ export function propertyTourDetailHref(
 
 /**
  * Manager Tasks tabs: the one service vocabulary (Open · Assigned · Scheduled · Completed,
- * `service-lifecycle.ts`) plus Arrivals & departures. Overdue is a red fact on a row, not a tab.
+ * `service-lifecycle.ts`). Overdue is a red fact on a row, not a tab. Arrivals & departures is gone:
+ * move-ins and move-outs live on Move-in and Calendar, and its old address redirects to /tasks.
  */
-export const MANAGER_TASK_LIST_TABS = ["open", "assigned", "scheduled", "completed", "arrivals-departures"] as const;
+export const MANAGER_TASK_LIST_TABS = ["open", "assigned", "scheduled", "completed"] as const;
 export type ManagerTaskListTabId = (typeof MANAGER_TASK_LIST_TABS)[number];
 
 /** Vendor task list keeps two tabs — overdue is manager-only. */
@@ -659,10 +660,11 @@ export const MANAGER_TASK_LIST_TAB_LABELS: Record<ManagerTaskListTabId, string> 
   assigned: "Assigned",
   scheduled: "Scheduled",
   completed: "Completed",
-  "arrivals-departures": "Arrivals & departures",
 };
 
 const LEGACY_MANAGER_TASK_TAB_ALIASES: Record<string, ManagerTaskListTabId> = {
+  // The removed Arrivals & departures tab: a saved link lands on the task list, never a 404.
+  "arrivals-departures": "open",
   "in-progress": "open",
   overdue: "open",
   late: "open",

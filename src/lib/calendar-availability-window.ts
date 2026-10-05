@@ -18,14 +18,13 @@ import {
 } from "@/lib/manager-availability-kinds";
 import { defaultTourSlotExclusionKey } from "@/lib/tour-slot-math";
 
-export type AvailabilityKindChoice = "tours" | "services" | "inspections" | "moves" | "everything";
+export type AvailabilityKindChoice = AvailabilityKind;
 
+/** "Availability for": exactly three kinds, multi-select, no "Everything". */
 export const AVAILABILITY_KIND_CHOICES: ReadonlyArray<{ value: AvailabilityKindChoice; label: string }> = [
   { value: "tours", label: "Tours" },
-  { value: "services", label: "Services and vendor visits" },
-  { value: "inspections", label: "Inspections" },
-  { value: "moves", label: "Move-ins and move-outs" },
-  { value: "everything", label: "Everything" },
+  { value: "services", label: "Services" },
+  { value: "tasks", label: "Tasks" },
 ];
 
 /** Weeks an "Every week" window is written for. */
@@ -53,17 +52,15 @@ export function toggleExclusiveChoice(
   return next.length === 0 ? [exclusive] : next;
 }
 
-/** Kinds a set of popup choices writes to. Everything is every kind, Tasks included. */
+/** Kinds a set of popup choices writes to, in the fixed Tours, Services, Tasks order. */
 export function storageKindsForChoices(choices: readonly AvailabilityKindChoice[]): AvailabilityKind[] {
-  if (choices.length === 0 || choices.includes("everything")) return [...AVAILABILITY_KINDS];
-  return AVAILABILITY_KINDS.filter((kind) => (choices as readonly string[]).includes(kind));
+  return AVAILABILITY_KINDS.filter((kind) => choices.includes(kind));
 }
 
 /** The popup choices that describe a stored run's kinds (the inverse used when a band is clicked). */
 export function choicesForStorageKinds(kinds: readonly AvailabilityKind[]): AvailabilityKindChoice[] {
-  if (AVAILABILITY_KINDS.every((kind) => kinds.includes(kind))) return ["everything"];
-  const picks = (["tours", "services", "inspections", "moves"] as const).filter((kind) => kinds.includes(kind));
-  return picks.length > 0 ? [...picks] : ["everything"];
+  const picks = AVAILABILITY_KINDS.filter((kind) => kinds.includes(kind));
+  return picks.length > 0 ? picks : ["tours"];
 }
 
 export type AvailabilityDraft = {
@@ -123,7 +120,7 @@ export function validateDraft(draft: AvailabilityDraft): string | null {
   if (draft.on === "date" && !isRealDateStr(draft.date)) return "Pick a date";
   if (draft.on === "days" && draft.weekdays.length === 0) return "Pick at least one day";
   if (!(draft.endSlotExclusive > draft.startSlot)) return "The end time has to be after the start";
-  if (draft.propertyIds.length === 0) return "Pick at least one house";
+  if (draft.kinds.includes("tours") && draft.propertyIds.length === 0) return "Pick at least one house";
   return null;
 }
 

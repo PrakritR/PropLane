@@ -72,7 +72,32 @@ const RECORD_SHELL_SOURCES = [
   "src/components/portal/portal-record-detail-page.tsx",
   "src/components/portal/portal-record-section-chrome.tsx",
   "src/components/portal/pro-resident-overview-panel.tsx",
+  // The service page's sections: rows act through their ⋯, a section header takes icon actions only.
+  "src/components/portal/service-who-card.tsx",
+  "src/components/portal/service-details-section.tsx",
+  "src/components/portal/service-vendor-cycle-section.tsx",
 ];
+
+/**
+ * Rule 5 of record-page.md: no checkbox in a record. The service page's sections (Who's doing it, Photos,
+ * Activity, Vendors) pick vendors in the Send job popup's dropdown and act from each row's ⋯.
+ */
+const NO_CHECKBOX_SOURCES = [
+  "src/components/portal/service-who-card.tsx",
+  "src/components/portal/service-details-section.tsx",
+  "src/components/portal/service-vendor-cycle-section.tsx",
+];
+
+describe("the service record's sections render no checkbox and no sticky bar", () => {
+  for (const file of NO_CHECKBOX_SOURCES) {
+    it(file, () => {
+      const src = stripComments(readFileSync(join(process.cwd(), file), "utf8"));
+      expect(src).not.toMatch(/type=["']checkbox["']/);
+      expect(src).not.toMatch(/onSelectedChange|checked=\{/);
+      expect(src).not.toMatch(/\bsticky\b/);
+    });
+  }
+});
 
 // A plain-text button: the tag's entire content is a text run, no nested
 // element (an icon, a span) inside it — that shape is a toolbar control, not

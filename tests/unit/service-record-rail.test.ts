@@ -31,6 +31,14 @@ describe("manager service record rail", () => {
     expect([...SERVICE_DETAIL_TABS]).toEqual(["service", "vendors", "incoming-payments", "outgoing-payments", "communication"]);
   });
 
+  it("the header is one shape for both kinds: Message, Edit, then the two red menu items - no Assign or Schedule icon", () => {
+    const sections = recordSections("manager", "service", { basePath: "/portal", serviceKind: "request", serviceBucket: "pending" });
+    expect(sections.headerActions.map((a) => a.id)).toEqual(["message", "edit", "cancel", "delete"]);
+    expect(sections.headerActions.filter((a) => a.tone === "danger").map((a) => a.id)).toEqual(["cancel", "delete"]);
+    // The add-on rail is the same rail, vendors included.
+    expect(sections.groups.flatMap((g) => g.items.map((i) => i.id))).toEqual(["service", "vendors", "incoming-payments", "outgoing-payments", "communication"]);
+  });
+
   it("the Service tab is the bare record URL", () => {
     expect(workOrderDetailHref("/portal", "open", "wo-1")).toBe("/portal/services/work-orders/open/wo-1");
     expect(workOrderDetailHref("/portal", "open", "wo-1", "outgoing-payments")).toBe("/portal/services/work-orders/open/wo-1/outgoing-payments");

@@ -5,7 +5,18 @@ import "leaflet/dist/leaflet.css";
 
 type LeafletMap = import("leaflet").Map;
 
-export function ListingLocationMap({ lat, lng }: { lat: number; lng: number }) {
+const MAP_BOX_CLASS = "z-0 h-[min(22rem,48vh)] min-h-[220px] w-full rounded-2xl border border-border bg-accent/30";
+
+export function ListingLocationMap({
+  lat,
+  lng,
+  className,
+}: {
+  lat: number;
+  lng: number;
+  /** Extra classes on the map box (a phone preview shortens it, then restores it on tap). */
+  className?: string;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
 
@@ -45,5 +56,10 @@ export function ListingLocationMap({ lat, lng }: { lat: number; lng: number }) {
     };
   }, [lat, lng]);
 
-  return <div ref={containerRef} className="z-0 h-[min(22rem,48vh)] min-h-[220px] w-full rounded-2xl border border-border bg-accent/30" />;
+  // A resized box (the phone's short map expanding) needs the tiles re-laid.
+  useEffect(() => {
+    mapRef.current?.invalidateSize();
+  }, [className]);
+
+  return <div ref={containerRef} className={[MAP_BOX_CLASS, className].filter(Boolean).join(" ")} />;
 }

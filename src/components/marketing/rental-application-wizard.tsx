@@ -150,6 +150,8 @@ import {
 import { ManagerLinkGate } from "@/components/marketing/manager-link-gate";
 import { ApplicationUnavailableContactManager } from "@/components/marketing/application-unavailable-contact-manager";
 import { RentalApplicationFinishPanel } from "@/components/marketing/rental-application-finish-panel";
+import type { LinkedFormListItem } from "@/components/marketing/linked-forms-finish-list";
+import { fetchLinkedFormsForApplication } from "@/lib/linked-form-requests-client";
 import {
   activeWizardProgressPct,
   canNavigateToWizardStep,
@@ -525,6 +527,8 @@ function RentalApplicationWizardInner({
     groupSize?: string;
     groupPropertyId?: string;
     hasCosigner?: "yes" | "no" | null;
+    /** Forms the template's rules owe after this submit, from the submit response. */
+    linkedForms?: LinkedFormListItem[];
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
@@ -596,7 +600,11 @@ function RentalApplicationWizardInner({
     // "Which lease are you applying for?" picks the form: the application mapped to the chosen lease
     // type wins; otherwise the stay kind's default published form.
     const linkedPin = applicationPinForLinkedForm(submission, linkedFormIdRef.current);
-    const leasePin = linkedPin ?? applicationPinForStayTerm(submission, form.leaseTerm);
+    const leasePin = linkedPin ?? applicationPinForStayTerm(
+      submission,
+      form.leaseTerm,
+      form.rentalType === "short_term" || form.rentalType === "airbnb" ? "short_term" : "long_term",
+    );
     const resolved = leasePin
       ? { templateId: leasePin.templateId, templateVersion: leasePin.templateVersion }
       : applicationConfigForApplicant(submission, applicationRentalTypeFor(form.rentalType), null);
@@ -1569,7 +1577,11 @@ function RentalApplicationWizardInner({
       if ("leaseTerm" in p && p.leaseTerm !== f.leaseTerm && !("rentalType" in p && p.rentalType !== f.rentalType)) {
         const sub = getPropertyById(merged.propertyId)?.listingSubmission;
         const leasePin = sub && sub.v === 1 && String(p.leaseTerm ?? "").trim()
-          ? applicationPinForStayTerm(sub, String(p.leaseTerm))
+          ? applicationPinForStayTerm(
+              sub,
+              String(p.leaseTerm),
+              merged.rentalType === "short_term" || merged.rentalType === "airbnb" ? "short_term" : "long_term",
+            )
           : null;
         const formChosenByLink = Boolean(linkedFormIdRef.current) && merged.applicationTemplateId === linkedFormIdRef.current;
         if (!formChosenByLink && leasePin && leasePin.templateId !== merged.applicationTemplateId) {
@@ -2078,6 +2090,7 @@ function RentalApplicationWizardInner({
           groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
           groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
           hasCosigner: submittedForm.hasCosigner,
+          linkedForms: sync.linkedForms,
         });
         showToast("Application submitted.");
         return {
@@ -2106,6 +2119,7 @@ function RentalApplicationWizardInner({
         groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
         groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
         hasCosigner: submittedForm.hasCosigner,
+        linkedForms: sync.linkedForms,
       });
       showToast("Application submitted.");
       return {
@@ -2176,6 +2190,13 @@ function RentalApplicationWizardInner({
         guestFlow: stashedConfirm.guestFlow,
         portalFlow: stashedConfirm.portalFlow,
         setupHref: stashedConfirm.setupHref,
+      });
+      // The confirmation was stashed before the forms were known: ask for what is owed so a remount after Stripe still lists it.
+      void fetchLinkedFormsForApplication(stashedConfirm.axisId).then((owed) => {
+        if (owed.length === 0) return;
+        setPostSubmit((prev) =>
+          prev && prev.axisId === stashedConfirm.axisId && !prev.linkedForms?.length ? { ...prev, linkedForms: owed } : prev,
+        );
       });
       const keepPid =
         stashedConfirm.propertyId.trim() ||
@@ -2388,6 +2409,9 @@ function RentalApplicationWizardInner({
           setErrors({});
           setChargeTick((n) => n + 1);
           const isGuest = !feeStepUserId;
+          // A paid application is promoted on the server, so the submit response never reached this browser:
+          // read what the template's rules owe so the finish screen lists it.
+          const owedForms = await fetchLinkedFormsForApplication(axisId);
           const confirmPayload = {
             axisId,
             email: emailForMarks,
@@ -2396,6 +2420,7 @@ function RentalApplicationWizardInner({
             mailtoHref,
             guestFlow: isGuest,
             portalFlow: mode === "portal" && !isGuest,
+            ...(owedForms.length > 0 ? { linkedForms: owedForms } : {}),
           };
           rememberApplicationFeeSubmitConfirm({
             sessionId,
@@ -2706,6 +2731,7 @@ function RentalApplicationWizardInner({
             groupSize={postSubmit.groupSize}
             groupPropertyId={postSubmit.groupPropertyId}
             hasCosigner={postSubmit.hasCosigner}
+            linkedForms={postSubmit.linkedForms}
             onDone={() => {
               clearApplicationFeeSubmitConfirm();
               setPostSubmit(null);

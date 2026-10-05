@@ -15,7 +15,8 @@ import { vendorPayFeeCents } from "@/lib/platform-fees";
 import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
-import { authorizeOutgoingInvoice, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
+import { assertNoCrossRailPayout, authorizeOutgoingInvoice, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
+import { isVendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
 
 export const VENDOR_INVOICE_DIRECT_PAY_PURPOSE = "vendor_invoice_direct_pay";
 
@@ -41,7 +42,7 @@ export async function startVendorInvoicePayCheckout(
 ): Promise<StartInvoicePaySuccess | StartInvoicePayFailure> {
   const { data: invoice, error } = await db
     .from("vendor_invoices")
-    .select("id, manager_user_id, vendor_user_id, total_cents, status, invoice_number, memo, payment_claim, checkout_session_id, stripe_checkout_provider_terms, bill_id")
+    .select("id, manager_user_id, vendor_user_id, total_cents, status, invoice_number, memo, payment_claim, checkout_session_id, stripe_checkout_provider_terms, bill_id, work_order_id, estimate_visit_bid_id")
     .eq("id", opts.invoiceId)
     .eq("manager_user_id", opts.managerUserId)
     .maybeSingle();
@@ -59,6 +60,8 @@ export async function startVendorInvoicePayCheckout(
     checkout_session_id: string | null;
     stripe_checkout_provider_terms: unknown;
     bill_id: string | null;
+    work_order_id: string | null;
+    estimate_visit_bid_id: string | null;
   };
   if (row.status !== "approved" && row.status !== "scheduled") {
     return { ok: false, status: 409, error: `Invoice is ${row.status}; it must be approved before it can be paid.` };
@@ -71,8 +74,18 @@ export async function startVendorInvoicePayCheckout(
   const preexistingCheckout = row.checkout_session_id;
   const preexistingTerms = row.stripe_checkout_provider_terms;
 
-  // A service-linked invoice still needs the service/workspace/assignee checks.
-  await authorizeOutgoingInvoice(db, opts.managerUserId, row.id);
+  // A service-linked invoice still needs the service/workspace/assignee checks. The cross-rail
+  // read is only the FRIENDLY pre-check: the claim RPC below and the `vendor_payouts` cross-rail
+  // trigger (migration 20261004160000) are what arbitrate a race, so a refusal from either is
+  // the same 409.
+  try {
+    await authorizeOutgoingInvoice(db, opts.managerUserId, row.id);
+    if (row.payment_claim !== "stripe") await assertNoCrossRailPayout(db, row);
+  } catch (e) {
+    if (isVendorInvoicePaymentRefusal(e)) return { ok: false, status: 409, error: e.message };
+    // A table that could not be READ is a fault, not a double-pay refusal.
+    return { ok: false, status: 500, error: e instanceof Error ? e.message : "Could not authorize this invoice." };
+  }
   if (row.status === "approved" && !row.bill_id) await createBillFromVendorInvoice(db, opts.managerUserId, row.id);
 
   const stripe = getStripe();
@@ -185,7 +198,27 @@ export async function startVendorInvoicePayCheckout(
   };
 }
 
-/** Settles a direct invoice-pay Checkout session — idempotent on the invoice's own status. */
+/**
+ * The session never got paid (expired, or the bank debit bounced): hand its claim back so the
+ * invoice is payable again. One rule for the Stripe rail: the session id is compared in the
+ * database and Stripe's live state must be terminal first (`releaseFailedVendorInvoiceCheckout`).
+ */
+export async function releaseVendorInvoiceDirectPayClaim(
+  db: SupabaseClient,
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  await releaseFailedVendorInvoiceCheckout(db, session);
+}
+
+/**
+ * Settles a direct invoice-pay Checkout session.
+ *
+ * A session that HOLDS the claim it took before charging owns every write below, so a retry after
+ * a failed one must redo them — gating on the invoice's own status alone meant the invoice flipped
+ * to `paid`, a later write threw, and the redelivery then skipped the payout row and the vendor's
+ * ledger credit entirely. An unclaimed (standalone) invoice writes its payout BEFORE it is marked
+ * paid for the same reason; the status gate then only ever skips work that is genuinely done.
+ */
 export async function completeVendorInvoicePaymentFromStripeSession(
   db: SupabaseClient,
   session: Stripe.Checkout.Session,

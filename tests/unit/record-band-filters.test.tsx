@@ -143,60 +143,83 @@ describe("the Assign popup is the standard frame", () => {
   });
 });
 
-describe("Vendors places each vendor under its answer tab, with counts", () => {
-  const req = (over: Partial<import("@/lib/work-order-bid-cycle").VendorRequestRow>): import("@/lib/work-order-bid-cycle").VendorRequestRow => ({
-    key: "k", vendorDirectoryId: "d", vendorUserId: "u", vendorName: "Vendor", offerId: null, bidId: "b", state: "requested", estimateCents: null,
-    visitAt: null, visitFeeCents: 0, visitDone: false, bidAmountCents: null, bidMaterialsCents: 0, bidTotalCents: null, proposedTime: null, note: null,
-    requestedAt: null, estimateAt: null, canApprove: false, ...over,
+/** Opens a row's ⋯ and returns its item labels (the menu stays open). */
+async function rowActionItems(name: string): Promise<string[]> {
+  fireEvent.keyDown(screen.getByRole("button", { name: `Actions for ${name}` }), { key: "ArrowDown" });
+  const menu = await screen.findByRole("menu");
+  return [...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent ?? "");
+}
+
+describe("Vendors places each vendor under its pipeline tab, with counts", () => {
+  type Bid = import("@/lib/work-order-bids").WorkOrderBid;
+  type Offer = import("@/lib/work-order-vendor-offers").WorkOrderVendorOffer;
+  const bid = (over: Partial<Bid>): Bid => ({
+    id: "b", workOrderId: "wo-1", vendorUserId: "u", vendorDirectoryId: "d", vendorName: "Vendor", quoteMode: "upfront", consultationVisitAt: null,
+    amountCents: null, materialsCents: 0, proposedTime: null, note: null, status: "submitted", createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-02T00:00:00.000Z", bidSubmittedAt: null, ...over,
   });
-  const handlers = { onRequestBids: () => undefined, onApprove: vi.fn(), onMessage: () => undefined, onRemove: () => undefined };
+  const offer = (over: Partial<Offer>): Offer => ({
+    id: "o", workOrderId: "wo-1", vendorDirectoryId: "d", vendorUserId: "u", vendorName: "Vendor", status: "sent", createdAt: "2026-10-01T00:00:00.000Z", ...over,
+  });
+  const job = { id: "wo-1", propertyName: "A", unit: "1", title: "Pipe", priority: "Medium", status: "Open", bucket: "open" as const, description: "", scheduled: "", cost: "" };
+  const handlers = {
+    sending: false,
+    onSend: vi.fn(),
+    onWithdraw: vi.fn(),
+    onSchedule: vi.fn(),
+    onMarkDone: vi.fn(),
+    onPay: vi.fn(),
+    onMessage: () => undefined,
+  };
+  const pipelineFor = async (bids: Bid[], offers: Offer[], roster: Array<{ id: string; name: string; trade?: string }> = []) => {
+    const { buildServicePipeline } = await import("@/lib/service-pipeline");
+    return buildServicePipeline({ job, offers, bids, roster, jobTrade: "" });
+  };
 
   it("opens on Bids when there are bids, counts every tab, and Approve bid is only on a Bids row", async () => {
-    const { ServiceVendorCycleSection } = await import("@/components/portal/service-vendor-cycle-section");
-    render(
-      <ServiceVendorCycleSection
-        stage="open"
-        requests={[
-          req({ key: "1", vendorName: "Asked Co", state: "requested", bidId: null, offerId: "o1" }),
-          req({ key: "2", vendorName: "Estimate Co", state: "estimate", estimateCents: 18000, bidId: "b2" }),
-          req({ key: "3", vendorName: "Bid Co", vendorDirectoryId: "d3", state: "bid", bidAmountCents: 20000, bidTotalCents: 20000, canApprove: true, bidId: "b3" }),
-        ]}
-        approvingBidId={null}
-        {...handlers}
-      />,
+    const { ServiceVendorPipeline } = await import("@/components/portal/service-vendor-cycle-section");
+    const pipeline = await pipelineFor(
+      [
+        bid({ id: "b2", vendorUserId: "u2", vendorDirectoryId: "d2", vendorName: "Estimate Co", estimateCents: 18000 }),
+        bid({ id: "b3", vendorUserId: "u3", vendorDirectoryId: "d3", vendorName: "Bid Co", amountCents: 20000, bidSubmittedAt: "2026-10-02T00:00:00.000Z" }),
+      ],
+      [offer({ id: "o1", vendorDirectoryId: "d1", vendorUserId: "u1", vendorName: "Asked Co" })],
+      [{ id: "d9", name: "Spare Co" }],
     );
+    render(<ServiceVendorPipeline pipeline={pipeline} trade="" approvingBidId={null} onApprove={vi.fn()} {...handlers} />);
     const count = (id: string) => document.querySelector(`[data-attr="service-vendor-cycle-tab-${id}"]`)!.textContent;
-    expect(count("requested")).toMatch(/Requested\s*1/);
-    expect(count("estimates")).toMatch(/Estimates\s*1/);
+    expect(count("available")).toMatch(/Available\s*1/);
+    expect(count("sent")).toMatch(/Sent\s*2/);
     expect(count("bids")).toMatch(/Bids\s*1/);
-    expect(count("approved")).toMatch(/Approved\s*0/);
-    expect(count("declined")).toMatch(/Declined\s*0/);
+    expect(count("scheduled")).toMatch(/Scheduled\s*0/);
+    expect(count("done")).toMatch(/Done\s*0/);
     expect(screen.getByText("Bid Co")).toBeTruthy();
     expect(screen.queryByText("Estimate Co")).toBeNull();
-    expect((screen.getByRole("button", { name: /Approve bid from Bid Co/ }) as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(document.querySelector('[data-attr="service-vendor-cycle-tab-estimates"]')!);
+    // Approve bid lives in the Bids row's ⋯ (a submitted bid only); there is no inline button.
+    expect(screen.queryByRole("button", { name: /Approve bid from Bid Co/ })).toBeNull();
+    expect(await rowActionItems("Bid Co")).toEqual(["Approve bid", "Message"]);
+    expect(screen.getByRole("menuitem", { name: "Approve bid" }).hasAttribute("disabled")).toBe(false);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(document.querySelector('[data-attr="service-vendor-cycle-tab-sent"]')!);
     expect(screen.getByText("Estimate Co")).toBeTruthy();
+    expect(screen.getByText("Asked Co")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve bid/ })).toBeNull();
-    // An estimate row shows its figure with the small caption.
-    expect(document.body.textContent).toContain("$180");
-    expect(document.body.textContent).toContain("estimate");
+    // An estimate row says so as a plain fact, and can only be withdrawn: no Approve bid in its ⋯.
+    expect(document.body.textContent).toContain("Estimate $180");
+    expect(await rowActionItems("Estimate Co")).toEqual(["Withdraw", "Message"]);
   });
 
   it("marks the lowest bid and, with two or more bids, Compare lays them side by side with Approve bid on each", async () => {
-    const { ServiceVendorCycleSection } = await import("@/components/portal/service-vendor-cycle-section");
+    const { ServiceVendorPipeline } = await import("@/components/portal/service-vendor-cycle-section");
     const onApprove = vi.fn();
-    render(
-      <ServiceVendorCycleSection
-        stage="open"
-        requests={[
-          req({ key: "hi", vendorName: "City Fix Co.", vendorDirectoryId: "d1", state: "bid", bidAmountCents: 20000, bidTotalCents: 20000, canApprove: true, bidId: "b1", proposedTime: "2026-10-07T16:00:00.000Z" }),
-          req({ key: "lo", vendorName: "Rapid Pipes", vendorDirectoryId: "d2", state: "bid", bidAmountCents: 15200, bidMaterialsCents: 1200, bidTotalCents: 16400, canApprove: true, bidId: "b2", proposedTime: "2026-10-08T16:00:00.000Z" }),
-        ]}
-        approvingBidId={null}
-        {...handlers}
-        onApprove={onApprove}
-      />,
+    const pipeline = await pipelineFor(
+      [
+        bid({ id: "b1", vendorUserId: "u1", vendorDirectoryId: "d1", vendorName: "City Fix Co.", amountCents: 20000, proposedTime: "2026-10-07T16:00:00.000Z", bidSubmittedAt: "2026-10-02T00:00:00.000Z" }),
+        bid({ id: "b2", vendorUserId: "u2", vendorDirectoryId: "d2", vendorName: "Rapid Pipes", amountCents: 15200, materialsCents: 1200, proposedTime: "2026-10-08T16:00:00.000Z", bidSubmittedAt: "2026-10-02T00:00:00.000Z" }),
+      ],
+      [],
     );
+    render(<ServiceVendorPipeline pipeline={pipeline} trade="" approvingBidId={null} {...handlers} onApprove={onApprove} />);
     expect(screen.getByText("Rapid Pipes · Lowest")).toBeTruthy();
     expect(screen.getByText("City Fix Co.")).toBeTruthy();
     expect(document.querySelector('[data-attr="service-bid-compare"]')).toBeNull();
@@ -206,19 +229,16 @@ describe("Vendors places each vendor under its answer tab, with counts", () => {
     expect(cards[0]!.textContent).toMatch(/\$164/);
     for (const label of ["Labor", "Materials", "Earliest", "Estimate first"]) expect(cards[0]!.textContent).toContain(label);
     fireEvent.click(within(cards[0] as HTMLElement).getByRole("button", { name: /Approve bid from Rapid Pipes/ }));
-    expect(onApprove).toHaveBeenCalledWith(expect.objectContaining({ key: "lo" }));
+    expect(onApprove).toHaveBeenCalledWith(expect.objectContaining({ vendorName: "Rapid Pipes", bidId: "b2" }));
   });
 
   it("a single bid has no Compare toggle and no Lowest marker", async () => {
-    const { ServiceVendorCycleSection } = await import("@/components/portal/service-vendor-cycle-section");
-    render(
-      <ServiceVendorCycleSection
-        stage="open"
-        requests={[req({ key: "only", vendorName: "Solo Co", state: "bid", bidAmountCents: 100, bidTotalCents: 100, canApprove: true, bidId: "b1" })]}
-        approvingBidId={null}
-        {...handlers}
-      />,
+    const { ServiceVendorPipeline } = await import("@/components/portal/service-vendor-cycle-section");
+    const pipeline = await pipelineFor(
+      [bid({ id: "b1", vendorName: "Solo Co", amountCents: 100, bidSubmittedAt: "2026-10-02T00:00:00.000Z" })],
+      [],
     );
+    render(<ServiceVendorPipeline pipeline={pipeline} trade="" approvingBidId={null} onApprove={vi.fn()} {...handlers} />);
     expect(screen.queryByRole("button", { name: "Compare" })).toBeNull();
     expect(screen.queryByText(/Lowest/)).toBeNull();
   });

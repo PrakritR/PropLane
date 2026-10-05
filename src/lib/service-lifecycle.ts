@@ -27,7 +27,7 @@
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 import type { WorkOrderVendorOffer } from "@/lib/work-order-vendor-offers";
-import { formatServiceMoney, resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
+import { applyAcceptedBid, formatServiceMoney, resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
 import {
   serviceShortDay as shortDay,
   serviceShortWhen,
@@ -62,6 +62,7 @@ type BidData = { bids: readonly WorkOrderBid[]; offers: readonly WorkOrderVendor
  * vendor, a teammate or yourself with no time yet is Assigned too.
  */
 export function workOrderServiceStage(row: DemoManagerWorkOrderRow, data: BidData): ServiceStage {
+  row = applyAcceptedBid(row, data.bids);
   const { currentId } = deriveServiceStages(row, data);
   if (currentId === "completed" || currentId === "paid") return "completed";
   if (currentId === "scheduled") return "scheduled";
@@ -206,6 +207,7 @@ export function vendorRequestFact(request: VendorRequestRow): string {
  * Completed "To pay" / "Paid" / "<assignee>".
  */
 export function workOrderStageFact(row: DemoManagerWorkOrderRow, data: BidData): string {
+  row = applyAcceptedBid(row, data.bids);
   const stage = workOrderServiceStage(row, data);
   const accepted = data.bids.find((bid) => bid.status === "accepted");
   const assignee = resolveWorkOrderAssignee(row)?.name || accepted?.vendorName?.trim() || "";
@@ -262,6 +264,7 @@ export function serviceStageSteps(
 }
 
 export function workOrderStageSteps(row: DemoManagerWorkOrderRow, data: BidData): StageBarItem[] {
+  row = applyAcceptedBid(row, data.bids);
   return serviceStageSteps(workOrderServiceStage(row, data), {
     vendorPayable: serviceIsVendorPayable(row),
     paid: row.automationStatus === "paid",

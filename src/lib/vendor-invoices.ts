@@ -5,6 +5,33 @@
  * beyond summing line items server-side.
  */
 
+/**
+ * A deliberate refusal of a vendor-invoice payment: the job is already paid through another rail,
+ * the invoice is in the wrong state, or it is not this manager's to pay. Separate from a server
+ * fault (a dropped connection, a failed insert) so a rail can answer 409 for the first and 500 for
+ * the second — telling a manager "already handled" when PropLane simply broke is the one answer
+ * that stops them retrying a payment that never happened.
+ */
+export class VendorInvoicePaymentRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VendorInvoicePaymentRefusal";
+  }
+}
+
+export function isVendorInvoicePaymentRefusal(error: unknown): error is VendorInvoicePaymentRefusal {
+  return error instanceof VendorInvoicePaymentRefusal;
+}
+
+/**
+ * SQLSTATEs a payment RPC uses to say no on purpose: `VP409` is the cross-rail double-pay raise,
+ * `P0001` is every other `raise exception` in `claim_vendor_invoice_payment` /
+ * `manage_outgoing_invoice`. Anything else is the database failing, not refusing.
+ */
+export function isVendorInvoiceRefusalSqlState(code: string | null | undefined): boolean {
+  return code === "VP409" || code === "P0001";
+}
+
 export const VENDOR_INVOICE_STATUSES = [
   "submitted",
   "approved",

@@ -119,7 +119,7 @@ export function persistManagerListingSubmission(
 
 /** Server-confirmed persist — use for lease/application edits that must survive reload. */
 export async function persistManagerListingSubmissionOnServer(
-  saveTarget: ManagerPropertySaveTarget,
+  saveTarget: ManagerPricingSaveTarget,
   managerUserId: string,
   next: ManagerListingSubmissionV1,
 ): Promise<boolean> {

@@ -19,7 +19,11 @@ const UI_FILE = /(service|vendor|task|work-order|bid|calendar|booking)/i;
  * link or record keeps resolving, a tool id the model-facing contract names. Each entry is
  * `file-suffix::literal`. Keep this list short and justified.
  */
-const ALLOWED = new Set<string>([]);
+const ALLOWED = new Set<string>([
+  // Studio plan mobile-step-tabs-1004, Part 3: the add-on header's finishing step reads "Mark done". It is
+  // defined once, here, and every other file imports the label; maintenance keeps "Complete".
+  `${join("src", "lib", "service-header-next-step.ts")}::"Mark done"`,
+]);
 
 /**
  * Vendor-portal and task files still carrying a retired word. Their own branches (vendor portal /

@@ -241,7 +241,7 @@ export function AddWorkspace({
       if (event.key !== "Escape") return;
       if (event.defaultPrevented) return;
       if (document.querySelector(`[${FIELD_SELECT_MENU_DATA_ATTR}]`)) return;
-      if (document.querySelector('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"], [data-wizard-step-sheet]')) return;
+      if (document.querySelector('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]')) return;
       event.preventDefault();
       close();
     };
@@ -386,7 +386,7 @@ export function AddWorkspace({
         }
       >
         {/* No bar for a one-step popup, nor for a tab rail (options, not steps). */}
-        {singleStep || tabRail ? null : <div className="mb-5 flex gap-1" aria-label="Step progress">
+        {singleStep || tabRail ? null : <div className="mb-5 hidden gap-1 lg:flex" aria-label="Step progress">
           {steps.map((step, index) => <span key={step.id} data-step-progress={step.id} data-error={attemptedSteps.has(index) && Boolean(step.incomplete || (index === current && invalidFields.size)) || undefined} className={`h-1 flex-1 rounded-full ${attemptedSteps.has(index) && (step.incomplete || (index === current && invalidFields.size)) ? "bg-destructive" : index <= current ? "bg-primary" : "bg-border"}`} />)}
         </div>}
         {reviewEditLinks && (steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">

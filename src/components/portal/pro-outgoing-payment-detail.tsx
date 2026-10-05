@@ -115,10 +115,9 @@ export function ManagerOutgoingPaymentDetail({
   const [checkout, setCheckout] = useState<{ workOrderId: string; secret: string } | null>(null);
   const payRequestEpoch = useRef(0);
   // Double-pay guard: a `pending` / `paid` vendor_payouts row already on this work
-  // order. Pre-checked when the confirm step opens so the warning shows before the
-  // first click; the server refuses with a 409 either way until acknowledged.
+  // order. Pre-checked when the confirm step opens so the refusal shows before the
+  // first click; the server refuses with a 409 either way, with no override.
   const [existingPayout, setExistingPayout] = useState<ExistingVendorPayoutSummary | null>(null);
-  const [doublePayAcknowledged, setDoublePayAcknowledged] = useState(false);
 
   const workOrderId = workOrder?.id ?? null;
   const currentWorkOrderId = useRef(workOrderId);
@@ -128,7 +127,6 @@ export function ManagerOutgoingPaymentDetail({
     payRequestEpoch.current++;
     setCheckout(null);
     if (!payConfirmOpen) return;
-    setDoublePayAcknowledged(false);
     if (!workOrderId || isDemoModeActive()) {
       setExistingPayout(null);
       return;
@@ -147,7 +145,7 @@ export function ManagerOutgoingPaymentDetail({
     };
   }, [payConfirmOpen, workOrderId]);
 
-  const needsDoublePayAck = Boolean(existingPayout) && !doublePayAcknowledged;
+  const alreadyPaidElsewhere = Boolean(existingPayout);
 
   const canPayWithSelected = managerCanPayOutgoingRowWithMethod(row, paymentMethod, balanceEligible);
 
@@ -160,8 +158,8 @@ export function ManagerOutgoingPaymentDetail({
       showToast(`This vendor cannot be paid with ${managerVendorPayMethodLabel(paymentMethod)}.`);
       return;
     }
-    if (needsDoublePayAck) {
-      showToast("Acknowledge the existing PropLane payout to continue.");
+    if (existingPayout) {
+      showToast(existingVendorPayoutWarning(existingPayout));
       return;
     }
 
@@ -191,7 +189,6 @@ export function ManagerOutgoingPaymentDetail({
           workOrder,
           ...approvePayDefaults(workOrder),
           paymentChannel: paymentMethod,
-          acknowledgeExistingPayout: doublePayAcknowledged,
         }),
       });
       const data = (await res.json()) as {
@@ -206,10 +203,9 @@ export function ManagerOutgoingPaymentDetail({
       if (!current()) return;
       if (res.status === 409 && data.code === VENDOR_DOUBLE_PAY_CONFLICT_CODE && data.existingPayout) {
         // The pre-check missed it (or the payout landed since). Surface the server's
-        // warning on the open confirm step and require the acknowledgement.
+        // refusal on the open confirm step; there is nothing to click past.
         setExistingPayout(data.existingPayout);
-        setDoublePayAcknowledged(false);
-        showToast("Acknowledge the existing PropLane payout to continue.");
+        showToast(data.error ?? existingVendorPayoutWarning(data.existingPayout));
         return;
       }
       // C098: the PropLane balance can't cover this job — fall back to ACH
@@ -346,7 +342,7 @@ export function ManagerOutgoingPaymentDetail({
               variant="primary"
               className={PORTAL_DETAIL_BTN}
               data-attr="manager-outgoing-payment-confirm-pay"
-              disabled={busy || needsDoublePayAck}
+              disabled={busy || alreadyPaidElsewhere}
               onClick={() => submitPay()}
             >
               {busy ? "Processing…" : "Approve & pay"}
@@ -366,18 +362,8 @@ export function ManagerOutgoingPaymentDetail({
               className="rounded-xl border px-4 py-3 text-sm portal-banner-danger"
               data-attr="manager-outgoing-payment-double-pay-warning"
             >
-              <p className="font-semibold">This vendor may already be paid</p>
+              <p className="font-semibold">This vendor is already being paid</p>
               <p className="mt-1 leading-relaxed">{existingVendorPayoutWarning(existingPayout)}</p>
-              <label className="mt-3 flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-border"
-                  checked={doublePayAcknowledged}
-                  onChange={(e) => setDoublePayAcknowledged(e.target.checked)}
-                  data-attr="manager-outgoing-payment-double-pay-ack"
-                />
-                <span>I understand a PropLane payout already exists for this service and still want to mark it paid.</span>
-              </label>
             </div>
           ) : null}
           <p className="text-muted">

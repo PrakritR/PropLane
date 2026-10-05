@@ -18,7 +18,10 @@ export function FinancialCashflowChart({ userId }: { userId: string | null }) {
     async function load(event?: Event) {
       if (event && !invalidateFinancialActivity(event)) return;
       const request = ++sequence;
-      setPoints(null); setError("");
+      // The chart owns the period, the series toggles, the table and the hover, so blanking the
+      // points here unmounted it and threw all of that away every time a charge or an outgoing
+      // payment fired. The previous months stay on screen until the new ones arrive.
+      setError("");
       try {
         const data = await loadFinancialActivity(userId);
         const summary = JSON.parse(String(data.meta?.summary)) as ReturnType<typeof summarizeFinancialActivity>;

@@ -8,6 +8,7 @@ import {
   type MappingSigningOrder,
 } from "@/lib/application-lease-mapping";
 import {
+  explicitDefaultApplicationForStay,
   publishedQuestionConfigVersionForTemplate,
   readPropertyApplicationTemplates,
   type PropertyApplicationTemplate,
@@ -17,6 +18,7 @@ import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms
 import {
   AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
+  leaseTypeIdForStoredTerm,
   LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
   sortLeaseTermsCanonical,
@@ -213,11 +215,28 @@ export function applyApplicationLinkForStayTerm(
 export function applicationPinForStayTerm(
   sub: Pick<ManagerListingSubmissionV1, "propertyApplicationTemplates" | "propertyLeaseTemplates">,
   term: string,
+  /** The stay the applicant is applying for when `term` is not picked yet (the wizard's rental type). */
+  fallbackStay?: "long_term" | "short_term",
 ): { templateId: string; templateVersion: number } | null {
   const cleanTerm = normalizeApplicationLeaseTerm(term.trim());
-  if (!cleanTerm) return null;
   const leases = readPropertyLeaseTemplates(sub);
   const applications = readPropertyApplicationTemplates(sub);
+
+  // The applicant picks a stay first, then gets that stay's DEFAULT application, when the manager set one.
+  // A stay with no explicit default skips this and routes exactly as it always did (below).
+  const termId = cleanTerm ? leaseTypeIdForStoredTerm(cleanTerm) : null;
+  const stay: "long_term" | "short_term" | null = termId
+    ? termId === "short_term"
+      ? "short_term"
+      : "long_term"
+    : (fallbackStay ?? null);
+  if (stay) {
+    const preferred = explicitDefaultApplicationForStay(applications, stay, leases);
+    const published = preferred?.publishedQuestionConfig ? publishedQuestionConfigVersionForTemplate(preferred) : null;
+    if (preferred && published) return { templateId: preferred.id, templateVersion: published.version };
+  }
+
+  if (!cleanTerm) return null;
   const leaseId = leaseTemplateIdForStayTerm(leases, cleanTerm);
   if (!leaseId) return null;
   const catalog: MappingCatalog = { applications, leases };

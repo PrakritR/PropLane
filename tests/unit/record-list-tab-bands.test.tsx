@@ -73,37 +73,52 @@ const underBand = (root: string) => {
 };
 
 describe("every service record section opens with the standard band", () => {
-  it("Service: Details · Photos · Activity with counts, the Edit icon, the stage stepper above it, no search", () => {
-    renderTab("service", wo({ photoDataUrls: ["https://example.com/a.jpg"], vendorAssignedAt: "2026-10-02T00:00:00.000Z" }));
-    expect(bandTabs("service-details")).toEqual(["Details", "Photos", "Activity"]);
-    const band = document.querySelector('[data-attr="service-details"]')!;
-    expect(band.querySelector('[data-attr="service-details-tab-photos"]')!.textContent).toMatch(/Photos\s*1/);
-    expect(band.querySelector('[data-attr="service-details-tab-activity"]')!.textContent).toMatch(/Activity\s*1/);
-    expect(document.querySelector('[data-attr="service-details-edit"]')).not.toBeNull();
-    const stepper = document.querySelector('[data-attr="service-stage-stepper"]')!;
-    expect(stepper).not.toBeNull();
+  it("Service: ONE page - stepper, Who's doing it, Request + Home, Photos (count, add icon), Activity - with no sub-tabs and no stat tiles", () => {
+    renderTab("service", wo({ photoDataUrls: ["https://example.com/a.jpg"], vendorAssignedAt: "2026-10-02T00:00:00.000Z", priority: "High" }));
+    const page = document.querySelector('[data-attr="service-details"]')!;
+    // No Details / Photos / Activity tabs and no band at all on this page.
+    expect(page.querySelector('[data-attr^="service-details-tab-"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Details/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Photos/ })).toBeNull();
+    // The four stat tiles are gone: status is the stepper, priority is in Request, assignee and cost in Who's doing it.
+    for (const id of ["status", "priority", "vendor", "cost"]) expect(document.querySelector(`[data-attr="record-overview-tile-${id}"]`)).toBeNull();
+    // Top to bottom.
+    const order = ["service-stage-stepper", "record-overview-card-who", "record-overview-card-request", "record-overview-card-home", "service-photos", "service-activity"].map((id) => {
+      const el = page.querySelector(`[data-attr="${id}"]`);
+      expect(el, id).not.toBeNull();
+      return el!;
+    });
+    for (let i = 1; i < order.length; i += 1) expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING, `${i}`).toBeTruthy();
+    const stepper = page.querySelector('[data-attr="service-stage-stepper"]')!;
     expect([...stepper.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["Open", "Assigned", "Scheduled", "Completed"]);
-    expect(stepper.compareDocumentPosition(band.querySelector('[data-attr="service-details-tab-details"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(document.querySelector('[data-attr="record-overview-card-request"]')).not.toBeNull();
-    // Assigned to and Visit are fields of the Service tab.
-    const assignment = document.querySelector('[data-attr="record-overview-card-assignment"]')!;
-    expect(assignment.textContent).toMatch(/Assigned to/);
-    expect(assignment.textContent).toMatch(/Visit/);
-    // The old inline stage-radio row is gone.
+    // Request carries the priority; nobody yet: the two choices.
+    expect(page.querySelector('[data-attr="record-overview-card-request"]')!.textContent).toMatch(/Priority\s*High/);
+    expect(page.querySelector('[data-attr="record-overview-card-who"]')!.textContent).toMatch(/Who's doing it/);
+    expect(document.querySelector('[data-attr="record-overview-card-assignment"]')).toBeNull();
+    // Photos: a count and the add-photo icon in the card header; Activity is a timeline.
+    expect(page.querySelector('[data-attr="service-photos"] h2')!.textContent).toMatch(/Photos\s*1/);
+    expect(page.querySelector('[data-attr="service-photos"] [data-attr="service-photos-add"]')).not.toBeNull();
+    expect(page.querySelector('[data-attr="work-order-photos"]')).not.toBeNull();
+    expect(page.querySelector('[data-attr="service-activity"] [data-attr="record-activity-list"]')).not.toBeNull();
+    // The Needs-you row is gone with the tiles; its one action is the header's labeled primary.
+    expect(document.querySelector('[data-attr="record-overview-needs-you"]')).toBeNull();
     expect(document.body.textContent).not.toMatch(/Progress/);
-    fireEvent.click(screen.getByRole("button", { name: /^Photos/ }));
-    expect(document.querySelector('[data-attr="work-order-photos"]')).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /^Activity/ }));
-    expect(document.querySelector('[data-attr="record-activity-list"]')).not.toBeNull();
   });
 
-  it("Vendors: Requested · Estimates · Bids · Approved · Declined with counts, search and the round + (Request bids); no stage line", () => {
+  it("Service with no photos says None yet", () => {
+    renderTab("service");
+    expect(document.querySelector('[data-attr="service-photos"]')!.textContent).toMatch(/Photos\s*0/);
+    expect(document.querySelector('[data-attr="work-order-photos-empty"]')!.textContent).toBe("None yet");
+  });
+
+  it("Vendors: Available · Sent · Bids · Scheduled · Done with counts and search; the round + opens Send job, no bar, no stage line", () => {
     renderTab("vendors");
-    expect(bandTabs("service-vendor-cycle")).toEqual(["Requested", "Estimates", "Bids", "Approved", "Declined"]);
+    expect(bandTabs("service-vendor-cycle")).toEqual(["Available", "Sent", "Bids", "Scheduled", "Done"]);
     const band = document.querySelector('[data-attr="service-vendor-cycle"]')!;
     expect(band.firstElementChild!.contains(screen.getByPlaceholderText("Search vendors"))).toBe(true);
-    const plus = band.querySelector('[data-attr="service-request-more-vendors"]') as HTMLElement;
-    expect(plus.getAttribute("aria-label")).toBe("Add vendors");
+    // The send-out lives behind the band's round + (a popup), never a sticky bar of its own.
+    expect(band.querySelector('[data-attr="service-send-plus"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="service-send-bar"]')).toBeNull();
     // One band: no separate stage / progress lines, no old Assign dropdown card.
     expect(band.querySelector('[data-attr="service-progress-line"]')).toBeNull();
     expect(band.querySelector('[data-attr="service-stage-stepper"]')).toBeNull();
@@ -144,33 +159,27 @@ describe("every service record section opens with the standard band", () => {
   });
 });
 
-describe("Request bids or assign opens one popup", () => {
-  it("the header icon opens it: Request bids / A vendor / A teammate / Me, nothing chosen yet", () => {
-    renderTab("vendors");
+describe("Assign opens one team-only popup, from the Who's doing it card", () => {
+  it("the card's first choice opens it: A teammate / Me only, nothing chosen yet - no Request bids, no vendors", () => {
+    renderTab("service");
     expect(document.querySelector('[data-attr="service-assign-dialog"]')).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Request bids or assign" }));
+    fireEvent.click(document.querySelector('[data-attr="service-who-team"]') as HTMLElement);
     const dialog = document.querySelector('[data-attr="service-assign-dialog"]') as HTMLElement;
     expect(dialog).not.toBeNull();
-    expect(within(dialog).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Request bids", "A vendor", "Me"]);
-    expect(within(dialog).getByRole("checkbox", { name: /PropLane vendors within/ })).toBeTruthy();
-    expect((within(dialog).getByRole("checkbox", { name: /PropLane vendors within/ }) as HTMLInputElement).checked).toBe(false);
-    const submit = document.querySelector('[data-attr="service-assign-submit"]') as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-    expect(submit.textContent).toBe("Request bids");
+    expect(within(dialog).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Me"]);
+    expect(within(dialog).queryByRole("checkbox", { name: /PropLane vendors within/ })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Assign" })).toBeTruthy();
   });
 
-  it("the round + on Vendors opens the same popup on Request bids", () => {
-    renderTab("vendors");
-    fireEvent.click(document.querySelector('[data-attr="service-request-more-vendors"]') as HTMLElement);
-    const dialog = document.querySelector('[data-attr="service-assign-dialog"]') as HTMLElement;
-    expect(dialog).not.toBeNull();
-    expect(within(dialog).getAllByRole("radio").find((r) => r.getAttribute("aria-checked") === "true")?.textContent).toBe("Request bids");
+  it("Send to vendors goes to Vendors, where the job is sent out from Available", () => {
+    renderTab("service");
+    fireEvent.click(document.querySelector('[data-attr="service-who-vendors"]') as HTMLElement);
+    expect(document.querySelector('[data-attr="service-assign-dialog"]')).toBeNull();
   });
 
   it("Me assigns with one click", () => {
-    renderTab("vendors");
-    fireEvent.click(screen.getByRole("button", { name: "Request bids or assign" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Me" }));
+    renderTab("service");
+    fireEvent.click(document.querySelector('[data-attr="service-who-team"]') as HTMLElement);
     expect((document.querySelector('[data-attr="service-assign-submit"]') as HTMLButtonElement).textContent).toBe("Assign to me");
   });
 });
@@ -212,9 +221,9 @@ describe("one band component, no second implementation", () => {
     ]) {
       expect(read(`src/components/portal/${file}`), file).toContain("<RecordListBand");
     }
-    for (const file of ["service-details-section.tsx", "service-communication-pane.tsx"]) {
-      expect(read(`src/components/portal/${file}`), file).toContain("<RecordTabBand");
-    }
+    // The Service page is one page (no band); only Communication opens with the tab band.
+    expect(read("src/components/portal/service-communication-pane.tsx")).toContain("<RecordTabBand");
+    expect(read("src/components/portal/service-details-section.tsx")).not.toContain("RecordTabBand");
   });
 
   it("the vendor record's Outgoing payments (To pay · Scheduled · Paid) and Reviews tabs use the same control stack", () => {
@@ -228,3 +237,14 @@ describe("one band component, no second implementation", () => {
     expect(read("src/components/portal/service-incoming-payments-list.tsx")).not.toContain("No charges for this service");
   });
 });
+
+describe("list-band tabs", () => {
+  it("draw their focus ring inside the tab, so the scrolling row cannot clip it into a stray bar on the active tab's edge", () => {
+    const css = read("src/app/globals.css");
+    const rule = css.match(/\.portal-shell :is\(([^)]*\[data-slot="local-destination-nav"\] button[^)]*)\):focus-visible \{([^}]*)\}/);
+    expect(rule, "the inset focus rule must name the command tabs").not.toBeNull();
+    expect(rule![1]).toContain('[data-slot="destination-nav"] a');
+    expect(rule![2]).toContain("outline-offset: -2px");
+  });
+});
+

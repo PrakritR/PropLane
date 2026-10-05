@@ -51,6 +51,7 @@ export function ArrangementPriceEditor({
   patch,
   term,
   prorate,
+  showMonthToMonthSurcharge = false,
   showCustomStartSurcharge = false,
   showResidentsCapacity = false,
   stayMode = false,
@@ -61,6 +62,7 @@ export function ArrangementPriceEditor({
   patch: Patch;
   term: string;
   prorate: boolean;
+  showMonthToMonthSurcharge?: boolean;
   showCustomStartSurcharge?: boolean;
   showResidentsCapacity?: boolean;
   /** Short-term property pricing — nightly rate and deposit per arrangement band. */
@@ -160,6 +162,7 @@ export function ArrangementPriceEditor({
             count={count}
             row={feeRowFor(count, row)}
             onPatch={(feePatch) => writeFees(count, feePatch)}
+            showMonthToMonth={false}
             showCustomStart={false}
             scope="short"
             storage="term"
@@ -303,6 +306,7 @@ export function ArrangementPriceEditor({
           count={count}
           row={feeRowFor(count, row)}
           onPatch={(feePatch) => writeFees(count, feePatch)}
+          showMonthToMonth={showMonthToMonthSurcharge && term === "Long-term"}
           showCustomStart={showCustomStartSurcharge && term === "Long-term"}
         />
       </>

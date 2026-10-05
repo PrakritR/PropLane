@@ -17,8 +17,15 @@ import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { POST } from "@/app/api/portal/work-orders/complete/route";
 
 type WorkOrderStoreRow = { id: string; manager_user_id?: string; row_data: Record<string, unknown> };
+type BidStoreRow = {
+  work_order_id: string;
+  status: string;
+  amount_cents?: number | null;
+  materials_cents?: number | null;
+  vendor_directory_id?: string | null;
+};
 
-function mockDb(seed: WorkOrderStoreRow[]) {
+function mockDb(seed: WorkOrderStoreRow[], bids: BidStoreRow[] = []) {
   const store = new Map(seed.map((r) => [r.id, r]));
   const upserts: Record<string, unknown>[] = [];
   const client = {
@@ -46,6 +53,21 @@ function mockDb(seed: WorkOrderStoreRow[]) {
             return { error: null };
           },
         };
+      }
+      // The completion route reads the accepted bid so the booked cost is the
+      // server's, not the client's. Filters are applied here (two chained
+      // `.eq`s, then awaited) so a seeded bid only answers for its own job.
+      if (table === "work_order_bids") {
+        const filtered = (filters: Record<string, unknown>) =>
+          bids.filter((bid) => Object.entries(filters).every(([col, value]) => bid[col as keyof BidStoreRow] === value));
+        const query = (filters: Record<string, unknown>) => ({
+          eq: (col: string, value: unknown) => query({ ...filters, [col]: value }),
+          then: (
+            resolve: (result: { data: BidStoreRow[]; error: null }) => unknown,
+            reject?: (reason: unknown) => unknown,
+          ) => Promise.resolve({ data: filtered(filters), error: null }).then(resolve, reject),
+        });
+        return { select: () => query({}) };
       }
       throw new Error(`unexpected table ${table}`);
     },

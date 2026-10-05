@@ -11,13 +11,15 @@ import { useMemo } from "react";
 import { ApplicationQuestionsEditor } from "@/components/portal/question-editor/application-questions-editor";
 import type { ApplicationEditorState } from "@/components/portal/question-editor/application-question-sections";
 import { validateField } from "@/components/portal/application-question-edit-modal";
-import { orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { editorFieldsWithLinkedForms, orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { linkedFormOptionsFromListing } from "@/lib/application-linked-form-options";
 import { questionSliceForTemplate, withQuestionSlice } from "@/lib/listing-inline-forms";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   applicationFormVariantForTemplate,
   draftQuestionConfigForTemplate,
   type PropertyApplicationTemplate,
+  applicationAllowsCosigner,
 } from "@/lib/property-application-templates";
 import { editorVisibleDisabledApplicationFields } from "@/lib/rental-application/application-field-catalog";
 
@@ -32,7 +34,11 @@ export function InlineApplicationQuestions({
 }) {
   const variant = applicationFormVariantForTemplate(template);
   const slice = useMemo(() => questionSliceForTemplate(sub, template), [sub, template]);
-  const fields = useMemo(() => orderedEditorApplicationFields(slice), [slice]);
+  const fields = useMemo(
+    () => editorFieldsWithLinkedForms(orderedEditorApplicationFields(slice), applicationAllowsCosigner(template) ? template.linkedCosignerApplicationTemplateId : null),
+    [slice, variant, template.linkedCosignerApplicationTemplateId, template.appliesTo],
+  );
+  const linkedFormOptions = useMemo(() => linkedFormOptionsFromListing(sub, { excludeApplicationId: template.id }), [sub, template.id]);
   const disabledFields = useMemo(() => editorVisibleDisabledApplicationFields(variant, slice), [slice, variant]);
   const state = useMemo<ApplicationEditorState>(
     () => ({ slice, disabledSectionIds: draftQuestionConfigForTemplate(template)?.disabledSectionIds ?? [] }),
@@ -57,6 +63,7 @@ export function InlineApplicationQuestions({
         fields={fields}
         disabledFields={disabledFields}
         fieldErrors={fieldErrors}
+        linkedFormOptions={linkedFormOptions}
         dataAttrPrefix="listing-v2-application-editor"
         onState={(next) => {
           const written = withQuestionSlice(template, next.slice);

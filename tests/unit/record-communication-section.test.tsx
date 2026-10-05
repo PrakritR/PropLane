@@ -300,6 +300,29 @@ describe("RecordCommunicationSection", () => {
     expect(screen.getByText(/Vendor · .*vendor@example\.com/)).toBeInTheDocument();
   });
 
+  it("keeps the channel picker in the tools row beside the field, never floating over the message input", async () => {
+    threadRows = [];
+    render(
+      <RecordCommunicationSection
+        fill
+        role="manager"
+        recordRef={{ kind: "service", id: "svc-1", label: "Storage locker" }}
+        contactIds={["liam@example.com"]}
+        contactName="Liam Foster"
+      />,
+    );
+    await screen.findByText("No messages yet.");
+    const field = screen.getByPlaceholderText("Write a reply…");
+    const picker = document.querySelector('[data-attr="inbox-reply-send-via"]') as HTMLElement;
+    expect(picker).not.toBeNull();
+    // Beside the field: a sibling in the tools row, not a child of the field's own wrapper.
+    expect(field.parentElement?.contains(picker)).toBe(false);
+    expect(picker.closest('[data-attr="inbox-composer-tools"]')).not.toBeNull();
+    // Nothing is laid over the input, and it reserves no right padding for an overlay.
+    expect(picker.closest(".absolute")).toBeNull();
+    expect(field.className).not.toContain("pr-12");
+  });
+
   describe("who the pane is with (service record)", () => {
     const SERVICE_REF = { kind: "service" as const, id: "seed-sr-storage-AXIS-DEMOLIAMF", label: "Storage locker" };
     // The manager's own outbound charge notice to the resident: `from` is the MANAGER, `email` the resident.

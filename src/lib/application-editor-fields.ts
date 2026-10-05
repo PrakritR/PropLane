@@ -1,9 +1,9 @@
 import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
+import { withDerivedCosignerRule } from "@/lib/application-linked-forms";
 import { normalizeCustomApplicationFieldsForEditor } from "@/lib/manager-listing-submission";
 import {
   BUILT_IN_ANSWER_VALUES,
-  NEVER_DISABLED_STANDARD_KEY_SET,
-  TYPE_LOCKED_STANDARD_KEY_SET,
+  isIdentityFloorStandardKey,
   resolveListingApplicationFields,
   type ApplicationFormVariant,
   type ApplicationConfigSlice,
@@ -46,31 +46,36 @@ export function orderedEditorApplicationFields(configSlice: ApplicationConfigSli
 }
 
 /**
- * Which edits the editor allows on a question. Nothing is locked except what the system cannot work without:
- * a few built-ins cannot be removed (`NEVER_DISABLED_STANDARD_KEYS`), name, phone and email stay required,
- * the type of a built-in the system reads by key is fixed (`TYPE_LOCKED_STANDARD_KEYS`), property and room
- * choices keep their listing-driven options, and the household and property built-ins keep the positions the
- * applicant wizard lays out (the household pair can still swap). Every question's words are editable. A built-in
- * whose choices the wizard reads by stored value (`BUILT_IN_ANSWER_VALUES`) can have each choice reworded.
+ * Which edits the editor allows on a question. One floor: full legal name and email keep being asked, stay
+ * required and keep their type (`isIdentityFloorStandardKey`), but can be reworded. Otherwise nothing is locked: every question's words, type, Required,
+ * choices, position and on/off are the manager's to change, built-in or custom, on every form variant.
+ * Two things are structural rather than locks:
+ *  - a built-in whose choices the wizard reads by stored value (`BUILT_IN_ANSWER_VALUES`) can have each choice
+ *    reworded, not added, removed or reordered (position i stores value i);
+ *  - the property section's choices (property, rooms, lease term) come from the listing, so they are not typed in.
+ * Changing the TYPE of a built-in turns it into the manager's own question (see `convertBuiltInQuestion`).
  */
 export function canEditBuiltInApplicationField(
-  variant: ApplicationFormVariant,
+  _variant: ApplicationFormVariant,
   field: ResolvedApplicationField,
   action: "label" | "required" | "visibility" | "order" | "type" | "options",
 ): boolean {
   if (!field.isStandard) return true;
-  const key = field.standardKey ?? "";
-  if (variant === "cosigner") {
-    if (action === "order" || action === "type" || action === "options") return false;
-    if (key === "personal-date-of-birth" || key === "personal-social-security-number") return true;
-    return action === "label" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email");
+  // The identity floor: full legal name and email are always asked, always required, and keep their type.
+  // Their words (and position) are still the manager's.
+  if (isIdentityFloorStandardKey(field.standardKey) && (action === "required" || action === "visibility" || action === "type" || action === "options")) {
+    return false;
   }
-  if (action === "type") return !TYPE_LOCKED_STANDARD_KEY_SET.has(key);
-  if (action === "options") return key in BUILT_IN_ANSWER_VALUES || !TYPE_LOCKED_STANDARD_KEY_SET.has(key);
-  if (action === "order" && field.section === "property") return false;
-  if (action === "visibility" && NEVER_DISABLED_STANDARD_KEY_SET.has(key)) return false;
-  if (action === "required" && (key === "personal-full-legal-name" || key === "personal-phone" || key === "personal-email")) return false;
+  if (action === "options") return field.section !== "property" || field.options.length > 0;
   return true;
+}
+
+/** The questions the editor draws, with a template's co-signer link read as a rule on "Co-signer planned". */
+export function editorFieldsWithLinkedForms(
+  fields: readonly ResolvedApplicationField[],
+  linkedCosignerApplicationTemplateId: string | null | undefined,
+): ResolvedApplicationField[] {
+  return withDerivedCosignerRule(fields, linkedCosignerApplicationTemplateId);
 }
 
 /** True when the choices can be reworded but not added, removed or reordered (the wizard reads their stored values). */

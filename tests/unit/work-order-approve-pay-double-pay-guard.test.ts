@@ -16,6 +16,7 @@ vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
 }));
 vi.mock("@/lib/work-order-expenses", () => ({
   createExpensesFromWorkOrder: vi.fn().mockResolvedValue(["exp_1"]),
+  readPostedWorkOrderExpenseLines: vi.fn().mockResolvedValue({ ok: true, posted: new Map() }),
   mergeWorkOrderCompletion: vi.fn((row: Record<string, unknown>) => ({ ...row, bucket: "completed" })),
   markWorkOrderPaid: vi.fn((row: Record<string, unknown>, paidAt: string, opts: { channel: string }) => ({
     ...row,
@@ -70,6 +71,10 @@ class FakeQuery {
     this.filters.push([col, val]);
     return this;
   }
+  in(col: string, vals: unknown[]) {
+    this.filters.push([col, vals]);
+    return this;
+  }
   insert(row: Row) {
     this.mode = "insert";
     this.payload = row;
@@ -93,7 +98,7 @@ class FakeQuery {
       this.log.order.push(`upsert:${this.table}`);
       return { data: null, error: null };
     }
-    return { data: this.rows.filter((r) => this.filters.every(([c, v]) => r[c] === v)), error: null };
+    return { data: this.rows.filter((r) => this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v))), error: null };
   }
   maybeSingle() {
     const res = this.exec();
@@ -104,7 +109,7 @@ class FakeQuery {
   }
 }
 
-function makeDb(tables: Record<string, Row[]>, rpcOverride?: (name: string) => { data: unknown; error: { message: string } | null } | undefined) {
+function makeDb(tables: Record<string, Row[]>, rpcOverride?: (name: string) => { data: unknown; error: { code?: string; message: string } | null } | undefined) {
   const log: DbLog = { inserts: [], upserts: [], rpcs: [], order: [], failInsertOn: null };
   return {
     log,
@@ -218,56 +223,68 @@ describe("approve-pay double-pay guard", () => {
     expect(createCheckout).not.toHaveBeenCalled();
   });
 
-  it("proceeds with the acknowledgement: the audit event is written FIRST, naming actor, work order and payout, then the claim and an embedded Checkout start (no inline settle)", async () => {
-    const db = makeDb(baseTables(paidPayout));
-    signIn(db);
-    const res = await POST(postBody({ acknowledgeExistingPayout: true }));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { clientSecret?: string; sessionId?: string; expenseEntryIds: string[] };
-    expect(body.clientSecret).toBe("cs_secret_1");
-    expect(body.sessionId).toBe("cs_test_1");
-
-    const audit = db.log.inserts.filter((i) => i.table === "audit_log");
-    expect(audit).toHaveLength(1);
-    expect(audit[0]!.row).toMatchObject({
-      action: "vendor_double_pay_acknowledged",
-      actor_user_id: MANAGER,
-      landlord_id: MANAGER,
-      input_summary: { workOrderId: WORK_ORDER, payoutId: "payout_1", payoutStatus: "paid", paymentChannel: "ach" },
-    });
-    // The acknowledgement is on record before the claim and before any Stripe call.
-    expect(db.log.order).toEqual([
-      "insert:audit_log",
-      "rpc:claim_work_order_vendor_payment",
-      "rpc:finish_work_order_vendor_checkout",
-    ]);
-    expect(createCheckout).toHaveBeenCalledTimes(1);
-    // Payment is settled only by the verified webhook: no paid-merge, no work-order write.
-    expect(db.log.rpcs.some((r) => r.name === "mark_work_order_payment_paid")).toBe(false);
-    expect(db.log.upserts).toEqual([]);
+  it("there is no acknowledgement override: the refusal stands however the client asks, with no audit row, claim or Checkout", async () => {
+    for (const ack of [true, "yes", 1]) {
+      createCheckout.mockClear();
+      const db = makeDb(baseTables(paidPayout));
+      signIn(db);
+      const res = await POST(postBody({ acknowledgeExistingPayout: ack }));
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("existing_payout");
+      expect(db.log.inserts).toEqual([]);
+      expect(db.log.upserts).toEqual([]);
+      expect(db.log.rpcs).toEqual([]);
+      expect(createCheckout).not.toHaveBeenCalled();
+    }
   });
 
-  it("an acknowledged pay the database claim still refuses (a pending/paid payout row exists) ends 409 with the ack on record and NO Checkout started", async () => {
-    const db = makeDb(baseTables(paidPayout), (name) =>
-      name === "claim_work_order_vendor_payment" ? { data: null, error: { message: "Service payout already exists" } } : undefined,
-    );
+  it("settleOnly is not a client-reachable escape hatch: the route strips it and the guard still refuses", async () => {
+    // `settleOnly` skips the guard because it records a payment the Stripe webhook already took.
+    // The route builds the core's input from an allowlist, so the body can never set it.
+    const db = makeDb(baseTables(paidPayout));
     signIn(db);
-    const res = await POST(postBody({ acknowledgeExistingPayout: true }));
+    const res = await POST(postBody({ settleOnly: true }));
     expect(res.status).toBe(409);
-    expect(db.log.inserts.filter((i) => i.table === "audit_log")).toHaveLength(1);
-    expect(createCheckout).not.toHaveBeenCalled();
-    expect(db.log.rpcs.some((r) => r.name === "finish_work_order_vendor_checkout")).toBe(false);
-  });
-
-  it("a failed acknowledgement write refuses 500: nothing is claimed and no Checkout starts", async () => {
-    const db = makeDb(baseTables(paidPayout));
-    db.log.failInsertOn = "audit_log";
-    signIn(db);
-    const res = await POST(postBody({ acknowledgeExistingPayout: true }));
-    expect(res.status).toBe(500);
-    expect(((await res.json()) as { error: string }).error).toContain("nothing was marked paid");
+    expect(((await res.json()) as { code: string }).code).toBe("existing_payout");
     expect(db.log.rpcs).toEqual([]);
     expect(createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("names the vendor's invoice as the rail when the blocking payout belongs to one", async () => {
+    const tables = baseTables({ ...paidPayout, invoice_id: "inv_1" });
+    tables.vendor_invoices = [{ id: "inv_1", estimate_visit_bid_id: null }];
+    const db = makeDb(tables);
+    signIn(db);
+    const res = await POST(postBody());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; existingPayout: Row };
+    expect(body.existingPayout).toMatchObject({ rail: "invoice" });
+    expect(body.error).toContain("invoice");
+    expect(db.log.rpcs).toEqual([]);
+  });
+
+  it("an estimate-visit-fee payout (server-written marker) is not a double-pay of the job: Checkout starts", async () => {
+    const tables = baseTables({ ...paidPayout, invoice_id: "inv_visit" });
+    tables.vendor_invoices = [{ id: "inv_visit", estimate_visit_bid_id: "bid_1" }];
+    const db = makeDb(tables);
+    signIn(db);
+    const res = await POST(postBody());
+    expect(res.status).toBe(200);
+    expect(createCheckout).toHaveBeenCalledTimes(1);
+  });
+
+  it("the database is the arbiter: when the cross-rail trigger (VP409) refuses the claim insert, the answer is a 409 with its message and no Checkout starts", async () => {
+    const db = makeDb(baseTables(), (name) =>
+      name === "claim_work_order_vendor_payment"
+        ? { data: null, error: { code: "VP409", message: "This service already has a payout in progress or paid through another payment method." } }
+        : undefined,
+    );
+    signIn(db);
+    const res = await POST(postBody());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain("another payment method");
+    expect(createCheckout).not.toHaveBeenCalled();
+    expect(db.log.rpcs.some((r) => r.name === "finish_work_order_vendor_checkout")).toBe(false);
   });
 
   it("does not block, and writes no acknowledgement, when the only payout failed or was skipped: Checkout starts", async () => {

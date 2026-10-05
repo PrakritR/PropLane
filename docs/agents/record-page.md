@@ -28,7 +28,10 @@ its own shell.
    glyph; state changes inside the row's sheet or ⋯.
 6. Phone: same header and content; the section chips are replaced by
    `PortalRecordSectionPicker` — a dropdown listing the sections, `+` expands
-   a section's sub-tabs, a row navigates, Close closes.
+   a section's sub-tabs, a row navigates, Close closes. A property is the
+   exception (`phoneTabs`): its sections are underline command tabs that scroll
+   sideways, and its header is Edit + one ⋯ (Share, Unlist, Duplicate, Delete,
+   Email) so the name keeps one line (`PropertyPhoneHeaderActions`).
 7. Communication inside a record renders the record's thread(s) and a
    composer only. Never the inbox chrome.
 8. Money: Payments on every kind lists the charges whose `recordRef` is this
@@ -89,12 +92,12 @@ through the registry: applications (`renderApplicationRowActions` /
 `renderCosignerDetailActions`, already icon-only), team/co-manager links
 (`pro-account-links-panel.tsx`, now icon-only), and — unconverted, still
 labelled buttons, deferred to the wave that redesigns those features —
-background-check screening actions (`application-screening-panel.tsx`),
-add-on service request actions (`pro-service-request-detail.tsx`), and lease
-actions (`LeasePrimaryHeaderActions`). Those three still publish into the
+background-check screening actions (`application-screening-panel.tsx`) and lease
+actions (`LeasePrimaryHeaderActions`). Those still publish into the
 header via `PortalRecordActions` exactly as they did as a `footer`, so no
 behavior changed; making them icon-only is per-kind panel work, not shared
-shell.
+shell. A service record (add-on and maintenance alike) is converted: Message · Edit · ⋯ · ONE labeled
+primary (`portalLabeledPrimarySpec`), see `services-system.md`.
 
 ## The day page pattern
 

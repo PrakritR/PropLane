@@ -148,6 +148,7 @@ import {
 } from "@/lib/listing-shared-space-access";
 import { listingLeaseTypeScopeOptions, listingPricingLeaseTabs, listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
+import { listingOfferedStays, staysPatch } from "@/lib/listing-stays";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { listingV2PublishPricingBlocker, PUBLISH_BLOCKER_RENT } from "@/lib/listing-wizard-validation";
@@ -190,6 +191,7 @@ import {
   AdvancedGroup,
   AdvancedPanel,
   ChoiceCard,
+  CheckCard,
   CountStepper,
   KindTile,
   MultiPick,
@@ -623,6 +625,18 @@ function StepBasics({
 }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
+  const offeredStays = listingOfferedStays(sub);
+  const [refusedLastStay, setRefusedLastStay] = useState(false);
+  // "Stays you offer" is the one place this is set. At least one stays on: turning the last one off is refused.
+  const toggleStay = (stay: "long_term" | "short_term") => {
+    const patchFor = staysPatch(sub, { ...offeredStays, [stay]: !offeredStays[stay] });
+    if (!patchFor) {
+      setRefusedLastStay(true);
+      return;
+    }
+    setRefusedLastStay(false);
+    patch(patchFor);
+  };
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
   const setBedrooms = (next: number) => {
     const prevIds = (sub.rooms ?? []).map((room) => room.id);
@@ -713,6 +727,17 @@ function StepBasics({
             <ChoiceCard selected={rentByRoom} title="By the room" dataAttr="listing-v2-rent-model-shared" onSelect={() => setRentModel("shared_home")} />
             <ChoiceCard selected={!rentByRoom} title="The whole place" dataAttr="listing-v2-rent-model-entire" onSelect={() => setRentModel("entire_home")} />
           </div>
+        </Field>
+        <Field label="Stays you offer" required group>
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <CheckCard checked={offeredStays.long_term} title="Long term" dataAttr="listing-v2-stay-long-term" onToggle={() => toggleStay("long_term")} />
+            <CheckCard checked={offeredStays.short_term} title="Short term" dataAttr="listing-v2-stay-short-term" onToggle={() => toggleStay("short_term")} />
+          </div>
+          {refusedLastStay ? (
+            <span role="alert" data-attr="listing-v2-stay-min-one" className="block text-xs font-semibold text-destructive">
+              Keep at least one stay
+            </span>
+          ) : null}
         </Field>
         <div className="rounded-2xl border border-border bg-card">
           <FactRow first required label={<>{rentByRoom ? "Bedrooms to rent" : "Bedrooms"} {mark("listingBedroomSlots")}</>}>
@@ -3371,7 +3396,6 @@ export function ListingEditorV2({
       );
     }
     return preview;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, submission, previewRoomId]);
 
   return (

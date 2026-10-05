@@ -6,6 +6,7 @@ import {
   syncPortalDetailDestinationOffset,
   syncPortalMobileTopChrome,
 } from "@/lib/portal-mobile-top-chrome";
+import { useTabOverflowFade } from "@/components/ui/destination-nav";
 import { PortalPropertySectionInfo } from "@/components/portal/portal-property-section-info";
 import { PROPERTY_PREVIEW_SECTION_INFO } from "@/lib/property-section-info-copy";
 
@@ -434,6 +435,9 @@ export function ListingStickySubnav({
   const compactEqualTabs = portalTabs || (mode === "modal" && pinned);
   const alignEnd = align === "end";
   const alignCenter = align === "center";
+  /** The standard underline command tabs (the same look as every list page), scrolling sideways. */
+  const underlineTabs = portalTabs && !alignEnd && !alignCenter;
+  const overflowFade = useTabOverflowFade(listRef, nav.length);
 
   const portalSticky = mode === "portal" && !pinned;
   // Inside a pinned-chrome scroll body the sticky edge is the body's top;
@@ -450,7 +454,9 @@ export function ListingStickySubnav({
       data-listing-subnav-pinned={pinned ? "" : undefined}
       data-listing-subnav-portal={portalSticky ? "" : undefined}
       data-listing-subnav-align={alignCenter ? "center" : alignEnd ? "end" : undefined}
-      className={`z-[45] min-w-0 w-full max-w-full overflow-hidden py-2 backdrop-blur-md transition-[background-color,border-color,box-shadow] duration-300 ease-out sm:py-2.5 [html[data-native]_&]:border-x-0 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2 ${
+      className={`z-[45] min-w-0 w-full max-w-full overflow-hidden backdrop-blur-md transition-[background-color,border-color,box-shadow] duration-300 ease-out ${
+        underlineTabs ? "py-0" : "py-2 sm:py-2.5 [html[data-native]_&]:py-2"
+      } [html[data-native]_&]:border-x-0 [html[data-native]_&]:px-3 ${
         portalTabs
           ? alignEnd || alignCenter
             ? `border-0 bg-transparent ${pinned ? "" : "sticky bg-background shadow-sm [top:var(--portal-mobile-top-chrome,0px)]"}`
@@ -476,8 +482,11 @@ export function ListingStickySubnav({
     >
       <ul
         ref={listRef}
+        style={underlineTabs ? overflowFade : undefined}
         className={
-          compactEqualTabs
+          underlineTabs
+            ? "flex w-full min-w-0 max-w-full flex-nowrap items-stretch gap-0 overflow-x-auto overscroll-x-contain px-0 text-sm font-semibold [-ms-overflow-style:none] [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            : compactEqualTabs
             ? alignEnd
               ? "flex w-auto min-w-0 max-w-full flex-nowrap items-center justify-end gap-0.5 px-0.5 py-0.5 text-[10px] font-semibold leading-tight"
               : alignCenter
@@ -493,7 +502,7 @@ export function ListingStickySubnav({
         {nav.map((item) => {
           const active = activeId === item.id;
           return (
-            <li key={item.id} className={compactEqualTabs && !alignEnd && !alignCenter ? "min-w-0" : "shrink-0"}>
+            <li key={item.id} className={compactEqualTabs && !underlineTabs && !alignEnd && !alignCenter ? "min-w-0" : "shrink-0"}>
               <button
                 ref={(el) => {
                   tabRefs.current.set(item.id, el);
@@ -502,7 +511,13 @@ export function ListingStickySubnav({
                 data-attr="listing-section-tab"
                 aria-current={active ? "true" : undefined}
                 className={`inline-flex w-full min-w-0 cursor-pointer items-center justify-center border-0 text-[inherit] transition-colors ${
-                  compactEqualTabs
+                  underlineTabs
+                    ? `min-h-11 rounded-none border-b-2 px-3 py-2 whitespace-nowrap ${
+                        active
+                          ? "border-primary text-primary"
+                          : "border-transparent text-muted hover:border-border hover:text-foreground"
+                      }`
+                    : compactEqualTabs
                     ? alignEnd || alignCenter
                       ? `min-h-8 rounded-md px-2 py-1 whitespace-nowrap w-auto ${
                           active

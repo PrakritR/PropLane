@@ -1,3 +1,4 @@
+import { resolveRequestOrigin } from "@/lib/app-url";
 import { NextResponse } from "next/server";
 
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
       ctx.db,
       ctx.userId,
       propertyIds,
-      new URL(req.url).origin,
+      resolveRequestOrigin(req),
     );
     return NextResponse.json({ properties });
   } catch (e) {

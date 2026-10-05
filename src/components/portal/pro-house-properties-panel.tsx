@@ -34,6 +34,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PortalAdaptiveActionRow, type PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
+import { PropertyPhoneHeaderActions } from "@/components/portal/property-phone-header-actions";
+import { useMdUp } from "@/components/portal/portal-title-actions-slot";
+import { listingContactRows } from "@/components/marketing/listing-contact-card";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -55,6 +58,7 @@ import {
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-property-house-details-panel";
 import { PropertyPricingPanel } from "@/components/portal/property-pricing-panel";
+import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
@@ -555,6 +559,16 @@ function ManagerPropertyInlineDetails({
     [row],
   );
 
+  /**
+   * The stored property record, as the jurisdiction resolver reads it — it consults this BEFORE the
+   * submission, so the pricing preview resolves Seattle the same way the lease and the ledger do on
+   * a listing whose submission never recorded the address.
+   */
+  const pricingListingProperty = useMemo<RentRuleAddress | null>(
+    () => (row ? { address: row.address, zip: row.zip, neighborhood: row.neighborhood } : null),
+    [row],
+  );
+
   const run = (label: string, ok: boolean, err = "Action could not be completed.") => {
     if (!ok) {
       showToast(err);
@@ -855,6 +869,12 @@ function ManagerPropertyInlineDetails({
     PROPERTY_ACTIVITY_CATEGORY_OPTIONS.map((option) => option.value),
   );
 
+  // Phone = below `md`, the breakpoint the detail header already splits on.
+  const mdUp = useMdUp();
+  // The preview's Email: the slim phone bar gave it up, so it lives in the header ⋯ there.
+  const previewEmailHref =
+    isListingPreview && previewProperty ? (listingContactRows(previewProperty).email?.href ?? null) : null;
+
   // C2-PR14: the record header keeps Edit, Share, Duplicate, Unlist, Delete on every property tab (studio).
   const propertyTabFooterActions = useMemo(() => {
     {
@@ -905,7 +925,7 @@ function ManagerPropertyInlineDetails({
               data-attr="listing-send-listing"
               onSelect={() => onSendToProspect?.(listingId)}
             >
-              Send
+              Share
             </DropdownMenuItem>
           ),
         });
@@ -1129,6 +1149,22 @@ function ManagerPropertyInlineDetails({
       }
 
       if (actions.length === 0) return null;
+      // Phone: Edit + one ⋯ (Share, Unlist, Duplicate, Delete, Email) so the title keeps its line.
+      // A relisted (bucket 3) row keeps its worded buttons. Wider widths keep every icon.
+      if (!mdUp && (bucket === 2 || bucket === 5)) {
+        const emailAction: PortalAdaptiveAction | null = previewEmailHref
+          ? {
+              id: "email-manager",
+              node: null,
+              menuItem: (
+                <DropdownMenuItem asChild data-attr="listing-header-email">
+                  <a href={previewEmailHref}>Email</a>
+                </DropdownMenuItem>
+              ),
+            }
+          : null;
+        return <PropertyPhoneHeaderActions actions={actions} extra={emailAction} />;
+      }
       return <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />;
     }
     return null;
@@ -1155,6 +1191,8 @@ function ManagerPropertyInlineDetails({
     skuTier,
     propCount,
     dangerBtnClass,
+    mdUp,
+    previewEmailHref,
   ]);
 
   const hasPinnedPropertyFooter =
@@ -1246,6 +1284,7 @@ function ManagerPropertyInlineDetails({
       backHref={propertyListHref(propertiesBase, stage)}
       backLabel="Back to properties"
       ariaLabel="Property sections"
+      phoneTabs
       onHeaderAction={onPropertyRecordHeaderAction}
     >
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1295,7 +1334,7 @@ function ManagerPropertyInlineDetails({
           <ListingStickySubnav
             mode="portal"
             appearance="portal"
-            className="rounded-lg border !border-border bg-card px-0.5"
+            className="bg-background"
           />
         </div>
       ) : null}
@@ -1383,6 +1422,7 @@ function ManagerPropertyInlineDetails({
           propertyLabel={propertyShareLabel}
           onUpdated={onUpdated}
           showToast={showToast}
+          listingProperty={pricingListingProperty}
         />
       ) : null}
       {activeDetailTab === "pricing" && bucket !== 3 && bucket !== 5 && houseSaveTarget && managerUserId ? (
@@ -1393,6 +1433,7 @@ function ManagerPropertyInlineDetails({
           propertyLabel={propertyShareLabel}
           onUpdated={onUpdated}
           showToast={showToast}
+          listingProperty={pricingListingProperty}
         />
       ) : null}
       {activeDetailTab === "lease" && bucket !== 3 && bucket !== 5 ? (
@@ -2309,6 +2350,8 @@ function ManagerHousePropertiesPanelBody({
         suppressMobileActions
         // C2-PR14: record-level icons on every tab, laid out as round icons with the full header width.
         iconTitleActions
+        // Edit + ⋯ on a phone leaves the name a whole line; a relisted row keeps its worded buttons.
+        titleSingleLine={sourceBucket !== 3}
         pinScrollBody
         scrollBody={false}
       >
@@ -2392,7 +2435,12 @@ function ManagerHousePropertiesPanelBody({
   return (
     <>
       <PortalRecordListSurface
-        className="mt-0"
+        // The page scroller (#portal-main-content) already pads the bottom nav
+        // and assistant clearance on a phone; the surface's own inset on top of
+        // it left about a screen of blank scroll past the last row. The inner
+        // body below carries none either, so the list ends at the last row plus
+        // exactly that one clearance.
+        className="mt-0 max-lg:pb-0"
         onBulkClear={clearSelection}
         bulkCount={selectedIds.size}
         // The very first property-records sync can take several seconds. Until it
@@ -2515,7 +2563,7 @@ function ManagerHousePropertiesPanelBody({
             ) : null}
           </div>
         </>
-      ) : null}><div className={PORTAL_LIST_PAGE_BODY}>
+      ) : null}><div className={cn(PORTAL_LIST_PAGE_BODY, "pb-0 max-lg:pb-0 lg:pb-0")}>
         {rows.map(({ sourceBucket, row, linked, attention }) => {
           const rowKey = row.adminRefId + (row.listingId ?? "");
           const thumb = propertyRowThumbnail(row);

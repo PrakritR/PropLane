@@ -129,7 +129,7 @@ const fetchCalls: { url: string; body: string | null }[] = [];
 const queuedApplicationIds = new Set<string>();
 const cancelledApplicationIds = new Set<string>();
 
-function stubFetch(handlers: { verifyResponse?: () => Promise<Response>; resumeStatus?: number; resumeRow?: DemoApplicantRow | null; resumeRows?: Record<string, DemoApplicantRow>; selfRows?: DemoApplicantRow[]; selfResponse?: () => Promise<Response>; resumeResponse?: (id: string) => Promise<Response> }) {
+function stubFetch(handlers: { verifyResponse?: () => Promise<Response>; resumeStatus?: number; resumeRow?: DemoApplicantRow | null; resumeRows?: Record<string, DemoApplicantRow>; selfRows?: DemoApplicantRow[]; selfResponse?: () => Promise<Response>; resumeResponse?: (id: string) => Promise<Response>; linkedRequests?: unknown[] }) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -137,6 +137,9 @@ function stubFetch(handlers: { verifyResponse?: () => Promise<Response>; resumeS
       fetchCalls.push({ url, body: typeof init?.body === "string" ? init.body : null });
       if (url.includes("/api/stripe/application-fee-verify") && handlers.verifyResponse) {
         return handlers.verifyResponse();
+      }
+      if (url.includes("/api/linked-form-requests") && handlers.linkedRequests) {
+        return new Response(JSON.stringify({ requests: handlers.linkedRequests }), { status: 200 });
       }
       if (url.includes("/api/portal/application-resume")) {
         const id = typeof init?.body === "string" ? (JSON.parse(init.body) as { id?: string }).id : undefined;
@@ -532,6 +535,40 @@ describe("Stripe return verification recovery", () => {
     expect(verify).toHaveBeenCalledTimes(2);
     expect(fetchCalls.some((call) => call.url.includes("/api/portal/send-application-submitted"))).toBe(false);
     expect(screen.queryByRole("link", { name: "Create your resident account" })).toBeNull();
+  });
+
+  it("lists the forms the paid application owes on the confirmation, read from the server", async () => {
+    checkoutReturn("cs_owed_forms");
+    const owed = {
+      id: "req-cosigner-1",
+      applicationId: AXIS_ID,
+      ruleId: "lfr-derived-cosigner",
+      formKind: "application",
+      formId: "tpl-cosigner",
+      formLabel: "Co-signer application",
+      questionCount: 12,
+      sourceQuestionLabel: "Co-signer planned",
+      sourceAnswerLabel: "Yes",
+      neededBeforeReview: true,
+      status: "owed",
+      feeCents: null,
+      feePaid: false,
+      completedAt: null,
+      applicantName: "Riley Guest",
+      viewerRole: "applicant",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    stubFetch({
+      linkedRequests: [owed],
+      verifyResponse: async () => new Response(JSON.stringify({ paid: true, applicationPromoted: true, applicationAxisId: AXIS_ID,
+        propertyId: PID, applicationSetupEmailSent: true }), { status: 200 }),
+    });
+
+    await mountWizard();
+    expect(await screen.findByRole("heading", { name: "Application submitted" })).toBeTruthy();
+    expect(await screen.findByText("1 more form to finish")).toBeTruthy();
+    expect(screen.getByText("Co-signer application")).toBeTruthy();
+    expect(fetchCalls.some((call) => call.url.includes(`/api/linked-form-requests?applicationId=${AXIS_ID}`))).toBe(true);
   });
 
   it("recovers when the return fee-preview request rejects before verification", async () => {

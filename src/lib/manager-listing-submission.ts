@@ -18,6 +18,7 @@ import {
   SHORT_TERM_LEASE_TERM,
   isLegacyFixedLeaseTerm,
   leaseTypeIdForStoredTerm,
+  normalizeLegacyLeaseTerms,
   sortLeaseTermsCanonical,
   storedTermForLeaseType,
   type LeaseTypeId,
@@ -41,6 +42,7 @@ import {
 import type { BathroomDefaults, SharedSpaceDefaults } from "@/lib/listing-record-defaults";
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { normalizeLeaseUtilities } from "@/lib/lease-utilities";
+import { normalizeLinkedFormRules, type LinkedFormRule } from "@/lib/application-linked-forms";
 import { normalizeMoveInFormTemplates, readMoveInFormSettings } from "@/lib/move-in-forms/templates";
 import type { MoveInFormSettings, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import {
@@ -614,6 +616,7 @@ export type ManagerBundleRow = {
    * charge generation. A bundle's Lease fee and Application fee live in `termPricing[term]`, the
    * same entry shape (and the same fields) a room's non-long-term step uses.
    */
+  monthToMonthSurcharge?: string;
   customStartSurcharge?: string;
 };
 
@@ -797,6 +800,7 @@ export type ManagerListingSubmissionV1 = {
     leaseFee?: string;
     applicationFee?: string;
     moveInFee?: string;
+    monthToMonthSurcharge?: string;
     customStartSurcharge?: string;
     shortTermLeaseFee?: string;
     shortTermApplicationFee?: string;
@@ -1033,6 +1037,8 @@ export type ManagerListingSubmissionV1 = {
   parkingMonthly: string;
   hoaMonthly: string;
   otherMonthlyFees: string;
+  /** Extra monthly charge added automatically when tenant is on month-to-month (e.g. $25). */
+  monthToMonthSurcharge?: string;
   /**
    * When true, a fixed-term lease CONTINUES month-to-month at the end of its
    * term instead of terminating.
@@ -1362,7 +1368,8 @@ export function resolveAllowedLeaseTerms(
     | null
     | undefined,
 ): string[] {
-  const fromArray = (sub?.allowedLeaseTerms ?? []).filter((t) => LISTING_LEASE_TERM_OPTION_SET.has(t));
+  // Legacy free text ("12 months", "nightly") reads as the lease type it stands for, never as nothing.
+  const fromArray = normalizeLegacyLeaseTerms(sub?.allowedLeaseTerms);
   let terms: string[];
   if (fromArray.length > 0) {
     terms = fromArray;
@@ -1593,6 +1600,12 @@ export type ManagerCustomApplicationField = {
   section?: string;
   /** When set, this row customizes a built-in Axis application question. */
   standardKey?: string;
+  /**
+   * The built-in this custom question REPLACED when its type (or choices) were changed: the retired
+   * built-in's standard key. The editor hides that built-in from the removed list by this key, so
+   * rewording the replacement never brings the original back for the applicant to be asked twice.
+   */
+  replacedStandardKey?: string;
   /** Manager-authored help text shown under the question label. Absent when unset. */
   description?: string;
   /**
@@ -1605,6 +1618,12 @@ export type ManagerCustomApplicationField = {
    * A hidden question is never required and never blocks submit.
    */
   showIf?: { fieldKey: string; equals: string };
+  /**
+   * Forms to include for particular answers ("when the answer is X, include that form"). Stored on a
+   * custom question's own row and, for a built-in, on its override row. Absent = never configured
+   * (a template's co-signer link is then read as a rule on "Co-signer planned"); `[]` = configured empty.
+   */
+  linkedForms?: LinkedFormRule[];
   /**
    * Who answers this question. Absent/`"resident"` (the default, and every
    * question that existed before this field) is answered by the applicant or
@@ -1689,6 +1708,10 @@ export function normalizeCustomApplicationFields(
         : [];
     const standardKey =
       typeof o.standardKey === "string" && o.standardKey.trim() ? o.standardKey.trim() : undefined;
+    const replacedStandardKey =
+      typeof o.replacedStandardKey === "string" && o.replacedStandardKey.trim()
+        ? o.replacedStandardKey.trim()
+        : undefined;
     // Built-in overrides may be dynamic selects (property, rooms) with no fixed option list.
     if (hasOptions && options.length === 0 && !includeIncomplete && !standardKey) continue;
     const section =
@@ -1708,6 +1731,7 @@ export function normalizeCustomApplicationFields(
         : undefined;
     const filledBy = o.filledBy === "manager" ? "manager" : o.filledBy === "resident" ? "resident" : undefined;
     const flagged = o.flagged === true ? true : undefined;
+    const linkedForms = Array.isArray(o.linkedForms) ? normalizeLinkedFormRules(o.linkedForms) : undefined;
     out.push({
       id,
       key,
@@ -1717,8 +1741,10 @@ export function normalizeCustomApplicationFields(
       options,
       section,
       standardKey,
+      replacedStandardKey,
       description,
       showIf,
+      linkedForms,
       filledBy,
       flagged,
     });
@@ -2582,6 +2608,10 @@ function normalizeManagerListingSubmissionV1Base(
           ? b.utilitiesEstimate.trim()
           : undefined,
       termPricing: normalizeRoomTermPricing((b as ManagerBundleRow & { termPricing?: unknown }).termPricing),
+      monthToMonthSurcharge:
+        typeof b.monthToMonthSurcharge === "string" && b.monthToMonthSurcharge.trim()
+          ? b.monthToMonthSurcharge.trim()
+          : undefined,
       customStartSurcharge:
         typeof b.customStartSurcharge === "string" && b.customStartSurcharge.trim()
           ? b.customStartSurcharge.trim()
@@ -2942,6 +2972,7 @@ function normalizeManagerListingSubmissionV1Base(
       : [],
     holdingDeposit: typeof sub.holdingDeposit === "string" ? sub.holdingDeposit : "",
     holdingDepositTiming: sub.holdingDepositTiming === "at_application" ? "at_application" : "after_approval",
+    monthToMonthSurcharge: typeof sub.monthToMonthSurcharge === "string" ? sub.monthToMonthSurcharge : "",
     longTermLengthsOffered: normalizeLongTermLengths(sub.longTermLengthsOffered),
     // Only an explicit `true` turns rollover on. Anything else — absent, a
     // string, a stored null — keeps the standard "terminates at the end of the

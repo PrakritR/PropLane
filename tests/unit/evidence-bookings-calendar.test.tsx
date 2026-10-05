@@ -41,6 +41,7 @@ vi.mock("@/lib/manager-applications-storage", () => ({
     Promise.resolve([{ email: "cv.ponce@example.test", bucket: "current" }]),
 }));
 vi.mock("@/lib/channel-calendar/client", () => ({
+  fetchWritableChannelCalendarPropertyIds: (ids: string[]) => Promise.resolve(ids),
   fetchManagerChannelBookings: () =>
     Promise.resolve([
       {

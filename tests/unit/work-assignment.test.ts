@@ -1,8 +1,8 @@
 /**
  * Who a piece of work can be assigned to.
  *
- * The rule that matters: vendors take staff TASK work only — never tours (they do not show
- * prospects around) and never add-on services (those stay with the manager team).
+ * The rule that matters: vendors never take a tour (they do not show prospects around). They take staff
+ * TASK work, maintenance work orders and - through its linked vendor job - an add-on service.
  * That lives in `assignableKindsFor` alone, so a new surface cannot quietly offer a vendor a tour
  * by forgetting to check.
  *
@@ -34,19 +34,19 @@ describe("what a vendor may take", () => {
     expect(assignableKindsFor("team")).toEqual(["service", "maintenance", "tour", "task"]);
   });
 
-  it("limits a vendor to task work and maintenance work orders", () => {
-    expect(assignableKindsFor("vendor")).toEqual(["task", "maintenance"]);
+  it("lets a vendor take tasks, maintenance work orders and an add-on service (via its vendor job), never a tour", () => {
+    expect(assignableKindsFor("vendor")).toEqual(["task", "maintenance", "service"]);
     expect(canAssign("vendor", "task")).toBe(true);
     expect(canAssign("vendor", "maintenance")).toBe(true);
-    expect(canAssign("vendor", "service")).toBe(false);
+    expect(canAssign("vendor", "service")).toBe(true);
     expect(canAssign("vendor", "tour")).toBe(false);
   });
 });
 
 describe("candidates offered", () => {
-  it("offers vendors for tasks, not services or tours", () => {
+  it("offers vendors for tasks and services, not tours", () => {
     const serviceList = assignmentCandidatesFor("service", { teamMembers: TEAM, vendors: VENDORS });
-    expect(serviceList.every((c) => c.type === "team")).toBe(true);
+    expect(serviceList.filter((c) => c.type === "vendor").map((c) => c.id)).toEqual(["v-1", "v-2"]);
 
     const taskList = assignmentCandidatesFor("task", { teamMembers: TEAM, vendors: VENDORS });
     expect(taskList.filter((c) => c.type === "vendor").map((c) => c.id)).toEqual(["v-1", "v-2"]);

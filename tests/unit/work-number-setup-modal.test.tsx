@@ -185,6 +185,32 @@ describe("WorkNumberSetupModal", () => {
     expect(screen.queryByLabelText(/workspace/i)).toBeNull();
   });
 
+  it("tapping a locked phone step tab says why in a toast and stays on the current step", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({ phone: null, phoneVerifiedAt: null, smsConfigured: true }),
+    ) as typeof fetch;
+    render(
+      <WorkNumberSetupModal
+        open
+        onClose={() => {}}
+        workspaceId="ws-1"
+        workspaceName="Seattle Homes"
+        status={baseStatus()}
+        planMessage={null}
+        unverifiedEntitlement={false}
+        onStatusChange={() => {}}
+      />,
+    );
+    await screen.findByRole("dialog", { name: "Set up a work number" });
+    const second = screen.getByRole("tab", { name: "Get your work number" });
+    expect(second.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(second);
+    expect(showToast).toHaveBeenLastCalledWith("Verify your phone first");
+    fireEvent.click(screen.getByRole("tab", { name: "Done" }));
+    expect(showToast).toHaveBeenLastCalledWith("Get your work number first");
+    expect(screen.getByRole("heading", { name: "Verify your phone" })).toBeTruthy();
+  });
+
   it("shows get-number step with area code when phone is already verified", async () => {
     globalThis.fetch = vi.fn(async () =>
       Response.json({

@@ -11,7 +11,22 @@ const mocks = vi.hoisted(() => ({
     | { kind: "denied" },
   classifications: new Map<string, { kind: "normal" } | { kind: "classified"; workspaceId: string; role: "manager" | "co_manager" | "resident"; state: "active" | "suspended" | "expired" }>(),
   normalCalendarAccess: vi.fn(),
+  containsCalls: [] as Array<[string, unknown]>,
 }));
+
+function jsonContainmentValues(value: unknown): string[] {
+  const parsed =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return value;
+          }
+        })()
+      : value;
+  return (Array.isArray(parsed) ? parsed : [parsed]).map(String);
+}
 
 function makeDb() {
   const from = (table: string) => {
@@ -29,6 +44,16 @@ function makeDb() {
       in: (column: string, values: unknown[]) => {
         const allowed = new Set(values.map(String));
         predicates.push((row) => allowed.has(String(row[column] ?? "")));
+        return query;
+      },
+      contains: (column: string, value: unknown) => {
+        // A jsonb column is filtered with a JSON-encoded value, which is what the route sends.
+        mocks.containsCalls.push([column, value]);
+        const wanted = jsonContainmentValues(value);
+        predicates.push((row) => {
+          const held = Array.isArray(row[column]) ? (row[column] as unknown[]).map(String) : [];
+          return wanted.every((item) => held.includes(item));
+        });
         return query;
       },
       or: () => query,

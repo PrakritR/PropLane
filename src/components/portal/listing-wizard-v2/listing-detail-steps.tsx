@@ -30,13 +30,15 @@
  * Nothing here is required to publish.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CalendarDays, Moon } from "lucide-react";
 import { PortalRowMenu } from "@/components/portal/portal-row-menu";
+import { STAY_LABEL, countRowsInVisibleSections, listingOfferedStays, visibleStaySections, type StaySectionKey } from "@/lib/listing-stays";
 import { invalidateSharedGets } from "@/lib/shared-get-cache";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import {
+  CardAction,
   FactRow,
-  LeaseTermsField,
   MoneyInput,
   PanelSection,
   RecordCard,
@@ -111,12 +113,12 @@ import {
 } from "@/lib/listing-inline-forms";
 import { orderedEditorApplicationFields } from "@/lib/application-editor-fields";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
-import { pricingLeaseOptions, type PricingLeaseOption } from "@/lib/pricing-lease-options";
+import { pricingSectionOptions, type PricingLeaseOption } from "@/lib/pricing-lease-options";
 import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
 import { FormPromoCodesRow } from "@/components/portal/form-promo-codes";
 import { centsToMoneyText, moneyTextToCents, templateFeeCents } from "@/lib/form-template-fees";
 import {
-  applicationWithDefaultLinks,
+  applicationForAppliesTo,
   missingApplicationDefaults,
   missingLeaseDefaults,
   missingMoveInStarters,
@@ -142,9 +144,18 @@ import {
 } from "@/lib/move-in-forms/templates";
 import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import {
+  applicationAllowsCosigner,
+  applicationAppliesTo,
+  applicationCoversStay,
   applicationFormVariantForTemplate,
+  effectiveDefaultApplicationForStay,
   isApplicationTemplateOffered,
   readPropertyApplicationTemplates,
+  staysOfAppliesTo,
+  withApplicationAppliesTo,
+  withApplicationDefaultToggled,
+  withoutShortTermCosignerLinks,
+  type ApplicationAppliesTo,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import {
@@ -369,6 +380,7 @@ function CardMenu({
   onEdit,
   onDuplicate,
   onDelete,
+  extraItems,
 }: {
   label: string;
   dataAttr: string;
@@ -376,6 +388,8 @@ function CardMenu({
   onDuplicate?: () => void;
   /** Absent on a card that can only be edited (the Pricing room cards). */
   onDelete?: () => void;
+  /** More actions between Edit and Duplicate (the application's default / applies-to moves). */
+  extraItems?: ReadonlyArray<{ id: string; label: string; dataAttr: string; onSelect: () => void } | null | false | undefined>;
 }) {
   const confirm = useConfirm();
   return (
@@ -387,6 +401,7 @@ function CardMenu({
         iconClassName="h-5 w-5"
         items={[
           { id: "edit", label: "Edit", dataAttr: `${dataAttr}-edit`, onSelect: onEdit },
+          ...(extraItems ?? []),
           onDuplicate ? { id: "duplicate", label: "Duplicate", dataAttr: `${dataAttr}-duplicate`, onSelect: onDuplicate } : null,
           onDelete
             ? {
@@ -454,6 +469,79 @@ function useOneOpen() {
 }
 
 const BODY_PAD = "border-t border-border px-3.5 py-3";
+
+/* ─────────────────── Long term / Short term sections (no Both section) ─────────────────── */
+
+/** A section header: a small glyph, the label and a rule line. Never a pill. */
+function StayHeader({ section, label }: { section: StaySectionKey | "other"; label?: string }) {
+  return (
+    <div className="mb-2.5 mt-1 flex items-center gap-2 text-[13px] font-bold text-foreground/80" data-attr={`listing-v2-stay-header-${section}`}>
+      {section === "long_term" ? <CalendarDays className="h-4 w-4 shrink-0 text-muted" aria-hidden /> : null}
+      {section === "short_term" ? <Moon className="h-4 w-4 shrink-0 text-muted" aria-hidden /> : null}
+      <span>{label ?? STAY_LABEL[section as StaySectionKey]}</span>
+      <span aria-hidden className="h-px min-w-4 flex-1 bg-border" />
+    </div>
+  );
+}
+
+/**
+ * Draws a step's rows under exactly two sections, Long term and Short term. A row that applies to both stays is
+ * drawn in EACH section as the same item. A stay the listing does not offer is not drawn, and nothing is
+ * deleted: its rows come back when the stay is switched on again.
+ */
+function StaySectionList<T>({
+  sub,
+  rows,
+  sectionsOf,
+  render,
+  empty,
+}: {
+  sub: ManagerListingSubmissionV1;
+  rows: readonly T[];
+  sectionsOf: (row: T) => readonly StaySectionKey[];
+  render: (row: T, section: StaySectionKey) => ReactNode;
+  /** What a visible Long term / Short term section with no rows says. Absent = the section is not drawn. */
+  empty?: (section: "long_term" | "short_term") => ReactNode;
+}) {
+  const sections = visibleStaySections(sub);
+  return (
+    <div data-attr="listing-v2-stay-sections">
+      {sections.map((section) => {
+        const inSection = rows.filter((row) => sectionsOf(row).includes(section));
+        if (inSection.length === 0 && !empty) return null;
+        return (
+          <section key={section} className="mb-4" data-attr={`listing-v2-stay-section-${section}`} aria-label={STAY_LABEL[section]}>
+            <StayHeader section={section} />
+            {inSection.length === 0 ? empty?.(section) : inSection.map((row) => render(row, section))}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Which section a lease sits in: its kind (a time-based or custom lease is a long-term one). */
+export function leaseStaySection(lease: Pick<PropertyLeaseTemplate, "kind">): StaySectionKey {
+  return lease.kind === "short-term" ? "short_term" : "long_term";
+}
+
+/**
+ * Which sections a move-in form sits in: its lease type. "All" lease types is listed in BOTH sections (the
+ * same form); a form tied to specific leases sits with their stay when they all share one, in both otherwise.
+ */
+export function moveInStaySections(
+  template: Pick<MoveInFormTemplate, "leaseType" | "linkedLeaseTemplateIds">,
+  leases: readonly Pick<PropertyLeaseTemplate, "id" | "kind">[],
+): StaySectionKey[] {
+  if (template.leaseType === "long-term") return ["long_term"];
+  if (template.leaseType === "short-term") return ["short_term"];
+  const linked = (template.linkedLeaseTemplateIds ?? [])
+    .map((id) => leases.find((lease) => lease.id === id))
+    .filter((lease): lease is Pick<PropertyLeaseTemplate, "id" | "kind"> => Boolean(lease))
+    .map((lease) => leaseStaySection(lease));
+  if (linked.length > 0 && linked.every((section) => section === linked[0])) return [linked[0]!];
+  return ["long_term", "short_term"];
+}
 
 /* ─────────────────────────── Application ─────────────────────────── */
 
@@ -536,6 +624,57 @@ function useDraftPublisher(sub: ManagerListingSubmissionV1, onChange: (next: Man
 
 const NO_LEASE = "__default__";
 
+/** The "Applies to" dropdown: only the stays the listing offers, plus Both. */
+function appliesToChoices(sub: ManagerListingSubmissionV1): { value: string; label: string }[] {
+  const offered = listingOfferedStays(sub);
+  return [
+    offered.long_term ? { value: "long_term", label: "Long-term residents" } : null,
+    offered.short_term ? { value: "short_term", label: "Short-term residents" } : null,
+    { value: "both", label: "Both" },
+  ].filter((option): option is { value: string; label: string } => Boolean(option));
+}
+
+/**
+ * The first question of a new application: who it is for. Only the stays the listing offers, plus Both. The
+ * lease and co-signer links of the new application default from the answer.
+ */
+function NewApplicationAsk({
+  sub,
+  value,
+  onChange,
+  onCancel,
+  onCreate,
+}: {
+  sub: ManagerListingSubmissionV1;
+  value: ApplicationAppliesTo;
+  onChange: (next: ApplicationAppliesTo) => void;
+  onCancel: () => void;
+  onCreate: () => void;
+}) {
+  const options = appliesToChoices(sub);
+  return (
+    <div className="mb-3 overflow-hidden rounded-2xl border border-primary/40 bg-card" data-attr="listing-v2-application-applies-to-ask">
+      <FactRow first required label="Applies to">
+        <RowSelectCell
+          ariaLabel="Applies to"
+          value={value}
+          options={options}
+          dataAttr="listing-v2-application-applies-to"
+          onChange={(next) => onChange(next as ApplicationAppliesTo)}
+        />
+      </FactRow>
+      <div className="flex items-center justify-end gap-1.5 border-t border-border px-3.5 py-2.5">
+        <CardAction onClick={onCancel} dataAttr="listing-v2-application-applies-to-cancel">
+          Cancel
+        </CardAction>
+        <CardAction onClick={onCreate} tone="primary" dataAttr="listing-v2-application-applies-to-create">
+          Create
+        </CardAction>
+      </div>
+    </div>
+  );
+}
+
 export function StepApplication({ sub, onChange, doors }: StepProps) {
   const synced = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(synced), [synced]);
@@ -554,12 +693,24 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
 
-  const commitTemplates = (next: PropertyApplicationTemplate[]) => onChange(withApplicationTemplates(synced, next));
+  // Co-signer is long term only: whatever is written, a short-term application never keeps a co-signer link.
+  const commitTemplates = (next: PropertyApplicationTemplate[]) =>
+    onChange(withApplicationTemplates(synced, withoutShortTermCosignerLinks(next, leases)));
   const replace = (next: PropertyApplicationTemplate) =>
     commitTemplates(templates.map((row) => (row.id === next.id ? next : row)));
 
-  const toggleCard = (id: string) => {
-    if (open === id) {
+  // An application that applies to both stays is drawn in each section; only the copy that was clicked opens.
+  const [openIn, setOpenIn] = useState<StaySectionKey | null>(null);
+  const visibleSections = visibleStaySections(sub);
+  const homeSection = (stays: readonly StaySectionKey[]) => stays.find((stay) => visibleSections.includes(stay)) ?? stays[0]!;
+  const isOpenIn = (id: string, section: StaySectionKey, stays: readonly StaySectionKey[]) =>
+    open === id && (openIn ?? homeSection(stays)) === section;
+  const openNew = (id: string) => {
+    setOpenIn(null);
+    setOpen(id);
+  };
+  const toggleCard = (id: string, section: StaySectionKey, stays: readonly StaySectionKey[]) => {
+    if (isOpenIn(id, section, stays)) {
       publisher.flush();
       names.forget(id);
       setStartFrom((current) => {
@@ -567,15 +718,28 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
         delete next[id];
         return next;
       });
+      setOpen(null);
+      setOpenIn(null);
+      return;
     }
-    toggle(id);
+    setOpenIn(section);
+    setOpen(id);
   };
 
-  const add = () => {
-    // A new application starts from the PropLane defaults: Standard, its type's lease, the Co-signer application.
-    const created = applicationWithDefaultLinks(createInlineApplication(synced, templates, "proplane"), catalog);
+  // "Applies to" is asked FIRST: the + opens this question, and the application is made only once it is answered.
+  const [pendingNew, setPendingNew] = useState<{ mode: "standard" | "pdf"; appliesTo: ApplicationAppliesTo } | null>(null);
+  const pdfAppliesTo = useRef<ApplicationAppliesTo | null>(null);
+  const askAppliesTo = (mode: "standard" | "pdf") => {
+    const offered = listingOfferedStays(sub);
+    setPendingNew({ mode, appliesTo: offered.long_term ? "long_term" : "short_term" });
+  };
+
+  const add = (appliesTo: ApplicationAppliesTo) => {
+    // A new application starts from the PropLane defaults for who it is for: its stay's form and lease,
+    // and the Co-signer application.
+    const created = applicationForAppliesTo(createInlineApplication(synced, templates, "proplane"), appliesTo, catalog);
     commitTemplates([...templates, created]);
-    setOpen(created.id);
+    openNew(created.id);
     setStartFrom((current) => ({ ...current, [created.id]: "proplane" }));
     publisher.schedule();
   };
@@ -602,13 +766,17 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
     });
     if (!imported) return;
     const now = latest.current;
+    // Chosen in the "Applies to" question; a file picked without it goes to the first stay the listing offers,
+    // never to a stay whose section is not drawn (the card would vanish).
+    const target = pdfAppliesTo.current ?? (listingOfferedStays(sub).long_term ? "long_term" : "short_term");
+    pdfAppliesTo.current = null;
     const created: PropertyApplicationTemplate = {
-      ...fresh,
+      ...applicationForAppliesTo(fresh, target, { applications: now.templates, leases }),
       draftQuestionConfig: imported.draft,
       updatedAt: new Date().toISOString(),
     };
     onChange(withApplicationTemplates(now.synced, [...now.templates, created]));
-    setOpen(created.id);
+    openNew(created.id);
     publisher.schedule();
   };
 
@@ -618,7 +786,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
     const next = [...templates];
     next.splice(index + 1, 0, copy);
     commitTemplates(next);
-    setOpen(copy.id);
+    openNew(copy.id);
     publisher.schedule();
   };
 
@@ -626,6 +794,8 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
     onChange(submissionAfterRemovingApplicationTemplate(synced, templates.filter((row) => row.id !== template.id)));
     if (open === template.id) setOpen(null);
   };
+
+  const appliesToOptions = appliesToChoices(sub);
 
   const startFromOptions = (template: PropertyApplicationTemplate) => [
     { value: "proplane", label: "PropLane standard" },
@@ -637,12 +807,12 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
   return (
     <StepColumn>
       <CountHeading
-        count={templates.length}
+        count={countRowsInVisibleSections(sub, templates, (template) => staysOfAppliesTo(applicationAppliesTo(template, leases)))}
         noun="application"
         addLabel="Add application"
         choices={[
-          { id: "standard", label: "Build from PropLane standard", dataAttr: "listing-v2-add-application-standard", onSelect: add },
-          { id: "pdf", label: "Upload a PDF", dataAttr: "listing-v2-add-application-pdf", onSelect: () => fileRef.current?.click() },
+          { id: "standard", label: "Build from PropLane standard", dataAttr: "listing-v2-add-application-standard", onSelect: () => askAppliesTo("standard") },
+          { id: "pdf", label: "Upload a PDF", dataAttr: "listing-v2-add-application-pdf", onSelect: () => askAppliesTo("pdf") },
         ]}
         dataAttr="listing-v2-add-application-icon"
       />
@@ -662,7 +832,40 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
         }}
       />
 
-      {templates.map((template, i) => {
+      {pendingNew ? (
+        <NewApplicationAsk
+          sub={sub}
+          value={pendingNew.appliesTo}
+          onChange={(appliesTo) => setPendingNew({ ...pendingNew, appliesTo })}
+          onCancel={() => setPendingNew(null)}
+          onCreate={() => {
+            const { mode, appliesTo } = pendingNew;
+            setPendingNew(null);
+            if (mode === "pdf") {
+              pdfAppliesTo.current = appliesTo;
+              fileRef.current?.click();
+            } else {
+              add(appliesTo);
+            }
+          }}
+        />
+      ) : null}
+      <StaySectionList
+        sub={sub}
+        rows={templates}
+        sectionsOf={(template) => staysOfAppliesTo(applicationAppliesTo(template, leases))}
+        render={(template, section) => {
+        const i = templates.findIndex((row) => row.id === template.id);
+        const appliesTo = applicationAppliesTo(template, leases);
+        const stays = staysOfAppliesTo(appliesTo);
+        const isCosigner = isCosignerApplicationTemplate(template);
+        const sectionCount = templates.filter(
+          (row) => !isCosignerApplicationTemplate(row) && applicationCoversStay(row, section, leases),
+        ).length;
+        const isDefault =
+          !isCosigner &&
+          sectionCount >= 2 &&
+          effectiveDefaultApplicationForStay(templates, section, leases)?.id === template.id;
         const stored = normalizePropertyApplicationTemplateLabel(template.label) || "Application";
         const name = names.shown(template.id, stored);
         const label = stored;
@@ -676,14 +879,13 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
         const cosignerOptions = templates
           .filter((row) => isCosignerApplicationTemplate(row))
           .map((row) => ({ value: row.id, label: normalizePropertyApplicationTemplateLabel(row.label) || "Co-signer application" }));
-        const isCosigner = isCosignerApplicationTemplate(template);
-        const isOpen = open === template.id;
+        const isOpen = isOpenIn(template.id, section, stays);
         const leaseId = leaseOfApplication(catalog, template.id);
         const leaseName = leaseId ? leases.find((lease) => lease.id === leaseId)?.label?.trim() : null;
         const questionCount = orderedEditorApplicationFields(questionSliceForTemplate(synced, template)).length;
         return (
           <RecordCard
-            key={template.id}
+            key={`${section}:${template.id}`}
             propertyEditor
             name={name}
             nameLabel={`Name for application ${i + 1}`}
@@ -692,6 +894,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
             facts={
               <Facts
                 items={[
+                  isDefault && "★ Default",
                   feeFallback || "No fee",
                   leaseName,
                   plural(questionCount, "question"),
@@ -704,19 +907,42 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
               <CardMenu
                 label={label}
                 dataAttr="listing-v2-application"
-                onEdit={() => toggleCard(template.id)}
+                onEdit={() => toggleCard(template.id, section, stays)}
                 onDuplicate={() => duplicate(template)}
                 onDelete={() => remove(template)}
               />
             }
             open={isOpen}
-            onToggle={() => toggleCard(template.id)}
+            onToggle={() => toggleCard(template.id, section, stays)}
             toggleLabel={label}
             dataAttr="listing-v2-application-card"
           >
             <div data-attr="listing-v2-application-editor">
               <NameProblem message={names.problem(template.id, taken)} />
-              <FactRow first label="Needed">
+              {isCosigner ? null : (
+              <FactRow first label="Applies to">
+                <RowSelectCell
+                  ariaLabel={`Who ${label} applies to`}
+                  value={appliesTo}
+                  options={appliesToOptions}
+                  dataAttr="listing-v2-application-applies-to-row"
+                  onChange={(next) => commitTemplates(withApplicationAppliesTo(templates, template.id, next as ApplicationAppliesTo))}
+                />
+              </FactRow>
+              )}
+              {isCosigner
+                ? null
+                : stays.map((stay) => (
+                    <FactRow key={stay} label={`Default for ${STAY_LABEL[stay].toLowerCase()}`}>
+                      <PortalSettingsToggle
+                        checked={effectiveDefaultApplicationForStay(templates, stay, leases)?.id === template.id}
+                        label={`${label}: default for ${STAY_LABEL[stay].toLowerCase()}`}
+                        dataAttr={`listing-v2-application-default-${stay === "long_term" ? "long" : "short"}`}
+                        onChange={() => commitTemplates(withApplicationDefaultToggled(templates, template.id, stay, leases))}
+                      />
+                    </FactRow>
+                  ))}
+              <FactRow first={isCosigner} label="Needed">
                 <PortalSettingsToggle
                   checked={isApplicationTemplateOffered(template)}
                   label={`${label}: needed`}
@@ -762,7 +988,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
                   />
                 </FactRow>
               )}
-              {isCosigner || cosignerOptions.length === 0 ? null : (
+              {!applicationAllowsCosigner(template, leases) || cosignerOptions.length === 0 ? null : (
                 <FactRow label="Co-signer form">
                   <RowSelectCell
                     ariaLabel={`Co-signer form for ${label}`}
@@ -810,7 +1036,8 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
             </div>
           </RecordCard>
         );
-      })}
+        }}
+      />
       {templates.length === 0 ? <EmptyStepCard title="No applications yet" section="applications" dataAttr="listing-v2-application-empty" /> : null}
       <LeasingQuickAddRow
         entries={missingApplicationDefaults(synced)}
@@ -1044,7 +1271,12 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
         }}
       />
 
-      {templates.map((template, i) => {
+      <StaySectionList
+        sub={sub}
+        rows={templates}
+        sectionsOf={(lease) => [leaseStaySection(lease)]}
+        render={(template) => {
+        const i = templates.findIndex((row) => row.id === template.id);
         const stored = template.label?.trim() || "Lease";
         const name = names.shown(template.id, template.label ?? "");
         const taken = templates.filter((row) => row.id !== template.id).map((row) => row.label ?? "");
@@ -1187,7 +1419,8 @@ export function StepLease({ sub, onChange, doors }: StepProps) {
             </div>
           </RecordCard>
         );
-      })}
+        }}
+      />
       {templates.length === 0 ? <EmptyStepCard title="No leases yet" section="leases" dataAttr="listing-v2-lease-empty" /> : null}
       <LeasingQuickAddRow
         entries={missingLeaseDefaults(synced)}
@@ -1311,7 +1544,27 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
       })),
     [sub],
   );
-  const { open, setOpen, toggle } = useOneOpen();
+  const moveInLeases = useMemo(() => leaseTemplatesOf(sub), [sub]);
+  const { open, setOpen } = useOneOpen();
+  // A form that applies to both stays is drawn in each section; only the copy that was clicked opens.
+  const [openIn, setOpenIn] = useState<StaySectionKey | null>(null);
+  const visibleSections = visibleStaySections(sub);
+  const homeSection = (stays: readonly StaySectionKey[]) => stays.find((stay) => visibleSections.includes(stay)) ?? stays[0]!;
+  const isOpenIn = (id: string, section: StaySectionKey, stays: readonly StaySectionKey[]) =>
+    open === id && (openIn ?? homeSection(stays)) === section;
+  const toggleCard = (id: string, section: StaySectionKey, stays: readonly StaySectionKey[]) => {
+    if (isOpenIn(id, section, stays)) {
+      setOpen(null);
+      setOpenIn(null);
+      return;
+    }
+    setOpenIn(section);
+    setOpen(id);
+  };
+  const openNew = (id: string) => {
+    setOpenIn(null);
+    setOpen(id);
+  };
   const [freshId, setFreshId] = useState<string | null>(null);
   const latest = useLatest({ sub, templates });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1340,7 +1593,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
       trigger: "manual",
     };
     write([...templates, created], created.id);
-    setOpen(created.id);
+    openNew(created.id);
     setFreshId(created.id);
   };
 
@@ -1352,7 +1605,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
     };
     created.name = uniqueFormLabel(templates.map((item) => item.name), created.name || "New form");
     write([...templates, created], created.id);
-    setOpen(created.id);
+    openNew(created.id);
   };
 
   /**
@@ -1385,7 +1638,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
     try {
       const { pdf } = await uploadMoveInFormPdf(propertyId, created.id, file);
       write([...latest.current.templates, { ...created, pdf }], created.id);
-      setOpen(created.id);
+      openNew(created.id);
     } catch (error) {
       doors.showToast(error instanceof Error ? error.message : "Could not upload that PDF. Try again.");
     } finally {
@@ -1397,7 +1650,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
     const { list, copy } = duplicateMoveInTemplate(templates, template.id, newMoveInFormTemplate("built").id);
     if (!copy) return;
     write(list, copy.id);
-    setOpen(copy.id);
+    openNew(copy.id);
   };
 
   return (
@@ -1439,12 +1692,18 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
         }}
       />
 
-      {templates.map((template, i) => {
+      <StaySectionList
+        sub={sub}
+        rows={templates}
+        sectionsOf={(template) => moveInStaySections(template, moveInLeases)}
+        render={(template, section) => {
+        const stays = moveInStaySections(template, moveInLeases);
+        const i = templates.findIndex((row) => row.id === template.id);
         const label = template.name.trim() || "Untitled form";
-        const isOpen = open === template.id;
+        const isOpen = isOpenIn(template.id, section, stays);
         return (
           <RecordCard
-            key={template.id}
+            key={`${section}:${template.id}`}
             propertyEditor
             name={template.name}
             nameLabel={`Name for move-in form ${i + 1}`}
@@ -1463,7 +1722,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
               <CardMenu
                 label={label}
                 dataAttr="listing-v2-movein"
-                onEdit={() => toggle(template.id)}
+                onEdit={() => toggleCard(template.id, section, stays)}
                 onDuplicate={() => duplicate(template)}
                 onDelete={() => {
                   write(removeMoveInTemplate(templates, template.id), null);
@@ -1472,7 +1731,7 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
               />
             }
             open={isOpen}
-            onToggle={() => toggle(template.id)}
+            onToggle={() => toggleCard(template.id, section, stays)}
             toggleLabel={label}
             dataAttr="listing-v2-movein-card"
           >
@@ -1481,7 +1740,8 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
             </div>
           </RecordCard>
         );
-      })}
+        }}
+      />
       {templates.length === 0 ? <EmptyStepCard title="No move-in forms yet" section="move-in" dataAttr="listing-v2-movein-empty" /> : null}
       <LeasingQuickAddRow
         entries={missingMoveInStarters(sub)}
@@ -1499,45 +1759,34 @@ export function StepMoveIn({ sub, onChange, doors }: StepProps) {
 /* ─────────────────────────── Pricing ─────────────────────────── */
 
 /**
- * The leasing options an opened Pricing card is priced under, as a compact segmented row of tabs (Long-term,
- * Short-term, a custom lease by name, Month-to-month when a lease allows it -- `pricing-lease-options.ts`).
- * Only the selected option's fields are drawn. The first option is selected until another is picked.
+ * What an opened Pricing card holds, one section per stay the listing offers: Long term and Short term,
+ * each fully independent (its own rent, deposit, move-in fee, application fee and added fees, no number shared
+ * between them) and no Both section. A stay the listing does not offer ("Stays you offer" on Basics) draws
+ * nothing and keeps its stored prices. Month-to-month, a custom lease and Airbnb follow their stay
+ * (`pricing-lease-options.ts`), each under its own label.
  */
-function PricingOptionTabs({
+function PricingTermSections({
   sub,
   render,
 }: {
   sub: ManagerListingSubmissionV1;
   render: (option: PricingLeaseOption) => ReactNode;
 }) {
-  const options = useMemo(() => pricingLeaseOptions(sub), [sub]);
-  const [picked, setPicked] = useState<string | null>(null);
-  const active = options.find((option) => option.id === picked) ?? options[0]!;
+  const options = useMemo(() => pricingSectionOptions(sub), [sub]);
   const slug = (option: PricingLeaseOption) =>
     option.term === LONG_TERM_LEASE_TERM ? "long" : option.term === SHORT_TERM_LEASE_TERM ? "short" : option.id.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   return (
-    <div data-attr="listing-v2-pricing-options">
-      <div role="tablist" aria-label="Leasing options" className="flex flex-wrap gap-1 border-t border-border px-3.5 py-2">
-        {options.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="tab"
-            aria-selected={option.id === active.id}
-            data-attr={`listing-v2-pricing-option-${slug(option)}`}
-            onClick={() => setPicked(option.id)}
-            className={cn(
-              "min-h-[34px] rounded-lg px-3 text-[13px] font-semibold",
-              option.id === active.id ? "bg-foreground/[0.08] text-foreground" : "text-muted hover:bg-foreground/[0.04]",
-            )}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-      <section role="tabpanel" aria-label={active.label} data-attr={`listing-v2-pricing-format-${slug(active)}`}>
-        {render(active)}
-      </section>
+    <div data-attr="listing-v2-pricing-options" className="border-t border-border px-3.5 pt-3">
+      {options.map((option) => {
+        const section = option.term === LONG_TERM_LEASE_TERM ? "long_term" : option.term === SHORT_TERM_LEASE_TERM ? "short_term" : "other";
+        const label = section === "other" ? option.label : STAY_LABEL[section];
+        return (
+          <section key={option.id} aria-label={label} data-attr={`listing-v2-pricing-format-${slug(option)}`}>
+            <StayHeader section={section} label={label} />
+            <div className="-mx-3.5 mb-3">{render(option)}</div>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -1573,14 +1822,11 @@ export function StepPricing({ sub, onChange }: StepProps) {
   };
   const wholeHouseRent = typeof sub.entireHomeMonthlyRent === "number" ? sub.entireHomeMonthlyRent : 0;
   const wholeHouseOffered = Boolean(sub.entireHomeOffered);
+  const stays = listingOfferedStays(sub);
 
   return (
     <StepColumn>
       <StepHeading title={wholeHome ? "Whole place" : plural(rooms.length, "room")} />
-      <div data-attr="listing-v2-lease-terms" className="mb-2.5 overflow-hidden rounded-2xl border border-border bg-card">
-        <LeaseTermsField sub={sub} onPatch={patch} />
-      </div>
-
       {wholeHome ? (
         <RecordCard
           propertyEditor
@@ -1588,8 +1834,8 @@ export function StepPricing({ sub, onChange }: StepProps) {
           facts={
             <Facts
               items={[
-                `Long-term · ${wholeAmount > 0 ? rentLabel(wholeAmount) : "rent not set"}`,
-                `Short-term · ${nightlyText(sub.shortTermDailyCost)}`,
+                stays.long_term && `Long-term · ${wholeAmount > 0 ? rentLabel(wholeAmount) : "rent not set"}`,
+                stays.short_term && `Short-term · ${nightlyText(sub.shortTermDailyCost)}`,
               ]}
             />
           }
@@ -1604,7 +1850,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
           toggleLabel="Whole place"
           dataAttr="listing-v2-pricing-card"
         >
-          <PricingOptionTabs sub={sub} render={(option) => <WholeHousePricingFields draft={sub} activeStepId={option.term} patch={patch} />} />
+          <PricingTermSections sub={sub} render={(option) => <WholeHousePricingFields draft={sub} activeStepId={option.term} patch={patch} />} />
         </RecordCard>
       ) : rooms.length === 0 ? (
         <EmptyStepCard title="No rooms to price yet" section="payments" dataAttr="listing-v2-pricing-empty" />
@@ -1620,8 +1866,8 @@ export function StepPricing({ sub, onChange }: StepProps) {
               facts={
                 <Facts
                   items={[
-                    `Long-term · ${amount === "—" ? "rent not set" : amount}`,
-                    `Short-term · ${nightlyText(room.shortTermRent)}`,
+                    stays.long_term && `Long-term · ${amount === "—" ? "rent not set" : amount}`,
+                    stays.short_term && `Short-term · ${nightlyText(room.shortTermRent)}`,
                   ]}
                 />
               }
@@ -1636,7 +1882,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
               toggleLabel={roomLabel(room, index)}
               dataAttr="listing-v2-pricing-card"
             >
-              <PricingOptionTabs
+              <PricingTermSections
                 sub={sub}
                 render={(option) => (
                   <RoomPricingFields
@@ -1666,8 +1912,8 @@ export function StepPricing({ sub, onChange }: StepProps) {
             facts={
               <Facts
                 items={[
-                  `Long-term · ${wholeHouseRent > 0 ? rentLabel(wholeHouseRent) : "rent not set"}`,
-                  `Short-term · ${nightlyText(sub.shortTermDailyCost)}`,
+                  stays.long_term && `Long-term · ${wholeHouseRent > 0 ? rentLabel(wholeHouseRent) : "rent not set"}`,
+                  stays.short_term && `Short-term · ${nightlyText(sub.shortTermDailyCost)}`,
                   !wholeHouseOffered && "Not offered",
                 ]}
               />
@@ -1691,7 +1937,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
                 onChange={(on) => patch({ entireHomeOffered: on, entireHomePriceSource: "own" })}
               />
             </FactRow>
-            <PricingOptionTabs
+            <PricingTermSections
               sub={sub}
               render={(option) => <WholeHousePricingFields draft={sub} activeStepId={option.term} patch={patch} offerToggle={false} />}
             />
@@ -1742,7 +1988,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
                     onChange={(ids) => writeBundle(bundle.id, { includedRoomIds: ids, roomsLine: "" })}
                   />
                 </FactRow>
-                <PricingOptionTabs
+                <PricingTermSections
                   sub={sub}
                   render={(option) => (
                     <BundlePricingFields draft={sub} bundle={bundle} activeStepId={option.term} patch={patch} setDraft={onChange} />

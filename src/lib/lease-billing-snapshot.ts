@@ -295,6 +295,7 @@ export function buildLeaseBillingSnapshot(
     leaseTerm: applicant.application?.leaseTerm,
     rentalType: applicant.application?.rentalType,
     applicationTemplateId: applicant.application?.applicationTemplateId,
+    listingProperty: listing ?? null,
   }) ?? undefined;
   const pricing = resolveStayPricing({
     room: selectedRoom, submission: sub,

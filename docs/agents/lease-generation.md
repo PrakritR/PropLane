@@ -2,7 +2,7 @@
 
 **One system for every workspace: application first, then lease, then the move-in form (captain, Oct 3 2026); lease first is retired.** There is no signing-order setting: `normalizePipelineOrder` / `resolveLeasingPipelineForProperty` always answer `application_then_lease` (a stored `lease_then_application` is ignored), every CTA says "Apply", and Lease unlocks only on an approved application. Application <-> lease is one-to-one in the application direction (C2-CP9): every application maps to exactly ONE lease (`linkedLeaseTemplateId`), one lease may serve many applications, and a second link is refused or collapsed on save, never kept (`src/lib/application-lease-mapping.ts`, the one place; a stored `linkedApplicationTemplateId` on a lease is inert). Unmapped: an application gets the stay-kind default lease (short stay -> the short-term lease, else the long-term lease). Settings -> Workspace -> Applications & leases also carries **Application before a tour** (`leasingPipeline.applicationBeforeTour`) — owned by [`docs/agents/tours-scheduling.md`](tours-scheduling.md) § Application before a tour, not restated here. The third step is the resident's own **Move-in** section ("My home", `/resident/move-in`); when its tabs unlock is owned by [`docs/agents/move-in-forms.md`](move-in-forms.md) § Resident access before a lease, not restated here. There is no `move_in` template kind and no move-in form editor on that Settings page today. Coverage: `tests/unit/application-lease-mapping.test.ts`, `tests/unit/workspace-applications-leases-settings.test.tsx`, `tests/unit/leasing-pipeline-preferences.test.ts`.
 
-**Short stays are applications (captain, Oct 3, 2026).** There is one way to book a short stay: the listing's "Apply short term" door (shown only when the listing offers short stays) opens the same application -> lease -> payments process as "Apply long term", in the resident portal, with `rentalType: "short_term"`. That selects the property's short-term application template ("Short-term application": who, contact, dates and room, plus anything the manager added) and short-term lease ("Short term lease"), prices the stay through `resolveStayPricing` (never a second price decision, never utilities), and creates the stay's charges (`stay_total`, short-term move-in fee, deposit) through `recordApprovedApplicationCharges` like any approval. Workspace signing order applies unchanged. The old public hold-and-pay booking (`/rent/stay` form, `POST /api/public/short-stay-booking`) is retired: `/rent/stay` redirects to the short-term application, and `short-stay-booking.server.ts` keeps only the cron/webhook settling for holds that were already in flight. The resident portal files Application, Lease and Payments under two text tabs, Long term and Short term (`src/lib/resident-term-split.ts`, the one decision); Lease and Payments show the tabs only once a short stay exists. Coverage: `tests/unit/short-term-resident-flow.test.ts`.
+**Short stays are applications (captain, Oct 3, 2026).** There is one way to book a short stay: the listing's "Apply short term" door (shown only when the listing offers short stays) opens the same application -> lease -> payments process as "Apply long term", in the resident portal, with `rentalType: "short_term"`. That selects the property's short-term application template ("Short-term application": who, contact, dates and room, plus anything the manager added) and short-term lease ("Short term lease"), prices the stay through `resolveStayPricing` (never a second price decision, never utilities), and creates the stay's charges (`stay_total`, short-term move-in fee, deposit) through `recordApprovedApplicationCharges` like any approval. Workspace signing order applies unchanged. The old public hold-and-pay booking (`/rent/stay` form, `POST /api/public/short-stay-booking`) is retired: `/rent/stay` redirects to the short-term application, and `short-stay-booking.server.ts` keeps only the cron/webhook settling for holds that were already in flight: `/api/cron/short-stay-hold-expiry` (every 5 minutes) runs `expireShortStayHolds` (`src/lib/short-stay-hold-expiry.server.ts`), which releases every `bookingStatus: "hold"` date block whose stored `holdExpiresAt` checkout window has passed and cancels that booking's unpaid charges - never one already `paid` or `processing`. Nothing writes `holdExpiresAt` any more, so this job only drains what the retired flow left behind. The resident portal files Application, Lease and Payments under two text tabs, Long term and Short term (`src/lib/resident-term-split.ts`, the one decision); Lease and Payments show the tabs only once a short stay exists. Coverage: `tests/unit/short-term-resident-flow.test.ts`.
 
 ## The four lease types (Oct 2026)
 
@@ -12,26 +12,65 @@ and the stored terms; do not re-declare it.
 
 | Type | Stored term | Term and dates | Charges |
 | --- | --- | --- | --- |
-| Long-term | `Long-term` (retired `3/6/9/12-Month` read as this) | fixed, start + end (or a manager-offered length) | first month, then monthly rent |
+| Long-term | `Long-term` (retired `3/6/9/12-Month` and pre-four-types free text read as this) | fixed, start + end (or a manager-offered length) | first month, then monthly rent |
 | Short-term | `Short-Term Stay` (`Airbnb` reads as this) | check-in + check-out | one stay total from the nightly rate |
 | Custom | `Custom` | the applicant's own start + end | prorated first and last month, monthly between |
-| Month-to-month | `Month-to-Month` | start only, rolling, no end date | monthly rent, **no surcharge** |
+| Month-to-month | `Month-to-Month` | start only, rolling, no end date | monthly rent, plus the optional **month-to-month surcharge** (never in Seattle) |
 
 - Manager: the "Lease terms" multi-select picks which are offered (stored in `allowedLeaseTerms`,
   unchanged; existing properties keep what they effectively offered). It appears in the live property
-  editor's Pricing step and in the legacy add-listing form, and both write through the one helper
-  `leaseTermsPatchForTypes` (`manager-listing-submission.ts`) — never their own field math, so a
-  listing still carrying the retired Airbnb stay or fixed 3/6/9/12 lengths keeps them while its type
-  stays ticked. Applicant: ONE "Lease term" select lists
+  editor's Pricing step and in the legacy add-listing form. The Basics step's **"Stays you offer"**
+  is the coarser third writer — the two stays, Long term and/or Short term, where Month-to-month and
+  Custom count as Long term and Airbnb as Short term (`staysPatch` in `src/lib/listing-stays.ts`,
+  which also keeps `shortTermRentalsAllowed` in step and refuses turning the last stay off). All
+  three write through the one helper `leaseTermsPatchForTypes` (`manager-listing-submission.ts`) —
+  never their own field math, so a listing still carrying the retired Airbnb stay or fixed 3/6/9/12
+  lengths keeps them while its type stays ticked. **Those same two stays are the only sections the
+  Pricing, Application, Lease and Move-in lists group by** (`StaySectionKey`): there is no "Both"
+  section, an item that applies to both stays is listed in each, and a section only shows when the
+  listing offers the stay (hiding one never deletes anything). Applicant: ONE "Lease term" select lists
   only the enabled types (`applicantTermOptions`), and preselects when exactly one is enabled. There is no
   separate "Length" select.
 - Everything is server-derived from the stored term and dates through `resolveStayPricing`, the ledger and
   `buildLeaseHtml`; the client never sends a price. A type the property did not enable is rejected at submit by
   `validateSubmittedApplication` (the wizard's own validator, `leaseTermIsOfferedType` is the pure test).
-- **There is no month-to-month surcharge.** It was removed (captain, Oct 4 2026): not in the fee catalog, the
-  quote, the ledger, the rent fold-in, the lease document or the public listing. Rows already saved with
-  `preset:mtm_surcharge` or a `monthToMonthSurcharge` value are ignored (`resolveListingFees` drops the row), and
-  charges already generated are not rewritten. The custom-start surcharge still applies to a custom-dated lease.
+- **The month-to-month surcharge is an optional long-term charge** (captain, Oct 4 2026, restored after a brief
+  removal). It is a row of the Long term pricing section ("Month-to-month surcharge", blank or 0 = none; there is no
+  Month-to-month section, only Long term and Short term), stored on the room / bundle / whole-house arrangement row
+  and resolved through the one resolver (`resolveRoomTermFees` / `submissionWithRoomTermFees` in `room-term-fees.ts`),
+  so the quote (`startKind: "m2m"`), the lease document, the ledger and the public listing agree. It is charged ONLY
+  on a `Month-to-Month` lease (`shouldBillMonthToMonthSurcharge`), as its own monthly charge, and is NEVER offered on
+  a Seattle listing: `listingOffersMonthToMonthSurcharge` (listing-fees.ts) is the one predicate (hidden row, amount
+  0 in `listingPresetFeeAmountIfEnabled`, no fold into Seattle rent, no lease-document line, no quote add-on).
+  A rollover tenancy (`rolloverToMonthToMonth`) is billed as the lease it continues and prints no surcharge. The
+  custom-start surcharge still applies to a custom-dated lease. **The jurisdiction is resolved from the stored
+  property record FIRST**, before the submission (`listingFoldsAllMonthlyFeesIntoRent(sub, listingProperty)`),
+  so every caller that has the property must pass it — `buildListingQuote`, `listingOffersMonthToMonthSurcharge`,
+  `resolveRoomTermFees` and the leasing-SMS listing facts all take `listingProperty`. A listing whose
+  submission never recorded a city is otherwise quoted a surcharge Seattle forbids.
+- **A legacy stored term is read as the type it stands for.** Listings written before the four types carry free
+  text ("12 months", "month-to-month", "nightly"); `normalizeLegacyLeaseTerm` /
+  `normalizeLegacyLeaseTerms` fold short-stay words onto Short-Term Stay, `Airbnb` onto Airbnb and anything else
+  non-blank onto Long-term, and `POST /api/property-records` normalizes `allowedLeaseTerms` on the way in so the
+  saved payload and the editor agree. Reading the raw text left such a listing offering NOTHING while Basics
+  showed Long term on, and the save was refused with "Choose at least one lease term". An EMPTY list is left
+  exactly as written — it is a deliberate "no stays offered" payload, and that refusal is the only thing telling
+  the manager the save did not do what they asked.
+- **Which application an applicant for a stay gets** is `appliesTo` + `defaultFor` on the application
+  template (`src/lib/property-application-templates.ts`, the one owner; the question editor's side of this is
+  [`application-questions.md`](application-questions.md)). Both are form fields on the application's own card,
+  not menu items: it leads with **"Application name"**, then Applies to, then the per-stay default
+  (`tests/unit/property-leasing-edits-persist.test.tsx` guards that order). `appliesTo` is `long_term` |
+  `short_term` | `both` and `applicationAppliesTo` resolves it: a
+  **co-signer form is long term only**, whatever is stored (a short-term application has no co-signer form);
+  otherwise an explicit value wins, and a row saved before the field existed is derived from the kind of the
+  lease it links to, else its own form variant. `defaultFor` names the stays the application is the default
+  for. The applicant picks a stay, then gets that stay's default:
+  `explicitDefaultApplicationForStay` is what ROUTING reads, and it is `null` when the manager set none - so a
+  listing that never chose a default behaves exactly as before. `effectiveDefaultApplicationForStay` is the
+  looser DISPLAY answer (the star): the explicit default, else the first published, else the first offered
+  application covering that stay. A co-signer form is never a stay's default. Narrowing `appliesTo` drops any
+  `defaultFor` stay it no longer covers rather than leaving a default on a stay the application is not for.
 - Coverage: `tests/unit/lease-types-four.test.ts`.
 
 ## Resident lease visibility and signing (Sep 2026 hotfix)
@@ -1462,7 +1501,7 @@ consumes `stay` too. When `stay.basis === "daily"`:
   daily basis) and the `daily_rate` / `dailyUtilitiesRate` branch. The amount is passed in as
   the ledger's billable monthly utilities, never parsed back out of the display label.
   Coverage: `stay-pricing-repro.test.ts` case 15;
-- there is no month-to-month surcharge to fold (retired Oct 2026, see "The four lease types").
+- the month-to-month surcharge never folds into Seattle rent: it does not exist there (see "The four lease types").
 
 **When a billing snapshot exists, the prorated block PRINTS the ledger's own
 numbers.** `proratedBlock` still computes days-remaining × rate for the table's
@@ -2031,7 +2070,7 @@ exact amount before confirming (`describeMoveOutChange`).
 configured late fee when supplied and omits the late-fee paragraph when it is disabled or
 unset — the jurisdiction `defaultLateFeeUsd` fallback (Seattle `$75`) is gone with the other
 commercial defaults.
-A month-to-month surcharge no longer exists (see "The four lease types").
+The optional month-to-month surcharge prints only on a Month-to-Month lease and never in Seattle (see "The four lease types").
 
 ### Citations added in the template config
 
@@ -2285,4 +2324,5 @@ An accepted lease transition and its action-event delivery intents are persisted
 - **One Approve popup** (`approve-application-dialog.tsx`) from every entry point; bed and rent come from `application-approval-slots.ts`; the last bed is arbitrated by the server (409 `blocked:"capacity"` with the holder) and the popup offers another bed.
 - **Who has signed**: `lease-signers.ts` + `LeaseSignersCard`. A joint shared-room lease is one lease row per roommate linked by `jointRoomGroupId` (`lease-joint-room.ts`); the manager countersigns once, only after every roommate has.
 - **Payments start at the last signature**: `lease-signing-charges.client.ts` calls the existing `freezeSignedLeaseTerms` + `recordApprovedApplicationCharges` (no arithmetic of its own, idempotent). It runs on the manager's countersign, on mark-signed, and from `watchExecutedLeaseCharges` for a lease the resident signed last. It is client-driven because the ledger generator reads the manager's browser-only listing catalog.
+- **A lease the manager never countersigns refunds itself** (off by default). `/api/cron/lease-uncountersigned-refund` (daily) runs `refundUncountersignedMoveInCharges` (`src/lib/lease-uncountersigned-refund.server.ts`) only when `LEASE_UNCOUNTERSIGNED_REFUND_ENABLED` is `1`/`true`/`on` - it moves real money, so a deploy alone never turns it on. It takes leases still `Manager Signature Pending` whose resident signature is older than `UNCOUNTER_SIGN_REFUND_AFTER_DAYS` (45), skipping short stays and anything voided, fully signed or already countersigned, refunds that lease's paid move-in charges (deposit, prorated first month and utilities, lease / move-in / signing fees, other costs) and then voids the lease with a system thread note. It owns no refund math: `decideChargeRefund` + `chargeRefundIdempotencyKey` (`src/lib/charge-refund.ts`) decide and dedupe every refund, and the Stripe refund reverses the Connect transfer. The deadline is filtered in the DATABASE, not in JS - `row_data` carries the lease PDF and generated HTML, so paging the table would pull hundreds of MB through the egress budget every run.
 - **Shared-room clauses**: `lease-shared-room-terms.ts` is the one source for the generated lease's clauses and the "Shared room addendum" shown beside an uploaded PDF (the PDF bytes are never edited).

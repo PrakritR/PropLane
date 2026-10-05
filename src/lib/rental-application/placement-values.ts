@@ -108,6 +108,7 @@ export function resolvePlacementValuesForRow(
         wholeHouse: !feeBundle && isEntireHomeListing(listingSub),
         bundle: feeBundle,
         applicationTemplateId: app?.applicationTemplateId,
+        listingProperty: prop ?? null,
       })
     : listingSub;
 

@@ -32,7 +32,8 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
-import { ManagerSheetLinkPanel } from "@/components/portal/manager-sheet-link-panel";
+import { INTEGRATIONS_TAB_PARAM, ManagerIntegrationsPanel } from "@/components/portal/manager-integrations-panel";
+import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
 import { ManagerApplicationFormSettings } from "@/components/portal/manager-application-form-settings";
 import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-library-panel";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
@@ -51,7 +52,6 @@ import {
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
-import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
 import { AutoSendAiDraftsRow } from "@/components/portal/pro-portal-automation-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
@@ -534,7 +534,7 @@ export function PortalProfileClient({
         { id: "applicationsLeases", label: "Applications & leases", description: "Signing order and lease defaults for this workspace.", icon: ClipboardList, group: "Workspace" },
         // Captain, Oct 3 (D1): application and lease forms are defined once here; each property picks which apply.
         { id: "leasingForms", label: "Forms", description: "Application and lease forms, defined once for this workspace.", icon: FileText, group: "Workspace" },
-        { id: "spreadsheets", label: "Integrations", description: "Google Calendar and Sheets.", icon: Table2, group: "Workspace" },
+        { id: "spreadsheets", label: "Integrations", description: "Messages, bookings, posting, and Google.", icon: Table2, group: "Workspace" },
       );
     }
     return list;
@@ -600,7 +600,7 @@ export function PortalProfileClient({
       const params = new URLSearchParams(searchParams.toString());
       if (id) params.set(SETTINGS_TAB_PARAM, id);
       else params.delete(SETTINGS_TAB_PARAM);
-      if (id) { params.delete("settingsHome"); params.delete("profileHome"); }
+      if (id) { params.delete("settingsHome"); params.delete("profileHome"); params.delete(INTEGRATIONS_TAB_PARAM); }
       const query = params.toString();
       return query ? `${pathname}?${query}` : pathname;
     },
@@ -775,7 +775,7 @@ export function PortalProfileClient({
           />
         );
       case "spreadsheets":
-        return variant === "manager" && !demo ? <ManagerSheetLinkPanel /> : null;
+        return variant === "manager" && !demo ? <ManagerIntegrationsPanel onOpenCommunication={() => openGroup("messaging")} /> : null;
       case "applicationsLeases":
         return variant === "manager" ? <WorkspaceApplicationsLeasesSettings /> : null;
       case "leasingForms":

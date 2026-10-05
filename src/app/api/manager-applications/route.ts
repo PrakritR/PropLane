@@ -12,12 +12,14 @@ import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lea
 import { linkedOwnerForProperty, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-resident";
 import { isDraftApplicationRow, normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { createLinkedFormRequestsForSubmit } from "@/lib/application-linked-form-requests.server";
 import { applicationEventForTransition, emitApplicationTransition } from "@/lib/domain-action-events.server";
 import { dispatchMoveInFormsForResidencyAfterResponse } from "@/lib/move-in-forms/server";
 import {
   notifyManagerApplicationSubmitted,
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
+import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { syncApplicationLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { purgeOrphanHousingRecordsForManager } from "@/lib/auth/clear-property-housing-access";
 import { purgeApplicationPortalData } from "@/lib/auth/purge-portal-account-data";
@@ -310,6 +312,11 @@ async function persistDraftRow(
     return;
   }
   if (error) throw new Error(`Could not persist the application draft: ${error.message}`);
+}
+
+/** A submitted, pending application the applicant is writing again: re-check the forms its answers owe (idempotent). */
+function owesLinkedFormCheck(row: DemoApplicantRow): boolean {
+  return isSubmittedPendingApplicationRow(row) && Boolean(row.managerUserId?.trim());
 }
 
 async function persistNormalizedRow(
@@ -1216,8 +1223,19 @@ export async function POST(req: Request) {
         }
       }
       const previousRow = existing ?? null;
-      await persistNormalizedRow(db, existingRecord?.id ?? row.id, row, existingRecord ?? null);
+      const persistedGuestRow = await persistNormalizedRow(db, existingRecord?.id ?? row.id, row, existingRecord ?? null);
       await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
+      // Forms the published template's rules owe after this submit. The first submit creates them (the share
+      // tokens are returned once, to the browser that just submitted); a later write by the applicant re-checks,
+      // which is a no-op for a form already owed. The id is the one the row was stored under, which a rename can
+      // change from the one the record was read under.
+      const guestLinkedForms =
+        shouldNotifyManagerOfApplicationSubmit(previousRow, row) || owesLinkedFormCheck(row)
+          ? await createLinkedFormRequestsForSubmit(db, {
+              applicationId: String(persistedGuestRow?.id ?? existingRecord?.id ?? row.id),
+              row,
+            })
+          : [];
       if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
         void notifyManagerApplicationSubmitted(db, row).catch(
           bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
@@ -1250,6 +1268,7 @@ export async function POST(req: Request) {
         setupToken: guest.setupToken,
         setupHref: buildResidentSetupHref(guest.setupToken, row.id),
         axisId: row.id,
+        ...(guestLinkedForms.length > 0 ? { linkedForms: guestLinkedForms } : {}),
       });
     }
     const { role, email } = await resolvePortalRole(db, user);
@@ -1302,6 +1321,8 @@ export async function POST(req: Request) {
       row = {
         ...row,
         bucket: "pending",
+        // The login bound to this application is the authenticated writer's own, never a client-supplied id.
+        residentUserId: existing?.residentUserId ?? user.id,
         withdrawnAt: existing?.withdrawnAt ?? row.withdrawnAt,
         assignedPropertyId: existing?.assignedPropertyId ?? row.assignedPropertyId,
         assignedRoomChoice: existing?.assignedRoomChoice ?? row.assignedRoomChoice,
@@ -1447,6 +1468,15 @@ export async function POST(req: Request) {
     }
     row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);
     await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
+    // `row.id` is the id the row was stored under (a rename may have changed it from the record's old id).
+    const linkedForms =
+      shouldNotifyManagerOfApplicationSubmit(previousRow, row) || (residentSelfWrite && owesLinkedFormCheck(row))
+        ? await createLinkedFormRequestsForSubmit(db, {
+            applicationId: String(row.id),
+            row,
+            applicantUserId: residentSelfWrite ? user.id : null,
+          })
+        : [];
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
       void notifyManagerApplicationSubmitted(db, row).catch(
           bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
@@ -1506,7 +1536,15 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json(residentSelfWrite ? { ok: true, row: prepareApplicantIdentityWrite(row, null, row.id) } : { ok: true });
+    return NextResponse.json(
+      residentSelfWrite
+        ? {
+            ok: true,
+            row: prepareApplicantIdentityWrite(row, null, row.id),
+            ...(linkedForms.length > 0 ? { linkedForms } : {}),
+          }
+        : { ok: true },
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save application.";
     const code = e && typeof e === "object" && "code" in e ? String(e.code) : "";

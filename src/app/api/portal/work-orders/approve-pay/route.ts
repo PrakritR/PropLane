@@ -42,8 +42,13 @@ export async function GET(req: Request) {
  * notifications implementation the agent tool layer uses.
  *
  * A work order that already has a `pending` / `paid` vendor payout answers 409 with
- * `code: "existing_payout"` and the payout itself unless the body carries
- * `acknowledgeExistingPayout: true` — the client warning is not the guard, this is. */
+ * `code: "existing_payout"` and the payout itself, naming the rail that already covers it.
+ * There is no override — the client warning is the courtesy, this is the guard.
+ *
+ * The core's input is built field by field from an ALLOWLIST, never spread from the body. A
+ * compile-time `as {...}` strips nothing at runtime, so spreading let a caller set internal
+ * flags: `settleOnly` skips the double-pay guard (it records a payment the webhook already took)
+ * and is passed only by `completeVendorPayFromStripeSession`, server side. */
 export async function POST(req: Request) {
   try {
     const auth = await getReportsAuthContext({ preferRole: "manager" });
@@ -60,7 +65,6 @@ export async function POST(req: Request) {
       workDoneSummary?: string;
       /** `"balance"` (night/vendor-pay) pays instantly from the manager's PropLane balance; ignored (treated as `"ach"`) while the flag is off. */
       paymentChannel?: "card" | "ach" | "balance";
-      acknowledgeExistingPayout?: unknown;
     };
 
     const result = await approveAndPayWorkOrder(
@@ -74,7 +78,6 @@ export async function POST(req: Request) {
         materialsMemo: body.materialsMemo,
         workDoneSummary: body.workDoneSummary,
         paymentChannel: body.paymentChannel,
-        acknowledgeExistingPayout: body.acknowledgeExistingPayout === true,
         settleOnly: false,
       },
     );

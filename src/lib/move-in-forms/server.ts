@@ -13,6 +13,7 @@ import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 import { writeAuditLog, updateAuditResult } from "@/lib/tools/audit";
 import { track } from "@/lib/analytics/posthog";
 import { rateLimit } from "@/lib/rate-limit";
+import { completeOpenLinkedFormRequestByForm } from "@/lib/application-linked-form-requests.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { LEASE_TEMPLATE_BUCKET, LEASE_TEMPLATE_MAX_BYTES } from "@/lib/lease-template-storage";
 import { isLegitimateEmail } from "@/lib/email-address";
@@ -1174,6 +1175,14 @@ export async function submitMoveInForm(actor: MoveInFormActor, id: string, raw: 
   if (!data) throw new MoveInFormError("This form was already submitted.", 409);
   const saved = data as unknown as MoveInFormRow;
   track("move_in_form_submitted", actor.context.userId, { form_id: row.form_id });
+  // A manager's linked-form rule may have been waiting on exactly this form (best-effort, never fails the submit).
+  void completeOpenLinkedFormRequestByForm(db, {
+    applicationId: row.application_id,
+    formKind: "move_in",
+    formId: row.form_id,
+    filledByUserId: actor.context.userId,
+    submissionRef: row.id,
+  });
   // Uploads the final answers no longer reference (photos taken out, a signature redone) are dead weight.
   await pruneUnreferencedFiles(storage, row.id, questions, answers).catch(() => undefined);
   await notifyManagerOfSubmission(saved, db);

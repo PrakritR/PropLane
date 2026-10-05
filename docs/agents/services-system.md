@@ -46,15 +46,25 @@ from it; never re-declare a stage label or tab set.
   (`SERVICE_DETAIL_TAB_ALIASES`). A saved link never falls home.
 - **Retired words** (`tests/unit/service-vocabulary.test.ts` fails them in service / vendor / task UI
   copy): "Vendor & schedule", "Mark done", "Publish to vendors", "Compare quotes", "Potential",
-  "Send quote", "Add quote". Pending / Active / Past / Done as a service state are retired too.
+  "Send quote", "Add quote". Pending / Active / Past / Done as a service state are retired too. One
+  deliberate exception: the add-on header's finishing step reads "Mark done" (the approved studio plan),
+  defined once in `src/lib/service-header-next-step.ts` and allow-listed there; maintenance keeps "Complete".
 - **The service record** (`record-sections.ts` `service`): rail Service - Vendors | Linked: Incoming
-  payments - Outgoing payments - Communication. Header icons in order: Message - Edit - Request bids or
-  assign - Schedule - more (Cancel service and Delete, the only red items) - then ONE primary, the next
-  step from the lifecycle (Request bids, Approve bid on one bid, Compare bids only with two or more,
-  Schedule, Complete, Pay; `managerServiceNextStep`, which the Service tab's "Needs you" row reads
-  too, so the header and the overview never name different next steps). "Request bids or assign" is one dialog (`ServiceAssignDialog`): Request
-  bids (your vendors, up to 10, optionally PropLane vendors within a radius through the existing
-  marketplace reach in `sendWorkOrderVendorOffers`) - A vendor - A teammate - Me.
+  payments - Outgoing payments - Communication, the same for an add-on and a maintenance service. ONE
+  header for both kinds: Message - Edit - more (⋯) - then the next step as the ONE labeled primary button
+  (`portalLabeledPrimarySpec`; every other header control is an icon). The ⋯ holds the red items: Decline
+  request + Delete on an add-on, Cancel service + Delete on maintenance (and, not red, Reschedule /
+  Auto-schedule / Leave a review where they apply). An add-on's primary follows its status
+  (`addOnHeaderNextStep`): pending -> Approve, approved -> Mark done, nothing once returned or declined; a
+  maintenance service's is `managerServiceNextStep` (Request bids, Approve bid on one bid, Compare bids only
+  with two or more, Schedule, Complete, Pay); the Service page has no "Needs you" row of its own, so the
+  header's labeled primary is the one place the next step is named. Request bids / Approve bid / Compare bids open
+  Vendors on the right tab. Edit opens `ServiceEditPopup` (the New property shell: Service - Home - Price -
+  Schedule) for both kinds; the inline price pencil is gone. The Service page's one assignment card is
+  "Who's doing it" (`ServiceWhoCard`): nobody yet -> "Assign someone on your team" (`ServiceAssignDialog`,
+  team only, titled Assign) or "Send to vendors" (Vendors > Available); someone on it -> ONE row like a Vendors
+  row (tile, name, trade, visit, "$140 approved") with Reschedule beside its ⋯ (Open vendor, Message; Change
+  for a teammate).
 
 ## Estimate vs bid, and the service cycle (vendor-bids-1003)
 
@@ -100,23 +110,69 @@ visit happened; refused 422 before the visit time) files one vendor invoice per 
 (`invoice_number = VISIT-<bid id>`, unique index in
 `20261003231000_work_order_bid_estimates.sql`, `ensureVisitFeeInvoice`) for the stored fee. It rides
 the normal Approve & pay rail; `isGenuineVisitFeeInvoice` is what lets it be paid although that vendor
-was never hired, and only when it matches a real bid whose visit happened at that fee. The job's own
-invoice (`ensureSubmittedVendorInvoiceForMarkedDone`) ignores `VISIT-` invoices. The job payout is
-built only when the service is completed AND assigned to a vendor
+was never hired, and only when it matches a real bid whose visit happened at that fee.
+
+**Which invoice is a visit fee is a SERVER decision, never the invoice number.** The marker is
+`vendor_invoices.estimate_visit_bid_id` (`20261004150000_vendor_invoice_estimate_visit_marker.sql`),
+written only by `ensureVisitFeeInvoice`. `invoice_number` arrives verbatim in the vendor's own
+submission body, so a `VISIT-` prefix there is vendor-controlled input: reading it let the assigned
+vendor number their own job bill that way and walk past both the double-pay guard and the job-expense
+guard. Everything that has to tell the two apart reads the column —
+`isGenuineVisitFeeInvoice`, the job's own invoice (`ensureSubmittedVendorInvoiceForMarkedDone`,
+which ignores marked rows), `findBlockingVendorPayout`, and the posted-expense read. A visit fee
+closes NEITHER expense line of the job (`linesClosedByPostedRow`): a paid $50 visit is not the
+accepted bid's labor, and treating it as the whole bill suppressed the job's own expense. A read
+that cannot tell them apart refuses rather than posting.
+
+Two vendor invoices therefore exist against one service, so a payout is unique per
+**(work order, invoice)**, not per work order — see
+[`vendor-portal.md`](vendor-portal.md) § The payout timeline.
+
+The job payout is built only when the service is completed AND assigned to a vendor
 (`serviceIsVendorPayable`): yourself and teammates never create an outgoing row.
 
+**Mark done books the accepted bid's cost, not the client's.** `POST /api/portal/work-orders/complete`
+reads the `accepted` bid itself (`amount_cents` / `materials_cents` / `vendor_directory_id`) exactly as
+approve-and-pay does, and a body figure stands in only when no bid was accepted (a directly-assigned
+job). More than one accepted bid answers 409 rather than guessing which one is the payout anchor. A
+completion carrying no cost at all posts nothing and reads nothing — marking a job done is not a money
+move.
+
 **Inside the service record** (rail and header icons: see One vocabulary above).
-Overview and Photos are one Service tab (the resident's photos are a strip inside it); Payments is
-Incoming payments. Old `/overview`, `/photos`,
-`/payments` links redirect (`SERVICE_DETAIL_TAB_ALIASES`). The Service tab opens with the stage
-stepper (Open · Assigned · Scheduled · Completed, + Paid for a vendor job; derived, never stored);
-Vendors is one band (Requested · Estimates · Bids · Approved · Declined) with one row per requested
-vendor (`deriveVendorRequestRows`), Approve bid only on a Bids row, a Compare toggle (only with two
-or more bids) and a + reading **Add vendors**. The vendor answers on their own service page, in
+The Service tab is ONE page (`ServiceDetailsSection`, no Details / Photos / Activity sub-tabs and no stat
+tiles), top to bottom: the stage stepper (Open · Assigned · Scheduled · Completed, + Paid for a vendor job;
+derived, never stored), Who's doing it, the Request card (details, preferred arrival, entry, priority) and
+Home card, Photos (a count and the add-photo icon in its header, a grid or "None yet") and Activity (the
+timeline). Payments is Incoming payments. Old `/overview`, `/photos`, `/payments` links redirect
+(`SERVICE_DETAIL_TAB_ALIASES`).
+
+**The approved bid is the hire, whatever the row says.** The server's `approve_bid` writes the vendor, price
+and booked visit onto the row, and the manager's browser mirror can lag it (an approval written the older way,
+or from another tab). The service page therefore ALWAYS loads that job's bids, and `applyAcceptedBid`
+(`manager-service-workflow.ts`) fills in what the row is missing from the accepted bid (vendor, visit =
+`proposed_time`, amount, Scheduled). `deriveServiceStages`, `workOrderServiceStage`, `workOrderStageFact` and
+`workOrderStageSteps` apply it themselves, so the stepper, the header's next step, Who's doing it and Vendors >
+Scheduled cannot disagree. A row held by a teammate is left alone.
+
+Vendors is one pipeline (`ServiceVendorPipeline`, bucketed by `buildServicePipeline` in
+`src/lib/service-pipeline.ts`): **Available - Sent - Bids - Scheduled - Done** with counts. Available =
+your roster vendors that match the job's trade and have not been offered it (every roster vendor when none
+match). Sent = open offers, estimates and vendors who declined. Bids = submitted bids only, with a Compare
+toggle with two or more. Scheduled = the approved vendor, visit time and amount. Done = amount and To pay /
+Paid. Every row is the Vendors list's row (`PortalApplicantRecordRow`: tile, name, trade, glyph facts such as
+rating, state facts like the bid or the visit, ⋯) - never a badge, a checkbox, an inline button or a bar. Each
+row's ⋯ (`RowActionsMenu`): Available -> Send job, Open vendor; Sent -> Withdraw, Open vendor; Bids -> Approve bid
+(a submitted bid only), Open vendor; Scheduled -> Reschedule, Mark done, Open vendor; Done -> Pay (while owed),
+Open vendor. The band has the round + (labelled "Add bid request", per the band rule) that opens the standard
+**Send job** popup (`ServiceSendJobPopup`, the New property shell): a Vendors dropdown (multi-select of the
+Available vendors, max 10), the "Also send to PropLane vendors within" switch with a 5 / 10 / 25 mi dropdown, and
+Send. For an add-on the host's `onSend` creates the linked vendor job exactly as before. What a vendor can see
+before approval is enforced server-side; no sentence about it is drawn. No checkbox in a record
+(`record-page.md` rule 5, `tests/unit/record-page-no-footer.test.ts`). The Requested / Estimates / Bids / Approved / Declined tab set and `AddOnCycleSection` are retired
+(an estimate stays visible as a fact on the vendor's Sent or Bids row; it is still never approvable). The vendor answers on their own service page, in
 `VendorEstimateBidSection` ("Estimate & bid", choices from `vendorReplyChoices`).
 
-**Flow.** The manager requests vendors from the service's Vendors section (its + "Add vendors", or
-"Request bids" in the Request bids or assign dialog), which sets `biddingOpen: true` on the work order (mirrored through the
+**Flow.** The manager sends the job from the service's Vendors section (the round +, or a row's Send job), which sets `biddingOpen: true` on the work order (mirrored through the
 local-first `updateManagerWorkOrder` -> `/api/portal-work-orders` "replace" sync) and sends each vendor
 an offer through the SAME vendor resolution + email (Resend) + `deliverPortalInboxMessage` + audit-log
 pipeline as the visit-scheduled email (`buildVendorBidOfferEmail` in `src/lib/vendor-visit-email.ts`).
@@ -139,13 +195,13 @@ figure; its + requests a bid on an open service or creates a service assigned to
 
 **Every record section opens with one band** (`record-list-band.tsx`: `RecordTabBand` for a section,
 `RecordListBand` for a list, both the Payments header). A band's round + always reads
-**`Add <noun>`** — Add vendors, Add assignee, Add charge, Add payment — never the verb of the flow it
-opens (`tests/unit/band-primary-labels.test.ts`). Service = Details · Photos · Activity + Edit;
-Vendors = the vendor answers as tabs with counts (Requested · Estimates · Bids · Approved · Declined,
-`vendorAnswerGroup`) + Filter, Compare on Bids and the round + (Add vendors); Incoming =
+**`Add <noun>`** — Add charge, Add payment — never the verb of the flow it
+opens (`tests/unit/band-primary-labels.test.ts`). Service = one page, no band (see above);
+Vendors = the pipeline above (Available · Sent · Bids · Scheduled · Done, `PIPELINE_TABS`) + Filter and
+Compare on Bids + the round + that opens Send job; Incoming =
 Pending · Overdue · Paid + Add charge; Outgoing = To pay · Paid + Add payment; Communication = the
-counterparty tabs above the thread. Assign is the `ServiceAssignDialog` popup (add-ons never offer
-vendors). Add charge / Add payment reuse the existing modals prefilled from the service; a charge is
+counterparty tabs above the thread. Assign is the `ServiceAssignDialog` popup, team side only (a teammate or you); vendors are sent the job from
+Vendors > Available. Add charge / Add payment reuse the existing modals prefilled from the service; a charge is
 stamped with the service id (`createManagerCharge({ workOrderId })`) so it lists under Incoming, and no
 amount or ownership comes from the client. The stage is `deriveServiceStages` (maintenance) or
 `deriveAddOnStages` (Open · Assigned · Scheduled · Completed); the Services list facts use the
@@ -163,6 +219,17 @@ silent: those fields still hold THAT vendor's approved figure, and the competito
 no business reading it. The vendor panel's own `vendorCanSeeFullWorkOrderSite` redaction is
 presentation on top of this projection, never instead of it.
 
+**The general area is never a street address.** A property NAMED after its address ("123 Main St,
+Seattle, WA") used to publish that name as the area, because the old rule simply took the text before
+the first comma. `workOrderGeneralArea` now drops any part that reads as a street line, keeps the
+city, and answers "Nearby" when nothing left is safe to show.
+
+**The offer notification carries the same projection.** `sendWorkOrderVendorOffers` emits the
+vendors' copy with the general area and no unit, and the manager's own copy as a SEPARATE event that
+says the house's real name — one emit naming the site to both audiences is how an address reached an
+offered vendor by email. The emits are deduped on their own event ids, so a retry notifies nobody
+twice.
+
 **RLS** (`work_order_bids_vendor_read` / `work_order_bids_manager_read`):
 BOTH sides are `FOR SELECT` only — vendor by `vendor_user_id = auth.uid()`,
 manager by `manager_user_id = auth.uid()` (denormalized onto the bid row at
@@ -172,3 +239,43 @@ because it let a vendor's own client INSERT bids on arbitrary work orders,
 bypassing the service-role API's work-order-access + `biddingOpen` checks.
 All real writes go through the service-role API exactly like every other
 portal table in this codebase.
+
+## An add-on on a vendor: the linked vendor job (mobile-step-tabs-1004, D7)
+
+Add-ons live in `portal_service_request_records` and have no bidding tables, so a vendor reaches one through a
+LINKED work order (`src/lib/add-on-vendor-job.ts`, `add-on-vendor-job-actions.ts`). The first "Send job"
+creates it (`ensureAddOnVendorJob`, id `<add-on id>-vendor-job`, deterministic so a retry never makes a
+second): `row_data.linkedServiceRequestId` on the work order, `linkedWorkOrderId` on the add-on. Then it is
+the ordinary offer path (`sendWorkOrderToVendors`), and the add-on's Vendors section reads that job's
+offers and bids (`useAddOnVendorJob`); approve, schedule, Mark done and Pay use the same routes a
+maintenance service uses.
+
+- **The resident's charge stays on the add-on ONLY.** The job has no resident, no email, no
+  `residentChargeCents`; every client charge generator checks `workOrderMayBillResident` first, and the work
+  order route never announces the job as a new service (`emitCreatedWorkOrder`).
+- **The two models stay separate.** `withoutLinkedVendorJobs` keeps the job out of every Services list and
+  count; the add-on's stage reads the job once a vendor is hired (`applyVendorJobToAddOn`: the vendor is the
+  assignee, the job's visit the visit, a finished job completes an approved add-on).
+- **Privacy is unchanged.** An offered vendor is served the projected row (`projectWorkOrderForOfferedVendor`:
+  general area only, no resident, and no `linkedServiceRequestId`).
+- **The link is manager-owned.** `POST /api/portal-work-orders` strips `linkedServiceRequestId` and
+  `linkedWorkOrderId` from a RESIDENT's write and restores only what the server already stored: a
+  resident who could set it would hide their own service from every manager list and count
+  (`withoutLinkedVendorJobs`) and skip the manager's new-service notice.
+- **The job describes only what the manager published.** `buildAddOnVendorJobRow` takes the add-on's
+  `offerDescription` (else its title) and never the resident's own `notes` — free text a merely
+  offered vendor has no business reading. A job saved before that rule may still hold those notes, so
+  the offered-vendor projection replaces an add-on job's `description` with its title.
+- `assignableKindsFor("vendor")` now includes `service`, but an add-on's own assignee picker stays team-only; a
+  vendor is on an add-on only by being sent the job.
+
+## Communication is per party and about this service (D9)
+
+A service's Communication section (`ServiceCommunicationPane`) has one tab per party - the resident first, then
+every vendor the job went to (`serviceCommunicationParties`). Each tab shows ONLY the threads whose
+`recordRef` is this service (`serviceThreadsForParty`; for an add-on also its linked job's id) and that party
+- no counterparty-email / phone matching on the service page (it stays on every other record page). The
+footer links to the full conversation on the Communication page. Offer, bid and visit notifications are
+stamped with `{kind: "service", id}` (`serviceRecordRefForEvent`, `action-events.server.ts`,
+`vendor-notification-delivery.ts`, `notifyWorkOrderEvent`). A thread keeps the FIRST ref it is stamped with, so
+one party's single conversation is attributed to whichever service spoke to them first.

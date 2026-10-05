@@ -1,3 +1,4 @@
+import { resolveRequestOrigin } from "@/lib/app-url";
 import { NextResponse } from "next/server";
 
 import {
@@ -10,7 +11,11 @@ import {
   isChannelCalendarInputError,
   parseChannelCalendarProvider,
 } from "@/lib/channel-calendar/airbnb-url";
-import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
+import {
+  managerCanWriteCalendarForProperties,
+  managerCanWriteCalendarForProperty,
+  managerHasCalendarAccessForProperty,
+} from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -41,6 +46,14 @@ export async function GET(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const url = new URL(req.url);
+    // Which of these properties the caller may link calendars on (Calendar module at edit), so the connect
+    // modal lists only those. A hint for the UI: every write below re-checks on the server.
+    const writableFor = url.searchParams.get("writableFor");
+    if (writableFor !== null) {
+      const candidates = [...new Set(writableFor.split(",").map((id) => id.trim()).filter(Boolean))].slice(0, 200);
+      const writable = await managerCanWriteCalendarForProperties(ctx.db, ctx.userId, candidates);
+      return NextResponse.json({ writablePropertyIds: candidates.filter((id) => writable.has(id)) });
+    }
     const propertyId = url.searchParams.get("propertyId")?.trim() ?? "";
     const roomId = url.searchParams.get("roomId")?.trim() ?? "";
     const roomLabel = url.searchParams.get("roomLabel")?.trim() ?? "";
@@ -51,12 +64,17 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const browserOrigin = url.searchParams.get("origin")?.trim() || url.origin;
+    const browserOrigin = resolveRequestOrigin(req);
     if (roomId) {
       // The destination is the site the link is pasted into; "other" carries every channel.
       const rawDestination = url.searchParams.get("provider")?.trim() ?? "";
       const destination = rawDestination === "other" ? "other" : rawDestination ? parseChannelCalendarProvider(rawDestination) : "airbnb";
       if (!destination) return NextResponse.json({ error: "Unknown calendar channel." }, { status: 400 });
+      // On a cache miss this MINTS a connection row and a secret public export token, so it is a
+      // write however much it reads like one: Calendar at edit, like linking and unlinking.
+      if (!(await managerCanWriteCalendarForProperty(ctx.db, ctx.userId, propertyId))) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
       const exportUrl = await ensureRoomExportCalendarUrl(
         ctx.db,
         { propertyId, roomId, label: roomLabel || null, destination },
@@ -78,7 +96,7 @@ export async function POST(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const url = new URL(req.url);
-    const browserOrigin = url.searchParams.get("origin")?.trim() || url.origin;
+    const browserOrigin = resolveRequestOrigin(req);
     const body = (await req.json()) as {
       propertyId?: string;
       roomId?: string;
@@ -98,7 +116,7 @@ export async function POST(req: Request) {
     if (!provider) {
       return NextResponse.json({ error: "Unknown calendar channel." }, { status: 400 });
     }
-    if (!(await managerHasCalendarAccessForProperty(ctx.db, ctx.userId, propertyId))) {
+    if (!(await managerCanWriteCalendarForProperty(ctx.db, ctx.userId, propertyId))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
@@ -145,7 +163,7 @@ export async function DELETE(req: Request) {
     if (!row) {
       return NextResponse.json({ error: "Connection not found." }, { status: 404 });
     }
-    if (!(await managerHasCalendarAccessForProperty(ctx.db, ctx.userId, String(row.property_id)))) {
+    if (!(await managerCanWriteCalendarForProperty(ctx.db, ctx.userId, String(row.property_id)))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

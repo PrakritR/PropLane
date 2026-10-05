@@ -1,13 +1,14 @@
 /**
  * Double-pay guard for the manager's "Mark as paid" on a vendor work order.
  *
- * A work order carries at most one `vendor_payouts` row (unique index), and a
+ * A work order carries at most one payout per rail (the job's own, plus the
+ * estimate-visit fee's), arbitrated across rails in the database by
+ * `vendor_payouts_cross_rail_guard` (migration 20261004160000), and a
  * row in `pending` or `paid` means PropLane already moved (or is moving) money
  * to the vendor through Stripe Connect. Marking the same job paid again by
- * hand would pay the vendor twice. The server refuses that write with a 409
- * naming the payout unless the manager explicitly acknowledges it, and the
- * acknowledgement is written to
- * `audit_log` before anything else is touched. `failed` and `skipped` payouts
+ * hand would pay the vendor twice, so the server refuses that write with a 409
+ * naming the payout and the rail that already covers it. There is no override:
+ * a service is paid once, through one rail. `failed` and `skipped` payouts
  * moved no money, so they never block.
  *
  * Shared by the route, the core, and the confirm modal so the warning names
@@ -15,8 +16,10 @@
  */
 import type { VendorPayoutStatus } from "@/lib/vendor-payouts";
 
-export const VENDOR_DOUBLE_PAY_ACK_ACTION = "vendor_double_pay_acknowledged";
 export const VENDOR_DOUBLE_PAY_CONFLICT_CODE = "existing_payout";
+
+/** Which payment path owns the payout: Approve + pay (no invoice) or the vendor's invoice. */
+export type VendorPayoutRail = "approve_pay" | "invoice";
 
 export type ExistingVendorPayoutSummary = {
   id: string;
@@ -24,6 +27,7 @@ export type ExistingVendorPayoutSummary = {
   amountCents: number;
   stripeTransferId: string | null;
   createdAt: string | null;
+  rail: VendorPayoutRail;
 };
 
 /** Only a payout that moved (or is moving) money blocks a second mark-paid. */
@@ -38,13 +42,17 @@ export function existingVendorPayoutStatusLabel(status: VendorPayoutStatus): str
   return "skipped";
 }
 
+export function vendorPayoutRailLabel(rail: VendorPayoutRail): string {
+  return rail === "invoice" ? "the vendor’s invoice" : "Approve + pay";
+}
+
 function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-/** The warning shown on the confirm step and returned in the 409 body. */
+/** The refusal shown on the confirm step and returned in the 409 body. */
 export function existingVendorPayoutWarning(payout: ExistingVendorPayoutSummary): string {
   const amount = payout.amountCents > 0 ? ` of ${formatCents(payout.amountCents)}` : "";
   const transfer = payout.stripeTransferId ? ` (Stripe transfer ${payout.stripeTransferId})` : "";
-  return `A PropLane payout${amount} to this vendor is already ${existingVendorPayoutStatusLabel(payout.status)} for this service — payout ${payout.id}${transfer}. Marking it paid again may pay the vendor twice.`;
+  return `This service is already ${existingVendorPayoutStatusLabel(payout.status)} through ${vendorPayoutRailLabel(payout.rail)} — PropLane payout${amount} to this vendor, payout ${payout.id}${transfer}. PropLane will not pay the same service twice.`;
 }

@@ -10,8 +10,9 @@
  * `QuestionEditorChange` and the host writes it to its own storage.
  */
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, GripVertical, Lock, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, GripVertical, Lock, MoreHorizontal } from "lucide-react";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
+import { linkedFormKey } from "@/lib/application-linked-forms";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,6 +27,7 @@ import { QuestionInlineForm } from "./question-inline-form";
 import {
   questionCountText,
   reorderedIds,
+  type LinkedFormOption,
   type QuestionEditorChange,
   type QuestionEditorQuestion,
   type QuestionEditorSection,
@@ -38,6 +40,7 @@ export function QuestionSectionsEditor({
   sections,
   onChange,
   allowedTypes,
+  linkedFormOptions,
   lockedSectionIds = [],
   onRestoreDefaults,
   restoreLabel = "Restore PropLane defaults",
@@ -49,7 +52,9 @@ export function QuestionSectionsEditor({
   sections: readonly QuestionEditorSection[];
   onChange: (change: QuestionEditorChange) => void;
   allowedTypes: readonly QuestionEditorType[];
-  /** Sections PropLane requires: the switch is on, disabled and carries a lock. */
+  /** Forms a question can link. Absent hides the Linked forms block and the row facts. */
+  linkedFormOptions?: readonly LinkedFormOption[];
+  /** Sections holding a question PropLane always asks (name, email): the switch is on, disabled and carries a lock. */
   lockedSectionIds?: readonly string[];
   onRestoreDefaults?: () => void;
   restoreLabel?: string;
@@ -182,6 +187,7 @@ export function QuestionSectionsEditor({
                           <QuestionInlineForm
                             question={question}
                             allowedTypes={allowedTypes}
+                            linkedFormOptions={linkedFormOptions}
                             dataAttrPrefix={dataAttrPrefix}
                             onPatch={(patch) => onChange({ kind: "edit-question", sectionId: section.id, questionId: question.id, patch })}
                             onDone={() => openQuestion(section.id, null)}
@@ -198,6 +204,7 @@ export function QuestionSectionsEditor({
                           <QuestionRow
                             question={question}
                             allowedTypes={allowedTypes}
+                            linkedFormOptions={linkedFormOptions}
                             siblingCount={active.length}
                             dataAttrPrefix={dataAttrPrefix}
                             onOpen={() => openQuestion(section.id, question.id)}
@@ -278,6 +285,7 @@ export function QuestionSectionsEditor({
 function QuestionRow({
   question,
   allowedTypes,
+  linkedFormOptions,
   siblingCount,
   dataAttrPrefix,
   onOpen,
@@ -289,6 +297,7 @@ function QuestionRow({
 }: {
   question: QuestionEditorQuestion;
   allowedTypes: readonly QuestionEditorType[];
+  linkedFormOptions?: readonly LinkedFormOption[];
   siblingCount: number;
   dataAttrPrefix: string;
   onOpen: () => void;
@@ -301,6 +310,9 @@ function QuestionRow({
   const movable = question.can?.move !== false && siblingCount > 1;
   const typeLabel = allowedTypes.find((type) => type.id === question.type)?.label ?? question.type;
   const title = question.label.trim() || "Untitled question";
+  const linkedNames = linkedFormOptions
+    ? [...new Set((question.linkedForms ?? []).map((rule) => linkedFormOptions.find((option) => linkedFormKey(option.ref) === linkedFormKey(rule.formRef))?.label).filter((name): name is string => Boolean(name)))]
+    : [];
   return (
     <div className="flex min-h-[52px] items-center gap-2" data-attr={`${dataAttrPrefix}-question-row`}>
       <button
@@ -334,6 +346,12 @@ function QuestionRow({
         data-attr={`${dataAttrPrefix}-question-open`}
       >
         <span className={cn("min-w-0 flex-1 truncate text-sm", question.label.trim() ? "text-foreground" : "text-muted")}>{title}</span>
+        {linkedNames.length > 0 ? (
+          <span className="hidden min-w-0 max-w-[40%] shrink items-center gap-1 truncate text-xs text-muted sm:inline-flex" data-attr={`${dataAttrPrefix}-question-linked-forms`}>
+            <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{linkedNames.join(", ")}</span>
+          </span>
+        ) : null}
         <span className="hidden shrink-0 text-xs text-muted sm:inline">{typeLabel}</span>
         <span className="shrink-0 text-xs text-muted">{question.required ? "Required" : "Optional"}</span>
       </button>
