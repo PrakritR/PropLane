@@ -26,13 +26,15 @@ export async function ensureVisitFeeInvoice(
   if (!Number.isSafeInteger(input.feeCents) || input.feeCents <= 0) return { created: false };
   const invoiceNumber = visitFeeInvoiceNumber(input.bidId);
 
+  // Deduped on the server-written marker, never on the invoice number: the number is what a vendor
+  // could once rename, which made a second fee invoice for the same bid look new. One row per bid
+  // is also a unique index (vendor_invoices_estimate_visit_bid_unique), so a racing call collides.
   const { data: existing } = await db
     .from("vendor_invoices")
     .select("id, status")
-    .eq("work_order_id", input.workOrderId)
-    .eq("invoice_number", invoiceNumber)
+    .eq("estimate_visit_bid_id", input.bidId)
     .limit(1);
-  if (existing && existing.length > 0 && (existing[0] as { status?: string }).status !== "rejected") {
+  if (existing && existing.length > 0) {
     return { created: false };
   }
 

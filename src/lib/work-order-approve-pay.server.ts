@@ -120,10 +120,17 @@ export type ApprovePaySuccess = {
  * reading the exemption off a `VISIT-` prefix let the assigned vendor number
  * their own job bill that way and have this guard wave the second payout
  * through. An invoice id that does not come back is not exempt either.
+ *
+ * This is the FRIENDLY pre-check, not the arbiter: it is read-then-write. The database arbitrates
+ * (`vendor_payouts_cross_rail_guard` trigger + `claim_vendor_invoice_payment`, migration
+ * 20261004160000) so two racing writers can never both insert. Every rail that pays a job calls it
+ * first — Approve + pay, offline/balance (`claimInvoicePayment`) and Stripe invoice pay.
+ * `excludeInvoiceId` is the invoice being paid, so its own claim row never blocks a retry.
  */
 export async function findBlockingVendorPayout(
   db: Db,
   workOrderId: string,
+  opts: { excludeInvoiceId?: string | null } = {},
 ): Promise<{ ok: true; payout: ExistingVendorPayoutSummary | null } | { ok: false; error: string }> {
   const { data, error } = await db
     .from("vendor_payouts")
@@ -140,6 +147,8 @@ export async function findBlockingVendorPayout(
   }>;
   const candidates = rows
     .filter((row) => vendorPayoutBlocksMarkPaid(row.status))
+    // The invoice rail asks "is there ANOTHER payout?": its own claim row is not a duplicate.
+    .filter((row) => !opts.excludeInvoiceId || row.invoice_id !== opts.excludeInvoiceId)
     .sort((left, right) => String(left.created_at ?? "").localeCompare(String(right.created_at ?? "")));
   if (candidates.length === 0) return { ok: true, payout: null };
   const invoiceIds = [...new Set(candidates.map((row) => row.invoice_id ?? "").filter(Boolean))];
@@ -298,6 +307,16 @@ export async function approveAndPayWorkOrder(
     if (!vendorUserId || invoiceCents < 100) {
       return { ok: false, status: 400, error: "Balance payment needs a vendor and a cost of at least $1.00." };
     }
+    // Claim the job's payout BEFORE any money moves. The database refuses the claim when the job's
+    // own invoice (or another Approve + pay) already has a pending/paid payout, so the read-then-
+    // write pre-check above is not the only thing between the manager and paying twice.
+    const claim = await claimWorkOrderPayout(db, {
+      workOrderId: workOrder.id,
+      managerUserId: ownerManagerUserId,
+      vendorUserId,
+      amountCents: invoiceCents,
+    });
+    if (!claim.ok) return claim;
     const move = await payVendorFromBalance(db, {
       managerUserId: ownerManagerUserId,
       vendorUserId,
@@ -308,6 +327,8 @@ export async function approveAndPayWorkOrder(
       idempotencyRoot: `work-order:${workOrder.id}`,
     });
     if (!move.ok) {
+      // Nothing moved: release the claim so the job can still be paid another way.
+      await claim.release().catch(() => undefined);
       if (move.code === "insufficient_balance") {
         return {
           ok: false,
@@ -469,6 +490,75 @@ export async function approveAndPayWorkOrder(
   return { ok: true, workOrder: paid, expenseEntryIds };
 }
 
+/** The database refused a payout insert because another rail already covers this job (SQLSTATE VP409). */
+function isCrossRailPayoutRefusal(error: { code?: string; message?: string } | null | undefined): boolean {
+  return error?.code === "VP409";
+}
+
+function crossRailPayoutFailure(message: string): WorkOrderActionFailure {
+  return { ok: false, status: 409, error: message };
+}
+
+/**
+ * Inserts the job's own (invoice-less) `pending` payout so the money move that follows is owned. The
+ * insert is the atomic arbiter: `vendor_payouts_cross_rail_guard` (migration 20261004160000) refuses
+ * it when the job's own invoice already has a pending/paid payout, and the (work order, invoice)
+ * unique index refuses a second invoice-less row. A `failed`/`skipped` row from an earlier attempt
+ * moved no money and is re-claimed by compare-and-swap.
+ */
+async function claimWorkOrderPayout(
+  db: Db,
+  input: { workOrderId: string; managerUserId: string; vendorUserId: string; amountCents: number },
+): Promise<{ ok: true; release: () => Promise<void> } | WorkOrderActionFailure> {
+  const nowIso = new Date().toISOString();
+  const { data: inserted, error } = await db
+    .from("vendor_payouts")
+    .insert({
+      manager_user_id: input.managerUserId,
+      vendor_user_id: input.vendorUserId,
+      work_order_id: input.workOrderId,
+      amount_cents: input.amountCents,
+      status: "pending",
+      created_at: nowIso,
+      updated_at: nowIso,
+    })
+    .select("id")
+    .maybeSingle();
+  if (!error && inserted?.id) {
+    const id = String(inserted.id);
+    return {
+      ok: true,
+      release: async () => {
+        await db.from("vendor_payouts").delete().eq("id", id).eq("status", "pending");
+      },
+    };
+  }
+  if (error && isCrossRailPayoutRefusal(error)) return crossRailPayoutFailure(error.message);
+  const { data: reclaimed, error: reclaimError } = await db
+    .from("vendor_payouts")
+    .update({ status: "pending", amount_cents: input.amountCents, failure_reason: null, updated_at: nowIso })
+    .eq("work_order_id", input.workOrderId)
+    .is("invoice_id", null)
+    .in("status", ["failed", "skipped"])
+    .select("id, status")
+    .maybeSingle();
+  if (reclaimError && isCrossRailPayoutRefusal(reclaimError)) return crossRailPayoutFailure(reclaimError.message);
+  if (reclaimed?.id) {
+    const id = String(reclaimed.id);
+    return {
+      ok: true,
+      release: async () => {
+        await db.from("vendor_payouts").update({ status: "failed", updated_at: new Date().toISOString() }).eq("id", id).eq("status", "pending");
+      },
+    };
+  }
+  return {
+    ok: false,
+    status: 409,
+    error: "This service already has a payout in progress or paid. Paying it again would pay the vendor twice.",
+  };
+}
+
 type PendingVendorPay = {
   sessionId: string;
   category: WorkOrderCategory;
@@ -511,6 +601,7 @@ async function startVendorPayCheckout(
     updated_at: nowIso,
   });
   if (payoutInsertError) {
+    if (isCrossRailPayoutRefusal(payoutInsertError)) return crossRailPayoutFailure(payoutInsertError.message);
     return { ok: false, status: 500, error: payoutInsertError.message };
   }
   const origin = resolveShareableAppOrigin();

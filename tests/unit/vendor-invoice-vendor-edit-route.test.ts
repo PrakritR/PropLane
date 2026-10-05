@@ -221,4 +221,25 @@ describe("vendor invoice withdrawal", () => {
     expect((await del()).status).toBe(404);
     expect(invoiceRow()).toBeDefined();
   });
+
+  it("refuses renaming a server-filed visit-fee invoice, but lets an unchanged number through", async () => {
+    seed({ invoice_number: "VISIT-bid-1", estimate_visit_bid_id: "bid-1" });
+
+    const renamed = await patch({ invoiceNumber: "INV-100" });
+    expect(renamed.status).toBe(400);
+    expect(invoiceRow()?.invoice_number).toBe("VISIT-bid-1");
+
+    expect((await patch({ invoiceNumber: "VISIT-bid-1", memo: "thanks" })).status).toBe(200);
+    expect(invoiceRow()?.invoice_number).toBe("VISIT-bid-1");
+  });
+
+  it("refuses renaming any invoice into the reserved VISIT- space, in any case", async () => {
+    for (const number of ["VISIT-x", "visit-x", " Visit-x"]) {
+      expect((await patch({ invoiceNumber: number })).status).toBe(400);
+    }
+    expect(invoiceRow()?.invoice_number).toBe("INV-1");
+    // an ordinary rename still works
+    expect((await patch({ invoiceNumber: "INV-2" })).status).toBe(200);
+    expect(invoiceRow()?.invoice_number).toBe("INV-2");
+  });
 });

@@ -10,6 +10,7 @@ import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
 import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { vendorPayFeeCents } from "@/lib/platform-fees";
 import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
+import { assertNoCrossRailPayout } from "@/lib/vendor-invoice-settlement.server";
 
 export const VENDOR_INVOICE_DIRECT_PAY_PURPOSE = "vendor_invoice_direct_pay";
 
@@ -33,7 +34,7 @@ export async function startVendorInvoicePayCheckout(
 ): Promise<StartInvoicePaySuccess | StartInvoicePayFailure> {
   const { data: invoice, error } = await db
     .from("vendor_invoices")
-    .select("id, manager_user_id, vendor_user_id, total_cents, status, invoice_number, memo")
+    .select("id, manager_user_id, vendor_user_id, total_cents, status, invoice_number, memo, work_order_id, estimate_visit_bid_id")
     .eq("id", opts.invoiceId)
     .eq("manager_user_id", opts.managerUserId)
     .maybeSingle();
@@ -47,12 +48,21 @@ export async function startVendorInvoicePayCheckout(
     status: string;
     invoice_number: string | null;
     memo: string | null;
+    work_order_id: string | null;
+    estimate_visit_bid_id: string | null;
   };
   if (row.status !== "approved" && row.status !== "scheduled") {
     return { ok: false, status: 409, error: `Invoice is ${row.status}; it must be approved before it can be paid.` };
   }
   const invoiceCents = Math.round(Number(row.total_cents) || 0);
   if (invoiceCents < 100) return { ok: false, status: 400, error: "Invoice total must be at least $1.00." };
+
+  // A job invoice must not be paid when Approve + pay already paid (or is paying) the same job.
+  try {
+    await assertNoCrossRailPayout(db, row);
+  } catch (e) {
+    return { ok: false, status: 409, error: e instanceof Error ? e.message : "This service has already been paid." };
+  }
 
   const stripe = getStripe();
   const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, row.vendor_user_id);

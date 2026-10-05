@@ -12,9 +12,11 @@ export const runtime = "nodejs";
  * "Pay from PropLane balance" — moves the invoice total from the manager's
  * workspace balance to the vendor's balance instantly, inside the ledger, and
  * marks the invoice paid (`paid_from: "balance"`). No Stripe call. Reuses the
- * SAME double-pay guard `approve-pay` uses (`findBlockingVendorPayout`) when
- * the invoice is tied to a work order that already has a `vendor_payouts`
- * row — a manager cannot pay the same job twice through two different rails.
+ * SAME double-pay guard `approve-pay` uses: `claimInvoicePayment` first runs
+ * `findBlockingVendorPayout` (friendly refusal) and then `claim_vendor_invoice_payment`,
+ * which arbitrates in the database under a per-work-order lock — a manager cannot pay the same
+ * job twice through two different rails. An estimate-visit-fee invoice is a separate bill and
+ * is exempt.
  * Insufficient balance answers 422 with the shortfall; the client falls back
  * to the existing card-funded Approve + Pay path.
  */

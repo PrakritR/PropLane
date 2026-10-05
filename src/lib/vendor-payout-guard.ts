@@ -1,7 +1,9 @@
 /**
  * Double-pay guard for the manager's "Mark as paid" on a vendor work order.
  *
- * A work order carries at most one `vendor_payouts` row (unique index), and a
+ * A work order carries at most one payout per rail (the job's own, plus the
+ * estimate-visit fee's), arbitrated across rails in the database by
+ * `vendor_payouts_cross_rail_guard` (migration 20261004160000), and a
  * row in `pending` or `paid` means PropLane already moved (or is moving) money
  * to the vendor through Stripe Connect. Marking the same job paid again by
  * hand would pay the vendor twice. The server refuses that write with a 409

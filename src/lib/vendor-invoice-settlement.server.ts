@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { postGlBillPaid } from "@/lib/reports/gl-posting";
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
 import { isGenuineVisitFeeInvoice } from "@/lib/work-order-visit-fee-invoice.server";
+import { findBlockingVendorPayout } from "@/lib/work-order-approve-pay.server";
+import { existingVendorPayoutWarning } from "@/lib/vendor-payout-guard";
 import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/lib/workspaces/row-scope.server";
 
 export async function authorizeOutgoingInvoice(db: SupabaseClient, managerId: string, invoiceId: string) {
@@ -20,8 +22,27 @@ export async function authorizeOutgoingInvoice(db: SupabaseClient, managerId: st
   }
   return invoice;
 }
+/**
+ * The friendly half of the cross-rail double-pay guard, shared by every invoice rail (offline,
+ * balance, Stripe): refuse when ANOTHER payout (Approve + pay, or a second job invoice) already
+ * moved or is moving money for this job. An estimate-visit-fee invoice is a separate bill and is
+ * exempt, and the invoice's own claim row never blocks its own retry. This is a read-then-write
+ * pre-check; the database arbitrates the race (`claim_vendor_invoice_payment` and the
+ * `vendor_payouts_cross_rail_guard` trigger, migration 20261004160000).
+ */
+export async function assertNoCrossRailPayout(
+  db: SupabaseClient,
+  invoice: { id: string; work_order_id?: string | null; estimate_visit_bid_id?: string | null },
+): Promise<void> {
+  const workOrderId = invoice.work_order_id?.trim();
+  if (!workOrderId || invoice.estimate_visit_bid_id != null) return;
+  const blocking = await findBlockingVendorPayout(db, workOrderId, { excludeInvoiceId: invoice.id });
+  if (!blocking.ok) throw new Error(blocking.error);
+  if (blocking.payout) throw new Error(existingVendorPayoutWarning(blocking.payout));
+}
 export async function claimInvoicePayment(db: SupabaseClient, managerId: string, invoiceId: string, rail: "stripe" | "balance" | "offline") {
   const invoice = await authorizeOutgoingInvoice(db, managerId, invoiceId);
+  await assertNoCrossRailPayout(db, invoice);
   if (invoice.status === "approved") await createBillFromVendorInvoice(db, managerId, invoiceId);
   const { error } = await db.rpc("claim_vendor_invoice_payment", { p_invoice: invoiceId, p_manager: managerId, p_rail: rail });
   if (error) throw new Error(error.message);

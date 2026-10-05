@@ -184,6 +184,10 @@ export async function recordVendorPayoutSettled(
     .from("vendor_payouts")
     .select("id")
     .eq("work_order_id", opts.workOrderId)
+    // The job's OWN payout. A service can also carry the estimate-visit fee's payout (invoice_id
+    // set), which is a different bill: matching on the work order alone made `.maybeSingle()` fail
+    // on two rows and then insert a duplicate that the unique index refused, losing the record.
+    .is("invoice_id", null)
     .maybeSingle();
   if (existing?.id) {
     await db

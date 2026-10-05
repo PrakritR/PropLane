@@ -11,6 +11,7 @@ vi.mock("@/lib/vendor-own-record", () => ({ resolveOwnVendorRecords }));
 import { ensureVisitFeeInvoice, isGenuineVisitFeeInvoice } from "@/lib/work-order-visit-fee-invoice.server";
 
 let EXISTING: Array<{ id: string; status: string }>;
+let EQ_CALLS: Array<[string, unknown]>;
 let BID: Record<string, unknown> | null;
 
 function db() {
@@ -18,7 +19,7 @@ function db() {
     from(table: string) {
       const builder: Record<string, unknown> = {
         select: () => builder,
-        eq: () => builder,
+        eq: (column: string, value: unknown) => (EQ_CALLS.push([column, value]), builder),
         limit: () => Promise.resolve({ data: EXISTING, error: null }),
         maybeSingle: async () => ({ data: table === "work_order_bids" ? BID : null, error: null }),
       };
@@ -32,6 +33,7 @@ const INPUT = { bidId: "bid-1", workOrderId: "wo-1", managerUserId: "mgr-1", ven
 beforeEach(() => {
   vi.clearAllMocks();
   EXISTING = [];
+  EQ_CALLS = [];
   BID = null;
 });
 
@@ -50,6 +52,16 @@ describe("ensureVisitFeeInvoice", () => {
 
   it("is idempotent: an existing live fee invoice means nothing new is filed", async () => {
     EXISTING = [{ id: "inv-0", status: "submitted" }];
+    expect((await ensureVisitFeeInvoice(db(), INPUT)).created).toBe(false);
+    expect(insertVendorInvoiceRow).not.toHaveBeenCalled();
+  });
+
+  it("dedupes on the server-written bid marker, so renaming the invoice cannot make a second fee invoice look new", async () => {
+    EXISTING = [{ id: "inv-0", status: "approved" }];
+    expect((await ensureVisitFeeInvoice(db(), INPUT)).created).toBe(false);
+    expect(EQ_CALLS).toContainEqual(["estimate_visit_bid_id", "bid-1"]);
+    expect(EQ_CALLS.some(([column]) => column === "invoice_number")).toBe(false);
+    // Calling it again after the first filing is a no-op too (idempotent).
     expect((await ensureVisitFeeInvoice(db(), INPUT)).created).toBe(false);
     expect(insertVendorInvoiceRow).not.toHaveBeenCalled();
   });
