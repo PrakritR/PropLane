@@ -699,6 +699,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["owner_user_id"] },
   },
   {
+    // Monotonic applied-version watermark for that same non-authoritative
+    // display cache; deleting the portal also deletes its refresh state.
+    table: "payout_destination_cache_refreshes",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
     table: "external_calendar_connections",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
