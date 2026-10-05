@@ -13,7 +13,12 @@
 import { track } from "@/lib/analytics/posthog";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
-import { createExpensesFromWorkOrder, markWorkOrderPaid, mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
+import {
+  createExpensesFromWorkOrder,
+  markWorkOrderPaid,
+  mergeWorkOrderCompletion,
+  readPostedWorkOrderExpenseLines,
+} from "@/lib/work-order-expenses";
 import { payoutVendorForWorkOrder, recordVendorPayoutSettled, type VendorPayoutOutcome } from "@/lib/stripe-vendor-payout";
 import { createAxisAchCheckoutSession, VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
 import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
@@ -232,6 +237,19 @@ export async function approveAndPayWorkOrder(
   const vendorUserId = String(existing.vendor_user_id ?? "").trim();
   const invoiceCents = Math.round(acceptedVendorCostCents ?? 0);
 
+  // What this job has already expensed, read BEFORE any money moves. The posting below refuses to
+  // double-post off this answer, so a read that fails has to refuse the whole request here rather
+  // than after the balance debit — paying the vendor and then failing to record it is the one
+  // half-done state this function is built to avoid.
+  const postedLines = await readPostedWorkOrderExpenseLines(db, ownerManagerUserId, workOrder.id);
+  if (!postedLines.ok) {
+    return {
+      ok: false,
+      status: 500,
+      error: `Could not check what this job has already expensed; nothing was paid. ${postedLines.error}`,
+    };
+  }
+
   // night/vendor-pay: pay the vendor instantly out of the manager's PropLane
   // balance instead of starting a Stripe Checkout session. Runs BEFORE any
   // completion/expense-logging write, so an insufficient balance (or the flag
@@ -303,7 +321,7 @@ export async function approveAndPayWorkOrder(
     workDoneSummary: input.workDoneSummary,
     propertyId: workOrder.propertyId || workOrder.assignedPropertyId,
     vendorId: acceptedVendorId,
-  });
+  }, postedLines.posted);
 
   const completed = mergeWorkOrderCompletion(
     { ...existingRow, ...workOrder },

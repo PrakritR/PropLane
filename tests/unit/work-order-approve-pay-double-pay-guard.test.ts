@@ -16,6 +16,7 @@ vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
 }));
 vi.mock("@/lib/work-order-expenses", () => ({
   createExpensesFromWorkOrder: vi.fn().mockResolvedValue(["exp_1"]),
+  readPostedWorkOrderExpenseLines: vi.fn().mockResolvedValue({ ok: true, posted: new Map() }),
   mergeWorkOrderCompletion: vi.fn((row: Record<string, unknown>) => ({ ...row, bucket: "completed" })),
   markWorkOrderPaid: vi.fn((row: Record<string, unknown>, paidAt: string, opts: { channel: string }) => ({
     ...row,

@@ -16,7 +16,22 @@ const mocks = vi.hoisted(() => ({
   tables: {} as Record<string, Row[]>,
   userId: "owner-a",
   classifications: new Map<string, { kind: "normal" }>(),
+  containsCalls: [] as Array<[string, unknown]>,
 }));
+
+function jsonContainmentValues(value: unknown): string[] {
+  const parsed =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return value;
+          }
+        })()
+      : value;
+  return (Array.isArray(parsed) ? parsed : [parsed]).map(String);
+}
 
 function makeDb() {
   const from = (table: string) => {
@@ -36,11 +51,13 @@ function makeDb() {
         predicates.push((row) => allowed.has(String(row[column] ?? "")));
         return query;
       },
-      contains: (column: string, values: unknown[]) => {
-        const wanted = (Array.isArray(values) ? values : [values]).map(String);
+      contains: (column: string, value: unknown) => {
+        // A jsonb column is filtered with a JSON-encoded value, which is what the route sends.
+        mocks.containsCalls.push([column, value]);
+        const wanted = jsonContainmentValues(value);
         predicates.push((row) => {
           const held = Array.isArray(row[column]) ? (row[column] as unknown[]).map(String) : [];
-          return wanted.every((value) => held.includes(value));
+          return wanted.every((item) => held.includes(item));
         });
         return query;
       },
@@ -113,6 +130,7 @@ async function load(as: string): Promise<{ status: number; peers: PeerBody[] }> 
 
 beforeEach(() => {
   mocks.userId = OWNER;
+  mocks.containsCalls = [];
   mocks.tables = {
     manager_property_records: [{ id: PROPERTY, manager_user_id: OWNER, property_data: {}, test_workspace_id: null }],
     account_link_invites: [
@@ -229,6 +247,27 @@ describe("services and tasks availability of everyone", () => {
     const peer = (await load(OWNER)).peers.find((p) => p.userId === PEER)!;
 
     expect(peer.kindSlots).toEqual({ services: [], tasks: [] });
+  });
+
+  // The link query narrows to this house in the database. `assigned_property_ids` is jsonb, so the
+  // containment value has to be JSON: a JS array serializes to a Postgres array literal that jsonb
+  // cannot cast, which 500s the route and drops every peer's hours.
+  it("narrows the link query with a JSON containment filter the jsonb column accepts", async () => {
+    await load(OWNER);
+    const call = mocks.containsCalls.find(([column]) => column === "assigned_property_ids");
+    expect(call).toBeDefined();
+
+    const { PostgrestClient } = await import("@supabase/postgrest-js");
+    const serialized = (column: string, value: unknown) => {
+      const builder = new PostgrestClient("http://localhost/rest/v1")
+        .from("account_link_invites")
+        .select("id")
+        .contains(column, value as never);
+      return (builder as unknown as { url: URL }).url.searchParams.get(column);
+    };
+
+    expect(serialized("assigned_property_ids", call![1])).toBe(`cs.["${PROPERTY}"]`);
+    expect(serialized("assigned_property_ids", [PROPERTY])).toBe(`cs.{${PROPERTY}}`);
   });
 
   it("is never read by the public booking route", () => {

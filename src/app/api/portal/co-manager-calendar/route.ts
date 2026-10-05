@@ -126,8 +126,11 @@ export async function GET(req: Request) {
       .eq("status", "accepted")
       // Only links that reach THIS house, narrowed in the database: the owner of a large portfolio
       // holds one accepted link per teammate per house, and the calendar needs the handful on this
-      // one. `assigned_property_ids` is a jsonb array of ids, kept current for "all" scopes too.
-      .contains("assigned_property_ids", [propertyId])
+      // one. `assigned_property_ids` is a jsonb array of ids, kept current for "all" scopes too -
+      // so the containment value is JSON (`cs.["<id>"]`). Handing `contains` a JS array instead
+      // emits a Postgres array literal (`cs.{<id>}`), which jsonb cannot cast, and the whole
+      // calendar falls back to peers with no hours.
+      .contains("assigned_property_ids", JSON.stringify([propertyId]))
       .or(linkFilters.join(","))
       .limit(200);
     linkQuery = businessAccess.kind === "test"
