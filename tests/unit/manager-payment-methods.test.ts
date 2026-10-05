@@ -138,8 +138,12 @@ describe("manager saved card ownership", () => {
       { onConflict: "manager_user_id" },
     );
     expect(mocks.setup).toHaveBeenCalledWith(
-      expect.objectContaining({ mode: "setup", customer: "cus_created" }),
-      expect.anything(),
+      expect.objectContaining({ mode: "setup", ui_mode: "embedded_page",
+        customer: "cus_created", payment_method_types: ["card"],
+        wallet_options: { link: { display: "never" } },
+        return_url: expect.stringContaining("/portal/profile?tab=billing&card_setup={CHECKOUT_SESSION_ID}"),
+      }),
+      { idempotencyKey: "manager-card-setup:owner:12345678-1234-4123-8123-123456789abc" },
     );
   });
   it("does not open setup if the new customer identity could not be persisted", async () => {
