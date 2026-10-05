@@ -494,7 +494,9 @@ export async function createHouseholdChargeCheckout(
       }
     } else {
       const ageMs = Date.now() - Date.parse(attempt.created_at);
-      if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs >= 23 * 60 * 60 * 1000) {
+      // created_at is the database clock, ageMs the app clock: a fresh row can read a
+      // few hundred ms in the future. Only an absurd future stamp is suspicious.
+      if (!Number.isFinite(ageMs) || ageMs < -5 * 60 * 1000 || ageMs >= 23 * 60 * 60 * 1000) {
         return { ok: false, status: 409, code: "PAYMENT_NEEDS_REVIEW",
           error: "This payment attempt needs review before another checkout can start." };
       }

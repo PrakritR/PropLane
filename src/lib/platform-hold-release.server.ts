@@ -208,7 +208,8 @@ export async function releaseVerifiedPlatformHoldsForOwner(
     // Stripe retains idempotency keys for at least 24 hours. Never create a
     // second transfer using an aged/ambiguous key without provider review.
     const attemptAgeMs = Date.now() - Date.parse(attempt.created_at);
-    if (!Number.isFinite(attemptAgeMs) || attemptAgeMs < 0 || attemptAgeMs > 20 * 60 * 60 * 1000) {
+    // created_at is the database clock; tolerate small app/db clock skew.
+    if (!Number.isFinite(attemptAgeMs) || attemptAgeMs < -5 * 60 * 1000 || attemptAgeMs > 20 * 60 * 60 * 1000) {
       throw new Error("Platform transfer attempt requires provider reconciliation.");
     }
     const transfer = await stripe.transfers.create({

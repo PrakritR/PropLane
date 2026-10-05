@@ -207,7 +207,8 @@ function idOf(value: string | { id: string } | null | undefined): string | null 
 
 function safeRetryAge(createdAt: string): boolean {
   const ageMs = Date.now() - Date.parse(createdAt);
-  return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 20 * 60 * 60 * 1000;
+  // created_at is the database clock; tolerate small app/db clock skew.
+  return Number.isFinite(ageMs) && ageMs >= -5 * 60 * 1000 && ageMs < 20 * 60 * 60 * 1000;
 }
 
 async function rpcResult<T>(db: SupabaseClient, functionName: string,
