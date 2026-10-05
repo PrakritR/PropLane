@@ -3440,11 +3440,12 @@ export function ManagerResidents({
         setResidentUploadKindPreset("application");
         setResidentUploadOpen(true);
         return;
+      // Approve / Decline are only offered while the application is pending; the handlers say so too.
       case "approve":
-        if (selectedApplicationRow) setApprovePreviewRow(selectedApplicationRow);
+        if (selectedApplicationRow?.bucket === "pending") setApprovePreviewRow(selectedApplicationRow);
         return;
       case "decline":
-        if (selectedApplicationRow) void declineApplicationRow(selectedApplicationRow);
+        if (selectedApplicationRow?.bucket === "pending") void declineApplicationRow(selectedApplicationRow);
         return;
       case "download":
         if (resolvedDetailTab === "application" && selectedApplicationRow) {
