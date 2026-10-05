@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
 import { LEASE_TERM_CHOICES } from "@/lib/rental-application/lease-terms";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Drain Radix FocusScope's queued focus restoration before jsdom teardown.
+  await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
 });
 
 describe("New terms sheet", () => {

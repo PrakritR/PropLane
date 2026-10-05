@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 
 const showToast = vi.fn();
@@ -30,8 +30,10 @@ vi.mock("@/lib/manager-vendor-invite-client", () => ({
 
 import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Radix FocusScope restores focus in a queued timer after unmount.
+  await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   showToast.mockClear();
