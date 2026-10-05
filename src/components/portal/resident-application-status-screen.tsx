@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { LinkedFormsFinishList, type LinkedFormListItem } from "@/components/marketing/linked-forms-finish-list";
+import { fetchLinkedFormsForApplication } from "@/lib/linked-form-requests-client";
 import { ResidentLifecycleStatusPanel } from "@/components/portal/resident-lifecycle-status-panel";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
@@ -110,16 +112,39 @@ export function ResidentApplicationStatusScreen({
   const contactValue = [formatSmsPhoneLabel(contact?.phone), contact?.email?.trim()].filter(Boolean).join(" · ");
 
   return (
-    <ResidentLifecycleStatusPanel
-      input={view.input}
-      workspaceName={contact?.managerName ?? null}
-      summary={[
-        { label: "Home", value: view.home },
-        { label: "Move-in", value: view.moveIn },
-        { label: "Rent", value: view.rent },
-        { label: "Application fee", value: view.fee },
-        { label: "Contact", value: contactValue },
-      ]}
-    />
+    <>
+      <ResidentLifecycleStatusPanel
+        input={view.input}
+        workspaceName={contact?.managerName ?? null}
+        summary={[
+          { label: "Home", value: view.home },
+          { label: "Move-in", value: view.moveIn },
+          { label: "Rent", value: view.rent },
+          { label: "Application fee", value: view.fee },
+          { label: "Contact", value: contactValue },
+        ]}
+      />
+      <ResidentApplicationOwedForms applicationId={row.id} className="mt-4" />
+    </>
   );
+}
+
+/**
+ * "N more forms to finish" for one application: the forms its answers owe (a co-signer form, a linked move-in
+ * form), read from the same route the finish screen uses. Draws nothing when nothing is owed.
+ */
+export function ResidentApplicationOwedForms({ applicationId, className }: { applicationId: string; className?: string }) {
+  const [forms, setForms] = useState<readonly LinkedFormListItem[]>([]);
+  useEffect(() => {
+    const id = applicationId.trim();
+    if (!id) return;
+    let cancelled = false;
+    void fetchLinkedFormsForApplication(id).then((requests) => {
+      if (!cancelled) setForms(requests);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId]);
+  return <LinkedFormsFinishList forms={forms} className={className} />;
 }

@@ -24,6 +24,43 @@ export type CalendarPerson = {
   color: string;
 };
 
+const RAW_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Text that is an account id rather than a name: a uuid, or the person's own user id. */
+function isRawIdLabel(text: string, userId: string): boolean {
+  return RAW_ID_RE.test(text) || text === userId.trim();
+}
+
+function emailLocalPart(email: string | null | undefined): string {
+  const text = String(email ?? "").trim();
+  const at = text.indexOf("@");
+  return (at > 0 ? text.slice(0, at) : "").trim();
+}
+
+/**
+ * What the people row calls someone: their display name, else their email's local part, never an account id.
+ * `label` is whatever the roster carried (the link's display name, "You"); `name` and `email` come from the
+ * person's profile. An email in the label slot counts as an email. A person nothing else names is a "Co-manager".
+ */
+export function calendarPersonLabel(args: {
+  userId: string;
+  label?: string | null;
+  name?: string | null;
+  email?: string | null;
+}): string {
+  for (const candidate of [args.label, args.name]) {
+    const text = String(candidate ?? "").trim();
+    if (!text || isRawIdLabel(text, args.userId)) continue;
+    if (text.includes("@")) continue;
+    return text;
+  }
+  for (const candidate of [args.email, args.label]) {
+    const local = emailLocalPart(candidate);
+    if (local && !isRawIdLabel(local, args.userId)) return local;
+  }
+  return "Co-manager";
+}
+
 /** Two letters from a name ("Maya Chen" -> "MC"), one from a single word, "?" from nothing. */
 export function personInitials(label: string): string {
   const words = label
@@ -52,13 +89,17 @@ export function buildCalendarPeople(
 ): CalendarPerson[] {
   const colors = assignPersonColors(peers.map((peer) => peer.userId));
   return [...peers]
-    .map((peer) => ({
-      userId: peer.userId,
-      label: peer.label,
-      isSelf: peer.isSelf,
-      initials: personInitials(peer.isSelf ? "You" : peer.label),
-      color: colors.get(peer.userId.trim()) ?? PERSON_COLORS[0],
-    }))
+    .map((peer) => {
+      // Initials come from the same label the row shows, so a raw id never reaches either.
+      const label = calendarPersonLabel({ userId: peer.userId, label: peer.label });
+      return {
+        userId: peer.userId,
+        label,
+        isSelf: peer.isSelf,
+        initials: personInitials(peer.isSelf ? "You" : label),
+        color: colors.get(peer.userId.trim()) ?? PERSON_COLORS[0],
+      };
+    })
     .sort((a, b) => {
       if (a.isSelf !== b.isSelf) return a.isSelf ? -1 : 1;
       return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });

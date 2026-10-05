@@ -81,7 +81,7 @@ import {
 } from "@/lib/rental-application/public-apply-session";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import { findApplicationFeeCharge, type HouseholdCharge } from "@/lib/household-charges";
-import { ResidentApplicationStatusScreen } from "@/components/portal/resident-application-status-screen";
+import { ResidentApplicationOwedForms, ResidentApplicationStatusScreen } from "@/components/portal/resident-application-status-screen";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   DEMO_APPLICATION_SUBMITTED_EVENT,
@@ -1439,7 +1439,9 @@ export function ResidentApplicationsPanel({
                   recordLabel: applicantDisplayName(detailRow),
                 })
               ) : (
-                renderRecordSection("overview", {
+                <>
+                <ResidentApplicationOwedForms applicationId={detailRow.id} className="mb-4" />
+                {renderRecordSection("overview", {
                   role: "resident",
                   kind: "application",
                   kindLabel: "application",
@@ -1462,7 +1464,8 @@ export function ResidentApplicationsPanel({
                       ],
                     },
                   ],
-                })
+                })}
+                </>
               )}
             </PortalRecordSectionChrome>
           )}

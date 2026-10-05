@@ -26,6 +26,7 @@ import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.serve
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application/server-owned-template-versions";
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { LONG_TERM_LEASE_TERM, normalizeLegacyLeaseTerms } from "@/lib/rental-application/lease-terms";
 import {
   buildAllModulesGrant,
   coManagerModuleAllowed,
@@ -85,6 +86,44 @@ function emptyLeaseTermsWrite(submission: unknown): boolean {
       >,
     ).length === 0
   );
+}
+
+/**
+ * The submission's `allowedLeaseTerms` as the editor reads it. A listing saved before the four lease types
+ * stores free text ("12 months", "nightly") that the server read as no choice at all and refused with
+ * "Choose at least one lease term" while Basics showed Long term on. Legacy values become the lease type they
+ * stand for, and an empty list becomes Long term (what the editor already shows), so the saved payload and the
+ * screen agree. A list with nothing to normalize is returned untouched; a submission naming no list is a legacy
+ * row and keeps its default.
+ */
+function withNormalizedLeaseTerms(container: unknown): unknown {
+  if (!container || typeof container !== "object" || Array.isArray(container)) return container;
+  const record = container as Record<string, unknown>;
+  let next: Record<string, unknown> | null = null;
+  for (const key of ["submission", "listingSubmission"] as const) {
+    const sub = record[key];
+    if (!sub || typeof sub !== "object" || Array.isArray(sub)) continue;
+    const subRecord = sub as Record<string, unknown>;
+    if (!Array.isArray(subRecord.allowedLeaseTerms)) continue;
+    const normalized = normalizeLegacyLeaseTerms(subRecord.allowedLeaseTerms);
+    const withTerms = { ...subRecord, allowedLeaseTerms: normalized };
+    const terms =
+      resolveAllowedLeaseTerms(
+        withTerms as Pick<
+          ManagerListingSubmissionV1,
+          "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
+        >,
+      ).length > 0
+        ? normalized
+        : [LONG_TERM_LEASE_TERM];
+    const unchanged =
+      terms.length === subRecord.allowedLeaseTerms.length &&
+      terms.every((term, index) => term === (subRecord.allowedLeaseTerms as unknown[])[index]);
+    if (unchanged) continue;
+    next = next ?? { ...record };
+    next[key] = { ...subRecord, allowedLeaseTerms: terms };
+  }
+  return next ?? container;
 }
 
 async function sessionUser() {
@@ -222,6 +261,8 @@ export async function POST(req: Request) {
     };
     const id = body.id?.trim();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    if (body.rowData !== undefined) body.rowData = withNormalizedLeaseTerms(body.rowData);
+    if (body.propertyData !== undefined) body.propertyData = withNormalizedLeaseTerms(body.propertyData);
 
     const db = createSupabaseServiceRoleClient();
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {

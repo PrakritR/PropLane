@@ -69,3 +69,16 @@ export function staysPatch(
   if (next.short_term) ids.push("short_term");
   return leaseTermsPatchForTypes(sub, ids);
 }
+
+/**
+ * How many rows a step's heading counts: only the rows drawn in a visible section, so an application for a
+ * stay the listing does not offer is not counted, and a row that applies to both stays is counted once.
+ */
+export function countRowsInVisibleSections<T>(
+  sub: StaySource | null | undefined,
+  rows: readonly T[],
+  sectionsOf: (row: T) => readonly StaySectionKey[],
+): number {
+  const visible = new Set<StaySectionKey>(visibleStaySections(sub));
+  return rows.filter((row) => sectionsOf(row).some((section) => visible.has(section))).length;
+}

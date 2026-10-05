@@ -18,6 +18,7 @@ import {
   SHORT_TERM_LEASE_TERM,
   isLegacyFixedLeaseTerm,
   leaseTypeIdForStoredTerm,
+  normalizeLegacyLeaseTerms,
   sortLeaseTermsCanonical,
   storedTermForLeaseType,
   type LeaseTypeId,
@@ -1367,7 +1368,8 @@ export function resolveAllowedLeaseTerms(
     | null
     | undefined,
 ): string[] {
-  const fromArray = (sub?.allowedLeaseTerms ?? []).filter((t) => LISTING_LEASE_TERM_OPTION_SET.has(t));
+  // Legacy free text ("12 months", "nightly") reads as the lease type it stands for, never as nothing.
+  const fromArray = normalizeLegacyLeaseTerms(sub?.allowedLeaseTerms);
   let terms: string[];
   if (fromArray.length > 0) {
     terms = fromArray;

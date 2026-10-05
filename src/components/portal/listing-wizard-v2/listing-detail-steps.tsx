@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CalendarDays, Moon } from "lucide-react";
 import { PortalRowMenu } from "@/components/portal/portal-row-menu";
-import { STAY_LABEL, listingOfferedStays, visibleStaySections, type StaySectionKey } from "@/lib/listing-stays";
+import { STAY_LABEL, countRowsInVisibleSections, listingOfferedStays, visibleStaySections, type StaySectionKey } from "@/lib/listing-stays";
 import { invalidateSharedGets } from "@/lib/shared-get-cache";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
@@ -807,7 +807,7 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
   return (
     <StepColumn>
       <CountHeading
-        count={templates.length}
+        count={countRowsInVisibleSections(sub, templates, (template) => staysOfAppliesTo(applicationAppliesTo(template, leases)))}
         noun="application"
         addLabel="Add application"
         choices={[
