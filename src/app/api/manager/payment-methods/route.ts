@@ -64,6 +64,7 @@ export async function POST(req: Request) {
         ui_mode: "embedded_page",
         customer,
         payment_method_types: ["card"],
+        wallet_options: { link: { display: "never" } },
         currency: "usd",
         client_reference_id: auth.userId,
         metadata: {
