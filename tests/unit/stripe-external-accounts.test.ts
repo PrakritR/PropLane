@@ -20,6 +20,8 @@ type Row = Record<string, unknown>;
 /** Minimal in-memory fake covering the two tables this module touches. */
 function makeFakeDb() {
   const tables: Record<string, Row[]> = { payout_destinations_cache: [], stripe_payouts: [] };
+  let nextVersion = 0;
+  const appliedVersions = new Map<string, number>();
 
   function chain(table: string, mode: "select" | "delete") {
     const filters: Array<(r: Row) => boolean> = [];
@@ -51,6 +53,23 @@ function makeFakeDb() {
   }
 
   const client = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name === "begin_payout_destination_cache_refresh") return { data: ++nextVersion, error: null };
+      if (name === "finish_payout_destination_cache_refresh") {
+        const owner = String(args.p_owner_user_id);
+        const version = Number(args.p_version);
+        if (version <= (appliedVersions.get(owner) ?? 0)) return { data: false, error: null };
+        const rows = args.p_destinations as Row[];
+        tables.payout_destinations_cache = tables.payout_destinations_cache.filter((row) => row.owner_user_id !== owner);
+        tables.payout_destinations_cache.push(...rows.map((row) => ({
+          owner_user_id: owner, stripe_external_account_id: row.id, kind: row.kind,
+          label: row.label, last4: row.last4, status: row.status, is_default: row.is_default,
+        })));
+        appliedVersions.set(owner, version);
+        return { data: true, error: null };
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    },
     from(table: string) {
       return {
         select: () => chain(table, "select"),
@@ -332,7 +351,7 @@ describe("payout destinations cache", () => {
 
   it("replaces every cached row for the owner", async () => {
     fakeDb.tables.payout_destinations_cache.push({ owner_user_id: "owner-1", stripe_external_account_id: "old" });
-    await replacePayoutDestinationsCache(fakeDb.client as never, "owner-1", [
+    await replacePayoutDestinationsCache(fakeDb.client as never, "owner-1", "acct_1", [
       { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "verified", default: true },
     ]);
     expect(fakeDb.tables.payout_destinations_cache).toHaveLength(1);
@@ -347,7 +366,7 @@ describe("payout destinations cache", () => {
 
   it("clears the cache when there are no destinations left", async () => {
     fakeDb.tables.payout_destinations_cache.push({ owner_user_id: "owner-1", stripe_external_account_id: "old" });
-    await replacePayoutDestinationsCache(fakeDb.client as never, "owner-1", []);
+    await replacePayoutDestinationsCache(fakeDb.client as never, "owner-1", "acct_1", []);
     expect(fakeDb.tables.payout_destinations_cache).toHaveLength(0);
   });
 
@@ -359,5 +378,16 @@ describe("payout destinations cache", () => {
     const destinations = await refreshPayoutDestinationsCacheFromStripe(stripe, fakeDb.client as never, "owner-1", "acct_1");
     expect(destinations).toHaveLength(1);
     expect(fakeDb.tables.payout_destinations_cache).toHaveLength(1);
+  });
+
+  it("keeps an owner's displayed account when the provider read fails", async () => {
+    fakeDb.tables.payout_destinations_cache.push({ owner_user_id: "owner-1", stripe_external_account_id: "ba_existing" });
+    const stripe = makeFakeStripe();
+    (stripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("provider unavailable"));
+    await expect(refreshPayoutDestinationsCacheFromStripe(stripe, fakeDb.client as never, "owner-1", "acct_1"))
+      .rejects.toThrow("provider unavailable");
+    expect(fakeDb.tables.payout_destinations_cache).toEqual([
+      { owner_user_id: "owner-1", stripe_external_account_id: "ba_existing" },
+    ]);
   });
 });

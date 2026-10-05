@@ -50,6 +50,8 @@ type Row = Record<string, unknown>;
 
 function makeFakeDb() {
   const tables: Record<string, Row[]> = { payout_destinations_cache: [], stripe_payouts: [] };
+  let nextVersion = 0;
+  const appliedVersions = new Map<string, number>();
 
   function chain(table: string, mode: "select" | "delete") {
     const filters: Array<(r: Row) => boolean> = [];
@@ -79,6 +81,22 @@ function makeFakeDb() {
   }
 
   const client = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name === "begin_payout_destination_cache_refresh") return { data: ++nextVersion, error: null };
+      if (name === "finish_payout_destination_cache_refresh") {
+        const owner = String(args.p_owner_user_id);
+        const version = Number(args.p_version);
+        if (version <= (appliedVersions.get(owner) ?? 0)) return { data: false, error: null };
+        tables.payout_destinations_cache = tables.payout_destinations_cache.filter((row) => row.owner_user_id !== owner);
+        tables.payout_destinations_cache.push(...(args.p_destinations as Row[]).map((row) => ({
+          owner_user_id: owner, stripe_external_account_id: row.id, kind: row.kind,
+          label: row.label, last4: row.last4, status: row.status, is_default: row.is_default,
+        })));
+        appliedVersions.set(owner, version);
+        return { data: true, error: null };
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    },
     from(table: string) {
       return {
         select: () => chain(table, "select"),

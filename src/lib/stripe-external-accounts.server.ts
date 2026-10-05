@@ -347,29 +347,38 @@ export function validateVerifyMicroDepositsRequestBody(body: unknown): ValidateV
 // Display cache (Stripe stays the source; this is read-path-only display data)
 // ---------------------------------------------------------------------------
 
-/** Replaces every cached row for this owner. Never stores anything beyond what {@link listPayoutDestinations} already returns (last4/brand/bank name — never full numbers). */
+async function beginPayoutDestinationsCacheRefresh(db: SupabaseClient, ownerUserId: string): Promise<number> {
+  const { data, error } = await db.rpc("begin_payout_destination_cache_refresh", { p_owner_user_id: ownerUserId });
+  if (error || !Number.isSafeInteger(data) || Number(data) <= 0) {
+    throw new Error(error?.message ?? "Could not begin payout destination refresh.");
+  }
+  return Number(data);
+}
+
+/** Atomically replaces this owner's display rows, provided a newer Stripe
+ * read has not already been applied. Nothing beyond last4 and bank/card label
+ * is stored. */
 export async function replacePayoutDestinationsCache(
   db: SupabaseClient,
   ownerUserId: string,
+  connectAccountId: string,
   destinations: PayoutDestination[],
+  version?: number,
 ): Promise<void> {
-  const { error: deleteError } = await db.from("payout_destinations_cache").delete().eq("owner_user_id", ownerUserId);
-  if (deleteError) throw new Error(deleteError.message);
-  if (destinations.length === 0) return;
-
-  const now = new Date().toISOString();
+  const token = version ?? await beginPayoutDestinationsCacheRefresh(db, ownerUserId);
   const rows = destinations.map((d) => ({
-    owner_user_id: ownerUserId,
-    stripe_external_account_id: d.id,
+    id: d.id,
     kind: d.kind,
     label: d.label,
     last4: d.last4,
     status: d.status,
     is_default: d.default,
-    updated_at: now,
   }));
-  const { error: insertError } = await db.from("payout_destinations_cache").insert(rows);
-  if (insertError) throw new Error(insertError.message);
+  const { error } = await db.rpc("finish_payout_destination_cache_refresh", {
+    p_owner_user_id: ownerUserId, p_connect_account_id: connectAccountId,
+    p_version: token, p_destinations: rows,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /** Reads live from Stripe and refreshes the cache in one step — the pattern every route and the webhook handler use after a mutation. */
@@ -379,7 +388,8 @@ export async function refreshPayoutDestinationsCacheFromStripe(
   ownerUserId: string,
   accountId: string,
 ): Promise<PayoutDestination[]> {
+  const version = await beginPayoutDestinationsCacheRefresh(db, ownerUserId);
   const destinations = await listPayoutDestinations(stripe, accountId);
-  await replacePayoutDestinationsCache(db, ownerUserId, destinations);
+  await replacePayoutDestinationsCache(db, ownerUserId, accountId, destinations, version);
   return destinations;
 }
