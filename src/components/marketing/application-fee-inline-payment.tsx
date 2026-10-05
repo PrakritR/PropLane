@@ -7,6 +7,7 @@ import { isElementOnScreen } from "@/lib/dom-visibility";
 import { paymentFailureCopy } from "@/lib/payments/payment-error-copy";
 import { rememberApplicationFeeCheckoutResume } from "@/lib/rental-application/fee-checkout-resume";
 import { loadRentalWizardDraftAxisId } from "@/lib/rental-application/drafts";
+import { settlePendingApplicationRowUpserts } from "@/lib/manager-applications-storage";
 
 export type ApplicationFeeItemizationView = {
   applicationFeeCents: number;
@@ -40,6 +41,8 @@ export function setApplicationFeeStuckTimeoutMsForTests(ms: number | null): void
  * caller on the step — this component never navigates away or clears answers.
  */
 export function ApplicationFeeInlinePayment({
+  getApplicationId,
+  getSetupToken,
   propertyId,
   residentEmail,
   residentName,
@@ -52,6 +55,8 @@ export function ApplicationFeeInlinePayment({
   returnPath,
   onItemization,
 }: {
+  getApplicationId?: () => string;
+  getSetupToken?: () => string | null;
   propertyId: string;
   residentEmail: string;
   residentName?: string;
@@ -88,6 +93,10 @@ export function ApplicationFeeInlinePayment({
   const [reloadNonce, setReloadNonce] = useState(0);
   const inFlight = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const applicationIdGetter = useRef(getApplicationId);
+  const setupTokenGetter = useRef(getSetupToken);
+  applicationIdGetter.current = getApplicationId;
+  setupTokenGetter.current = getSetupToken;
 
   const start = useCallback(async () => {
     if (inFlight.current) return;
@@ -95,19 +104,31 @@ export function ApplicationFeeInlinePayment({
     setLoading(true);
     setError(null);
     try {
+      const applicationId = applicationIdGetter.current?.()?.trim() || loadRentalWizardDraftAxisId()?.trim() || "";
+      if (!applicationId) {
+        setError("Save your application before starting payment.");
+        return;
+      }
+      // The wizard writes the selected room/template through a serialized
+      // autosave queue. Quote only after its latest snapshot and rotating
+      // guest setup token have landed on the server.
+      await settlePendingApplicationRowUpserts(applicationId);
+      const currentSetupToken = setupTokenGetter.current?.()?.trim() || undefined;
       // PRP-431: stash email/property before Stripe navigates away so the wizard
       // can finalize after a full-page return wipe of the in-memory draft.
       rememberApplicationFeeCheckoutResume({
         email: residentEmail,
         propertyId,
         fullLegalName: residentName,
-        axisId: loadRentalWizardDraftAxisId() ?? undefined,
+        axisId: applicationId,
       });
       const res = await fetch("/api/stripe/application-fee-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           propertyId,
+          applicationId,
+          setupToken: currentSetupToken,
           residentEmail,
           residentName,
           managerUserId,
@@ -153,7 +174,7 @@ export function ApplicationFeeInlinePayment({
       setLoading(false);
       inFlight.current = false;
     }
-  }, [propertyId, residentEmail, residentName, managerUserId, rentalType, leaseTerm, roomChoice1, applicationTemplateId, returnPath, onItemization]);
+  }, [propertyId, residentEmail, residentName, managerUserId, rentalType, leaseTerm, roomChoice1, bundleId, applicationTemplateId, returnPath, onItemization]);
 
   // The wizard is embedded in dual-mount (mobile-card + desktop-table) lists,
   // so TWO live copies of this component can exist with CSS deciding which is

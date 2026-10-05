@@ -135,6 +135,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
+    // Payment claims survive a resident's application/draft deletion as
+    // source evidence for captured money; manager account purge owns removal.
+    table: "application_fee_payment_claims",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { emails: ["resident_email"], preserveFinancial: true },
+  },
+  {
     table: "security_deposit_ledger",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

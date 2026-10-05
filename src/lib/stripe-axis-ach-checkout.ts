@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import {
   residentServiceFeeBreakdown,
+  type ResidentServiceFeeBreakdown,
   type ResidentAxisPaymentMethod,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
@@ -42,6 +43,12 @@ export type AxisAchCheckoutInput = {
    */
   destinationAccountId?: string | null;
   paymentMethod?: ResidentAxisPaymentMethod;
+  /** Freeze claim-backed card attempts to the explicit card allowlist so a
+   * dashboard PMC change cannot alter Stripe idempotency parameters on retry. */
+  forceExplicitCard?: boolean;
+  /** A claim-backed attempt stores this server-calculated quote before
+   * provider creation; retries must reuse it after pricing code changes. */
+  fixedFeeBreakdown?: ResidentServiceFeeBreakdown;
   managerTier?: string | null;
   /**
    * Who bears the service fee on this charge. Callers resolve it from the
@@ -137,6 +144,7 @@ export function axisAchCheckoutProcessing(session: Stripe.Checkout.Session): boo
 async function paymentMethodStripeConfig(
   stripe: Stripe,
   method: ResidentAxisPaymentMethod,
+  forceExplicitCard = false,
 ): Promise<
   | {
       payment_method_types: ("card" | "link" | "us_bank_account")[];
@@ -161,6 +169,7 @@ async function paymentMethodStripeConfig(
     };
   }
   if (method === "link") throw new Error("Link checkout is unavailable. Choose card or bank account.");
+  if (forceExplicitCard) return { payment_method_types: ["card"] };
   const cardPmc = process.env.STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION?.trim();
   if (cardPmc && (await cardScopedPaymentMethodConfiguration(stripe, cardPmc))) {
     return { payment_method_configuration: cardPmc };
@@ -268,7 +277,15 @@ export async function createAxisAchCheckoutSession(
     throw new Error("Amount must be at least $1.00.");
   }
 
-  const fee = residentServiceFeeBreakdown(subtotalCents, paymentMethod, feePayer);
+  const fee = input.fixedFeeBreakdown ?? residentServiceFeeBreakdown(subtotalCents, paymentMethod, feePayer);
+  if (input.fixedFeeBreakdown && (
+    !Object.values(fee).every((value) => Number.isSafeInteger(value) && value >= 0) ||
+    fee.totalCents !== subtotalCents + fee.residentAddedFeeCents ||
+    fee.totalCents - fee.applicationFeeCents !== fee.managerPayoutCents ||
+    (feePayer === "resident" && (fee.residentAddedFeeCents !== fee.serviceFeeCents || fee.managerPayoutCents !== subtotalCents)) ||
+    (feePayer === "manager" && (fee.residentAddedFeeCents !== 0 || fee.applicationFeeCents !== fee.serviceFeeCents)) ||
+    (feePayer === "proplane" && (fee.serviceFeeCents !== 0 || fee.residentAddedFeeCents !== 0 || fee.applicationFeeCents !== 0))
+  )) throw new Error("Stored payment quote does not reconcile.");
   // `processingFeeCents` in the result/metadata means "what the resident is
   // charged on top" (0 unless the resident pays), so the resident-facing
   // itemization derives straight from it. `axisFeeCents` stays the 0-bps
@@ -373,7 +390,7 @@ export async function createAxisAchCheckoutSession(
     throw new Error("Checkout total does not reconcile with the manager payout.");
   }
 
-  const paymentMethodConfig = await paymentMethodStripeConfig(stripe, paymentMethod);
+  const paymentMethodConfig = await paymentMethodStripeConfig(stripe, paymentMethod, input.forceExplicitCard);
 
   const sessionBase = {
     mode: "payment" as const,

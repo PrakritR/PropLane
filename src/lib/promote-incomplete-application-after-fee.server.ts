@@ -68,7 +68,8 @@ export type PromoteIncompleteAfterFeeResult =
        * lease type, rental type — differs from what the Stripe session actually
        * paid for, and the amount paid does not cover what that basis requires:
        * e.g. paid for a $0 template or a $25 room, then switched to a pricier
-       * one before this ran. Never promoted; the applicant owes the difference.
+       * one before this ran. Never promoted or silently charged again; the
+       * applicant can restore the paid basis or request manager review.
        */
       reason: "fee_mismatch";
       requiredCents: number;
@@ -90,17 +91,18 @@ export async function promoteIncompleteApplicationAfterFeePaid(
   }
 
   const propertyId = session.metadata?.property_id?.trim() ?? "";
+  const claimedApplicationId = session.metadata?.application_id?.trim() ?? "";
   const residentEmail = normalizedEmail(session.metadata?.resident_email ?? session.customer_email);
   if (!propertyId || !residentEmail.includes("@")) {
     return { ok: false, error: "Checkout session is missing applicant or listing metadata." };
   }
 
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select("id, row_data, manager_user_id, property_id, assigned_property_id, resident_email")
-    .eq("resident_email", residentEmail)
-    .order("updated_at", { ascending: false })
-    .limit(25);
+  const query = db.from("manager_application_records")
+    .select("id, row_data, manager_user_id, property_id, assigned_property_id, resident_email, updated_at");
+  const { data, error } = claimedApplicationId
+    ? await query.eq("id", claimedApplicationId).limit(1)
+    : await query.eq("resident_email", residentEmail)
+      .order("updated_at", { ascending: false }).limit(25);
 
   if (error) {
     return { ok: false, error: error.message };
@@ -112,6 +114,7 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     manager_user_id: string | null;
     property_id: string | null;
     assigned_property_id: string | null;
+    updated_at: string;
   };
 
   const rows = (data ?? []) as Stored[];
@@ -119,6 +122,11 @@ export async function promoteIncompleteApplicationAfterFeePaid(
   let draft: { record: Stored; row: DemoApplicantRow } | null = null;
 
   for (const record of rows) {
+    if (claimedApplicationId && (record.id !== claimedApplicationId ||
+        record.manager_user_id !== session.metadata?.manager_user_id ||
+        String((record as Stored & { resident_email?: string }).resident_email ?? "").trim().toLowerCase() !== residentEmail)) {
+      return { ok: false, error: "Paid application source no longer matches its draft." };
+    }
     const app = (record.row_data ?? {}) as DemoApplicantRow;
     if (isWithdrawnApplicationRow(app)) continue;
     if (!matchesProperty(app, propertyId, record.property_id, record.assigned_property_id)) continue;
@@ -166,9 +174,9 @@ export async function promoteIncompleteApplicationAfterFeePaid(
   const paidApplicationTemplateId = session.metadata?.application_template_id?.trim() || null;
   const paidFeeCents = Number(session.metadata?.fee_cents ?? "0");
   const submittedApplicationTemplateId = previousApplication.applicationTemplateId?.trim() || null;
-  // A re-resolve that cannot read the listing answers 0 required, exactly as it already did when
-  // the resolver refused — the fee is collected and the applicant must not be left unsubmitted by
-  // a transient read. The webhook retries, so a real mismatch is still caught on the next pass.
+  // Captured money is already credited by the caller. A failed pricing read
+  // cannot turn the required amount into zero and auto-submit a different
+  // application; the promotion remains a durable needs-review item.
   const required = await resolveRequiredApplicationFee(db, {
     propertyId,
     managerUserId: draft.record.manager_user_id?.trim() || "",
@@ -177,13 +185,8 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     bundleId: (previousApplication as { bundleId?: string }).bundleId,
     leaseTerm: previousApplication.leaseTerm,
     rentalType: applicationRentalTypeFor(previousApplication.rentalType),
-  }).catch((cause) => {
-    console.error("[application-fee-promote] could not re-resolve the required fee", {
-      applicationId: draft.record.id,
-      message: cause instanceof Error ? cause.message : String(cause),
-    });
-    return { cents: 0, basis: {} };
-  });
+  }, { failClosed: true }).catch(() => null);
+  if (!required) return { ok: false, error: "Could not verify the saved application fee before submission." };
   if (
     !applicationFeePaymentSatisfiesTemplate({
       submittedApplicationTemplateId,
@@ -258,11 +261,17 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     updated_at: new Date().toISOString(),
   };
 
-  const { error: upsertError } = await db
+  const { data: updated, error: updateError } = await db
     .from("manager_application_records")
-    .upsert(values, { onConflict: "id" });
-  if (upsertError) {
-    return { ok: false, error: upsertError.message };
+    .update(values)
+    .eq("id", draft.record.id)
+    .eq("manager_user_id", draft.record.manager_user_id)
+    .eq("property_id", draft.record.property_id)
+    .eq("resident_email", residentEmail)
+    .eq("updated_at", draft.record.updated_at)
+    .select("id");
+  if (updateError || updated?.length !== 1) {
+    return { ok: false, error: "Saved application changed before payment promotion." };
   }
 
   if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {

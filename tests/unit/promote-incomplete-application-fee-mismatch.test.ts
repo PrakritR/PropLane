@@ -57,6 +57,7 @@ function draftRow(applicationTemplateId: string | undefined) {
     property_id: PROPERTY_ID,
     assigned_property_id: null,
     resident_email: APPLICANT_EMAIL,
+    updated_at: "2026-10-04T00:00:00Z",
   };
 }
 
@@ -73,6 +74,12 @@ function makeDb(opts: { draftTemplateId: string | undefined; upsert?: ReturnType
           }),
         }),
         upsert,
+        update: (values: unknown) => {
+          void upsert(values);
+          const chain = { eq: vi.fn(), select: vi.fn().mockResolvedValue({ data: [{ id: "AXIS-DRAFT-1" }], error: null }) };
+          chain.eq.mockReturnValue(chain);
+          return chain;
+        },
       };
     }
     // manager_property_records — the fee re-resolution reads the listing's

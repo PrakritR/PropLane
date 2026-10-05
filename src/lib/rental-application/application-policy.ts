@@ -98,6 +98,7 @@ export function residentApplicationFeeGate(input: {
   propertyId: string;
   residentEmail: string;
   residentUserId?: string | null;
+  applicationId?: string | null;
   chargePolicy?: ApplicationFeeChargePolicy;
   /** When the server preview has already decided waiver, trust it over local rows. */
   serverFeeWaived?: boolean | null;
@@ -132,7 +133,7 @@ export function residentApplicationFeeGate(input: {
   if (!pid || !email.includes("@") || amount <= 0 || waived) {
     return { needsFee: false, paid: true, displayLabel, amount, waived };
   }
-  const charge = findApplicationFeeCharge(email, pid, input.residentUserId ?? null);
+  const charge = findApplicationFeeCharge(email, pid, input.residentUserId ?? null, input.applicationId);
   const paid = charge?.status === "paid";
   return { needsFee: true, paid, displayLabel, amount, waived: false };
 }
