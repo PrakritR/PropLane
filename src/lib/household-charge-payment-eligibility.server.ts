@@ -125,9 +125,11 @@ export async function enrichHouseholdChargesFromPropertyRecordsResult(
         acceptedPaymentMethodsSnapshot: accountPolicy === null ? undefined : ["ach", "card"] as HouseholdCharge["acceptedPaymentMethodsSnapshot"] };
     }
     const property = listingByPropertyId.get(propertyId);
-    // A historical co-manager may have created the charge. The property's
-    // actual owner is the payee and its current listing is the policy source.
-    const listing = property?.ownerId ? property.listing : null;
+    // A historical co-manager may have created the charge, with its AR booked
+    // to that creator. Until those books are reconciled, payment must stay
+    // unavailable rather than switch the payee from under an existing charge.
+    const listing = property?.ownerId && property.ownerId === charge.managerUserId?.trim()
+      ? property.listing : null;
     return enrichHouseholdChargePaymentFlags(charge, listing);
   });
   return { charges: enriched, lookupFailed };

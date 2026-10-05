@@ -104,7 +104,7 @@ describe("enrichHouseholdChargesFromPropertyRecordsResult", () => {
     expect(householdChargeProplanePayability(result.charges[0]!)).toBe("unknown");
   });
 
-  it("uses the exact property's owner's listing even when a co-manager created the charge", async () => {
+  it("holds a historical co-manager charge for books review instead of offering payment", async () => {
     const db = { from: (table: string) => {
       if (table !== "manager_property_records") throw new Error(`Unexpected ${table}`);
       const q = { select: () => q, in: () => q,
@@ -114,7 +114,7 @@ describe("enrichHouseholdChargesFromPropertyRecordsResult", () => {
     } } as never;
     const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [{ ...charge, axisPaymentsEnabledSnapshot: true }]);
     expect(result.lookupFailed).toBe(false);
-    expect(householdChargeProplanePayability(result.charges[0]!)).toBe("offline");
+    expect(householdChargeProplanePayability(result.charges[0]!)).toBe("unknown");
   });
 
   it("does not accept a listing with no owner or borrow another same-label listing", async () => {
