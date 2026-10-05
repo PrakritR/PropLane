@@ -137,7 +137,30 @@ describe("payment record Overview uses the shared record-page kit (C095)", () =>
     expect(details).toContain("Check");
     expect(details).not.toContain("workspace balance");
     expect(details).not.toContain("Awaiting payment");
+    expect(container.querySelector('[aria-label="Refund"]')).toBeNull();
     expect(row.notes).not.toBe("Awaiting payment.");
+  });
+
+  it("offers Refund for a paid provider-backed charge", () => {
+    const charge: HouseholdCharge = { id: "hc-provider", createdAt: "2026-10-04T12:00:00Z",
+      residentEmail: "resident@example.test", residentName: "Resident", residentUserId: null,
+      propertyId: "property-1", propertyLabel: "The Magnolia", managerUserId: "mgr-test", kind: "rent",
+      title: "October rent", amountLabel: "$1.00", balanceLabel: "$0.00", status: "paid",
+      paidAt: "2026-10-05T12:00:00Z", stripeCheckoutSessionId: "cs_test_paid", blocksLeaseUntilPaid: false };
+    seedDemoHouseholdCharges([charge]);
+    const { container } = renderDetail(householdChargeToLedgerRow(charge));
+    expect(container.querySelector('[aria-label="Refund"]')).not.toBeNull();
+  });
+
+  it("does not offer Return deposit for an offline deposit receipt", () => {
+    const charge: HouseholdCharge = { id: "hc-deposit", createdAt: "2026-10-04T12:00:00Z",
+      residentEmail: "resident@example.test", residentName: "Resident", residentUserId: null,
+      propertyId: "property-1", propertyLabel: "The Magnolia", managerUserId: "mgr-test", kind: "security_deposit",
+      title: "Deposit", amountLabel: "$1.00", balanceLabel: "$0.00", status: "paid",
+      paidAt: "2026-10-05T12:00:00Z", paidMethod: "Check", blocksLeaseUntilPaid: false };
+    seedDemoHouseholdCharges([charge]);
+    const { container } = renderDetail(householdChargeToLedgerRow(charge));
+    expect(container.querySelector('[aria-label="Return deposit"]')).toBeNull();
   });
   it("shows amount, status, due date and days tiles with Details and History", () => {
     const { container } = renderDetail(sampleRow());

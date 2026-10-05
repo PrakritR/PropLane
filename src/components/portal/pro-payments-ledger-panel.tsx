@@ -143,6 +143,12 @@ function isPaidRow(row: DemoManagerPaymentLedgerRow): boolean {
   return row.statusLabel === "Paid" || parseMoneyLabel(row.balanceDue) <= 0;
 }
 
+function hasProviderRefundSource(row: DemoManagerPaymentLedgerRow): boolean {
+  if (!row.householdChargeId) return false;
+  const charge = readHouseholdCharges().find((item) => item.id === row.householdChargeId);
+  return Boolean(charge?.stripeCheckoutSessionId?.trim() && !charge.paidMethod);
+}
+
 /**
  * A paid security deposit is the only thing PropLane can send back.
  *
@@ -151,7 +157,7 @@ function isPaidRow(row: DemoManagerPaymentLedgerRow): boolean {
  * action that will always be refused.
  */
 function isReturnableDepositRow(row: DemoManagerPaymentLedgerRow): boolean {
-  return row.chargeKind === "security_deposit" && isPaidRow(row) && Boolean(row.householdChargeId);
+  return row.chargeKind === "security_deposit" && isPaidRow(row) && hasProviderRefundSource(row);
 }
 
 /**
@@ -159,7 +165,7 @@ function isReturnableDepositRow(row: DemoManagerPaymentLedgerRow): boolean {
  * their own dedicated Return-deposit action; this is the general counterpart for paid rent/fees.
  */
 function isRefundableChargeRow(row: DemoManagerPaymentLedgerRow): boolean {
-  return row.chargeKind !== "security_deposit" && isPaidRow(row) && Boolean(row.householdChargeId);
+  return row.chargeKind !== "security_deposit" && isPaidRow(row) && hasProviderRefundSource(row);
 }
 
 function isRemindableRow(row: DemoManagerPaymentLedgerRow): boolean {
