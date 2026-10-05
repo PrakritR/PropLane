@@ -64,19 +64,24 @@ longer exists — the phone has no sticky action of its own to prime.
 `recordSections(role, kind, ctx, activeSectionId?)` resolves `headerActions`
 for the section actually open, via each kind's `sectionActions` map, falling
 back to the kind's default set when the active section has no entry of its
-own (or when a caller omits `activeSectionId` altogether, which every
-call site still does as of wave 1 — the mechanism is in place, not yet wired
-end to end). `headerActions` render as `PortalIconAction ring` (40px circle,
-first one filled) via `PortalRecordHeaderIconActions`, published through the
+own (or when a caller omits `activeSectionId` altogether, which most call
+sites still do). Resident, Property and Tasks pass the open tab and so get
+the per-section set. `headerActions` render as `PortalIconAction ring`
+(40px circle, first one filled) via `PortalRecordHeaderIconActions`, published through the
 existing `PortalRecordDetailPage iconTitleActions` slot, hidden below `lg`
 exactly as before.
 
 ## Known gap
 
 Not every action id has a real handler yet — an unwired one shows "Coming
-soon" rather than a silent no-op. Property and Resident keep their own
-already-working header actions instead of the registry's generic set, so real
-functionality it does not cover 1:1 yet is never dropped. Bookings'
+soon" rather than a silent no-op. Property keeps its own already-working
+header actions instead of the registry's generic set, so real functionality it
+does not cover 1:1 yet is never dropped. Resident now builds from the
+registry's `headerActions` and only amends it per section
+(`pro-residents.tsx`): the leasing sends splice in ahead of Delete,
+approve/decline drop unless the application still awaits a decision,
+`run-check` becomes "Run new check" once a check exists, and the consent
+reminder is prepended on the Background check tab. Bookings'
 `record-payment` header action is a narrower case: it is dropped from the
 header entirely (never rendered, never "Coming soon") on any booking without a
 verified charge path, per the plan's own "omit — never Coming soon" rule for

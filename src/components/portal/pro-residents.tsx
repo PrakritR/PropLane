@@ -3465,7 +3465,9 @@ export function ManagerResidents({
         if (applicationAwaitsDecision(selectedApplicationRow)) setApprovePreviewRow(selectedApplicationRow);
         return;
       case "decline":
-        if (applicationAwaitsDecision(selectedApplicationRow)) void declineApplicationRow(selectedApplicationRow);
+        if (selectedApplicationRow && applicationAwaitsDecision(selectedApplicationRow)) {
+          void declineApplicationRow(selectedApplicationRow);
+        }
         return;
       case "download":
         if (resolvedDetailTab === "application" && selectedApplicationRow) {

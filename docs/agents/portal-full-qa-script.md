@@ -183,9 +183,7 @@ For each section: **load URL → heading visible → no error toast → primary 
 
 ### 1.6b Inspections (`/portal/move-in/inspections`)
 
-- [ ] Move-in / Move-out tabs list reports; ADD creates one for the resident's assigned room
-- [ ] Report detail: photo upload, notes autosave, document preview, request confirmation / request changes / approve
-- [ ] A completed report is read-only everywhere
+- [ ] Walk the flow and states described in [`docs/agents/inspections.md`](inspections.md) § Lifecycle (that file owns the contract)
 
 ### 1.7 Payments (`/portal/payments`)
 
