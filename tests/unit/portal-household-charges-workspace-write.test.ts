@@ -27,6 +27,7 @@ const state = {
   deletedIds: [] as string[],
   upserted: [] as Row[],
   beforeCas: null as null | (() => void),
+  insertErrorId: null as string | null,
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -113,6 +114,7 @@ vi.mock("@/lib/supabase/service", () => ({
             return query;
           },
           insert: (row: Row) => ({ select: async () => {
+            if (state.insertErrorId === row.id) return { data: null, error: { code: "XX001", message: "write failed" } };
             if (state.charges.has(String(row.id))) return { data: null, error: { code: "23505", message: "duplicate" } };
             state.upserted.push(row);
             state.charges.set(String(row.id), row);
@@ -150,6 +152,7 @@ beforeEach(() => {
   state.deletedIds = [];
   state.upserted = [];
   state.beforeCas = null;
+  state.insertErrorId = null;
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@test.local" } } });
   resolvePropertyPayoutOwners.mockResolvedValue(new Map());
 });
@@ -272,6 +275,19 @@ describe("ordinary charge mirror cannot create a receipt", () => {
     expect(state.charges.get("chg-race")?.row_data).toEqual(paid);
     expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
     expect(syncLedgerPaymentEntry).not.toHaveBeenCalled();
+  });
+
+  it("syncs the first persisted charge even when a later insert fails", async () => {
+    state.insertErrorId = "second";
+    const res = await post({ charges: [
+      { id: "first", propertyId: "prop-1", kind: "rent", status: "pending", amountLabel: "$10.00" },
+      { id: "second", propertyId: "prop-1", kind: "rent", status: "pending", amountLabel: "$20.00" },
+    ] });
+    expect(res.status).toBe(500);
+    expect(state.charges.has("first")).toBe(true);
+    expect(state.charges.has("second")).toBe(false);
+    expect(syncLedgerChargeEntry).toHaveBeenCalledTimes(1);
+    expect(syncLedgerChargeEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "first" }));
   });
 });
 

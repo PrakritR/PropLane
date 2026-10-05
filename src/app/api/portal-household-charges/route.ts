@@ -523,6 +523,7 @@ export async function POST(req: Request) {
         });
       }
       const persistedRows: typeof mappedRows = [];
+      let chargeWriteError: string | null = null;
       for (const row of mappedRows) {
         if (existingOwnerById.has(row.id)) {
           const stored = existingRecordById.get(row.id);
@@ -541,14 +542,14 @@ export async function POST(req: Request) {
             .eq("status", expectedStatus)
             .eq("updated_at", expectedUpdatedAt)
             .select("id");
-          if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+          if (error) { chargeWriteError = error.message; break; }
           if ((data ?? []).length > 0) persistedRows.push(row);
         } else {
           // Insert-only: a concurrent provider/manager writer may have created
           // this id after our read. Never turn that row into an upsert target.
           const { data, error } = await db.from("portal_household_charge_records").insert(row).select("id");
           if (error?.code === "23505") continue;
-          if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+          if (error) { chargeWriteError = error.message; break; }
           if ((data ?? []).length > 0) persistedRows.push(row);
         }
       }
@@ -596,6 +597,7 @@ export async function POST(req: Request) {
           }).catch(() => undefined);
         }
       }
+      if (chargeWriteError) return NextResponse.json({ error: chargeWriteError }, { status: 500 });
     }
 
     if (rentProfiles.length > 0) {
