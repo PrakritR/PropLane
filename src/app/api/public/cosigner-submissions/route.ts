@@ -64,9 +64,10 @@ export async function POST(req: Request) {
       if (found.status !== "owed" && found.status !== "shared") {
         return NextResponse.json({ error: "This form is already finished." }, { status: 409 });
       }
-      if (new Date(found.expires_at).getTime() <= Date.now()) {
-        return NextResponse.json({ error: "Not found." }, { status: 404 });
-      }
+      // `expires_at` is the SHARE LINK's life, not the form's: it is the deadline
+      // `redeemLinkedFormToken` enforces when someone opens `/f/<token>`. An owed form never
+      // expires for the applicant, and a helper who already redeemed a live link stays recognised
+      // (`resolveLinkedFormViewerRole`) — a fresh link is minted on demand instead.
       // A fee that could not be read when the request was written is unresolved, never "no fee": resolve it
       // now from the stored listing, and refuse to complete the form when it still cannot be read.
       const feeResolved = await resolveUnresolvedLinkedFormFee(lookupDb, found);

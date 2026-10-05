@@ -257,7 +257,7 @@ export async function managerSender(db: SupabaseClient, managerUserId: string): 
   return { userId: managerUserId, email, name: String(data?.full_name ?? "").trim() || undefined };
 }
 
-type WorkOrderEventInput = {
+export type WorkOrderEventInput = {
   eventId: string;
   event: WorkOrderEventType;
   managerUserId: string;

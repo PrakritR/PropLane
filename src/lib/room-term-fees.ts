@@ -127,11 +127,14 @@ export type RoomPricingFeeVisibility = {
 export function feeVisibilityForTerms(
   offered: readonly string[],
   address?: Partial<Pick<ManagerListingSubmissionV1, "address" | "city" | "state" | "neighborhood" | "zip">> | null,
+  /** The stored property record, which the jurisdiction resolver reads before the submission. */
+  listingProperty?: RentRuleAddress | null,
 ): RoomPricingFeeVisibility {
   const customStartSurcharge = offered.includes(CUSTOM_LEASE_TERM);
   return {
     // Hidden on a Seattle listing: the surcharge does not exist there.
-    monthToMonthSurcharge: offered.includes(MONTH_TO_MONTH_LEASE_TERM) && !listingFoldsAllMonthlyFeesIntoRent(address),
+    monthToMonthSurcharge:
+      offered.includes(MONTH_TO_MONTH_LEASE_TERM) && !listingFoldsAllMonthlyFeesIntoRent(address, listingProperty),
     customStartSurcharge,
     partialMonths: customStartSurcharge,
   };
@@ -155,8 +158,10 @@ export function roomPricingFeeVisibility(
   > &
     Partial<Pick<ManagerListingSubmissionV1, "address" | "city" | "state" | "neighborhood" | "zip">>,
   room: Pick<ManagerRoomSubmission, "offeredLeaseTerms"> | null | undefined,
+  /** The stored property record, which the jurisdiction resolver reads before the submission. */
+  listingProperty?: RentRuleAddress | null,
 ): RoomPricingFeeVisibility {
-  return feeVisibilityForTerms(roomOfferedTermsForPricing(sub, room), sub);
+  return feeVisibilityForTerms(roomOfferedTermsForPricing(sub, room), sub, listingProperty);
 }
 
 /* ------------------------------------------------------------------ *

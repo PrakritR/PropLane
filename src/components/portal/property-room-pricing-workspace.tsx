@@ -60,6 +60,7 @@ import {
   setRoomPricingCopyFrom,
 } from "@/lib/property-pricing-room-copy";
 import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
+import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { propertyPricingRoomSummary } from "@/lib/property-pricing-summary";
 import {
   persistManagerListingSubmissionOnServer,
@@ -83,6 +84,12 @@ type Props = {
   onSaved: () => void;
   showToast: (message: string) => void;
   workspacePricingDefaults?: WorkspacePricingDefaults;
+  /**
+   * The stored property record's address. The jurisdiction resolver reads it before the submission,
+   * so "What a resident pays" and the Month-to-month surcharge field agree with the lease and the
+   * ledger on a legacy listing whose submission never recorded a city.
+   */
+  listingProperty?: RentRuleAddress | null;
 };
 
 function standardFeesForTerm(
@@ -383,8 +390,8 @@ export function WholeHousePricingFields({
     },
     shortDeposit: {
       label: "Whole house deposit",
-      value: draft.securityDeposit ?? "",
-      onChange: (v) => patch({ securityDeposit: v, entireHomePriceSource: "own" }),
+      value: draft.shortTermDeposit ?? "",
+      onChange: (v) => patch({ shortTermDeposit: v, entireHomePriceSource: "own" }),
     },
     feeScope: { roomId: null },
     prorate: {
@@ -579,6 +586,7 @@ export function PropertyRoomPricingWorkspace({
   onSaved,
   showToast,
   workspacePricingDefaults: _workspacePricingDefaults,
+  listingProperty = null,
 }: Props) {
   const [draft, setDraft] = useState(() => normalizeManagerListingSubmissionV1(sub));
   /** Which leasing option's tab is open (first by default); "What a resident pays" quotes that option. */
@@ -611,9 +619,10 @@ export function PropertyRoomPricingWorkspace({
         ? roomPricingFeeVisibility(
             draft,
             draft.rooms.find((r) => r.id === subject.roomId),
+            listingProperty,
           )
-        : feeVisibilityForTerms(listingPricingLeaseTabs(draft), draft),
-    [draft, subject],
+        : feeVisibilityForTerms(listingPricingLeaseTabs(draft), draft, listingProperty),
+    [draft, subject, listingProperty],
   );
   const allowM2m = feeVisibility.monthToMonthSurcharge;
   const allowCustomStart = feeVisibility.customStartSurcharge;
@@ -785,6 +794,7 @@ export function PropertyRoomPricingWorkspace({
             plainReceipt
             allowCustomStart={allowCustomStart}
             allowMonthToMonthStart={allowM2m}
+            listingProperty={listingProperty}
           />
         ) : subject.kind === "whole" ? (
           <BundleWholePricingReceiptPanel
@@ -794,6 +804,7 @@ export function PropertyRoomPricingWorkspace({
             leaseTerms={leaseTerms}
             allowCustomStart={allowCustomStart}
             allowMonthToMonthStart={allowM2m}
+            listingProperty={listingProperty}
           />
         ) : subject.kind === "bundle" ? (
           <BundleWholePricingReceiptPanel
@@ -804,6 +815,7 @@ export function PropertyRoomPricingWorkspace({
             leaseTerms={leaseTerms}
             allowCustomStart={allowCustomStart}
             allowMonthToMonthStart={allowM2m}
+            listingProperty={listingProperty}
           />
         ) : undefined
       }

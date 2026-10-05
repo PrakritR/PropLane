@@ -87,9 +87,9 @@ export function VendorReviewDialog({
 
   if (!row && !picking) return null;
 
-  // C158: a posted review can never be edited, so an existing review always
-  // renders read-only — `canEditVendorReview` is the single source of that
-  // "never" decision (also enforced server-side by the PATCH route).
+  // A review is the reviewer's to change for fourteen days and read-only after that —
+  // `canEditVendorReview` is the single source of that decision (also enforced server-side by the
+  // PATCH route and its own `created_at` filter).
   const readOnly = Boolean(existing) && !canEditVendorReview(existing?.createdAt ?? "");
 
   const submit = async () => {

@@ -33,6 +33,7 @@ import {
   normalizeWorkspacePricingDefaults,
   type WorkspacePricingDefaults,
 } from "@/lib/workspace-pricing-defaults";
+import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,6 +57,8 @@ type Props = {
   onUpdated: () => void;
   showToast: (message: string) => void;
   workspacePricingDefaults?: WorkspacePricingDefaults;
+  /** The stored property record's address — see {@link PropertyRoomPricingWorkspace}. */
+  listingProperty?: RentRuleAddress | null;
 };
 
 /** The square icon tile every pricing row carries: rooms, bundles and the whole house look alike. */
@@ -75,6 +78,7 @@ export function PropertyPricingPanel({
   onUpdated,
   showToast,
   workspacePricingDefaults: workspacePricingDefaultsProp,
+  listingProperty = null,
 }: Props) {
   const [workspacePricingDefaults, setWorkspacePricingDefaults] = useState<WorkspacePricingDefaults>(
     () => normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp ?? {}),
@@ -358,6 +362,7 @@ export function PropertyPricingPanel({
           onSaved={onUpdated}
           showToast={showToast}
           workspacePricingDefaults={workspacePricingDefaults}
+          listingProperty={listingProperty}
         />
       ) : null}
     </div>

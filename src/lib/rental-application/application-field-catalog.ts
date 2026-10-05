@@ -201,13 +201,38 @@ const SYSTEM_READ_STANDARD_KEY_SET = new Set(SYSTEM_READ_STANDARD_KEYS);
 
 /**
  * Built-ins whose answer choices the applicant wizard reads by their STORED VALUE (the wizard compares
- * `applyingAsGroup === "yes"`). The manager may reword each choice, but position i always stores value i, so the
- * choices can be neither added, removed nor reordered. Marked here, in code, not in the editor.
+ * `applyingAsGroup === "yes"`, and the disclosure questions store `yes` / `no` whatever they say on screen).
+ * The manager may reword each choice, but position i always stores value i, so the choices can be neither
+ * added, removed nor reordered. Marked here, in code, not in the editor.
  */
-export const BUILT_IN_ANSWER_VALUES: Readonly<Record<string, readonly string[]>> = {
-  "household-group-application": ["yes", "no"],
-  "household-co-signer-planned": ["yes", "no"],
-};
+const BUILT_IN_ANSWER_VALUE_SOURCES: ReadonlyArray<
+  [section: RentalApplicationSectionId, label: string, values: readonly string[]]
+> = [
+  ["household", "Group application", ["yes", "no"]],
+  ["household", "Co-signer planned", ["yes", "no"]],
+  // The four catalog selects the applicant form renders itself: the wording is the manager's, the
+  // value each choice stores is these. Without an entry the manager's rewording was read back as the
+  // catalog's on the next load, so the edit silently vanished.
+  ["additional", "Number of occupants", ["1", "2", "3", "4", "5"]],
+  ["additional", "Eviction history", ["yes", "no"]],
+  ["additional", "Bankruptcy history", ["yes", "no"]],
+  ["additional", "Criminal history", ["yes", "no"]],
+];
+
+export const BUILT_IN_ANSWER_VALUES: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  BUILT_IN_ANSWER_VALUE_SOURCES.map(([section, label, values]) => {
+    const def = STANDARD_APPLICATION_FIELD_CATALOG.find(
+      (candidate) => candidate.section === section && candidate.label === label,
+    );
+    // Derived from the catalog, never a hand-typed key: a typo here would silently stop preserving
+    // the manager's wording instead of failing.
+    if (!def) throw new Error(`Missing catalog question for built-in answer values: ${section}:${label}`);
+    if (def.options.length !== values.length) {
+      throw new Error(`Built-in answer values do not match the catalog options for ${def.standardKey}`);
+    }
+    return [def.standardKey, values] as const;
+  }),
+);
 
 /** The choices a built-in question shows: the manager's wording when it kept every choice, else the catalog's. */
 export function builtInAnswerOptions(standardKey: string, stored: readonly string[] | undefined, fallback: readonly string[]): string[] {

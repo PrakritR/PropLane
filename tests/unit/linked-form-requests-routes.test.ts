@@ -231,11 +231,18 @@ describe("a linked form submitted through the co-signer route", () => {
     expect(db.tables.cosigner_submission_records).toHaveLength(1);
   });
 
-  it("an expired request is refused like a missing one", async () => {
+  it("still accepts a form whose share link has passed its deadline — only the LINK expires", async () => {
     const db = state.db as LinkedFormFakeDb;
     pointAtCosigner(db);
-    db.tables.application_form_requests![0]!.expires_at = new Date(Date.now() - 1000).toISOString();
-    expect((await submitCosigner(post("/api/public/cosigner-submissions", cosignerBody(cosignerId)))).status).toBe(404);
+    Object.assign(db.tables.application_form_requests![0]!, {
+      fee_paid_at: new Date().toISOString(),
+      fee_paid_by_user_id: "helper-1",
+      expires_at: new Date(Date.now() - 1000).toISOString(),
+    });
+    // `expires_at` is the share link's life (`redeemLinkedFormToken` enforces it at /f/<token>).
+    // The owed form itself never expires for the applicant, or anyone who already opened the link.
+    expect((await submitCosigner(post("/api/public/cosigner-submissions", cosignerBody(cosignerId)))).status).toBe(200);
+    expect(db.tables.application_form_requests![0]!.status).toBe("done");
   });
 
   it("a fee that could not be read when the request was written is resolved at submit, never treated as free", async () => {

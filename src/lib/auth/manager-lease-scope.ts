@@ -185,6 +185,36 @@ export async function managerCanWriteCalendarForProperty(
   return managerHasCoManagerPermissionForProperty(db, userId, propertyId, "calendar", "edit");
 }
 
+/**
+ * The same decision as {@link managerCanWriteCalendarForProperty} for MANY houses, in two round
+ * trips instead of two per house: the connect modal asks about a whole portfolio at once, and the
+ * per-property call issues both a `manager_property_records` lookup and a co-manager link read each
+ * time.
+ */
+export async function managerCanWriteCalendarForProperties(
+  db: ServiceClient,
+  userId: string,
+  propertyIds: readonly string[],
+): Promise<Set<string>> {
+  const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  const writable = new Set<string>();
+  if (ids.length === 0) return writable;
+  const [owned, linked] = await Promise.all([
+    db.from("manager_property_records").select("id").eq("manager_user_id", userId).in("id", ids),
+    collectLinkedPropertyPermissionsForUser(db, userId),
+  ]);
+  for (const row of (owned.data ?? []) as Array<{ id?: unknown }>) {
+    const id = String(row.id ?? "").trim();
+    if (id) writable.add(id);
+  }
+  for (const id of ids) {
+    if (writable.has(id)) continue;
+    if (!linked.has(id)) continue;
+    if (hasCoManagerPermissionLevelForProperty(linked.get(id), id, "calendar", "edit")) writable.add(id);
+  }
+  return writable;
+}
+
 export function leaseRecordVisibleToManager(
   record: Pick<LeaseScopeRecord, "manager_user_id" | "property_id">,
   userId: string,

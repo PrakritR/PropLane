@@ -22,19 +22,30 @@ const MANAGER = "mgr-1";
 const JOB = "wo-1";
 
 /**
- * `manager_expense_entries` only. `beforeEachRead` runs before every select, which is how a test
- * makes a row appear between the caller's read and the insert.
+ * `manager_expense_entries` plus the `vendor_invoices` lookup that tells the job's own bill from the
+ * estimate-visit fee (both ride the same rail against the same work order). `beforeEachRead` runs
+ * before every select on the expenses table, which is how a test makes a row appear between the
+ * caller's read and the insert.
  */
-function makeDb(rows: Row[], hooks: { readError?: string; beforeEachRead?: () => void } = {}) {
+function makeDb(
+  rows: Row[],
+  hooks: { readError?: string; beforeEachRead?: () => void; invoices?: Row[]; invoiceReadError?: string } = {},
+) {
   const inserts: Row[] = [];
   let reads = 0;
+  const invoices = hooks.invoices ?? [{ id: "inv-1", invoice_number: "INV-1001" }];
   const from = (table: string) => {
-    expect(table).toBe("manager_expense_entries");
+    expect(["manager_expense_entries", "vendor_invoices"]).toContain(table);
     const filters: Array<[string, unknown]> = [];
+    let inFilter: { column: string; values: unknown[] } | null = null;
     const builder: Record<string, unknown> = {
       select: () => builder,
       eq: (column: string, value: unknown) => {
         filters.push([column, value]);
+        return builder;
+      },
+      in: (column: string, values: unknown[]) => {
+        inFilter = { column, values };
         return builder;
       },
       insert: (row: Row) => {
@@ -46,6 +57,16 @@ function makeDb(rows: Row[], hooks: { readError?: string; beforeEachRead?: () =>
         };
       },
       then: (resolve: (value: { data: Row[] | null; error: { message: string } | null }) => unknown) => {
+        if (table === "vendor_invoices") {
+          if (hooks.invoiceReadError) {
+            return Promise.resolve({ data: null, error: { message: hooks.invoiceReadError } }).then(resolve);
+          }
+          const match = inFilter;
+          return Promise.resolve({
+            data: invoices.filter((row) => !match || match.values.includes(row[match.column])),
+            error: null,
+          }).then(resolve);
+        }
         reads += 1;
         hooks.beforeEachRead?.();
         if (hooks.readError) return Promise.resolve({ data: null, error: { message: hooks.readError } }).then(resolve);
@@ -116,6 +137,35 @@ describe("a settled vendor invoice is the job's whole vendor cost", () => {
       ["labor", "exp-invoice"],
       ["materials", "exp-invoice"],
     ]);
+  });
+});
+
+/**
+ * The estimate-visit fee is a SECOND invoice on the same service (`VISIT-<bid id>`), filed against
+ * the same work order. A $50 visit fee is not the job's $500 labor: treating it as the whole bill
+ * suppressed the accepted bid's expense entirely.
+ */
+describe("an estimate-visit fee invoice is not the job's bill", () => {
+  const visitFeeInvoices: Row[] = [{ id: "inv-1", invoice_number: "VISIT-bid-1" }];
+
+  it("closes neither line", async () => {
+    const { db } = makeDb([invoiceRow()], { invoices: visitFeeInvoices });
+    const read = await readPostedWorkOrderExpenseLines(db, MANAGER, JOB);
+    expect(read.ok && [...read.posted]).toEqual([]);
+  });
+
+  it("still lets the job's own labor post after the fee settled", async () => {
+    const { db, inserts } = makeDb([invoiceRow()], { invoices: visitFeeInvoices });
+    const ids = await createExpensesFromWorkOrder(db, MANAGER, completion);
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]).toMatchObject({ amount_cents: 15_200, source_work_order_id: JOB });
+    expect(ids).toEqual(["exp-1"]);
+  });
+
+  it("refuses to decide when the invoice lookup fails", async () => {
+    const { db } = makeDb([invoiceRow()], { invoiceReadError: "statement timeout" });
+    const read = await readPostedWorkOrderExpenseLines(db, MANAGER, JOB);
+    expect(read.ok).toBe(false);
   });
 });
 

@@ -301,6 +301,11 @@ export function buildListingQuote(
         ? parseMoneyAmount(arrangementPrice.securityDeposit)
       : room
         ? roomDepositForTerm(room, leaseTerm, sub, isStay)
+      // Long term and short term are priced independently, so a stay reads the listing's own
+      // short-term deposit before falling back to the long-term one (`roomDepositForTerm` does the
+      // same for a room).
+      : isStay && (sub.shortTermDeposit ?? "").trim()
+        ? parseMoneyAmount(sub.shortTermDeposit ?? "")
         : parseMoneyAmount((defaults.securityDeposit || sub.securityDeposit || "").trim());
 
   const applicable = listingFeesForWizard(sub).filter(

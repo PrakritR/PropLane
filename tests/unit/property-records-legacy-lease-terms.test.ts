@@ -103,10 +103,12 @@ describe("POST /api/property-records — legacy lease terms", () => {
     expect(storedTerms()).toEqual(["Long-term", "Short-Term Stay"]);
   });
 
-  it("an empty set saves as Long term instead of refusing, matching what Basics shows", async () => {
+  it("refuses an empty set rather than quietly saving Long term", async () => {
+    // Normalizing an EMPTY list to Long term silenced the one refusal that tells the manager their
+    // save did not do what they asked; the editor already refuses turning the last stay off.
     const res = await post({ allowedLeaseTerms: [], shortTermRentalsAllowed: false });
-    expect(res.status).toBe(200);
-    expect(storedTerms()).toEqual(["Long-term"]);
+    expect(res.status).toBe(400);
+    expect(UPSERTS).toHaveLength(0);
   });
 
   it("leaves current terms exactly as sent, and a submission that names no terms alone", async () => {

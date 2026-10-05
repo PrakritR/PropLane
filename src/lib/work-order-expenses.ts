@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { isCategoryDeductible, WORK_ORDER_CATEGORY_TO_EXPENSE, type WorkOrderCategory } from "@/lib/reports/categories";
 import { postGlExpenseEntry } from "@/lib/reports/gl-posting";
+import { isVisitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 
 export type WorkOrderCompleteInput = {
   workOrderId: string;
@@ -24,12 +25,41 @@ export type PostedWorkOrderExpenseLines = Map<WorkOrderExpenseLine, string>;
 type PostedExpenseRow = { id?: unknown; category_code?: unknown; source_vendor_invoice_id?: unknown };
 
 /** The lines an existing `manager_expense_entries` row of this job accounts for. */
-function linesClosedByPostedRow(row: PostedExpenseRow): WorkOrderExpenseLine[] {
-  // A row the vendor-invoice rail wrote (`settle_vendor_invoice_payment`) is the vendor's WHOLE bill
-  // for the job: `vendor_invoices` carries one `total_cents` with no labor/materials split, so that
-  // single expense accounts for both lines and a completion adds nothing on top of it.
-  if (row.source_vendor_invoice_id != null) return ["labor", "materials"];
+function linesClosedByPostedRow(row: PostedExpenseRow, jobBillInvoiceIds: ReadonlySet<string>): WorkOrderExpenseLine[] {
+  // A row the vendor-invoice rail wrote (`settle_vendor_invoice_payment`) for the JOB's own bill is
+  // the vendor's WHOLE cost for it: `vendor_invoices` carries one `total_cents` with no
+  // labor/materials split, so that single expense accounts for both lines and a completion adds
+  // nothing on top of it.
+  //
+  // The estimate-visit fee rides the same rail as a SECOND invoice on the same service
+  // (`VISIT-<bid id>`, `work-order-visit-fee-invoice.server.ts`), so it carries the job's
+  // `source_work_order_id` too. A $50 visit fee is not the job's labor: treating it as the whole
+  // bill suppressed the accepted bid's expense entirely, so it closes neither line.
+  const invoiceId = row.source_vendor_invoice_id == null ? "" : String(row.source_vendor_invoice_id);
+  if (invoiceId) return jobBillInvoiceIds.has(invoiceId) ? ["labor", "materials"] : [];
   return [row.category_code === "materials" ? "materials" : "labor"];
+}
+
+/**
+ * Of these `vendor_invoices` ids, the ones that are the job's own bill rather than an
+ * estimate-visit fee. A read failure returns `null`, which the caller turns into a refusal: not
+ * knowing which invoice an expense came from means not knowing what is posted.
+ */
+async function jobBillInvoiceIds(
+  db: SupabaseClient,
+  invoiceIds: readonly string[],
+): Promise<ReadonlySet<string> | null> {
+  if (invoiceIds.length === 0) return new Set<string>();
+  const { data, error } = await db.from("vendor_invoices").select("id, invoice_number").in("id", [...invoiceIds]);
+  if (error) return null;
+  const out = new Set<string>();
+  for (const row of (data ?? []) as Array<{ id?: unknown; invoice_number?: unknown }>) {
+    const id = row.id == null ? "" : String(row.id);
+    if (!id) continue;
+    if (isVisitFeeInvoiceNumber(row.invoice_number == null ? "" : String(row.invoice_number))) continue;
+    out.add(id);
+  }
+  return out;
 }
 
 /**
@@ -46,7 +76,8 @@ function linesClosedByPostedRow(row: PostedExpenseRow): WorkOrderExpenseLine[] {
  * callers take that category from the client, and a stale mirror sending a different one would walk
  * straight past a category-keyed guard. `WORK_ORDER_CATEGORY_TO_EXPENSE` never maps to `materials`,
  * so for a completion row that code identifies the materials line; an invoice row is read off its
- * `source_vendor_invoice_id` instead and closes both lines, since a paid bill is the whole cost.
+ * `source_vendor_invoice_id` instead and closes both lines when it is the job's own bill (the whole
+ * cost) and neither when it is the estimate-visit fee, which is a separate invoice on the service.
  *
  * Returns a failure rather than throwing, so a caller that is about to move money can read FIRST
  * and refuse before it does: not knowing what is already posted means refusing to post.
@@ -63,10 +94,20 @@ export async function readPostedWorkOrderExpenseLines(
     .eq("manager_user_id", managerUserId)
     .eq("source_work_order_id", workOrderId);
   if (error) return { ok: false, error: error.message };
-  for (const row of (data ?? []) as PostedExpenseRow[]) {
+  const rows = (data ?? []) as PostedExpenseRow[];
+  const invoiceIds = [
+    ...new Set(
+      rows
+        .map((row) => (row.source_vendor_invoice_id == null ? "" : String(row.source_vendor_invoice_id)))
+        .filter(Boolean),
+    ),
+  ];
+  const jobBills = await jobBillInvoiceIds(db, invoiceIds);
+  if (!jobBills) return { ok: false, error: "Could not tell this job's vendor bill from its estimate-visit fee." };
+  for (const row of rows) {
     const id = row.id == null ? "" : String(row.id);
     if (!id) continue;
-    for (const line of linesClosedByPostedRow(row)) if (!posted.has(line)) posted.set(line, id);
+    for (const line of linesClosedByPostedRow(row, jobBills)) if (!posted.has(line)) posted.set(line, id);
   }
   return { ok: true, posted };
 }

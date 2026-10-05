@@ -61,9 +61,10 @@ function vendorMatchesZip(
   const zips = Array.isArray(profile.service_area_zips) ? profile.service_area_zips.filter(Boolean) : [];
   const vendorRadius = profile.service_radius_miles ?? publishRadiusMi;
   const effectiveRadius = Math.min(Math.max(1, publishRadiusMi), Math.max(1, vendorRadius));
-  if (zips.length === 0) {
-    return propertyMatchesZipRadius(propertyZip, propertyZip, effectiveRadius);
-  }
+  // No service area is NOT "everywhere". The fallback used to compare the property's zip to itself,
+  // which is always inside any allowance, so a directory vendor who never set an area was broadcast
+  // every job in the country (and copied onto that manager's roster). A radius needs a centre.
+  if (zips.length === 0) return false;
   return zips.some((zip) => propertyMatchesZipRadius(propertyZip, zip, effectiveRadius));
 }
 

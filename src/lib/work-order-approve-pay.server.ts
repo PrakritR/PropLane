@@ -33,6 +33,7 @@ import {
   type ExistingVendorPayoutSummary,
 } from "@/lib/vendor-payout-guard";
 import type { VendorPayoutStatus } from "@/lib/vendor-payouts";
+import { isVisitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 import { centsToUsd } from "@/lib/reports/money";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { WorkOrderActionFailure } from "@/lib/work-order-bids.server";
@@ -108,6 +109,12 @@ export type ApprovePaySuccess = {
  * `skipped`). A read failure counts as a blocking payout: this is the only
  * check between the manager and paying twice, so it refuses rather than
  * proceeding on an unread table.
+ *
+ * A service can carry several payout rows, because the estimate-visit fee is a
+ * SECOND invoice on the same `work_order_id` (`VISIT-<bid id>`). Paying that
+ * $50 fee is not paying the job, so its payout is not a double-pay warning —
+ * and the read must not assume one row either, or the fee's existence alone
+ * made every later Approve + pay refuse.
  */
 export async function findBlockingVendorPayout(
   db: Db,
@@ -115,14 +122,40 @@ export async function findBlockingVendorPayout(
 ): Promise<{ ok: true; payout: ExistingVendorPayoutSummary | null } | { ok: false; error: string }> {
   const { data, error } = await db
     .from("vendor_payouts")
-    .select("id, status, amount_cents, stripe_transfer_id, created_at")
-    .eq("work_order_id", workOrderId)
-    .maybeSingle();
+    .select("id, status, amount_cents, stripe_transfer_id, created_at, invoice_id")
+    .eq("work_order_id", workOrderId);
   if (error) return { ok: false, error: `Could not check for an existing payout: ${error.message}` };
-  const row = data as
-    | { id: string; status: string; amount_cents: number | null; stripe_transfer_id: string | null; created_at: string | null }
-    | null;
-  if (!row || !vendorPayoutBlocksMarkPaid(row.status)) return { ok: true, payout: null };
+  const rows = (data ?? []) as Array<{
+    id: string;
+    status: string;
+    amount_cents: number | null;
+    stripe_transfer_id: string | null;
+    created_at: string | null;
+    invoice_id: string | null;
+  }>;
+  const candidates = rows
+    .filter((row) => vendorPayoutBlocksMarkPaid(row.status))
+    .sort((left, right) => String(left.created_at ?? "").localeCompare(String(right.created_at ?? "")));
+  if (candidates.length === 0) return { ok: true, payout: null };
+  const invoiceIds = [...new Set(candidates.map((row) => row.invoice_id ?? "").filter(Boolean))];
+  const visitFeeInvoiceIds = new Set<string>();
+  if (invoiceIds.length > 0) {
+    const { data: invoices, error: invoiceError } = await db
+      .from("vendor_invoices")
+      .select("id, invoice_number")
+      .in("id", invoiceIds);
+    if (invoiceError) {
+      return { ok: false, error: `Could not check for an existing payout: ${invoiceError.message}` };
+    }
+    for (const invoice of (invoices ?? []) as Array<{ id?: unknown; invoice_number?: unknown }>) {
+      const id = invoice.id == null ? "" : String(invoice.id);
+      if (id && isVisitFeeInvoiceNumber(invoice.invoice_number == null ? "" : String(invoice.invoice_number))) {
+        visitFeeInvoiceIds.add(id);
+      }
+    }
+  }
+  const row = candidates.find((candidate) => !candidate.invoice_id || !visitFeeInvoiceIds.has(candidate.invoice_id));
+  if (!row) return { ok: true, payout: null };
   return {
     ok: true,
     payout: {

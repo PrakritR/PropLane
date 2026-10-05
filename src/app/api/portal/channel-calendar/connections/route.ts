@@ -11,7 +11,11 @@ import {
   isChannelCalendarInputError,
   parseChannelCalendarProvider,
 } from "@/lib/channel-calendar/airbnb-url";
-import { managerCanWriteCalendarForProperty, managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
+import {
+  managerCanWriteCalendarForProperties,
+  managerCanWriteCalendarForProperty,
+  managerHasCalendarAccessForProperty,
+} from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -47,11 +51,8 @@ export async function GET(req: Request) {
     const writableFor = url.searchParams.get("writableFor");
     if (writableFor !== null) {
       const candidates = [...new Set(writableFor.split(",").map((id) => id.trim()).filter(Boolean))].slice(0, 200);
-      const writablePropertyIds: string[] = [];
-      for (const candidate of candidates) {
-        if (await managerCanWriteCalendarForProperty(ctx.db, ctx.userId, candidate)) writablePropertyIds.push(candidate);
-      }
-      return NextResponse.json({ writablePropertyIds });
+      const writable = await managerCanWriteCalendarForProperties(ctx.db, ctx.userId, candidates);
+      return NextResponse.json({ writablePropertyIds: candidates.filter((id) => writable.has(id)) });
     }
     const propertyId = url.searchParams.get("propertyId")?.trim() ?? "";
     const roomId = url.searchParams.get("roomId")?.trim() ?? "";
@@ -69,6 +70,11 @@ export async function GET(req: Request) {
       const rawDestination = url.searchParams.get("provider")?.trim() ?? "";
       const destination = rawDestination === "other" ? "other" : rawDestination ? parseChannelCalendarProvider(rawDestination) : "airbnb";
       if (!destination) return NextResponse.json({ error: "Unknown calendar channel." }, { status: 400 });
+      // On a cache miss this MINTS a connection row and a secret public export token, so it is a
+      // write however much it reads like one: Calendar at edit, like linking and unlinking.
+      if (!(await managerCanWriteCalendarForProperty(ctx.db, ctx.userId, propertyId))) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
       const exportUrl = await ensureRoomExportCalendarUrl(
         ctx.db,
         { propertyId, roomId, label: roomLabel || null, destination },

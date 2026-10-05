@@ -103,11 +103,24 @@ export function normalizeVendorReviewBody(raw: unknown): string {
   return String(raw ?? "").trim().slice(0, VENDOR_REVIEW_BODY_MAX_LENGTH);
 }
 
-/** C158: posted vendor reviews are immutable — no edit window. */
-export function canEditVendorReview(createdAt: string, _now = new Date()): boolean {
+/** How long the reviewer may still change their own review, in days. */
+export const VENDOR_REVIEW_EDIT_WINDOW_DAYS = 14;
+
+const VENDOR_REVIEW_EDIT_WINDOW_MS = VENDOR_REVIEW_EDIT_WINDOW_DAYS * 86_400_000;
+
+/**
+ * The reviewer may change their own review for fourteen days. One source of that decision for the
+ * PATCH route, the dialog and the Edit review menu item; an unreadable `created_at` fails closed.
+ */
+export function canEditVendorReview(createdAt: string, now = new Date()): boolean {
   const created = new Date(createdAt).getTime();
   if (!Number.isFinite(created)) return false;
-  return false;
+  return now.getTime() - created <= VENDOR_REVIEW_EDIT_WINDOW_MS;
+}
+
+/** The `created_at` floor the PATCH update filter uses, so the window is enforced in the database too. */
+export function vendorReviewEditWindowFloorIso(now = new Date()): string {
+  return new Date(now.getTime() - VENDOR_REVIEW_EDIT_WINDOW_MS).toISOString();
 }
 
 export type VendorReviewEligibilityInput = {

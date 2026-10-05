@@ -76,20 +76,20 @@ describe("evaluateVendorReviewEligibility", () => {
 });
 
 describe("canEditVendorReview", () => {
-  // C158: reverses the prior 14-day manager edit window — a posted review can
-  // never be edited, at any age.
-  it("refuses an edit the moment a review is created", () => {
+  // The reviewer's own review stays theirs to change for fourteen days — the window the PATCH
+  // route, its `created_at` filter and the dialog all read from this one function.
+  it("allows an edit the moment a review is created", () => {
     const now = new Date("2026-09-25T12:00:00.000Z");
-    expect(canEditVendorReview(now.toISOString(), now)).toBe(false);
+    expect(canEditVendorReview(now.toISOString(), now)).toBe(true);
   });
 
-  it("refuses an edit well within the old 14-day boundary", () => {
+  it("allows an edit on the fourteenth day", () => {
     const created = new Date("2026-09-01T00:00:00.000Z");
     const now = new Date(created.getTime() + 14 * 24 * 60 * 60 * 1000);
-    expect(canEditVendorReview(created.toISOString(), now)).toBe(false);
+    expect(canEditVendorReview(created.toISOString(), now)).toBe(true);
   });
 
-  it("refuses an edit long after the old 14-day window", () => {
+  it("refuses an edit past the fourteen-day window", () => {
     const created = new Date("2026-09-01T00:00:00.000Z");
     const now = new Date(created.getTime() + 14 * 24 * 60 * 60 * 1000 + 1000);
     expect(canEditVendorReview(created.toISOString(), now)).toBe(false);

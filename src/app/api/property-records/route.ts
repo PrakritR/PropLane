@@ -26,7 +26,7 @@ import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.serve
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application/server-owned-template-versions";
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { LONG_TERM_LEASE_TERM, normalizeLegacyLeaseTerms } from "@/lib/rental-application/lease-terms";
+import { normalizeLegacyLeaseTerms } from "@/lib/rental-application/lease-terms";
 import {
   buildAllModulesGrant,
   coManagerModuleAllowed,
@@ -92,9 +92,12 @@ function emptyLeaseTermsWrite(submission: unknown): boolean {
  * The submission's `allowedLeaseTerms` as the editor reads it. A listing saved before the four lease types
  * stores free text ("12 months", "nightly") that the server read as no choice at all and refused with
  * "Choose at least one lease term" while Basics showed Long term on. Legacy values become the lease type they
- * stand for, and an empty list becomes Long term (what the editor already shows), so the saved payload and the
- * screen agree. A list with nothing to normalize is returned untouched; a submission naming no list is a legacy
- * row and keeps its default.
+ * stand for, so the saved payload and the screen agree. A list with nothing to normalize is returned untouched;
+ * a submission naming no list is a legacy row and keeps its default.
+ *
+ * An EMPTY list is left exactly as written. It is a deliberate "no stays offered" payload, and turning it into
+ * Long term here silenced the validator's "Choose at least one lease term" refusal — the one thing that tells
+ * the manager the save did not do what they asked.
  */
 function withNormalizedLeaseTerms(container: unknown): unknown {
   if (!container || typeof container !== "object" || Array.isArray(container)) return container;
@@ -105,17 +108,8 @@ function withNormalizedLeaseTerms(container: unknown): unknown {
     if (!sub || typeof sub !== "object" || Array.isArray(sub)) continue;
     const subRecord = sub as Record<string, unknown>;
     if (!Array.isArray(subRecord.allowedLeaseTerms)) continue;
-    const normalized = normalizeLegacyLeaseTerms(subRecord.allowedLeaseTerms);
-    const withTerms = { ...subRecord, allowedLeaseTerms: normalized };
-    const terms =
-      resolveAllowedLeaseTerms(
-        withTerms as Pick<
-          ManagerListingSubmissionV1,
-          "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
-        >,
-      ).length > 0
-        ? normalized
-        : [LONG_TERM_LEASE_TERM];
+    if (subRecord.allowedLeaseTerms.length === 0) continue;
+    const terms = normalizeLegacyLeaseTerms(subRecord.allowedLeaseTerms);
     const unchanged =
       terms.length === subRecord.allowedLeaseTerms.length &&
       terms.every((term, index) => term === (subRecord.allowedLeaseTerms as unknown[])[index]);

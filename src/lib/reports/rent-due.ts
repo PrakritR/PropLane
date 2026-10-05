@@ -13,8 +13,12 @@ export function buildRentDueSummary(charges: HouseholdCharge[], period: string) 
     const month = date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : charge.rentMonth || "";
     if (!month.startsWith(period)) continue;
     const amount = dollarsToCents(charge.amountLabel);
-    const paid = charge.status === "refunded" ? 0 : charge.paidAmountCents ?? (charge.status === "paid" ? amount : 0);
-    if (amount < 0 || paid < 0 || paid > amount) throw new Error("Invalid charge amount.");
+    // `paidAmountCents` is what the resident was CHARGED, so an online payment that passed the
+    // processing fee on exceeds the rent it settles (see rent receipts). The fee is not rent
+    // collected, so the rent figure takes the face amount and the overage is dropped.
+    const settled = charge.status === "refunded" ? 0 : charge.paidAmountCents ?? (charge.status === "paid" ? amount : 0);
+    if (amount < 0 || settled < 0) throw new Error("Invalid charge amount.");
+    const paid = Math.min(settled, amount);
     checkedSum([amount, paid]);
     if (RENT.has(charge.kind)) { dueCents = checkedSum([dueCents, amount]); collectedCents = checkedSum([collectedCents, paid]); }
     const room = `${charge.propertyLabel} · ${(charge as HouseholdCharge & { roomLabel?: string }).roomLabel || "Unassigned room"}`;

@@ -425,38 +425,48 @@ export async function listLinkedFormRequestsForResident(
   const { data: byUser } = await db.from("application_form_requests").select("application_id").eq("applicant_user_id", user.id);
   for (const entry of (byUser ?? []) as Array<{ application_id: string }>) appIds.add(entry.application_id);
   if (sessionEmail) {
-    const { data: byEmail } = await db.from("manager_application_records").select("id").eq("resident_email", sessionEmail).limit(100);
+    // No `.limit()`: an applicant with more applications than the page size silently lost the forms
+    // owed on the ones that fell off the end.
+    const { data: byEmail } = await db.from("manager_application_records").select("id").eq("resident_email", sessionEmail);
     for (const entry of (byEmail ?? []) as Array<{ id: string }>) appIds.add(entry.id);
   }
-  const own: LinkedFormRequestView[] = [];
+  // One application read per application, and one property read per property, however many forms
+  // are owed on it: `toLinkedFormRequestViews` caches listings for the whole batch it is given, so
+  // it is called ONCE per list rather than per request.
+  const apps = new Map<string, ApplicationAccessRow | null>();
+  const appFor = async (applicationId: string): Promise<ApplicationAccessRow | null> => {
+    if (!apps.has(applicationId)) apps.set(applicationId, (await loadApplicationAccessRow(db, applicationId)) ?? null);
+    return apps.get(applicationId) ?? null;
+  };
+
+  const ownEntries: Array<{ request: LinkedFormRequestRow } & ViewContext> = [];
   if (appIds.size > 0) {
     const { data: ownRows } = await db
       .from("application_form_requests")
       .select(LINKED_FORM_REQUEST_COLUMNS)
       .in("application_id", [...appIds])
       .order("created_at", { ascending: true });
-    const apps = new Map<string, ApplicationAccessRow>();
     for (const request of (ownRows ?? []) as LinkedFormRequestRow[]) {
-      let app = apps.get(request.application_id);
-      if (!app) {
-        app = (await loadApplicationAccessRow(db, request.application_id)) ?? undefined;
-        if (app) apps.set(request.application_id, app);
-      }
+      const app = await appFor(request.application_id);
       if (!app || !userOwnsApplication(app, user, request)) continue;
-      own.push(...(await toLinkedFormRequestViews(db, [{ request, viewerRole: "applicant", app }])));
+      ownEntries.push({ request, viewerRole: "applicant", app });
     }
   }
-  const helping: LinkedFormRequestView[] = [];
+  const helpEntries: Array<{ request: LinkedFormRequestRow } & ViewContext> = [];
   const { data: helpRows } = await db
     .from("application_form_requests")
     .select(LINKED_FORM_REQUEST_COLUMNS)
     .eq("helper_user_id", user.id)
     .order("created_at", { ascending: true });
   for (const request of (helpRows ?? []) as LinkedFormRequestRow[]) {
-    const app = await loadApplicationAccessRow(db, request.application_id);
+    const app = await appFor(request.application_id);
     if (!app) continue;
-    helping.push(...(await toLinkedFormRequestViews(db, [{ request, viewerRole: "helper", app }])));
+    helpEntries.push({ request, viewerRole: "helper", app });
   }
+  const [own, helping] = await Promise.all([
+    toLinkedFormRequestViews(db, ownEntries),
+    toLinkedFormRequestViews(db, helpEntries),
+  ]);
   return { own, helping };
 }
 

@@ -58,6 +58,7 @@ import {
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-property-house-details-panel";
 import { PropertyPricingPanel } from "@/components/portal/property-pricing-panel";
+import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
@@ -555,6 +556,16 @@ function ManagerPropertyInlineDetails({
       row
         ? { buildingName: row.buildingName, unitLabel: row.unitLabel, rentLabel: row.rentRangeLabel }
         : undefined,
+    [row],
+  );
+
+  /**
+   * The stored property record, as the jurisdiction resolver reads it — it consults this BEFORE the
+   * submission, so the pricing preview resolves Seattle the same way the lease and the ledger do on
+   * a listing whose submission never recorded the address.
+   */
+  const pricingListingProperty = useMemo<RentRuleAddress | null>(
+    () => (row ? { address: row.address, zip: row.zip, neighborhood: row.neighborhood } : null),
     [row],
   );
 
@@ -1411,6 +1422,7 @@ function ManagerPropertyInlineDetails({
           propertyLabel={propertyShareLabel}
           onUpdated={onUpdated}
           showToast={showToast}
+          listingProperty={pricingListingProperty}
         />
       ) : null}
       {activeDetailTab === "pricing" && bucket !== 3 && bucket !== 5 && houseSaveTarget && managerUserId ? (
@@ -1421,6 +1433,7 @@ function ManagerPropertyInlineDetails({
           propertyLabel={propertyShareLabel}
           onUpdated={onUpdated}
           showToast={showToast}
+          listingProperty={pricingListingProperty}
         />
       ) : null}
       {activeDetailTab === "lease" && bucket !== 3 && bucket !== 5 ? (
