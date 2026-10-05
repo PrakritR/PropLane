@@ -3,7 +3,9 @@
  * config slice (the stored shape, unchanged) and this reads it as sections and writes each editor
  * change back through the same catalog functions the form always used.
  *
- * Nothing is locked: every question's words, type, Required, choices, order and on/off can be edited.
+ * One floor, nothing else: full legal name and email keep being asked, stay required and keep their type
+ * (`isIdentityFloorStandardKey`); every other question's words, type, Required, choices, order and on/off
+ * can be edited.
  * Changing the type or choices of a built-in retires that built-in and asks a custom question of the new
  * type in its place (a new custom key), so only NEW applications change; a submitted application keeps the
  * answers it already stored. When the system reads that built-in by key (`SYSTEM_READ_ANSWER_STANDARD_KEYS`),

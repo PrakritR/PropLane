@@ -86,7 +86,7 @@ lost; none are started.
   — DONE. Pinned by `tests/unit/send-via-dropdown-opens.test.tsx`.
 * **Background-check report card** — the literal "null" tiles are FIXED (a
   falsy branch returned `null` into a template string, which renders the word;
-  it returns `""` now, pinned by `tests/unit/checkr-tenant-report-html.ts`).
+  it returns `""` now, pinned by `tests/unit/checkr-tenant-report-html.test.ts`).
   Still open: the dark panel uses a different type scale from the rest of the
   portal. Style only.
 * **Share background check** — held deliberately. The only share we have mints

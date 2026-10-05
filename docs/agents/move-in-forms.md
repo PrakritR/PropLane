@@ -178,18 +178,10 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   non-empty link list. A manual Send ignores links.
 - **Nothing auto-sends unless the manager added the form**: a property that never added one sends nothing on its own, and
   a deleted form is gone (it is never restored).
-- **A question rule is the second way a form becomes owed.** Besides the sends above, any application
-  question can carry linked-form rules ("when the answer is X, include form Y" —
-  `linkedForms` / `LinkedFormRule`, `src/lib/application-linked-forms.ts`), and the form it names may be an
-  application form OR a move-in form (`LinkedFormRef.kind`). On submit the server evaluates the PUBLISHED
-  template's rules against the answers and writes one `application_form_requests` row per matched form, so the
-  applicant sees "N more forms to finish" with **Fill out now** or **Someone else will fill it in** (a share
-  link to copy — the resident side never sends from a work number or work email). A helper must create or sign
-  in to their own resident account, which links the two accounts for that one request. Owner of the whole
-  contract — schema, column-level grants, the SHA-256-only share token, the 30-day single-request link, and
-  that a linked form which is itself an application charges its OWN fee to whoever fills it — is
-  `supabase/migrations/20261004130000_linked_form_requests.sql` plus
-  `src/lib/application-linked-form-requests.server.ts` and `src/lib/linked-form-fee.server.ts`; read those
-  before changing this path rather than re-deriving it.
+- **A question rule is the second way a form becomes owed.** Besides the sends above, an
+  application question can carry a linked-form rule ("when the answer is X, include form Y") naming a
+  move-in form, and a matched rule writes an `application_form_requests` row instead of a sent copy.
+  That whole contract — the rules, the owed requests, the share link and its account linking, the fees —
+  is owned by [`application-questions.md`](application-questions.md).
 - **Resident access**: a resident who submitted an application and holds a sent form gets nav stage
   `application_submitted_forms` (`hasMoveInForms` on the access state): My home opens for Forms only.

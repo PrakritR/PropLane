@@ -154,7 +154,11 @@ export const STANDARD_APPLICATION_FIELD_CATALOG: readonly StandardApplicationFie
     }),
   );
 
-/** Identity is collected exactly once on every applicant form and cannot be disabled. */
+/**
+ * The identity trio collected once on every applicant form: name, phone, email. This is a GROUPING, not a
+ * lock — only name and email are undisableable ({@link IDENTITY_FLOOR_STANDARD_KEYS}); phone is as removable
+ * as any other question. Kept because the system-read set below is derived from it.
+ */
 export const REQUIRED_IDENTITY_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
   (field) =>
     field.section === "personal" &&
@@ -181,8 +185,9 @@ export function isIdentityFloorStandardKey(standardKey: string | null | undefine
 
 /**
  * Built-ins that screening, charges and leases read BY KEY (see {@link SYSTEM_READ_ANSWER_STANDARD_KEYS}):
- * name, phone and email plus date of birth, SSN, ID and income. Nothing here is locked; a manager may
- * remove or reword any of them, and the system then simply finds no answer under that key.
+ * name, phone and email plus date of birth, SSN, ID and income. Being read by key is not a lock: apart from
+ * the identity floor (name, email) a manager may remove or reword any of them, and the system then simply
+ * finds no answer under that key.
  */
 export const SYSTEM_READ_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
   (field) =>

@@ -310,7 +310,7 @@ text is reserved for a data-commit (Save) or a destructive confirm. See
 
 User-visible name is **PropLane**. Mark is the paper-plane glyph, never "AX".
 Keep `src/app/icon.svg` and `src/app/favicon.ico` in sync. Lockup:
-`src/components/brand/axis-logo.tsx`. iOS assets: `scripts/generate-ios-brand-assets.mjs`.
+`src/components/brand/axis-logo.tsx`. iOS assets: `scripts/generate-brand-assets.mjs`.
 
 # Deleting an account must leave the email reusable
 
@@ -454,6 +454,7 @@ answer. Fail closed to `true`.
 | Automated communication | `docs/agents/automated-communication.md` | One spine: action events + reminder rules; inbox is the record; a manager's own copy is an Assistant notice; cross-party copies send as the manager; nothing automates a regulated notice |
 | Listing syndication | `docs/agents/listing-syndication.md` | Zillow Rental Network only; the feed is a `publicListingProjection` map, nothing wider; a listing missing a street address or a real photo is excluded, never given a placeholder |
 | Move-in forms | `docs/agents/move-in-forms.md` | A sent form snapshots its questions; a submitted form is locked; files only through signed URLs |
+| Application questions | `docs/agents/application-questions.md` | Everything is editable except the identity floor (full legal name + email); a share link is stored only as its SHA-256 hash and covers one request; a linked application charges its own fee to whoever fills it |
 
 ## There are no "work orders" in the product — only services
 
