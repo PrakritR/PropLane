@@ -39,7 +39,8 @@ async function answer(paymentIntentId: string, userId: string) {
   const state = bankState(paymentIntent.status, paymentIntent.next_action?.type);
   const clientFields = { paymentIntentId: paymentIntent.id, clientSecret: paymentIntent.client_secret,
     chargeIds: attempt.charge_ids, subtotalCents: attempt.subtotal_cents,
-    totalCents: attempt.payer_total_cents };
+    processingFeeCents: attempt.payer_total_cents - attempt.subtotal_cents,
+    axisFeeCents: 0, totalCents: attempt.payer_total_cents };
   if (state === "entry" || state === "review") {
     return NextResponse.json({ paid: false, processing: false, bankStatus: state,
       ...clientFields });

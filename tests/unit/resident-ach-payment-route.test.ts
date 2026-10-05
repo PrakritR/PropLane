@@ -54,7 +54,8 @@ describe("resident bank payment actor and provider gate", () => {
     state.testWorkspace = false;
     state.intent = { id: "pi_manual", status: "requires_action",
       next_action: { type: "verify_with_microdeposits" } };
-    state.load.mockResolvedValue({ id: "attempt-1" });
+    state.load.mockResolvedValue({ id: "attempt-1", charge_ids: ["hc_1"],
+      subtotal_cents: 120500, payer_total_cents: 121000 });
     state.reconcile.mockResolvedValue({ ok: true, paid: false, processing: true, chargeId: "hc_1" });
     state.verify.mockResolvedValue(state.intent);
   });
@@ -79,7 +80,8 @@ describe("resident bank payment actor and provider gate", () => {
     const response = await POST(request({ paymentIntentId: "pi_manual", amounts: [32, 45] }));
     expect(response.status).toBe(200);
     expect(state.verify).toHaveBeenCalledWith("pi_manual", { amounts: [32, 45] });
-    expect(await response.json()).toMatchObject({ paid: false, processing: true, bankStatus: "verification" });
+    expect(await response.json()).toMatchObject({ paid: false, processing: true, bankStatus: "verification",
+      subtotalCents: 120500, processingFeeCents: 500, axisFeeCents: 0, totalCents: 121000 });
   });
 
   it("does not expose an attempted payment through GET to a nonresident", async () => {

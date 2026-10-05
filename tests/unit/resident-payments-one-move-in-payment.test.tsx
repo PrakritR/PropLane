@@ -114,7 +114,8 @@ vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.includes("/api/stripe/resident-ach-payment?payment_intent_id=pi_move_in")) {
     manualRequests.push({ method: init?.method ?? "GET" });
     return new Response(JSON.stringify({ clientSecret: "pi_secret_move_in", chargeIds: ["rent1", "dep", "fee", "clean"],
-      bankStatus: "verification", subtotalCents: 230000, totalCents: 230000 }), { status: 200 });
+      bankStatus: "verification", subtotalCents: 230000, processingFeeCents: 0,
+      axisFeeCents: 0, totalCents: 230000 }), { status: 200 });
   }
   if (url.includes("/api/portal/household-charge-checkout") || url.includes("checkout")) {
     const body = JSON.parse(String(init?.body ?? "{}")) as { chargeIds: string[] };

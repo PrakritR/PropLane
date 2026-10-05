@@ -827,8 +827,15 @@ export function ResidentPaymentsPanel({
     const response = await fetch(`/api/stripe/resident-ach-payment?payment_intent_id=${encodeURIComponent(paymentIntentId)}`,
       { credentials: "include", cache: "no-store" });
     const result = await response.json() as { clientSecret?: string; chargeIds?: string[];
-      bankStatus?: CheckoutState["bankStatus"]; subtotalCents?: number; totalCents?: number; error?: string };
-    if (!response.ok || !result.clientSecret || !Array.isArray(result.chargeIds) || !result.bankStatus) {
+      bankStatus?: CheckoutState["bankStatus"]; subtotalCents?: number; totalCents?: number;
+      processingFeeCents?: number; axisFeeCents?: number; error?: string };
+    if (!response.ok || !result.clientSecret || !Array.isArray(result.chargeIds) ||
+        result.chargeIds.length === 0 || !result.bankStatus ||
+        !Number.isSafeInteger(result.subtotalCents) || !Number.isSafeInteger(result.totalCents) ||
+        !Number.isSafeInteger(result.processingFeeCents) || !Number.isSafeInteger(result.axisFeeCents) ||
+        (result.subtotalCents ?? 0) <= 0 || (result.processingFeeCents ?? 0) < 0 ||
+        (result.axisFeeCents ?? 0) < 0 ||
+        result.totalCents !== (result.subtotalCents ?? 0) + (result.processingFeeCents ?? 0) + (result.axisFeeCents ?? 0)) {
       showToast(result.error ?? "Bank payment needs review.");
       return;
     }
@@ -836,6 +843,7 @@ export function ResidentPaymentsPanel({
     setCheckout({ key: checkoutKey(result.chargeIds, "ach"), chargeIds: result.chargeIds,
       paymentMethod: "ach", clientSecret: result.clientSecret, mode: "manual_ach",
       paymentIntentId, bankStatus: result.bankStatus, subtotalCents: result.subtotalCents,
+      processingFeeCents: result.processingFeeCents, axisFeeCents: result.axisFeeCents,
       totalCents: result.totalCents, loading: false, error: null });
     setPayConfirm({ chargeIds: result.chargeIds, method: "ach", resumePaymentIntentId: paymentIntentId });
     await syncHouseholdChargesFromServer(true, { skipReconcile: true });
