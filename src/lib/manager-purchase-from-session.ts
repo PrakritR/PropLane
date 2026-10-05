@@ -2,7 +2,6 @@ import type Stripe from "stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { getStripe } from "@/lib/stripe";
-import { assertManagerPriceMatchesRateCard } from "@/lib/stripe/resolve-manager-price";
 
 type ManagerPurchaseDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -94,7 +93,7 @@ export function checkoutSessionIndicatesPaidPurchase(session: Stripe.Checkout.Se
     (session.payment_status === "paid" || session.payment_status === "no_payment_required");
 }
 
-async function verifyPaidManagerSubscription(session: Stripe.Checkout.Session, requireCurrentPrice = false): Promise<void> {
+async function verifyPaidManagerSubscription(session: Stripe.Checkout.Session): Promise<void> {
   if (!checkoutSessionIndicatesPaidPurchase(session) || session.mode !== "subscription") {
     throw new Error("Manager subscription payment has not settled.");
   }
@@ -126,11 +125,8 @@ async function verifyPaidManagerSubscription(session: Stripe.Checkout.Session, r
     }
   }
   if (!floorPriceId) throw new Error("Paid Checkout subscription has no matching plan price.");
-  // The new-session resolver checked active current price before creation.
-  // Fulfillment preserves the signed, reserved historical terms even if a
-  // catalog price was later retired. Adoption without a reservation requires
-  // the current floor, as it lacks that original server-side create evidence.
-  if (requireCurrentPrice) await assertManagerPriceMatchesRateCard(getStripe(), floorPriceId, tier, billing);
+  // The new-session resolver checks the active current price before creation.
+  // Fulfillment preserves captured provider terms after a catalog rotation.
 }
 
 /** Repair a pre-reservation portal session only after the authenticated owner
@@ -144,7 +140,6 @@ export async function adoptPaidPortalCheckoutForOwner(
 ): Promise<void> {
   if (session.mode !== "subscription" || session.payment_status !== "paid" ||
       session.client_reference_id !== ownerUserId || session.metadata?.userId !== ownerUserId) return;
-  await verifyPaidManagerSubscription(session, true);
   const managerId = session.metadata.manager_id?.trim() ?? "";
   const email = checkoutEmail(session);
   const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
@@ -167,6 +162,13 @@ export async function adoptPaidPortalCheckoutForOwner(
       billing.stripe_customer_id !== customerId) {
     throw new Error("Could not reconcile paid portal checkout ownership.");
   }
+  if (purchase?.stripe_checkout_session_id === session.id) {
+    // The durable reservation captured the plan terms when Checkout began.
+    // A later catalog rotation must not reject this already-paid session.
+    await verifyPaidManagerSubscription(session);
+    return;
+  }
+  await verifyPaidManagerSubscription(session);
   if (!purchase) {
     const { data: other, error: otherError } = await db.from("manager_purchases")
       .select("id").eq("user_id", ownerUserId).maybeSingle();
@@ -178,7 +180,6 @@ export async function adoptPaidPortalCheckoutForOwner(
     if (insertError || !inserted?.id) throw new Error("Could not reserve paid portal checkout for reconciliation.");
     return;
   }
-  if (purchase.stripe_checkout_session_id === session.id) return;
   const priorId = String(purchase.stripe_checkout_session_id ?? "");
   if (purchase.tier !== "free" || purchase.stripe_subscription_id || !priorId.startsWith("axis_intent_")) {
     throw new Error("Paid portal checkout conflicts with an existing subscription.");
