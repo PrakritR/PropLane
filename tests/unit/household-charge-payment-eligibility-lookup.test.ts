@@ -100,6 +100,32 @@ describe("enrichHouseholdChargesFromPropertyRecordsResult", () => {
     } } as never;
     expect(await resolvePropertylessManagerPaymentPolicy(db, "mgr-1")).toBeNull();
     const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [{ ...charge, propertyId: "", axisPaymentsEnabledSnapshot: true }]);
+    expect(result.lookupFailed).toBe(true);
+    expect(householdChargeProplanePayability(result.charges[0]!)).toBe("unknown");
+  });
+
+  it("uses the exact property's owner's listing even when a co-manager created the charge", async () => {
+    const db = { from: (table: string) => {
+      if (table !== "manager_property_records") throw new Error(`Unexpected ${table}`);
+      const q = { select: () => q, in: () => q,
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [{ id: "prop-1", manager_user_id: "owner-1",
+          property_data: { listingSubmission: { ...createDefaultListingSubmission(), axisPaymentsEnabled: false } } }], error: null }).then(resolve) };
+      return q;
+    } } as never;
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [{ ...charge, axisPaymentsEnabledSnapshot: true }]);
+    expect(result.lookupFailed).toBe(false);
+    expect(householdChargeProplanePayability(result.charges[0]!)).toBe("offline");
+  });
+
+  it("does not accept a listing with no owner or borrow another same-label listing", async () => {
+    const db = { from: (table: string) => {
+      if (table !== "manager_property_records") throw new Error(`Unexpected ${table}`);
+      const q = { select: () => q, in: () => q,
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [{ id: "prop-1", manager_user_id: null,
+          property_data: { listingSubmission: createDefaultListingSubmission() } }], error: null }).then(resolve) };
+      return q;
+    } } as never;
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [{ ...charge, axisPaymentsEnabledSnapshot: true }]);
     expect(householdChargeProplanePayability(result.charges[0]!)).toBe("unknown");
   });
   it("reports no failure when every read succeeds", async () => {

@@ -158,10 +158,9 @@ export async function GET() {
 
     const rawCharges = chargeRows.map((r) => {
       const charge = r.row_data as HouseholdCharge;
-      // A propertyless one-off has no property owner to consult. The stored
-      // charge column names its manager; row_data must not choose whose account
-      // policy the resident sees before checkout.
-      return !charge.propertyId?.trim() && r.manager_user_id
+      // The stored column names the charge manager for every row. Browser
+      // row_data must not choose whose owned listing/account policy is shown.
+      return r.manager_user_id
         ? { ...charge, managerUserId: r.manager_user_id }
         : charge;
     });

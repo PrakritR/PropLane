@@ -92,16 +92,19 @@ export async function enrichHouseholdChargesFromPropertyRecordsResult(
   let lookupFailed = false;
 
   const propertyIds = [...new Set(charges.map((c) => c.propertyId?.trim()).filter(Boolean))] as string[];
-  const listingByPropertyId = new Map<string, ManagerListingSubmissionV1 | null>();
+  const listingByPropertyId = new Map<string, { ownerId: string; listing: ManagerListingSubmissionV1 | null }>();
 
   if (propertyIds.length > 0) {
     const { data, error } = await db
       .from("manager_property_records")
-      .select("id, property_data")
+      .select("id, manager_user_id, property_data")
       .in("id", propertyIds);
     if (error) lookupFailed = true;
     for (const row of data ?? []) {
-      listingByPropertyId.set(String(row.id), listingFromPropertyData(row.property_data));
+      listingByPropertyId.set(String(row.id), {
+        ownerId: String(row.manager_user_id ?? "").trim(),
+        listing: listingFromPropertyData(row.property_data),
+      });
     }
   }
 
@@ -109,7 +112,9 @@ export async function enrichHouseholdChargesFromPropertyRecordsResult(
     .map((c) => c.managerUserId?.trim()).filter(Boolean))] as string[];
   const accountPolicies = new Map<string, boolean | null>();
   await Promise.all(propertylessManagerIds.map(async (managerId) => {
-    accountPolicies.set(managerId, await resolvePropertylessManagerPaymentPolicy(db, managerId));
+    const policy = await resolvePropertylessManagerPaymentPolicy(db, managerId);
+    if (policy === null) lookupFailed = true;
+    accountPolicies.set(managerId, policy);
   }));
 
   const enriched = charges.map((charge) => {
@@ -119,7 +124,11 @@ export async function enrichHouseholdChargesFromPropertyRecordsResult(
       return { ...charge, axisPaymentsEnabledSnapshot: accountPolicy,
         acceptedPaymentMethodsSnapshot: accountPolicy === null ? undefined : ["ach", "card"] as HouseholdCharge["acceptedPaymentMethodsSnapshot"] };
     }
-    return enrichHouseholdChargePaymentFlags(charge, listingByPropertyId.get(propertyId) ?? null);
+    const property = listingByPropertyId.get(propertyId);
+    // A historical co-manager may have created the charge. The property's
+    // actual owner is the payee and its current listing is the policy source.
+    const listing = property?.ownerId ? property.listing : null;
+    return enrichHouseholdChargePaymentFlags(charge, listing);
   });
   return { charges: enriched, lookupFailed };
 }
