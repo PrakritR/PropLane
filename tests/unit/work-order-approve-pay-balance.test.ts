@@ -273,8 +273,8 @@ describe("approve-pay — PropLane balance payment source", () => {
     const res = await POST(postBody({ paymentChannel: "balance" }));
     expect(res.status).toBe(200);
     expect(claimedAtMove).toHaveLength(1);
-    expect(claimedAtMove[0]).toMatchObject({ work_order_id: WORK_ORDER, status: "pending", amount_cents: 12_500 });
-    expect(claimedAtMove[0]).not.toHaveProperty("invoice_id");
+    // The job's OWN payout: invoice-less, so the estimate-visit fee's payout never collides with it.
+    expect(claimedAtMove[0]).toMatchObject({ work_order_id: WORK_ORDER, status: "pending", amount_cents: 12_500, invoice_id: null });
   });
 
   it("releases the claim when nothing moved, so the job can still be paid another way", async () => {
@@ -300,12 +300,20 @@ describe("approve-pay — PropLane balance payment source", () => {
       log: inner.log,
       from(table: string) {
         if (table !== "vendor_payouts") return inner.from(table);
-        const refused = {
-          insert: () => refused,
+        // The trigger raises on the INSERT, which the claim awaits directly — no `.select()` round
+        // trip, because the claim is identified by (work order, invoice_id null), not by a read id.
+        const vp409 = { code: "VP409", message: "This service already has a payout in progress or paid through another payment method. Paying it again would pay the vendor twice." };
+        let inserting = false;
+        const refused: Record<string, unknown> = {
+          insert: () => ((inserting = true), refused),
           select: () => refused,
-          maybeSingle: async () => ({ data: null, error: { code: "VP409", message: "This service already has a payout in progress or paid through another payment method. Paying it again would pay the vendor twice." } }),
+          update: () => refused,
           eq: () => refused,
-          then: (resolve: (v: { data: Row[]; error: null }) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+          is: () => refused,
+          in: () => refused,
+          maybeSingle: async () => ({ data: null, error: inserting ? vp409 : null }),
+          then: (resolve: (v: { data: Row[] | null; error: typeof vp409 | null }) => unknown) =>
+            Promise.resolve(inserting ? { data: null, error: vp409 } : { data: [], error: null }).then(resolve),
         };
         return refused;
       },

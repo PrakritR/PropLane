@@ -57,7 +57,10 @@ export async function claimInvoicePayment(db: SupabaseClient, managerId: string,
 /** Atomic bookkeeping; GL posting is idempotent and retried even after invoice is paid. */
 export async function settleInvoicePayment(db: SupabaseClient, managerId: string, invoiceId: string, rail: "stripe" | "balance" | "offline", paidAt = new Date().toISOString(), method: string | null = null) {
   const { data: billId, error } = await db.rpc("settle_vendor_invoice_payment", { p_invoice: invoiceId, p_manager: managerId, p_rail: rail, p_paid_at: paidAt, p_method: method });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isVendorInvoiceRefusalSqlState(error.code)) throw new VendorInvoicePaymentRefusal(error.message);
+    throw new Error(error.message);
+  }
   const { data: bill, error: billError } = await db.from("manager_bills").select("*").eq("id", billId).eq("manager_user_id", managerId).single();
   if (billError || !bill) throw new Error(billError?.message || "Bill not found.");
   await postGlBillPaid(db, { managerUserId: managerId, billId: bill.id, amountCents: bill.amount_cents, entryDate: String(bill.paid_at).slice(0,10), propertyId: bill.property_id, vendorId: bill.vendor_id, categoryCode: bill.category_code, memo: bill.description });

@@ -493,41 +493,45 @@ async function claimWorkOrderPayout(
   input: { workOrderId: string; managerUserId: string; vendorUserId: string; amountCents: number },
 ): Promise<{ ok: true; release: () => Promise<void> } | WorkOrderActionFailure> {
   const nowIso = new Date().toISOString();
-  const { data: inserted, error } = await db
+  const { error } = await db
     .from("vendor_payouts")
     .insert({
       manager_user_id: input.managerUserId,
       vendor_user_id: input.vendorUserId,
       work_order_id: input.workOrderId,
+      // The job's OWN payout is the invoice-less one. Written explicitly because it is what both
+      // the unique index and every reclaim/release below key on, not an incidental omission.
+      invoice_id: null,
       amount_cents: input.amountCents,
       status: "pending",
       created_at: nowIso,
       updated_at: nowIso,
-    })
-    .select("id")
-    .maybeSingle();
-  if (!error && inserted?.id) {
-    const id = String(inserted.id);
+    });
+  if (!error) {
     return {
       ok: true,
+      // Keyed on what makes the claim unique rather than on an id read back from the insert: the
+      // index allows exactly one invoice-less pending row per job, so this is the row just written.
       release: async () => {
-        await db.from("vendor_payouts").delete().eq("id", id).eq("status", "pending");
+        await db
+          .from("vendor_payouts")
+          .delete()
+          .eq("work_order_id", input.workOrderId)
+          .is("invoice_id", null)
+          .eq("status", "pending");
       },
     };
   }
-  if (error && isCrossRailPayoutRefusal(error)) return crossRailPayoutFailure(error.message);
+  if (isCrossRailPayoutRefusal(error)) return crossRailPayoutFailure(error.message);
   // Anything other than "a row is already there" is a real fault, not a double-pay refusal: reporting
   // a dropped connection or an RLS error as "already paid" hides it and tells the manager a lie.
-  if (error && !isDuplicatePayoutRow(error)) {
+  if (!isDuplicatePayoutRow(error)) {
     console.error("[approve-pay] could not claim the vendor payout", {
       workOrderId: input.workOrderId,
       code: error.code,
       message: error.message,
     });
     return { ok: false, status: 500, error: `Could not claim the payout for this service; nothing was paid. ${error.message}` };
-  }
-  if (!error && !inserted?.id) {
-    return { ok: false, status: 500, error: "Could not claim the payout for this service; nothing was paid." };
   }
   const { data: reclaimed, error: reclaimError } = await db
     .from("vendor_payouts")

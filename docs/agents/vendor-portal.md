@@ -319,6 +319,23 @@ manager's invoice, or a `VP409` / `P0001` raise from `claim_vendor_invoice_payme
 a manager "already handled" when PropLane simply broke is the one answer that stops them retrying
 a payment that never happened.
 
+**Every rail claims before it charges.** Approve + pay claims (`claimWorkOrderPayout`), the
+offline and balance invoice rails claim (`claim_vendor_invoice_payment`), and the Stripe direct
+invoice rail claims too, at the moment the embedded checkout opens — a job-linked invoice reserves
+the payout before the card is touched, so Approve + pay and the other invoice rails are refused by
+the database while the attempt is open. Checking without claiming was the one hole left: a manager
+could open the checkout, run Approve + pay, and then complete the card payment — the second charge
+went through and only its bookkeeping was refused, after which the retry lost the payout row and
+the vendor's ledger credit outright.
+
+A held claim cannot outlive its attempt. The session carries `expires_at` (30 minutes, Stripe's
+floor), and `releaseInvoicePaymentClaim` (`src/lib/vendor-invoice-claim.server.ts` — the one owner
+of that undo) hands the claim back on a failure to open the session, on
+`checkout.session.expired`, and on `checkout.session.async_payment_failed`. The paid webhook
+converts the held claim into the settled payout through the same `settleInvoicePayment` the other
+rails run, and every write it does is keyed on the claim rather than on the invoice's status, so a
+retry after a failed write redoes it instead of skipping it.
+
 `settleOnly` is the webhook's own flag — it records a payment Stripe already took, so it skips the
 guard and moves no money. It is never read from a request body: `POST /api/portal/work-orders/approve-pay`
 builds the core's input field by field from an allowlist (a compile-time `as {...}` strips nothing

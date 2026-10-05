@@ -1,4 +1,5 @@
 import { claimInvoicePayment, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
+import { releaseInvoicePaymentClaim } from "@/lib/vendor-invoice-claim.server";
 import { NextResponse } from "next/server";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
 import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
@@ -74,11 +75,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // with no money moved made `claim_vendor_invoice_payment` reject every other
     // rail and the invoice could no longer be paid, scheduled or deleted at all.
     // Only an unpaid invoice still claimed by "balance" is released (C2-MN3).
-    const releaseClaim = async () => {
-      await auth.db.from("vendor_payouts").delete().eq("invoice_id", id).eq("manager_user_id", auth.userId).eq("status", "pending");
-      await auth.db.from("vendor_invoices").update({ payment_claim: null, updated_at: new Date().toISOString() })
-        .eq("id", id).eq("manager_user_id", auth.userId).eq("payment_claim", "balance").neq("status", "paid");
-    };
+    const releaseClaim = () => releaseInvoicePaymentClaim(auth.db, auth.userId, id, "balance");
 
     let move: Awaited<ReturnType<typeof payVendorFromBalance>>;
     try {

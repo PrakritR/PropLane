@@ -78,6 +78,13 @@ export type AxisAchCheckoutInput = {
    * Stripe's own processing cost + this`.
    */
   extraApplicationFeeCents?: number;
+  /**
+   * Unix seconds at which Stripe expires an unpaid session (`checkout.session.expired`). Stripe's
+   * floor is 30 minutes out and its ceiling 24 hours; omitted, Stripe's own 24-hour default
+   * applies, which is what every caller got before this field existed. Set it when the session
+   * HOLDS something — a cross-rail payout claim — so the hold cannot outlive the attempt.
+   */
+  expiresAtUnix?: number;
 };
 
 export type AxisAchCheckoutResult =
@@ -396,6 +403,7 @@ export async function createAxisAchCheckoutSession(
       ...(isPlatformLedger ? { funding_model: "platform_ledger" } : {}),
     },
     payment_intent_data: paymentIntentData,
+    ...(input.expiresAtUnix ? { expires_at: Math.floor(input.expiresAtUnix) } : {}),
   };
 
   const feeResultBase = {

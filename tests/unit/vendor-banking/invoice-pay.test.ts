@@ -34,7 +34,25 @@ vi.mock("@/lib/stripe-axis-ach-checkout", async (orig) => {
   return { ...actual, createAxisAchCheckoutSession };
 });
 
-import { startVendorInvoicePayCheckout, completeVendorInvoicePaymentFromStripeSession } from "@/lib/vendor-invoice-pay.server";
+// The cross-rail claim itself is exercised against the real RPC in
+// vendor-invoice-cross-rail-double-pay.test.ts; here we assert this rail's ORCHESTRATION of it.
+const claimInvoicePayment = vi.hoisted(() => vi.fn(async () => undefined));
+const assertNoCrossRailPayout = vi.hoisted(() => vi.fn(async () => undefined));
+const settleInvoicePayment = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/lib/vendor-invoice-settlement.server", () => ({
+  claimInvoicePayment,
+  assertNoCrossRailPayout,
+  settleInvoicePayment,
+}));
+const releaseInvoicePaymentClaim = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/lib/vendor-invoice-claim.server", () => ({ releaseInvoicePaymentClaim }));
+
+import {
+  startVendorInvoicePayCheckout,
+  completeVendorInvoicePaymentFromStripeSession,
+  releaseVendorInvoiceDirectPayClaim,
+} from "@/lib/vendor-invoice-pay.server";
+import { VendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
 
 function invoiceRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -52,6 +70,24 @@ function invoiceRow(overrides: Partial<Record<string, unknown>> = {}) {
 describe("startVendorInvoicePayCheckout", () => {
   beforeEach(() => {
     createAxisAchCheckoutSession.mockClear();
+    createAxisAchCheckoutSession.mockImplementation(async (_stripe: unknown, input: { amountCents?: number; extraApplicationFeeCents?: number; mode?: string; returnUrl?: string }) => {
+      const subtotalCents = input.amountCents ?? 0;
+      return {
+        mode: "embedded" as const,
+        clientSecret: "cs_test_secret_x",
+        sessionId: "cs_invoice_1",
+        subtotalCents,
+        processingFeeCents: 100,
+        axisFeeCents: 0,
+        platformFeeCents: input.extraApplicationFeeCents ?? 0,
+        totalCents: subtotalCents + 100,
+        paymentMethod: "ach" as const,
+      };
+    });
+    claimInvoicePayment.mockClear();
+    claimInvoicePayment.mockImplementation(async () => undefined);
+    assertNoCrossRailPayout.mockClear();
+    releaseInvoicePaymentClaim.mockClear();
     flagState.enabled = false;
   });
 
@@ -96,6 +132,80 @@ describe("startVendorInvoicePayCheckout", () => {
     expect(call.returnUrl).toContain("/portal/finances");
   });
 
+  it("a job invoice CLAIMS the payout before the card is charged, and the session cannot outlive the hold", async () => {
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1" })] });
+    const result = await startVendorInvoicePayCheckout(db as never, {
+      invoiceId: "inv_1",
+      managerUserId: "manager_1",
+      managerEmail: "m@test.proplane.local",
+    });
+    expect(result.ok).toBe(true);
+    expect(claimInvoicePayment).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe");
+    // The claim is held BEFORE Stripe is asked for a session, so Approve + pay is already refused.
+    expect(claimInvoicePayment.mock.invocationCallOrder[0]!).toBeLessThan(
+      createAxisAchCheckoutSession.mock.invocationCallOrder[0]!,
+    );
+    const call = createAxisAchCheckoutSession.mock.calls[0]![1] as { expiresAtUnix?: number };
+    const ttl = call.expiresAtUnix! - Math.floor(Date.now() / 1000);
+    expect(ttl).toBeGreaterThanOrEqual(30 * 60);
+    expect(ttl).toBeLessThanOrEqual(31 * 60);
+  });
+
+  it("a standalone invoice has no job to claim — it only runs the cross-rail check", async () => {
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow()] });
+    const result = await startVendorInvoicePayCheckout(db as never, {
+      invoiceId: "inv_1",
+      managerUserId: "manager_1",
+      managerEmail: "m@test.proplane.local",
+    });
+    expect(result.ok).toBe(true);
+    expect(claimInvoicePayment).not.toHaveBeenCalled();
+    expect(assertNoCrossRailPayout).toHaveBeenCalled();
+  });
+
+  it("a refused claim is 409; a database FAULT is 500, never 'already paid'", async () => {
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1" })] });
+    claimInvoicePayment.mockImplementation(async () => {
+      throw new VendorInvoicePaymentRefusal("This service is already paid through Approve + pay.");
+    });
+    const refused = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
+    expect(refused).toMatchObject({ ok: false, status: 409 });
+
+    claimInvoicePayment.mockImplementation(async () => {
+      throw new Error("Could not check for an existing payout: connection reset");
+    });
+    const faulted = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
+    expect(faulted).toMatchObject({ ok: false, status: 500 });
+    if (!faulted.ok) expect(faulted.error).toContain("connection reset");
+    expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("releases the claim when Stripe will not open the session, so the invoice stays payable", async () => {
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1" })] });
+    createAxisAchCheckoutSession.mockImplementation(async () => {
+      throw new Error("Stripe is down");
+    });
+    const result = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
+    expect(result).toMatchObject({ ok: false, status: 500 });
+    expect(releaseInvoicePaymentClaim).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe");
+  });
+
+  it("an expired or bounced session hands the claim back", async () => {
+    const db = makeFakeDb({});
+    await releaseVendorInvoiceDirectPayClaim(db as never, {
+      id: "cs_1",
+      metadata: { purpose: "vendor_invoice_direct_pay", invoice_id: "inv_1", manager_user_id: "manager_1" },
+    } as unknown as import("stripe").default.Checkout.Session);
+    expect(releaseInvoicePaymentClaim).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe");
+
+    releaseInvoicePaymentClaim.mockClear();
+    await releaseVendorInvoiceDirectPayClaim(db as never, {
+      id: "cs_2",
+      metadata: { purpose: "something_else", invoice_id: "inv_1", manager_user_id: "manager_1" },
+    } as unknown as import("stripe").default.Checkout.Session);
+    expect(releaseInvoicePaymentClaim).not.toHaveBeenCalled();
+  });
+
   it("flag on: 3% PropLane fee applied", async () => {
     flagState.enabled = true;
     const db = makeFakeDb({ vendor_invoices: [invoiceRow()] });
@@ -115,6 +225,7 @@ describe("startVendorInvoicePayCheckout", () => {
 describe("completeVendorInvoicePaymentFromStripeSession", () => {
   beforeEach(() => {
     flagState.enabled = false;
+    settleInvoicePayment.mockClear();
   });
 
   function makeSession(overrides: Partial<Record<string, string>> = {}) {
@@ -151,6 +262,31 @@ describe("completeVendorInvoicePaymentFromStripeSession", () => {
     const feeLine = db._inserts.find((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "platform_fee");
     expect(chargeLine?.row.amount_cents).toBe(10_000);
     expect(feeLine?.row.amount_cents).toBe(-300);
+  });
+
+  it("converts the held claim into the settled payout through the shared settle", async () => {
+    const db = makeFakeDb({
+      vendor_invoices: [invoiceRow({ work_order_id: "wo_1", payment_claim: "stripe" })],
+      vendor_payouts: [{ id: "payout_claim", invoice_id: "inv_1", manager_user_id: "manager_1", vendor_user_id: "vendor_1", amount_cents: 10_000, status: "pending" }],
+    });
+    await completeVendorInvoicePaymentFromStripeSession(db as never, makeSession());
+    expect(settleInvoicePayment).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe");
+    // The claim row IS the payout — stamped with the Stripe ids, never duplicated.
+    expect(db._tables.vendor_payouts!.length).toBe(1);
+    expect(db._tables.vendor_payouts![0]).toMatchObject({ id: "payout_claim", status: "paid", stripe_transfer_id: "cs_invoice_1" });
+  });
+
+  it("a retry after a failed payout write still records the payout — the claim says this session owns it", async () => {
+    // The first delivery marked the invoice paid and then threw before the payout row landed.
+    // Gating the redelivery on the invoice status alone lost the payout and the vendor's credit.
+    flagState.enabled = true;
+    const db = makeFakeDb({
+      vendor_invoices: [invoiceRow({ status: "paid", work_order_id: "wo_1", payment_claim: "stripe" })],
+      vendor_payouts: [],
+    });
+    await completeVendorInvoicePaymentFromStripeSession(db as never, makeSession());
+    expect(db._tables.vendor_payouts![0]).toMatchObject({ invoice_id: "inv_1", amount_cents: 10_000, status: "paid" });
+    expect(db._inserts.some((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "charge")).toBe(true);
   });
 
   it("is idempotent — a redelivered webhook for an already-paid invoice writes no second payout row", async () => {

@@ -128,10 +128,34 @@ describe("Stripe invoice pay", () => {
     const result = await startVendorInvoicePayCheckout(fakeDb(), { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test" });
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(createCheckout).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("starts the checkout when nothing else paid the job", async () => {
+  it("CLAIMS the payout through the same RPC the other rails use, before the card is charged", async () => {
     const result = await startVendorInvoicePayCheckout(fakeDb(), { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test" });
     expect(result).toMatchObject({ ok: true, clientSecret: "cs_1" });
+    expect(rpc).toHaveBeenCalledWith("claim_vendor_invoice_payment", { p_invoice: "inv-job", p_manager: MANAGER, p_rail: "stripe" });
+    expect(rpc.mock.invocationCallOrder[0]!).toBeLessThan(createCheckout.mock.invocationCallOrder[0]!);
+  });
+
+  it("a read fault on the payout table is 500, not a double-pay refusal", async () => {
+    const db = fakeDb() as unknown as { from: (table: string) => unknown };
+    const inner = db.from;
+    const faulting = {
+      from(table: string) {
+        if (table !== "vendor_payouts") return inner(table);
+        const q: Record<string, unknown> = {
+          select: () => q,
+          eq: () => q,
+          then: (resolve: (v: { data: null; error: { message: string } }) => unknown) =>
+            Promise.resolve({ data: null, error: { message: "connection reset" } }).then(resolve),
+        };
+        return q;
+      },
+    };
+    const result = await startVendorInvoicePayCheckout(faulting as never, { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test" });
+    expect(result).toMatchObject({ ok: false, status: 500 });
+    if (!result.ok) expect(result.error).toContain("connection reset");
+    expect(createCheckout).not.toHaveBeenCalled();
   });
 });

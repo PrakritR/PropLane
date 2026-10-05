@@ -58,6 +58,7 @@ import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay
 import { VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
 import {
   completeVendorInvoicePaymentFromStripeSession,
+  releaseVendorInvoiceDirectPayClaim,
   VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
 } from "@/lib/vendor-invoice-pay.server";
 import { creditProplaneBalanceFromHouseholdChargeSession } from "@/lib/proplane-balance/household-charge-credit.server";
@@ -405,6 +406,16 @@ export async function POST(req: Request) {
       // payment_intent.payment_failed handler below, never from here.
       await revertHouseholdChargeProcessingFromStripeSession(db, session).catch((e) => {
         console.error("[stripe webhook] async_payment_failed household_charge", e);
+      });
+      // No money moved, so the invoice must not stay claimed by a payment that never happened.
+      await releaseVendorInvoiceDirectPayClaim(db, session).catch((e) => {
+        console.error("[stripe webhook] async_payment_failed vendor_invoice_direct_pay claim release", e);
+      });
+    }
+
+    if (event.type === "checkout.session.expired") {
+      await releaseVendorInvoiceDirectPayClaim(db, event.data.object as Stripe.Checkout.Session).catch((e) => {
+        console.error("[stripe webhook] expired vendor_invoice_direct_pay claim release", e);
       });
     }
 
