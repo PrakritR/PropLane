@@ -95,8 +95,10 @@ export function ApplicationFeeInlinePayment({
   const rootRef = useRef<HTMLDivElement>(null);
   const applicationIdGetter = useRef(getApplicationId);
   const setupTokenGetter = useRef(getSetupToken);
-  applicationIdGetter.current = getApplicationId;
-  setupTokenGetter.current = getSetupToken;
+  useEffect(() => {
+    applicationIdGetter.current = getApplicationId;
+    setupTokenGetter.current = getSetupToken;
+  }, [getApplicationId, getSetupToken]);
 
   const start = useCallback(async () => {
     if (inFlight.current) return;

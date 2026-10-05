@@ -82,6 +82,7 @@ export const DELETE_ORDER = [
   // 1. child rows, and the GL/vendor chains that must clear first
   "gl_journal_lines",
   "ledger_entries",
+  "application_fee_payment_claims",
   "security_deposit_ledger",
   "resident_autopay_settings",
   "resident_autopay_runs",
@@ -213,6 +214,7 @@ export const DELETE_ORDER = [
   "stripe_disputes",
   "stripe_payouts",
   "payout_destinations_cache",
+  "payout_destination_cache_refreshes",
   "external_calendar_connections",
   "account_link_invites",
   // Before `manager_invite_links` below, which it references.

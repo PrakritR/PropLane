@@ -384,7 +384,7 @@ describe("mergeHouseholdChargesWithServer", () => {
     expect(merged[0]?.status).toBe("paid");
   });
 
-  it("dedupes duplicate application-fee rows to one canonical charge id", () => {
+  it("retains both paid application-fee rows when the legacy row lacks exact application provenance", () => {
     const fallback = makeCharge({
       id: "hc_app_fee_res@test.com_prop1",
       kind: "application_fee",
@@ -408,9 +408,8 @@ describe("mergeHouseholdChargesWithServer", () => {
     });
 
     const merged = dedupeHouseholdCharges([fallback, canonical]);
-    expect(merged).toHaveLength(1);
-    expect(merged[0]?.id).toBe("hc_app_fee_app123");
-    expect(duplicateHouseholdChargeIds([fallback, canonical])).toEqual(["hc_app_fee_res@test.com_prop1"]);
+    expect(merged.map((row) => row.id)).toEqual([fallback.id, canonical.id]);
+    expect(duplicateHouseholdChargeIds([fallback, canonical])).toEqual([]);
   });
 
   it("dedupes duplicate stay_total rows to one canonical charge id", () => {
