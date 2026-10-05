@@ -25,7 +25,8 @@ const PURCHASE_CANCELLED_CODE = "1";
 
 let configuredForUser: string | null = null;
 // Configuration, account switches, sign-out, and restore must observe one
-// identity in order. A restore queued for A cannot run after B has logged in.
+// identity in order. Restore also checks the caller's live session before any
+// queued provider work, so a queued restore for a signed-out user is discarded.
 let identityOperation: Promise<void> = Promise.resolve();
 
 function withIdentityLock<T>(operation: () => Promise<T>): Promise<T> {
@@ -174,14 +175,18 @@ export async function purchaseManagerPackage(pkg: PurchasesPackage): Promise<Pur
  * server truth still comes from the webhook, so callers poll the subscription
  * route afterwards.
  */
-export function restoreManagerPurchases(appUserId: string): Promise<{ ok: boolean; hasActiveEntitlement: boolean }> {
+export function restoreManagerPurchases(
+  appUserId: string,
+  isCurrentUser: () => boolean,
+): Promise<{ ok: boolean; hasActiveEntitlement: boolean }> {
   return withIdentityLock(async () => {
     const uid = appUserId.trim();
-    if (!uid || !(await configureForUser(uid)) || configuredForUser !== uid) {
+    if (!uid || !isCurrentUser() || !(await configureForUser(uid)) || configuredForUser !== uid || !isCurrentUser()) {
       return { ok: false, hasActiveEntitlement: false };
     }
     try {
       const { Purchases } = await import("@revenuecat/purchases-capacitor");
+      if (!isCurrentUser()) return { ok: false, hasActiveEntitlement: false };
       const customerInfo = await Purchases.restorePurchases();
       const active = customerInfo.customerInfo?.entitlements?.active ?? {};
       return { ok: true, hasActiveEntitlement: Object.keys(active).length > 0 };

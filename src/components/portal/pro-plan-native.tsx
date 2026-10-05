@@ -136,10 +136,10 @@ export function ManagerPlanNative({
   const [switchingToFree, setSwitchingToFree] = useState(false);
   const [confirmingFree, setConfirmingFree] = useState(false);
   const offeringsLoadedForUserRef = useRef<string | null>(null);
-  const currentUserRef = useRef(userId);
+  const currentUserRef = useRef({ userId, sessionReady });
   useEffect(() => {
-    currentUserRef.current = userId;
-  }, [userId]);
+    currentUserRef.current = { userId, sessionReady };
+  }, [userId, sessionReady]);
 
   const canOffer = isIos && subLoaded && !planUnknown && !stripeManaged && !appleManaged;
 
@@ -210,8 +210,9 @@ export function ManagerPlanNative({
     }
     setRestoring(true);
     try {
-      const { ok, hasActiveEntitlement } = await restoreManagerPurchases(restoringUserId);
-      if (currentUserRef.current !== restoringUserId) return;
+      const isCurrentUser = () => currentUserRef.current.sessionReady && currentUserRef.current.userId === restoringUserId;
+      const { ok, hasActiveEntitlement } = await restoreManagerPurchases(restoringUserId, isCurrentUser);
+      if (!isCurrentUser()) return;
       if (!ok) {
         showToast("Could not restore purchases.");
         return;
