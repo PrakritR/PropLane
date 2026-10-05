@@ -3,16 +3,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
 }));
+vi.mock("@/lib/stripe", () => ({
+  getStripe: vi.fn(() => ({ subscriptions: { retrieve: vi.fn(async (id: string) => ({
+    id, status: "active", customer: id === "sub_owner" ? "cus_owner" : "cus_test_123",
+    items: { data: [{ price: { id: "price_overage" } }, { price: { id: "price_pro_monthly" } }] },
+  })) }, prices: { retrieve: vi.fn(async (id: string) => ({
+    id, currency: "usd", type: "recurring", recurring: { interval: "month", interval_count: 1 },
+    product: id === "price_overage" ? "prod_overage" : "prod_pro",
+  })) }, products: { retrieve: vi.fn(async (id: string) => ({ metadata: { axis_plan: id === "prod_pro" ? "axis_pro" : "axis_overage" } })) } })),
+}));
+vi.mock("@/lib/stripe/resolve-manager-price", () => ({ assertManagerPriceMatchesRateCard: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/test-workspaces/effects.server", () => ({
   captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
 }));
 
 import {
+  adoptPaidPortalCheckoutForOwner,
   checkoutSessionIndicatesPaidPurchase,
   recordPaidManagerCheckoutSession,
   resolveManagerCheckoutPurchase,
 } from "@/lib/manager-purchase-from-session";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { assertManagerPriceMatchesRateCard } from "@/lib/stripe/resolve-manager-price";
 import { mockCheckoutSession } from "../mocks/stripe/events";
 
 describe("manager-purchase-from-session", () => {
@@ -27,12 +39,12 @@ describe("manager-purchase-from-session", () => {
     );
   });
 
-  it("accepts completed subscription with unpaid payment status", () => {
+  it("keeps a completed subscription with unpaid payment status pending", () => {
     expect(
       checkoutSessionIndicatesPaidPurchase(
         mockCheckoutSession({ payment_status: "unpaid", status: "complete", mode: "subscription" }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("fulfills a durable guest reservation without inventing an auth owner", async () => {
@@ -58,6 +70,9 @@ describe("manager-purchase-from-session", () => {
     );
 
     expect(update).toHaveBeenCalledWith(expect.not.objectContaining({ user_id: expect.anything() }));
+    // This signed, previously reserved purchase keeps its captured terms if
+    // its Price has since been retired from the current checkout catalog.
+    expect(assertManagerPriceMatchesRateCard).not.toHaveBeenCalled();
   });
 
   it("does not let signed metadata replace a reservation's auth owner", async () => {
@@ -151,5 +166,69 @@ describe("manager-purchase-from-session", () => {
       customer_email: "attacker@example.com",
       metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-G" },
     }))).rejects.toThrow("ownership");
+  });
+
+  it("adopts one actually paid legacy portal session only for its authenticated Free owner and billing customer", async () => {
+    const purchase = { id: "purchase-1", user_id: "owner-a", email: "a@example.com", manager_id: "MGR-A",
+      tier: "free", stripe_checkout_session_id: "axis_intent_pending", stripe_subscription_id: null };
+    const update = vi.fn();
+    const db = { from: vi.fn((table: string) => {
+      const query = {
+        select: vi.fn(() => query), eq: vi.fn(() => query), is: vi.fn(() => query),
+        maybeSingle: vi.fn(async () => ({ data: table === "manager_purchases" ? purchase :
+          table === "profiles" ? { manager_id: "MGR-A", email: "a@example.com" } :
+            { stripe_customer_id: "cus_owner" }, error: null })),
+        update: vi.fn((patch: Record<string, unknown>) => {
+          update(patch);
+          purchase.stripe_checkout_session_id = String(patch.stripe_checkout_session_id);
+          return query;
+        }),
+      };
+      return query;
+    }) };
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const session = mockCheckoutSession({ id: "cs_paid_legacy", mode: "subscription", payment_status: "paid", subscription: "sub_owner",
+      client_reference_id: "owner-a", customer: "cus_owner", customer_email: "a@example.com",
+      metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-A", userId: "owner-a" } });
+    await adoptPaidPortalCheckoutForOwner(session, "owner-a");
+    expect(update).toHaveBeenCalledWith({ stripe_checkout_session_id: "cs_paid_legacy" });
+    expect(assertManagerPriceMatchesRateCard).toHaveBeenCalledWith(expect.anything(), "price_pro_monthly", "pro", "monthly");
+    await adoptPaidPortalCheckoutForOwner(session, "owner-a");
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates an exact paid-session reservation for an authenticated Free manager missing a purchase row", async () => {
+    const inserted = vi.fn();
+    const db = { from: vi.fn((table: string) => {
+      let insertMode = false;
+      const query = {
+        select: vi.fn(() => query), eq: vi.fn(() => query),
+        maybeSingle: vi.fn(async () => ({ data: table === "manager_purchases"
+          ? (insertMode ? { id: "purchase-new" } : null)
+          : table === "profiles" ? { manager_id: "MGR-A", email: "a@example.com" }
+            : { stripe_customer_id: "cus_owner" }, error: null })),
+        insert: vi.fn((row: Record<string, unknown>) => { insertMode = true; inserted(row); return query; }),
+      };
+      return query;
+    }) };
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const session = mockCheckoutSession({ id: "cs_paid_no_purchase", mode: "subscription", status: "complete",
+      payment_status: "paid", subscription: "sub_owner", customer: "cus_owner", client_reference_id: "owner-a",
+      customer_email: "a@example.com",
+      metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-A", userId: "owner-a" } });
+    await adoptPaidPortalCheckoutForOwner(session, "owner-a");
+    expect(inserted).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: "owner-a", manager_id: "MGR-A", email: "a@example.com", stripe_checkout_session_id: "cs_paid_no_purchase",
+    }));
+  });
+
+  it("does not adopt an unpaid or wrong-owner legacy portal session", async () => {
+    const db = { from: vi.fn() };
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    await adoptPaidPortalCheckoutForOwner(mockCheckoutSession({ payment_status: "unpaid",
+      client_reference_id: "owner-a", metadata: { manager_id: "MGR-A", userId: "owner-a" } }), "owner-a");
+    await adoptPaidPortalCheckoutForOwner(mockCheckoutSession({ payment_status: "paid",
+      client_reference_id: "other", metadata: { manager_id: "MGR-A", userId: "owner-a" } }), "owner-a");
+    expect(db.from).not.toHaveBeenCalled();
   });
 });
