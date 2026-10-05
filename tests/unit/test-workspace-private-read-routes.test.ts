@@ -31,6 +31,14 @@ function makeDb() {
         predicates.push((row) => allowed.has(String(row[column] ?? "")));
         return query;
       },
+      contains: (column: string, values: unknown[]) => {
+        const wanted = (Array.isArray(values) ? values : [values]).map(String);
+        predicates.push((row) => {
+          const held = Array.isArray(row[column]) ? (row[column] as unknown[]).map(String) : [];
+          return wanted.every((value) => held.includes(value));
+        });
+        return query;
+      },
       or: () => query,
       order: () => query,
       limit: () => query,

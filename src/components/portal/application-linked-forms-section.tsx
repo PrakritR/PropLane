@@ -16,6 +16,8 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useLinkedFormRequests } from "@/hooks/use-linked-form-requests";
 import {
   isLinkedFormOpen,
+  linkedFormHasActiveShareLink,
+  LINKED_FORM_NEW_LINK_LABEL,
   managerStatusLabel,
   waitingOnFormsFact,
   type LinkedFormRequestView,
@@ -43,22 +45,47 @@ function LinkedFormRow({
   const [emailOpen, setEmailOpen] = useState(false);
   const [to, setTo] = useState("");
   const [sending, setSending] = useState(false);
+  // The link minted on this screen, so a second Copy link re-copies it instead of replacing the one
+  // already texted out. A link shared before this screen loaded cannot be re-copied at all - only
+  // its hash is stored - so that row offers a new link, labelled as replacing the old one.
+  const [sharedUrl, setSharedUrl] = useState<string | null>(null);
   const open = isLinkedFormOpen(request.status);
   const canShare = open && request.formKind === "application";
   const fee = feePaidText(request);
+  const linkAlreadyShared = !sharedUrl && linkedFormHasActiveShareLink(request);
+
+  const putOnClipboard = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("Link copied");
+    } catch {
+      showToast(url);
+    }
+  };
 
   const copyLink = async () => {
+    if (sharedUrl) {
+      await putOnClipboard(sharedUrl);
+      return;
+    }
     const minted = await mintLinkedFormShareUrl(request.id);
     if (!minted.ok) {
       showToast(minted.error);
       return;
     }
-    try {
-      await navigator.clipboard.writeText(minted.url);
-      showToast("Link copied");
-    } catch {
-      showToast(minted.url);
+    setSharedUrl(minted.url);
+    await putOnClipboard(minted.url);
+    onChanged();
+  };
+
+  const newLink = async () => {
+    const minted = await mintLinkedFormShareUrl(request.id, { newLink: true });
+    if (!minted.ok) {
+      showToast(minted.error);
+      return;
     }
+    setSharedUrl(minted.url);
+    await putOnClipboard(minted.url);
     onChanged();
   };
 
@@ -103,9 +130,14 @@ function LinkedFormRow({
               <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {canShare ? (
+              {canShare && !linkAlreadyShared ? (
                 <DropdownMenuItem data-attr="application-linked-form-copy-link" onSelect={() => void copyLink()}>
                   Copy link
+                </DropdownMenuItem>
+              ) : null}
+              {canShare && (linkAlreadyShared || Boolean(sharedUrl)) ? (
+                <DropdownMenuItem data-attr="application-linked-form-new-link" onSelect={() => void newLink()}>
+                  {LINKED_FORM_NEW_LINK_LABEL}
                 </DropdownMenuItem>
               ) : null}
               {canShare ? (

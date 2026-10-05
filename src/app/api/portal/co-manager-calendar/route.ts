@@ -121,10 +121,15 @@ export async function GET(req: Request) {
     let linkQuery = db
       .from("account_link_invites")
       .select(
-        "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope, team_role, status, test_workspace_id",
+        "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope, team_role",
       )
       .eq("status", "accepted")
-      .or(linkFilters.join(","));
+      // Only links that reach THIS house, narrowed in the database: the owner of a large portfolio
+      // holds one accepted link per teammate per house, and the calendar needs the handful on this
+      // one. `assigned_property_ids` is a jsonb array of ids, kept current for "all" scopes too.
+      .contains("assigned_property_ids", [propertyId])
+      .or(linkFilters.join(","))
+      .limit(200);
     linkQuery = businessAccess.kind === "test"
       ? linkQuery.eq("test_workspace_id", businessAccess.workspaceId)
       : linkQuery.is("test_workspace_id", null);

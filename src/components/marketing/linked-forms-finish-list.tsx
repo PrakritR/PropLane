@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import {
   isLinkedFormOpen,
   linkedFormFacts,
+  linkedFormHasActiveShareLink,
+  LINKED_FORM_NEW_LINK_LABEL,
   moreFormsHeading,
   type LinkedFormRequestView,
 } from "@/lib/application-linked-form-requests";
@@ -18,7 +20,7 @@ import { mintLinkedFormShareUrl } from "@/lib/linked-form-requests-client";
 export type LinkedFormListItem = Pick<
   LinkedFormRequestView,
   "id" | "formKind" | "formLabel" | "questionCount" | "feeCents" | "status"
-> & { shareToken?: string };
+> & { shareToken?: string; expiresAt?: string };
 
 /** Where "Fill out now" goes: the token link (it signs a guest in first) when we hold it, else the session page. */
 export function fillOutNowHref(form: Pick<LinkedFormListItem, "id" | "formKind" | "shareToken">): string {
@@ -27,8 +29,9 @@ export function fillOutNowHref(form: Pick<LinkedFormListItem, "id" | "formKind" 
 }
 
 function FormRow({ form, allowShare }: { form: LinkedFormListItem; allowShare: boolean }) {
-  // The link this row has already handed out, kept across hide/show. Minting again would replace it,
-  // so hiding and re-showing must never do that - only the explicit "New link" below does.
+  // The link this row can show: the token the submit response handed back, or one minted here.
+  // A link already shared on an earlier visit cannot be shown at all (only its hash is stored), so
+  // the row says so and offers a new link rather than silently replacing the one already sent.
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
   const [revealing, setRevealing] = useState(false);
@@ -37,6 +40,7 @@ function FormRow({ form, allowShare }: { form: LinkedFormListItem; allowShare: b
   const canShare = allowShare && form.formKind === "application";
   const facts = linkedFormFacts(form);
   const visibleUrl = shown ? shareUrl : null;
+  const linkAlreadyShared = !form.shareToken && linkedFormHasActiveShareLink(form);
 
   const mint = async (newLink: boolean) => {
     setError(null);
@@ -64,6 +68,10 @@ function FormRow({ form, allowShare }: { form: LinkedFormListItem; allowShare: b
     }
     if (form.shareToken) {
       setShareUrl(`${resolveShareableAppOrigin(window.location.origin)}${linkedFormSharePath(form.shareToken)}`);
+      setShown(true);
+      return;
+    }
+    if (linkAlreadyShared) {
       setShown(true);
       return;
     }
@@ -122,19 +130,27 @@ function FormRow({ form, allowShare }: { form: LinkedFormListItem; allowShare: b
           </Button>
         ) : null}
       </div>
-      {visibleUrl ? (
+      {shown ? (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center" data-attr="linked-form-share">
-          <code className="min-w-0 flex-1 truncate rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground">
-            {visibleUrl}
-          </code>
-          <Button type="button" variant="outline" className="shrink-0" data-attr="linked-form-copy-link" onClick={() => copy()}>
-            {copied ? "Copied" : "Copy link"}
-          </Button>
-          {typeof navigator !== "undefined" && typeof navigator.share === "function" ? (
-            <Button type="button" variant="outline" className="shrink-0" data-attr="linked-form-share-sheet" onClick={() => share()}>
-              Share…
-            </Button>
-          ) : null}
+          {visibleUrl ? (
+            <>
+              <code className="min-w-0 flex-1 truncate rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground">
+                {visibleUrl}
+              </code>
+              <Button type="button" variant="outline" className="shrink-0" data-attr="linked-form-copy-link" onClick={() => copy()}>
+                {copied ? "Copied" : "Copy link"}
+              </Button>
+              {typeof navigator !== "undefined" && typeof navigator.share === "function" ? (
+                <Button type="button" variant="outline" className="shrink-0" data-attr="linked-form-share-sheet" onClick={() => share()}>
+                  Share…
+                </Button>
+              ) : null}
+            </>
+          ) : (
+            <p className="min-w-0 flex-1 text-[13px] text-foreground" data-attr="linked-form-link-shared">
+              Link shared
+            </p>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -143,7 +159,7 @@ function FormRow({ form, allowShare }: { form: LinkedFormListItem; allowShare: b
             disabled={revealing}
             onClick={() => mint(true)}
           >
-            New link
+            {LINKED_FORM_NEW_LINK_LABEL}
           </Button>
         </div>
       ) : null}

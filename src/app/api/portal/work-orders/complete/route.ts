@@ -51,7 +51,10 @@ export async function POST(req: Request) {
     const existingRow = (existing?.row_data ?? {}) as DemoManagerWorkOrderRow;
     const alreadyCompleted = Boolean(existingRow.completedAt);
 
-    const expenseEntryIds = await createExpensesFromWorkOrder(auth.db, auth.userId, {
+    // The stored owner, not the caller: an admin completing a manager's job must not land the
+    // expense in their own ledger, and the idempotence guard filters on the same owner the
+    // approve + pay path posts under.
+    const expenseEntryIds = await createExpensesFromWorkOrder(auth.db, ownerManagerUserId, {
       workOrderId: workOrder.id,
       category: body.category,
       vendorCostCents: body.vendorCostCents,

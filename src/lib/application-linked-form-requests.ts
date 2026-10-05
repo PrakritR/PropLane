@@ -161,6 +161,23 @@ export function waitingOnFormsFact(requests: readonly Pick<LinkedFormRequestView
   return `Waiting on ${owed} form${owed === 1 ? "" : "s"}`;
 }
 
+/**
+ * True when a share link for this request is already out there: one was minted (`shared`) and it
+ * has not expired. Only the token's SHA-256 hash is stored, so that link can never be shown again -
+ * which is exactly why nothing may replace it on an ordinary reveal or copy. The surfaces say
+ * "Link shared" and offer an explicit new link instead.
+ */
+export function linkedFormHasActiveShareLink(
+  request: Pick<LinkedFormRequestView, "status"> & { expiresAt?: string },
+): boolean {
+  if (request.status !== "shared") return false;
+  const expires = Date.parse(request.expiresAt ?? "");
+  return Number.isNaN(expires) || expires > Date.now();
+}
+
+/** The label on the action that replaces a link already shared: the old one stops working. */
+export const LINKED_FORM_NEW_LINK_LABEL = "New link (old one stops working)";
+
 /** The status the manager's row shows. */
 export function managerStatusLabel(request: Pick<LinkedFormRequestView, "status" | "completedAt">): string {
   if (request.status === "done") {

@@ -15,27 +15,40 @@ export type WorkOrderCompleteInput = {
   vendorId?: string;
 };
 
+/** The two lines one completion can post. Nothing else is ever written against a work order. */
+type WorkOrderExpenseLine = "labor" | "materials";
+
 /**
- * The expense rows this work order already posted, by category. One job's labor and materials are
- * posted exactly once however many times a completion runs: Mark done and Approve + pay both call
- * this function for the same job, and without this read the second pass doubles the ledger, the
+ * The expense lines this work order already posted. One job's labor and materials are posted
+ * exactly once however many times a completion runs: Mark done and Approve + pay both call this
+ * function for the same job, and without this read the second pass doubles the ledger, the
  * cash-flow chart and the tax-deductible total.
+ *
+ * Keyed on `source_work_order_id` plus the LINE, never the caller's category: both callers take
+ * that category from the client, and a stale mirror sending a different one would walk straight
+ * past a category-keyed guard. `WORK_ORDER_CATEGORY_TO_EXPENSE` never maps to `materials`, so the
+ * materials row is the only one that can carry that code.
+ *
+ * Throws when the read fails: on a money path, not knowing what is already posted means refusing
+ * to post, the same direction the two inserts below already fail in.
  */
-async function postedExpenseIdsByCategory(
+async function postedExpenseLines(
   db: SupabaseClient,
   managerUserId: string,
   workOrderId: string,
-): Promise<Map<string, string>> {
-  const posted = new Map<string, string>();
-  const { data } = await db
+): Promise<Map<WorkOrderExpenseLine, string>> {
+  const posted = new Map<WorkOrderExpenseLine, string>();
+  const { data, error } = await db
     .from("manager_expense_entries")
     .select("id, category_code")
     .eq("manager_user_id", managerUserId)
     .eq("source_work_order_id", workOrderId);
+  if (error) throw new Error(`Could not read this job's posted expenses: ${error.message}`);
   for (const row of (data ?? []) as Array<{ id?: unknown; category_code?: unknown }>) {
-    const category = typeof row.category_code === "string" ? row.category_code : "";
     const id = row.id == null ? "" : String(row.id);
-    if (category && id && !posted.has(category)) posted.set(category, id);
+    if (!id) continue;
+    const line: WorkOrderExpenseLine = row.category_code === "materials" ? "materials" : "labor";
+    if (!posted.has(line)) posted.set(line, id);
   }
   return posted;
 }
@@ -50,12 +63,12 @@ export async function createExpensesFromWorkOrder(
   const expenseDate = (input.completedAt || now).slice(0, 10);
   const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category] ?? "maintenance";
   const memoBase = input.workDoneSummary?.trim() || `Work order ${input.workOrderId}`;
-  const alreadyPosted = await postedExpenseIdsByCategory(db, managerUserId, input.workOrderId);
+  const alreadyPosted = await postedExpenseLines(db, managerUserId, input.workOrderId);
 
-  const postedLabor = alreadyPosted.get(laborCategory);
+  const postedLabor = alreadyPosted.get("labor");
   if (postedLabor) ids.push(postedLabor);
   const postedMaterials = alreadyPosted.get("materials");
-  if (postedMaterials && postedMaterials !== postedLabor) ids.push(postedMaterials);
+  if (postedMaterials) ids.push(postedMaterials);
 
   if (!postedLabor && input.vendorCostCents && input.vendorCostCents > 0) {
     const { data, error } = await db
