@@ -82,6 +82,8 @@ export const DELETE_ORDER = [
   // 1. child rows, and the GL/vendor chains that must clear first
   "gl_journal_lines",
   "ledger_entries",
+  "resident_charge_payment_slots",
+  "resident_checkout_attempts",
   "application_fee_payment_claims",
   "security_deposit_ledger",
   "resident_autopay_settings",

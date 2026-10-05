@@ -86,7 +86,7 @@ export async function GET() {
 
     let chargeQuery = db
       .from("portal_household_charge_records")
-      .select("id, row_data, updated_at")
+      .select("id, row_data, manager_user_id, updated_at")
       .order("updated_at", { ascending: false })
       // Higher bound so a high-volume manager's older paid rows stay in the
       // snapshot (missing paid rows would vanish from the UI; the server-side
@@ -136,7 +136,7 @@ export async function GET() {
     if (chargeResult.error) return NextResponse.json({ error: chargeResult.error.message }, { status: 500 });
     if (profileResult.error) return NextResponse.json({ error: profileResult.error.message }, { status: 500 });
 
-    type ChargeRecordRow = { id: string; row_data: unknown; updated_at: string | null };
+    type ChargeRecordRow = { id: string; row_data: unknown; manager_user_id?: string | null; updated_at: string | null };
     let chargeRows = (chargeResult.data ?? []) as ChargeRecordRow[];
     if (user.role === "manager") {
       // Co-managers with "payments" access on linked properties also see those charges —
@@ -156,7 +156,14 @@ export async function GET() {
       }
     }
 
-    const rawCharges = chargeRows.map((r) => r.row_data as HouseholdCharge);
+    const rawCharges = chargeRows.map((r) => {
+      const charge = r.row_data as HouseholdCharge;
+      // The stored column names the charge manager for every row. Browser
+      // row_data must not choose whose owned listing/account policy is shown.
+      return r.manager_user_id
+        ? { ...charge, managerUserId: r.manager_user_id }
+        : charge;
+    });
     const advanced = localDevAchShortcutAllowed()
       ? advanceStaleProcessingHouseholdCharges(rawCharges)
       : rawCharges;

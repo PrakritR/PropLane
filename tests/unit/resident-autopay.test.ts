@@ -137,6 +137,8 @@ function makeFakeDb(tables: {
   portal_household_charge_records?: { id: string; row_data: HouseholdCharge }[];
   resident_autopay_runs?: Record<string, unknown>[];
   profiles?: Record<string, Record<string, unknown>>;
+  reservation?: boolean;
+  binding?: boolean;
 }) {
   const settings = tables.resident_autopay_settings ?? [];
   const charges = tables.portal_household_charge_records ?? [];
@@ -146,6 +148,15 @@ function makeFakeDb(tables: {
 
   return {
     db: {
+      rpc(name: string) {
+        if (name === "reserve_resident_autopay_slot") {
+          return Promise.resolve({ data: tables.reservation ?? true, error: null });
+        }
+        if (name === "bind_resident_autopay_payment_intent") {
+          return Promise.resolve({ data: tables.binding ?? true, error: null });
+        }
+        throw new Error(`fake db: unexpected RPC ${name}`);
+      },
       from(table: string) {
         if (table === "resident_autopay_settings") {
           return { select: () => queryBuilder(settings, (r) => r) };
@@ -382,11 +393,10 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     loadHouseholdChargesForCheckout.mockResolvedValue({
       ok: true,
       managerUserId: "mgr_1",
-      loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null }],
+      loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
     });
     resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
-    resolveConnectDestinationIfReady.mockResolvedValue("acct_123");
-    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account", customer: "cus_1" });
     paymentIntentsCreate.mockResolvedValue({ id: "pi_123", status: "succeeded" });
 
     const { db } = makeFakeDb({
@@ -410,8 +420,8 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     expect(paymentIntentsCreate).toHaveBeenCalledTimes(1);
     const args = paymentIntentsCreate.mock.calls[0][0];
     expect(args.amount).toBe(expectedFee.totalCents);
-    expect(args.application_fee_amount).toBe(expectedFee.applicationFeeCents);
-    expect(args.transfer_data).toEqual({ destination: "acct_123" });
+    expect(args.application_fee_amount).toBeUndefined();
+    expect(args.transfer_data).toBeUndefined();
     expect(args.off_session).toBe(true);
     expect(args.confirm).toBe(true);
     expect(args.customer).toBe("cus_1");
@@ -419,6 +429,9 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     expect(args.metadata.autopay_run_id).toBe("run_1");
     expect(args.metadata.charge_id).toBe("hc_1");
     expect(args.metadata.autopay_attempt).toBe("1");
+    expect(args.metadata.source_arbitration_v).toBe("1");
+    expect(args.metadata.subtotal_cents).toBe("151000");
+    expect(args.metadata.total_cents).toBe(String(expectedFee.totalCents));
     // One PaymentIntent per (run, attempt): a lost response never becomes a second debit.
     expect(paymentIntentsCreate.mock.calls[0][1]).toEqual({ idempotencyKey: "autopay:run_1:1" });
   });
@@ -428,11 +441,10 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     loadHouseholdChargesForCheckout.mockResolvedValue({
       ok: true,
       managerUserId: "mgr_1",
-      loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null }],
+      loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
     });
     resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
-    resolveConnectDestinationIfReady.mockResolvedValue("acct_123");
-    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account", customer: "cus_1" });
     paymentIntentsCreate.mockResolvedValue({ id: "pi_456", status: "processing" });
 
     const { db } = makeFakeDb({ profiles: { res_1: { stripe_customer_id: "cus_1" } } });
@@ -456,11 +468,10 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     loadHouseholdChargesForCheckout.mockResolvedValue({
       ok: true,
       managerUserId: "mgr_1",
-      loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null }],
+      loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
     });
     resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
-    resolveConnectDestinationIfReady.mockResolvedValue(null);
-    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account", customer: "cus_1" });
     paymentIntentsCreate.mockResolvedValue({ id: "pi_hold", status: "succeeded" });
 
     const { db } = makeFakeDb({
@@ -482,6 +493,22 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     expect(args.transfer_data).toBeUndefined();
     expect(args.application_fee_amount).toBeUndefined();
     expect(args.metadata.platform_hold).toBe("1");
+  });
+
+  it("does not create a PI when another source owns the charge slot", async () => {
+    loadHouseholdChargesForCheckout.mockResolvedValue({
+      ok: true, managerUserId: "mgr_1",
+      loaded: [{ id: "hc_1", charge: charge(), managerUserId: "mgr_1",
+        propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
+    });
+    resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account", customer: "cus_1" });
+    const { db } = makeFakeDb({ profiles: { res_1: { stripe_customer_id: "cus_1" } }, reservation: false });
+    const result = await chargeAutopay(db, { id: "run_1", chargeId: "hc_1",
+      residentUserId: "res_1", residentEmail: "resident@example.com",
+      managerId: "mgr_1", paymentMethodId: "pm_bank_1" });
+    expect(result.ok).toBe(false);
+    expect(paymentIntentsCreate).not.toHaveBeenCalled();
   });
 });
 

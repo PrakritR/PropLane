@@ -14,7 +14,7 @@ beforeAll(async () => {
   await db.exec(`create role anon; create role authenticated; create role service_role;
     create schema auth; create table auth.users(id uuid primary key,email text);
     create table audit_log(id uuid primary key,actor_user_id uuid not null);`);
-  for (const table of tables.filter(table => table !== "application_fee_payment_claims")) await db.exec(`create table ${table}(
+  for (const table of tables.filter(table => !["application_fee_payment_claims", "resident_checkout_attempts"].includes(table))) await db.exec(`create table ${table}(
     id uuid primary key,manager_user_id uuid not null,resident_user_id uuid,
     resident_email text not null,amount numeric not null,row_data jsonb not null);`);
   await db.exec(readFileSync("supabase/migrations/20260907214100_preserve_resident_financial_history.sql", "utf8"));
@@ -31,7 +31,7 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(async () => { await db?.close(); });
 
-describe.each(tables.filter(table => table !== "application_fee_payment_claims"))("resident deletion preserves %s", table => {
+describe.each(tables.filter(table => !["application_fee_payment_claims", "resident_checkout_attempts"].includes(table)))("resident deletion preserves %s", table => {
   it("preserves money and owner, detaches all access keys, and rejects stale identity writes", async () => {
     const id = crypto.randomUUID();
     await db.query(`insert into ${table} values($1,$2,$3,$4,1250,$5)`, [id, manager, resident, email, {
@@ -130,6 +130,92 @@ it("detaches a real application-fee claim without an id or row_data column and b
     provider_params,draft_updated_at,charge_policy
   ) values($1,$2,'property-1',$3,$4,5000,150,5150,5000,$5,now(),'every_time')`,
   [applicationId, managerId, residentEmail, `hc_${applicationId}`, terms])).rejects.toThrow(/Deleted resident identity/);
+});
+
+it("retains a real resident checkout attempt through resident deletion and cascades its identity-free slot", async () => {
+  const exactDb = new PGlite();
+  try {
+    await exactDb.exec(`create role anon; create role authenticated; create role service_role;
+      create schema auth; create table auth.users(id uuid primary key,email text);
+      create table audit_log(id uuid primary key,actor_user_id uuid not null);
+      create table ledger_entries(id uuid primary key,manager_user_id uuid,resident_user_id uuid,resident_email text,row_data jsonb);
+      create table security_deposit_ledger(id uuid primary key,manager_user_id uuid,resident_user_id uuid,resident_email text,row_data jsonb);
+      create table manager_payment_plans(id uuid primary key,manager_user_id uuid,resident_user_id uuid,resident_email text,row_data jsonb);
+      create table portal_household_charge_records(id text primary key,manager_user_id uuid,resident_user_id uuid,resident_email text,
+        property_id text,kind text,status text,row_data jsonb,updated_at timestamptz default now());
+      create table portal_lease_pipeline_records(id uuid primary key,manager_user_id uuid,resident_user_id uuid,resident_email text,row_data jsonb);
+      create table manager_property_records(id text primary key,manager_user_id uuid);
+      create table resident_autopay_runs(id uuid primary key);`);
+    await exactDb.exec(readFileSync("supabase/migrations/20260907214100_preserve_resident_financial_history.sql", "utf8"));
+    for (const table of ["vendor_invoices", "vendor_payouts"]) await exactDb.exec(`create table ${table}(
+      id uuid primary key, manager_user_id uuid not null references auth.users(id) on delete cascade,
+      vendor_user_id uuid not null references auth.users(id) on delete cascade, amount_cents integer not null);`);
+    await exactDb.exec(readFileSync("supabase/migrations/20260907221500_preserve_shared_vendor_financial_history.sql", "utf8"));
+    await exactDb.exec(readFileSync("supabase/migrations/20260907231000_account_recovery_financial_access_keys.sql", "utf8"));
+    await exactDb.exec(readFileSync("supabase/migrations/20261004230000_resident_checkout_attempt_claims.sql", "utf8"));
+    const repair = readFileSync("supabase/migrations/20261004232000_application_fee_claim_retention.sql", "utf8");
+    await exactDb.exec(`create table application_fee_payment_claims(application_id text primary key, resident_email text)`);
+    await exactDb.exec(repair);
+    await exactDb.exec(repair);
+    const managerId = crypto.randomUUID();
+    const residentId = crypto.randomUUID();
+    const residentEmail = `resident-${residentId}@example.test`;
+    const chargeId = `hc_${crypto.randomUUID()}`;
+    const token = crypto.randomUUID();
+    await exactDb.query("insert into auth.users(id,email) values($1,$2),($3,$4)",
+      [managerId, `manager-${managerId}@example.test`, residentId, residentEmail]);
+    await exactDb.query(`insert into portal_household_charge_records
+      (id,manager_user_id,resident_user_id,resident_email,property_id,kind,status,row_data)
+      values($1,$2,$3,$4,'property-1','rent','pending',$5)`,
+      [chargeId, managerId, residentId, residentEmail, {
+        id: chargeId, managerUserId: managerId, residentUserId: residentId,
+        residentEmail, propertyId: "property-1", kind: "rent", status: "pending",
+        amountLabel: "$10.00", balanceLabel: "$10.00",
+      }]);
+    const terms = { residentEmail, metadata: { resident_attempt_token: token }, amountCents: 1000 };
+    const { rows: [attempt] } = await exactDb.query<{ id: string }>(`insert into resident_checkout_attempts(
+      attempt_token,resident_user_id,resident_email,manager_user_id,charge_ids,charge_cents,
+      subtotal_cents,payer_total_cents,recipient_net_cents,payment_method,provider_params,
+      stripe_session_id,status
+    ) values($1,$2,$3,$4,$5,$6,1000,1000,1000,'card',$7,'cs_delayed','pending') returning id`,
+    [token, residentId, residentEmail, managerId, [chargeId], [1000], terms]);
+    await exactDb.query("insert into resident_charge_payment_slots(charge_id,checkout_attempt_id) values($1,$2)",
+      [chargeId, attempt.id]);
+    const count = await exactDb.query<{ account_preserve_financial_records: number }>(
+      "select account_preserve_financial_records($1,$2,$3,$4,$5)",
+      ["resident_checkout_attempts", residentId, residentEmail, ["resident_user_id"], ["resident_email"]]);
+    expect(count.rows[0].account_preserve_financial_records).toBe(1);
+    const chargeCount = await exactDb.query<{ account_preserve_financial_records: number }>(
+      "select account_preserve_financial_records($1,$2,$3,$4,$5)",
+      ["portal_household_charge_records", residentId, residentEmail, ["resident_user_id"], ["resident_email"]]);
+    expect(chargeCount.rows[0].account_preserve_financial_records).toBe(1);
+    await exactDb.query("delete from auth.users where id=$1", [residentId]);
+    const { rows: [saved] } = await exactDb.query<Record<string, unknown>>(
+      "select * from resident_checkout_attempts where id=$1", [attempt.id]);
+    expect(saved).toMatchObject({ resident_user_id: null, manager_user_id: managerId,
+      subtotal_cents: 1000, payer_total_cents: 1000, recipient_net_cents: 1000,
+      charge_ids: [chargeId], provider_params: terms, status: "pending" });
+    expect(saved.resident_email).toMatch(/^deleted-.+@deleted.invalid$/);
+    await expect(exactDb.query("update resident_checkout_attempts set resident_email=$2 where id=$1",
+      [attempt.id, residentEmail])).rejects.toThrow(/Deleted resident identity/);
+    const replacementId = crypto.randomUUID();
+    await exactDb.query("insert into auth.users(id,email) values($1,$2)", [replacementId, residentEmail]);
+    await expect(exactDb.query("update resident_checkout_attempts set resident_user_id=$2 where id=$1",
+      [attempt.id, replacementId])).rejects.toThrow(/Deleted resident identity/);
+    const delayed = await exactDb.query<{ result: { rows: Array<Record<string, unknown>>; newlySettled: boolean } }>(
+      "select settle_resident_checkout_attempt($1,$2,'cs_delayed','pi_delayed') as result",
+      [attempt.id, token]);
+    expect(delayed.rows[0].result.newlySettled).toBe(true);
+    expect(delayed.rows[0].result.rows[0]).toMatchObject({
+      id: chargeId, status: "paid", paidAmountCents: 1000, balanceLabel: "$0.00",
+    });
+    expect((await exactDb.query("select resident_user_id,resident_email from resident_checkout_attempts where id=$1",
+      [attempt.id])).rows[0]).toMatchObject({ resident_user_id: null, resident_email: saved.resident_email });
+    await exactDb.query("delete from resident_checkout_attempts where id=$1", [attempt.id]);
+    expect((await exactDb.query("select * from resident_charge_payment_slots where charge_id=$1", [chargeId])).rows).toEqual([]);
+  } finally {
+    await exactDb.close();
+  }
 });
 
 it("does not expose the preservation RPC or identity hashes to browser roles", async () => {

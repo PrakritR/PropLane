@@ -240,8 +240,17 @@ function buildPaymentLedgerRow(
   charge: HouseholdCharge,
   paidAt?: string | null,
   stripeCheckoutSessionId?: string | null,
+  capturedPrincipalCents?: number,
 ): LedgerEntryRow | null {
-  const amountCents = dollarsToCents(parseMoneyAmount(charge.amountLabel));
+  const faceCents = dollarsToCents(parseMoneyAmount(charge.amountLabel));
+  // A claim-backed resident cart freezes the unpaid balance as its principal.
+  // The payer's processing fee is outside the charge and never becomes rent
+  // income; a partially paid charge must not post its original full face again.
+  const amountCents = capturedPrincipalCents === undefined ? faceCents : capturedPrincipalCents;
+  if (capturedPrincipalCents !== undefined &&
+      (!Number.isSafeInteger(capturedPrincipalCents) || capturedPrincipalCents > faceCents)) {
+    throw new Error("Captured payment principal exceeds the charge.");
+  }
   if (amountCents <= 0) return null;
   if (!isUuid(charge.managerUserId)) return null;
   return {
@@ -343,8 +352,9 @@ export async function syncLedgerPaymentEntry(
   charge: HouseholdCharge,
   paidAt?: string | null,
   stripeCheckoutSessionId?: string | null,
+  capturedPrincipalCents?: number,
 ): Promise<void> {
-  const row = buildPaymentLedgerRow(charge, paidAt, stripeCheckoutSessionId);
+  const row = buildPaymentLedgerRow(charge, paidAt, stripeCheckoutSessionId, capturedPrincipalCents);
   if (row) {
     const ledgerEntryId = await upsertLedgerEntryRow(db, row);
     await mirrorGlForLedgerRow(db, row, ledgerEntryId);

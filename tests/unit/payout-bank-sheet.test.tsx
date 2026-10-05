@@ -5,9 +5,8 @@ import type { ReactNode } from "react";
 
 /**
  * The sheet must never send a raw routing/account/card number to the server
- * — only a Stripe.js token id or a Financial Connections account id. These
- * tests stub Stripe.js itself (jsdom cannot mount real Stripe Elements) and
- * assert on exactly what crosses the wire in each of the three modes.
+ * — only a Stripe.js token id. These tests stub Stripe.js itself (jsdom
+ * cannot mount real Stripe Elements) and assert on both in-app modes.
  */
 
 vi.mock("@/components/ui/modal", () => ({
@@ -29,7 +28,6 @@ vi.mock("@/components/ui/modal", () => ({
 const { fakeStripe, fakeElements } = vi.hoisted(() => ({
   fakeStripe: {
     createToken: vi.fn(),
-    collectFinancialConnectionsAccounts: vi.fn(),
   },
   fakeElements: {
     getElement: vi.fn(() => ({ __cardElementMarker: true })),
@@ -74,7 +72,6 @@ beforeEach(() => {
   fetchCalls = [];
   fetchResponses = {};
   fakeStripe.createToken.mockReset();
-  fakeStripe.collectFinancialConnectionsAccounts.mockReset();
   fakeElements.getElement.mockReturnValue({ __cardElementMarker: true });
   stubFetch();
 });
@@ -85,18 +82,18 @@ afterEach(() => {
 });
 
 describe("PayoutBankSheet", () => {
-  it("renders all three modes with Link instantly selected by default", () => {
+  it("renders the two in-app modes with manual bank selected by default", () => {
     render(<PayoutBankSheet open apiBase="/api/stripe/connect" onClose={vi.fn()} onAdded={vi.fn()} />);
-    expect(screen.getByText("Link instantly")).toBeInTheDocument();
     expect(screen.getByText("Enter routing and account number")).toBeInTheDocument();
     expect(screen.getByText("Debit card for instant payouts")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Link instantly/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Enter routing and account number/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("Link instantly")).not.toBeInTheDocument();
   });
 
   it("manual mode: posts only the bank token — never the typed routing/account digits", async () => {
     fakeStripe.createToken.mockResolvedValue({ token: { id: "btok_abc123" } });
     fetchResponses["/bank-accounts"] = {
-      destination: { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "verifying", default: true },
+      destination: { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "new", payable: true, instantEligible: false, default: true },
     };
     const onAdded = vi.fn();
     const onClose = vi.fn();
@@ -128,7 +125,7 @@ describe("PayoutBankSheet", () => {
   it("card mode: tokenizes the CardElement and posts only the resulting token", async () => {
     fakeStripe.createToken.mockResolvedValue({ token: { id: "tok_card123" } });
     fetchResponses["/bank-accounts"] = {
-      destination: { id: "card_1", kind: "card", label: "Visa", last4: "4242", status: "verified", default: false },
+      destination: { id: "card_1", kind: "card", label: "Visa", last4: "4242", status: "verified", payable: true, instantEligible: true, default: false },
     };
     const onAdded = vi.fn();
     render(<PayoutBankSheet open apiBase="/api/stripe/connect" onClose={vi.fn()} onAdded={onAdded} />);
@@ -157,34 +154,18 @@ describe("PayoutBankSheet", () => {
     expect(onAdded).not.toHaveBeenCalled();
   });
 
-  it("instant mode: opens Financial Connections, then attaches the linked account id", async () => {
-    fetchResponses["/financial-connections/session"] = { clientSecret: "secret_1" };
-    fetchResponses["/financial-connections/attach"] = {
-      destination: { id: "ba_fc", kind: "bank", label: "Chase", last4: "1487", status: "verified", default: true },
-    };
-    fakeStripe.collectFinancialConnectionsAccounts.mockResolvedValue({
-      financialConnectionsSession: { accounts: [{ id: "fca_999" }] },
-    });
-    const onAdded = vi.fn();
-    render(<PayoutBankSheet open apiBase="/api/stripe/connect" onClose={vi.fn()} onAdded={onAdded} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Add account" }));
-
-    await waitFor(() => expect(onAdded).toHaveBeenCalledTimes(1));
-    expect(fakeStripe.collectFinancialConnectionsAccounts).toHaveBeenCalledWith({ clientSecret: "secret_1" });
-    const attach = fetchCalls.find((c) => c.url.endsWith("/financial-connections/attach"));
-    expect(attach?.body).toEqual({ accountId: "fca_999" });
-    expect(onAdded).toHaveBeenCalledWith(expect.objectContaining({ id: "ba_fc" }));
-  });
-
   it("uses the given apiBase for every call (vendor twin)", async () => {
-    fetchResponses["/financial-connections/session"] = { clientSecret: "secret_1" };
-    fakeStripe.collectFinancialConnectionsAccounts.mockResolvedValue({ financialConnectionsSession: { accounts: [] } });
+    fakeStripe.createToken.mockResolvedValue({ token: { id: "btok_vendor" } });
+    fetchResponses["/bank-accounts"] = { destination: { id: "ba_vendor", kind: "bank", label: "Chase",
+      last4: "1487", status: "new", payable: true, instantEligible: false, default: true } };
     render(<PayoutBankSheet open apiBase="/api/vendor/stripe-connect" onClose={vi.fn()} onAdded={vi.fn()} />);
-
+    fireEvent.change(screen.getByLabelText("Account holder"), { target: { value: "Vendor" } });
+    fireEvent.change(screen.getByLabelText("Routing number"), { target: { value: "325070760" } });
+    fireEvent.change(screen.getByLabelText("Account number"), { target: { value: "0009876543210" } });
     fireEvent.click(screen.getByRole("button", { name: "Add account" }));
 
     await waitFor(() => expect(fetchCalls.length).toBeGreaterThan(0));
-    expect(fetchCalls[0]!.url).toContain("/api/vendor/stripe-connect/financial-connections/session");
+    expect(fetchCalls[0]!.url).toContain("/api/vendor/stripe-connect/bank-accounts");
+    expect(fetchCalls[0]!.body).toEqual({ token: "btok_vendor" });
   });
 });

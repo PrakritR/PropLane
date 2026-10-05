@@ -199,8 +199,8 @@ export type HouseholdCharge = {
   paidNote?: string;
   /** Resident questions or issues about this charge, newest last. */
   residentChargeMessages?: ResidentChargeMessage[];
-  /** Snapshot of whether Axis ACH was enabled on the listing when the charge was created or synced. */
-  axisPaymentsEnabledSnapshot?: boolean;
+  /** Stored creation snapshot; server reads replace it with the current policy. null means the current policy could not be confirmed. */
+  axisPaymentsEnabledSnapshot?: boolean | null;
   /** Server-synced: manager Stripe Connect ready for destination charges (false blocks Pay). */
   managerStripeConnectReadySnapshot?: boolean;
   /** Payment methods the property currently accepts, refreshed from the listing on each server sync. */
@@ -1427,10 +1427,14 @@ function shouldDisplayChargeInPayments(charge: HouseholdCharge, now = new Date()
   return due.getTime() <= endOfNextMonth.getTime();
 }
 
-/** Resident Payments list + dashboard: failed stays owed; processing is clearing. */
+/** A manual bank PI may still need microdeposit verification; the charge alone cannot attest clearing. */
 export function residentChargeListDueLabel(charge: HouseholdCharge): string {
   if (charge.status === "failed") return "Card declined. Pay again";
-  if (charge.status === "processing") return "Bank transfer clearing";
+  if (charge.status === "processing") {
+    return charge.stripeCheckoutSessionId?.startsWith("pi_")
+      ? "Bank payment pending"
+      : "Bank transfer clearing";
+  }
   return chargeDueLabel(charge);
 }
 

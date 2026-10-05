@@ -10,6 +10,38 @@ import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { getStripe } from "@/lib/stripe";
+import { loadResidentCheckoutAttemptForSession,
+  loadResidentManualAchAttemptForPaymentIntent,
+  type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
+
+/** New paid receipts require an actual unrefunded captured Stripe Charge.
+ * Settled replay is handled by the separate source reconciliation path, which
+ * may legitimately observe later refunds against an existing receipt. */
+async function assertFreshHouseholdCapture(
+  stripe: Stripe, paymentIntent: Stripe.PaymentIntent, expectedGross: number,
+): Promise<void> {
+  const latestChargeId = typeof paymentIntent.latest_charge === "string"
+    ? paymentIntent.latest_charge : paymentIntent.latest_charge?.id;
+  if (!latestChargeId || paymentIntent.status !== "succeeded" ||
+      paymentIntent.currency !== "usd" || paymentIntent.amount !== expectedGross ||
+      paymentIntent.amount_received !== expectedGross ||
+      paymentIntent.transfer_data?.destination || paymentIntent.application_fee_amount) {
+    throw new Error("Household PaymentIntent has no exact captured source.");
+  }
+  const charge = await stripe.charges.retrieve(latestChargeId);
+  const chargeIntentId = typeof charge.payment_intent === "string"
+    ? charge.payment_intent : charge.payment_intent?.id;
+  if (chargeIntentId !== paymentIntent.id || charge.currency !== "usd" ||
+      charge.amount !== expectedGross || !charge.paid || charge.status !== "succeeded" ||
+      !charge.captured || charge.disputed || charge.refunded || charge.amount_refunded !== 0) {
+    throw new Error("Household Charge is not an unrefunded captured source.");
+  }
+  const refunds = await stripe.refunds.list({ charge: charge.id, limit: 1 });
+  if (refunds.data.length > 0 || refunds.has_more) {
+    throw new Error("Household Charge has refund history before first settlement.");
+  }
+}
 
 async function householdChargeProviderRefused(db: SupabaseClient, managerUserId: string, operation: string) {
   return (await captureTestWorkspaceEffectForUser({
@@ -79,6 +111,16 @@ export async function markHouseholdChargeProcessingFromStripeSession(
   if (!isHouseholdChargeCheckoutSession(session) || !householdChargeCheckoutProcessing(session)) {
     return { ok: false, marked: 0 };
   }
+  if (session.metadata?.source_arbitration_v === "1") {
+    const attempt = await loadResidentCheckoutAttemptForSession(db, session);
+    if (attempt.status === "settled") return { ok: false, marked: 0 };
+    const { data: marked, error } = await db.rpc("mark_resident_checkout_processing", {
+      p_attempt_id: attempt.id, p_attempt_token: attempt.attempt_token,
+      p_session_id: session.id,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true, marked: Number(marked ?? 0) };
+  }
   const now = new Date().toISOString();
   let marked = 0;
   for (const chargeId of householdChargeIdsFromSession(session)) {
@@ -144,6 +186,15 @@ export async function revertHouseholdChargeProcessingFromStripeSession(
   session: Stripe.Checkout.Session,
 ): Promise<{ ok: boolean; reverted: number }> {
   if (!isHouseholdChargeCheckoutSession(session)) return { ok: false, reverted: 0 };
+  if (session.metadata?.source_arbitration_v === "1") {
+    const attempt = await loadResidentCheckoutAttemptForSession(db, session);
+    const { data: retired, error } = await db.rpc("retire_resident_checkout_attempt", {
+      p_attempt_id: attempt.id, p_attempt_token: attempt.attempt_token,
+      p_session_id: session.id, p_terminal_status: "failed",
+    });
+    if (error) throw new Error(error.message);
+    return { ok: retired === true, reverted: retired === true ? attempt.charge_ids.length : 0 };
+  }
   const now = new Date().toISOString();
   let reverted = 0;
   for (const chargeId of householdChargeIdsFromSession(session)) {
@@ -266,22 +317,37 @@ async function markOneHouseholdChargePaid(
   );
   if (upsertErr) return { marked: false, alreadyPaid: false };
 
+  await completeHouseholdChargePaid(db, nextCharge, charge.status, opts.stripeReference,
+    opts.transitionSuffix, true);
+  return { marked: true, alreadyPaid: false, charge: nextCharge };
+}
+
+async function completeHouseholdChargePaid(
+  db: SupabaseClient, nextCharge: HouseholdCharge, previousStatus: HouseholdCharge["status"],
+  stripeReference: string, transitionSuffix: string, newlySettled: boolean,
+): Promise<void> {
+  const chargeId = nextCharge.id;
+  const now = nextCharge.paidAt;
   const rowData = nextCharge as HouseholdCharge & { shortStayBookingId?: string; agreementSha256?: string };
+  if (!newlySettled) {
+    await syncLedgerPaymentEntry(db, nextCharge, now, stripeReference);
+    return;
+  }
   if (rowData.shortStayBookingId) {
     await finalizeShortStayAfterPayment(db, rowData).catch((err) => {
       console.error("[stripe-household-charge] short-stay finalize failed", err);
     });
   }
 
-  await syncLedgerPaymentEntry(db, nextCharge, now, opts.stripeReference);
-  const managerUserId = charge.managerUserId?.trim() || opts.expectedManagerUserId || "";
+  await syncLedgerPaymentEntry(db, nextCharge, now, stripeReference);
+  const managerUserId = nextCharge.managerUserId?.trim() || "";
   if (managerUserId) {
     await cancelFuturePaymentRemindersForCharge(db, managerUserId, chargeId).catch(() => undefined);
     await emitHouseholdChargeTransition(db, {
       managerUserId,
-      previousStatus: charge.status,
+      previousStatus,
       charge: nextCharge,
-      transitionId: `${chargeId}:payment_received:${opts.transitionSuffix}`,
+      transitionId: `${chargeId}:payment_received:${transitionSuffix}`,
     }).catch(() => undefined);
     // Outbound webhooks: ids, amount and status only, and never throws here.
     await enqueueWebhookEvent(
@@ -295,7 +361,43 @@ async function markOneHouseholdChargePaid(
       }),
     );
   }
-  return { marked: true, alreadyPaid: false, charge: nextCharge };
+}
+
+async function settleClaimedHouseholdCart(
+  db: SupabaseClient, attempt: ResidentCheckoutAttempt,
+  sourceId: string, paymentIntent: Stripe.PaymentIntent,
+): Promise<{ ok: boolean; chargeId?: string; alreadyPaid?: boolean }> {
+  if (attempt.status !== "settled") {
+    await assertFreshHouseholdCapture(getStripe(), paymentIntent, attempt.payer_total_cents);
+  }
+  if (await householdChargeProviderRefused(db, attempt.manager_user_id, "charge_paid")) return { ok: false };
+  const { data: settled, error: settleError } = await db.rpc("settle_resident_checkout_attempt", {
+    p_attempt_id: attempt.id, p_attempt_token: attempt.attempt_token,
+    p_session_id: sourceId, p_payment_intent_id: paymentIntent.id,
+  });
+  const paidRows = (settled as { rows?: unknown[]; newlySettled?: boolean } | null)?.rows;
+  const newlySettled = (settled as { newlySettled?: boolean } | null)?.newlySettled === true;
+  if (settleError || !Array.isArray(paidRows) || paidRows.length !== attempt.charge_ids.length) {
+    throw new Error(settleError?.message || "Resident payment cart could not settle atomically.");
+  }
+  for (const [index, raw] of paidRows.entries()) {
+    const charge = raw as HouseholdCharge;
+    await syncLedgerPaymentEntry(db, charge, charge.paidAt, sourceId, attempt.charge_cents[index]);
+    if (!newlySettled) continue;
+    const rowData = charge as HouseholdCharge & { shortStayBookingId?: string };
+    if (rowData.shortStayBookingId) await finalizeShortStayAfterPayment(db, rowData);
+    await cancelFuturePaymentRemindersForCharge(db, attempt.manager_user_id, charge.id).catch(() => undefined);
+    await emitHouseholdChargeTransition(db, {
+      managerUserId: attempt.manager_user_id, previousStatus: "pending", charge,
+      transitionId: `${charge.id}:payment_received:${sourceId}`,
+    }).catch(() => undefined);
+    await enqueueWebhookEvent(attempt.manager_user_id, "payment.succeeded",
+      webhookEventBuilders["payment.succeeded"]({
+        chargeId: charge.id, propertyId: charge.propertyId,
+        amountCents: charge.paidAmountCents ?? 0, kind: charge.kind,
+      }));
+  }
+  return { ok: true, chargeId: attempt.charge_ids[0], alreadyPaid: !newlySettled };
 }
 
 /**
@@ -307,6 +409,26 @@ export async function markHouseholdChargePaidFromStripeSession(
 ): Promise<{ ok: boolean; chargeId?: string; alreadyPaid?: boolean }> {
   if (!isHouseholdChargeCheckoutSession(session)) {
     return { ok: false };
+  }
+  if (session.metadata?.source_arbitration_v === "1") {
+    const attempt = await loadResidentCheckoutAttemptForSession(db, session);
+    if (session.status !== "complete" || session.payment_status !== "paid" ||
+        !session.payment_intent || attempt.payer_total_cents <= 0) return { ok: false };
+    const paymentIntentId = typeof session.payment_intent === "string"
+      ? session.payment_intent : session.payment_intent.id;
+    if (!paymentIntentId) return { ok: false };
+    const stripe = getStripe();
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    if (paymentIntent.status !== "succeeded" || paymentIntent.currency !== "usd" ||
+        paymentIntent.amount_received !== attempt.payer_total_cents ||
+        paymentIntent.metadata?.source_arbitration_v !== "1" ||
+        paymentIntent.metadata?.resident_attempt_token !== attempt.attempt_token ||
+        paymentIntent.metadata?.charge_ids !== attempt.charge_ids.join(",") ||
+        paymentIntent.metadata?.manager_user_id !== attempt.manager_user_id ||
+        paymentIntent.transfer_data?.destination || paymentIntent.application_fee_amount) {
+      throw new Error("Captured PaymentIntent differs from the resident checkout attempt.");
+    }
+    return settleClaimedHouseholdCart(db, attempt, session.id, paymentIntent);
   }
 
   const chargeIds =
@@ -355,6 +477,33 @@ export async function markHouseholdChargePaidFromStripeSession(
   return { ok: true, chargeId: idsToMark[0], alreadyPaid };
 }
 
+/** Manual ACH PI counterpart to the Checkout Session helpers. A mandate and
+ * microdeposit step can be pending for days; only succeeded funds settle. */
+export async function reconcileResidentManualAchPaymentIntent(
+  db: SupabaseClient, paymentIntent: Stripe.PaymentIntent,
+  expectedResidentUserId?: string,
+): Promise<{ ok: boolean; paid: boolean; processing: boolean; chargeId?: string; alreadyPaid?: boolean }> {
+  const attempt = await loadResidentManualAchAttemptForPaymentIntent(
+    db, paymentIntent, expectedResidentUserId);
+  if (paymentIntent.status === "succeeded") {
+    const settled = await settleClaimedHouseholdCart(db, attempt, paymentIntent.id, paymentIntent);
+    return { ...settled, paid: settled.ok, processing: false };
+  }
+  const awaitingMicrodeposits = paymentIntent.status === "requires_action" &&
+    paymentIntent.next_action?.type === "verify_with_microdeposits";
+  if (awaitingMicrodeposits || paymentIntent.status === "processing") {
+    const { data: marked, error } = await db.rpc("mark_resident_checkout_processing", {
+      p_attempt_id: attempt.id, p_attempt_token: attempt.attempt_token,
+      p_session_id: paymentIntent.id,
+    });
+    if (error || typeof marked !== "number") {
+      return { ok: false, paid: false, processing: false };
+    }
+    return { ok: true, paid: false, processing: true, chargeId: attempt.charge_ids[0] };
+  }
+  return { ok: false, paid: false, processing: false };
+}
+
 /**
  * Marks the ONE charge an autopay off-session PaymentIntent paid, on
  * `payment_intent.succeeded`. Reuses the exact same per-charge core as a
@@ -369,6 +518,60 @@ export async function markHouseholdChargePaidFromPaymentIntent(
   chargeId: string,
 ): Promise<{ ok: boolean; alreadyPaid?: boolean }> {
   if (paymentIntent.status !== "succeeded") return { ok: false };
+  if (paymentIntent.metadata?.source_arbitration_v === "1") {
+    const metadata = paymentIntent.metadata;
+    const runId = metadata.autopay_run_id?.trim();
+    const managerId = metadata.manager_user_id?.trim();
+    const residentEmail = metadata.resident_email?.trim().toLowerCase();
+    const principal = Number(metadata.subtotal_cents);
+    const gross = Number(metadata.total_cents);
+    const processing = Number(metadata.processing_fee_cents);
+    const net = Number(metadata.manager_payout_cents);
+    const attempt = Number(metadata.autopay_attempt);
+    if (!runId || !managerId || !residentEmail || metadata.charge_id !== chargeId ||
+        metadata.purpose !== HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE ||
+        !["ach", "card"].includes(metadata.payment_method ?? "") ||
+        !["resident", "manager", "proplane"].includes(metadata.fee_payer ?? "") ||
+        ![principal, gross, processing, net, attempt].every(Number.isSafeInteger) ||
+        principal < 100 || processing < 0 || gross !== principal + processing ||
+        metadata.principal_cents !== String(principal) ||
+        net <= 0 || net > principal || attempt < 1 ||
+        metadata.platform_hold !== "1" || metadata.hold_amount_cents !== String(net) ||
+        paymentIntent.currency !== "usd" || paymentIntent.amount !== gross ||
+        paymentIntent.amount_received !== gross || paymentIntent.transfer_data?.destination ||
+        paymentIntent.application_fee_amount) {
+      return { ok: false };
+    }
+    const { data: run, error: runError } = await db.from("resident_autopay_runs")
+      .select("id,charge_id,manager_id,resident_user_id,status,attempt,stripe_payment_intent_id")
+      .eq("id", runId).maybeSingle();
+    if (runError || !run || run.charge_id !== chargeId || run.manager_id !== managerId ||
+        Number(run.attempt) !== attempt || !["claimed", "succeeded"].includes(run.status) ||
+        (run.stripe_payment_intent_id && run.stripe_payment_intent_id !== paymentIntent.id)) {
+      // A deleted run loses its slot. The captured PI needs provider/books
+      // reconciliation; a reused email must not revive the old authority.
+      return { ok: false };
+    }
+    const { data: before, error: beforeError } = await db.from("portal_household_charge_records")
+      .select("id,row_data,status").eq("id", chargeId).maybeSingle();
+    const charge = before?.row_data as HouseholdCharge | null;
+    if (beforeError || !charge || charge.managerUserId !== managerId ||
+        charge.residentEmail.trim().toLowerCase() !== residentEmail) return { ok: false };
+    if (run.status !== "succeeded") {
+      await assertFreshHouseholdCapture(getStripe(), paymentIntent, gross);
+    }
+    const { data: settled, error: settleError } = await db.rpc("settle_resident_autopay_run", {
+      p_run_id: runId, p_attempt: attempt, p_payment_intent_id: paymentIntent.id,
+      p_principal_cents: principal, p_resident_email: residentEmail,
+    });
+    if (settleError || !settled || typeof settled !== "object") return { ok: false };
+    const result = settled as { row?: HouseholdCharge; newlySettled?: boolean };
+    if (!result.row?.id || result.row.id !== chargeId ||
+        typeof result.newlySettled !== "boolean") return { ok: false };
+    await completeHouseholdChargePaid(db, result.row, charge.status, paymentIntent.id,
+      paymentIntent.id, result.newlySettled);
+    return { ok: true, alreadyPaid: !result.newlySettled };
+  }
   const expectedManagerUserId = paymentIntent.metadata?.manager_user_id?.trim() || undefined;
   const result = await markOneHouseholdChargePaid(db, chargeId, {
     expectedManagerUserId,

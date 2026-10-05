@@ -18,7 +18,8 @@ vi.mock("@/lib/native/detect-native", () => ({ isNativeRuntimeSync: () => false 
 
 import { PayoutWithdrawSheet } from "@/components/portal/payout-withdraw-sheet";
 
-const eligibleAccount = { id: "default", label: "Chase", last4: "4421", kind: "bank" as const, instantEligible: true };
+const bankAccount = { id: "ba_1", label: "Chase", last4: "4421", kind: "bank" as const, instantEligible: false };
+const cardAccount = { id: "card_1", label: "Visa Debit", last4: "4242", kind: "card" as const, instantEligible: true };
 
 function baseProps(overrides: Partial<ComponentProps<typeof PayoutWithdrawSheet>> = {}) {
   return {
@@ -28,7 +29,7 @@ function baseProps(overrides: Partial<ComponentProps<typeof PayoutWithdrawSheet>
     currency: "usd",
     availableCents: 428_000,
     instantAvailableCents: 115_000,
-    accounts: [eligibleAccount],
+    accounts: [bankAccount],
     onSuccess: vi.fn(),
     ...overrides,
   };
@@ -46,8 +47,8 @@ afterEach(() => {
 });
 
 describe("PayoutWithdrawSheet — amount step", () => {
-  it("prefills the available amount (desktop text input) and shows the Instant cap", () => {
-    render(<PayoutWithdrawSheet {...baseProps()} />);
+  it("prefills the available amount (desktop text input) and shows the card Instant cap", () => {
+    render(<PayoutWithdrawSheet {...baseProps({ accounts: [cardAccount] })} />);
     expect(screen.getByLabelText("Amount")).toHaveValue("4280.00");
     expect(screen.getByText("Up to $1,150.00 now")).toBeInTheDocument();
   });
@@ -70,14 +71,14 @@ describe("PayoutWithdrawSheet — amount step", () => {
   });
 
   it("disables Instant and states the reason when the amount exceeds the Instant cap", () => {
-    render(<PayoutWithdrawSheet {...baseProps({ availableCents: 428_000, instantAvailableCents: 50_000 })} />);
+    render(<PayoutWithdrawSheet {...baseProps({ accounts: [cardAccount], availableCents: 428_000, instantAvailableCents: 50_000 })} />);
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "4280.00" } });
     expect(screen.getByRole("radio", { name: /Instant/ })).toBeDisabled();
     expect(screen.getByText("Up to $500.00 now")).toBeInTheDocument();
   });
 
   it("disables Instant with its own reason when there is no debit card on file", () => {
-    render(<PayoutWithdrawSheet {...baseProps({ accounts: [{ ...eligibleAccount, instantEligible: false }] })} />);
+    render(<PayoutWithdrawSheet {...baseProps({ accounts: [bankAccount] })} />);
     expect(screen.getByRole("radio", { name: /Instant/ })).toBeDisabled();
     expect(screen.getByText("Add a debit card for Instant")).toBeInTheDocument();
   });
@@ -111,12 +112,11 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
       expect(onSuccess).toHaveBeenCalledWith({ payoutId: "po_1", amountCents: 428_000, method: "standard" }),
     );
     const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(JSON.parse(init.body as string)).toEqual({ amountCents: 428_000, method: "standard" });
+    expect(JSON.parse(init.body as string)).toEqual({ amountCents: 428_000, method: "standard", destinationId: "ba_1" });
   });
 
   it("computes the 1% Instant fee in the confirmation sheet", () => {
-    render(<PayoutWithdrawSheet {...baseProps({ availableCents: 100_000, instantAvailableCents: 100_000 })} />);
-    fireEvent.click(screen.getByRole("radio", { name: /Instant/ }));
+    render(<PayoutWithdrawSheet {...baseProps({ accounts: [cardAccount], availableCents: 100_000, instantAvailableCents: 100_000 })} />);
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "100.00" } });
     expect(screen.getByText("$1.00")).toBeInTheDocument();
     expect(screen.getByText("Within 30 minutes")).toBeInTheDocument();
@@ -135,7 +135,7 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
     expect(screen.getByRole("button", { name: /^Withdraw \$/ })).toBeInTheDocument();
   });
 
-  it("sends the picked destination's real id as destinationId, never the synthetic fallback id", async () => {
+  it("sends the picked destination's real id as destinationId", async () => {
     const realAccount = { id: "ba_real_1", label: "Chase Checking", last4: "1487", kind: "bank" as const, instantEligible: false };
     vi.stubGlobal(
       "fetch",
@@ -157,5 +157,22 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
       method: "standard",
       destinationId: "ba_real_1",
     });
+  });
+
+  it("card-only destination defaults to Instant and cannot submit Standard", () => {
+    render(<PayoutWithdrawSheet {...baseProps({ accounts: [cardAccount], availableCents: 10_000, instantAvailableCents: 10_000 })} />);
+    expect(screen.getByRole("radio", { name: /Instant/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Standard/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Withdraw \$/ })).not.toBeDisabled();
+  });
+
+  it("switching from bank to eligible card changes the method before submit", async () => {
+    render(<PayoutWithdrawSheet {...baseProps({ accounts: [bankAccount, cardAccount],
+      availableCents: 10_000, instantAvailableCents: 10_000 })} />);
+    expect(screen.getByRole("radio", { name: /Standard/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "To" }));
+    fireEvent.click(screen.getByRole("option", { name: /Visa Debit/ }));
+    expect(screen.getByRole("radio", { name: /Instant/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Standard/ })).toBeDisabled();
   });
 });
