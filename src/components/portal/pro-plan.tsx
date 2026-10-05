@@ -930,9 +930,10 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
       onClose={() => setAdjustOpen(false)}
       currentTier={currentTier}
       currentBilling={currentBilling}
+      trialActivation={isTrialBilling && !sub.planUnknown && !sub.stripeManaged && !sub.appleManaged}
       renewalLabel={renewalLabel}
       busy={adjustBusy}
-      onConfirm={(target, billing) => void handleAdjustConfirm(target, billing)}
+      onConfirm={handleAdjustConfirm}
       residentCount={usageSummary?.residents.used ?? null}
     />
   ) : null;

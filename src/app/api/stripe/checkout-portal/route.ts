@@ -6,7 +6,7 @@ import { resolveStripePriceIdForPaidTier } from "@/lib/stripe/resolve-manager-pr
 import { buildManagerSubscriptionCheckoutBase } from "@/lib/stripe/subscription-checkout-session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
-import { recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
+import { checkoutSessionIndicatesPaidPurchase, recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
 import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
 import {
   MANAGER_PLAN_CHECKOUT_CANCELLED_PATH,
@@ -122,7 +122,7 @@ export async function POST(req: Request) {
     // reaches the browser. Otherwise a completed $49/$249 session cannot pass
     // resolveManagerCheckoutPurchase and the manager remains on Free.
     const { data: purchase, error: purchaseError } = await actor.db.from("manager_purchases")
-      .select("id,user_id,email,manager_id,tier,stripe_subscription_id,stripe_checkout_session_id")
+      .select("id,user_id,email,manager_id,tier,billing,stripe_subscription_id,stripe_checkout_session_id,apple_original_transaction_id")
       .eq("manager_id", managerId).maybeSingle();
     if (purchaseError || (purchase && (purchase.user_id !== user.id ||
         String(purchase.email ?? "").trim().toLowerCase() !== email))) {
@@ -135,7 +135,14 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Your manager billing record needs to be reconciled before checkout." }, { status: 409 });
       }
     }
-    if (purchase && (purchase.stripe_subscription_id || (purchase.tier !== null && purchase.tier !== "free"))) {
+    // A signup trial grants a temporary Pro/Business entitlement without a
+    // paid Stripe or Apple subscription. Preserve that row until a verified
+    // Checkout fulfills it, including a same-tier activation.
+    const signupTrial = purchase?.billing === "trial" &&
+      (purchase.tier === "pro" || purchase.tier === "business") &&
+      !purchase.stripe_subscription_id && !purchase.apple_original_transaction_id;
+    if (purchase && (purchase.stripe_subscription_id || purchase.apple_original_transaction_id ||
+        (purchase.tier !== null && purchase.tier !== "free" && !signupTrial))) {
       return NextResponse.json({ error: "Manage your existing paid plan from Billing instead of starting another subscription." }, { status: 409 });
     }
     const customer = await ensureManagerBillingCustomer(actor.db, user.id);
@@ -149,8 +156,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "An earlier subscription checkout needs reconciliation." }, { status: 409 });
       }
       if (prior.status === "complete") {
-        await recordPaidManagerCheckoutSession(prior);
-        return NextResponse.json({ error: "Your previous subscription payment completed. Refresh Billing to see the plan." }, { status: 409 });
+        if (checkoutSessionIndicatesPaidPurchase(prior)) {
+          await recordPaidManagerCheckoutSession(prior);
+          return NextResponse.json({ error: "Your previous subscription payment completed. Refresh Billing to see the plan." }, { status: 409 });
+        }
+        return NextResponse.json({ error: "Your previous subscription payment is still processing." }, { status: 409 });
       }
     }
     // A legacy Free account can lack a local purchase row while its Stripe
@@ -199,20 +209,24 @@ export async function POST(req: Request) {
     };
 
     const reserve = async (sessionId: string): Promise<boolean> => {
-      const { data, error } = purchase
-        ? await (purchase.tier === null
-            ? actor.db.from("manager_purchases").update({ stripe_checkout_session_id: sessionId })
-                .eq("id", purchase.id).eq("user_id", user.id).eq("manager_id", managerId)
-                .eq("stripe_checkout_session_id", priorSessionId).is("stripe_subscription_id", null).is("tier", null)
-            : actor.db.from("manager_purchases").update({ stripe_checkout_session_id: sessionId })
-                .eq("id", purchase.id).eq("user_id", user.id).eq("manager_id", managerId)
-                .eq("stripe_checkout_session_id", priorSessionId).is("stripe_subscription_id", null).eq("tier", "free"))
-            .select("id").maybeSingle()
-        : await actor.db.from("manager_purchases").insert({
+      let result: { data: { id: string } | null; error: { message: string } | null };
+      if (purchase) {
+        let query = actor.db.from("manager_purchases").update({ stripe_checkout_session_id: sessionId })
+          .eq("id", purchase.id).eq("user_id", user.id).eq("manager_id", managerId)
+          .is("stripe_subscription_id", null).is("apple_original_transaction_id", null);
+        query = priorSessionId ? query.eq("stripe_checkout_session_id", priorSessionId)
+          : query.is("stripe_checkout_session_id", null);
+        query = purchase.tier === null ? query.is("tier", null) : query.eq("tier", purchase.tier);
+        if (signupTrial) query = query.eq("billing", "trial");
+        result = await query.select("id").maybeSingle();
+      } else {
+        result = await actor.db.from("manager_purchases").insert({
             user_id: user.id, manager_id: managerId, email,
             full_name: profile?.full_name?.trim() || null,
             tier: "free", billing: "monthly", stripe_checkout_session_id: sessionId,
           }).select("id").maybeSingle();
+      }
+      const { data, error } = result;
       if (error) {
         await stripe.checkout.sessions.expire(sessionId).catch(() => undefined);
         throw new Error("Could not reserve manager checkout ownership.");
