@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     }
 
     let alreadyPaid = false;
-    let depositChargeId: string | null = null;
+    const depositChargeId: string | null = null;
     let applicationPromoted = false;
     let applicationAxisId: string | null = null;
     let applicationSetupToken: string | null = null;

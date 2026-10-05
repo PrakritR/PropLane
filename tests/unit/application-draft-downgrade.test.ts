@@ -188,6 +188,9 @@ vi.mock("@/lib/screening/order-screening", () => ({
 vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({
   validateResidentApplicationRowForPersistence: async () => ({ ok: true }),
 }));
+vi.mock("@/lib/rental-application/application-fee-submit-guard.server", () => ({
+  authorizeApplicationFeeSubmission: async () => ({ ok: true }),
+}));
 
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 
