@@ -413,23 +413,14 @@ normalization + plan transitions), `tests/unit/stripe-axis-ach-checkout.test.ts`
 `application_fee_amount`, `transfer_data` destination, no `on_behalf_of`), and
 `tests/unit/stripe-ledger-fees.test.ts` (fee attribution).
 
-**A third funding model exists behind a flag: the PropLane balance ledger
-(night/vendor-pay, `PROPLANE_BALANCE_ENABLED`, default off).** When on,
-`createHouseholdChargeCheckout` passes `fundingModel: "platform_ledger"` to
-`createAxisAchCheckoutSession` — the ONE new branch in that builder — instead
-of resolving a destination account: no `transfer_data`, no
-`application_fee_amount`, no `platform_hold` metadata; the charge lands on the
-platform outright (separate charges and transfers). The resident-facing fee
-math (`residentServiceFeeBreakdown`) is byte-identical either way — only where
-the settled money goes changes. The `checkout.session.completed` webhook
-credits `manager_payout_cents` as a PENDING entry in the manager's PropLane
-balance (`src/lib/proplane-balance/household-charge-credit.server.ts`),
-available once Stripe's own balance-transaction `available_on` passes. Nothing
-else (application fees, vendor-invoice-pay checkout, autopay) ever requests
-this funding model, and with the flag off `createHouseholdChargeCheckout`
-resolves the SAME destination-or-hold path it always has. See
-`.lavish/night/build-vendor-pay.md` for the full architecture and the
-switch-on checklist.
+**Historical household funding models remain readable, not reusable for new
+marked captures.** Earlier Checkout sources could be Connect destination,
+platform hold, or the flagged `platform_ledger` path introduced for night and
+vendor pay. Their original provider routing and payment evidence must remain
+attached to those receipts. New `source_arbitration_v=1` household captures
+always use the central source allocator described above, independently of
+`PROPLANE_BALANCE_ENABLED`; the fee math remains the same. See
+`.lavish/night/build-vendor-pay.md` for the older funding model's context.
 
 **The destination is per-manager when they are ready.**
 `resolveConnectDestinationIfReady` (`src/lib/stripe-connect.ts`) reads that
@@ -815,21 +806,18 @@ never a forked fee calculation.** `chargeAutopay`
 `stripe-household-charge-checkout.server.ts`, also used by
 `createHouseholdChargeCheckout`) that a manual payment uses, then
 `residentServiceFeeBreakdown` for the numbers — the SAME single source of
-truth this file describes above. Only the Stripe object differs: a manual
-payment creates a Checkout Session (someone is present to complete it); autopay
-creates a PaymentIntent directly with `confirm: true, off_session: true`,
-setting `transfer_data.destination` and `application_fee_amount` straight on
-the PaymentIntent instead of nested under a session's `payment_intent_data`.
-Marking the charge paid also reuses the manual path's own per-charge core
-(`markOneHouseholdChargePaid` in `stripe-household-charge.ts`), so the ledger
-write-through, reminder cancellation, and outbound webhook are identical
-either way. `payment_intent.succeeded` / `.payment_failed` additively update
-the `resident_autopay_runs` row in `stripe-webhook-financials.ts`; a declined
-PaymentIntent still carries `metadata.charge_id`, so the EXISTING
-`handlePaymentIntentFailed` flips the charge to `failed` (and creates an NSF
-fee if the manager's billing settings call for one) exactly like a declined
-manual payment, and the autopay-specific handler only additionally updates the
-run row and sends the decline notice.
+truth this file describes above. A manual card/Link payment creates a Checkout
+Session; a manual bank payment and autopay each create a centrally captured
+PaymentIntent, with `manual_ach=1` and `autopay_run_id` respectively to keep
+their authorities distinct. The run attempt number is frozen in autopay
+metadata; an old PI event cannot settle a newer attempt. Before the first
+marked paid transition, the exact latest Charge and refund history are
+attested; after atomic charge/ledger settlement, the captured source is
+allocated once. `payment_intent.payment_failed` for a marked manual PI retains
+its claim because the same client secret can still be confirmed. The autopay
+decline handler updates only the exact current run and releases its slot under
+its existing retry policy; historical unmarked events continue through their
+separate compatibility path.
 
 **A manager setting gates enrollment, per workspace** — `payment_settings`
 jsonb on `portal_workspaces`, alongside `serviceFeePayer` (see above):
