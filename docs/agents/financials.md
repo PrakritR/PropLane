@@ -111,22 +111,10 @@ Balance Sheet reads the same owner, property, and as-of GL totals as Trial Balan
 
 **Profile → Payouts** (`/portal/profile?tab=payouts`, vendor twin under
 `Vendor → Settings → Payouts`, `src/components/portal/portal-payouts-settings-page.tsx`)
-is now the one payout UI — balance with a Withdraw action (Standard or
-Instant, `payout-withdraw-sheet.tsx`), Set up steps until ready, bank
-accounts, the payout schedule, and history. `/portal/payments/payouts` and
-the vendor `financials/payouts` tab (`portal-payouts-panel.tsx`) still exist
-and share the same Withdraw sheet and API routes; every other entry point
-(the Payments setup card, the payment-settings modal's Payouts row) now
-opens Profile → Payouts instead. Stripe's Express Dashboard and Account
-Links are gone; identity and bank linking are Stripe's embedded
-`account_onboarding` / `account_management` components mounted inside
-PropLane's own modal today (a Verify/Add-bank props seam exists for the
-in-house forms PLAN-0920-1500 still has to build — see
-[`stripe-connect-ach-setup.md`](../stripe-connect-ach-setup.md)).
-**Payments → Payouts** (`/portal/payments/payouts`, vendor twin
-`/vendor/financials/payouts`) is the one payout UI — balance, a single "Pay
-out" action (Standard or Instant), the bank card, the payout schedule, and
-history. Stripe's Express Dashboard and Account Links are gone. Identity
+is the payout settings UI — balance, Withdraw (Standard to a payable bank or
+Instant to an eligible debit card), bank accounts, schedule and history.
+The old manager Payments and vendor Financials payout tabs route to this page.
+Stripe's Express Dashboard and Account Links are gone. Identity
 verification for a **new** account is PropLane's own in-app form, driven by
 `account.requirements.currently_due` (PLAN-0920-1500 Part C — see
 [`stripe-connect-ach-setup.md`](../stripe-connect-ach-setup.md) for the full
@@ -140,16 +128,23 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   estimates, `settings.payouts.schedule` ↔ our schedule shape, next-payout-date,
   and the history row normaliser.
 - **Platform hold (PLAN-0923-1041)** — `platform_payment_holds` plus
-  `src/lib/stripe-platform-hold.ts` / `.server.ts`. Ready Connect
-  (`transfers` active AND `payouts_enabled`) is a destination charge —
-  money goes straight to that person. No bank yet: charge the platform,
-  credit a hold, transfer the leftover the moment they become ready.
-  Withdraw never spends a hold. Snapshot: `availableCents` = hold +
-  Stripe; `withdrawableCents` = Stripe only.
+  `src/lib/stripe-platform-hold.ts` / `.server.ts`. A captured payment may
+  remain physically held on the platform until its exact source is eligible
+  for release. Release to Connect is a source movement, never a bank payout;
+  a later Connect payout has its own history row. Withdraw never spends a
+  hold. `availableCents` is a legacy combined display value; all withdrawal
+  maxima use the signed Stripe `withdrawableCents` (clamped to zero for the
+  action). The UI shows `heldCents`, `releasePendingCents`, provider deficit,
+  and confirmed `onTheWayCents` separately. Manager recovery owed comes from
+  succeeded funded debt less actual recovery; reserved recovery is a separate
+  noncash fact and does not reduce that debt. A pending unreconciled in-app
+  payout claim disables another withdrawal.
 - **Stripe/DB reads and writes** — `src/lib/stripe-payouts.server.ts`:
-  `readPayoutSnapshot` (balance, bank/eligibility from the external account's
-  `available_payout_methods`, setup state from `account.requirements`,
-  schedule, last-50 history, held vs withdrawable); `createInAppPayout` claims a pending
+  `readPayoutSnapshot` (balance, setup state from `account.requirements`,
+  schedule, last-50 history, held vs withdrawable); the separate exact-owner
+  bank list is the destination authority. An unknown or failed bank-list read
+  disables money actions; a `new` bank can be payable when the provider says
+  so. `createInAppPayout` claims a pending
   `stripe_payouts` row BEFORE calling Stripe — the same pattern as
   `payoutVendorForWorkOrder` (`src/lib/stripe-vendor-payout.ts`) — so a
   double-click loses the insert race on the partial unique index

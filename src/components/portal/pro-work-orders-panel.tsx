@@ -98,6 +98,7 @@ import { PortalApplicantRecordRow, PortalServiceRecordRow } from "@/components/p
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { sharedGet } from "@/lib/shared-get-cache";
 import {
   formatServiceMoney,
   managerServiceNextStep,
@@ -294,16 +295,19 @@ export function ManagerWorkOrdersPanel({
   useEffect(() => {
     if (!approvePayRow) return;
     setApprovePayChannel("ach");
-    const invoiceTotal =
-      approvePayDefaults(approvePayRow).vendorCostCents + approvePayDefaults(approvePayRow).materialsCostCents;
+    const payableLaborCents = approvePayDefaults(approvePayRow).vendorCostCents;
     let cancelled = false;
-    fetch("/api/portal/proplane-balance", { credentials: "include" })
-      .then((res) => res.json())
-      .then((body: { enabled?: boolean; availableCents?: number }) => {
+    sharedGet("/api/portal/proplane-balance", { ttlMs: 0 })
+      .then((result) => {
         if (cancelled) return;
-        const balance = { enabled: Boolean(body.enabled), availableCents: body.availableCents ?? 0 };
+        const body = result.ok ? result.data as { enabled?: unknown; availableCents?: unknown } | null : null;
+        if (!body || typeof body.enabled !== "boolean" || !Number.isSafeInteger(body.availableCents)) {
+          setApprovePayBalance(null);
+          return;
+        }
+        const balance = { enabled: body.enabled, availableCents: body.availableCents as number };
         setApprovePayBalance(balance);
-        if (balance.enabled && balance.availableCents >= invoiceTotal) {
+        if (balance.enabled && balance.availableCents >= payableLaborCents) {
           setApprovePayChannel("balance");
         }
       })
@@ -818,10 +822,11 @@ export function ManagerWorkOrdersPanel({
   };
 
   const approvePay = (row: DemoManagerWorkOrderRow) => {
-    const { vendorCostCents, materialsCostCents } = approvePayDefaults(row);
-    if (vendorCostCents + materialsCostCents < APPROVE_PAY_CONFIRM_THRESHOLD_CENTS) {
+    const { vendorCostCents } = approvePayDefaults(row);
+    if (vendorCostCents < APPROVE_PAY_CONFIRM_THRESHOLD_CENTS) {
       void submitApprovePay(row);
     } else {
+      setApprovePayBalance(null);
       setApprovePayRow(row);
     }
   };
@@ -1975,10 +1980,8 @@ export function ManagerWorkOrdersPanel({
                 disabled={
                   approvePayBusy ||
                   (approvePayChannel === "balance" &&
-                    approvePayBalance?.enabled &&
-                    approvePayBalance.availableCents <
-                      approvePayDefaults(approvePayRow).vendorCostCents +
-                        approvePayDefaults(approvePayRow).materialsCostCents)
+                    (!approvePayBalance?.enabled ||
+                      approvePayBalance.availableCents < approvePayDefaults(approvePayRow).vendorCostCents))
                 }
               >
                 {approvePayBusy ? "Approving…" : "Approve & pay"}
@@ -1999,7 +2002,7 @@ export function ManagerWorkOrdersPanel({
               <span className="font-semibold">
                 $
                 {(
-                  (approvePayDefaults(approvePayRow).vendorCostCents + approvePayDefaults(approvePayRow).materialsCostCents) /
+                  approvePayDefaults(approvePayRow).vendorCostCents /
                   100
                 ).toFixed(2)}
               </span>
@@ -2030,15 +2033,12 @@ export function ManagerWorkOrdersPanel({
             ) : null}
             {approvePayChannel === "balance" &&
             approvePayBalance?.enabled &&
-            approvePayBalance.availableCents <
-              approvePayDefaults(approvePayRow).vendorCostCents +
-                approvePayDefaults(approvePayRow).materialsCostCents ? (
+            approvePayBalance.availableCents < approvePayDefaults(approvePayRow).vendorCostCents ? (
               <p className="text-sm font-medium text-destructive" role="alert">
                 Short by{" "}
                 {formatServiceMoney(
                   vendorInvoiceShortfallCents(
-                    approvePayDefaults(approvePayRow).vendorCostCents +
-                      approvePayDefaults(approvePayRow).materialsCostCents,
+                    approvePayDefaults(approvePayRow).vendorCostCents,
                     approvePayBalance.availableCents,
                   ),
                 )}{" "}

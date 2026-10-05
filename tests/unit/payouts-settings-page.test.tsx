@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
@@ -11,18 +11,23 @@ vi.mock("@/components/stripe-connect-embedded", () => ({
     <div data-attr="stub-stripe-connect-embedded">{component}</div>
   ),
 }));
-vi.mock("@/components/portal/payout-bank-sheet", () => ({
+vi.mock("@/components/portal/payout-bank-sheet", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/components/portal/payout-bank-sheet")>(),
   PayoutBankSheet: ({ open }: { open: boolean }) => (open ? <div data-attr="stub-bank-sheet">bank sheet</div> : null),
 }));
 vi.mock("@/lib/native/detect-native", () => ({ isNativeRuntimeSync: () => false }));
 
 import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-settings-page";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 
 const readyBalance = {
   currency: "usd",
   availableCents: 428_000,
   withdrawableCents: 428_000,
   heldCents: 0,
+  releasePendingCents: 0,
+  recoveryOutstandingCents: 0,
+  recoveryReservedCents: 0,
   instantAvailableCents: 115_000,
   pendingCents: 240_000,
   onTheWayCents: 310_000,
@@ -45,8 +50,12 @@ const notReadyBalance = {
   setup: { identity: "needed", bank: "needed", ready: false },
 };
 
-function stubFetch(balance: unknown, opts: { bankAccountsStatus?: number } = {}) {
-  const bankAccountsStatus = opts.bankAccountsStatus ?? 404;
+function stubFetch(balance: unknown, opts: { bankAccountsStatus?: number; destinations?: unknown[] } = {}) {
+  const bankAccountsStatus = opts.bankAccountsStatus ?? 200;
+  const bankDestinations = opts.destinations ?? ((balance as typeof readyBalance).bank ? [
+    { id: "ba_1", kind: "bank", label: "Chase", last4: "4421", status: "new", payable: true,
+      instantEligible: false, default: true },
+  ] : []);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -55,7 +64,7 @@ function stubFetch(balance: unknown, opts: { bankAccountsStatus?: number } = {})
         return new Response(JSON.stringify(balance), { status: 200 });
       }
       if (url.endsWith("/bank-accounts")) {
-        return new Response(JSON.stringify({ error: "not found" }), { status: bankAccountsStatus });
+        return new Response(JSON.stringify(bankAccountsStatus === 200 ? { destinations: bankDestinations } : { error: "not found" }), { status: bankAccountsStatus });
       }
       return new Response(JSON.stringify({}), { status: 200 });
     }),
@@ -64,16 +73,17 @@ function stubFetch(balance: unknown, opts: { bankAccountsStatus?: number } = {})
 
 afterEach(() => {
   cleanup();
+  resetSharedGets();
   vi.unstubAllGlobals();
 });
 
 describe("PortalPayoutsSettingsPage — ready state", () => {
   beforeEach(() => stubFetch(readyBalance));
 
-  it("renders Balance with the Available label, the amount, and an enabled Withdraw button", async () => {
+  it("renders the provider withdrawable amount with an enabled Withdraw button", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
     await screen.findByText("$4,280.00");
-    expect(screen.getByText("Available")).toBeInTheDocument();
+    expect(screen.getByText("Available to withdraw")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Withdraw" })).not.toBeDisabled();
   });
 
@@ -84,12 +94,11 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
     expect(screen.queryByText("Verify identity")).not.toBeInTheDocument();
   });
 
-  it("falls back to a single bank row from the balance endpoint when the bank-accounts route 404s", async () => {
+  it("fails closed when the bank-accounts route is unavailable", async () => {
+    stubFetch(readyBalance, { bankAccountsStatus: 404 });
     render(<PortalPayoutsSettingsPage portal="vendor" />);
-    await screen.findByText("$4,280.00");
-    expect(screen.getByText("Bank accounts")).toBeInTheDocument();
-    expect(screen.getByText("Chase", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText(/4421/)).toBeInTheDocument();
+    expect(await screen.findByText("Could not verify payout bank accounts.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
   });
 
   it("renders live bank-accounts rows (with a ⋯ menu) when the route is present", async () => {
@@ -105,7 +114,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
           return new Response(
             JSON.stringify({
               destinations: [
-                { id: "ba_1", kind: "bank", label: "Chase Checking", last4: "1487", status: "verified", default: true },
+                { id: "ba_1", kind: "bank", label: "Chase Checking", last4: "1487", status: "new", payable: true, instantEligible: false, default: true },
               ],
             }),
             { status: 200 },
@@ -130,7 +139,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
           return new Response(
             JSON.stringify({
               destinations: [
-                { id: "ba_2", kind: "bank", label: "Chase Checking", last4: "1487", status: "verified", default: true },
+                { id: "ba_2", kind: "bank", label: "Chase Checking", last4: "1487", status: "new", payable: true, instantEligible: false, default: true },
               ],
             }),
             { status: 200 },
@@ -184,6 +193,42 @@ describe("PortalPayoutsSettingsPage — not-ready state", () => {
     expect(screen.getByRole("button", { name: "Withdraw" })).toBeDisabled();
   });
 
+  it("shows the actual $105 held baseline as zero withdrawable without promising bank payout", async () => {
+    stubFetch({ ...notReadyBalance, availableCents: 10_500, withdrawableCents: 0, heldCents: 10_500,
+      pendingCents: 0, onTheWayCents: 0, releasePendingCents: 0 });
+    render(<PortalPayoutsSettingsPage portal="manager" />);
+    await screen.findByText("$105.00");
+    expect(document.querySelector('[data-attr="payouts-settings-available"]')).toHaveTextContent("$0.00");
+    expect(document.querySelector('[data-attr="payouts-settings-held"]')).toHaveTextContent("$105.00");
+    expect(screen.getByRole("button", { name: "Withdraw" })).toBeDisabled();
+  });
+
+  it("keeps signed provider deficit and unrepaid owner recovery separate from cash", async () => {
+    stubFetch({ ...notReadyBalance, withdrawableCents: -2_500, availableCents: 8_000,
+      heldCents: 10_500, releasePendingCents: 1_500,
+      recoveryOutstandingCents: 7_000, recoveryReservedCents: 1_500 });
+    render(<PortalPayoutsSettingsPage portal="manager" />);
+    await screen.findByText("Provider deficit");
+    expect(document.querySelector('[data-attr="payouts-settings-provider-deficit"]')).toHaveTextContent("$25.00");
+    expect(document.querySelector('[data-attr="payouts-settings-recovery-owed"]')).toHaveTextContent("$70.00");
+    expect(document.querySelector('[data-attr="payouts-settings-recovery-reserved"]')).toHaveTextContent("$15.00");
+    expect(document.querySelector('[data-attr="payouts-settings-release-pending"]')).toHaveTextContent("$15.00");
+    expect(document.querySelector('[data-attr="payouts-settings-available"]')).toHaveTextContent("$0.00");
+  });
+
+  it("shows a held-source release separately from a bank payout", async () => {
+    stubFetch({ ...readyBalance, history: [{
+      id: "release_1", kind: "source_movement", amountCents: 10_000, feeCents: 0, netCents: 10_000,
+      method: null, status: "paid", destinationLast4: null, createdAt: "2026-10-05T00:00:00.000Z",
+      arrivalDate: null, initiatedInApp: false, failureMessage: null, serviceLabel: "Held payment released",
+    }] });
+    render(<PortalPayoutsSettingsPage portal="manager" />);
+    const source = await screen.findByText("Held payment released");
+    expect(source.closest("[data-attr]" )?.parentElement).toHaveTextContent("Moved to Stripe");
+    expect(screen.queryByText(/Standard ·/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Receipt" })).not.toBeInTheDocument();
+  });
+
   it("has no Set up checklist and no Verify identity step", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
     await screen.findByText("Bank accounts");
@@ -199,4 +244,27 @@ describe("PortalPayoutsSettingsPage — not-ready state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add a bank account" }));
     expect(await screen.findByText("account_onboarding")).toBeInTheDocument();
   });
+});
+
+it("does not let an old portal balance replace the newly selected portal", async () => {
+  let finishManagerRead!: (response: Response) => void;
+  const oldManagerRead = new Promise<Response>((resolve) => { finishManagerRead = resolve; });
+  const vendorBalance = { ...readyBalance, availableCents: 2_000, withdrawableCents: 2_000 };
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/stripe/payouts/balance") return oldManagerRead;
+    if (url === "/api/vendor/payouts/balance") return new Response(JSON.stringify(vendorBalance), { status: 200 });
+    if (url.endsWith("/bank-accounts")) return new Response(JSON.stringify({ destinations: [
+      { id: "ba_current", kind: "bank", label: "Current", last4: "1234", status: "new", payable: true, instantEligible: false, default: true },
+    ] }), { status: 200 });
+    if (url.endsWith("/proplane-balance")) return new Response(JSON.stringify({ enabled: false, availableCents: 0, pendingCents: 0, currency: "usd" }), { status: 200 });
+    return new Response(JSON.stringify({ workspacePaymentSettings: {} }), { status: 200 });
+  }));
+  const view = render(<PortalPayoutsSettingsPage portal="manager" />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/stripe/payouts/balance", expect.anything()));
+  view.rerender(<PortalPayoutsSettingsPage portal="vendor" />);
+  await screen.findByText("$20.00");
+  await act(async () => { finishManagerRead(new Response(JSON.stringify(readyBalance), { status: 200 })); });
+  expect(document.querySelector('[data-attr="payouts-settings-available"]')).toHaveTextContent("$20.00");
+  expect(screen.queryByText("$4,280.00")).not.toBeInTheDocument();
 });

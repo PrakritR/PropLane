@@ -10,7 +10,6 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { type PortalPayoutSetupStatus } from "@/components/portal/portal-payout-setup-card";
-import { type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { cn } from "@/lib/utils";
 
@@ -31,18 +30,19 @@ export type PortalPayoutScheduleInterval = "daily" | "weekly" | "monthly" | "man
 
 export type PortalPayoutHistoryRow = {
   id: string;
+  kind?: "source_movement";
   amountCents: number;
   feeCents: number;
   netCents: number;
-  method: "standard" | "instant";
+  method: "standard" | "instant" | null;
   status: "pending" | "in_transit" | "paid" | "failed" | "canceled" | "returned";
-  destinationLast4: string;
+  destinationLast4: string | null;
   createdAt: string;
   arrivalDate: string | null;
   initiatedInApp: boolean;
   failureMessage: string | null;
   serviceLabel: string | null;
-  /** Not on the base contract yet — read defensively; the ⋯ Receipt item only ever shows when a server sends this. */
+  /** Historical data only. External provider URLs are not a portal receipt surface. */
   receiptUrl?: string | null;
 };
 
@@ -61,7 +61,11 @@ export type PortalPayoutBalance = {
   instantAvailableCents: number;
   pendingCents: number;
   onTheWayCents: number;
+  payoutReconciliationPending?: boolean;
   heldCents?: number;
+  releasePendingCents?: number;
+  recoveryOutstandingCents?: number;
+  recoveryReservedCents?: number;
   withdrawableCents?: number;
   availableNote?: string;
   bank: PortalPayoutBank | null;
@@ -78,6 +82,19 @@ export type PortalPayoutBalance = {
   /** VENDOR_BANKING_ENABLED — present (and > 0) only once the vendor take rate is on. */
   feeBps?: number;
 };
+
+/** Money actions require a complete current provider snapshot, including the signed provider balance. */
+export function isPortalPayoutBalance(value: unknown): value is PortalPayoutBalance {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<PortalPayoutBalance>;
+  return row.currency === "usd" &&
+    [row.availableCents, row.withdrawableCents, row.instantAvailableCents,
+      row.pendingCents, row.onTheWayCents, row.heldCents, row.releasePendingCents,
+      row.recoveryOutstandingCents, row.recoveryReservedCents]
+      .every((amount) => Number.isSafeInteger(amount)) &&
+    !!row.setup && typeof row.setup.ready === "boolean" &&
+    !!row.schedule && Array.isArray(row.history);
+}
 
 const SCHEDULE_OPTIONS: { value: PortalPayoutScheduleInterval; label: string }[] = [
   { value: "weekly", label: "Every Friday" },
@@ -110,25 +127,6 @@ export function formatDate(iso: string | null | undefined): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-/**
- * Today's balance has exactly one bank on it — synthesizes the single-entry
- * `PayoutWithdrawAccount` list `PayoutWithdrawSheet` expects for a caller
- * with no live bank-accounts route yet (`portal-payouts-settings-page.tsx`'s
- * fallback path).
- */
-export function bankToWithdrawAccounts(bank: PortalPayoutBank | null): PayoutWithdrawAccount[] {
-  if (!bank) return [];
-  return [
-    {
-      id: "default",
-      label: bank.bankName,
-      last4: bank.last4,
-      kind: "bank",
-      instantEligible: bank.instantEligible,
-    },
-  ];
 }
 
 /** A per-row ⋯ that owns its own scope — mirrors `BookingsRowOverflow`, the shared way to give one record its own menu outside a bulk-select list. */
@@ -185,7 +183,8 @@ export function ScheduleCard({
   );
 }
 
-function payoutMethodLabel(method: "standard" | "instant"): string {
+function payoutMethodLabel(method: "standard" | "instant" | null): string {
+  if (method === null) return "Source movement";
   return method === "instant" ? "Instant" : "Standard";
 }
 
@@ -193,29 +192,31 @@ function PayoutHistoryRow({
   row,
   currency,
   portal,
-  onReceipt,
   onRetry,
+  retryDisabled = false,
 }: {
   row: PortalPayoutHistoryRow;
   currency: string;
   portal: PortalPayoutsPortalKind;
-  onReceipt: (row: PortalPayoutHistoryRow) => void;
   onRetry: (row: PortalPayoutHistoryRow) => void;
+  retryDisabled?: boolean;
 }) {
   const isReturned = row.status === "returned" || row.status === "failed";
+  const isSource = row.kind === "source_movement";
   const TileIcon = row.method === "instant" ? Zap : ArrowUp;
   const sentDate = formatDate(row.createdAt);
   const arrivedDate = row.status === "paid" ? formatDate(row.arrivalDate) : null;
   const arrivesDate = row.status === "pending" || row.status === "in_transit" ? formatDate(row.arrivalDate) : null;
   const returnedDate = formatDate(row.arrivalDate) ?? sentDate;
-  const hasReceipt = Boolean(row.receiptUrl);
-  const canRetry = row.status === "failed";
-  const rowLabel = `${payoutMethodLabel(row.method)} payout of ${formatMoney(row.amountCents, currency)}`;
+  const canRetry = !retryDisabled && !isSource && row.status === "failed";
+  const rowLabel = isSource ? `${row.serviceLabel ?? "Held on PropLane"} · ${formatMoney(row.amountCents, currency)}`
+    : `${payoutMethodLabel(row.method)} payout of ${formatMoney(row.amountCents, currency)}`;
 
   return (
     <PortalPropertyRecordRow
       title={formatMoney(row.amountCents, currency)}
-      address={`${payoutMethodLabel(row.method)} · Bank ····${row.destinationLast4}`}
+      address={isSource ? row.serviceLabel ?? "Held on PropLane"
+        : `${payoutMethodLabel(row.method)}${row.destinationLast4 ? ` · Bank ····${row.destinationLast4}` : ""}`}
       leading={
         <div
           aria-hidden
@@ -229,26 +230,21 @@ function PayoutHistoryRow({
       }
       facts={
         <>
-          {sentDate ? <PortalRowFact icon={Calendar}>Sent {sentDate}</PortalRowFact> : null}
+          {sentDate ? <PortalRowFact icon={Calendar}>{isSource ? "Recorded" : "Sent"} {sentDate}</PortalRowFact> : null}
           {arrivedDate ? <PortalRowFact icon={Landmark}>Arrived {arrivedDate}</PortalRowFact> : null}
           {arrivesDate ? <PortalRowFact icon={Landmark}>Arrives {arrivesDate}</PortalRowFact> : null}
           {row.method === "instant" ? <PortalRowFact icon={Zap}>Fee {formatMoney(row.feeCents, currency)}</PortalRowFact> : null}
           {isReturned ? (
             <PortalRowFact icon={AlertTriangle}>
-              Returned by the bank {returnedDate ?? ""} · back in Available
+              Returned by the bank {returnedDate ?? ""}
             </PortalRowFact>
           ) : null}
-          {portal === "vendor" && row.serviceLabel ? <PortalRowFact icon={Wrench}>{row.serviceLabel}</PortalRowFact> : null}
+          {portal === "vendor" && !isSource && row.serviceLabel ? <PortalRowFact icon={Wrench}>{row.serviceLabel}</PortalRowFact> : null}
         </>
       }
       trailing={
-        hasReceipt || canRetry ? (
+        canRetry ? (
           <PayoutRowMenu rowId={row.id} label={rowLabel}>
-            {hasReceipt ? (
-              <Button type="button" variant="outline" onClick={() => onReceipt(row)} data-attr="payouts-history-receipt">
-                Receipt
-              </Button>
-            ) : null}
             {canRetry ? (
               <Button type="button" variant="outline" onClick={() => onRetry(row)} data-attr="payouts-history-retry">
                 Retry
@@ -269,16 +265,16 @@ export function HistorySection({
   search,
   onClearSearch,
   portal,
-  onReceipt,
   onRetry,
+  retryDisabled = false,
 }: {
   rows: PortalPayoutHistoryRow[];
   currency: string;
   search: string;
   onClearSearch: () => void;
   portal: PortalPayoutsPortalKind;
-  onReceipt: (row: PortalPayoutHistoryRow) => void;
   onRetry: (row: PortalPayoutHistoryRow) => void;
+  retryDisabled?: boolean;
 }) {
   const filtered = rows.filter((row) =>
     matchesPortalListSearch(
@@ -304,7 +300,7 @@ export function HistorySection({
         }}
       >
         {filtered.map((row) => (
-          <PayoutHistoryRow key={row.id} row={row} currency={currency} portal={portal} onReceipt={onReceipt} onRetry={onRetry} />
+          <PayoutHistoryRow key={row.id} row={row} currency={currency} portal={portal} onRetry={onRetry} retryDisabled={retryDisabled} />
         ))}
       </PortalRecordListSurface>
     </div>

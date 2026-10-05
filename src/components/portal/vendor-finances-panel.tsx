@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowUpFromLine, Download, FileText, Undo2, Settings, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
@@ -51,12 +51,14 @@ import { VendorPaymentRowMenu } from "@/components/portal/vendor-payment-row-men
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
-  bankToWithdrawAccounts,
   formatMoney,
+  isPortalPayoutBalance,
   type PortalPayoutBalance,
 } from "@/components/portal/portal-payouts-panel";
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
+import { sharedGet } from "@/lib/shared-get-cache";
+import { isPayoutDestinationSummary, type PayoutDestinationSummary } from "@/components/portal/payout-bank-sheet";
 import { track } from "@/lib/analytics/track-client";
 import {
   formatInvoiceMoney,
@@ -149,43 +151,48 @@ function formatIncomeDate(dateIso: string): string {
  * checks. Settings → Payouts is unchanged and still works on its own.
  */
 function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () => void; reloadKey?: number } = {}) {
+  const loadSequence = useRef(0);
   const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [destinations, setDestinations] = useState<PayoutDestinationSummary[] | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [statementOpen, setStatementOpen] = useState(false);
 
   const loadBalance = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    setBalance(null);
+    setDestinations(null);
     setLoadError(false);
-    try {
-      const res = await fetch("/api/vendor/payouts/balance", { credentials: "include" });
-      if (!res.ok) {
-        setLoadError(true);
-        return;
-      }
-      const body = (await res.json().catch(() => null)) as Partial<PortalPayoutBalance> | null;
-      if (!body || typeof body.availableCents !== "number" || !body.setup) {
-        setLoadError(true);
-        return;
-      }
-      setBalance(body as PortalPayoutBalance);
-    } catch {
+    const [balanceRead, banksRead] = await Promise.all([
+      sharedGet("/api/vendor/payouts/balance", { ttlMs: 0 }),
+      sharedGet("/api/vendor/stripe-connect/bank-accounts", { ttlMs: 0 }),
+    ]);
+    if (sequence !== loadSequence.current) return;
+    const bankBody = banksRead.ok ? banksRead.data as { destinations?: unknown } | null : null;
+    if (!balanceRead.ok || !isPortalPayoutBalance(balanceRead.data) ||
+        !bankBody || !Array.isArray(bankBody.destinations) ||
+        !bankBody.destinations.every(isPayoutDestinationSummary)) {
       setLoadError(true);
+      return;
     }
+    setBalance(balanceRead.data);
+    setDestinations(bankBody.destinations);
   }, []);
 
   useEffect(() => {
     void loadBalance();
+    return () => { loadSequence.current += 1; };
   }, [loadBalance, reloadKey]);
 
-  // Access-denied / not-yet-linked reads the same as "nothing to show yet" —
-  // the empty Income list below already explains that state, so this card
-  // simply omits itself rather than duplicating an error banner.
-  if (loadError || !balance) return null;
+  if (loadError) return <div role="alert" className="mb-3 rounded-xl border border-border p-4 text-sm" data-attr="vendor-income-balance-error">Could not load payout funds or bank accounts.</div>;
+  if (!balance || !destinations) return null;
 
-  const withdrawAccounts: PayoutWithdrawAccount[] = bankToWithdrawAccounts(balance.bank);
+  const withdrawAccounts: PayoutWithdrawAccount[] = destinations.filter((row) => row.payable)
+    .sort((a, b) => Number(b.default) - Number(a.default))
+    .map((row) => ({ id: row.id, label: row.label, last4: row.last4, kind: row.kind, instantEligible: row.instantEligible }));
   const withdrawableCents = withdrawableCentsFromSnapshot(balance);
-  const ready = balance.setup.ready;
+  const ready = balance.setup.ready && withdrawAccounts.length > 0;
   const heldCents = balance.heldCents ?? 0;
   // VENDOR_BANKING_ENABLED signal: the balance route only ever includes
   // feeBps once the flag is on, so this whole enhanced card (buckets, nudge,
@@ -224,13 +231,18 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
             ) : null}
           </div>
         ) : (
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available balance</p>
-            <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-available">
-              {formatMoney(balance.availableCents, balance.currency)}
-            </p>
+          <div className="flex flex-wrap gap-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available to withdraw</p>
+              <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-available">
+                {formatMoney(withdrawableCents, balance.currency)}
+              </p>
+            </div>
+            {heldCents > 0 ? <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Held pending bank</p>
+              <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-held">{formatMoney(heldCents, balance.currency)}</p></div> : null}
           </div>
         )}
+        {(balance.withdrawableCents ?? 0) < 0 ? <p className="text-sm text-danger" data-attr="vendor-income-provider-deficit">Provider deficit {formatMoney(-(balance.withdrawableCents ?? 0), balance.currency)}</p> : null}
         <div className="vbank-quickactions flex items-center gap-1.5">
           {vendorBankingOn ? (
             <PortalIconAction
@@ -255,20 +267,24 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
             icon={ArrowUpFromLine}
             label="Withdraw"
             data-attr="vendor-income-balance-withdraw"
-            disabled={ready && withdrawableCents <= 0}
+            disabled={!ready || balance.payoutReconciliationPending || withdrawableCents <= 0}
             onClick={() => {
               // No bank yet: the one Add bank account flow is the fix, never a
               // Withdraw sheet with nowhere to send the money.
-              if (!ready && onAddBank) {
-                onAddBank();
-                return;
-              }
               track("payout_withdraw_started", { portal: "vendor", source: "income_tab" });
               setWithdrawOpen(true);
             }}
           />
         </div>
       </div>
+      {balance.pendingCents > 0 || balance.onTheWayCents > 0 || (balance.releasePendingCents ?? 0) > 0 || balance.payoutReconciliationPending ? (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+          {balance.pendingCents > 0 ? <span data-attr="vendor-income-payment-pending">Pending payments {formatMoney(balance.pendingCents, balance.currency)}</span> : null}
+          {balance.onTheWayCents > 0 ? <span data-attr="vendor-income-payout-on-way">On the way to bank {formatMoney(balance.onTheWayCents, balance.currency)}</span> : null}
+          {(balance.releasePendingCents ?? 0) > 0 ? <span data-attr="vendor-income-release-pending">Release pending {formatMoney(balance.releasePendingCents ?? 0, balance.currency)}</span> : null}
+          {balance.payoutReconciliationPending ? <span>Checking a prior withdrawal</span> : null}
+        </div>
+      ) : null}
       {/* VD41 — shown only while money is genuinely held (no bank yet); disappears the moment a bank is added. */}
       {vendorBankingOn && heldCents > 0 && !ready ? (
         <div
@@ -276,7 +292,7 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
           data-attr="vendor-income-balance-nudge"
         >
           <span className="text-foreground">
-            Add your bank to withdraw — you’re already getting paid, {formatMoney(heldCents, balance.currency)} is waiting.
+            {formatMoney(heldCents, balance.currency)} is held pending a ready bank account.
           </span>
           <button
             type="button"
@@ -293,7 +309,7 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
         onClose={() => setWithdrawOpen(false)}
         apiBase="/api/vendor"
         currency={balance.currency}
-        availableCents={balance.availableCents}
+        availableCents={withdrawableCents}
         instantAvailableCents={balance.instantAvailableCents}
         accounts={withdrawAccounts}
         onSuccess={() => {
