@@ -23,6 +23,7 @@ import {
   resolveManagerCheckoutPurchase,
 } from "@/lib/manager-purchase-from-session";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { getStripe } from "@/lib/stripe";
 import { mockCheckoutSession } from "../mocks/stripe/events";
 
 describe("manager-purchase-from-session", () => {
@@ -191,6 +192,42 @@ describe("manager-purchase-from-session", () => {
     expect(update).toHaveBeenCalledWith({ stripe_checkout_session_id: "cs_paid_legacy" });
     await adoptPaidPortalCheckoutForOwner(session, "owner-a");
     expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("fulfills a reserved paid portal session at captured retired terms with an overage item first", async () => {
+    const stripe = {
+      subscriptions: { retrieve: vi.fn(async () => ({ status: "active", customer: "cus_owner",
+        items: { data: [{ price: { id: "price_overage" } }, { price: { id: "price_retired_pro" } }] } })) },
+      prices: { retrieve: vi.fn(async (id: string) => ({ id, active: false, unit_amount: 2000,
+        currency: "usd", type: "recurring", recurring: { interval: "month", interval_count: 1 },
+        product: id === "price_overage" ? "prod_overage" : "prod_pro" })) },
+      products: { retrieve: vi.fn(async (id: string) => ({ metadata: { axis_plan: id === "prod_pro" ? "axis_pro" : "axis_overage" } })) },
+    };
+    for (let i = 0; i < 10; i++) vi.mocked(getStripe).mockReturnValueOnce(stripe as never);
+    const purchase = { id: "purchase-retired", user_id: "owner-a", manager_id: "MGR-A",
+      email: "a@example.com", stripe_checkout_session_id: "cs_retired", tier: "free" };
+    const paidUpdates: Record<string, unknown>[] = [];
+    const db = { from: vi.fn((table: string) => {
+      const query = {
+        select: vi.fn(() => query), eq: vi.fn(() => query),
+        maybeSingle: vi.fn(async () => ({ data: table === "manager_purchases" ? purchase :
+          table === "profiles" ? { manager_id: "MGR-A", email: "a@example.com" } :
+            { stripe_customer_id: "cus_owner" }, error: null })),
+        update: vi.fn((patch: Record<string, unknown>) => { paidUpdates.push(patch); return query; }),
+        then: (resolve: (result: { error: null }) => unknown) => Promise.resolve({ error: null }).then(resolve),
+      };
+      return query;
+    }) };
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const session = mockCheckoutSession({ id: "cs_retired", mode: "subscription", status: "complete",
+      payment_status: "paid", subscription: "sub_retired", customer: "cus_owner",
+      client_reference_id: "owner-a", customer_email: "a@example.com",
+      metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-A", userId: "owner-a" } });
+    await adoptPaidPortalCheckoutForOwner(session, "owner-a");
+    await recordPaidManagerCheckoutSession(session);
+    expect(paidUpdates).toHaveLength(1);
+    expect(paidUpdates[0]).toMatchObject({ stripe_checkout_session_id: "cs_retired", tier: "pro", billing: "monthly" });
+    expect(stripe.prices.retrieve).toHaveBeenCalledWith("price_retired_pro");
   });
 
   it("creates an exact paid-session reservation for an authenticated Free manager missing a purchase row", async () => {
