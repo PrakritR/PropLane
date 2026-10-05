@@ -81,6 +81,9 @@ export function householdChargeProplanePayability(
   charge: HouseholdCharge,
 ): "payable" | "offline" | "unknown" {
   if (charge.status === "paid") return "offline";
+  // One ledger payment row per charge cannot attribute a second provider
+  // receipt for a partial balance. Keep Pay unavailable pending books review.
+  if (charge.status === "partially_paid") return "unknown";
   if (charge.axisPaymentsEnabledSnapshot === null) return "unknown";
   if (charge.axisPaymentsEnabledSnapshot === true) return "payable";
   if (charge.axisPaymentsEnabledSnapshot === false) return "offline";

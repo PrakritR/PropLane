@@ -25,12 +25,16 @@ export async function POST(req: Request) {
     const scope = await resolveManagerWorkspaceRowScope(db, user.id);
     const canCollect = owner === user.id || Boolean(property && await managerHasCoManagerPermissionForProperty(db, user.id, property, "payments", "edit"));
     if (!owner || !canCollect || !rowInWorkspaceScope(property, scope)) return NextResponse.json({ error: "Charge not found." }, { status: 404 });
+    if (body.paymentMethod === "ach") {
+      return NextResponse.json({ error: "The resident must authorize bank payment in Payments." },
+        { status: 422 });
+    }
     const charge = row.row_data as HouseholdCharge;
     // Resident identity comes only from the authorized persisted charge, never the request body.
     const result = await createHouseholdChargeCheckout(db, {
       userId: charge.residentUserId ?? "", userEmail: charge.residentEmail,
       chargeIds: [body.chargeId], expectedManagerUserId: owner,
-      mode: "embedded", paymentMethod: body.paymentMethod === "ach" ? "ach" : "card",
+      mode: "embedded", paymentMethod: "card",
       appOrigin: resolveAppOrigin(req), returnPath: "/portal/payments/incoming/pending",
     });
     return NextResponse.json(result, { status: result.ok ? 200 : result.status });

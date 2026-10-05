@@ -20,6 +20,10 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => {
 vi.mock("@/components/stripe-embedded-checkout", () => ({
   StripeEmbeddedCheckout: () => <div data-testid="stripe-checkout" />,
 }));
+vi.mock("@/components/portal/resident-bank-account-form", () => ({
+  ResidentBankAccountForm: ({ intentId }: { intentId: string }) =>
+    <div data-testid="resident-bank-form">{intentId}</div>,
+}));
 
 const AUTOPAY_RESPONSE = {
   managerAllowsAutopay: true,
@@ -64,6 +68,36 @@ describe("ResidentPaymentMethodsSettingsCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     await screen.findByRole("dialog");
     expect(screen.getByText(/Save a bank account or card/)).toBeInTheDocument();
+  });
+
+  it("resumes exact pending bank verification when Settings is reopened", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/stripe/resident-bank-setup")) {
+        return new Response(JSON.stringify({ bankStatus: "verification",
+          setupIntentId: "seti_pending", clientSecret: "seti_secret" }), { status: 200 });
+      }
+      if (url.includes("/api/resident/autopay")) return new Response(JSON.stringify(AUTOPAY_RESPONSE), { status: 200 });
+      return new Response(JSON.stringify({ methods: [] }), { status: 200 });
+    }));
+    render(<ResidentPaymentMethodsSettingsCard />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    expect(await screen.findByTestId("resident-bank-form")).toHaveTextContent("seti_pending");
+    expect(screen.queryByTestId("stripe-checkout")).not.toBeInTheDocument();
+  });
+
+  it("shows an incomplete pending-bank read as an error instead of no pending bank", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/api/stripe/resident-bank-setup")) {
+        return new Response(JSON.stringify({ error: "Bank setup history needs review." }), { status: 409 });
+      }
+      if (String(input).includes("/api/resident/autopay")) return new Response(JSON.stringify(AUTOPAY_RESPONSE), { status: 200 });
+      return new Response(JSON.stringify({ methods: [] }), { status: 200 });
+    }));
+    render(<ResidentPaymentMethodsSettingsCard />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Bank setup history needs review.");
+    expect(screen.queryByTestId("resident-bank-form")).not.toBeInTheDocument();
   });
 
   it("renders the autopay card alongside it", async () => {

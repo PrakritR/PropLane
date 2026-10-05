@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
+import { ResidentBankAccountForm } from "@/components/portal/resident-bank-account-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -36,6 +37,9 @@ type CheckoutState = {
   chargeIds: string[];
   paymentMethod: ResidentAxisPaymentMethod;
   clientSecret: string | null;
+  mode?: "checkout" | "manual_ach";
+  paymentIntentId?: string;
+  bankStatus?: "entry" | "verification" | "clearing" | "paid" | "review";
   loading: boolean;
   error: string | null;
   subtotalCents?: number;
@@ -186,7 +190,8 @@ export function ResidentSignAndPayMoveIn({
 
   const moveInGroup = useMemo(() => {
     if (atSigning) return null;
-    const pending = readChargesForResident(email, null).filter((c) => isPayableHouseholdCharge(c));
+    const pending = readChargesForResident(email, null).filter((c) => isPayableHouseholdCharge(c) ||
+      (c.status === "processing" && c.stripeCheckoutSessionId?.startsWith("pi_")));
     const groups = buildMoveInChargeGroups(pending);
     return groups[0] ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick refreshes charge reads
@@ -208,6 +213,11 @@ export function ResidentSignAndPayMoveIn({
     [items],
   );
   const payableIds = useMemo(() => payableItems.map((c) => c.id), [payableItems]);
+  const manualProcessingRefs = items.filter(item => item.status === "processing")
+    .map(item => item.stripeCheckoutSessionId);
+  const manualProcessingIntentId = manualProcessingRefs.length > 0 &&
+    manualProcessingRefs.every(ref => ref === manualProcessingRefs[0]) &&
+    manualProcessingRefs[0]?.startsWith("pi_") ? manualProcessingRefs[0] : null;
   // Only an unpaid lease fee can be waived, and only while the resident can still pay it here.
   const canEnterWaiveCode =
     atSigning && Boolean(leaseId) && payableItems.some((c) => c.kind === "lease_fee" && !c.waivedAt);
@@ -229,18 +239,22 @@ export function ResidentSignAndPayMoveIn({
         });
         const payload = (await res.json().catch(() => ({}))) as {
           clientSecret?: string;
+          mode?: "checkout" | "manual_ach";
+          paymentIntentId?: string;
+          bankStatus?: "entry" | "verification" | "clearing" | "paid" | "review";
           error?: string;
           subtotalCents?: number;
           processingFeeCents?: number;
           totalCents?: number;
         };
-        if (!res.ok || !payload.clientSecret) {
+        if (!res.ok || !payload.clientSecret || (method === "ach" &&
+          (payload.mode !== "manual_ach" || !payload.paymentIntentId))) {
           setCheckout({
             chargeIds,
             paymentMethod: method,
             clientSecret: null,
             loading: false,
-            error: payload.error ?? "Could not start payment.",
+            error: payload.error ?? (method === "ach" ? "Bank payment needs review." : "Could not start payment."),
           });
           return;
         }
@@ -248,6 +262,9 @@ export function ResidentSignAndPayMoveIn({
           chargeIds,
           paymentMethod: method,
           clientSecret: payload.clientSecret,
+          mode: payload.mode,
+          paymentIntentId: payload.paymentIntentId,
+          bankStatus: payload.bankStatus,
           loading: false,
           error: null,
           subtotalCents: payload.subtotalCents,
@@ -266,6 +283,22 @@ export function ResidentSignAndPayMoveIn({
     },
     [],
   );
+
+  const resumeManualAch = useCallback(async (paymentIntentId: string) => {
+    const response = await fetch(`/api/stripe/resident-ach-payment?payment_intent_id=${encodeURIComponent(paymentIntentId)}`,
+      { credentials: "include", cache: "no-store" });
+    const result = await response.json() as { clientSecret?: string; chargeIds?: string[];
+      bankStatus?: CheckoutState["bankStatus"]; subtotalCents?: number; totalCents?: number; error?: string };
+    if (!response.ok || !result.clientSecret || !Array.isArray(result.chargeIds) || !result.bankStatus) {
+      showToast(result.error ?? "Bank payment needs review.");
+      return;
+    }
+    setCheckout({ chargeIds: result.chargeIds, paymentMethod: "ach", clientSecret: result.clientSecret,
+      mode: "manual_ach", paymentIntentId, bankStatus: result.bankStatus,
+      subtotalCents: result.subtotalCents, totalCents: result.totalCents, loading: false, error: null });
+    await syncHouseholdChargesFromServer(true, { skipReconcile: true });
+    setTick((n) => n + 1);
+  }, [showToast]);
 
   if (atSigning && items.length === 0) return null;
 
@@ -322,7 +355,13 @@ export function ResidentSignAndPayMoveIn({
       <p className="mt-1 text-xs font-semibold text-muted">
         {feeCents > 0 ? `Processing fee ${formatUsd(feeCents)}` : "Processing fee: None"}
       </p>
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {manualProcessingIntentId ? (
+        <Button type="button" variant="outline" className="mt-3" data-attr="resident-move-in-resume-bank"
+          onClick={() => resumeManualAch(manualProcessingIntentId)}>
+          Verify bank or check status
+        </Button>
+      ) : null}
+      {!manualProcessingIntentId ? <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {paymentMethodOptions.map((option) => (
           <button
             key={option.id}
@@ -342,7 +381,7 @@ export function ResidentSignAndPayMoveIn({
             </span>
           </button>
         ))}
-      </div>
+      </div> : null}
       {canEnterWaiveCode && !checkout?.clientSecret ? (
         <LeaseFeeWaiveCodeEntry
           leaseId={leaseId as string}
@@ -358,7 +397,16 @@ export function ResidentSignAndPayMoveIn({
       {checkout?.error ? (
         <p className="mt-3 text-sm font-semibold text-destructive" role="alert">{checkout.error}</p>
       ) : null}
-      {checkout?.clientSecret ? (
+      {checkout?.mode === "manual_ach" && checkout.clientSecret && checkout.paymentIntentId ? (
+        <div className="mt-3 rounded-2xl border border-border bg-card p-4">
+          <ResidentBankAccountForm key={checkout.paymentIntentId} kind="payment"
+            clientSecret={checkout.clientSecret} intentId={checkout.paymentIntentId}
+            amountCents={checkout.totalCents} initialStatus={checkout.bankStatus}
+            onStatusChange={(status) => { if (status !== "entry") {
+              void syncHouseholdChargesFromServer(true, { skipReconcile: true }).then(() => setTick((n) => n + 1));
+            } }} onComplete={onCheckoutComplete} />
+        </div>
+      ) : checkout?.clientSecret ? (
         <div className="mt-3 min-h-[min(50vh,22rem)] overflow-hidden rounded-2xl border border-border bg-card">
           <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} onComplete={onCheckoutComplete} />
         </div>

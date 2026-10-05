@@ -17,7 +17,6 @@ import {
   resolveHouseholdChargeFeePayer,
 } from "@/lib/stripe-household-charge-checkout.server";
 import { residentServiceFeeBreakdown, type ResidentAxisPaymentMethod } from "@/lib/payment-policy";
-import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
 import { creditHoldFromPaymentIntent } from "@/lib/stripe-platform-hold.server";
 import { getStripe } from "@/lib/stripe";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
@@ -424,7 +423,6 @@ export async function chargeAutopay(
   const { feePayer } = feePayerResolved;
 
   const stripe = getStripe();
-  const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, managerUserId);
 
   const { data: profile } = await db
     .from("profiles")
@@ -441,9 +439,17 @@ export async function chargeAutopay(
   let method: ResidentAxisPaymentMethod = "ach";
   try {
     const pm = await stripe.paymentMethods.retrieve(run.paymentMethodId);
+    if (pm.customer !== customerId || !["us_bank_account", "card"].includes(pm.type)) {
+      throw new Error("Saved payment method is not attached to this resident.");
+    }
     method = pm.type === "us_bank_account" ? "ach" : "card";
   } catch {
     const reason = "Saved payment method could not be verified.";
+    await fail(reason);
+    return { ok: false, reason };
+  }
+  if (!loadedCharge.acceptedPaymentMethods.includes(method)) {
+    const reason = "This charge does not accept the saved payment method.";
     await fail(reason);
     return { ok: false, reason };
   }
@@ -462,8 +468,17 @@ export async function chargeAutopay(
     return { ok: false, reason };
   }
 
+  // The same row lock and charge slot as manual Checkout are acquired before
+  // confirmation. A conflict, including an earlier uncertain PI for this
+  // run, stays claimed for reconciliation; it must never trigger a new debit.
+  const { data: reserved, error: reserveError } = await db.rpc("reserve_resident_autopay_slot", {
+    p_run_id: run.id, p_attempt: attempt,
+  });
+  if (reserveError || reserved !== true) {
+    return { ok: false, reason: "This charge has a payment in progress or needs review." };
+  }
+
   try {
-    const holdPath = !destinationAccountId;
     const paymentIntent = await stripe.paymentIntents.create(
       {
         amount: fee.totalCents,
@@ -472,8 +487,6 @@ export async function chargeAutopay(
         payment_method: run.paymentMethodId,
         off_session: true,
         confirm: true,
-        ...(destinationAccountId ? { transfer_data: { destination: destinationAccountId } } : {}),
-        ...(!holdPath && fee.applicationFeeCents > 0 ? { application_fee_amount: fee.applicationFeeCents } : {}),
         metadata: {
           purpose: HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE,
           autopay_run_id: run.id,
@@ -483,32 +496,43 @@ export async function chargeAutopay(
           resident_email: run.residentEmail.trim().toLowerCase(),
           payment_method: method,
           fee_payer: feePayer,
+          principal_cents: String(subtotalCents),
+          subtotal_cents: String(subtotalCents),
+          total_cents: String(fee.totalCents),
+          processing_fee_cents: String(fee.residentAddedFeeCents),
           manager_payout_cents: String(fee.managerPayoutCents),
-          ...(holdPath ? { platform_hold: "1", hold_amount_cents: String(fee.managerPayoutCents) } : {}),
+          platform_hold: "1",
+          hold_amount_cents: String(fee.managerPayoutCents),
+          source_arbitration_v: "1",
         },
       },
       { idempotencyKey: `autopay:${run.id}:${attempt}` },
     );
+    const { data: bound, error: bindError } = await db.rpc("bind_resident_autopay_payment_intent", {
+      p_run_id: run.id, p_attempt: attempt, p_payment_intent_id: paymentIntent.id,
+    });
+    if (bindError || bound !== true) {
+      return { ok: false, reason: "Captured payment needs provider reconciliation." };
+    }
     // The webhook (payment_intent.succeeded / .payment_failed) is the
     // authoritative settle path — a synchronous card decline still arrives
     // there too, but marking succeeded here when Stripe already confirmed it
     // synchronously avoids waiting on webhook delivery to show the resident a
     // paid charge.
     if (paymentIntent.status === "succeeded") {
-      await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, run.chargeId);
+      const paid = await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, run.chargeId);
+      if (!paid.ok) return { ok: false, reason: "Captured payment needs provider reconciliation." };
       await creditHoldFromPaymentIntent(db, paymentIntent).catch(() => undefined);
-      await updateRun(db, run.id, { status: "succeeded", stripePaymentIntentId: paymentIntent.id });
     }
     return { ok: true, paymentIntentId: paymentIntent.id };
   } catch (e) {
-    const reason = (e instanceof Error && e.message) || "The payment was declined.";
-    await fail(reason);
-    await notifyAutopayDeclined(db, {
-      charge: loadedCharge.charge,
-      managerId: managerUserId,
-      declineMessage: reason,
-    }).catch(() => undefined);
-    return { ok: false, reason, declined: true };
+    // A transport error can follow provider creation. The slot and run stay
+    // claimed until exact PI/webhook evidence proves a terminal outcome.
+    console.error("[autopay] provider outcome needs reconciliation", {
+      runId: run.id, chargeId: run.chargeId,
+      message: e instanceof Error ? e.message : "Unknown provider outcome",
+    });
+    return { ok: false, reason: "Payment outcome needs provider reconciliation." };
   }
 }
 
@@ -582,7 +606,8 @@ export async function retryAutopayRun(
   const nextAttempt = currentAttempt + 1;
   const { data, error } = await db
     .from("resident_autopay_runs")
-    .update({ status: "claimed", attempt: nextAttempt, failure_reason: null, updated_at: now.toISOString() })
+    .update({ status: "claimed", attempt: nextAttempt, stripe_payment_intent_id: null,
+      failure_reason: null, updated_at: now.toISOString() })
     .eq("id", failedRun.id)
     .eq("status", "failed")
     .eq("attempt", currentAttempt)
@@ -661,7 +686,7 @@ export async function listFailedAutopayRunsEligibleForRetry(
   const out: AutopayRetryCandidate[] = [];
   for (const run of candidates) {
     const charge = chargeById.get(String(run.charge_id));
-    if (!charge?.id || !isUnpaidHouseholdCharge(charge)) continue;
+    if (!charge?.id || charge.status === "partially_paid" || !isUnpaidHouseholdCharge(charge)) continue;
     const householdKey = residentAutopayHouseholdKey(charge.residentEmail, charge.propertyId);
     const settings = settingsByKey.get(`${run.resident_user_id}|${householdKey}`);
     if (!settings?.enabled || !settings.paymentMethodId) continue;

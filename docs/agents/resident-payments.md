@@ -22,18 +22,16 @@ Manager settings and staff overrides use separate atomic RPCs on the same row, s
 manager save cannot overwrite a concurrent staff revocation. Unknown plan reads stop
 checkout before deciding who pays.
 
-**Two paths, one fee math.** Ready Connect + bank
-(`connectAccountReadyForAchPayouts`: transfers active AND `payouts_enabled`)
-is a destination charge on the PLATFORM account
-(`transfer_data.destination = <that person's connected account>`, **never** a
-direct charge / `on_behalf_of` / a `Stripe-Account` header). No bank yet: the
-same checkout still completes as a platform charge (`platform_hold=1`); the
-webhook credits `platform_payment_holds` and `account.updated` transfers the
-leftover when they become ready. Withdraw never spends a hold. Only who
-bears the fee moves, via `application_fee_amount` on the destination path
-(omitted on the hold path):
+**One captured source, one fee math.** New marked household card Checkout,
+manual bank PaymentIntents and autopay PaymentIntents capture centrally with
+`source_arbitration_v=1`, no Connect destination or provider application fee.
+After the exact captured USD Charge is attested and the charge is atomically
+marked paid, `household-captured-source.server.ts` allocates the frozen
+principal, processing fee and manager net to the owner or a durable hold.
+Manager withdrawal spends only available, verified funds. The economic fee
+split remains:
 
-| Fee payer | Resident charged | `application_fee_amount` | Manager receives | PropLane net |
+| Fee payer | Resident charged | Processing fee allocation | Manager receives | PropLane net |
 | --- | --- | --- | --- | --- |
 | resident (Free, or an explicit paid-plan choice) | subtotal + fee | fee | subtotal | ≈ 0 |
 | manager (explicit paid-plan choice) | subtotal | fee | subtotal − fee | ≈ 0 |
@@ -64,8 +62,50 @@ bears the fee moves, via `application_fee_amount` on the destination path
   (resident total, retained `application_fee_amount`, manager payout). The
   checkout builder and every disclosure derive from this, holding the invariant
   `totalCents − applicationFeeCents === managerPayoutCents` in all three cases;
-  `createAxisAchCheckoutSession` throws before creating the session if it ever
-  fails, and adds the resident fee line item ONLY when the resident pays.
+  the checkout builder refuses a non-reconciling quote before provider work and
+  adds the resident fee line item only when the resident pays.
+
+### Resident claim and in-app bank payment boundary (October 2026)
+
+`20261004230000_resident_checkout_attempt_claims.sql` reserves every selected
+charge in one transaction before Stripe work. Its slot excludes another cart or
+autopay run; retry reuses the original immutable amount, owner, fee terms,
+provider idempotency key and source. Partial payment, changed amounts, owner
+mismatch, an unknown listing/payment policy, and any stored legacy source
+without a new slot require review before another debit. A historical co-manager
+charge booked under someone other than the actual listing owner also needs
+books review; the new source never reassigns that charge or its journals.
+
+Residents enter a bank account inside Payments or the move-in pay step. Stripe.js
+receives account and routing numbers directly; the app server receives only a
+marked PaymentIntent ID and later microdeposit code or cent amounts. The custom
+form displays one-time debit terms for the exact quoted amount before calling
+`confirmUsBankAccountPayment`. Saved-bank setup uses a customer-owned SetupIntent,
+separate future-payment terms, and `confirmUsBankAccountSetup`. These terms and
+the account holder email are necessary because Stripe's [ACH mandate guidance](https://docs.stripe.com/payments/ach-direct-debit#mandates)
+requires a custom form to show authorization before confirmation and describes
+mandate copies by billing email. [Stripe's direct API guide](https://docs.stripe.com/payments/ach-direct-debit/accept-a-payment?payment-ui=direct-api)
+and [saved-bank guide](https://docs.stripe.com/payments/ach-direct-debit/set-up-payment?payment-ui=elements)
+cover the microdeposit and confirmation states. Verification can resume after
+closing the UI: the processing charge carries the exact PI reference, while
+Settings recovers a pending SI only under the authenticated resident's exact
+Stripe customer and metadata. A retryable `requires_payment_method` PI retains
+its claim and client secret; a failed event cannot release a slot while that PI
+could still confirm. Manager-assisted collection stays card only; a resident
+must authorize their own bank account in Payments.
+
+Before activating this migration, inventory old open household Checkout sources
+and resolve each to terminally expired and unpaid or reconcile its exact paid
+source. A legacy open session may have no charge-side session reference, so the
+new SQL cannot discover it. The current TEST inventory includes one open
+household session; do not activate new callers for its charge until a separately
+reviewed provider operation resolves it. This paragraph authorizes no expiry
+or production mutation. Delayed autopay PI events after account deletion need
+provider reconciliation because the existing account purge cascades the run;
+they must not attach money or an old attempt to a replacement login. A deleted
+manual claim keeps immutable provider/source terms with resident access detached;
+the same-email replacement cannot verify it. This tranche does not add a second
+receipt to a partially paid charge or a new reversal workflow.
 
 The **manager choice** is `serviceFeePayer: "resident" | "manager" | "proplane"` on
 `ManagerManualPaymentSettings` (default `resident`), edited in the manager
