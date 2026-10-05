@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
   session: null as Record<string, unknown> | null,
   paidResult: { ok: true, alreadyPaid: false } as { ok: boolean; alreadyPaid?: boolean },
   processingResult: { ok: true, marked: 1 } as { ok: boolean; marked: number },
-  paidCalls: vi.fn(), processingCalls: vi.fn(), bindCalls: vi.fn(),
+  paidCalls: vi.fn(), creditCalls: vi.fn(), processingCalls: vi.fn(), bindCalls: vi.fn(),
   residentRole: true,
 }));
 
@@ -35,6 +35,10 @@ vi.mock("@/lib/stripe-household-charge", () => ({
     session.status === "complete" && session.payment_status === "unpaid",
   markHouseholdChargePaidFromStripeSession: async () => { state.paidCalls(); return state.paidResult; },
   markHouseholdChargeProcessingFromStripeSession: async () => { state.processingCalls(); return state.processingResult; },
+}));
+
+vi.mock("@/lib/household-captured-source.server", () => ({
+  creditVerifiedHouseholdCheckoutSource: async () => { state.creditCalls(); },
 }));
 
 import { GET } from "@/app/api/stripe/household-charge-verify/route";
@@ -84,6 +88,7 @@ describe("resident household checkout verification", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ paid: true, chargeId: "hc_a", sessionId: "cs_paid" });
     expect(state.paidCalls).toHaveBeenCalledOnce();
+    expect(state.creditCalls).toHaveBeenCalledOnce();
   });
 
   it("refuses a user without resident role before provider verification", async () => {

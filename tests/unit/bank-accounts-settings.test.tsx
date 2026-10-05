@@ -13,7 +13,8 @@ vi.mock("@/components/stripe-connect-embedded", () => ({
     </button>
   ),
 }));
-vi.mock("@/components/portal/payout-bank-sheet", () => ({
+vi.mock("@/components/portal/payout-bank-sheet", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/components/portal/payout-bank-sheet")>(),
   PayoutBankSheet: ({ open }: { open: boolean }) => (open ? <div data-attr="stub-bank-sheet">bank sheet</div> : null),
 }));
 vi.mock("@/lib/native/detect-native", () => ({ isNativeRuntimeSync: () => false }));
