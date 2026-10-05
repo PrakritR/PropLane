@@ -14,6 +14,7 @@ import {
 import type { LinkedFormRef } from "@/lib/application-linked-forms";
 import { resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.server";
 import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
+import type { CoManagerPermissionLevel } from "@/lib/co-manager-permissions";
 import {
   normalizeCustomApplicationFields,
   normalizeManagerListingSubmissionV1,
@@ -149,7 +150,16 @@ export type IssuedLinkedForm = IssuedLinkedFormView;
  */
 export async function createLinkedFormRequestsForSubmit(
   db: SupabaseClient,
-  input: { applicationId: string; row: DemoApplicantRow },
+  input: {
+    applicationId: string;
+    row: DemoApplicantRow;
+    /**
+     * The applicant's login, only when the caller proved it from the authenticated session (a resident writing
+     * their own application). Never taken from `row`: the row is client-authored, and a bound id on it would let
+     * a submitter attach someone else's account to the request.
+     */
+    applicantUserId?: string | null;
+  },
 ): Promise<IssuedLinkedForm[]> {
   try {
     const { row } = input;
@@ -183,7 +193,8 @@ export async function createLinkedFormRequestsForSubmit(
     }).filter((match) => !(match.rule.formRef.kind === "application" && match.rule.formRef.id === templateId));
     if (matches.length === 0) return [];
 
-    const applicantUserId = row.residentUserId?.trim() || null;
+    // Null for a guest: redeem and the resident lists re-derive the applicant from the verified email.
+    const applicantUserId = input.applicantUserId?.trim() || null;
     const leaseTerm = String((application as { leaseTerm?: string }).leaseTerm ?? "").trim() || undefined;
     const prepared: Array<{ insert: Record<string, unknown>; token: string; view: Omit<LinkedFormRequestView, "id"> }> = [];
     for (const match of matches) {
@@ -191,7 +202,8 @@ export async function createLinkedFormRequestsForSubmit(
       if (!described) continue; // a rule that points at a form since deleted owes nothing
       let feeCents: number | null = null;
       if (match.rule.formRef.kind === "application") {
-        // The fee is a display fact: a form that owes must still be recorded when pricing cannot be read.
+        // A form that owes must still be recorded when pricing cannot be read, but the fee is then left null =
+        // UNRESOLVED (a resolved "no fee" is 0), and the submit gate re-resolves it. Null never means free.
         try {
           const fee = await resolveApplicationFeeProperty(
             db,
@@ -325,10 +337,18 @@ export async function resolveLinkedFormViewerRole(
   db: SupabaseClient,
   request: LinkedFormRequestRow,
   user: { id: string; email?: string | null },
+  /**
+   * What the caller intends to DO. Reading is the default; a state-changing manager action passes "edit", so a
+   * co-manager restricted to read-only Applications/Residents is not a manager for it (and, unless they are also
+   * the applicant or helper, gets the same answer as for a request that does not exist).
+   */
+  options?: { level?: CoManagerPermissionLevel },
 ): Promise<{ role: ViewerRole; app: ApplicationAccessRow } | null> {
   const app = await loadApplicationAccessRow(db, request.application_id);
   if (!app) return null;
-  if (await managerCanAccessApplicationRecord(db, user.id, app)) return { role: "manager", app };
+  if (await managerCanAccessApplicationRecord(db, user.id, app, { level: options?.level ?? "read" })) {
+    return { role: "manager", app };
+  }
   if (userOwnsApplication(app, user, request)) return { role: "applicant", app };
   // Single request scope: only the one person who opened THIS request's link, never the applicant's other forms.
   if (request.helper_user_id && request.helper_user_id === user.id) return { role: "helper", app };
@@ -588,13 +608,21 @@ export async function completeOpenLinkedFormRequestByForm(
   try {
     const { data } = await db
       .from("application_form_requests")
-      .select("id")
+      .select("id, fee_cents, fee_paid_at")
       .eq("application_id", input.applicationId)
       .eq("form_kind", input.formKind)
       .eq("form_id", input.formId)
       .in("status", ["owed", "shared"])
       .maybeSingle();
-    const id = typeof (data as { id?: unknown } | null)?.id === "string" ? (data as { id: string }).id : "";
+    const found = data as { id?: unknown; fee_cents?: number | null; fee_paid_at?: string | null } | null;
+    const id = typeof found?.id === "string" ? found.id : "";
+    // This path carries no signed-in payer, so it can never stand in for the fee: an application form is
+    // finished here only when it has no fee or the fee is already paid. A fee that is unresolved (null) or
+    // owed leaves the request owed, and its own signed-in, paid submit is the way to finish it.
+    if (input.formKind === "application" && found) {
+      const feeCents = found.fee_cents ?? null;
+      if (feeCents === null || (feeCents > 0 && !found.fee_paid_at)) return;
+    }
     if (id) await completeLinkedFormRequest(db, id, { filledByUserId: input.filledByUserId, submissionRef: input.submissionRef });
   } catch {
     // Best-effort: a missed hook leaves the row owed, which the manager can mark done.

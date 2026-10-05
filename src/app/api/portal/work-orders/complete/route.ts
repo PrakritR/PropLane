@@ -51,18 +51,41 @@ export async function POST(req: Request) {
     const existingRow = (existing?.row_data ?? {}) as DemoManagerWorkOrderRow;
     const alreadyCompleted = Boolean(existingRow.completedAt);
 
+    // The booked cost is the accepted bid's, read here exactly as approve-and-pay reads it. A client-sent figure
+    // only stands in when no bid was accepted (a directly-assigned job); it never outranks one.
+    const { data: acceptedBids, error: bidError } = await auth.db
+      .from("work_order_bids")
+      .select("amount_cents, materials_cents, vendor_directory_id")
+      .eq("work_order_id", workOrder.id)
+      .eq("status", "accepted");
+    if (bidError) return NextResponse.json({ error: "Could not read the accepted bid." }, { status: 500 });
+    if ((acceptedBids ?? []).length > 1) {
+      return NextResponse.json({ error: "This job has more than one accepted bid. Resolve it before completing." }, { status: 409 });
+    }
+    const acceptedBid = acceptedBids?.[0] as
+      | { amount_cents?: number | null; materials_cents?: number | null; vendor_directory_id?: string | null }
+      | undefined;
+    const bidVendorCostCents = acceptedBid?.amount_cents == null ? NaN : Number(acceptedBid.amount_cents);
+    const bidMaterialsCostCents = acceptedBid?.materials_cents == null ? NaN : Number(acceptedBid.materials_cents);
+    const vendorCostCents = Number.isFinite(bidVendorCostCents) ? bidVendorCostCents : body.vendorCostCents;
+    const materialsCostCents = Number.isFinite(bidMaterialsCostCents) ? bidMaterialsCostCents : body.materialsCostCents;
+    const vendorId =
+      typeof acceptedBid?.vendor_directory_id === "string" && acceptedBid.vendor_directory_id.trim()
+        ? acceptedBid.vendor_directory_id
+        : workOrder.vendorId;
+
     // The stored owner, not the caller: an admin completing a manager's job must not land the
     // expense in their own ledger, and the idempotence guard filters on the same owner the
     // approve + pay path posts under.
     const expenseEntryIds = await createExpensesFromWorkOrder(auth.db, ownerManagerUserId, {
       workOrderId: workOrder.id,
       category: body.category,
-      vendorCostCents: body.vendorCostCents,
-      materialsCostCents: body.materialsCostCents,
+      vendorCostCents,
+      materialsCostCents,
       materialsMemo: body.materialsMemo,
       workDoneSummary: body.workDoneSummary,
       propertyId: workOrder.propertyId || workOrder.assignedPropertyId,
-      vendorId: workOrder.vendorId,
+      vendorId,
     });
 
     const updated = mergeWorkOrderCompletion(
@@ -70,12 +93,12 @@ export async function POST(req: Request) {
       {
         workOrderId: workOrder.id,
         category: body.category,
-        vendorCostCents: body.vendorCostCents,
-        materialsCostCents: body.materialsCostCents,
+        vendorCostCents,
+        materialsCostCents,
         materialsMemo: body.materialsMemo,
         workDoneSummary: body.workDoneSummary,
         propertyId: workOrder.propertyId,
-        vendorId: workOrder.vendorId,
+        vendorId,
       },
       expenseEntryIds,
     );

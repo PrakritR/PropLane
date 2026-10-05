@@ -15,6 +15,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchChannelCalendarConnections: () => Promise.resolve([]),
   fetchManagerChannelBookings: () => Promise.resolve([]),
+  fetchWritableChannelCalendarPropertyIds: (ids: string[]) => Promise.resolve(ids),
   fetchOccupancySnapshot: () => Promise.resolve({ days: [] }),
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
   saveChannelCalendarConnection: () => Promise.resolve({ id: "c1" }),

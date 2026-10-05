@@ -21,6 +21,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: vi.fn(async () => []),
   fetchOccupancySnapshot: vi.fn(async () => ({ days: [] })),
   fetchRoomExportCalendarUrl: vi.fn(async () => "https://proplane.ai/api/calendar/export/token.ics"),
+  fetchWritableChannelCalendarPropertyIds: vi.fn(async (ids: string[]) => ids),
   saveChannelCalendarConnection: vi.fn(async (input: { propertyId: string; roomId: string }) => ({ id: `c-${input.roomId}`, hasImportUrl: true })),
   deleteChannelCalendarConnection: vi.fn(),
   syncChannelCalendarConnection: vi.fn(async () => ({})),
@@ -28,7 +29,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 }));
 
 import { ChannelCalendarLinkModal, channelCalendarLinkTitle } from "@/components/portal/channel-calendar-link-modal";
-import { fetchManagerChannelBookings, fetchRoomExportCalendarUrl, saveChannelCalendarConnection, syncChannelCalendarConnection } from "@/lib/channel-calendar/client";
+import { fetchManagerChannelBookings, fetchRoomExportCalendarUrl, fetchWritableChannelCalendarPropertyIds, saveChannelCalendarConnection, syncChannelCalendarConnection } from "@/lib/channel-calendar/client";
 
 beforeEach(() => {
   data.entireHome = new Set();
@@ -51,6 +52,16 @@ async function ready() {
 }
 
 describe("ChannelCalendarLinkModal (one page)", () => {
+  it("lists only the properties the caller may write calendars on, in the workspace scope and the picker", async () => {
+    vi.mocked(fetchWritableChannelCalendarPropertyIds).mockResolvedValueOnce(["p1"]);
+    render(<ChannelCalendarLinkModal {...baseProps} />);
+    await waitFor(() => {
+      const sections = Array.from(document.querySelectorAll('[data-attr="channel-calendar-link-table"] section')).map((s) => s.getAttribute("aria-label"));
+      expect(sections).toEqual(["4709A"]);
+    });
+    expect(screen.queryByRole("textbox", { name: "Room 9 Airbnb calendar link" })).toBeNull();
+  });
+
   it("is one page: a Link control, then a table of every room grouped by property, no steps", async () => {
     render(<ChannelCalendarLinkModal {...baseProps} />);
     await ready();

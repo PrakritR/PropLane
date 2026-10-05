@@ -52,7 +52,8 @@ describe("linked forms are owed on submit", () => {
   it("creates one request per matched rule, keeps the co-signer behaviour, and stores only a token hash", async () => {
     const { db, mainId, cosignerId, petFormId } = seedDb();
     const row = applicationRow({}, { applicationTemplateId: mainId });
-    const issued = await createLinkedFormRequestsForSubmit(db, { applicationId: row.id, row: row as never });
+    // The applicant's login comes from the authenticated session the caller proved, never from the client row.
+    const issued = await createLinkedFormRequestsForSubmit(db, { applicationId: row.id, row: row as never, applicantUserId: "applicant-1" });
 
     expect(issued.map((form) => `${form.formKind}:${form.formId}`).sort()).toEqual([`application:${cosignerId}`, `move_in:${petFormId}`].sort());
     const stored = db.tables.application_form_requests!;
@@ -88,6 +89,19 @@ describe("linked forms are owed on submit", () => {
       expect(days).toBeGreaterThan(29.9);
       expect(days).toBeLessThan(30.1);
     }
+  });
+
+  it("never takes the applicant's login from the client-authored row", async () => {
+    const { db, mainId } = seedDb();
+    const row = applicationRow({ residentUserId: "someone-elses-account" }, { applicationTemplateId: mainId });
+    await createLinkedFormRequestsForSubmit(db, { applicationId: row.id, row: row as never });
+    expect(db.tables.application_form_requests!.length).toBeGreaterThan(0);
+    for (const request of db.tables.application_form_requests!) expect(request.applicant_user_id).toBeNull();
+
+    const other = seedDb();
+    const signed = applicationRow({ residentUserId: "someone-elses-account" }, { applicationTemplateId: other.mainId });
+    await createLinkedFormRequestsForSubmit(other.db, { applicationId: signed.id, row: signed as never, applicantUserId: "session-user" });
+    for (const request of other.db.tables.application_form_requests!) expect(request.applicant_user_id).toBe("session-user");
   });
 
   it("owes the property's default co-signer form when the template's Co-signer form is Property default", async () => {

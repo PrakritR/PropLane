@@ -1316,6 +1316,8 @@ export async function POST(req: Request) {
       row = {
         ...row,
         bucket: "pending",
+        // The login bound to this application is the authenticated writer's own, never a client-supplied id.
+        residentUserId: existing?.residentUserId ?? user.id,
         withdrawnAt: existing?.withdrawnAt ?? row.withdrawnAt,
         assignedPropertyId: existing?.assignedPropertyId ?? row.assignedPropertyId,
         assignedRoomChoice: existing?.assignedRoomChoice ?? row.assignedRoomChoice,
@@ -1460,7 +1462,11 @@ export async function POST(req: Request) {
     // `row.id` is the id the row was stored under (a rename may have changed it from the record's old id).
     const linkedForms =
       shouldNotifyManagerOfApplicationSubmit(previousRow, row) || (residentSelfWrite && owesLinkedFormCheck(row))
-        ? await createLinkedFormRequestsForSubmit(db, { applicationId: String(row.id), row })
+        ? await createLinkedFormRequestsForSubmit(db, {
+            applicationId: String(row.id),
+            row,
+            applicantUserId: residentSelfWrite ? user.id : null,
+          })
         : [];
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
       void notifyManagerApplicationSubmitted(db, row).catch(

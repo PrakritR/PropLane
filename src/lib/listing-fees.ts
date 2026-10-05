@@ -1062,8 +1062,10 @@ export function listingOffersMonthToMonthSurcharge(
     "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
   > &
     Partial<Pick<ManagerListingSubmissionV1, "address" | "city" | "state" | "neighborhood" | "zip">>,
+  /** The stored property record: the jurisdiction resolver reads it first, so a Seattle property whose submission never recorded a city is still Seattle. */
+  listingProperty?: RentRuleAddress | null,
 ): boolean {
-  if (listingFoldsAllMonthlyFeesIntoRent(sub)) return false;
+  if (listingFoldsAllMonthlyFeesIntoRent(sub, listingProperty)) return false;
   return resolveAllowedLeaseTerms(sub).includes("Month-to-Month");
 }
 

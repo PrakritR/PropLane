@@ -43,7 +43,7 @@ import {
   feeAppliesToRoom,
   isPaymentDueAtSigning,
 } from "@/lib/listing-fee-scope";
-import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
+import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { resolvePlacementStandardFees } from "@/lib/listing-placement-standard-fees";
 import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -212,6 +212,12 @@ export function buildListingQuote(
     startKind?: ListingQuoteStartKind;
     /** Property Pricing whole-house row — use `entireHomeMonthlyRent` even on shared-home listings. */
     useEntireHomeRent?: boolean;
+    /**
+     * The stored property record. The Seattle rent rule resolves the jurisdiction from it FIRST, so a property
+     * whose submission never recorded a city must be quoted with it or it would show a Month-to-Month surcharge
+     * Seattle forbids. Pass it whenever the caller has it.
+     */
+    listingProperty?: RentRuleAddress | null;
   },
 ): ListingQuote {
   const leaseTerm = String(options.leaseTerm ?? "").trim();
@@ -305,7 +311,7 @@ export function buildListingQuote(
       feeAppliesToArrangementCount(fee, arrangementCount),
   );
 
-  const foldMonthlyIntoRent = listingFoldsAllMonthlyFeesIntoRent(sub);
+  const foldMonthlyIntoRent = listingFoldsAllMonthlyFeesIntoRent(sub, options.listingProperty);
   const recurring: ListingQuoteFee[] = [];
   const folded: ListingQuoteFee[] = [];
   const oneTime: ListingFeeRow[] = [];
@@ -353,7 +359,7 @@ export function buildListingQuote(
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
   let monthlyRent = baseMonthlyRent + foldedTotal;
-  if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge && !listingFoldsAllMonthlyFeesIntoRent(sub)) {
+  if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge && !foldMonthlyIntoRent) {
     monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
   }
   if (!isStay && startKind === "cst" && arrangementRow?.customStartSurcharge) {

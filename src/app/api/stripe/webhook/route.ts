@@ -40,6 +40,7 @@ import {
   markApplicationDepositPaidFromStripeSession,
   markApplicationFeePaidFromStripeSession,
 } from "@/lib/stripe-application-fee";
+import { LINKED_FORM_FEE_PURPOSE, markLinkedFormFeePaidFromStripeSession } from "@/lib/linked-form-fee.server";
 import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import {
   householdChargeCheckoutProcessing,
@@ -101,6 +102,12 @@ async function checkoutOwner(
     const { data, error } = await db.from("manager_property_records").select("manager_user_id").eq("id", propertyId).maybeSingle();
     if (error) throw new Error("Could not resolve checkout ownership.");
     owner = String(data?.manager_user_id ?? "").trim();
+  } else if (purpose === LINKED_FORM_FEE_PURPOSE) {
+    // Owned by the manager the stored request belongs to; a session claiming any other manager is refused below.
+    const requestId = session.metadata?.linked_form_request_id?.trim() ?? "";
+    const { data, error } = await db.from("application_form_requests").select("manager_user_id").eq("id", requestId).maybeSingle();
+    if (error) throw new Error("Could not resolve checkout ownership.");
+    owner = String(data?.manager_user_id ?? "").trim();
   } else if (purpose === "household_charge") {
     const chargeId = session.metadata?.charge_ids?.split(",")[0]?.trim() || session.metadata?.charge_id?.trim() || "";
     const { data, error } = await db.from("portal_household_charge_records").select("manager_user_id").eq("id", chargeId).maybeSingle();
@@ -146,7 +153,7 @@ function logCheckoutCompleted(session: Stripe.Checkout.Session) {
 
 async function enrichCheckoutLedgerFees(stripe: Stripe, session: Stripe.Checkout.Session): Promise<void> {
   const purpose = session.metadata?.purpose;
-  if (purpose !== "household_charge" && purpose !== "rental_application_fee") return;
+  if (purpose !== "household_charge" && purpose !== "rental_application_fee" && purpose !== LINKED_FORM_FEE_PURPOSE) return;
   const db = createSupabaseServiceRoleClient();
   await enrichLedgerFromCheckoutSession(db, stripe, session).catch((e) => {
     console.error("[stripe webhook] ledger fee enrichment", e);
@@ -306,6 +313,18 @@ export async function POST(req: Request) {
           track("application_fee_paid", distinctId, { session_id: session.id });
         } catch (e) {
           console.error("[stripe webhook] rental_application_fee checkout", e);
+        }
+      } else if (session.metadata?.purpose === LINKED_FORM_FEE_PURPOSE) {
+        // A payer who closes the tab before returning is still recorded: bound to the checkout's own metadata
+        // (request, payer, manager), paid-sticky and idempotent on the session. A throw returns 500 so Stripe
+        // retries, since money was taken and the booking must land.
+        const settled = await markLinkedFormFeePaidFromStripeSession(db, session);
+        if (settled.ok) {
+          await enrichCheckoutLedgerFees(stripe, session);
+          await creditHoldFromPaidSession(db, session).catch((e) => {
+            console.error("[stripe webhook] linked form fee platform hold", e);
+          });
+          track("linked_form_fee_paid", session.client_reference_id ?? session.id, { session_id: session.id });
         }
       } else if (session.metadata?.purpose === SCREENING_CHECKOUT_PURPOSE) {
         // No catch: an unexpected throw returns 500 so Stripe retries; the

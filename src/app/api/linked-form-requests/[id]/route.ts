@@ -9,6 +9,7 @@ import {
   type ViewerRole,
 } from "@/lib/application-linked-form-requests.server";
 import { resolveEmailLinkBaseUrl, resolveAppOrigin } from "@/lib/app-url";
+import type { CoManagerPermissionLevel } from "@/lib/co-manager-permissions";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { createLinkedFormFeeCheckout, verifyLinkedFormFeePayment } from "@/lib/linked-form-fee.server";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
@@ -25,7 +26,7 @@ export const runtime = "nodejs";
 /** Every caller without access gets exactly this, the same as for a request that does not exist. */
 const NOT_FOUND = { error: "Not found." } as const;
 
-async function authorize(req: Request, id: string) {
+async function authorize(req: Request, id: string, level: CoManagerPermissionLevel = "read") {
   void req;
   const auth = await createSupabaseServerClient();
   const {
@@ -36,7 +37,7 @@ async function authorize(req: Request, id: string) {
   const request = await loadLinkedFormRequest(db, id);
   if (!request) return { error: NextResponse.json(NOT_FOUND, { status: 404 }) } as const;
   // The role is re-derived from the application row and the stored request, never from the body.
-  const viewer = await resolveLinkedFormViewerRole(db, request, { id: user.id, email: user.email });
+  const viewer = await resolveLinkedFormViewerRole(db, request, { id: user.id, email: user.email }, { level });
   if (!viewer) return { error: NextResponse.json(NOT_FOUND, { status: 404 }) } as const;
   return { db, user, request, role: viewer.role, app: viewer.app } as const;
 }
@@ -103,7 +104,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!["share", "send_email", "not_needed", "fee_checkout", "fee_verify"].includes(String(action))) {
       return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     }
-    const ok = await authorize(req, id);
+    // Every POST changes state (waive, mint or email a link, pay): a manager acting here needs edit access,
+    // while the applicant/helper roles do not depend on the level. GET stays read.
+    const ok = await authorize(req, id, "edit");
     if ("error" in ok) return ok.error;
     const { db, user, request, role, app } = ok;
     const refusal = canDo(action, role, request);

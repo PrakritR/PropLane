@@ -67,6 +67,39 @@ describe("the vendor job behind an add-on", () => {
   });
 });
 
+describe("what an offered vendor may read of an add-on job", () => {
+  it("is the manager's published description or the service title, never the resident's own notes", () => {
+    const withNotes = addOn({ notes: "Gate code 4471, key under the blue pot at 12 Alder St", offerDescription: "" });
+    const row = buildAddOnVendorJobRow(withNotes, { propertyName: "Alder House", managerUserId: "mgr-1" });
+    expect(row.description).toBe("Storage locker");
+    expect(JSON.stringify(row)).not.toContain("4471");
+    const published = buildAddOnVendorJobRow(addOn({ notes: "secret note" }), { propertyName: "Alder House", managerUserId: "mgr-1" });
+    expect(published.description).toBe("Basement locker, 4x6");
+  });
+
+  it("is redacted to the title in the offered-vendor projection, even for a row saved before that rule", () => {
+    const legacy = { ...buildAddOnVendorJobRow(addOn(), { propertyName: "Alder House", managerUserId: "mgr-1" }), description: "Resident wrote: gate code 4471" };
+    const projected = projectWorkOrderForOfferedVendor(legacy);
+    expect(projected.description).toBe("Storage locker");
+    expect(JSON.stringify(projected)).not.toContain("4471");
+  });
+
+  it("never returns a property name that is a street address", () => {
+    const base = buildAddOnVendorJobRow(addOn(), { propertyName: "x", managerUserId: "mgr-1" });
+    const cases: Array<[string, string]> = [
+      ["12 Alder St", "Nearby"],
+      ["12 Alder St, Seattle, WA", "Seattle"],
+      ["4709A 8th Ave", "Nearby"],
+      ["Alder House", "Alder House"],
+      ["Alder House, Seattle", "Alder House"],
+    ];
+    for (const [propertyName, expected] of cases) {
+      const projected = projectWorkOrderForOfferedVendor({ ...base, propertyName, propertyAddress: undefined });
+      expect(projected.propertyName).toBe(expected);
+    }
+  });
+});
+
 describe("telling the two models apart", () => {
   const plain: DemoManagerWorkOrderRow = { ...buildAddOnVendorJobRow(addOn(), { propertyName: "A", managerUserId: "m" }), id: "wo-plain", linkedServiceRequestId: undefined };
   const linked = buildAddOnVendorJobRow(addOn(), { propertyName: "A", managerUserId: "m" });

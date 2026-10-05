@@ -8,7 +8,14 @@ vi.mock("@/lib/application-fee-checkout.server", () => ({
   resolveApplicationFeeItemization: vi.fn(),
 }));
 
-import { LINKED_FORM_FEE_PURPOSE, linkedFormFeeOwed, verifyLinkedFormFeePayment } from "@/lib/linked-form-fee.server";
+vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerPaymentEntry: vi.fn(async () => undefined) }));
+
+import {
+  LINKED_FORM_FEE_PURPOSE,
+  linkedFormFeeOwed,
+  linkedFormFeeUnresolved,
+  verifyLinkedFormFeePayment,
+} from "@/lib/linked-form-fee.server";
 
 const REQUEST_ID = "44444444-4444-4444-8444-444444444444";
 
@@ -54,6 +61,10 @@ describe("a linked form's fee is the submitter's", () => {
     expect(linkedFormFeeOwed(request())).toBe(true);
     expect(linkedFormFeeOwed(request({ fee_cents: 0 }))).toBe(false);
     expect(linkedFormFeeOwed(request({ fee_cents: null }))).toBe(false);
+    // ...but an application form with no stored fee is UNRESOLVED, never "free": the submit gate re-resolves it.
+    expect(linkedFormFeeUnresolved(request({ fee_cents: null }))).toBe(true);
+    expect(linkedFormFeeUnresolved(request({ fee_cents: 0 }))).toBe(false);
+    expect(linkedFormFeeUnresolved(request({ form_kind: "move_in", fee_cents: null }))).toBe(false);
     expect(linkedFormFeeOwed(request({ fee_paid_at: new Date().toISOString() }))).toBe(false);
   });
 
@@ -64,6 +75,9 @@ describe("a linked form's fee is the submitter's", () => {
     expect(result).toEqual({ ok: true, paid: true });
     expect(db.tables.application_form_requests![0]).toMatchObject({ fee_paid_by_user_id: "helper-1", fee_session_id: "cs_test_abcdefghij" });
     expect(db.tables.application_form_requests![0]!.fee_paid_at).toBeTruthy();
+    // The payer's own return books the same ledger charge the webhook would, once, keyed on the session.
+    expect(db.tables.portal_household_charge_records).toHaveLength(1);
+    expect(db.tables.portal_household_charge_records![0]).toMatchObject({ id: "hc_linked_form_fee_cs_test_abcdefghij", kind: "other_cost", status: "paid" });
   });
 
   it("refuses a session that belongs to another request, another payer, or another purpose", async () => {

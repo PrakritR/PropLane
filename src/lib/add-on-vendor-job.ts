@@ -63,11 +63,13 @@ export function linkedVendorJobFor(
  * has anything to bill.
  */
 export function buildAddOnVendorJobRow(
-  req: Pick<ServiceRequest, "id" | "offerName" | "offerDescription" | "notes" | "propertyId">,
+  req: Pick<ServiceRequest, "id" | "offerName" | "offerDescription" | "propertyId">,
   ctx: { propertyName: string; propertyAddress?: string; managerUserId: string | null; now?: Date },
 ): DemoManagerWorkOrderRow {
   const title = req.offerName?.trim() || "Service";
-  const details = req.offerDescription?.trim() || req.notes?.trim() || title;
+  // Only what the manager published: the resident's own notes are free text that must never reach a vendor
+  // who has merely been offered the job.
+  const details = req.offerDescription?.trim() || title;
   return {
     id: addOnVendorJobId(req.id),
     propertyName: ctx.propertyName.trim() || "Property",

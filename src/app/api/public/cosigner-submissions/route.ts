@@ -15,7 +15,7 @@ import {
   resolveLinkedFormViewerRole,
   type LinkedFormRequestRow,
 } from "@/lib/application-linked-form-requests.server";
-import { linkedFormFeeOwed } from "@/lib/linked-form-fee.server";
+import { linkedFormFeeOwed, resolveUnresolvedLinkedFormFee } from "@/lib/linked-form-fee.server";
 import { resolveCosignerTemplateForApplication } from "@/lib/rental-application/cosigner-template.server";
 import { listingCustomApplicationFields, validateCustomFieldAnswers } from "@/lib/rental-application/custom-fields";
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
       } = await auth.auth.getUser();
       if (!user) return NextResponse.json({ error: "Sign in to submit this form." }, { status: 401 });
       const lookupDb = createSupabaseServiceRoleClient();
-      const found = await loadLinkedFormRequest(lookupDb, formRequestId);
+      let found = await loadLinkedFormRequest(lookupDb, formRequestId);
       const viewer = found ? await resolveLinkedFormViewerRole(lookupDb, found, { id: user.id, email: user.email }) : null;
       if (!found || !viewer || viewer.role === "manager" || found.form_kind !== "application") {
         return NextResponse.json({ error: "Not found." }, { status: 404 });
@@ -67,6 +67,13 @@ export async function POST(req: Request) {
       if (new Date(found.expires_at).getTime() <= Date.now()) {
         return NextResponse.json({ error: "Not found." }, { status: 404 });
       }
+      // A fee that could not be read when the request was written is unresolved, never "no fee": resolve it
+      // now from the stored listing, and refuse to complete the form when it still cannot be read.
+      const feeResolved = await resolveUnresolvedLinkedFormFee(lookupDb, found);
+      if (!feeResolved.ok) {
+        return NextResponse.json({ error: "We could not confirm this form's fee. Please try again.", code: "FEE_UNRESOLVED" }, { status: 503 });
+      }
+      found = feeResolved.request;
       if (linkedFormFeeOwed(found) || ((found.fee_cents ?? 0) > 0 && found.fee_paid_by_user_id !== user.id)) {
         return NextResponse.json({ error: "Pay this form's fee to submit it.", code: "FEE_REQUIRED" }, { status: 402 });
       }

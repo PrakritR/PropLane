@@ -40,6 +40,19 @@ export async function fetchChannelCalendarConnections(
   return data.connections ?? [];
 }
 
+/** The subset of these properties the caller may link, unlink and sync calendars on (Calendar module at edit). */
+export async function fetchWritableChannelCalendarPropertyIds(propertyIds: string[]): Promise<string[]> {
+  const ids = propertyIds.filter(Boolean);
+  if (ids.length === 0) return [];
+  const res = await fetch(
+    `/api/portal/channel-calendar/connections?writableFor=${encodeURIComponent(ids.join(","))}`,
+    { credentials: "include" },
+  );
+  const data = (await res.json()) as { writablePropertyIds?: string[]; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not check calendar access.");
+  return data.writablePropertyIds ?? [];
+}
+
 export async function saveChannelCalendarConnection(input: {
   propertyId: string;
   roomId: string;

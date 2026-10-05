@@ -3,6 +3,14 @@ import type { WorkOrderBid } from "@/lib/work-order-bids";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import type { ServiceWorkflowStep } from "@/lib/manager-service-workflow";
 
+/** A name that is really a street address ("123 Main St", "42 Alder Ave, Unit 2") must never stand in for an area. */
+function looksLikeStreetAddress(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/^\d/.test(text)) return true;
+  return /\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|ter|terrace|pkwy|parkway)\b\.?(?:\s|,|$)/i.test(text) && /\d/.test(text);
+}
+
 /** Vendors see a general area before hire — never the street address or entry notes. */
 export function workOrderGeneralArea(row: Pick<DemoManagerWorkOrderRow, "propertyAddress" | "propertyName">): string {
   const addr = row.propertyAddress?.trim();
@@ -14,8 +22,17 @@ export function workOrderGeneralArea(row: Pick<DemoManagerWorkOrderRow, "propert
     }
   }
   const name = row.propertyName?.trim();
-  if (name && name.includes(",")) return name.split(",")[0]!.trim();
-  return name || "Nearby";
+  if (name) {
+    const parts = name.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      if (!looksLikeStreetAddress(parts[0]!)) return parts[0]!;
+      // "123 Main St, Seattle, WA": the street goes, the city stays.
+      const city = parts.slice(1).find((part) => !looksLikeStreetAddress(part) && !/^[A-Za-z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(part) && !/^\d/.test(part));
+      return city || "Nearby";
+    }
+    if (!looksLikeStreetAddress(name)) return name;
+  }
+  return "Nearby";
 }
 
 /** After hire the vendor sees the full site (address, resident, entry). */
@@ -103,7 +120,7 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     residentReminderSentAt: _residentReminderSentAt,
     expenseEntryIds: _expenseEntryIds,
     // The add-on this vendor job serves is the manager's own record; the vendor only ever sees the job.
-    linkedServiceRequestId: _linkedServiceRequestId,
+    linkedServiceRequestId,
     cost: _cost,
     vendorCostCents: _vendorCostCents,
     materialsCostCents: _materialsCostCents,
@@ -111,11 +128,15 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     photoDataUrls,
     ...rest
   } = row;
+  // An add-on's vendor job carries only what the manager published. A row saved before that rule may still hold
+  // the resident's own notes in `description`, so an offered vendor reads the service title and nothing more.
+  const isAddOnJob = Boolean(linkedServiceRequestId?.trim());
   return {
     ...rest,
     propertyName: area,
     unit: "—",
     cost: "",
+    ...(isAddOnJob ? { description: row.title } : {}),
     ...(row.offerSharePhotos === true && photoDataUrls?.length ? { photoDataUrls } : {}),
   };
 }

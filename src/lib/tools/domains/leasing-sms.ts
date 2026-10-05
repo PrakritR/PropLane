@@ -202,6 +202,15 @@ function leasingListingFacts(src: Record<string, unknown> | null, rooms: ReturnT
   // array/string values, so passing a malformed stored blob through would turn
   // bad data into a tool failure instead of an honest unknown.
   const availableTerms = submission ? resolveAllowedLeaseTerms(submission) : [];
+  // The stored property record decides Seattle first: a legacy property whose submission never recorded a city
+  // must still never be quoted the month-to-month surcharge.
+  const listingProperty = {
+    address: str(src, "address") ?? undefined,
+    city: str(src, "city") ?? undefined,
+    state: str(src, "state") ?? undefined,
+    neighborhood: str(src, "neighborhood") ?? undefined,
+    zip: str(src, "zip") ?? str(src, "postalCode") ?? undefined,
+  };
 
   const listingDeposit = submission?.securityDeposit.trim() || null;
 
@@ -225,7 +234,7 @@ function leasingListingFacts(src: Record<string, unknown> | null, rooms: ReturnT
         {
           term: "Month-to-Month",
           offered: availableTerms.includes("Month-to-Month"),
-          monthlySurcharge: submission && !listingFoldsAllMonthlyFeesIntoRent(submission) ? submission.monthToMonthSurcharge?.trim() || null : null,
+          monthlySurcharge: submission && !listingFoldsAllMonthlyFeesIntoRent(submission, listingProperty) ? submission.monthToMonthSurcharge?.trim() || null : null,
         },
       ],
       customCalendarSurcharge: {

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
 import { toPublicConnection } from "@/lib/channel-calendar/connections.server";
-import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
+import { managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     if (!row) {
       return NextResponse.json({ error: "Connection not found." }, { status: 404 });
     }
-    if (!(await managerHasCalendarAccessForProperty(ctx.db, ctx.userId, String(row.property_id)))) {
+    if (!(await managerCanWriteCalendarForProperty(ctx.db, ctx.userId, String(row.property_id)))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

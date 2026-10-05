@@ -172,6 +172,19 @@ export async function managerHasCalendarAccessForProperty(
   return managerHasCoManagerPermissionForProperty(db, userId, propertyId, "properties");
 }
 
+/**
+ * Owner, or a co-manager holding the Calendar module at EDIT on this property. Linking, unlinking or syncing a
+ * channel calendar changes what the property publishes and what it blocks, so it needs more than the read access
+ * `managerHasCalendarAccessForProperty` grants (and the legacy `properties` read grant does not stand in for it).
+ */
+export async function managerCanWriteCalendarForProperty(
+  db: ServiceClient,
+  userId: string,
+  propertyId: string,
+): Promise<boolean> {
+  return managerHasCoManagerPermissionForProperty(db, userId, propertyId, "calendar", "edit");
+}
+
 export function leaseRecordVisibleToManager(
   record: Pick<LeaseScopeRecord, "manager_user_id" | "property_id">,
   userId: string,

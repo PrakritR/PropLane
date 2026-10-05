@@ -582,6 +582,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             roomChoice1: form.roomChoice1,
             leaseTerm: form.leaseTerm,
             residentSlot: form.residentSlot,
+            listingProperty: selectedProperty,
           })
         : null;
     // Whole-unit listings (leased as one place, not room-by-room) don't ask for
@@ -2020,6 +2021,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                   roomChoice1: form.roomChoice1,
                   leaseTerm: form.leaseTerm,
                   residentSlot: form.residentSlot,
+                  listingProperty: prop,
                 });
                 if (!reviewQuote) {
                   return (
@@ -2202,6 +2204,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             roomChoice1: form.roomChoice1,
             leaseTerm: form.leaseTerm,
             residentSlot: form.residentSlot,
+            listingProperty: prop,
           })
         : null;
     return (

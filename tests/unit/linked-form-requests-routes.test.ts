@@ -6,6 +6,9 @@ import { hashLinkedFormToken } from "@/lib/application-linked-form-requests.serv
 const state = vi.hoisted(() => ({
   user: null as null | { id: string; email: string },
   db: null as unknown,
+  /** What the fee resolver answers: a fee in cents, or a failure. */
+  feeCents: 4500,
+  feeFails: false,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -14,17 +17,23 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => state.db }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => ({ ok: true }), clientIpFrom: () => "127.0.0.1" }));
 vi.mock("@/lib/auth/portal-access", () => ({ getPortalAccessContext: async () => ({ roles: ["resident"], effectiveRole: "resident" }) }));
+// "manager-1" owns the application; "manager-readonly" is a co-manager holding read only.
 vi.mock("@/lib/auth/manager-application-access", () => ({
-  managerCanAccessApplicationRecord: async (_db: unknown, userId: string) => userId === "manager-1",
+  managerCanAccessApplicationRecord: async (_db: unknown, userId: string, _record: unknown, options?: { level?: string }) =>
+    userId === "manager-1" || (userId === "manager-readonly" && (options?.level ?? "read") === "read"),
 }));
 vi.mock("@/lib/application-fee-checkout.server", () => ({
-  resolveApplicationFeeProperty: async () => ({ ok: true, value: { applicationFeeCents: 4500 } }),
+  resolveApplicationFeeProperty: async () => {
+    if (state.feeFails) throw new Error("pricing unavailable");
+    return { ok: true, value: { applicationFeeCents: state.feeCents } };
+  },
   resolveApplicationFeeItemization: async () => ({ managerTier: "free", feePayer: "proplane" }),
 }));
 vi.mock("@/lib/cosigner-notification.server", () => ({ notifyManagerCosignerSubmitted: async () => undefined }));
 
 import { POST as redeem } from "@/app/api/linked-form-requests/redeem/route";
 import { POST as submitCosigner } from "@/app/api/public/cosigner-submissions/route";
+import { GET as getLinkedRequest, POST as postLinkedRequest } from "@/app/api/linked-form-requests/[id]/route";
 
 const REQUEST_ID = "22222222-2222-4222-8222-222222222222";
 const TOKEN = "K".repeat(43);
@@ -154,6 +163,8 @@ describe("a linked form submitted through the co-signer route", () => {
     cosignerId = buildLinkedFormListing().cosignerId;
     state.user = { id: "helper-1", email: "mom@example.com" };
     state.db = seed();
+    state.feeCents = 4500;
+    state.feeFails = false;
   });
 
   // The template ids differ per build, so the seeded request is re-pointed at this listing's co-signer form.
@@ -227,8 +238,41 @@ describe("a linked form submitted through the co-signer route", () => {
     expect((await submitCosigner(post("/api/public/cosigner-submissions", cosignerBody(cosignerId)))).status).toBe(404);
   });
 
-  it("the legacy public co-signer link keeps working and still finishes the request it opened", async () => {
+  it("a fee that could not be read when the request was written is resolved at submit, never treated as free", async () => {
     const db = state.db as LinkedFormFakeDb;
+    pointAtCosigner(db);
+    db.tables.application_form_requests![0]!.fee_cents = null; // the lookup failed when the request was recorded
+    const unpaid = await submitCosigner(post("/api/public/cosigner-submissions", cosignerBody(cosignerId)));
+    expect(unpaid.status).toBe(402);
+    expect((await unpaid.json()).code).toBe("FEE_REQUIRED");
+    // The resolved amount is stored, so the gate and the checkout agree from here on.
+    expect(db.tables.application_form_requests![0]!.fee_cents).toBe(4500);
+    expect(db.tables.cosigner_submission_records).toHaveLength(0);
+  });
+
+  it("answers 503 and completes nothing when an unresolved fee still cannot be read", async () => {
+    const db = state.db as LinkedFormFakeDb;
+    pointAtCosigner(db);
+    db.tables.application_form_requests![0]!.fee_cents = null;
+    state.feeFails = true;
+    const res = await submitCosigner(post("/api/public/cosigner-submissions", cosignerBody(cosignerId)));
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe("FEE_UNRESOLVED");
+    expect(db.tables.cosigner_submission_records).toHaveLength(0);
+    expect(db.tables.application_form_requests![0]).toMatchObject({ status: "shared", fee_cents: null });
+  });
+
+  it("an unresolved fee that resolves to no fee lets the submit through", async () => {
+    const db = state.db as LinkedFormFakeDb;
+    pointAtCosigner(db);
+    db.tables.application_form_requests![0]!.fee_cents = null;
+    state.feeCents = 0;
+    const res = await submitCosigner(post("/api/public/cosigner-submissions", cosignerBody(cosignerId)));
+    expect(res.status).toBe(200);
+    expect(db.tables.application_form_requests![0]).toMatchObject({ status: "done", fee_cents: 0 });
+  });
+
+  async function legacySubmit(db: LinkedFormFakeDb) {
     const formId = pointAtCosigner(db);
     state.user = null;
     const { formRequestId: _ignored, _cosignerId: _unused, ...legacy } = cosignerBody(cosignerId);
@@ -237,9 +281,71 @@ describe("a linked form submitted through the co-signer route", () => {
     const res = await submitCosigner(
       post("/api/public/cosigner-submissions", { ...legacy, signerAppId: "PROPLANE-APP00001", applicationTemplateId: formId }),
     );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return res;
+  }
+
+  it("the legacy public co-signer link keeps working and finishes a request that owes no fee", async () => {
+    const db = state.db as LinkedFormFakeDb;
+    db.tables.application_form_requests![0]!.fee_cents = 0;
+    const res = await legacySubmit(db);
     expect(res.status).toBe(200);
     expect(db.tables.cosigner_submission_records).toHaveLength(1);
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(db.tables.application_form_requests![0]).toMatchObject({ status: "done", filled_by_user_id: null });
+  });
+
+  it("the legacy public link finishes a request whose fee was already paid", async () => {
+    const db = state.db as LinkedFormFakeDb;
+    Object.assign(db.tables.application_form_requests![0]!, { fee_paid_at: new Date().toISOString(), fee_paid_by_user_id: "helper-1" });
+    expect((await legacySubmit(db)).status).toBe(200);
+    expect(db.tables.application_form_requests![0]).toMatchObject({ status: "done" });
+  });
+
+  it("the legacy public link never completes a request whose fee is owed or unresolved", async () => {
+    for (const fee of [4500, null]) {
+      state.db = seed();
+      const db = state.db as LinkedFormFakeDb;
+      db.tables.application_form_requests![0]!.fee_cents = fee;
+      expect((await legacySubmit(db)).status).toBe(200); // the submission itself is stored, as before
+      expect(db.tables.application_form_requests![0]).toMatchObject({ status: "shared", filled_by_user_id: null });
+    }
+  });
+});
+
+describe("a manager's action on a linked-form request needs edit access", () => {
+  const ctx = { params: Promise.resolve({ id: REQUEST_ID }) };
+  const act = (action: string, extra: Record<string, unknown> = {}) =>
+    postLinkedRequest(post(`/api/linked-form-requests/${REQUEST_ID}`, { action, ...extra }), ctx);
+
+  beforeEach(() => {
+    state.db = seed();
+    state.user = { id: "manager-readonly", email: "ro@example.com" };
+  });
+
+  it("a read-only co-manager can still read the request", async () => {
+    const res = await getLinkedRequest(new Request(`http://localhost/api/linked-form-requests/${REQUEST_ID}`), ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).request).toMatchObject({ id: REQUEST_ID, viewerRole: "manager" });
+  });
+
+  it("a read-only co-manager cannot waive, share or email the form: the same 404 as no access", async () => {
+    const db = state.db as LinkedFormFakeDb;
+    const before = { ...db.tables.application_form_requests![0]! };
+    for (const action of ["not_needed", "share", "send_email"]) {
+      const res = await act(action, { to: "someone@example.com" });
+      expect(res.status).toBe(404);
+    }
+    expect(db.tables.application_form_requests![0]).toEqual(before);
+  });
+
+  it("an owner or a co-manager with edit still can", async () => {
+    state.user = { id: "manager-1", email: "m@example.com" };
+    const db = state.db as LinkedFormFakeDb;
+    const shared = await act("share");
+    expect(shared.status).toBe(200);
+    expect((await shared.json()).path).toMatch(/^\/f\//);
+    const waived = await act("not_needed");
+    expect(waived.status).toBe(200);
+    expect(db.tables.application_form_requests![0]!.status).toBe("not_needed");
   });
 });

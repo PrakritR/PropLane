@@ -143,7 +143,8 @@ describe("pay-then-promote owes the linked forms", () => {
     expect(owed).toHaveLength(1);
     expect(owed[0]).toMatchObject({
       application_id: ID,
-      applicant_user_id: "applicant-1",
+      // The webhook has no session, so the applicant's login is never taken from the stored row's client-authored id.
+      applicant_user_id: null,
       form_kind: "application",
       form_id: cosignerId,
       status: "owed",

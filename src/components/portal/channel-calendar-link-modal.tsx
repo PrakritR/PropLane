@@ -15,6 +15,7 @@ import {
   deleteChannelCalendarConnection,
   fetchManagerChannelBookings,
   fetchRoomExportCalendarUrl,
+  fetchWritableChannelCalendarPropertyIds,
   saveChannelCalendarConnection,
   syncChannelCalendarConnection,
 } from "@/lib/channel-calendar/client";
@@ -67,7 +68,7 @@ type LinkGroup = { propertyId: string; label: string; rows: LinkRow[] };
 const CHANNEL_OPTIONS = (["airbnb", "booking_com", "vrbo"] as const).map((value) => ({ value, label: channelCalendarProviderLabel(value) }));
 const rowKey = (propertyId: string, roomId: string) => `${propertyId}::${roomId}`;
 
-export function ChannelCalendarLinkFields({ active, propertyOptions, initialPropertyId, initialProvider, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
+export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialPropertyId, initialProvider, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
   const [provider, setProvider] = useState<ChannelCalendarProvider | "">(initialProvider ?? "");
   const [scope, setScope] = useState<LinkScope>(initialPropertyId ? "properties" : "workspace");
   const [selectedIds, setSelectedIds] = useState<string[]>(initialPropertyId ? [initialPropertyId] : []);
@@ -82,22 +83,40 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
   const channel: ChannelCalendarProvider = provider || "airbnb";
   const name = channelCalendarProviderLabel(channel);
 
+  // Linking, unlinking and syncing need the Calendar module at edit, so the picker (and with it the "Entire
+  // workspace" scope) lists only the properties the caller may write. The server re-checks every write.
+  const [writableIds, setWritableIds] = useState<string[] | null>(null);
+  const allOptionIdsKey = allPropertyOptions.map((p) => p.id).join(",");
+  useEffect(() => {
+    if (!active || !allOptionIdsKey) return;
+    let stopped = false;
+    fetchWritableChannelCalendarPropertyIds(allOptionIdsKey.split(","))
+      .then((ids) => { if (!stopped) setWritableIds(ids); })
+      .catch(() => { if (!stopped) setWritableIds(null); });
+    return () => { stopped = true; };
+  }, [active, allOptionIdsKey]);
+  const writableOptions = useMemo(
+    () => (writableIds ? allPropertyOptions.filter((p) => writableIds.includes(p.id)) : allPropertyOptions),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- allOptionIdsKey is allPropertyOptions' identity
+    [writableIds, allOptionIdsKey],
+  );
+
   const scopeIds = useMemo(
-    () => (scope === "workspace" ? propertyOptions.map((p) => p.id) : propertyOptions.map((p) => p.id).filter((id) => selectedIds.includes(id))),
-    [scope, propertyOptions, selectedIds],
+    () => (scope === "workspace" ? writableOptions.map((p) => p.id) : writableOptions.map((p) => p.id).filter((id) => selectedIds.includes(id))),
+    [scope, writableOptions, selectedIds],
   );
   const scopeKey = scopeIds.join("\n");
   // An entire-home listing has no rooms to list: the house itself is its one row (see channelCalendarUnits).
   const groups = useMemo<LinkGroup[]>(
     () =>
       scopeIds.map((propertyId) => {
-        const label = propertyOptions.find((p) => p.id === propertyId)?.label ?? propertyId;
+        const label = writableOptions.find((p) => p.id === propertyId)?.label ?? propertyId;
         const entireHome = isEntireHomeProperty(propertyId);
         const rows = channelCalendarUnits(propertyId, label).map((unit) => ({ key: rowKey(propertyId, unit.id), propertyId, unit, title: entireHome ? "Whole house" : unit.name }));
         return { propertyId, label, rows };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey is scopeIds' identity
-    [scopeKey, propertyOptions],
+    [scopeKey, writableOptions],
   );
   const rows = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
 
@@ -176,7 +195,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
       <div data-attr="channel-calendar-link-scope">
         <SegmentedTwo<LinkScope> value={scope} onChange={setScope} left={{ id: "workspace", label: "Entire workspace" }} right={{ id: "properties", label: "Specific properties" }} />
       </div>
-      {scope === "properties" ? <CheckboxMultiSelect label="Properties" dataAttr="channel-calendar-link-property" selected={selectedIds} options={propertyOptions.map((p) => ({ value: p.id, label: p.label }))} emptyLabel="Pick properties…" disabled={busy} onChange={setSelectedIds} /> : null}
+      {scope === "properties" ? <CheckboxMultiSelect label="Properties" dataAttr="channel-calendar-link-property" selected={selectedIds} options={writableOptions.map((p) => ({ value: p.id, label: p.label }))} emptyLabel="Pick properties…" disabled={busy} onChange={setSelectedIds} /> : null}
     </div>
     {loading ? <p role="status">Loading linked rooms…</p> : rows.length === 0 ? <p>{scope === "properties" ? "Pick a property to list its rooms." : "This workspace has no rooms listed."}</p> : <div className="space-y-5" data-attr="channel-calendar-link-table">
       <div className={`hidden text-xs font-medium text-muted ${gridClass}`}><span>Room</span><span>{name} calendar link</span><span>PropLane link</span><span className="w-9" /></div>
@@ -219,7 +238,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions, initialProp
       <div className="flex justify-between gap-3"><dt className="text-muted">Channel</dt><dd className="text-right font-semibold">{provider ? name : "Not picked"}</dd></div>
       <div className="flex justify-between gap-3"><dt className="text-muted">Link</dt><dd className="text-right font-semibold">{scope === "workspace" ? "Entire workspace" : `${scopeIds.length} ${scopeIds.length === 1 ? "property" : "properties"}`}</dd></div>
     </dl>
-    {provider ? <ul className="space-y-2">{rows.map((r) => <li key={r.key} className="rounded-xl border border-border bg-card p-3 text-sm"><p className="font-semibold">{groups.length > 1 ? `${propertyOptions.find((p) => p.id === r.propertyId)?.label ?? ""} · ` : ""}{r.title}</p><p>{name} ⇄ PropLane calendar</p><p className="font-semibold">{statusOf(r)}</p></li>)}</ul> : null}
+    {provider ? <ul className="space-y-2">{rows.map((r) => <li key={r.key} className="rounded-xl border border-border bg-card p-3 text-sm"><p className="font-semibold">{groups.length > 1 ? `${writableOptions.find((p) => p.id === r.propertyId)?.label ?? ""} · ` : ""}{r.title}</p><p>{name} ⇄ PropLane calendar</p><p className="font-semibold">{statusOf(r)}</p></li>)}</ul> : null}
   </aside>;
 
   return <>
