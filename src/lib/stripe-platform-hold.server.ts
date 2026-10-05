@@ -98,7 +98,30 @@ export async function creditPlatformHold(
   if (!input.ownerUserId.trim() || amountCents <= 0) return { credited: false, hold: null };
 
   const existing = await findPlatformHold(db, input.source, input.sourceId);
-  if (!canCreditPlatformHold(existing)) return { credited: false, hold: existing };
+  if (!canCreditPlatformHold(existing)) {
+    if (existing && (existing.ownerUserId !== input.ownerUserId || existing.ownerRole !== input.ownerRole || existing.amountCents !== amountCents)) {
+      throw new Error("Existing platform hold does not match paid charge.");
+    }
+    if (existing && input.stripeChargeId && existing.stripeChargeId && existing.stripeChargeId !== input.stripeChargeId) {
+      throw new Error("Existing platform hold points to another Stripe charge.");
+    }
+    if (existing && input.stripeChargeId && !existing.stripeChargeId) {
+      const { error } = await db.from("platform_payment_holds")
+        .update({ stripe_charge_id: input.stripeChargeId, updated_at: new Date().toISOString() })
+        .eq("id", existing.id).is("stripe_charge_id", null);
+      if (error) throw new Error(error.message);
+      // The conditional write may affect zero rows when another event hydrated
+      // the same hold first. Never report a charge ID that was not persisted.
+      const durable = await findPlatformHold(db, input.source, input.sourceId);
+      if (!durable || durable.id !== existing.id || durable.ownerUserId !== input.ownerUserId ||
+          durable.ownerRole !== input.ownerRole || durable.amountCents !== amountCents ||
+          durable.stripeChargeId !== input.stripeChargeId) {
+        throw new Error("Platform hold charge hydration lost source arbitration.");
+      }
+      return { credited: false, hold: durable };
+    }
+    return { credited: false, hold: existing };
+  }
 
   const { data, error } = await db
     .from("platform_payment_holds")
@@ -118,11 +141,22 @@ export async function creditPlatformHold(
   if (error) {
     if (error.code === "23505") {
       const raced = await findPlatformHold(db, input.source, input.sourceId);
+      if (!raced || raced.ownerUserId !== input.ownerUserId || raced.ownerRole !== input.ownerRole ||
+          raced.amountCents !== amountCents ||
+          (input.stripeChargeId && raced.stripeChargeId && raced.stripeChargeId !== input.stripeChargeId)) {
+        throw new Error("Concurrent platform hold does not match paid source.");
+      }
+      // A concurrent writer can have persisted the same immutable source
+      // without its charge id. Re-enter the existing-row path to hydrate it.
+      if (input.stripeChargeId && !raced.stripeChargeId) {
+        return creditPlatformHold(db, input);
+      }
       return { credited: false, hold: raced };
     }
     throw new Error(error.message);
   }
   const hold = data ? fromDb(data as HoldDbRow) : null;
+  if (!hold) throw new Error("Platform hold insert returned no durable row.");
   track("platform_hold_credited", input.ownerUserId, {
     source: input.source,
     amount_cents: amountCents,

@@ -32,6 +32,7 @@ import {
   type ResidentApplicationAutofillProfile,
 } from "@/lib/rental-application/resident-application-autofill";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { settlePendingApplicationRowUpserts } from "@/lib/manager-applications-storage";
 import {
   getBundleOptionsForProperty,
   getPropertyById,
@@ -290,11 +291,14 @@ export function initialWizardStepFromRequest(
 ): number {
   if (mode !== "portal") return 1;
   const parsed = parseBoundedWizardStep(searchParams.get("wizardStep"));
-  if (!parsed) return 1;
   const draft = loadRentalWizardDraft();
   if (!draft) return 1;
   if (target && !targetMatchesApplication(target, { application: draft })) return 1;
-  return parsed;
+  // The resident detail view seeds the exact saved application into the local
+  // draft before mounting this wizard. Its persisted step can be 11/12 while
+  // URL wizardStep intentionally only represents 1..3; starting at 1 here
+  // would autosave over the saved payment step before reconciliation runs.
+  return parsePersistedWizardStep(draft.wizardStep, draft.wizardStepSchema) ?? parsed ?? 1;
 }
 
 /**
@@ -1714,6 +1718,7 @@ function RentalApplicationWizardInner({
       propertyId: pid,
       residentEmail: email,
       residentUserId: feeStepUserId,
+      applicationId: applicationAxisId || "__unresolved_application__",
       serverFeeCents,
       chargePolicy: serverFee?.propertyId === pid ? serverFee.chargePolicy : undefined,
       serverFeeWaived:
@@ -1738,7 +1743,8 @@ function RentalApplicationWizardInner({
       !serverFee?.propertyNotFound &&
       !serverFee?.previewFailed;
     if (pending && !gate.waived) {
-      const charge = findApplicationFeeCharge(email, pid, feeStepUserId);
+      const charge = findApplicationFeeCharge(email, pid, feeStepUserId,
+        applicationAxisId || "__unresolved_application__");
       const paid = charge?.status === "paid";
       return { needsFee: !paid, paid, displayLabel: "…", amount: gate.amount, waived: false, pending: true };
     }
@@ -1750,7 +1756,8 @@ function RentalApplicationWizardInner({
       waived: gate.waived,
       pending: false,
     };
-  }, [form.propertyId, form.email, form.applicationFeeWaived, feeStepUserId, chargeTick, serverFee, extrasTick]);
+  }, [form.propertyId, form.email, form.applicationFeeWaived, feeStepUserId,
+    applicationAxisId, chargeTick, serverFee, extrasTick]);
 
   const resolvedManagerUserIdForFee = useMemo(() => {
     const pid = form.propertyId.trim();
@@ -1789,10 +1796,20 @@ function RentalApplicationWizardInner({
     setWaiverCodeBusy(true);
     setWaiverCodeError(null);
     try {
+      const applicationId = ensureApplicationId();
+      syncInProgressApplicationRow({
+        axisId: applicationId,
+        form,
+        residentEmail: emailTrim,
+        wizardStep: step,
+        wizardMaxStepReached: maxStepReached,
+      });
+      await settlePendingApplicationRowUpserts(applicationId);
       const res = await fetch("/api/public/application-fee-waiver", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId: pid, managerUserId, residentEmail: emailTrim, code }),
+        body: JSON.stringify({ propertyId: pid, managerUserId, residentEmail: emailTrim,
+          applicationId, setupToken: getApplicationSetupToken(applicationId), code }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; waived?: boolean; error?: string };
       if (!res.ok || !data.waived) {
@@ -1807,7 +1824,7 @@ function RentalApplicationWizardInner({
     } finally {
       setWaiverCodeBusy(false);
     }
-  }, [form.applicationFeeWaiverCode, form.email, form.propertyId, showToast]);
+  }, [ensureApplicationId, form, maxStepReached, showToast, step]);
 
   const finalizeApplicationSubmit = useCallback(
     async (
@@ -1912,7 +1929,7 @@ function RentalApplicationWizardInner({
       // pending application-fee row.
       const feeWaivedByCode = Boolean(form.applicationFeeWaived);
       if (feeWaivedByCode && pid) {
-        removePendingApplicationFeeCharge(emailTrim, pid);
+        removePendingApplicationFeeCharge(emailTrim, pid, axisId);
       }
       // Book the charge at the SERVER's effective fee (manager-level setting)
       // whenever it is resolvable, so the manager's books always equal what
@@ -1945,7 +1962,7 @@ function RentalApplicationWizardInner({
         { skipApplicationFee: feeWaivedByCode, applicationFeeAmount },
       );
 
-      const feeCharge = findApplicationFeeCharge(form.email, pid, residentUserId);
+      const feeCharge = findApplicationFeeCharge(form.email, pid, residentUserId, axisId);
       const applicationRow = {
         id: axisId,
         name: applicantName,
@@ -2276,12 +2293,14 @@ function RentalApplicationWizardInner({
         // it no longer matches what this session paid for — never fall through
         // to a submit on a bare `paid: true`. Return the applicant to the form
         // with their answers intact (no draft/session is cleared) and a clear
-        // message naming the difference owed, so they can pay it inline.
+        // message about the changed basis. The settled claim does not offer
+        // an automatic top-up; the applicant may restore the paid choices or
+        // ask the manager to review the application.
         if (data.feeMismatch) {
           showToast(
             typeof data.error === "string"
               ? data.error
-              : "This application's fee changed. Pay the difference before submitting.",
+              : "This application's fee changed. Restore the choices you paid for or ask the manager to review it.",
           );
           router.replace(applyPathWithProperty);
           return;
@@ -2485,10 +2504,12 @@ function RentalApplicationWizardInner({
             repeatApplicantFeeWaived: feePreview.repeatApplicantFeeWaived,
           });
         }
+        const paymentApplicationId = ensureApplicationId();
         const feeGate = residentApplicationFeeGate({
           propertyId: pid,
           residentEmail: emailTrim,
           residentUserId,
+          applicationId: paymentApplicationId,
           serverFeeCents,
           chargePolicy: feePreview?.chargePolicy,
           serverFeeWaived: feePreview?.repeatApplicantFeeWaived,
@@ -2501,7 +2522,7 @@ function RentalApplicationWizardInner({
           // not by redirecting from this button. If the applicant has already
           // paid (returned from the embedded form), submit; otherwise point them
           // at the inline form instead of leaving the wizard.
-          const charge = findApplicationFeeCharge(form.email, pid, residentUserId);
+          const charge = findApplicationFeeCharge(form.email, pid, residentUserId, paymentApplicationId);
           if (charge?.status === "paid") {
             finalizeApplicationSubmit(residentUserId);
             return;

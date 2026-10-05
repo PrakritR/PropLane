@@ -176,17 +176,50 @@ still shows only the application fee (no plan tier leaks there); the itemized
 service fee only appears once an applicant reaches the payment step
 (`/api/public/application-fee-preview` returns the same breakdown the checkout
 route will charge, so the wizard itemizes it before the applicant pays).
-**Payment is INLINE (embedded), not a redirect** — `application-fee-checkout`
-defaults to `mode: "embedded"` and returns a `clientSecret`; the wizard renders
+**Payment is INLINE (embedded)** — `application-fee-checkout`
+requires `mode: "embedded"` and returns a `clientSecret`; the wizard renders
 Stripe's embedded card form in-step (`ApplicationFeeInlinePayment` →
 `StripeEmbeddedCheckout`). On success Stripe returns the applicant to
 `…?fee_checkout=return&session_id=…` which the wizard verifies before treating
 the fee as paid; an abandoned/failed payment leaves the applicant on the step
-with a clear error and their answers intact. A legacy `mode: "hosted"` redirect
-path is still supported for callers that ask for it.
+with a clear error and their answers intact. The wizard drains its serialized
+draft save before checkout; the server derives room, term and template from
+that exact authorized saved application. A durable application claim freezes
+the quote and provider create parameters, arbitrates concurrent `first_only`
+payments across that manager and applicant, and binds paid settlement to the
+same application, attempt, session, PaymentIntent and charge. The webhook and
+return verifier share the idempotent ledger/hold fulfillment; accounting errors
+retry rather than acknowledging an incomplete payment. Older paid platform-hold
+sessions without a claim can repair financial records only when one existing
+paid charge is already bound to that exact session and Stripe confirms the
+owner, amount, charge and absence of refunds. That repair does not promote an
+application. Other historical sessions remain source-review items; email and
+property matching never assign them or authorize a second charge.
+
+Before deploying application-fee claims, inventory the existing Stripe
+application-fee Checkout sessions read-only for the target environment, including
+open sessions and completed paid sessions. Join paid sessions to
+`portal_household_charge_records` by the exact stored
+`row_data.stripeCheckoutSessionId`, then compare the actual PaymentIntent and
+charge to the stored owner, property, applicant, USD gross, principal, refund
+status and hold/destination mode. Record zero or multiple exact matches as
+reconciliation items. Old open sessions without a claim must be confirmed
+terminally expired AND unpaid under a separately reviewed operation before
+rollout; a
+late paid session with no exact source remains retryable and requires source
+review, never ambient email/property adoption or a second charge. The bounded
+legacy verifier can repair only an exact, already-paid, refund-free platform
+hold source; historical direct destinations need separate owner/transfer
+evidence. This inventory is a rollout gate, not a runtime scan or permission
+to expire or transfer production money.
+
 **A manager-owned waiver code (`src/lib/application-fee-waiver.ts`,
 `/api/public/application-fee-waiver`) can waive the application fee entirely**
 — a redeemed code skips Stripe altogether (no $0 charge, no session).
+New redemptions bind the saved application ID after applicant access is checked;
+a code redeemed on one `every_time` draft does not waive another. Historical
+redemptions with a null application ID need explicit source review and are not
+automatically assigned to every new draft.
 
 **`manager_application_fee_waiver_codes` is the only authority on which code is
 live.** Two surfaces write it: Applications settings

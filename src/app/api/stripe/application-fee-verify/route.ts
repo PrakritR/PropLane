@@ -9,13 +9,10 @@ import { residentAccountCreationUrl } from "@/lib/resident-welcome-email";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { axisAchCheckoutPaid, axisAchCheckoutProcessing } from "@/lib/stripe-axis-ach-checkout";
-import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
+import { fulfillApplicationFeePayment, promoteClaimedApplicationAfterFee } from "@/lib/application-fee-fulfillment.server";
 import { reportOrphanedApplicationFeePayment } from "@/lib/report-orphaned-application-fee.server";
 import {
-  includesHoldingDeposit,
   isApplicationFeeCheckoutSession,
-  markApplicationDepositPaidFromStripeSession,
-  markApplicationFeePaidFromStripeSession,
 } from "@/lib/stripe-application-fee";
 
 export const runtime = "nodejs";
@@ -85,20 +82,16 @@ export async function POST(req: Request) {
     let applicationSetupEmailSent = session.metadata?.application_setup_email_sent === "1";
     if (paid) {
       const db = createSupabaseServiceRoleClient();
-      const result = await markApplicationFeePaidFromStripeSession(db, session);
-      chargeId = result.chargeId ?? null;
-      alreadyPaid = result.alreadyPaid ?? false;
-      // A combined checkout (application fee + holding deposit) is ONE Stripe
-      // session but TWO charge rows server-side — this route is the ACH/redirect
-      // return path, so it must mark both, same as the webhook does for the
-      // synchronous card path.
-      if (includesHoldingDeposit(session)) {
-        const depositResult = await markApplicationDepositPaidFromStripeSession(db, session);
-        depositChargeId = depositResult.chargeId ?? null;
-      }
+      const result = await fulfillApplicationFeePayment(db, stripe, session);
+      chargeId = result.chargeId;
+      alreadyPaid = result.alreadyPaid;
+      if (!("legacy" in result)) {
+      // The current claimed Checkout collects the application fee alone.
+      // Historical combined fee/deposit sessions need source review before
+      // either obligation can be attributed; the shared verifier rejects them.
       // PRP-431: promote Incomplete → Submitted from the draft snapshot so a
       // wiped client form after Stripe return cannot leave the app stuck.
-      const promoted = await promoteIncompleteApplicationAfterFeePaid(db, session);
+      const promoted = await promoteClaimedApplicationAfterFee(db, session);
       if (promoted.ok && promoted.promoted) {
         applicationPromoted = true;
         applicationAxisId = promoted.axisId;
@@ -123,6 +116,7 @@ export async function POST(req: Request) {
             console.warn("[application-fee-verify] orphan_report_failed");
           }
         }
+      }
       }
       // Hosted/native returns can lose both the browser cookie and resume data.
       // Deliver only to the saved application's address, including webhook-first
@@ -204,9 +198,9 @@ export async function POST(req: Request) {
             feeMismatch: true,
             requiredCents: feeMismatch.requiredCents,
             paidCents: feeMismatch.paidCents,
-            error: `This application now requires a $${(feeMismatch.requiredCents / 100).toFixed(2)} fee — $${(
+            error: `This application's current choices require a $${(feeMismatch.requiredCents / 100).toFixed(2)} fee; $${(
               feeMismatch.paidCents / 100
-            ).toFixed(2)} was paid. Pay the difference before submitting.`,
+            ).toFixed(2)} was paid. Restore the choices you paid for or ask the manager to review this application.`,
           }
         : {}),
     });

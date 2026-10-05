@@ -184,6 +184,9 @@ export type HouseholdCharge = {
   processingStartedAt?: string;
   /** Total cents charged to the resident at checkout, when higher than the charge face amount. */
   paidAmountCents?: number;
+  /** Immutable provider source for a verified online payment. */
+  stripeCheckoutSessionId?: string;
+  stripePaymentStatus?: string;
   /**
    * Application fee only: which room / lease type the amount was computed for and which level of
    * the fee chain set it. A later room or term change does not re-price a paid fee; this is the
@@ -768,7 +771,7 @@ export function publicChargeIdForUrl(id: string): string {
   return id.replace(/_axis_/g, "_pl_");
 }
 
-function applicationFeeChargeIdForApplication(applicationId: string): string {
+export function applicationFeeChargeIdForApplication(applicationId: string): string {
   return `hc_app_fee_${chargeKeyPart(applicationId)}`;
 }
 
@@ -978,9 +981,16 @@ function chargeBusinessKey(charge: HouseholdCharge): string {
   ) {
     return `utilities_recurring|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${charge.rentMonth}`;
   }
-  /** One pending/paid application fee per resident email + listing — avoids duplicates when id linkage or property id varies on the row. */
+  /** The exact application is one obligation across pending -> paid sync.
+   * Preserve the captured row's immutable id when those representations merge. */
   if (charge.kind === "application_fee") {
-    return `application_fee|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}`;
+    if (charge.applicationId?.trim()) {
+      return `application_fee_application|${charge.managerUserId}|${charge.applicationId.trim()}`;
+    }
+    if (charge.status === "paid" && charge.stripeCheckoutSessionId) {
+      return `application_fee_paid_legacy|${charge.id}`;
+    }
+    return `application_fee_legacy|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}`;
   }
   if (charge.kind === "holding_deposit") {
     return `holding_deposit|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}`;
@@ -1032,7 +1042,7 @@ function mergeHouseholdApplicationFeeRows(a: HouseholdCharge, b: HouseholdCharge
           })();
   const applicationId = primary.applicationId?.trim() || secondary.applicationId?.trim() || undefined;
   const paid = aPaid || bPaid;
-  const mergedId = applicationId ? applicationFeeChargeIdForApplication(applicationId) : primary.id;
+  const mergedId = paid ? primary.id : applicationId ? applicationFeeChargeIdForApplication(applicationId) : primary.id;
   return {
     ...primary,
     id: mergedId,
@@ -2018,13 +2028,13 @@ export function findApplicationFeeCharge(
   const props = new Set(
     [propertyId, ...(propertyIdAliases ?? [])].map((p) => String(p ?? "").trim()).filter(Boolean),
   );
+  const exactApplicationId = applicationId?.trim() || "";
+  const exactChargeId = exactApplicationId ? applicationFeeChargeIdForApplication(exactApplicationId) : "";
   return readAll().find((r) => {
     if (r.kind !== "application_fee") return false;
     const emailMatch = r.residentEmail.trim().toLowerCase() === e;
     const userMatch = Boolean(residentUserId && r.residentUserId === residentUserId);
-    if (applicationId?.trim() && r.applicationId === applicationId.trim()) {
-      return emailMatch || userMatch;
-    }
+    if (exactApplicationId && r.applicationId !== exactApplicationId && r.id !== exactChargeId) return false;
     if (!emailMatch && !userMatch) return false;
     if (props.size === 0) return false;
     return props.has(r.propertyId);
@@ -2032,7 +2042,7 @@ export function findApplicationFeeCharge(
 }
 
 /** Removes a pending application-fee line (e.g. after promo waive) so managers do not see a stray unpaid fee. */
-export function removePendingApplicationFeeCharge(residentEmail: string, propertyId: string): void {
+export function removePendingApplicationFeeCharge(residentEmail: string, propertyId: string, applicationId?: string): void {
   const e = residentEmail.trim().toLowerCase();
   const rows = readAll();
   const next = rows.filter(
@@ -2041,6 +2051,7 @@ export function removePendingApplicationFeeCharge(residentEmail: string, propert
         r.kind === "application_fee" &&
         r.propertyId === propertyId &&
         r.residentEmail.trim().toLowerCase() === e &&
+        (!applicationId || r.applicationId === applicationId) &&
         r.status === "pending"
       )
   );
@@ -3503,6 +3514,7 @@ export function recordApplicationCharges(
     input.residentEmail,
     input.propertyId,
     input.residentUserId,
+    input.applicationId,
   );
 
   const serverAmount =

@@ -36,11 +36,7 @@ import {
 } from "@/lib/stripe-subscription-helpers";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { reconcileManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
-import {
-  markApplicationDepositPaidFromStripeSession,
-  markApplicationFeePaidFromStripeSession,
-} from "@/lib/stripe-application-fee";
-import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
+import { fulfillApplicationFeePayment, promoteClaimedApplicationAfterFee } from "@/lib/application-fee-fulfillment.server";
 import {
   householdChargeCheckoutProcessing,
   isHouseholdChargeCheckoutSession,
@@ -289,24 +285,14 @@ export async function POST(req: Request) {
           }
         });
       } else if (session.metadata?.purpose === "rental_application_fee") {
-        try {
-          await markApplicationFeePaidFromStripeSession(db, session);
-          // No-op on any session that did not combine a holding deposit
-          // (`metadata.includes_holding_deposit` — legacy-only; nothing
-          // creates combined fee+deposit sessions anymore).
-          await markApplicationDepositPaidFromStripeSession(db, session);
-          // PRP-431: promote Incomplete → Submitted even when the browser never
-          // returns from Checkout (or returns with a wiped form).
-          await promoteIncompleteApplicationAfterFeePaid(db, session);
-          await enrichCheckoutLedgerFees(stripe, session);
-          await creditHoldFromPaidSession(db, session).catch((e) => {
-            console.error("[stripe webhook] application fee platform hold", e);
-          });
-          const distinctId = session.client_reference_id ?? session.id;
-          track("application_fee_paid", distinctId, { session_id: session.id });
-        } catch (e) {
-          console.error("[stripe webhook] rental_application_fee checkout", e);
-        }
+        if (session.payment_status !== "paid") return NextResponse.json({ received: true }, { status: 200 });
+        // A captured fee is never acknowledged until its exact persisted
+        // application claim, charge, ledger and recipient hold are repaired.
+        // Legacy sessions without a claim fail closed for source review.
+        const fulfilled = await fulfillApplicationFeePayment(db, stripe, session);
+        if (!("legacy" in fulfilled)) await promoteClaimedApplicationAfterFee(db, session);
+        const distinctId = session.client_reference_id ?? session.id;
+        track("application_fee_paid", distinctId, { session_id: session.id });
       } else if (session.metadata?.purpose === SCREENING_CHECKOUT_PURPOSE) {
         // No catch: an unexpected throw returns 500 so Stripe retries; the
         // order placement is idempotent on the session id.
@@ -387,6 +373,19 @@ export async function POST(req: Request) {
       await revertHouseholdChargeProcessingFromStripeSession(db, session).catch((e) => {
         console.error("[stripe webhook] async_payment_failed household_charge", e);
       });
+    }
+
+    if (event.type === "checkout.session.expired") {
+      const expired = event.data.object as Stripe.Checkout.Session;
+      if (expired.metadata?.purpose === "rental_application_fee" &&
+          expired.metadata.application_id && expired.metadata.attempt_token) {
+        const { error } = await db.rpc("retire_expired_application_fee_checkout", {
+          p_application_id: expired.metadata.application_id,
+          p_attempt_token: expired.metadata.attempt_token,
+          p_session_id: expired.id,
+        });
+        if (error) throw new Error("Could not release the expired application fee attempt.");
+      }
     }
 
     if (event.type === "checkout.session.expired" && isHouseholdChargeCheckoutSession(event.data.object as Stripe.Checkout.Session)) {
