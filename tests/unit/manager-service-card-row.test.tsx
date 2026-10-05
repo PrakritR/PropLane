@@ -143,6 +143,18 @@ describe("ManagerServiceCardRow", () => {
     expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeNull();
   });
 
+  // A stored photo URL is untrusted input (it reaches the row from local storage),
+  // so anything that is not an http(s) link or an inline image falls through to the
+  // glyph tile rather than reaching the `src` attribute.
+  it("refuses a photo URL that is not an http(s) link or an inline image", () => {
+    for (const unsafe of ['" onerror="alert(1)', "javascript:alert(1)", "data:text/html;base64,AAAA"]) {
+      const { unmount } = render(<ManagerServiceCardRow row={base} photoUrl={unsafe} onOpen={() => {}} />);
+      expect(document.querySelector('[data-slot="portal-row-photo-tile"]')).toBeNull();
+      expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
+      unmount();
+    }
+  });
+
   it("keeps the resident as a fact when there is one and draws none when there is not", () => {
     const { unmount } = render(<ManagerServiceCardRow row={base} onOpen={() => {}} />);
     expect(document.querySelector('[data-attr="record-row-facts"]')?.textContent).toContain("Maya Chen");

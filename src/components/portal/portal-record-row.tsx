@@ -32,6 +32,18 @@ export function PortalRecordRowStatus({ tone, text }: PortalRecordRowStatusWord)
 export type PortalRecordRowLeadingShape = "square" | "round";
 
 /**
+ * `<img src>` barrier for a stored photo URL (a service's photo reaches this row
+ * from local storage, so it is not trusted input). Same anchored expression the
+ * other photo surfaces use — `resident-services-panel.tsx`,
+ * `vendor-work-orders-panel.tsx`, `service-details-section.tsx` — and tested
+ * inline right where the value reaches the attribute so CodeQL's
+ * js/xss-through-dom barrier recognition sees it. A prefix-only scheme test is
+ * not a barrier: it still lets `<` and `"` into the attribute.
+ */
+const SAFE_PHOTO_HREF_RE =
+  /^(?:data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[A-Za-z0-9._~:/?#@!$&*+,;=%()[\]-]+)$/i;
+
+/**
  * The square icon tile a record row opens with (Pricing, House details, Move-in,
  * Lease, Applications — the studio replica's `UI.row({ tile })`). Pass it as
  * `leading` with `leadingShape="square"`.
@@ -422,11 +434,13 @@ export function PortalApplicantRecordRow({
     .map((part) => part[0]!.toUpperCase())
     .join("");
   const tileRounding = leadingShape === "round" ? "rounded-full" : "rounded-[10px]";
+  // An unusable or unsafe photo falls through to the glyph / initials tile.
+  const tilePhoto = (tileImage ?? "").trim();
   return (
     <PortalPropertyRecordRow
       title={name}
       leading={
-        tileImage ? (
+        tilePhoto && SAFE_PHOTO_HREF_RE.test(tilePhoto) ? (
           <div
             data-slot="portal-row-photo-tile"
             className={cn(
@@ -438,7 +452,7 @@ export function PortalApplicantRecordRow({
             )}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={tileImage} alt="" className="size-full object-cover" loading="lazy" />
+            <img src={tilePhoto} alt="" className="size-full object-cover" loading="lazy" />
           </div>
         ) : kind === "cosigner" || tileIcon ? (
           <div

@@ -110,15 +110,21 @@ export async function createExpensesFromWorkOrder(
   const expenseDate = (input.completedAt || now).slice(0, 10);
   const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category] ?? "maintenance";
   const memoBase = input.workDoneSummary?.trim() || `Work order ${input.workOrderId}`;
+
+  const wantsLabor = Boolean(input.vendorCostCents && input.vendorCostCents > 0);
+  const wantsMaterials = Boolean(input.materialsCostCents && input.materialsCostCents > 0);
+
+  // A completion carrying no cost posts nothing, so it has nothing to guard: reading the ledger
+  // here would only decide what NOT to post, while making a Mark done with no vendor or materials
+  // cost fail outright whenever that read fails. Marking a job done is not a money move.
+  if (!wantsLabor && !wantsMaterials) return ids;
+
   let known = alreadyPostedLines;
   if (!known) {
     const read = await readPostedWorkOrderExpenseLines(db, managerUserId, input.workOrderId);
     if (!read.ok) throw new Error(`Could not read this job's posted expenses: ${read.error}`);
     known = read.posted;
   }
-
-  const wantsLabor = Boolean(input.vendorCostCents && input.vendorCostCents > 0);
-  const wantsMaterials = Boolean(input.materialsCostCents && input.materialsCostCents > 0);
 
   if (wantsLabor && !known.has("labor")) {
     known = await postedLinesNow(db, managerUserId, input.workOrderId, known);

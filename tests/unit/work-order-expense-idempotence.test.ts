@@ -156,6 +156,17 @@ describe("the guard re-reads immediately before each insert", () => {
     expect(ids).toEqual(["exp-1"]);
   });
 
+  // Marking a job done with no vendor or materials cost posts nothing, so it must not depend on
+  // the ledger read it would only have used to decide what not to post: a failing read there
+  // refused the whole completion (and its resident notice) over an expense it never had.
+  it("reads nothing for a completion that carries no cost", async () => {
+    const { db, inserts, readCount } = makeDb([], { readError: "connection reset" });
+    const ids = await createExpensesFromWorkOrder(db, MANAGER, { workOrderId: JOB, category: "plumbing" });
+    expect(readCount()).toBe(0);
+    expect(inserts).toEqual([]);
+    expect(ids).toEqual([]);
+  });
+
   it("refuses to post at all when it has to read for itself and that read fails", async () => {
     const { db, inserts } = makeDb([], { readError: "connection reset" });
     await expect(createExpensesFromWorkOrder(db, MANAGER, completion)).rejects.toThrow(/connection reset/);
