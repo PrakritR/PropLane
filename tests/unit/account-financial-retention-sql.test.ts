@@ -145,7 +145,7 @@ it("retains a real resident checkout attempt through resident deletion and casca
         property_id text,kind text,status text,row_data jsonb,updated_at timestamptz default now());
       create table portal_lease_pipeline_records(id uuid primary key,manager_user_id uuid,resident_user_id uuid,resident_email text,row_data jsonb);
       create table manager_property_records(id text primary key,manager_user_id uuid);
-      create table resident_autopay_runs(id uuid primary key);`);
+      create table resident_autopay_runs(id uuid primary key,charge_id text,resident_user_id uuid,manager_id uuid,status text,stripe_payment_intent_id text);`);
     await exactDb.exec(readFileSync("supabase/migrations/20260907214100_preserve_resident_financial_history.sql", "utf8"));
     for (const table of ["vendor_invoices", "vendor_payouts"]) await exactDb.exec(`create table ${table}(
       id uuid primary key, manager_user_id uuid not null references auth.users(id) on delete cascade,

@@ -69,7 +69,7 @@ function makeDb(opts: { ownerUserId: string | null }) {
 function makeStripe(externalAccounts: Stripe.ExternalAccount[]) {
   return {
     accounts: {
-      retrieve: vi.fn().mockResolvedValue({ id: "acct_1", external_accounts: { data: externalAccounts } }),
+      retrieve: vi.fn().mockResolvedValue({ id: "acct_1", metadata: { axis_user_id: "owner-1" }, external_accounts: { data: externalAccounts } }),
     },
   } as unknown as Stripe;
 }

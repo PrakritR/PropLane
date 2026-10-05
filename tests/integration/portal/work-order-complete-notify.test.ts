@@ -22,6 +22,16 @@ function mockDb(seed: WorkOrderStoreRow[]) {
   const store = new Map(seed.map((r) => [r.id, r]));
   const upserts: Record<string, unknown>[] = [];
   const client = {
+    // `complete_work_order_record` (migration 20261004220000) locks the stored row
+    // and merges only completion facts; the fake mirrors that contract.
+    async rpc(name: string, args: { p_work_order: string; p_manager: string; p_patch: Record<string, unknown> }) {
+      if (name !== "complete_work_order_record") throw new Error(`unexpected rpc ${name}`);
+      const row = store.get(args.p_work_order);
+      if (!row || row.manager_user_id !== args.p_manager) return { data: null, error: { message: "Service not found." } };
+      const merged = { ...row.row_data, ...args.p_patch, completedAt: row.row_data.completedAt ?? new Date().toISOString() };
+      store.set(row.id, { ...row, row_data: merged });
+      return { data: merged, error: null };
+    },
     from(table: string) {
       if (table === "portal_work_order_records") {
         return {
@@ -57,7 +67,10 @@ describe("POST /api/portal/work-orders/complete resident notify", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("notifies the resident once on first completion", async () => {
-    const { client } = mockDb([]);
+    const { client } = mockDb([{
+      id: "WO-1", manager_user_id: "mgr-1",
+      row_data: { id: "WO-1", title: "Leaky faucet", residentEmail: "res@test.com", propertyName: "Elm House" },
+    }]);
     asManager("mgr-1", client);
 
     const res = await POST(

@@ -100,6 +100,11 @@ function makeDb(tables: Record<string, Row[]>) {
   const log = { inserts: [] as Array<{ table: string; row: Row }>, upserts: [] as Array<{ table: string; row: Row }> };
   return {
     log,
+    // Claim / release / paid-merge RPCs from migration 20261004220000, as ledger-free stubs.
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name === "mark_work_order_payment_paid") return { data: args.p_patch, error: null };
+      return { data: null, error: null };
+    },
     from(table: string) {
       if (!tables[table]) tables[table] = [];
       return new FakeQuery(tables[table]!, table, log);
@@ -110,7 +115,7 @@ function makeDb(tables: Record<string, Row[]>) {
 const MANAGER = "manager_a";
 const VENDOR = "vendor_1";
 const WORK_ORDER = "wo_balance_1";
-const workOrderRow = { id: WORK_ORDER, title: "Fix the boiler", propertyId: "prop_1", bucket: "completed" };
+const workOrderRow = { id: WORK_ORDER, title: "Fix the boiler", propertyId: "prop_1", bucket: "completed", vendorCostCents: 12_500 };
 
 function baseTables(payout?: Row): Record<string, Row[]> {
   return {

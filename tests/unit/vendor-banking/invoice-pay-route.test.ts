@@ -32,7 +32,9 @@ vi.mock("@/lib/vendor-invoice-pay.server", () => ({ startVendorInvoicePayCheckou
 
 async function callPay() {
   const { POST } = await import("@/app/api/vendor/invoices/[id]/pay/route");
-  return POST(new Request("https://example.com/api/vendor/invoices/inv-1/pay", { method: "POST" }), {
+  return POST(new Request("https://example.com/api/vendor/invoices/inv-1/pay", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paymentMethod: "card" }),
+  }), {
     params: Promise.resolve({ id: "inv-1" }),
   });
 }
@@ -82,7 +84,7 @@ describe("POST /api/vendor/invoices/[id]/pay auth", () => {
     expect(json.clientSecret).toBe("cs_test_secret");
     expect(startVendorInvoicePayCheckout).toHaveBeenCalledWith(
       {},
-      expect.objectContaining({ invoiceId: "inv-1", managerUserId: "manager_1" }),
+      expect.objectContaining({ invoiceId: "inv-1", managerUserId: "manager_1", paymentMethod: "card" }),
     );
   });
 });

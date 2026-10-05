@@ -126,7 +126,6 @@ export const DELETE_ORDER = [
   "vendor_payouts",
   // Platform-held funds awaiting a Connect destination; financial like vendor_payouts.
   "platform_payment_holds",
-  "payout_destination_cache_refreshes",
   // night/vendor-pay ledger account row (owner_key is a manager or vendor id, not an FK);
   // financial like vendor_invoices/vendor_payouts above.
   "proplane_balance_accounts",
