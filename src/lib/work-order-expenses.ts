@@ -23,12 +23,13 @@ export type PostedWorkOrderExpenseLines = Map<WorkOrderExpenseLine, string>;
 
 type PostedExpenseRow = { id?: unknown; category_code?: unknown; source_vendor_invoice_id?: unknown };
 
-/** Which line an existing `manager_expense_entries` row of this job is. */
-function lineOfPostedRow(row: PostedExpenseRow): WorkOrderExpenseLine {
-  // A row the vendor-invoice rail wrote (`settle_vendor_invoice_payment`) IS the job's vendor cost,
-  // whatever category the bill carried, so it counts as labor and a completion never posts it twice.
-  if (row.source_vendor_invoice_id != null) return "labor";
-  return row.category_code === "materials" ? "materials" : "labor";
+/** The lines an existing `manager_expense_entries` row of this job accounts for. */
+function linesClosedByPostedRow(row: PostedExpenseRow): WorkOrderExpenseLine[] {
+  // A row the vendor-invoice rail wrote (`settle_vendor_invoice_payment`) is the vendor's WHOLE bill
+  // for the job: `vendor_invoices` carries one `total_cents` with no labor/materials split, so that
+  // single expense accounts for both lines and a completion adds nothing on top of it.
+  if (row.source_vendor_invoice_id != null) return ["labor", "materials"];
+  return [row.category_code === "materials" ? "materials" : "labor"];
 }
 
 /**
@@ -45,7 +46,7 @@ function lineOfPostedRow(row: PostedExpenseRow): WorkOrderExpenseLine {
  * callers take that category from the client, and a stale mirror sending a different one would walk
  * straight past a category-keyed guard. `WORK_ORDER_CATEGORY_TO_EXPENSE` never maps to `materials`,
  * so for a completion row that code identifies the materials line; an invoice row is read off its
- * `source_vendor_invoice_id` instead, since a bill's own category is not ours to interpret.
+ * `source_vendor_invoice_id` instead and closes both lines, since a paid bill is the whole cost.
  *
  * Returns a failure rather than throwing, so a caller that is about to move money can read FIRST
  * and refuse before it does: not knowing what is already posted means refusing to post.
@@ -65,8 +66,7 @@ export async function readPostedWorkOrderExpenseLines(
   for (const row of (data ?? []) as PostedExpenseRow[]) {
     const id = row.id == null ? "" : String(row.id);
     if (!id) continue;
-    const line = lineOfPostedRow(row);
-    if (!posted.has(line)) posted.set(line, id);
+    for (const line of linesClosedByPostedRow(row)) if (!posted.has(line)) posted.set(line, id);
   }
   return { ok: true, posted };
 }
@@ -163,7 +163,7 @@ export async function createExpensesFromWorkOrder(
     known = await postedLinesNow(db, managerUserId, input.workOrderId, known);
   }
   const postedMaterials = known.get("materials");
-  if (postedMaterials) ids.push(postedMaterials);
+  if (postedMaterials && postedMaterials !== postedLabor) ids.push(postedMaterials);
 
   if (!postedMaterials && wantsMaterials && input.materialsCostCents && input.materialsCostCents > 0) {
     const { data, error } = await db

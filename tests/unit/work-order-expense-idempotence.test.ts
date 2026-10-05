@@ -1,9 +1,13 @@
 /**
- * A job's vendor cost is expensed ONCE, across every rail that writes
- * `manager_expense_entries` against a work order: the completion's labor and materials lines and
- * `settle_vendor_invoice_payment`, which posts the paid vendor bill under the same
- * `source_work_order_id`. The guard reads all three and re-reads immediately before each insert, so
- * a row that lands while money is moving is still seen.
+ * What is guaranteed here: a job's vendor cost is expensed ONCE across the two completion rails
+ * (Mark done and Approve + pay), and a job whose vendor invoice was already settled gets nothing
+ * further from a completion — a paid bill is the vendor's whole cost for the job, so that one
+ * `settle_vendor_invoice_payment` row closes both the labor and the materials line. The guard
+ * re-reads immediately before each insert, so a row that lands while money is moving is still seen.
+ *
+ * The other direction, completion then invoice, is not guarded here: it rests on
+ * `settle_vendor_invoice_payment`'s own `if expense_id is null` check, which is keyed per BILL
+ * (`b.paid_expense_entry_id`, migration 20261003010000) rather than per work order.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -75,18 +79,18 @@ beforeEach(() => {
   gl.postGlExpenseEntry.mockClear();
 });
 
-describe("the vendor-invoice rail counts as the job's labor line", () => {
-  it("reads a paid bill's expense as labor, whatever category the bill carried", async () => {
+describe("a settled vendor invoice is the job's whole vendor cost", () => {
+  it("reads a paid bill's expense as the job's labor, whatever category the bill carried", async () => {
     const { db } = makeDb([invoiceRow()]);
     const read = await readPostedWorkOrderExpenseLines(db, MANAGER, JOB);
-    expect(read).toEqual({ ok: true, posted: new Map([["labor", "exp-invoice"]]) });
+    expect(read.ok && read.posted.get("labor")).toBe("exp-invoice");
   });
 
-  it("still reads it as labor when the bill's own category happens to be materials", async () => {
+  it("still closes both lines when the bill's own category happens to be materials", async () => {
     const { db } = makeDb([invoiceRow({ category_code: "materials" })]);
     const read = await readPostedWorkOrderExpenseLines(db, MANAGER, JOB);
     expect(read.ok && read.posted.get("labor")).toBe("exp-invoice");
-    expect(read.ok && read.posted.get("materials")).toBeUndefined();
+    expect(read.ok && read.posted.get("materials")).toBe("exp-invoice");
   });
 
   it("never posts labor a second time for a job whose invoice was already paid", async () => {
@@ -97,11 +101,21 @@ describe("the vendor-invoice rail counts as the job's labor line", () => {
     expect(gl.postGlExpenseEntry).not.toHaveBeenCalled();
   });
 
-  it("still posts the completion's materials line, which the invoice did not cover", async () => {
+  it("posts no materials line either: the paid bill is the job's whole vendor cost", async () => {
     const { db, inserts } = makeDb([invoiceRow()]);
-    const ids = await createExpensesFromWorkOrder(db, MANAGER, { ...completion, materialsCostCents: 2_500 });
-    expect(inserts.map((row) => row.category_code)).toEqual(["materials"]);
-    expect(ids).toEqual(["exp-invoice", "exp-1"]);
+    const ids = await createExpensesFromWorkOrder(db, MANAGER, { ...completion, materialsCostCents: 4_000 });
+    expect(inserts).toEqual([]);
+    expect(ids).toEqual(["exp-invoice"]);
+    expect(gl.postGlExpenseEntry).not.toHaveBeenCalled();
+  });
+
+  it("reads a settled invoice as closing both lines", async () => {
+    const { db } = makeDb([invoiceRow()]);
+    const read = await readPostedWorkOrderExpenseLines(db, MANAGER, JOB);
+    expect(read.ok && [...read.posted]).toEqual([
+      ["labor", "exp-invoice"],
+      ["materials", "exp-invoice"],
+    ]);
   });
 });
 
