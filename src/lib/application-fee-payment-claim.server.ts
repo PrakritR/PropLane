@@ -121,6 +121,35 @@ function resultFromClaim(claim: ApplicationFeeClaim, clientSecret: string) {
   };
 }
 
+/** A paid legacy row without an application id cannot safely be assigned to a
+ * new draft, even when email and property match. Read the complete scoped set
+ * so an older source cannot be hidden by a page limit. */
+export async function applicationFeeCheckoutSourceConflict(
+  db: SupabaseClient,
+  input: { applicationId: string; managerUserId: string; propertyId: string; residentEmail: string },
+): Promise<"exact_paid" | "ambiguous_legacy" | null> {
+  const query = db.from("portal_household_charge_records")
+    .select("id,row_data")
+    .eq("manager_user_id", input.managerUserId)
+    .eq("property_id", input.propertyId)
+    .eq("resident_email", input.residentEmail.trim().toLowerCase())
+    .eq("kind", "application_fee")
+    .in("status", ["paid", "processing", "partially_paid", "refunded"])
+    .order("id", { ascending: true });
+  let conflict: "exact_paid" | "ambiguous_legacy" | null = null;
+  for (let offset = 0;; offset += 200) {
+    const { data, error } = await query.range(offset, offset + 199);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      const sourceApplicationId = (row.row_data as { applicationId?: unknown } | null)?.applicationId;
+      if (typeof sourceApplicationId !== "string" || !sourceApplicationId.trim()) conflict = "ambiguous_legacy";
+      else if (sourceApplicationId === input.applicationId && conflict !== "ambiguous_legacy") conflict = "exact_paid";
+    }
+    if ((data ?? []).length < 200) break;
+  }
+  return conflict;
+}
+
 /** Every public fee Checkout must pass through the exact persisted draft and
  * this immutable attempt before its Stripe secret is exposed. An ambiguous
  * Stripe create is retried with the SAME parameters/key, never released. */
@@ -152,6 +181,15 @@ export async function createClaimedApplicationFeeCheckout(
     })) return {
       ok: false, status: 409, code: "APPLICATION_FEE_WAIVED",
       error: "This application fee is already waived for you. Continue your application without another payment.",
+    };
+    const sourceConflict = await applicationFeeCheckoutSourceConflict(db, {
+      applicationId: input.applicationId, managerUserId, propertyId: input.propertyId, residentEmail: email,
+    });
+    if (sourceConflict) return {
+      ok: false, status: 409, code: "APPLICATION_FEE_NEEDS_REVIEW",
+      error: sourceConflict === "ambiguous_legacy"
+        ? "A previous application payment needs review before another payment can start. Contact the manager."
+        : "This application's payment is already recorded. Verify it before starting another payment.",
     };
     const itemization = await resolveApplicationFeeItemization(db, managerUserId, applicationFeeCents, listing, input.propertyId);
     const fee = residentServiceFeeBreakdown(applicationFeeCents, "card", itemization.feePayer);
@@ -188,6 +226,20 @@ export async function createClaimedApplicationFeeCheckout(
   if (!existing || (existing as ApplicationFeeClaim).status === "expired") freshTerms = await buildNewTerms();
   if (freshTerms && "ok" in freshTerms && freshTerms.ok === false) return freshTerms;
   const terms = freshTerms && "params" in freshTerms ? freshTerms : null;
+  // A reserved claim without a bound session may still create a new provider
+  // Checkout below. Recheck legacy ambiguity on that retry as well; the first
+  // reservation could predate a later legacy paid source.
+  if (existing && (existing as ApplicationFeeClaim).status === "pending" &&
+      !(existing as ApplicationFeeClaim).stripe_session_id) {
+    const sourceConflict = await applicationFeeCheckoutSourceConflict(db, {
+      applicationId: input.applicationId, managerUserId: input.managerUserId,
+      propertyId: input.propertyId, residentEmail: email,
+    });
+    if (sourceConflict) return {
+      ok: false, status: 409, code: "APPLICATION_FEE_NEEDS_REVIEW",
+      error: "A previous application payment needs review before another payment can start. Contact the manager.",
+    };
+  }
   if (terms?.chargePolicy === "first_only") {
     const { data: other, error: otherError } = await db.from("application_fee_payment_claims")
       .select("application_id,attempt_token,stripe_session_id")

@@ -1,6 +1,12 @@
 > Moved out of AGENTS.md to keep every-session context lean. This file is the
 > source of truth for its area — READ IT BEFORE changing code in this area.
 
+# Charge receipt authority (payment audit)
+
+The ordinary `/api/portal-household-charges` full-list mirror carries charge edits only. It cannot create `paid`/processing/refunded status, provider or receipt fields, or waiver audit fields. Existing financial rows are immutable through that mirror. Writes to known rows compare stored status and `updated_at`; new IDs insert only, and only rows actually persisted reach reminder/ledger sync. If a later row in the same mirror fails, earlier persisted rows still sync before the request returns an error. A manager's offline receipt uses only `action: "recordOfflinePayment"`, which rechecks owner, workspace, status, and the stored amount before ledger posting.
+
+`unmarkPaid` refuses settled or ambiguous receipts with 409 while there is no accounting-safe reversal; Payments offers no Undo or Move to pending on a recorded charge. Returning a service photo never marks its charge paid. The currently unused short-to-long application-fee projection cancels a clean unpaid obligation without a paid date or provider source, preserves any actual receipt or in-flight source, and does not mint a server waiver audit. A new Checkout cannot begin when a same-manager/property/resident legacy paid fee lacks application identity. The manager application detail receipt is read from the exact application's owned claim, charge and ledger source; a current listing quote never proves payment, and a failed read never appears as “Not received.”
+
 # Financials Phase 0: chart of accounts + write-through ledger
 
 **`public.chart_of_accounts` is the runtime source of truth for account
