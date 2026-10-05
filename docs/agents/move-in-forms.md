@@ -142,15 +142,22 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   Status (Waiting / Submitted). The bare `/portal/move-in`, and a slug that matches no form, show the first tab. With no form anywhere the
   page is one empty state, "No move-in forms yet", with an Add form button that goes to Properties. **There is no Inspections tab**:
   `/portal/inspections`, `/portal/move-in/inspections` and `/portal/move-in/inspections/{move-in|move-out}` redirect to `/portal/move-in`
-  (`next.config.ts`). A single report (`.../inspections/{move-in|move-out}/{reportId}`) keeps its page so the resident record's Inspections
-  tab still opens it; inspection data and `/api/inspections` are untouched. Resident side: the first My home tab is labelled "Move-in"
+  (`next.config.ts`). A single report (`.../inspections/{move-in|move-out}/{reportId}`) keeps its page; inspection data and
+  `/api/inspections` are untouched. Resident side: the first My home tab is labelled "Move-in"
   (route `/resident/move-in/forms`, unchanged) and holds every form sent to them.
-- **Resident record › Move-in** (every stage, potential included) lists **every form of that resident's property** (its stored list) merged with the
+- **Resident record › Move-in** (every stage, potential included) is a hub with four sub-tabs under one toolbar
+  (`ResidentRecordMoveInSection`): **Move-in info** (what the manager authored on the property — instructions, photos and video,
+  access and Wi-Fi, amenities), **House rules**, **Roommates** (the other people placed at the property whose
+  `residentDirectoryStage` is `current` — a tenancy starts at the executed lease, never at the approval) and
+  **Forms**. There is no Inspections tab on the record: the embedded inspections list is a card under Forms, and
+  `parseResidentDetailTab` aliases the retired `.../inspections` address to `move-in` with Forms open.
+- **Resident record › Move-in › Forms** lists **every form of that resident's property** (its stored list) merged with the
   copies already sent (`residentMoveInFormRows`): one row per form, **Not sent** (row menu Send, which calls `sendMoveInForm` for that residency;
   disabled until the application is approved, as the server requires an approved residency with a property and an email), **Sent** with its
   due date (Remind / Preview form / Cancel request) or **Submitted** (Open / Download PDF / Send again). A waiting copy wins over an older submitted
   one; a copy of a since-deleted form still shows under its stored name. A property with no forms shows "No move-in forms for this property"
-  with a button to its Forms.
+  with a button to its Forms. The toolbar carries Download all, Send a form and Add inspection — see
+  [`inspections.md`](inspections.md) for the last one.
 
 ## Kinds, templates, triggers and links (Move-in hub, plan `move-in-hub-1003`)
 
