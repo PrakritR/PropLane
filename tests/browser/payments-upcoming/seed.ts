@@ -13,10 +13,37 @@
  * Kinds are chosen so none of the pending lines reads as an upfront move-in
  * charge (`isPendingUpfrontMoveInCharge`), which would collapse them into one
  * "Move-in total" row and is a different scenario.
+ *
+ * `APPLICATIONS` is part of the fixture, not decoration: the manager Payments
+ * ledger drops any charge whose email has no application row at all
+ * (`manager-payments-scope.ts` -> `isLinkedToDirectoryResident`, the orphaned-
+ * resident backstop), so a seed of charges alone renders an empty list. Maya
+ * is an approved, current resident of the same property the charges name, which
+ * is also what keeps `reconcileApprovedResidentPaymentSchedules` from treating
+ * her rows as leftovers. No listing is served to the fixture, so
+ * `recordApprovedApplicationCharges` bails before generating anything and these
+ * five charges stay the whole ledger.
  */
 export const MANAGER_ID = "mgr-fixture";
 export const PROPERTY_ID = "prop-magnolia";
 export const RESIDENT_EMAIL = "maya@example.com";
+
+/** The one resident the charges belong to, as `GET /api/manager-applications` returns her. */
+export const APPLICATIONS = [
+  {
+    id: "app-fixture-maya",
+    name: "Maya Chen",
+    email: RESIDENT_EMAIL,
+    property: "The Magnolia · 2B",
+    propertyId: PROPERTY_ID,
+    assignedPropertyId: PROPERTY_ID,
+    managerUserId: MANAGER_ID,
+    residentUserId: "res-maya",
+    stage: "Current resident",
+    bucket: "approved" as const,
+    detail: "Approved · The Magnolia · 2B",
+  },
+];
 
 function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -112,6 +139,7 @@ export function buildSeed(now = new Date()) {
 
   return {
     charges,
+    applications: APPLICATIONS,
     rentProfiles: [],
     labels: {
       overdue: label(overdueDue),

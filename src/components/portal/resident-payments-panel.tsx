@@ -287,7 +287,8 @@ export function ResidentPaymentsPanel({
     setPrevBucketProp(resolvedBucketProp);
     setBucket(resolvedBucketProp);
   }
-  const [bucketTouched, setBucketTouched] = useState(false);
+  /** The landing tab is chosen once per visit; see the effect below. */
+  const landedOnBucket = useRef(false);
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(bucket);
   const [paymentMethod, setPaymentMethod] = useState<ResidentAxisPaymentMethod>("ach");
   const [payConfirm, setPayConfirm] = useState<PayConfirmState | null>(null);
@@ -692,12 +693,26 @@ export function ResidentPaymentsPanel({
   );
 
   useEffect(() => {
+    // Which tab the resident LANDS on, decided once per visit as soon as the
+    // charges arrive: something overdue opens Due.
+    //
+    // It REDIRECTS, and it happens once. Overriding `bucket` in state instead
+    // left the view disagreeing with the address bar, and the tabs are links to
+    // those very URLs — so a resident parked on Due by this rule who picked
+    // Upcoming navigated to the URL already in the bar, nothing changed, and
+    // Upcoming became a dead click for as long as anything was overdue.
+    //
     // An explicitly routed Paid tab is the resident asking for history — never
-    // bounce them onto Due just because something is owed.
-    if (bucketTouched || !email || resolvedBucketProp === "paid") return;
-    if (overdueRows.length > 0) setBucket("overdue");
-    else if (upcomingPendingRows.length > 0) setBucket("pending");
-  }, [bucketTouched, email, resolvedBucketProp, overdueRows.length, upcomingPendingRows.length]);
+    // bounce them onto Due just because something is owed. Neither is a charge
+    // record: the resident opened that row, not a list.
+    if (landedOnBucket.current || !email || chargeIdProp || resolvedBucketProp === "paid") return;
+    if (overdueRows.length === 0 && upcomingPendingRows.length === 0) return;
+    landedOnBucket.current = true;
+    const landing = overdueRows.length > 0 ? "overdue" : "pending";
+    if (landing !== resolvedBucketProp) {
+      portalNavigate(residentChargesListHref(basePath, landing), { replace: true });
+    }
+  }, [basePath, chargeIdProp, email, portalNavigate, resolvedBucketProp, overdueRows.length, upcomingPendingRows.length]);
 
   const statusTabs = useMemo(
     () =>
