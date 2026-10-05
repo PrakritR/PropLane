@@ -519,8 +519,13 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   useEffect(() => {
     const asked = embeddedAddRequest ?? 0;
     if (asked === servedAddRequest.current) return;
+    if (!embeddedScope) {
+      servedAddRequest.current = asked;
+      return;
+    }
+    // Still fetching: leave the ask unserved so this re-runs and honours it once the data lands.
+    if (loading) return;
     servedAddRequest.current = asked;
-    if (!embeddedScope || loading) return;
     if (embeddedEditDisabled) {
       showToast("Assign this resident a room before starting an inspection.");
       return;

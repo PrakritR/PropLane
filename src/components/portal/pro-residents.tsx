@@ -912,8 +912,8 @@ export function ManagerResidents({
     return executedLeaseIdentities(userId);
   }, [leaseTick, userId]);
 
-  // The same answer the directory rows use, for anything that needs it per row (the Move-in hub's
-  // Roommates list): a tenancy starts at the executed lease, not the approval.
+  // The one per-row answer: a tenancy starts at the executed lease, not the approval. Both the
+  // directory rows and the Move-in hub's Roommates list read it here so they cannot drift apart.
   const applicationLeaseExecuted = useCallback(
     (row: DemoApplicantRow) =>
       executedLeaseKeys.axisIds.has(normalizeApplicationAxisId(row.id)) ||
@@ -954,10 +954,7 @@ export function ManagerResidents({
         const leaseStart = (row.manualResidentDetails?.moveInDate?.trim() || row.application?.leaseStart?.trim() || "");
         const leaseEnd = (row.manualResidentDetails?.moveOutDate?.trim() || row.application?.leaseEnd?.trim() || "");
         const axisId = normalizeApplicationAxisId(row.id);
-        const leaseExecuted =
-          executedLeaseKeys.axisIds.has(axisId) ||
-          Boolean(row.email?.trim() && executedLeaseKeys.emails.has(row.email.trim().toLowerCase()));
-        const stage = residentDirectoryStage(row, { leaseExecuted });
+        const stage = residentDirectoryStage(row, { leaseExecuted: applicationLeaseExecuted(row) });
         return {
           id: row.id,
           // An unfinished application often has no name yet — every other
@@ -992,7 +989,7 @@ export function ManagerResidents({
       }));
     }
     return built;
-  }, [userId, hcTick, propertyTick, executedLeaseKeys, directorySourcesReady]);
+  }, [userId, hcTick, propertyTick, applicationLeaseExecuted, directorySourcesReady]);
 
   const [directorySnapshot, setDirectorySnapshot] = useState<{ viewer: string | null; rows: ActiveResident[] } | null>(null);
   useEffect(() => {
