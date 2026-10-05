@@ -345,7 +345,24 @@ is a no-op rather than freeing a live payment's claim. The pending `vendor_payou
 only once nothing holds the invoice and it is unpaid — an unconditional delete crossed rails: a
 replayed `stripe` expiry wiped the balance rail's payout row while `payment_claim` stayed
 `balance`, `settle_vendor_invoice_payment` then flipped zero rows, and the payout record vanished
-along with the block on Approve + pay. The paid webhook
+along with the block on Approve + pay.
+
+**Only Stripe decides whether a session is dead.** The body `createAxisAchCheckoutSession` returns
+may be a 24-hour idempotency replay of this claim's first request, so its `status` and `expires_at`
+describe the session as it was *created*. When that body looks unusable the rail retrieves the live
+session and acts on it: genuinely `expired` releases the claim (scoped to that session id);
+`complete` keeps it and answers 409 "already processing", because an ACH debit settles for days
+with the session complete and the invoice still `approved`, and that claim is backing real money;
+a lookup that cannot be completed also keeps it. Trusting the replayed `expires_at` released a
+claim mid-debit and let Approve + pay pay the vendor a second time.
+
+**Every claiming rail releases on every no-money-moved failure** — Stripe on a failed session
+start or a dead session, balance on a refused ledger move, and offline when `settleInvoicePayment`
+refuses or faults (the release's `.neq("status", "paid")` makes it a no-op if the settle RPC had
+actually committed). A release that cannot finish **throws**: the webhook answers 500 and Stripe
+redelivers, because nothing else ever runs the sweep — the session has already fired its one
+`expired` event, and a retried payment goes through `claim_vendor_invoice_payment`, whose
+unguarded insert would hit the (work order, invoice) unique index and surface a raw 500. The paid webhook
 converts the held claim into the settled payout through the same `settleInvoicePayment` the other
 rails run, and every write it does is keyed on the claim rather than on the invoice's status, so a
 retry after a failed write redoes it instead of skipping it.

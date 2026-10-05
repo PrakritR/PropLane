@@ -18,8 +18,12 @@ export type VendorInvoicePaymentRail = "stripe" | "balance" | "offline";
  * Deleting it unconditionally crossed rails: a replayed `stripe` expiry wiped the balance rail's
  * pending payout while leaving `payment_claim = 'balance'`, and `settle_vendor_invoice_payment`
  * then flipped zero rows — the payout record vanished and Approve + pay stopped being blocked.
- * Sweeping on a re-read rather than on the swap's own result also makes a retry self-healing when
- * the swap landed but the delete did not.
+ *
+ * THROWS on any database failure, and the callers let that reach the webhook's 500 so Stripe
+ * redelivers. Nothing else ever runs this sweep: the session has already fired its one `expired`
+ * event, and a retried payment goes through `claim_vendor_invoice_payment`, whose unguarded insert
+ * would hit the (work order, invoice) unique index and answer 500 with a raw unique violation. A
+ * half-done release has to be retried by whoever asked for it, not left for the next caller.
  *
  * Returns whether THIS caller's claim was the one released.
  *
@@ -41,23 +45,26 @@ export async function releaseInvoicePaymentClaim(
     .eq("payment_claim", rail)
     .neq("status", "paid");
   if (opts.checkoutSessionId) swap = swap.eq("checkout_session_id", opts.checkoutSessionId);
-  const { data: released } = await swap.select("id").maybeSingle();
+  const { data: released, error: swapError } = await swap.select("id").maybeSingle();
+  if (swapError) throw new Error(`Could not release the payment claim: ${swapError.message}`);
 
-  const { data: current } = await db
+  const { data: current, error: readError } = await db
     .from("vendor_invoices")
     .select("payment_claim, status")
     .eq("id", invoiceId)
     .eq("manager_user_id", managerId)
     .maybeSingle();
+  if (readError) throw new Error(`Could not release the payment claim: ${readError.message}`);
   const invoice = (current ?? null) as { payment_claim?: string | null; status?: string } | null;
   const claimIsFree = Boolean(invoice) && invoice!.payment_claim == null && invoice!.status !== "paid";
   if (claimIsFree) {
-    await db
+    const { error: sweepError } = await db
       .from("vendor_payouts")
       .delete()
       .eq("invoice_id", invoiceId)
       .eq("manager_user_id", managerId)
       .eq("status", "pending");
+    if (sweepError) throw new Error(`Could not clear the released payment claim: ${sweepError.message}`);
   }
   return Boolean((released as { id?: unknown } | null)?.id);
 }
@@ -68,13 +75,14 @@ export async function readInvoicePaymentClaimId(
   managerId: string,
   invoiceId: string,
 ): Promise<string | null> {
-  const { data } = await db
+  const { data, error } = await db
     .from("vendor_payouts")
     .select("id")
     .eq("invoice_id", invoiceId)
     .eq("manager_user_id", managerId)
     .eq("status", "pending")
     .maybeSingle();
+  if (error) throw new Error(`Could not read the payment claim: ${error.message}`);
   const id = (data as { id?: unknown } | null)?.id;
   return id == null ? null : String(id);
 }

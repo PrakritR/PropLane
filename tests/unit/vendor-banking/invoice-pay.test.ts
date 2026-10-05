@@ -4,7 +4,8 @@ import { makeFakeDb } from "./_fake-db";
 const flagState = vi.hoisted(() => ({ enabled: false }));
 vi.mock("@/lib/vendor-banking/flag", () => ({ vendorBankingEnabled: () => flagState.enabled }));
 
-vi.mock("@/lib/stripe", () => ({ getStripe: () => ({}) }));
+const retrieveSession = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
+vi.mock("@/lib/stripe", () => ({ getStripe: () => ({ checkout: { sessions: { retrieve: retrieveSession } } }) }));
 vi.mock("@/lib/stripe-connect", () => ({
   resolveConnectDestinationIfReady: vi.fn().mockResolvedValue("acct_vendor_ready"),
 }));
@@ -94,6 +95,8 @@ describe("startVendorInvoicePayCheckout", () => {
     releaseInvoicePaymentClaim.mockImplementation(async () => true);
     readInvoicePaymentClaimId.mockClear();
     readInvoicePaymentClaimId.mockImplementation(async () => "claim_1");
+    retrieveSession.mockClear();
+    retrieveSession.mockImplementation(async () => ({ id: "cs_invoice_1", status: "open", expires_at: Math.floor(Date.now() / 1000) + 30 * 60, payment_status: "unpaid" }));
     flagState.enabled = false;
   });
 
@@ -172,13 +175,13 @@ describe("startVendorInvoicePayCheckout", () => {
     expect(keys).toEqual(["vendor-invoice:inv_1:claim_1", "vendor-invoice:inv_1:claim_2"]);
   });
 
-  it("refuses a session Stripe hands back already expired, and releases the claim", async () => {
-    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1", payment_claim: "stripe" })] });
+  /** A replayed creation body: Stripe returns the session as it was CREATED, half an hour ago. */
+  function staleReplay() {
     createAxisAchCheckoutSession.mockImplementation(async () => ({
       mode: "embedded" as const,
       clientSecret: "cs_test_secret_stale",
       sessionId: "cs_invoice_stale",
-      status: "expired" as const,
+      status: "open" as const,
       expiresAtUnix: Math.floor(Date.now() / 1000) - 60,
       subtotalCents: 10_000,
       processingFeeCents: 100,
@@ -187,9 +190,47 @@ describe("startVendorInvoicePayCheckout", () => {
       totalCents: 10_100,
       paymentMethod: "ach" as const,
     }));
+  }
+
+  it("a stale replay whose session Stripe says has EXPIRED releases the claim, scoped to that session", async () => {
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1", payment_claim: "stripe" })] });
+    staleReplay();
+    retrieveSession.mockImplementation(async () => ({ id: "cs_invoice_stale", status: "expired", expires_at: Math.floor(Date.now() / 1000) - 60 }));
     const result = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
     expect(result).toMatchObject({ ok: false, status: 500 });
-    expect(releaseInvoicePaymentClaim).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe");
+    expect(releaseInvoicePaymentClaim).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe", { checkoutSessionId: "cs_invoice_stale" });
+  });
+
+  it("KEEPS the claim when the session is complete — an ACH debit settles for days and that claim is backing it", async () => {
+    // The stale `expires_at` on the replayed body is not evidence the payment died: releasing on
+    // it unblocked Approve + pay mid-debit and let the vendor be paid twice.
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1", payment_claim: "stripe" })] });
+    staleReplay();
+    retrieveSession.mockImplementation(async () => ({ id: "cs_invoice_stale", status: "complete", payment_status: "unpaid", expires_at: Math.floor(Date.now() / 1000) - 60 }));
+    const result = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    if (!result.ok) expect(result.error).toContain("already processing");
+    expect(releaseInvoicePaymentClaim).not.toHaveBeenCalled();
+  });
+
+  it("KEEPS the claim when Stripe cannot be reached — fail closed, never free a claim we cannot prove is dead", async () => {
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1", payment_claim: "stripe" })] });
+    staleReplay();
+    retrieveSession.mockImplementation(async () => {
+      throw new Error("Stripe unreachable");
+    });
+    const result = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(releaseInvoicePaymentClaim).not.toHaveBeenCalled();
+  });
+
+  it("uses a stale-looking session that Stripe says is still open", async () => {
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1", payment_claim: "stripe" })] });
+    staleReplay();
+    retrieveSession.mockImplementation(async () => ({ id: "cs_invoice_stale", status: "open", expires_at: Math.floor(Date.now() / 1000) + 600 }));
+    const result = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
+    expect(result).toMatchObject({ ok: true, clientSecret: "cs_test_secret_stale" });
+    expect(releaseInvoicePaymentClaim).not.toHaveBeenCalled();
   });
 
   it("refuses when the claim cannot be tied to its session, rather than leaving an untied claim", async () => {
@@ -197,7 +238,7 @@ describe("startVendorInvoicePayCheckout", () => {
     const db = makeFakeDb({ vendor_invoices: [invoiceRow({ work_order_id: "wo_1", payment_claim: null })] });
     const result = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
     expect(result).toMatchObject({ ok: false, status: 500 });
-    expect(releaseInvoicePaymentClaim).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe");
+    expect(releaseInvoicePaymentClaim).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe", {});
   });
 
   it("refuses when the claim has no row to point at", async () => {
@@ -248,7 +289,7 @@ describe("startVendorInvoicePayCheckout", () => {
     });
     const result = await startVendorInvoicePayCheckout(db as never, { invoiceId: "inv_1", managerUserId: "manager_1", managerEmail: "m@test.proplane.local" });
     expect(result).toMatchObject({ ok: false, status: 500 });
-    expect(releaseInvoicePaymentClaim).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe");
+    expect(releaseInvoicePaymentClaim).toHaveBeenCalledWith(db, "manager_1", "inv_1", "stripe", {});
   });
 
   it("an expired or bounced session hands the claim back", async () => {

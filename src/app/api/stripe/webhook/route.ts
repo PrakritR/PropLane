@@ -408,15 +408,13 @@ export async function POST(req: Request) {
         console.error("[stripe webhook] async_payment_failed household_charge", e);
       });
       // No money moved, so the invoice must not stay claimed by a payment that never happened.
-      await releaseVendorInvoiceDirectPayClaim(db, session).catch((e) => {
-        console.error("[stripe webhook] async_payment_failed vendor_invoice_direct_pay claim release", e);
-      });
+      // Deliberately NOT swallowed: a half-released claim leaves the invoice unpayable by every
+      // rail, and nothing but a redelivery of this event will ever finish the job.
+      await releaseVendorInvoiceDirectPayClaim(db, session);
     }
 
     if (event.type === "checkout.session.expired") {
-      await releaseVendorInvoiceDirectPayClaim(db, event.data.object as Stripe.Checkout.Session).catch((e) => {
-        console.error("[stripe webhook] expired vendor_invoice_direct_pay claim release", e);
-      });
+      await releaseVendorInvoiceDirectPayClaim(db, event.data.object as Stripe.Checkout.Session);
     }
 
     if (event.type === "checkout.session.expired" && isHouseholdChargeCheckoutSession(event.data.object as Stripe.Checkout.Session)) {

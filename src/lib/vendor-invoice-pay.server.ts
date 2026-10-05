@@ -96,9 +96,9 @@ export async function startVendorInvoicePayCheckout(
     return { ok: false, status: 500, error: message };
   }
 
-  const releaseClaim = async () => {
+  const releaseClaim = async (opts2: { checkoutSessionId?: string } = {}) => {
     if (!claimsPayout) return;
-    await releaseInvoicePaymentClaim(db, opts.managerUserId, row.id, "stripe").catch((e) =>
+    await releaseInvoicePaymentClaim(db, opts.managerUserId, row.id, "stripe", opts2).catch((e) =>
       console.error("[vendor-invoice-pay] could not release the claim after a failed checkout start", e),
     );
   };
@@ -120,8 +120,9 @@ export async function startVendorInvoicePayCheckout(
   // Connect lookup timing out — and every one of those must hand the claim back, or an invoice
   // nobody paid stays unpayable by any rail until it expires.
   let result: Awaited<ReturnType<typeof createAxisAchCheckoutSession>>;
+  let stripe: ReturnType<typeof getStripe>;
   try {
-    const stripe = getStripe();
+    stripe = getStripe();
     const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, row.vendor_user_id);
     const origin = resolveShareableAppOrigin();
     const label = row.invoice_number ? `Invoice ${row.invoice_number}` : row.memo?.trim() || "Vendor invoice";
@@ -163,17 +164,46 @@ export async function startVendorInvoicePayCheckout(
     await releaseClaim();
     return { ok: false, status: 500, error: "Could not start invoice checkout." };
   }
-  // Belt and braces behind the per-claim key: a session that is already expired or complete can
-  // never be paid, and it will never emit another `expired` event to free the claim either.
-  if (result.status === "expired" || result.status === "complete" || (result.expiresAtUnix != null && result.expiresAtUnix <= Math.floor(Date.now() / 1000))) {
-    await releaseClaim();
-    console.error("[vendor-invoice-pay] Stripe returned a session that cannot be paid", {
-      invoiceId: row.id,
-      sessionId: result.sessionId,
-      status: result.status,
-      expiresAtUnix: result.expiresAtUnix,
-    });
-    return { ok: false, status: 500, error: "Could not start invoice checkout." };
+  // Belt and braces behind the per-claim key. The body Stripe hands back can be a 24-hour
+  // idempotency REPLAY of this claim's first request, so its status and expiry describe the
+  // session as it was CREATED, not as it is now — a replay is exactly how a dead session reaches
+  // this point, and also how a live one looks dead.
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const replayLooksDead =
+    result.status === "expired" ||
+    result.status === "complete" ||
+    (result.expiresAtUnix != null && result.expiresAtUnix <= nowUnix);
+  if (replayLooksDead) {
+    // Ask Stripe what the session IS before concluding anything. An ACH debit settles for days
+    // with the session `complete` and the invoice still `approved`, and that claim is backing real
+    // money: releasing it on a stale `expires_at` unblocked Approve + pay mid-debit and let the
+    // vendor be paid twice. A lookup we cannot complete keeps the claim too — fail closed.
+    let live: Stripe.Checkout.Session | null = null;
+    try {
+      live = await stripe.checkout.sessions.retrieve(result.sessionId);
+    } catch {
+      live = null;
+    }
+    const liveExpiresAt = live?.expires_at ?? null;
+    const liveIsExpired =
+      live?.status === "expired" || (live?.status === "open" && liveExpiresAt != null && liveExpiresAt <= Math.floor(Date.now() / 1000));
+    if (liveIsExpired) {
+      await releaseClaim({ checkoutSessionId: result.sessionId });
+      console.error("[vendor-invoice-pay] the checkout session had expired; released the claim", {
+        invoiceId: row.id,
+        sessionId: result.sessionId,
+      });
+      return { ok: false, status: 500, error: "That payment window closed before it opened. Try again." };
+    }
+    if (!live || live.status === "complete") {
+      console.error("[vendor-invoice-pay] a payment is already in flight for this invoice", {
+        invoiceId: row.id,
+        sessionId: result.sessionId,
+        liveStatus: live?.status ?? null,
+        livePaymentStatus: live?.payment_status ?? null,
+      });
+      return { ok: false, status: 409, error: "A payment for this invoice is already processing." };
+    }
   }
 
   // Ties the claim to the session that holds it, so only THAT session's expiry or bounced debit

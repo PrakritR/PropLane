@@ -3,6 +3,7 @@ import { getReportsAuthContext, assertManagerFinancialsAccess } from "@/lib/repo
 import { authorizeOutgoingInvoice, claimInvoicePayment, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
 import { postGlBillVoided } from "@/lib/reports/gl-posting";
 import { isVendorInvoicePaymentRefusal, isVendorInvoiceRefusalSqlState, VendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
+import { releaseInvoicePaymentClaim } from "@/lib/vendor-invoice-claim.server";
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   try {
@@ -16,7 +17,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const date = new Date(body.date ?? "");
       if (!Number.isFinite(date.getTime()) || date.getTime() > Date.now() || !["Cash", "Check", "Bank transfer", "Other"].includes(body.method ?? "")) return NextResponse.json({ error: "Choose a valid payment date and method." }, { status: 400 });
       await claimInvoicePayment(auth.db, auth.userId, id, "offline");
-      await settleInvoicePayment(auth.db, auth.userId, id, "offline", date.toISOString(), body.method);
+      try {
+        await settleInvoicePayment(auth.db, auth.userId, id, "offline", date.toISOString(), body.method);
+      } catch (settleError) {
+        // Settle really does refuse ('Bill mismatch', 'Payment claim mismatch') and really can
+        // fault. No money moved, so the claim has to go back: left behind, it made the invoice
+        // unpayable by every rail and unschedulable and undeletable too. `.neq("status", "paid")`
+        // inside the release makes it a no-op if the settle RPC had in fact committed.
+        await releaseInvoicePaymentClaim(auth.db, auth.userId, id, "offline").catch((releaseError) =>
+          console.error("[vendor-invoice-outgoing] could not release the offline claim after a failed settle", releaseError),
+        );
+        throw settleError;
+      }
     } else if (body.action === "schedule" || body.action === "delete") {
       const { error } = await auth.db.rpc("manage_outgoing_invoice", { p_invoice: id, p_manager: auth.userId, p_action: body.action, p_date: body.date || null });
       if (error) throw isVendorInvoiceRefusalSqlState(error.code) ? new VendorInvoicePaymentRefusal(error.message) : new Error(error.message);
