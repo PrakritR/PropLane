@@ -15,22 +15,37 @@ export type WorkOrderCompleteInput = {
   vendorId?: string;
 };
 
-/** The two lines one completion can post. Nothing else is ever written against a work order. */
+/** The two lines a job's vendor cost is ever expensed as. */
 type WorkOrderExpenseLine = "labor" | "materials";
 
 /** What a job has already posted, by line: the one thing that decides whether a line posts again. */
 export type PostedWorkOrderExpenseLines = Map<WorkOrderExpenseLine, string>;
 
+type PostedExpenseRow = { id?: unknown; category_code?: unknown; source_vendor_invoice_id?: unknown };
+
+/** Which line an existing `manager_expense_entries` row of this job is. */
+function lineOfPostedRow(row: PostedExpenseRow): WorkOrderExpenseLine {
+  // A row the vendor-invoice rail wrote (`settle_vendor_invoice_payment`) IS the job's vendor cost,
+  // whatever category the bill carried, so it counts as labor and a completion never posts it twice.
+  if (row.source_vendor_invoice_id != null) return "labor";
+  return row.category_code === "materials" ? "materials" : "labor";
+}
+
 /**
- * The expense lines this work order already posted. One job's labor and materials are posted
- * exactly once however many times a completion runs: Mark done and Approve + pay both call this
- * for the same job, and without this read the second pass doubles the ledger, the cash-flow chart
- * and the tax-deductible total.
+ * The expense lines this work order already posted. A job's labor and materials are posted exactly
+ * once however many times a completion runs: Mark done and Approve + pay both call this for the
+ * same job, and without this read the second pass doubles the ledger, the cash-flow chart and the
+ * tax-deductible total.
  *
- * Keyed on `source_work_order_id` plus the LINE, never the caller's category: both callers take
- * that category from the client, and a stale mirror sending a different one would walk straight
- * past a category-keyed guard. `WORK_ORDER_CATEGORY_TO_EXPENSE` never maps to `materials`, so the
- * materials row is the only one that can carry that code.
+ * THREE rails write `manager_expense_entries` against a work order: the two completion lines below
+ * and `settle_vendor_invoice_payment`, which posts the paid vendor bill with the same
+ * `source_work_order_id` (migration 20261003010000). All three are read here.
+ *
+ * Keyed on `source_work_order_id` plus the LINE, never the caller's category: both completion
+ * callers take that category from the client, and a stale mirror sending a different one would walk
+ * straight past a category-keyed guard. `WORK_ORDER_CATEGORY_TO_EXPENSE` never maps to `materials`,
+ * so for a completion row that code identifies the materials line; an invoice row is read off its
+ * `source_vendor_invoice_id` instead, since a bill's own category is not ours to interpret.
  *
  * Returns a failure rather than throwing, so a caller that is about to move money can read FIRST
  * and refuse before it does: not knowing what is already posted means refusing to post.
@@ -43,17 +58,40 @@ export async function readPostedWorkOrderExpenseLines(
   const posted: PostedWorkOrderExpenseLines = new Map();
   const { data, error } = await db
     .from("manager_expense_entries")
-    .select("id, category_code")
+    .select("id, category_code, source_vendor_invoice_id")
     .eq("manager_user_id", managerUserId)
     .eq("source_work_order_id", workOrderId);
   if (error) return { ok: false, error: error.message };
-  for (const row of (data ?? []) as Array<{ id?: unknown; category_code?: unknown }>) {
+  for (const row of (data ?? []) as PostedExpenseRow[]) {
     const id = row.id == null ? "" : String(row.id);
     if (!id) continue;
-    const line: WorkOrderExpenseLine = row.category_code === "materials" ? "materials" : "labor";
+    const line = lineOfPostedRow(row);
     if (!posted.has(line)) posted.set(line, id);
   }
   return { ok: true, posted };
+}
+
+/**
+ * What is posted RIGHT NOW, narrowed against what the caller already knew. Called immediately
+ * before each insert so a row that landed while money was moving (or while the other rail ran) is
+ * still seen. A failed refresh keeps the caller's earlier answer rather than blocking: the
+ * fail-closed decision belongs to the read the caller took before it committed anything.
+ *
+ * This narrows the window; it cannot close it. Two completions inserting in the same instant can
+ * still both see nothing posted. Closing it needs a unique partial index on
+ * (manager_user_id, source_work_order_id, line), which existing rows may already violate.
+ */
+async function postedLinesNow(
+  db: SupabaseClient,
+  managerUserId: string,
+  workOrderId: string,
+  known: PostedWorkOrderExpenseLines,
+): Promise<PostedWorkOrderExpenseLines> {
+  const fresh = await readPostedWorkOrderExpenseLines(db, managerUserId, workOrderId);
+  if (!fresh.ok) return known;
+  const merged: PostedWorkOrderExpenseLines = new Map(known);
+  for (const [line, id] of fresh.posted) if (!merged.has(line)) merged.set(line, id);
+  return merged;
 }
 
 /**
@@ -72,19 +110,23 @@ export async function createExpensesFromWorkOrder(
   const expenseDate = (input.completedAt || now).slice(0, 10);
   const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category] ?? "maintenance";
   const memoBase = input.workDoneSummary?.trim() || `Work order ${input.workOrderId}`;
-  let alreadyPosted = alreadyPostedLines;
-  if (!alreadyPosted) {
+  let known = alreadyPostedLines;
+  if (!known) {
     const read = await readPostedWorkOrderExpenseLines(db, managerUserId, input.workOrderId);
     if (!read.ok) throw new Error(`Could not read this job's posted expenses: ${read.error}`);
-    alreadyPosted = read.posted;
+    known = read.posted;
   }
 
-  const postedLabor = alreadyPosted.get("labor");
-  if (postedLabor) ids.push(postedLabor);
-  const postedMaterials = alreadyPosted.get("materials");
-  if (postedMaterials) ids.push(postedMaterials);
+  const wantsLabor = Boolean(input.vendorCostCents && input.vendorCostCents > 0);
+  const wantsMaterials = Boolean(input.materialsCostCents && input.materialsCostCents > 0);
 
-  if (!postedLabor && input.vendorCostCents && input.vendorCostCents > 0) {
+  if (wantsLabor && !known.has("labor")) {
+    known = await postedLinesNow(db, managerUserId, input.workOrderId, known);
+  }
+  const postedLabor = known.get("labor");
+  if (postedLabor) ids.push(postedLabor);
+
+  if (!postedLabor && wantsLabor && input.vendorCostCents && input.vendorCostCents > 0) {
     const { data, error } = await db
       .from("manager_expense_entries")
       .insert({
@@ -117,7 +159,13 @@ export async function createExpensesFromWorkOrder(
     }
   }
 
-  if (!postedMaterials && input.materialsCostCents && input.materialsCostCents > 0) {
+  if (wantsMaterials && !known.has("materials")) {
+    known = await postedLinesNow(db, managerUserId, input.workOrderId, known);
+  }
+  const postedMaterials = known.get("materials");
+  if (postedMaterials) ids.push(postedMaterials);
+
+  if (!postedMaterials && wantsMaterials && input.materialsCostCents && input.materialsCostCents > 0) {
     const { data, error } = await db
       .from("manager_expense_entries")
       .insert({
