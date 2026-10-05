@@ -663,7 +663,19 @@ export async function POST(req: Request) {
           paymentIntent.metadata.manual_ach === "1") {
         const result = await reconcileResidentManualAchPaymentIntent(db, paymentIntent);
         if (!result.ok || !result.processing) {
-          throw new Error("Manual ACH processing differs from its frozen claim.");
+          // Stripe does not order deliveries: a late `processing` can land after
+          // the PaymentIntent succeeded and its claim settled. Acknowledge it only
+          // when the live PI really is succeeded, by replaying the same idempotent
+          // settlement + source credit; anything else is a real mismatch.
+          const current = await stripe.paymentIntents.retrieve(paymentIntent.id);
+          if (current.status !== "succeeded") {
+            throw new Error("Manual ACH processing differs from its frozen claim.");
+          }
+          const settled = await reconcileResidentManualAchPaymentIntent(db, current);
+          if (!settled.ok || !settled.paid) {
+            throw new Error("Manual ACH processing differs from its frozen claim.");
+          }
+          await creditVerifiedHouseholdManualSource(db, stripe, current);
         }
       }
     }
