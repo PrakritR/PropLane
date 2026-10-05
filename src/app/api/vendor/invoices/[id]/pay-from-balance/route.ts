@@ -51,7 +51,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const vendorUserId = String(existing.vendor_user_id ?? "").trim();
     if (!vendorUserId) return NextResponse.json({ error: "Invoice has no vendor." }, { status: 400 });
 
-    await claimInvoicePayment(auth.db, auth.userId, id, "balance");
+    // A refused claim is the double-pay guard answering, not a server fault: the invoice is
+    // already paid through another rail, already claimed by another source, or not payable.
+    // The sibling offline route answers 409 for the same throw; a 500 here left the client
+    // unable to tell "already paid another way" from "PropLane broke".
+    try {
+      await claimInvoicePayment(auth.db, auth.userId, id, "balance");
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "This invoice cannot be paid from the balance." },
+        { status: 409 },
+      );
+    }
 
     // The move is ONE transaction, so `ok: false` means the database said no and
     // nothing moved: the claim is released there, because a claim left behind

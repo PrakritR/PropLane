@@ -90,6 +90,12 @@ function fakeDb(opts: {
                 filters.push([column, value]);
                 return builder;
               },
+              // The job's OWN payout row: `invoice_id is null`. The estimate-visit fee's payout
+              // (invoice_id set) is a different bill and must never be re-claimed as the job's.
+              is: (column: string, value: unknown) => {
+                filters.push([column, value]);
+                return builder;
+              },
               select: () => builder,
               // The re-claim swap: it only matches when the stored row really is failed.
               maybeSingle: async () => {
@@ -250,6 +256,7 @@ describe("payoutVendorForWorkOrder", () => {
     // The re-claim is a compare-and-swap on the failed status, so two concurrent
     // re-drives still produce exactly one transfer.
     expect(updateFilters[0]).toContainEqual(["status", "failed"]);
+    expect(updateFilters[0]).toContainEqual(["invoice_id", null]);
     expect(updated[0]).toMatchObject({ status: "pending", failure_reason: null });
     expect(transferCreate).toHaveBeenCalledTimes(1);
     expect(updated.at(-1)).toMatchObject({ status: "paid", stripe_transfer_id: "tr_retry" });

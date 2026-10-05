@@ -73,13 +73,16 @@ export async function payoutVendorForWorkOrder(
     .select("id")
     .maybeSingle();
   // The insert lost to the unique index, so a payout row already exists. Only a
-  // failed one may be retried, and only by whoever wins the status swap.
+  // failed one may be retried, and only by whoever wins the status swap. The job's OWN payout
+  // is the invoice-less row: a service can also carry the estimate-visit fee's payout
+  // (invoice_id set), and re-claiming that one would rewrite a $50 fee row with the job's amount.
   const { data: reclaimed } = claimed
     ? { data: null }
     : await db
         .from("vendor_payouts")
         .update({ status: "pending", amount_cents: amountCents, failure_reason: null, updated_at: nowIso })
         .eq("work_order_id", opts.workOrderId)
+        .is("invoice_id", null)
         .eq("status", "failed")
         .select("id")
         .maybeSingle();
@@ -227,6 +230,9 @@ export async function retryFailedVendorPayoutsForVendor(
     .from("vendor_payouts")
     .select("id, work_order_id, manager_user_id, vendor_user_id, amount_cents, failure_reason")
     .eq("vendor_user_id", vendorUserId)
+    // Only the job's own payout — the estimate-visit fee's row (invoice_id set) belongs to the
+    // invoice rail and is not retried through this path.
+    .is("invoice_id", null)
     .eq("status", "failed");
 
   for (const row of failed ?? []) {
@@ -236,7 +242,10 @@ export async function retryFailedVendorPayoutsForVendor(
     const managerUserId = String(row.manager_user_id ?? "").trim();
     if (!workOrderId || !managerUserId) continue;
 
-    await db.from("vendor_payouts").delete().eq("id", row.id);
+    // `payoutVendorForWorkOrder` re-claims this very row by compare-and-swap. Deleting it first
+    // and re-inserting lost the record of money owed whenever the re-insert was then refused
+    // (the cross-rail guard, a vendor whose bid was withdrawn): the row that said "this vendor is
+    // owed $X and the transfer failed" was simply gone.
     await payoutVendorForWorkOrder(db, {
       workOrderId,
       managerUserId,

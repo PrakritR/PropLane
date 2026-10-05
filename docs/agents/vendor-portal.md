@@ -292,15 +292,26 @@ the service's only payout slot, after which the job's own invoice could never be
 the approve-and-pay rail (a null `invoice_id` collapses to one sentinel key, since a plain unique
 index treats nulls as distinct).
 
-Database uniqueness is therefore no longer the double-pay guard: `findBlockingVendorPayout`
-(`src/lib/work-order-approve-pay.server.ts`) is, and it refuses on any payout that already moved
-money for the job, across both rails. The only way to pay a vendor twice is to ALSO record an
-off-platform payment, and that is refused rather than merely warned about: `approve-pay` answers
-**409** naming the existing payout when one is `pending` or `paid`, and proceeds only with
-`acknowledgeExistingPayout: true`, which writes a
-`vendor_double_pay_acknowledged` row to `audit_log` before the write runs. The
-client's warning card is the courtesy; the 409 is the guard
-(`src/lib/vendor-payout-guard.ts`).
+Database uniqueness is therefore no longer the only double-pay guard.
+`vendor_payout_cross_rail_conflict` + the `vendor_payouts_cross_rail_guard` trigger
+(`20261004160000_vendor_payout_cross_rail_guard.sql`) arbitrate the race in the database under a
+per-work-order advisory lock, and `findBlockingVendorPayout`
+(`src/lib/work-order-approve-pay.server.ts`) is the friendly pre-check in front of it: it refuses on
+any payout that already moved money for the job, across both rails.
+
+**A service is paid once, through one rail, and there is no override.** `approve-pay` answers
+**409** with `code: "existing_payout"` naming the existing payout and the rail that holds it
+("already paid through Approve + pay" / "through the vendor's invoice") whenever one is `pending`
+or `paid`; the invoice rails (offline, balance, Stripe) answer 409 the same way. The client's
+warning card is the courtesy and disables the pay button; the 409 is the guard
+(`src/lib/vendor-payout-guard.ts`). The earlier
+`acknowledgeExistingPayout` escape hatch (and its `vendor_double_pay_acknowledged` audit row) is
+gone: once the database arbitrates, a second payout for the same job cannot be inserted at all, so
+an acknowledgement could only ever write an audit record for a payment that would never happen.
+
+The only remaining failure classes are told apart rather than collapsed into the refusal: a
+payout claim that fails for any reason other than "a row is already there" answers **500** with
+the real error, and a checkout that never starts hands its claim back so the job stays payable.
 
 ## A failed payout is told to somebody
 
