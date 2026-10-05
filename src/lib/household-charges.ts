@@ -199,8 +199,8 @@ export type HouseholdCharge = {
   paidNote?: string;
   /** Resident questions or issues about this charge, newest last. */
   residentChargeMessages?: ResidentChargeMessage[];
-  /** Snapshot of whether Axis ACH was enabled on the listing when the charge was created or synced. */
-  axisPaymentsEnabledSnapshot?: boolean;
+  /** Stored creation snapshot; server reads replace it with the current policy. null means the current policy could not be confirmed. */
+  axisPaymentsEnabledSnapshot?: boolean | null;
   /** Server-synced: manager Stripe Connect ready for destination charges (false blocks Pay). */
   managerStripeConnectReadySnapshot?: boolean;
   /** Payment methods the property currently accepts, refreshed from the listing on each server sync. */

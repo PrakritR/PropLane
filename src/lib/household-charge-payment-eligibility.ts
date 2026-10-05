@@ -52,9 +52,10 @@ export function enrichHouseholdChargePaymentFlags(
   const snapshots = paymentSnapshotsFromListing(listing);
   return {
     ...charge,
-    axisPaymentsEnabledSnapshot:
-      charge.axisPaymentsEnabledSnapshot ?? snapshots.axisPaymentsEnabledSnapshot,
-    acceptedPaymentMethodsSnapshot: snapshots.acceptedPaymentMethodsSnapshot ?? charge.acceptedPaymentMethodsSnapshot,
+    // The creation snapshot is historical. A server read must expose the
+    // current owned-listing policy and clear stale flags when it cannot be read.
+    axisPaymentsEnabledSnapshot: snapshots.axisPaymentsEnabledSnapshot ?? null,
+    acceptedPaymentMethodsSnapshot: snapshots.acceptedPaymentMethodsSnapshot,
   };
 }
 
@@ -80,6 +81,7 @@ export function householdChargeProplanePayability(
   charge: HouseholdCharge,
 ): "payable" | "offline" | "unknown" {
   if (charge.status === "paid") return "offline";
+  if (charge.axisPaymentsEnabledSnapshot === null) return "unknown";
   if (charge.axisPaymentsEnabledSnapshot === true) return "payable";
   if (charge.axisPaymentsEnabledSnapshot === false) return "offline";
 

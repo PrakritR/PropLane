@@ -10,6 +10,30 @@ import {
 } from "@/lib/household-charge-payment-eligibility";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
+/** A propertyless one-off has no listing policy. Its exact owning manager's
+ * stored account setting is the only fallback; an absent or unreadable setting
+ * is not evidence that online payment was enabled. */
+export async function resolvePropertylessManagerPaymentPolicy(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<boolean | null> {
+  const ownerId = managerUserId.trim();
+  if (!ownerId) return null;
+  let result = await db.from("manager_automation_settings")
+    .select("manual_payments,row_data").eq("manager_user_id", ownerId).maybeSingle();
+  if (result.error?.message.toLowerCase().includes("manual_payments") &&
+      result.error.message.toLowerCase().includes("does not exist")) {
+    result = await db.from("manager_automation_settings")
+      .select("row_data").eq("manager_user_id", ownerId).maybeSingle();
+  }
+  if (result.error || !result.data) return null;
+  const stored = result.data as { manual_payments?: unknown; row_data?: { manualPayments?: unknown } | null };
+  const policy = stored.manual_payments ?? stored.row_data?.manualPayments;
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return null;
+  const enabled = (policy as { axisPaymentsEnabled?: unknown }).axisPaymentsEnabled;
+  return typeof enabled === "boolean" ? enabled : null;
+}
+
 export async function resolveListingForHouseholdCharge(
   db: SupabaseClient,
   charge: HouseholdCharge,
@@ -81,42 +105,21 @@ export async function enrichHouseholdChargesFromPropertyRecordsResult(
     }
   }
 
-  const managerIds = [...new Set(charges.map((c) => c.managerUserId?.trim()).filter(Boolean))] as string[];
-  const listingsByManager = new Map<string, Array<{ buildingName: string; listing: ManagerListingSubmissionV1 | null }>>();
-
-  if (managerIds.length > 0) {
-    const { data, error } = await db
-      .from("manager_property_records")
-      .select("manager_user_id, property_data")
-      .in("manager_user_id", managerIds)
-      .limit(500);
-    if (error) lookupFailed = true;
-    for (const row of data ?? []) {
-      const managerId = String(row.manager_user_id ?? "").trim();
-      if (!managerId) continue;
-      const bucket = listingsByManager.get(managerId) ?? [];
-      bucket.push({
-        buildingName: listingBuildingName(row.property_data),
-        listing: listingFromPropertyData(row.property_data),
-      });
-      listingsByManager.set(managerId, bucket);
-    }
-  }
+  const propertylessManagerIds = [...new Set(charges.filter((c) => !c.propertyId?.trim())
+    .map((c) => c.managerUserId?.trim()).filter(Boolean))] as string[];
+  const accountPolicies = new Map<string, boolean | null>();
+  await Promise.all(propertylessManagerIds.map(async (managerId) => {
+    accountPolicies.set(managerId, await resolvePropertylessManagerPaymentPolicy(db, managerId));
+  }));
 
   const enriched = charges.map((charge) => {
-    const managerId = charge.managerUserId?.trim() ?? "";
-    let listing = listingByPropertyId.get(charge.propertyId?.trim() ?? "") ?? null;
-    if (!listing) {
-      const label = displayPropertyLabel(charge.propertyLabel ?? "").toLowerCase();
-      if (label && managerId) {
-        listing =
-          listingsByManager.get(managerId)?.find((row) => row.buildingName.toLowerCase() === label)?.listing ??
-          null;
-      }
+    const propertyId = charge.propertyId?.trim();
+    if (!propertyId) {
+      const accountPolicy = accountPolicies.get(charge.managerUserId?.trim() ?? "") ?? null;
+      return { ...charge, axisPaymentsEnabledSnapshot: accountPolicy,
+        acceptedPaymentMethodsSnapshot: accountPolicy === null ? undefined : ["ach", "card"] as HouseholdCharge["acceptedPaymentMethodsSnapshot"] };
     }
-    return {
-      ...enrichHouseholdChargePaymentFlags(charge, listing),
-    };
+    return enrichHouseholdChargePaymentFlags(charge, listingByPropertyId.get(propertyId) ?? null);
   });
   return { charges: enriched, lookupFailed };
 }
