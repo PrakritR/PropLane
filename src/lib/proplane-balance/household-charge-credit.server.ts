@@ -24,27 +24,34 @@ export async function creditProplaneBalanceFromHouseholdChargeSession(
   session: Stripe.Checkout.Session,
 ): Promise<void> {
   if (session.metadata?.funding_model !== "platform_ledger") return;
+  if (session.payment_status !== "paid") return;
   const managerUserId = session.metadata?.manager_user_id?.trim();
   const managerPayoutCents = Number(session.metadata?.manager_payout_cents ?? "");
-  if (!managerUserId || !Number.isFinite(managerPayoutCents) || managerPayoutCents <= 0) return;
+  if (!managerUserId || !Number.isSafeInteger(managerPayoutCents) || managerPayoutCents <= 0) {
+    throw new Error("Resident balance payment lacks its captured recipient amount.");
+  }
 
   const piRef = session.payment_intent;
   const piId = typeof piRef === "string" ? piRef : piRef?.id;
-  if (!piId) return;
+  if (!piId) throw new Error("Paid resident balance session has no payment intent.");
 
   const pi = await stripe.paymentIntents.retrieve(piId, { expand: ["latest_charge.balance_transaction"] });
   const charge = typeof pi.latest_charge === "string" ? null : pi.latest_charge;
-  if (!charge) return;
+  if (pi.status !== "succeeded" || pi.currency !== "usd" || !charge ||
+      !charge.paid || charge.status !== "succeeded" || charge.currency !== "usd" ||
+      (typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id) !== pi.id ||
+      charge.amount !== session.amount_total ||
+      pi.metadata?.manager_user_id !== managerUserId ||
+      Number(pi.metadata?.manager_payout_cents) !== managerPayoutCents) {
+    throw new Error("Resident balance credit requires a succeeded exact provider charge.");
+  }
   const balanceTransaction =
     typeof charge.balance_transaction === "string" ? null : charge.balance_transaction;
 
-  // `available_on` is Stripe's own clearing estimate (epoch seconds); fall
-  // back to "now" only if Stripe has not enriched the charge yet, so the entry
-  // is never stuck pending forever — `proplane_balance_settle_due` still
-  // flips it the moment it is read after that.
-  const availableOnIso = balanceTransaction?.available_on
-    ? new Date(balanceTransaction.available_on * 1000).toISOString()
-    : new Date().toISOString();
+  if (!balanceTransaction?.available_on || !Number.isSafeInteger(balanceTransaction.available_on)) {
+    throw new Error("Resident balance credit is waiting for Stripe clearing evidence.");
+  }
+  const availableOnIso = new Date(balanceTransaction.available_on * 1000).toISOString();
 
   const accountId = await ensureWorkspaceBalanceAccountId(db, managerUserId);
   await creditResidentPaymentPending(db, {

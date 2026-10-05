@@ -14,34 +14,7 @@ import { getStripe } from "@/lib/stripe";
 import { loadResidentCheckoutAttemptForSession,
   loadResidentManualAchAttemptForPaymentIntent,
   type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
-
-/** New paid receipts require an actual unrefunded captured Stripe Charge.
- * Settled replay is handled by the separate source reconciliation path, which
- * may legitimately observe later refunds against an existing receipt. */
-async function assertFreshHouseholdCapture(
-  stripe: Stripe, paymentIntent: Stripe.PaymentIntent, expectedGross: number,
-): Promise<void> {
-  const latestChargeId = typeof paymentIntent.latest_charge === "string"
-    ? paymentIntent.latest_charge : paymentIntent.latest_charge?.id;
-  if (!latestChargeId || paymentIntent.status !== "succeeded" ||
-      paymentIntent.currency !== "usd" || paymentIntent.amount !== expectedGross ||
-      paymentIntent.amount_received !== expectedGross ||
-      paymentIntent.transfer_data?.destination || paymentIntent.application_fee_amount) {
-    throw new Error("Household PaymentIntent has no exact captured source.");
-  }
-  const charge = await stripe.charges.retrieve(latestChargeId);
-  const chargeIntentId = typeof charge.payment_intent === "string"
-    ? charge.payment_intent : charge.payment_intent?.id;
-  if (chargeIntentId !== paymentIntent.id || charge.currency !== "usd" ||
-      charge.amount !== expectedGross || !charge.paid || charge.status !== "succeeded" ||
-      !charge.captured || charge.disputed || charge.refunded || charge.amount_refunded !== 0) {
-    throw new Error("Household Charge is not an unrefunded captured source.");
-  }
-  const refunds = await stripe.refunds.list({ charge: charge.id, limit: 1 });
-  if (refunds.data.length > 0 || refunds.has_more) {
-    throw new Error("Household Charge has refund history before first settlement.");
-  }
-}
+import { assertFreshHouseholdCapturedSource } from "@/lib/household-captured-source.server";
 
 async function householdChargeProviderRefused(db: SupabaseClient, managerUserId: string, operation: string) {
   return (await captureTestWorkspaceEffectForUser({
@@ -366,9 +339,11 @@ async function completeHouseholdChargePaid(
 async function settleClaimedHouseholdCart(
   db: SupabaseClient, attempt: ResidentCheckoutAttempt,
   sourceId: string, paymentIntent: Stripe.PaymentIntent,
+  session?: Stripe.Checkout.Session,
 ): Promise<{ ok: boolean; chargeId?: string; alreadyPaid?: boolean }> {
   if (attempt.status !== "settled") {
-    await assertFreshHouseholdCapture(getStripe(), paymentIntent, attempt.payer_total_cents);
+    await assertFreshHouseholdCapturedSource(getStripe(),
+      session ? { checkoutSession: session, paymentIntent } : { paymentIntent });
   }
   if (await householdChargeProviderRefused(db, attempt.manager_user_id, "charge_paid")) return { ok: false };
   const { data: settled, error: settleError } = await db.rpc("settle_resident_checkout_attempt", {
@@ -428,7 +403,7 @@ export async function markHouseholdChargePaidFromStripeSession(
         paymentIntent.transfer_data?.destination || paymentIntent.application_fee_amount) {
       throw new Error("Captured PaymentIntent differs from the resident checkout attempt.");
     }
-    return settleClaimedHouseholdCart(db, attempt, session.id, paymentIntent);
+    return settleClaimedHouseholdCart(db, attempt, session.id, paymentIntent, session);
   }
 
   const chargeIds =
@@ -558,7 +533,7 @@ export async function markHouseholdChargePaidFromPaymentIntent(
     if (beforeError || !charge || charge.managerUserId !== managerId ||
         charge.residentEmail.trim().toLowerCase() !== residentEmail) return { ok: false };
     if (run.status !== "succeeded") {
-      await assertFreshHouseholdCapture(getStripe(), paymentIntent, gross);
+      await assertFreshHouseholdCapturedSource(getStripe(), { paymentIntent });
     }
     const { data: settled, error: settleError } = await db.rpc("settle_resident_autopay_run", {
       p_run_id: runId, p_attempt: attempt, p_payment_intent_id: paymentIntent.id,

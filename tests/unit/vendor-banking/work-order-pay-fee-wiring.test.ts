@@ -44,8 +44,8 @@ const createAxisAchCheckoutSession = vi.hoisted(() =>
     const subtotalCents = input.amountCents ?? 0;
     const processingFeeCents = 100; // fixed fake Stripe cost for this test
     return {
-      mode: "hosted" as const,
-      url: "https://checkout.stripe.test/x",
+      mode: "embedded" as const,
+      clientSecret: "cs_test_123_secret",
       sessionId: "cs_test_123",
       subtotalCents,
       processingFeeCents,
@@ -129,6 +129,19 @@ function makeDb(tables: Record<string, Row[]>) {
       if (!tables[table]) tables[table] = [];
       return new FakeQuery(tables[table]!, table);
     },
+    async rpc(name: string, args: Record<string, unknown>) {
+      const row = tables.portal_work_order_records![0]!;
+      const data = row.row_data as Row;
+      if (name === "claim_work_order_vendor_payment") {
+        data.pendingVendorPay = args.p_pending;
+        tables.vendor_payouts!.push({ work_order_id: args.p_work_order,
+          manager_user_id: args.p_manager, vendor_user_id: args.p_vendor,
+          amount_cents: args.p_amount, status: "pending" });
+      } else if (name === "finish_work_order_vendor_checkout") {
+        data.pendingVendorPay = { ...(data.pendingVendorPay as Row), sessionId: args.p_session };
+      }
+      return { data: true, error: null };
+    },
   };
 }
 
@@ -137,10 +150,11 @@ const VENDOR = "vendor_1";
 const WORK_ORDER = "wo_fee_wiring_1";
 const workOrderRow = { id: WORK_ORDER, title: "Fix the boiler", propertyId: "prop_1", bucket: "completed" };
 
-function baseTables(): Record<string, Row[]> {
+function baseTables(vendorCostCents: number): Record<string, Row[]> {
   return {
     portal_work_order_records: [
-      { id: WORK_ORDER, manager_user_id: MANAGER, vendor_user_id: VENDOR, row_data: workOrderRow },
+      { id: WORK_ORDER, manager_user_id: MANAGER, vendor_user_id: VENDOR,
+        row_data: { ...workOrderRow, vendorCostCents } },
     ],
     work_order_bids: [],
     vendor_payouts: [],
@@ -148,11 +162,11 @@ function baseTables(): Record<string, Row[]> {
   };
 }
 
-function postBody(vendorCostCents: number) {
+function postBody(vendorCostCents: number, paymentChannel?: "card" | "ach") {
   return new Request("http://localhost/api/portal/work-orders/approve-pay", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ workOrder: workOrderRow, category: "plumbing", vendorCostCents }),
+    body: JSON.stringify({ workOrder: workOrderRow, category: "plumbing", vendorCostCents, paymentChannel }),
   });
 }
 
@@ -168,7 +182,7 @@ describe("startVendorPayCheckout — vendor pay fee wiring", () => {
   });
 
   it("flag OFF: extraApplicationFeeCents is 0 and metadata.platform_fee_cents is '0'", async () => {
-    const db = makeDb(baseTables());
+    const db = makeDb(baseTables(12_500));
     signIn(db);
     flagState.enabled = false;
 
@@ -181,7 +195,7 @@ describe("startVendorPayCheckout — vendor pay fee wiring", () => {
   });
 
   it("flag ON: extraApplicationFeeCents is exactly 3% of the invoice, floored", async () => {
-    const db = makeDb(baseTables());
+    const db = makeDb(baseTables(12_500));
     signIn(db);
     flagState.enabled = true;
 
@@ -193,7 +207,7 @@ describe("startVendorPayCheckout — vendor pay fee wiring", () => {
   });
 
   it("flag ON, a non-round-cent 3%: floors rather than rounds up", async () => {
-    const db = makeDb(baseTables());
+    const db = makeDb(baseTables(3_333));
     signIn(db);
     flagState.enabled = true;
 
@@ -201,5 +215,16 @@ describe("startVendorPayCheckout — vendor pay fee wiring", () => {
     expect(res.status).toBe(200);
     const call = createAxisAchCheckoutSession.mock.calls[0]![1] as Record<string, unknown>;
     expect(call.extraApplicationFeeCents).toBe(99);
+  });
+
+  it("a selected card rail freezes a card-only provider request", async () => {
+    const db = makeDb(baseTables(12_500));
+    signIn(db);
+    const res = await POST(postBody(12_500, "card"));
+    expect(res.status).toBe(200);
+    const call = createAxisAchCheckoutSession.mock.calls[0]![1] as Record<string, unknown>;
+    expect(call.paymentMethod).toBe("card");
+    expect(call.forceExplicitCard).toBe(true);
+    expect(call.fixedFeeBreakdown).toMatchObject({ totalCents: expect.any(Number) });
   });
 });

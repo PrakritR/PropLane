@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Calendar,
@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { sendWorkOrderToVendors, type PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -255,12 +256,15 @@ export function ManagerWorkOrdersPanel({
   const [autoSchedulingId, setAutoSchedulingId] = useState<string | null>(null);
   const [approvePayRow, setApprovePayRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [approvePayBusy, setApprovePayBusy] = useState(false);
+  const [approvePayCheckoutSecret, setApprovePayCheckoutSecret] = useState<string | null>(null);
+  const approvePayEpoch = useRef(0);
+  const approvePayTarget = useRef<string | null>(null);
   const [approveInvoiceBusy, setApproveInvoiceBusy] = useState(false);
   const [pendingServiceInvoiceId, setPendingServiceInvoiceId] = useState<string | null>(null);
   // night/vendor-pay: an additional payment source in the confirm modal,
   // shown only once the flag-gated balance read comes back enabled. Defaults
   // to "ach" — unchanged behavior for everyone until they explicitly pick it.
-  const [approvePayChannel, setApprovePayChannel] = useState<"ach" | "balance">("ach");
+  const [approvePayChannel, setApprovePayChannel] = useState<"card" | "ach" | "balance">("card");
   const [approvePayBalance, setApprovePayBalance] = useState<{ enabled: boolean; availableCents: number } | null>(null);
   const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
@@ -294,7 +298,7 @@ export function ManagerWorkOrdersPanel({
   // picker at all, same as today.
   useEffect(() => {
     if (!approvePayRow) return;
-    setApprovePayChannel("ach");
+    setApprovePayChannel("card");
     const payableLaborCents = approvePayDefaults(approvePayRow).vendorCostCents;
     let cancelled = false;
     sharedGet("/api/portal/proplane-balance", { ttlMs: 0 })
@@ -786,7 +790,10 @@ export function ManagerWorkOrdersPanel({
   /** Runs the same completion + expense-logging as "Mark complete", then marks the vendor
    * paid (bookkeeping status only — see APPROVE_PAY_CONFIRM_THRESHOLD_CENTS for the
    * one-tap vs confirm-preview gate). */
-  const submitApprovePay = async (row: DemoManagerWorkOrderRow, paymentChannel: "ach" | "balance" = "ach") => {
+  const submitApprovePay = async (row: DemoManagerWorkOrderRow, paymentChannel: "card" | "ach" | "balance" = "card") => {
+    const epoch = ++approvePayEpoch.current;
+    approvePayTarget.current = row.id;
+    const current = () => approvePayEpoch.current === epoch && approvePayTarget.current === row.id;
     setApprovePayBusy(true);
     try {
       // /demo: mark paid locally — never hits the real payout/bookkeeping route.
@@ -804,9 +811,10 @@ export function ManagerWorkOrdersPanel({
         body: JSON.stringify({ workOrder: row, ...approvePayDefaults(row), paymentChannel }),
       });
       const data = await res.json();
+      if (!current()) return;
       if (!res.ok) throw new Error(data.error ?? "Could not approve payment.");
-      if (typeof data.checkoutUrl === "string" && data.checkoutUrl) {
-        window.location.assign(data.checkoutUrl);
+      if (typeof data.clientSecret === "string" && data.clientSecret) {
+        setApprovePayCheckoutSecret(data.clientSecret);
         return;
       }
       updateManagerWorkOrder(row.id, () => data.workOrder as DemoManagerWorkOrderRow);
@@ -815,21 +823,34 @@ export function ManagerWorkOrdersPanel({
       setApprovePayRow(null);
       if (workOrderIdProp) navigateToList();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not approve payment.");
+      if (current()) showToast(e instanceof Error ? e.message : "Could not approve payment.");
     } finally {
-      setApprovePayBusy(false);
+      if (current()) setApprovePayBusy(false);
     }
   };
 
   const approvePay = (row: DemoManagerWorkOrderRow) => {
     const { vendorCostCents } = approvePayDefaults(row);
+    approvePayEpoch.current++;
+    approvePayTarget.current = row.id;
+    setApprovePayCheckoutSecret(null);
+    setApprovePayBalance(null);
+    setApprovePayRow(row);
     if (vendorCostCents < APPROVE_PAY_CONFIRM_THRESHOLD_CENTS) {
       void submitApprovePay(row);
-    } else {
-      setApprovePayBalance(null);
-      setApprovePayRow(row);
     }
   };
+
+  useEffect(() => {
+    if (routeWorkOrder && new URLSearchParams(window.location.search).get("approve_pay") === "1") {
+      approvePayEpoch.current++;
+      approvePayTarget.current = routeWorkOrder.id;
+      setApprovePayRow(routeWorkOrder);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("approve_pay");
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, [routeWorkOrder]);
 
   const approveInvoiceForRow = useCallback(
     async (row: DemoManagerWorkOrderRow) => {
@@ -1964,13 +1985,13 @@ export function ManagerWorkOrdersPanel({
 
       <Modal
         open={Boolean(approvePayRow)}
-        onClose={() => setApprovePayRow(null)}
+        onClose={() => { approvePayEpoch.current++; approvePayTarget.current = null; setApprovePayRow(null); setApprovePayCheckoutSecret(null); }}
         title="Approve & pay"
         description={
           approvePayRow ? `${approvePayRow.propertyName} · ${approvePayRow.title}` : undefined
         }
         footer={
-          approvePayRow ? (
+          approvePayRow && !approvePayCheckoutSecret ? (
             <ModalFooter>
               <Button
                 type="button"
@@ -1990,7 +2011,9 @@ export function ManagerWorkOrdersPanel({
           ) : undefined
         }
       >
-        {approvePayRow ? (
+        {approvePayCheckoutSecret ? (
+          <StripeEmbeddedCheckout clientSecret={approvePayCheckoutSecret} onComplete={() => { approvePayEpoch.current++; approvePayTarget.current = null; setApprovePayCheckoutSecret(null); setApprovePayRow(null); void syncManagerWorkOrdersFromServer(); showToast("Payment submitted. Bank transfers may take several days to clear."); }} />
+        ) : approvePayRow ? (
           <div className="space-y-3">
             <ServiceInvoiceDocument
               laborCents={approvePayDefaults(approvePayRow).vendorCostCents}
@@ -2021,10 +2044,10 @@ export function ManagerWorkOrdersPanel({
                 <span className="mb-1.5 block text-sm font-medium text-foreground">Pay from</span>
                 <Select
                   value={approvePayChannel}
-                  onChange={(e) => setApprovePayChannel(e.target.value as "ach" | "balance")}
+                  onChange={(e) => setApprovePayChannel(e.target.value as "card" | "ach" | "balance")}
                   data-attr="work-order-approve-pay-channel"
                 >
-                  <option value="ach">Card (Stripe)</option>
+                  <option value="card">Card (Stripe)</option>
                   <option value="balance">
                     PropLane balance · ${(approvePayBalance.availableCents / 100).toFixed(2)} available
                   </option>

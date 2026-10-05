@@ -26,8 +26,9 @@ vi.mock("@/lib/stripe-connect", () => ({
   resolveConnectDestinationIfReady: (...args: unknown[]) => resolveConnectDestinationIfReady(...args),
 }));
 
-vi.mock("@/lib/stripe-platform-hold.server", () => ({
-  creditHoldFromPaymentIntent: vi.fn().mockResolvedValue({ credited: false }),
+const creditVerifiedHouseholdAutopaySource = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/household-captured-source.server", () => ({
+  creditVerifiedHouseholdAutopaySource: (...args: unknown[]) => creditVerifiedHouseholdAutopaySource(...args),
 }));
 
 const paymentIntentsCreate = vi.fn();
@@ -493,6 +494,44 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     expect(args.transfer_data).toBeUndefined();
     expect(args.application_fee_amount).toBeUndefined();
     expect(args.metadata.platform_hold).toBe("1");
+    expect(creditVerifiedHouseholdAutopaySource).toHaveBeenCalledWith(
+      db, expect.objectContaining({ paymentIntents: expect.anything() }),
+      expect.objectContaining({ id: "pi_hold" }), "hc_1",
+    );
+  });
+
+  it("keeps synchronous captured success in reconciliation when central source credit fails", async () => {
+    loadHouseholdChargesForCheckout.mockResolvedValue({
+      ok: true, managerUserId: "mgr_1",
+      loaded: [{ id: "hc_1", charge: charge(), managerUserId: "mgr_1",
+        propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
+    });
+    resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account", customer: "cus_1" });
+    paymentIntentsCreate.mockResolvedValue({ id: "pi_needs_source", status: "succeeded" });
+    creditVerifiedHouseholdAutopaySource.mockRejectedValueOnce(new Error("source needs review"));
+    const { db } = makeFakeDb({ profiles: { res_1: { stripe_customer_id: "cus_1" } } });
+    const result = await chargeAutopay(db, { id: "run_1", chargeId: "hc_1",
+      residentUserId: "res_1", residentEmail: "resident@example.com", managerId: "mgr_1",
+      paymentMethodId: "pm_bank_1" });
+    expect(result).toEqual({ ok: false, reason: "Payment outcome needs provider reconciliation." });
+    expect(creditVerifiedHouseholdAutopaySource).toHaveBeenCalledOnce();
+  });
+
+  it("does not create a PI when another source owns the charge slot", async () => {
+    loadHouseholdChargesForCheckout.mockResolvedValue({
+      ok: true, managerUserId: "mgr_1",
+      loaded: [{ id: "hc_1", charge: charge(), managerUserId: "mgr_1",
+        propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
+    });
+    resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account", customer: "cus_1" });
+    const { db } = makeFakeDb({ profiles: { res_1: { stripe_customer_id: "cus_1" } }, reservation: false });
+    const result = await chargeAutopay(db, { id: "run_1", chargeId: "hc_1",
+      residentUserId: "res_1", residentEmail: "resident@example.com",
+      managerId: "mgr_1", paymentMethodId: "pm_bank_1" });
+    expect(result.ok).toBe(false);
+    expect(paymentIntentsCreate).not.toHaveBeenCalled();
   });
 
   it("does not create a PI when another source owns the charge slot", async () => {

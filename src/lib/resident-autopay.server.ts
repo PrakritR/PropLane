@@ -17,7 +17,7 @@ import {
   resolveHouseholdChargeFeePayer,
 } from "@/lib/stripe-household-charge-checkout.server";
 import { residentServiceFeeBreakdown, type ResidentAxisPaymentMethod } from "@/lib/payment-policy";
-import { creditHoldFromPaymentIntent } from "@/lib/stripe-platform-hold.server";
+import { creditVerifiedHouseholdAutopaySource } from "@/lib/household-captured-source.server";
 import { getStripe } from "@/lib/stripe";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import { loadManagerAutomationSettings, DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
@@ -522,7 +522,7 @@ export async function chargeAutopay(
     if (paymentIntent.status === "succeeded") {
       const paid = await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, run.chargeId);
       if (!paid.ok) return { ok: false, reason: "Captured payment needs provider reconciliation." };
-      await creditHoldFromPaymentIntent(db, paymentIntent).catch(() => undefined);
+      await creditVerifiedHouseholdAutopaySource(db, stripe, paymentIntent, run.chargeId);
     }
     return { ok: true, paymentIntentId: paymentIntent.id };
   } catch (e) {

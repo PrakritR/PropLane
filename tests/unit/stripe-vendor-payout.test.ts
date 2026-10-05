@@ -8,9 +8,71 @@ vi.mock("@/lib/stripe-connect", () => ({
 
 import { getStripe } from "@/lib/stripe";
 import { retrieveManagerConnectAccountOrNull, connectAccountTransfersActive } from "@/lib/stripe-connect";
-import { payoutVendorForWorkOrder } from "@/lib/stripe-vendor-payout";
+import { payoutVendorForWorkOrder, recordVendorPayoutSettled } from "@/lib/stripe-vendor-payout";
 
 type Row = Record<string, unknown>;
+
+describe("recordVendorPayoutSettled", () => {
+  const terms = { workOrderId: "WO-paid", managerUserId: "manager", vendorUserId: "vendor", amountCents: 5000,
+    platformFeeCents: 150, destination: "hold" as const, stripeChargeId: "ch_paid" };
+
+  function payoutDb(existing: Row | null, failure?: "read" | "update" | "insert") {
+    const updates: Row[] = [];
+    const inserts: Row[] = [];
+    const builder = {
+      eq: () => builder,
+      select: () => builder,
+      maybeSingle: async () => failure === "read" ? { data: null, error: { message: "read failed" } }
+        : { data: existing, error: null },
+    };
+    const db = {
+      from: () => ({
+        select: () => builder,
+        update: (row: Row) => {
+          updates.push(row);
+          const updateBuilder = {
+            eq: () => updateBuilder,
+            select: () => updateBuilder,
+            maybeSingle: async () => failure === "update" ? { data: null, error: { message: "update failed" } }
+              : { data: { id: existing?.id }, error: null },
+          };
+          return updateBuilder;
+        },
+        insert: async (row: Row) => {
+          inserts.push(row);
+          return failure === "insert" ? { error: { message: "insert failed" } } : { error: null };
+        },
+      }),
+    };
+    return { db, updates, inserts };
+  }
+
+  it.each(["read", "update", "insert"] as const)("propagates %s failure so webhook replay repairs the payout", async (failure) => {
+    const existing = failure === "insert" ? null : { id: "payout", manager_user_id: "manager", vendor_user_id: "vendor",
+      amount_cents: 5000, status: "pending", stripe_transfer_id: null, stripe_charge_id: null,
+      platform_fee_cents: 0, destination: null };
+    const { db } = payoutDb(existing, failure);
+    await expect(recordVendorPayoutSettled(db as never, terms)).rejects.toThrow();
+  });
+
+  it.each(["partially_refunded", "refunded"])("preserves %s on a paid-session replay", async (status) => {
+    const { db, updates } = payoutDb({ id: "payout", manager_user_id: "manager", vendor_user_id: "vendor",
+      amount_cents: 5000, status, stripe_transfer_id: null, stripe_charge_id: "ch_paid",
+      platform_fee_cents: 150, destination: "hold" });
+    await recordVendorPayoutSettled(db as never, terms);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).not.toHaveProperty("status");
+    expect(updates[0]).not.toHaveProperty("stripe_charge_id");
+  });
+
+  it("refuses a paid replay with different owner, amount, fee, or charge", async () => {
+    const { db, updates } = payoutDb({ id: "payout", manager_user_id: "manager", vendor_user_id: "vendor",
+      amount_cents: 5000, status: "paid", stripe_transfer_id: null, stripe_charge_id: "ch_other",
+      platform_fee_cents: 150, destination: "hold" });
+    await expect(recordVendorPayoutSettled(db as never, terms)).rejects.toThrow("charge");
+    expect(updates).toHaveLength(0);
+  });
+});
 
 /**
  * Minimal fake Supabase client covering vendor_payouts / work_order_bids /

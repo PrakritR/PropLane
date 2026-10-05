@@ -129,6 +129,8 @@ describe("dedicated verification recovery", () => {
   it.each([
     [{ paid: false }, 200, "Could not confirm payment"],
     [{ paid: false, processing: true }, 200, "bank transfer is still processing"],
+    [{ paid: false, processing: true, processingReason: "recipient_routing" }, 202,
+      "Payment was captured. Manager payout routing is still processing"],
     [{ paid: true, applicationPromoted: false }, 200, "saved application could not be submitted"],
     [{ paid: true, applicationPromoted: true, applicationAxisId: "  " }, 200, "saved application could not be submitted"],
     [{ error: "Session not found." }, 404, "Session not found"],
@@ -152,6 +154,24 @@ describe("dedicated verification recovery", () => {
     expect(await screen.findByRole("heading", { name: "Application submitted" })).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const [, init] of fetchMock.mock.calls) expect(JSON.parse(init.body)).toEqual({ sessionId: "cs_return" });
+    expectNoApplicationMount();
+  });
+
+  it("retries a captured card's delayed destination routing with the same session", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ paid: false, processing: true,
+        processingReason: "recipient_routing" }, 202))
+      .mockResolvedValueOnce(response({ paid: true, applicationPromoted: true,
+        applicationAxisId: "PROPLANE-ROUTED", applicationSetupEmailSent: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PublicApplyClient />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Payment was captured");
+    fireEvent.click(screen.getByRole("button", { name: "Retry verification" }));
+    expect(await screen.findByRole("heading", { name: "Application submitted" })).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(JSON.parse(init.body)).toEqual({ sessionId: "cs_return" });
+    }
     expectNoApplicationMount();
   });
 

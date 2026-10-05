@@ -4,6 +4,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { loadResidentManualAchAttemptForPaymentIntent } from "@/lib/resident-checkout-claim.server";
 import { reconcileResidentManualAchPaymentIntent } from "@/lib/stripe-household-charge";
+import { creditVerifiedHouseholdManualSource } from "@/lib/household-captured-source.server";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { assertTestWorkspaceProviderEffectAllowed, TestWorkspaceProviderDisabledError } from "@/lib/test-workspaces/effects.server";
 
@@ -48,6 +49,14 @@ async function answer(paymentIntentId: string, userId: string) {
   const settled = await reconcileResidentManualAchPaymentIntent(db, paymentIntent, userId);
   if (!settled.ok) return NextResponse.json({ paid: false, processing: false,
     bankStatus: "review", error: "Bank payment needs review." }, { status: 409 });
+  if (settled.paid) {
+    try {
+      await creditVerifiedHouseholdManualSource(db, stripe, paymentIntent);
+    } catch {
+      return NextResponse.json({ paid: false, processing: false,
+        bankStatus: "review", error: "Bank payment needs review." }, { status: 409 });
+    }
+  }
   return NextResponse.json({ paid: settled.paid, processing: settled.processing,
     bankStatus: state, chargeId: settled.chargeId, ...clientFields });
 }

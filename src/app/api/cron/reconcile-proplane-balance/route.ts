@@ -3,6 +3,9 @@ import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { reconcilePlatformLedgerCharges } from "@/lib/proplane-balance/reconcile.server";
+import { reconcileReservedPlatformOwnerRecovery, reconcileUnhydratedCentralSourceMirrors } from "@/lib/platform-owner-recovery.server";
+import { reconcileReservedPlatformHoldTransfers } from "@/lib/platform-hold-release.server";
+import { reconcileClassifiedBalanceWithdrawals } from "@/lib/proplane-balance/withdraw-reconcile.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -41,5 +44,9 @@ export async function GET(req: Request) {
   const db = createSupabaseServiceRoleClient();
   const stripe = getStripe();
   const result = await reconcilePlatformLedgerCharges(stripe, db);
-  return NextResponse.json(result);
+  const ownerRecovery = await reconcileReservedPlatformOwnerRecovery(db, stripe);
+  const centralAvailability = await reconcileUnhydratedCentralSourceMirrors(db, stripe);
+  const holdTransfers = await reconcileReservedPlatformHoldTransfers(db, stripe);
+  const withdrawals = await reconcileClassifiedBalanceWithdrawals(stripe, db);
+  return NextResponse.json({ ...result, ownerRecovery, centralAvailability, holdTransfers, withdrawals });
 }

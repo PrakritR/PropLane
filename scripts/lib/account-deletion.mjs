@@ -116,9 +116,17 @@ export const DELETE_ORDER = [
   // References portal_work_order_records (cascade), same as vendor_invoices/vendor_payouts.
   "vendor_reviews",
   "vendor_invoices",
+  // Source arbitration children precede both their payout and held-charge
+  // parents. The source refund evidence table has only opaque Stripe ids and
+  // is retained independently for exact provider reconciliation.
+  "platform_hold_refund_transfer_legs",
+  "platform_source_consumption_legs",
+  "platform_hold_refund_attempts",
+  "platform_hold_transfer_attempts",
   "vendor_payouts",
   // Platform-held funds awaiting a Connect destination; financial like vendor_payouts.
   "platform_payment_holds",
+  "payout_destination_cache_refreshes",
   // night/vendor-pay ledger account row (owner_key is a manager or vendor id, not an FK);
   // financial like vendor_invoices/vendor_payouts above.
   "proplane_balance_accounts",

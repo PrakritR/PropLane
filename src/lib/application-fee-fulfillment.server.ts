@@ -1,18 +1,75 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { syncLedgerChargeOnlyEntry, syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
-import { creditPlatformHold } from "@/lib/stripe-platform-hold.server";
-import { findPlatformHold } from "@/lib/stripe-platform-hold.server";
+import { findPlatformHold, findPlatformHoldByPaymentIntent } from "@/lib/stripe-platform-hold.server";
+import { attestPlatformDestinationSource } from "@/lib/platform-destination-source.server";
+import { releaseVerifiedPlatformHoldsForOwner } from "@/lib/platform-hold-release.server";
+import { settleClearedPlatformOwnerRecovery, verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import type { ApplicationFeeClaim } from "@/lib/application-fee-payment-claim.server";
 
 function customerEmail(session: Stripe.Checkout.Session): string {
   return String(session.customer_details?.email ?? session.customer_email ?? "").trim().toLowerCase();
+}
+
+async function markDeletedApplicantPaymentForReview(
+  db: SupabaseClient, stripe: Stripe, session: Stripe.Checkout.Session, claim: ApplicationFeeClaim,
+): Promise<never> {
+  const frozenEmail = claim.provider_params.residentEmail?.trim().toLowerCase();
+  if (!frozenEmail || claim.provider_params.metadata?.resident_email !== frozenEmail ||
+      session.metadata?.resident_email?.trim().toLowerCase() !== frozenEmail ||
+      customerEmail(session) !== frozenEmail ||
+      !claim.stripe_session_id || claim.stripe_session_id !== session.id ||
+      session.metadata?.manager_user_id !== claim.manager_user_id ||
+      session.metadata?.property_id !== claim.property_id ||
+      session.metadata?.fee_cents !== String(claim.principal_cents) ||
+      session.metadata?.manager_payout_cents !== String(claim.recipient_net_cents) ||
+      session.metadata?.processing_fee_cents !== String(claim.processing_fee_cents) ||
+      session.metadata?.fee_payer !== claim.provider_params.feePayer ||
+      session.metadata?.service_fee_cents !== String(claim.provider_params.fixedFeeBreakdown?.serviceFeeCents) ||
+      session.metadata?.subtotal_cents !== String(claim.principal_cents) ||
+      session.amount_total !== claim.payer_total_cents) {
+    throw new Error("Paid application Checkout does not match its source claim.");
+  }
+  for (const key of ["application_template_id", "fee_room_id", "fee_lease_term",
+    "fee_source", "fee_bundle_id", "fee_rental_type", "fee_basis_v"] as const) {
+    if (session.metadata?.[key] !== claim.provider_params.metadata[key]) {
+      throw new Error("Paid application fee basis differs from its saved quote.");
+    }
+  }
+  const isHold = !claim.provider_params.destinationAccountId;
+  if ((session.metadata?.platform_hold === "1") !== isHold ||
+      (isHold && session.metadata?.hold_amount_cents !== String(claim.recipient_net_cents))) {
+    throw new Error("Paid application recipient settlement does not match the source claim.");
+  }
+  const { data: guard, error: guardError } = await db.from("account_deleted_record_identities")
+    .select("marker_id,identity_hashes,email_columns")
+    .eq("table_name", "application_fee_payment_claims")
+    .eq("record_id", claim.application_id).maybeSingle();
+  const originalHash = createHash("sha256").update(frozenEmail, "utf8").digest("hex");
+  if (guardError || !guard?.marker_id ||
+      claim.resident_email !== `deleted-${guard.marker_id}@deleted.invalid` ||
+      !Array.isArray(guard.identity_hashes) || !guard.identity_hashes.includes(originalHash) ||
+      !Array.isArray(guard.email_columns) || !guard.email_columns.includes("resident_email")) {
+    throw new Error("Paid application Checkout does not match its source claim.");
+  }
+  // A deletion marker alone is not payment evidence. Verify the exact frozen
+  // captured source before putting its retained claim into human review.
+  await actualCharge(stripe, session, claim);
+  const { data: reviewed, error: reviewError } = await db.from("application_fee_payment_claims")
+    .update({ promotion_status: "needs_review", promotion_reason: "resident_account_deleted_after_capture" })
+    .eq("application_id", claim.application_id).eq("stripe_session_id", session.id)
+    .eq("resident_email", claim.resident_email).select("application_id").maybeSingle();
+  if (reviewError || reviewed?.application_id !== claim.application_id) {
+    throw new Error("Deleted applicant payment could not be recorded for review.");
+  }
+  throw new Error("Paid application belongs to a deleted applicant and needs source review.");
 }
 
 async function actualCharge(stripe: Stripe, session: Stripe.Checkout.Session, claim: ApplicationFeeClaim) {
@@ -99,6 +156,12 @@ export async function fulfillClaimedApplicationFeePayment(
   if (!claim.created_at || Number.isNaN(Date.parse(claim.created_at))) {
     throw new Error("Application payment origin date needs source review.");
   }
+  if (claim.resident_email !== claim.provider_params.residentEmail?.trim().toLowerCase() &&
+      claim.attempt_token === attemptToken &&
+      session.metadata?.manager_user_id === claim.manager_user_id &&
+      session.metadata?.property_id === claim.property_id) {
+    await markDeletedApplicantPaymentForReview(db, stripe, session, claim);
+  }
   if (claim.attempt_token !== attemptToken ||
       (claim.stripe_session_id && claim.stripe_session_id !== session.id) ||
       session.metadata?.manager_user_id !== claim.manager_user_id ||
@@ -120,11 +183,35 @@ export async function fulfillClaimedApplicationFeePayment(
       throw new Error("Paid application fee basis differs from its saved quote.");
     }
   }
-  const { charge } = await actualCharge(stripe, session, claim);
+  const { pi, charge } = await actualCharge(stripe, session, claim);
   const isHold = !claim.provider_params.destinationAccountId;
   if ((session.metadata?.platform_hold === "1") !== isHold ||
       (isHold && session.metadata?.hold_amount_cents !== String(claim.recipient_net_cents))) {
     throw new Error("Paid application recipient settlement does not match the source claim.");
+  }
+  let destinationSource: Awaited<ReturnType<typeof attestPlatformDestinationSource>> | null = null;
+  if (!isHold) {
+    const existing = await findPlatformHoldByPaymentIntent(db, pi.id);
+    if (existing && (existing.ownerUserId !== claim.manager_user_id ||
+        existing.ownerRole !== "manager" || existing.source !== "application_fee" ||
+        existing.stripeChargeId !== charge.id)) {
+      throw new Error("Application destination allocation belongs to another source.");
+    }
+    let allowRefundedReplay = false;
+    if (existing) {
+      const { data: provenance, error: provenanceError } = await db.from("platform_payment_holds")
+        .select("source_verified_at,source_allocation_mode").eq("id", existing.id).maybeSingle();
+      if (provenanceError) throw new Error("Application destination provenance could not be read.");
+      allowRefundedReplay = Boolean(provenance?.source_verified_at &&
+        provenance.source_allocation_mode === "destination");
+    }
+    destinationSource = await attestPlatformDestinationSource(stripe, {
+      paymentIntent: pi, charge, ownerUserId: claim.manager_user_id,
+      expectedGrossCents: claim.payer_total_cents,
+      expectedRecipientNetCents: claim.recipient_net_cents,
+      expectedDestinationAccountId: claim.provider_params.destinationAccountId!,
+      allowRefundedReplay,
+    });
   }
   const chargeData = paidChargeData(claim, session, charge);
   const { data: settled, error: settleError } = await db.rpc("settle_application_fee_checkout", {
@@ -165,8 +252,16 @@ export async function fulfillClaimedApplicationFeePayment(
     throw new Error("Application payment ledger enrichment needs repair.");
   }
   if (isHold) {
-    const hold = await findPlatformHold(db, "application_fee", session.id);
+    const [sourceHold, intentHold] = await Promise.all([
+      findPlatformHold(db, "application_fee", session.id),
+      findPlatformHoldByPaymentIntent(db, pi.id),
+    ]);
+    if (sourceHold && intentHold && sourceHold.id !== intentHold.id) {
+      throw new Error("Application payment has two platform allocations needing review.");
+    }
+    const hold = intentHold ?? sourceHold;
     if (hold && (hold.ownerUserId !== claim.manager_user_id || hold.ownerRole !== "manager" ||
+        hold.source !== "application_fee" ||
         (hold.stripeChargeId && hold.stripeChargeId !== charge.id))) {
       throw new Error("Application hold does not match its paid source.");
     }
@@ -176,17 +271,81 @@ export async function fulfillClaimedApplicationFeePayment(
     if (!hold && hasRefundEvidence) {
       throw new Error("Refunded application source needs hold reconciliation before credit.");
     }
+    // Fresh sources credit and reserve established owner debt in one SQL
+    // transaction. Existing sources without a classified mirror retain their
+    // historical replay contract; no old allocation is silently rebooked.
+    const { data: existingMirrors, error: mirrorError } = hold
+      ? await db.from("proplane_balance_entries")
+        .select("id").eq("source_hold_id", hold.id).eq("kind", "resident_payment")
+      : { data: null, error: null };
+    if (mirrorError) throw new Error("Application hold mirror needs source review.");
+    const atomicIncome = !hold || Boolean(existingMirrors?.length);
+    const availability = atomicIncome
+      ? await verifiedCapturedChargeAvailability(stripe, charge) : null;
     // A redelivered original payment cannot replenish a hold reduced by a
     // later partial/full refund. The refund engine owns its remaining amount.
-    if (!hold || !hasRefundEvidence) {
-      await creditPlatformHold(db, {
-        ownerUserId: claim.manager_user_id,
-        ownerRole: "manager",
-        source: "application_fee",
-        sourceId: session.id,
-        amountCents: claim.recipient_net_cents,
-        stripeChargeId: charge.id,
+    const { data: credited, error: creditError } = await db.rpc(
+      atomicIncome ? "credit_platform_income_with_recovery" : "credit_verified_platform_hold", {
+      p_owner: claim.manager_user_id,
+      ...(!atomicIncome ? { p_owner_role: "manager" } : {}),
+      p_source: "application_fee", p_source_id: session.id,
+      p_charge: charge.id, p_payment_intent: pi.id,
+      p_charge_gross: claim.payer_total_cents, p_principal: claim.principal_cents,
+      p_original_net: claim.recipient_net_cents,
+      p_fee_payer: claim.provider_params.feePayer,
+      p_components: [{ source_id: claim.charge_id, kind: "application_fee",
+        liability_class: "income", principal_cents: claim.principal_cents,
+        recipient_net_cents: claim.recipient_net_cents }],
+      ...(atomicIncome ? { p_available_on: availability?.availableOn ?? null } : {}),
+    });
+    if (creditError) throw new Error("Application hold source credit needs repair.");
+    const creditedId = Array.isArray(credited) ? credited[0]?.hold_id : credited?.hold_id;
+    const durableHold = await findPlatformHoldByPaymentIntent(db, pi.id);
+    if (!durableHold || durableHold.ownerUserId !== claim.manager_user_id ||
+        durableHold.ownerRole !== "manager" || durableHold.source !== "application_fee" ||
+        durableHold.stripeChargeId !== charge.id || durableHold.id !== creditedId ||
+        (hold && hold.id !== durableHold.id)) {
+      throw new Error("Application hold source was not durably credited.");
+    }
+    if (hasRefundEvidence) {
+      const { data: source, error: sourceError } = await db.from("platform_payment_holds")
+        .select("source_verified_at").eq("id", durableHold.id).maybeSingle();
+      if (sourceError || !source?.source_verified_at) {
+        throw new Error("Refunded application hold has no verified original source.");
+      }
+    }
+    if (atomicIncome) {
+      await settleClearedPlatformOwnerRecovery(db, stripe, {
+        ownerUserId: claim.manager_user_id, holdId: durableHold.id,
       });
+    }
+    await releaseVerifiedPlatformHoldsForOwner(db, {
+      ownerUserId: claim.manager_user_id, holdId: durableHold.id, stripe,
+    });
+  } else if (destinationSource) {
+    const { data: credited, error: creditError } = await db.rpc("credit_verified_platform_hold", {
+      p_owner: claim.manager_user_id, p_owner_role: "manager",
+      p_source: "application_fee", p_source_id: session.id,
+      p_charge: charge.id, p_payment_intent: pi.id,
+      p_charge_gross: claim.payer_total_cents, p_principal: claim.principal_cents,
+      p_original_net: claim.recipient_net_cents,
+      p_fee_payer: claim.provider_params.feePayer,
+      p_components: [{ source_id: claim.charge_id, kind: "application_fee",
+        liability_class: "income", principal_cents: claim.principal_cents,
+        recipient_net_cents: claim.recipient_net_cents }],
+      p_destination: destinationSource.destinationAccountId,
+      p_transfer: destinationSource.transferId,
+      p_transfer_gross: destinationSource.transferGrossCents,
+      p_application_fee_cents: destinationSource.applicationFeeCents,
+      p_application_fee_id: destinationSource.applicationFeeId,
+    });
+    if (creditError) throw new Error("Application destination source allocation needs repair.");
+    const creditedId = Array.isArray(credited) ? credited[0]?.hold_id : credited?.hold_id;
+    const durable = await findPlatformHoldByPaymentIntent(db, pi.id);
+    if (!durable || durable.id !== creditedId || durable.ownerUserId !== claim.manager_user_id ||
+        durable.ownerRole !== "manager" || durable.source !== "application_fee" ||
+        durable.stripeChargeId !== charge.id || !["transferred", "refunded"].includes(durable.status)) {
+      throw new Error("Application destination source allocation was not persisted.");
     }
   }
   await cancelFuturePaymentRemindersForCharge(db, claim.manager_user_id, claim.charge_id);
@@ -311,9 +470,29 @@ export async function repairLegacyBoundApplicationFeePayment(
   if (ledgerError || ledgerRows?.length !== 1) {
     throw new Error("Earlier application payment ledger needs repair.");
   }
-  await creditPlatformHold(db, { ownerUserId: row.manager_user_id, ownerRole: "manager",
-    source: "application_fee", sourceId: session.id,
-    amountCents: payout, stripeChargeId: charge.id });
+  const { data: credited, error: creditError } = await db.rpc("credit_verified_platform_hold", {
+    p_owner: row.manager_user_id, p_owner_role: "manager",
+    p_source: "application_fee", p_source_id: session.id,
+    p_charge: charge.id, p_payment_intent: pi.id,
+    p_charge_gross: session.amount_total,
+    p_principal: principal, p_original_net: payout,
+    p_fee_payer: meta.fee_payer,
+    p_components: [{ source_id: row.id, kind: "application_fee",
+      liability_class: "income", principal_cents: principal,
+      recipient_net_cents: payout }],
+  });
+  if (creditError) throw new Error("Earlier application hold source credit needs repair.");
+  const creditedId = Array.isArray(credited) ? credited[0]?.hold_id : credited?.hold_id;
+  const durableHold = await findPlatformHoldByPaymentIntent(db, pi.id);
+  if (!durableHold || durableHold.id !== creditedId ||
+      durableHold.source !== "application_fee" || durableHold.ownerUserId !== row.manager_user_id ||
+      durableHold.ownerRole !== "manager" || durableHold.stripeChargeId !== charge.id ||
+      (hold && hold.id !== durableHold.id)) {
+    throw new Error("Earlier application hold source was not durably credited.");
+  }
+  await releaseVerifiedPlatformHoldsForOwner(db, {
+    ownerUserId: row.manager_user_id, holdId: durableHold.id, stripe,
+  });
   await cancelFuturePaymentRemindersForCharge(db, row.manager_user_id, row.id);
   return { chargeId: row.id, alreadyPaid: true, managerUserId: row.manager_user_id, legacy: true };
 }

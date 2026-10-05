@@ -37,6 +37,7 @@ export type PayoutBankInfo = {
 
 export type PayoutHistoryItem = {
   id: string;
+  kind?: "source_movement";
   amountCents: number;
   feeCents: number;
   netCents: number;

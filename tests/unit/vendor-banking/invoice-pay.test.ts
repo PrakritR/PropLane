@@ -12,6 +12,19 @@ vi.mock("@/lib/app-url", () => ({ resolveShareableAppOrigin: () => "https://app.
 vi.mock("@/lib/stripe-platform-hold.server", () => ({
   creditHoldFromPaidSession: vi.fn().mockResolvedValue({ credited: false }),
 }));
+vi.mock("@/lib/vendor-captured-source.server", () => ({
+  creditVerifiedVendorCheckoutSource: vi.fn(),
+  verifyLegacyVendorCheckoutSource: vi.fn().mockResolvedValue({ chargeId: "ch_legacy_invoice" }),
+}));
+vi.mock("@/lib/manager-bills.server", () => ({ createBillFromVendorInvoice: vi.fn() }));
+vi.mock("@/lib/vendor-invoice-settlement.server", () => ({
+  authorizeOutgoingInvoice: vi.fn(),
+  settleInvoicePayment: vi.fn(async (db: { _tables: Record<string, Array<Record<string, unknown>>> },
+    _manager: string, invoiceId: string) => {
+    const row = db._tables.vendor_invoices?.find((invoice) => invoice.id === invoiceId);
+    if (row) { row.status = "paid"; row.paid_from = "stripe"; }
+  }),
+}));
 
 const createAxisAchCheckoutSession = vi.hoisted(() =>
   vi.fn(async (_stripe: unknown, input: { amountCents?: number; extraApplicationFeeCents?: number; mode?: string; returnUrl?: string }) => {
@@ -45,6 +58,9 @@ function invoiceRow(overrides: Partial<Record<string, unknown>> = {}) {
     status: "approved",
     invoice_number: "INV-1",
     memo: null,
+    bill_id: "bill_1",
+    payment_claim: "stripe",
+    checkout_session_id: "cs_invoice_1",
     ...overrides,
   };
 }
@@ -55,8 +71,21 @@ describe("startVendorInvoicePayCheckout", () => {
     flagState.enabled = false;
   });
 
+  function startDb(rows: Array<Record<string, unknown>>) {
+    const db = makeFakeDb({ vendor_invoices: rows }, {
+      claim_vendor_invoice_stripe_checkout: async ({ p_attempt }) => {
+        rows[0]!.checkout_session_id = p_attempt;
+        return { data: p_attempt, error: null };
+      },
+      freeze_vendor_invoice_stripe_checkout_terms: async ({ p_terms }) => ({
+        data: p_terms, error: null,
+      }),
+    });
+    return db;
+  }
+
   it("404s when the invoice doesn't belong to this manager (never trusts the id alone)", async () => {
-    const db = makeFakeDb({ vendor_invoices: [invoiceRow()] });
+    const db = startDb([invoiceRow({ checkout_session_id: null })]);
     const result = await startVendorInvoicePayCheckout(db as never, {
       invoiceId: "inv_1",
       managerUserId: "someone_else",
@@ -66,7 +95,7 @@ describe("startVendorInvoicePayCheckout", () => {
   });
 
   it("409s an invoice that isn't approved/scheduled yet", async () => {
-    const db = makeFakeDb({ vendor_invoices: [invoiceRow({ status: "submitted" })] });
+    const db = startDb([invoiceRow({ status: "submitted", checkout_session_id: null })]);
     const result = await startVendorInvoicePayCheckout(db as never, {
       invoiceId: "inv_1",
       managerUserId: "manager_1",
@@ -77,13 +106,14 @@ describe("startVendorInvoicePayCheckout", () => {
   });
 
   it("flag off: no PropLane fee applied, and the manager gets an embedded client secret", async () => {
-    const db = makeFakeDb({ vendor_invoices: [invoiceRow()] });
+    const db = startDb([invoiceRow({ checkout_session_id: null })]);
     const result = await startVendorInvoicePayCheckout(db as never, {
       invoiceId: "inv_1",
       managerUserId: "manager_1",
       managerEmail: "m@test.proplane.local",
+      paymentMethod: "ach",
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
     if (!result.ok) return;
     expect(result.clientSecret).toBe("cs_test_secret_x");
     expect(result.platformFeeCents).toBe(0);
@@ -98,11 +128,12 @@ describe("startVendorInvoicePayCheckout", () => {
 
   it("flag on: 3% PropLane fee applied", async () => {
     flagState.enabled = true;
-    const db = makeFakeDb({ vendor_invoices: [invoiceRow()] });
+    const db = startDb([invoiceRow({ checkout_session_id: null })]);
     const result = await startVendorInvoicePayCheckout(db as never, {
       invoiceId: "inv_1",
       managerUserId: "manager_1",
       managerEmail: "m@test.proplane.local",
+      paymentMethod: "ach",
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -120,14 +151,19 @@ describe("completeVendorInvoicePaymentFromStripeSession", () => {
   function makeSession(overrides: Partial<Record<string, string>> = {}) {
     return {
       id: "cs_invoice_1",
+      status: "complete",
       payment_status: "paid",
+      currency: "usd",
+      amount_total: 10100,
       metadata: {
         purpose: "vendor_invoice_direct_pay",
         invoice_id: "inv_1",
         manager_user_id: "manager_1",
         vendor_user_id: "vendor_1",
         invoice_cents: "10000",
-        platform_fee_cents: "300",
+        platform_fee_cents: "0",
+        processing_fee_cents: "100",
+        payment_method: "ach",
         ...overrides,
       },
     } as unknown as import("stripe").default.Checkout.Session;
@@ -146,7 +182,7 @@ describe("completeVendorInvoicePaymentFromStripeSession", () => {
   it("writes ledger charge + fee lines only when the flag is on", async () => {
     flagState.enabled = true;
     const db = makeFakeDb({ vendor_invoices: [invoiceRow()], vendor_payouts: [] });
-    await completeVendorInvoicePaymentFromStripeSession(db as never, makeSession());
+    await completeVendorInvoicePaymentFromStripeSession(db as never, makeSession({ platform_fee_cents: "300" }));
     const chargeLine = db._inserts.find((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "charge");
     const feeLine = db._inserts.find((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "platform_fee");
     expect(chargeLine?.row.amount_cents).toBe(10_000);

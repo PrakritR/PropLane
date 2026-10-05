@@ -33,6 +33,13 @@ vi.mock("@/lib/stripe", () => ({
   getStripe: vi.fn(),
 }));
 
+vi.mock("@/lib/application-fee-payment-claim.server", () => ({
+  createClaimedApplicationFeeCheckout: vi.fn(),
+}));
+vi.mock("@/lib/auth/resident-setup-token", () => ({
+  isResidentSetupTokenValid: vi.fn(() => true),
+}));
+
 vi.mock("@/lib/manager-access-server", () => ({
   getManagerPurchaseSku: vi.fn().mockResolvedValue({ tier: "pro", stripeCustomerId: null }),
   normalizeManagerSkuTier: vi.fn((t: string) => t),
@@ -102,11 +109,16 @@ import { POST as householdChargeCheckout } from "@/app/api/stripe/household-char
 import { GET as householdChargeVerify } from "@/app/api/stripe/household-charge-verify/route";
 import { POST as applicationFeeCheckout } from "@/app/api/stripe/application-fee-checkout/route";
 import { getStripe } from "@/lib/stripe";
+import { createClaimedApplicationFeeCheckout } from "@/lib/application-fee-payment-claim.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { resolveListingForHouseholdCharge } from "@/lib/household-charge-payment-eligibility.server";
+import { listingFromPropertyData } from "@/lib/household-charge-payment-eligibility";
 
 describe("ACH checkout routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(resolveListingForHouseholdCharge).mockResolvedValue(null);
+    vi.mocked(listingFromPropertyData).mockReturnValue(null);
     process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
@@ -175,6 +187,12 @@ describe("ACH checkout routes", () => {
     });
 
     it("creates embedded checkout session for valid charge", async () => {
+      vi.mocked(resolveListingForHouseholdCharge).mockResolvedValue({
+        v: 1, rooms: [], bathrooms: [], axisPaymentsEnabled: true,
+      } as never);
+      vi.mocked(listingFromPropertyData).mockReturnValue({
+        v: 1, rooms: [], bathrooms: [], axisPaymentsEnabled: true,
+      } as never);
       vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
         from: vi.fn().mockImplementation((table: string) => {
           if (table === "portal_household_charge_records") {
@@ -212,9 +230,9 @@ describe("ACH checkout routes", () => {
             };
           }
           if (table === "manager_property_records") {
-            // No property row → no workspace fee-payer setting; the chain must
-            // survive the resolver's `.eq("manager_user_id").eq("id")`.
-            return queryChain({ data: null, error: null });
+            return queryChain({ data: { id: "prop_1", manager_user_id: "mgr_1",
+              property_data: { listingSubmission: { v: 1, rooms: [], bathrooms: [], axisPaymentsEnabled: true } } },
+              error: null });
           }
           return { select: vi.fn().mockReturnThis() };
         }),
@@ -230,12 +248,22 @@ describe("ACH checkout routes", () => {
       expect(status).toBe(200);
       expect(data.clientSecret).toBe("cs_ach_secret");
       expect(data.sessionId).toBe("cs_ach_session");
+      expect(vi.mocked(createAxisAchCheckoutSession).mock.calls[0]?.[1]).toMatchObject({
+        destinationAccountId: null, fundingModel: "connect_destination",
+        metadata: { source_arbitration_v: "1" },
+      });
       expect(captureTestWorkspaceEffectForUser).toHaveBeenCalledWith(
         expect.objectContaining({ userId: "res_1", kind: "payment" }),
       );
     });
 
     it("keeps card when native app header is present (native supports card)", async () => {
+      vi.mocked(resolveListingForHouseholdCharge).mockResolvedValue({
+        v: 1, rooms: [], bathrooms: [], axisPaymentsEnabled: true,
+      } as never);
+      vi.mocked(listingFromPropertyData).mockReturnValue({
+        v: 1, rooms: [], bathrooms: [], axisPaymentsEnabled: true,
+      } as never);
       vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
         from: vi.fn().mockImplementation((table: string) => {
           if (table === "portal_household_charge_records") {
@@ -264,9 +292,9 @@ describe("ACH checkout routes", () => {
             };
           }
           if (table === "manager_property_records") {
-            // No property row → no workspace fee-payer setting; the chain must
-            // survive the resolver's `.eq("manager_user_id").eq("id")`.
-            return queryChain({ data: null, error: null });
+            return queryChain({ data: { id: "prop_1", manager_user_id: "mgr_1",
+              property_data: { listingSubmission: { v: 1, rooms: [], bathrooms: [], axisPaymentsEnabled: true } } },
+              error: null });
           }
           return { select: vi.fn().mockReturnThis() };
         }),
@@ -353,7 +381,7 @@ describe("ACH checkout routes", () => {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
               maybeSingle: vi.fn().mockResolvedValue({
-                data: { manager_user_id: "other_mgr", property_data: { listingSubmission: { v: 1, applicationFee: "50" } } },
+                data: { id: "app_1", manager_user_id: "other_mgr", property_id: "prop_1", resident_email: "resident@example.com", row_data: { bucket: "pending", stage: "In progress" } },
                 error: null,
               }),
             }),
@@ -362,42 +390,17 @@ describe("ACH checkout routes", () => {
       } as never);
       const req = jsonRequest("http://localhost/api/stripe/application-fee-checkout", {
         method: "POST",
-        body: { propertyId: "prop_1", residentEmail: "resident@example.com", managerUserId: "mgr_1", amountCents: 0 },
+        body: { applicationId: "app_1", propertyId: "prop_1", residentEmail: "resident@example.com", managerUserId: "mgr_1", amountCents: 0 },
       });
       const res = await applicationFeeCheckout(req);
       expect(res.status).toBe(403);
     });
 
-    it("creates hosted checkout session for valid application fee", async () => {
-      // Application-fee payment defaults to inline (embedded); this case pins
-      // the still-supported hosted-redirect path via an explicit mode override.
-      vi.mocked(createAxisAchCheckoutSession).mockResolvedValue({
-        mode: "hosted",
-        url: "https://checkout.stripe.test/fee",
-        sessionId: "cs_fee_session",
-        subtotalCents: 5000,
-        processingFeeCents: 0,
-        axisFeeCents: 0,
-        platformFeeCents: 0,
-        totalCents: 5000,
-        paymentMethod: "ach",
-      } as never);
-
-      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
-        // Owner matches the request, and the listing carries a $50 fee that the
-        // server derives the charge amount from. The same chain also answers the
-        // workspace fee-payer lookup (`.eq().eq()`), which finds no workspace.
-        from: vi.fn().mockReturnValue(
-          queryChain({
-            data: { manager_user_id: "mgr_1", property_data: { listingSubmission: { v: 1, applicationFee: "50" } } },
-            error: null,
-          }),
-        ),
-      } as never);
-
+    it("rejects a hosted application fee request before creating a provider session", async () => {
       const req = jsonRequest("http://localhost/api/stripe/application-fee-checkout", {
         method: "POST",
         body: {
+          applicationId: "app_1",
           propertyId: "prop_1",
           residentEmail: "resident@example.com",
           residentName: "Test Resident",
@@ -406,11 +409,48 @@ describe("ACH checkout routes", () => {
         },
       });
       const res = await applicationFeeCheckout(req);
-      const { status, data } = await parseJsonResponse<{ url?: string; sessionId?: string }>(res);
+      const { status, data } = await parseJsonResponse<{ error?: string; url?: string }>(res);
+      expect(status).toBe(400);
+      expect(data.error).toMatch(/inside your application/i);
+      expect(data.url).toBeUndefined();
+      expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
+    });
 
-      expect(status).toBe(200);
-      expect(data.url).toContain("checkout.stripe");
-      expect(data.sessionId).toBe("cs_fee_session");
+    it("quotes only selectors from the authorized saved draft", async () => {
+      vi.mocked(getStripe).mockReturnValue({} as never);
+      vi.mocked(createSupabaseServerClient).mockResolvedValue({
+        auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null } }) },
+      } as never);
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+        from: vi.fn().mockReturnValue(queryChain({
+          data: {
+            id: "app_owned", manager_user_id: "mgr_1", property_id: "prop_1",
+            resident_email: "resident@example.com", updated_at: "2026-10-04T12:00:00.123456Z",
+            row_data: { bucket: "pending", stage: "In progress", application: {
+              propertyId: "prop_1", email: "resident@example.com",
+              roomChoice1: "premium-room", leaseTerm: "12 months", rentalType: "standard",
+              applicationTemplateId: "premium-template",
+            } },
+          }, error: null,
+        })),
+      } as never);
+      vi.mocked(createClaimedApplicationFeeCheckout).mockResolvedValue({
+        ok: true, mode: "embedded", clientSecret: "cs_secret", sessionId: "cs_owned",
+        itemization: { applicationFeeCents: 5000, serviceFeeCents: 440, totalCents: 5440, feePayer: "resident", managerTier: "pro" },
+      });
+      const req = jsonRequest("http://localhost/api/stripe/application-fee-checkout", {
+        method: "POST", body: {
+          applicationId: "app_owned", setupToken: "owned-token", propertyId: "prop_1",
+          residentEmail: "resident@example.com", managerUserId: "mgr_1",
+          roomChoice1: "cheap-room", applicationTemplateId: "cheap-template", leaseTerm: "1 month",
+        },
+      });
+      const res = await applicationFeeCheckout(req);
+      expect(res.status).toBe(200);
+      expect(createClaimedApplicationFeeCheckout).toHaveBeenCalledWith(expect.anything(), expect.anything(),
+        expect.objectContaining({ applicationId: "app_owned", roomChoice1: "premium-room",
+          applicationTemplateId: "premium-template", leaseTerm: "12 months",
+          draftUpdatedAt: "2026-10-04T12:00:00.123456Z" }));
     });
   });
 });

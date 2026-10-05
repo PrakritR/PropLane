@@ -4,7 +4,6 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applicationFeeChargeIdForApplication } from "@/lib/household-charges";
 import { residentServiceFeeBreakdown, type ResidentServiceFeeBreakdown, type ServiceFeePayer } from "@/lib/payment-policy";
-import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
 import { listingApplicationFeeChannels } from "@/lib/rental-application/application-fee-channel";
 import { loadManagerApplicationSettings } from "@/lib/manager-application-settings";
 import { resolveApplicationFeeChargePolicy } from "@/lib/rental-application/listing-application-fee-policy";
@@ -212,7 +211,9 @@ export async function createClaimedApplicationFeeCheckout(
     const params: PersistedParams = {
       mode: "embedded", residentEmail: email, amountCents: applicationFeeCents,
       productName: "Rental application fee", productDescription: `Listing ${input.propertyId.slice(0, 120)}`,
-      metadata, destinationAccountId: await resolveConnectDestinationIfReady(stripe, db, managerUserId),
+      // Fresh captures settle centrally so owner recovery is reserved before
+      // the verified residual reaches an already-ready Connect account.
+      metadata, destinationAccountId: null,
       managerTier: itemization.managerTier, feePayer: itemization.feePayer,
       paymentMethod: "card", forceExplicitCard: true, fixedFeeBreakdown: fee,
       draftSelectors: draftSelectors(input),

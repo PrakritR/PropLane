@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromoteIncompleteAfterFeeResult } from "@/lib/promote-incomplete-application-after-fee.server";
+import { DestinationSourcePendingError } from "@/lib/platform-destination-source.server";
 
 /**
  * Route-level coverage for POST /api/stripe/application-fee-verify — the
@@ -156,6 +157,18 @@ describe("POST /api/stripe/application-fee-verify", () => {
     expect(JSON.stringify(await wrongEmail.json())).not.toContain("applicant@example.com");
     expect(promoteIncomplete).not.toHaveBeenCalled();
     expect(orphanReport).not.toHaveBeenCalled();
+  });
+
+  it("reports captured-but-routing payment as processing until provider destination legs hydrate", async () => {
+    const { fulfillApplicationFeePayment } = await import("@/lib/application-fee-fulfillment.server");
+    vi.mocked(fulfillApplicationFeePayment).mockRejectedValueOnce(
+      new DestinationSourcePendingError("Stripe transfer has not hydrated"));
+    const { POST } = await import("@/app/api/stripe/application-fee-verify/route");
+    const res = await POST(post({ sessionId: "cs_test_app_fee" }));
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ paid: false, processing: true,
+      paymentStatus: "paid" });
+    expect(promoteIncomplete).not.toHaveBeenCalled();
   });
 
   it("reports paid unpromoted returns with Stripe's stored email, never the caller's email", async () => {

@@ -75,7 +75,7 @@ class FakeQuery {
     if (this.mode === "update") {
       const matched = this.matched();
       for (const r of matched) Object.assign(r, this.payload);
-      return { data: null, error: null };
+      return { data: this.cols ? matched : null, error: null };
     }
     if (this.mode === "upsert") {
       const col = this.upsertConflictCol;

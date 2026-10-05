@@ -9,6 +9,7 @@ import {
   markHouseholdChargeProcessingFromStripeSession,
 } from "@/lib/stripe-household-charge";
 import { loadResidentCheckoutAttemptForSession } from "@/lib/resident-checkout-claim.server";
+import { creditVerifiedHouseholdCheckoutSource } from "@/lib/household-captured-source.server";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 
 export const runtime = "nodejs";
@@ -76,6 +77,12 @@ export async function GET(req: Request) {
       const result = await markHouseholdChargePaidFromStripeSession(db, session);
       if (!result.ok) return NextResponse.json({ paid: false, processing: false,
         error: "The payment source could not be settled yet." }, { status: 409 });
+      try {
+        await creditVerifiedHouseholdCheckoutSource(db, stripe, session);
+      } catch {
+        return NextResponse.json({ paid: false, processing: false,
+          error: "The payment source needs review." }, { status: 409 });
+      }
       alreadyPaid = result.alreadyPaid ?? false;
     } else if (processing) {
       // Persist the clearing-window hold immediately on return from checkout —

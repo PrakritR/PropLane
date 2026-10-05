@@ -53,6 +53,36 @@ revoke all on public.resident_charge_payment_slots from public, anon, authentica
 grant all on public.resident_checkout_attempts to service_role;
 grant all on public.resident_charge_payment_slots to service_role;
 
+-- A still-running autopay caller writes its claimed run before creating a PI.
+-- Make that legacy insert (and failed -> claimed retry) observe the same
+-- charge-row serialization as a new whole-cart claim. A foreign Checkout or
+-- autopay slot wins before the old caller can reach Stripe; an exact same-run
+-- slot remains valid for its existing PI/replay and is checked again by the
+-- current reserve RPC.
+create or replace function public.resident_autopay_claim_respects_charge_slot()
+returns trigger language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_slot public.resident_charge_payment_slots%rowtype;
+begin
+  if new.status<>'claimed' then return new; end if;
+  if tg_op='UPDATE' and old.status='claimed' then return new; end if;
+  perform 1 from public.portal_household_charge_records where id=new.charge_id for update;
+  if not found then raise exception 'Autopay charge is missing'; end if;
+  select * into v_slot from public.resident_charge_payment_slots
+    where charge_id=new.charge_id;
+  if found and (v_slot.checkout_attempt_id is not null or
+      v_slot.autopay_run_id is distinct from new.id) then
+    raise exception 'Another payment owns this charge';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists resident_autopay_claim_respects_charge_slot on public.resident_autopay_runs;
+create trigger resident_autopay_claim_respects_charge_slot
+  before insert or update of status on public.resident_autopay_runs
+  for each row execute function public.resident_autopay_claim_respects_charge_slot();
+revoke all on function public.resident_autopay_claim_respects_charge_slot() from public,anon,authenticated;
+grant execute on function public.resident_autopay_claim_respects_charge_slot() to service_role;
+
 -- The financial-history guard migration predates this table. A resident
 -- deletion pseudonymizes the attempt but keeps its immutable source; stale
 -- service-role replay must not reattach the deleted email or user id.

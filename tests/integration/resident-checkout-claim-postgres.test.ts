@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const url = process.env.PAYMENT_AUDIT_TEST_DATABASE_URL;
@@ -35,7 +35,7 @@ async function household(count: number) {
 }
 
 type Home = Awaited<ReturnType<typeof household>>;
-async function reserve(home: Home, ids: string[], method: "ach" | "card" = "card") {
+async function reserve(home: Home, ids: string[], method: "ach" | "card" = "card", client: Pool | PoolClient = db) {
   const token = randomUUID();
   const sorted = [...ids].sort();
   const subtotal = 1000 * sorted.length;
@@ -43,7 +43,7 @@ async function reserve(home: Home, ids: string[], method: "ach" | "card" = "card
     lineItems: sorted.map(id => ({ id, amountCents: 1000 })),
     metadata: { resident_attempt_token: token, manager_user_id: home.manager, charge_ids: sorted.join(","),
       ...(method === "ach" ? { resident_payment_flow: "manual_ach", manual_ach: "1" } : {}) } };
-  const result = await db.query(`select * from reserve_resident_checkout_attempt(
+  const result = await client.query(`select * from reserve_resident_checkout_attempt(
     $1,$2,$3,$4,$5::text[],$6::integer[],$7,$8,$9,$10,$11::jsonb)`,
   [token, home.resident, home.email, home.manager, sorted, sorted.map(() => 1000),
     subtotal, subtotal, subtotal, method, JSON.stringify(terms)]);
@@ -237,10 +237,10 @@ suite("resident checkout cart arbitration on local PostgreSQL", () => {
     const manualFirst = await household(1);
     await reserve(manualFirst, manualFirst.ids);
     const runA = randomUUID();
-    await db.query(`insert into resident_autopay_runs(id,charge_id,resident_user_id,manager_id,status)
+    await expect(db.query(`insert into resident_autopay_runs(id,charge_id,resident_user_id,manager_id,status)
       values($1,$2,$3,$4,'claimed')`,
-    [runA, manualFirst.ids[0], manualFirst.resident, manualFirst.manager]);
-    expect((await db.query("select reserve_resident_autopay_slot($1,1) as reserved", [runA])).rows[0].reserved).toBe(false);
+    [runA, manualFirst.ids[0], manualFirst.resident, manualFirst.manager]))
+      .rejects.toThrow(/Another payment owns this charge/);
 
     const autopayFirst = await household(1);
     const runB = randomUUID();
@@ -255,10 +255,39 @@ suite("resident checkout cart arbitration on local PostgreSQL", () => {
     const failedPi = `pi_${randomUUID()}`;
     await db.query("update resident_autopay_runs set status='failed',stripe_payment_intent_id=$2 where id=$1",
       [runB, failedPi]);
+    await db.query("update resident_autopay_runs set status='claimed' where id=$1", [runB]);
+    expect((await db.query("select reserve_resident_autopay_slot($1,1) as reserved", [runB])).rows[0].reserved)
+      .toBe(false);
+    await db.query("update resident_autopay_runs set status='failed' where id=$1", [runB]);
     expect((await db.query("select release_resident_autopay_slot($1,1,$2) as released",
       [runB, `pi_${randomUUID()}`])).rows[0].released).toBe(false);
     expect((await db.query("select release_resident_autopay_slot($1,1,$2) as released",
       [runB, failedPi])).rows[0].released).toBe(true);
     expect((await reserve(autopayFirst, autopayFirst.ids)).status).toBe("pending");
+    await expect(db.query("update resident_autopay_runs set status='claimed' where id=$1", [runB]))
+      .rejects.toThrow(/Another payment owns this charge/);
+  });
+
+  it("serializes an old claimed-run INSERT behind a concurrent Checkout cart claim", async () => {
+    const home = await household(1);
+    const runId = randomUUID();
+    const checkout = await db.connect();
+    try {
+      await checkout.query("begin");
+      await checkout.query("select id from portal_household_charge_records where id=$1 for update", [home.ids[0]]);
+      const oldInsert = db.query(`insert into resident_autopay_runs
+        (id,charge_id,resident_user_id,manager_id,status)
+        values($1,$2,$3,$4,'claimed')`,
+      [runId, home.ids[0], home.resident, home.manager]);
+      const attempt = await reserve(home, home.ids, "card", checkout);
+      expect(attempt.id).toBeTruthy();
+      await checkout.query("commit");
+      await expect(oldInsert).rejects.toThrow(/Another payment owns this charge/);
+      expect((await db.query("select count(*)::integer as n from resident_autopay_runs where id=$1",
+        [runId])).rows[0].n).toBe(0);
+    } finally {
+      await checkout.query("rollback").catch(() => undefined);
+      checkout.release();
+    }
   });
 });

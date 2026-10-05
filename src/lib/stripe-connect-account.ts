@@ -8,8 +8,8 @@ import {
 } from "@/lib/stripe-connect";
 import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
 
-/** Returns a Connect account id for the given user, creating one or clearing stale ids when
- * needed. Column is generic (keyed by userId only) — reused as-is for vendor payout accounts. */
+/** Returns a Connect account id for the given user. A saved inaccessible id is
+ * preserved until an explicitly authorized relink replaces it. */
 export async function ensureManagerConnectAccountId(
   stripe: Stripe,
   db: SupabaseClient,
@@ -18,13 +18,8 @@ export async function ensureManagerConnectAccountId(
     email?: string;
     axisPortal?: "portal" | "vendor";
     /**
-     * Default `true` (unchanged behavior for every existing caller): a saved
-     * account id Stripe can no longer retrieve is cleared and a fresh one is
-     * created automatically. Pass `false` for a flow where clearing the saved
-     * id is itself a user-facing decision (the onboard routes' `relink` flag)
-     * — a stale id then surfaces as a normal Stripe-access error instead of
-     * being silently wiped, so the caller can ask for explicit confirmation
-     * before replacing it.
+     * Only an explicit relink flow may pass true. By default an inaccessible
+     * account id is preserved and surfaced as an error.
      */
     allowClearStale?: boolean;
   },
@@ -46,7 +41,7 @@ export async function ensureManagerConnectAccountId(
   if (accountId) {
     const existing = await retrieveManagerConnectAccountOrNull(stripe, accountId);
     if (!existing) {
-      if (opts.allowClearStale === false) {
+      if (opts.allowClearStale !== true) {
         throw new Error(`Stripe does not have access to account ${accountId}.`);
       }
       await clearManagerConnectAccountId(db, opts.userId);
