@@ -3,7 +3,7 @@ import "server-only";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
-import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
+import { syncLedgerChargeOnlyEntry, syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import { creditPlatformHold } from "@/lib/stripe-platform-hold.server";
 import { findPlatformHold } from "@/lib/stripe-platform-hold.server";
@@ -96,6 +96,9 @@ export async function fulfillClaimedApplicationFeePayment(
     .select("*").eq("application_id", applicationId).maybeSingle();
   if (error || !data) throw new Error("Paid application fee has no durable source claim; reconcile it before fulfillment.");
   const claim = data as ApplicationFeeClaim;
+  if (!claim.created_at || Number.isNaN(Date.parse(claim.created_at))) {
+    throw new Error("Application payment origin date needs source review.");
+  }
   if (claim.attempt_token !== attemptToken ||
       (claim.stripe_session_id && claim.stripe_session_id !== session.id) ||
       session.metadata?.manager_user_id !== claim.manager_user_id ||
@@ -147,6 +150,7 @@ export async function fulfillClaimedApplicationFeePayment(
       durableCharge.paidAt !== chargeData.paidAt) {
     throw new Error("Stored application payment changed after provider settlement.");
   }
+  await syncLedgerChargeOnlyEntry(db, durableCharge);
   await syncLedgerPaymentEntry(db, durableCharge, durableCharge.paidAt, session.id);
   const { data: ledgerRows, error: ledgerError } = await db.from("ledger_entries")
     .update({ stripe_charge_id: charge.id, stripe_fee_cents: 0,
@@ -227,7 +231,7 @@ export async function repairLegacyBoundApplicationFeePayment(
     throw new Error("Earlier application payment needs exact source review.");
   }
   const { data: matches, error: matchError } = await db.from("portal_household_charge_records")
-    .select("id,manager_user_id,resident_email,property_id,kind,status,row_data")
+    .select("id,manager_user_id,resident_email,property_id,kind,status,created_at,row_data")
     .eq("row_data->>stripeCheckoutSessionId", session.id).limit(2);
   if (matchError || matches?.length !== 1) {
     throw new Error("Earlier application payment has no unique paid session-bound charge.");
@@ -248,6 +252,11 @@ export async function repairLegacyBoundApplicationFeePayment(
       Math.round(parseMoneyAmount(saved.amountLabel) * 100) !== principal ||
       (saved.paidAmountCents != null && saved.paidAmountCents !== session.amount_total)) {
     throw new Error("Earlier application charge does not match its paid session.");
+  }
+  const originatedAt = typeof saved.createdAt === "string" && !Number.isNaN(Date.parse(saved.createdAt))
+    ? saved.createdAt : row.created_at;
+  if (!originatedAt || Number.isNaN(Date.parse(originatedAt))) {
+    throw new Error("Earlier application charge origin date needs review.");
   }
   const { data: property, error: ownerError } = await db.from("manager_property_records")
     .select("manager_user_id").eq("id", row.property_id).maybeSingle();
@@ -292,6 +301,7 @@ export async function repairLegacyBoundApplicationFeePayment(
     throw new Error("Earlier application hold belongs to another source or amount.");
   }
 
+  await syncLedgerChargeOnlyEntry(db, { ...saved, createdAt: originatedAt });
   await syncLedgerPaymentEntry(db, saved, saved.paidAt, session.id);
   const { data: ledgerRows, error: ledgerError } = await db.from("ledger_entries")
     .update({ stripe_charge_id: charge.id, stripe_fee_cents: 0,

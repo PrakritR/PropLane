@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const syncLedger = vi.hoisted(() => vi.fn());
+const syncCharge = vi.hoisted(() => vi.fn());
 const creditHold = vi.hoisted(() => vi.fn());
 const findHold = vi.hoisted(() => vi.fn());
 const cancelReminders = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerPaymentEntry: syncLedger }));
+vi.mock("@/lib/reports/ledger-sync", () => ({ syncLedgerChargeOnlyEntry: syncCharge, syncLedgerPaymentEntry: syncLedger }));
 vi.mock("@/lib/stripe-platform-hold.server", () => ({ creditPlatformHold: creditHold, findPlatformHold: findHold }));
 vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({ cancelFuturePaymentRemindersForCharge: cancelReminders }));
 
@@ -40,6 +41,7 @@ describe("claimed application fee fulfillment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     syncLedger.mockResolvedValue(undefined);
+    syncCharge.mockResolvedValue(undefined);
     creditHold.mockResolvedValue({ credited: true });
     findHold.mockResolvedValue(null);
     cancelReminders.mockResolvedValue(undefined);
@@ -78,12 +80,17 @@ describe("claimed application fee fulfillment", () => {
     const first = await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
     expect(first).toMatchObject({ chargeId: "hc_app_paid", alreadyPaid: false });
     expect(stored?.paidAt).toBe(new Date(1_768_000_000_000).toISOString());
+    expect(syncCharge).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      id: claim.charge_id, createdAt: claim.created_at, amountLabel: "$5.00",
+    }));
+    expect(syncCharge.mock.invocationCallOrder[0]).toBeLessThan(syncLedger.mock.invocationCallOrder[0]);
     expect(creditHold).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       ownerUserId: "manager-1", sourceId: "cs_paid", stripeChargeId: "ch_paid", amountCents: 500,
     }));
     state = { ...state, status: "settled" };
     await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
     expect(syncLedger).toHaveBeenCalledTimes(2);
+    expect(syncCharge).toHaveBeenCalledTimes(2);
     expect(creditHold).toHaveBeenCalledTimes(2);
   });
 
@@ -108,6 +115,19 @@ describe("claimed application fee fulfillment", () => {
     await expect(fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never))
       .rejects.toThrow(/ledger enrichment needs repair/);
     expect(creditHold).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed originating charge/GL write before payment and hold", async () => {
+    syncCharge.mockRejectedValueOnce(new Error("charge GL unavailable"));
+    await expect(fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never))
+      .rejects.toThrow(/charge GL unavailable/);
+    expect(syncLedger).not.toHaveBeenCalled();
+    expect(creditHold).not.toHaveBeenCalled();
+    state = { ...state, status: "settled" };
+    await expect(fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never))
+      .resolves.toMatchObject({ alreadyPaid: true });
+    expect(syncCharge).toHaveBeenCalledTimes(2);
+    expect(syncLedger).toHaveBeenCalledOnce();
   });
 
   it("does not settle unpaid, foreign-session, or mismatched provider amounts", async () => {
@@ -155,10 +175,11 @@ describe("claimed application fee fulfillment", () => {
     state = { ...state, status: "settled" };
     stored = { ...stored, amountLabel: "$7.00" };
     settle.mockResolvedValue({ data: claim.charge_id, error: null });
-    syncLedger.mockClear(); creditHold.mockClear();
+    syncCharge.mockClear(); syncLedger.mockClear(); creditHold.mockClear();
     await expect(fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never))
       .rejects.toThrow(/changed after provider settlement/);
     expect(syncLedger).not.toHaveBeenCalled();
+    expect(syncCharge).not.toHaveBeenCalled();
     expect(creditHold).not.toHaveBeenCalled();
   });
 });

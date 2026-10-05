@@ -3,7 +3,7 @@ import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
 describe("reconcileDuplicateHouseholdChargeRecords", () => {
-  it("removes duplicate application-fee ledger rows and charge records", async () => {
+  it("retains paid legacy and exact application fee sources without inventing a shared payment", async () => {
     const fallback = {
       id: "hc_app_fee_res@test.com_prop1",
       kind: "application_fee",
@@ -51,10 +51,42 @@ describe("reconcileDuplicateHouseholdChargeRecords", () => {
     const { reconcileDuplicateHouseholdChargeRecords } = await import("@/lib/reports/ledger-sync");
     const db = { from } as never;
     const result = await reconcileDuplicateHouseholdChargeRecords(db, "mgr-1");
-    expect(result.removedChargeIds).toEqual([fallback.id]);
-    expect(ledgerDeleteIn).toHaveBeenCalledWith("source_charge_id", [fallback.id]);
+    expect(result.removedChargeIds).toEqual([]);
+    expect(ledgerDeleteIn).not.toHaveBeenCalled();
+    expect(ledgerDeleteEq).not.toHaveBeenCalled();
+    expect(chargeDeleteIn).not.toHaveBeenCalled();
+    expect(chargeDeleteEq).not.toHaveBeenCalled();
+  });
+
+  it("removes only a pending duplicate bound to the same application source", async () => {
+    const pending = {
+      id: "hc_app_fee_pending_app123", applicationId: "app123", kind: "application_fee",
+      residentEmail: "res@test.com", propertyId: "prop-1", managerUserId: "mgr-1",
+      status: "pending", amountLabel: "$50.00", balanceLabel: "$50.00",
+      title: "Application fee", createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const paid = { ...pending, id: "hc_app_fee_paid_app123", status: "paid",
+      balanceLabel: "$0.00", paidAt: "2026-01-02T00:00:00.000Z" };
+    const ledgerDeleteEq = vi.fn().mockResolvedValue({ error: null });
+    const chargeDeleteEq = vi.fn().mockResolvedValue({ error: null });
+    const ledgerDeleteIn = vi.fn().mockReturnValue({ eq: ledgerDeleteEq });
+    const chargeDeleteIn = vi.fn().mockReturnValue({ eq: chargeDeleteEq });
+    const chargeQuery: Record<string, unknown> = { eq: vi.fn().mockResolvedValue({ data: [
+      { id: pending.id, manager_user_id: "mgr-1", row_data: pending },
+      { id: paid.id, manager_user_id: "mgr-1", row_data: paid },
+    ], error: null }) };
+    chargeQuery.order = vi.fn().mockReturnValue(chargeQuery);
+    chargeQuery.range = vi.fn().mockReturnValue(chargeQuery);
+    const from = vi.fn((table: string) => table === "portal_household_charge_records"
+      ? { select: vi.fn().mockReturnValue(chargeQuery), delete: vi.fn().mockReturnValue({ in: chargeDeleteIn }) }
+      : { delete: vi.fn().mockReturnValue({ in: ledgerDeleteIn }) });
+
+    const { reconcileDuplicateHouseholdChargeRecords } = await import("@/lib/reports/ledger-sync");
+    const result = await reconcileDuplicateHouseholdChargeRecords({ from } as never, "mgr-1");
+    expect(result.removedChargeIds).toEqual([pending.id]);
+    expect(ledgerDeleteIn).toHaveBeenCalledWith("source_charge_id", [pending.id]);
     expect(ledgerDeleteEq).toHaveBeenCalledWith("manager_user_id", "mgr-1");
-    expect(chargeDeleteIn).toHaveBeenCalledWith("id", [fallback.id]);
+    expect(chargeDeleteIn).toHaveBeenCalledWith("id", [pending.id]);
     expect(chargeDeleteEq).toHaveBeenCalledWith("manager_user_id", "mgr-1");
   });
 
