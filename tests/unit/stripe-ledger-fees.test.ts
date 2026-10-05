@@ -33,14 +33,24 @@ function captureDb() {
   return { db, patches, eqs };
 }
 
-function stripeWith(charge: { amount: number }, applicationFeeCents: number | null) {
+// `destination` models a Connect destination charge (legacy model); without it the PaymentIntent is a
+// platform capture, which is how every marked household payment is created.
+function stripeWith(
+  charge: { amount: number; balance_transaction?: unknown },
+  applicationFeeCents: number | null,
+  opts: { destination?: boolean; balanceTransactions?: { retrieve: () => Promise<unknown> } } = { destination: true },
+) {
   return {
     paymentIntents: {
-      retrieve: async () => ({ latest_charge: "ch_test", application_fee_amount: applicationFeeCents }),
+      retrieve: async () => ({
+        latest_charge: "ch_test", application_fee_amount: applicationFeeCents,
+        transfer_data: opts.destination ? { destination: "acct_manager" } : null,
+      }),
     },
     charges: {
       retrieve: async () => charge,
     },
+    balanceTransactions: opts.balanceTransactions ?? { retrieve: async () => { throw new Error("no balance transaction"); } },
   } as unknown as Stripe;
 }
 
@@ -80,11 +90,55 @@ describe("ledger fee attribution — PropLane bears Stripe's processing cost", (
   it("no-ops when the payment intent has no charge yet", async () => {
     const { db, patches } = captureDb();
     const stripe = {
-      paymentIntents: { retrieve: async () => ({ latest_charge: null, application_fee_amount: null }) },
+      paymentIntents: { retrieve: async () => ({ latest_charge: null, application_fee_amount: null, transfer_data: null }) },
       charges: { retrieve: async () => ({ amount: 5_000 }) },
     } as unknown as Stripe;
 
     await enrichLedgerFromCheckoutSession(db, stripe, session);
     expect(patches).toHaveLength(0);
+  });
+});
+
+describe("platform capture (marked household payments): Stripe's real fee/net, or unknown", () => {
+  const platform = { destination: false };
+
+  it("records the balance transaction's fee and net, and the charge id", async () => {
+    const { db, patches } = captureDb();
+    await enrichLedgerFromCheckoutSession(db,
+      stripeWith({ amount: 544, balance_transaction: { id: "txn_1", fee: 44, net: 500 } }, null, platform), session);
+    expect(patches[0]).toMatchObject({ stripe_charge_id: "ch_test", stripe_fee_cents: 44, net_cents: 500 });
+  });
+
+  it("reads a balance transaction that arrives as an id", async () => {
+    const { db, patches } = captureDb();
+    const retrieve = async () => ({ id: "txn_2", fee: 31, net: 469 });
+    await enrichLedgerFromCheckoutSession(db,
+      stripeWith({ amount: 500, balance_transaction: "txn_2" }, null, { destination: false, balanceTransactions: { retrieve } }), session);
+    expect(patches[0]).toMatchObject({ stripe_fee_cents: 31, net_cents: 469 });
+  });
+
+  it("leaves fee and net UNKNOWN (not 0, not gross) while Stripe has posted no balance transaction", async () => {
+    for (const balance_transaction of [null, undefined]) {
+      const { db, patches } = captureDb();
+      await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 544, balance_transaction }, null, platform), session);
+      expect(patches[0]).toMatchObject({ stripe_charge_id: "ch_test" });
+      expect(patches[0]).not.toHaveProperty("stripe_fee_cents");
+      expect(patches[0]).not.toHaveProperty("net_cents");
+    }
+  });
+
+  it("leaves fee and net unknown when the balance transaction cannot be read, and still records the charge", async () => {
+    const { db, patches } = captureDb();
+    await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 544, balance_transaction: "txn_missing" }, null, platform), session);
+    expect(patches[0]).toMatchObject({ stripe_charge_id: "ch_test" });
+    expect(patches[0]).not.toHaveProperty("stripe_fee_cents");
+    expect(patches[0]).not.toHaveProperty("net_cents");
+  });
+
+  it("never reads a malformed balance transaction as zero", async () => {
+    const { db, patches } = captureDb();
+    await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 544, balance_transaction: { id: "txn_x", fee: null, net: "500" } }, null, platform), session);
+    expect(patches[0]).not.toHaveProperty("stripe_fee_cents");
+    expect(patches[0]).not.toHaveProperty("net_cents");
   });
 });

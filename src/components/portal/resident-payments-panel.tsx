@@ -46,6 +46,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useNativePlatform } from "@/hooks/use-native-platform";
 import {
   chargeDueLabel,
+  residentChargeAmountLabel,
   residentChargeListDueLabel,
   residentChargeCountsAsDue,
   compareChargesByDueDate,
@@ -1118,7 +1119,7 @@ export function ResidentPaymentsPanel({
             Tap <span className="font-semibold text-foreground">Pay {row.balanceLabel}</span> above to pay through
             PropLane secure checkout, or message your manager if something looks wrong.
           </p>
-        ) : row.status !== "processing" && !achPayable ? (
+        ) : row.status !== "processing" && row.status !== "paid" && !achPayable ? (
           <p className="mb-4 leading-relaxed text-sm text-muted">
             Your property manager will update this charge when online payment is available or when they record payment
             manually.
@@ -1291,8 +1292,7 @@ export function ResidentPaymentsPanel({
   // On Paid, the outstanding balance is $0.00 by definition — showing it turns
   // every paid row into "$0.00" and hides what the resident actually paid. The
   // unpaid buckets keep showing what is still owed.
-  const rowAmountLabel = (row: HouseholdCharge) =>
-    row.status === "paid" ? row.amountLabel || row.balanceLabel : row.balanceLabel;
+  const rowAmountLabel = residentChargeAmountLabel;
 
   const moveInGroupForRow = useCallback(
     (row: HouseholdCharge): MoveInChargeGroup | undefined =>
@@ -1753,7 +1753,7 @@ export function ResidentPaymentsPanel({
                   recordId: detailCharge.id,
                   recordLabel: detailCharge.title,
                   overviewTiles: [
-                    { id: "amount", label: "Amount", value: detailCharge.balanceLabel },
+                    { id: "amount", label: "Amount", value: residentChargeAmountLabel(detailCharge) },
                     { id: "due", label: "Due", value: chargeDueLabel(detailCharge), tone: bucket === "overdue" ? "danger" : "default" },
                     { id: "status", label: "Status", value: detailCharge.status },
                     { id: "balance", label: "Balance", value: detailCharge.balanceLabel },

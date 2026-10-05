@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findHold: vi.fn(), findHistoricalHold: vi.fn(), verifySource: vi.fn(), release: vi.fn(),
-  settle: vi.fn(), availability: vi.fn(),
+  settle: vi.fn(), availability: vi.fn(), enrich: vi.fn(),
 }));
+vi.mock("@/lib/stripe-ledger-fees", () => ({ enrichLedgerPaymentFromStripeCharge: mocks.enrich }));
 vi.mock("@/lib/stripe-platform-hold.server", () => ({
   findPlatformHoldByPaymentIntent: mocks.findHold,
   findPlatformHold: mocks.findHistoricalHold,
@@ -74,6 +75,7 @@ describe("versioned household captured sources", () => {
       balanceTransactionId: "txn_paid", status: "pending" });
     mocks.settle.mockResolvedValue({ settled: 0, pending: 0 });
     mocks.release.mockResolvedValue({ transferred: 0, pending: 1 });
+    mocks.enrich.mockResolvedValue(true);
   });
 
   it("validates the whole paid cart and freezes income/deposit component nets", async () => {
@@ -168,6 +170,21 @@ describe("versioned household captured sources", () => {
     expect(f.rpc).toHaveBeenCalledWith("credit_platform_income_with_recovery",
       expect.objectContaining({ p_source_id: "pi_paid", p_payment_intent: "pi_paid",
         p_principal: 300, p_original_net: 270 }));
+    // The ledger payment row (keyed by the PI id for a manual bank payment) gets the PI's latest
+    // charge id and Stripe's real fee/net, as a platform capture (not a destination charge).
+    expect(mocks.enrich).toHaveBeenCalledWith(f.db, f.stripe,
+      { stripeChargeId: "ch_paid", stripeCheckoutSessionId: "pi_paid", destinationCharge: false });
+  });
+
+  it("stamps the Checkout payment row with the captured charge after the credit, and a ledger failure never fails the settlement", async () => {
+    const f = fixture();
+    mocks.enrich.mockRejectedValueOnce(new Error("ledger unavailable"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await creditVerifiedHouseholdCheckoutSource(f.db as never, f.stripe as never, session as never);
+    expect(mocks.enrich).toHaveBeenCalledWith(f.db, f.stripe,
+      { stripeChargeId: "ch_paid", stripeCheckoutSessionId: "cs_paid", destinationCharge: false });
+    expect(mocks.release).toHaveBeenCalled();
+    logged.mockRestore();
   });
 
   it("fails closed for an unmarked paid Checkout without an existing exact hold", async () => {

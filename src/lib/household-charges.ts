@@ -1428,6 +1428,20 @@ function shouldDisplayChargeInPayments(charge: HouseholdCharge, now = new Date()
   return due.getTime() <= endOfNextMonth.getTime();
 }
 
+/**
+ * The amount a resident sees on a charge. An unpaid charge shows what is still owed. A paid charge's
+ * balance is $0.00 by definition, so it shows what was actually paid: the recorded paid amount when the
+ * receipt carries one, else the charge's own amount. Never the zero balance.
+ */
+export function residentChargeAmountLabel(charge: HouseholdCharge): string {
+  if (charge.status !== "paid") return charge.balanceLabel;
+  const paid = charge.paidAmountCents;
+  if (typeof paid === "number" && Number.isSafeInteger(paid) && paid > 0) {
+    return `$${(paid / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return charge.amountLabel || charge.balanceLabel;
+}
+
 /** A manual bank PI may still need microdeposit verification; the charge alone cannot attest clearing. */
 export function residentChargeListDueLabel(charge: HouseholdCharge): string {
   if (charge.status === "failed") return "Card declined. Pay again";

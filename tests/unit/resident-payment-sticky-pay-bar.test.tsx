@@ -115,6 +115,8 @@ afterEach(() => {
   resetResidentLedgerCache();
   CHARGES[0]!.status = "pending";
   CHARGES[0]!.stripeCheckoutSessionId = undefined;
+  CHARGES[0]!.balanceLabel = "$1,205.00";
+  CHARGES[0]!.paidAmountCents = undefined;
   requests.length = 0;
 });
 
@@ -152,5 +154,25 @@ describe("resident charge record — sticky Pay bar (C139)", () => {
     expect(requests.filter(({ url }) => url.includes("/api/stripe/resident-ach-payment?payment_intent_id=pi_original"))).toHaveLength(1);
     expect(requests.filter(({ method }) => method === "POST")).toHaveLength(0);
     expect(requests.some(({ url }) => url.includes("household-charge-checkout"))).toBe(false);
+  });
+
+  it("a paid charge's detail shows the amount paid (not the $0.00 balance) and no 'manager will update' text", async () => {
+    CHARGES[0]!.status = "paid";
+    CHARGES[0]!.balanceLabel = "$0.00";
+    CHARGES[0]!.paidAmountCents = 120500;
+    CHARGES[0]!.paidAt = "2026-10-05T10:00:00.000Z";
+    render(<ResidentPaymentsPanel bucket="paid" chargeId="rent-oct" />);
+    await waitFor(() => expect(screen.getAllByText("$1,205.00").length).toBeGreaterThan(0));
+    const amount = Array.from(document.querySelectorAll("*")).find((el) => el.children.length === 0 && el.textContent === "Amount");
+    expect(amount?.parentElement?.textContent).toContain("$1,205.00");
+    expect(amount?.parentElement?.textContent).not.toContain("$0.00");
+    expect(screen.queryByText(/will update this charge/)).toBeNull();
+  });
+
+  it("an unpaid charge that cannot be paid online still tells the resident the manager will update it", async () => {
+    CHARGES[0]!.axisPaymentsEnabledSnapshot = false;
+    render(<ResidentPaymentsPanel bucket="pending" chargeId="rent-oct" />);
+    await waitFor(() => expect(screen.getByText(/will update this charge/)).toBeInTheDocument());
+    CHARGES[0]!.axisPaymentsEnabledSnapshot = true;
   });
 });

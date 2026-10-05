@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { findPlatformHold, findPlatformHoldByPaymentIntent } from "@/lib/stripe-platform-hold.server";
+import { enrichLedgerPaymentFromStripeCharge } from "@/lib/stripe-ledger-fees";
 import { verifyPlatformHoldSourceRefundHistory,
   releaseVerifiedPlatformHoldsForOwner, type HeldSourceRow } from "@/lib/platform-hold-release.server";
 import { settleClearedPlatformOwnerRecovery,
@@ -157,6 +158,17 @@ function allocateComponents(
   }
   return parts.map((part, index) => ({ ...part,
     recipient_net_cents: part.principal_cents - shares[index]!.base }));
+}
+
+/** Best-effort: stamp the payment ledger row with the captured charge id and Stripe's real fee/net.
+ * Money is already credited atomically above, so a failure here only leaves those columns for the
+ * next delivery or reconcile; it never fails the settlement. */
+async function recordLedgerChargeFacts(
+  db: SupabaseClient, stripe: Stripe, chargeId: string, sourceId: string,
+): Promise<void> {
+  await enrichLedgerPaymentFromStripeCharge(db, stripe, {
+    stripeChargeId: chargeId, stripeCheckoutSessionId: sourceId, destinationCharge: false,
+  }).catch((error) => console.error("[household source] ledger charge facts", error));
 }
 
 /** Frozen pre-marker Checkout terms may replay, but cannot mint a new raw hold. */
@@ -340,6 +352,7 @@ export async function creditVerifiedHouseholdCheckoutSource(
   if (creditError || !result?.hold_id || (existing && existing.id !== result.hold_id)) {
     throw new Error("Household source could not be atomically credited.");
   }
+  await recordLedgerChargeFacts(db, stripe, charge.id, session.id);
   await settleClearedPlatformOwnerRecovery(db, stripe, {
     ownerUserId: manager, holdId: result.hold_id,
   });
@@ -428,6 +441,7 @@ export async function creditVerifiedHouseholdAutopaySource(
   if (creditError || !result?.hold_id || (existing && existing.id !== result.hold_id)) {
     throw new Error("Autopay source could not be atomically credited.");
   }
+  await recordLedgerChargeFacts(db, stripe, charge.id, pi.id);
   await settleClearedPlatformOwnerRecovery(db, stripe, {
     ownerUserId: owner, holdId: result.hold_id,
   });

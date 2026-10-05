@@ -456,12 +456,14 @@ platform capture with no destination for marked household checkout),
 `tests/unit/stripe-connect.test.ts` (the resolver gate), and
 `tests/unit/stripe-setup-state.test.ts` (the UI truth mapping).
 
-**Ledger attribution: the Stripe fee is NOT the manager's.** `ledger_entries` is
-the manager's book, so `enrichLedgerPaymentFromStripeCharge` writes
+**Ledger attribution.** `ledger_entries` is the manager's book. For a legacy
+destination charge `enrichLedgerPaymentFromStripeCharge` writes
 `stripe_fee_cents = 0` and `net_cents = charge.amount - application_fee` (the
-destination transfer), rather than the platform balance transaction's fee/net.
-PropLane's real cost lives in PropLane's own Stripe balance. Do not post a
-`stripe_fee` GL entry against a manager — nothing left their payout.
+destination transfer): PropLane's real cost lives in PropLane's own Stripe
+balance. A marked platform capture records the charge id and Stripe's
+balance-transaction fee/net when readable and leaves them NULL until then —
+never 0/gross by assumption. Do not post a `stripe_fee` GL entry against a
+manager from either shape without reading who bore the fee.
 
 **Every pre-Stripe confirmation states the exact total, itemizing any service
 fee the resident pays.** The resident payments panel resolves its manager's
