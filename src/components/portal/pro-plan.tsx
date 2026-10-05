@@ -305,6 +305,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
     const sessionId = q.get("session_id");
 
     void (async () => {
+      let confirmation: "paid" | "processing" | "error" = "processing";
       if (checkout === "success" && sessionId) {
         try {
           const res = await fetch("/api/stripe/confirm-checkout-session", {
@@ -313,11 +314,17 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sessionId }),
           });
-          if (!res.ok) {
-            const body = (await res.json().catch(() => ({}))) as { error?: string };
+          const body = (await res.json().catch(() => ({}))) as { ok?: boolean; processing?: boolean; error?: string };
+          if (res.ok && body.ok === true) {
+            confirmation = "paid";
+          } else if (res.status === 202 && body.processing) {
+            confirmation = "processing";
+          } else {
+            confirmation = "error";
             showToast(body.error ?? "Could not activate your plan from checkout.");
           }
         } catch {
+          confirmation = "error";
           showToast("Could not activate your plan from checkout.");
         }
       }
@@ -330,7 +337,8 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
       }
 
       if (checkout === "success") {
-        showToast("Payment received. Activating your plan…");
+        if (confirmation === "paid") showToast("Payment received. Activating your plan…");
+        if (confirmation === "processing") showToast("Payment is processing. Your plan will update when Stripe confirms it.");
         for (let i = 0; i < 6; i++) {
           await load();
           if (i < 5) await new Promise((r) => setTimeout(r, 1400));

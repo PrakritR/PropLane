@@ -1,6 +1,8 @@
 import type Stripe from "stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { getStripe } from "@/lib/stripe";
+import { assertManagerPriceMatchesRateCard } from "@/lib/stripe/resolve-manager-price";
 
 type ManagerPurchaseDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -84,24 +86,110 @@ export async function resolveManagerCheckoutPurchase(
   return { id: stored.id, userId: storedUserId || null, managerId: storedManagerId, email: storedEmail };
 }
 
-/**
- * Stripe Checkout can complete a subscription while `payment_status` is still `unpaid`
- * (e.g. trial, async payment methods). Treat completed subscription sessions with a
- * subscription id as successful so we persist tier + Stripe ids.
- */
+/** A completed Checkout session or subscription id alone is not payment.
+ * Trials that owe nothing are explicitly `no_payment_required`; async unpaid
+ * sessions stay pending until Stripe confirms payment. */
 export function checkoutSessionIndicatesPaidPurchase(session: Stripe.Checkout.Session): boolean {
-  if (session.payment_status === "paid" || session.payment_status === "no_payment_required") {
-    return true;
+  return session.status === "complete" &&
+    (session.payment_status === "paid" || session.payment_status === "no_payment_required");
+}
+
+async function verifyPaidManagerSubscription(session: Stripe.Checkout.Session, requireCurrentPrice = false): Promise<void> {
+  if (!checkoutSessionIndicatesPaidPurchase(session) || session.mode !== "subscription") {
+    throw new Error("Manager subscription payment has not settled.");
   }
-  if (session.status !== "complete") return false;
-  const subscriptionId =
-    typeof session.subscription === "string"
-      ? session.subscription
-      : session.subscription && typeof session.subscription !== "string"
-        ? session.subscription.id
-        : null;
-  if (session.mode === "subscription" && subscriptionId) return true;
-  return false;
+  const raw = session.subscription;
+  const subscription = typeof raw === "string" ? await getStripe().subscriptions.retrieve(raw) : raw;
+  const sessionCustomer = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const subscriptionCustomer = typeof subscription?.customer === "string" ? subscription.customer : subscription?.customer?.id;
+  const tier = session.metadata?.tier;
+  const billing = session.metadata?.billing;
+  if (!subscription || !["active", "trialing"].includes(subscription.status) ||
+      !sessionCustomer || subscriptionCustomer !== sessionCustomer ||
+      (tier !== "free" && tier !== "pro" && tier !== "business") ||
+      (billing !== "monthly" && billing !== "annual")) {
+    throw new Error("Paid Checkout has no matching active manager subscription.");
+  }
+  const expectedInterval = tier === "free" || billing === "monthly" ? "month" : "year";
+  let floorPriceId: string | null = null;
+  for (const item of subscription.items?.data ?? []) {
+    const id = item.price?.id;
+    if (!id) continue;
+    const price = await getStripe().prices.retrieve(id);
+    if (price.currency !== "usd" || price.type !== "recurring" ||
+        price.recurring?.interval !== expectedInterval || price.recurring.interval_count !== 1) continue;
+    const product = typeof price.product === "string"
+      ? await getStripe().products.retrieve(price.product) : price.product;
+    if ("metadata" in product && product.metadata?.axis_plan === `axis_${tier}`) {
+      floorPriceId = id;
+      break;
+    }
+  }
+  if (!floorPriceId) throw new Error("Paid Checkout subscription has no matching plan price.");
+  // The new-session resolver checked active current price before creation.
+  // Fulfillment preserves the signed, reserved historical terms even if a
+  // catalog price was later retired. Adoption without a reservation requires
+  // the current floor, as it lacks that original server-side create evidence.
+  if (requireCurrentPrice) await assertManagerPriceMatchesRateCard(getStripe(), floorPriceId, tier, billing);
+}
+
+/** Repair a pre-reservation portal session only after the authenticated owner
+ * returns with an actually paid Stripe session. This never creates a payment
+ * or trusts client metadata alone: profile manager id, saved billing customer,
+ * and provider session must identify one owner before a missing Free row is
+ * inserted or an existing Free reservation is rebound. */
+export async function adoptPaidPortalCheckoutForOwner(
+  session: Stripe.Checkout.Session,
+  ownerUserId: string,
+): Promise<void> {
+  if (session.mode !== "subscription" || session.payment_status !== "paid" ||
+      session.client_reference_id !== ownerUserId || session.metadata?.userId !== ownerUserId) return;
+  await verifyPaidManagerSubscription(session, true);
+  const managerId = session.metadata.manager_id?.trim() ?? "";
+  const email = checkoutEmail(session);
+  const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  if (!managerId || !email || !customerId) throw new Error("Paid portal checkout has incomplete ownership evidence.");
+  const db = createSupabaseServiceRoleClient();
+  const [{ data: purchase, error: purchaseError }, { data: profile, error: profileError },
+    { data: billing, error: billingError }] = await Promise.all([
+    db.from("manager_purchases")
+      .select("id,user_id,email,manager_id,tier,stripe_checkout_session_id,stripe_subscription_id")
+      .eq("user_id", ownerUserId).eq("manager_id", managerId).maybeSingle(),
+    db.from("profiles").select("manager_id,email").eq("id", ownerUserId).maybeSingle(),
+    db.from("manager_comms_billing_accounts").select("stripe_customer_id")
+      .eq("manager_user_id", ownerUserId).maybeSingle(),
+  ]);
+  if (purchaseError || profileError || billingError || !profile || !billing ||
+      (purchase && (purchase.user_id !== ownerUserId || purchase.manager_id !== managerId)) ||
+      profile.manager_id !== managerId ||
+      (purchase && String(purchase.email ?? "").trim().toLowerCase() !== email) ||
+      String(profile.email ?? "").trim().toLowerCase() !== email ||
+      billing.stripe_customer_id !== customerId) {
+    throw new Error("Could not reconcile paid portal checkout ownership.");
+  }
+  if (!purchase) {
+    const { data: other, error: otherError } = await db.from("manager_purchases")
+      .select("id").eq("user_id", ownerUserId).maybeSingle();
+    if (otherError || other) throw new Error("Paid portal checkout conflicts with another purchase.");
+    const { data: inserted, error: insertError } = await db.from("manager_purchases").insert({
+      user_id: ownerUserId, manager_id: managerId, email,
+      tier: "free", billing: "monthly", stripe_checkout_session_id: session.id,
+    }).select("id").maybeSingle();
+    if (insertError || !inserted?.id) throw new Error("Could not reserve paid portal checkout for reconciliation.");
+    return;
+  }
+  if (purchase.stripe_checkout_session_id === session.id) return;
+  const priorId = String(purchase.stripe_checkout_session_id ?? "");
+  if (purchase.tier !== "free" || purchase.stripe_subscription_id || !priorId.startsWith("axis_intent_")) {
+    throw new Error("Paid portal checkout conflicts with an existing subscription.");
+  }
+  const { data: bound, error: bindError } = await db.from("manager_purchases")
+    .update({ stripe_checkout_session_id: session.id })
+    .eq("id", purchase.id).eq("user_id", ownerUserId).eq("manager_id", managerId)
+    .eq("stripe_checkout_session_id", priorId).eq("tier", "free")
+    .is("stripe_subscription_id", null)
+    .select("id").maybeSingle();
+  if (bindError || !bound?.id) throw new Error("Could not reserve paid portal checkout for reconciliation.");
 }
 
 /** Idempotent: records a completed Checkout session as a paid manager purchase. */
@@ -110,6 +198,7 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
   const email = checkoutEmail(session);
 
   if (!checkoutSessionIndicatesPaidPurchase(session)) return;
+  await verifyPaidManagerSubscription(session);
 
   const supabase = createSupabaseServiceRoleClient();
   const customerId =
