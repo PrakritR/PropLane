@@ -1362,15 +1362,19 @@ export function ManagerPaymentsLedgerPanel({
             {charge?.paidNote ? <RecordFactRow label="Note" value={charge.paidNote} /> : null}
             {row.notes ? <RecordFactRow label="Details" value={row.notes} /> : null}
             {row.residentChargeMessages?.map((message) => <RecordFactRow key={message.id} label={formatPacificDateTime(message.sentAt)} value={message.body} />)}
-            <RecordFactRow
-              label={isPaidRow(row) ? "Paid into" : "Pays into"}
-              value={
-                <span className="inline-flex items-center gap-1">
-                  {workspaceBalanceLabel}
-                  <PortalIconAction icon={ArrowUpRight} label="Go to Finances" onClick={() => navigate(`${listBasePath ?? "/portal"}/financials`)} />
-                </span>
-              }
-            />
+            {isPaidRow(row) && charge?.paidMethod ? (
+              <RecordFactRow label="Paid via" value={charge.paidMethod} />
+            ) : (
+              <RecordFactRow
+                label={isPaidRow(row) ? "Paid into" : "Pays into"}
+                value={
+                  <span className="inline-flex items-center gap-1">
+                    {workspaceBalanceLabel}
+                    <PortalIconAction icon={ArrowUpRight} label="Go to Finances" onClick={() => navigate(`${listBasePath ?? "/portal"}/financials`)} />
+                  </span>
+                }
+              />
+            )}
           </RecordFactCard>
           <RecordFactCard title="History" dataAttr="payment-overview-history">
             <ol className="space-y-4 p-4">{events.map((event, index) => <li key={`${event.at}-${index}`} className="border-l-2 border-primary/30 pl-3"><span className="block text-sm font-medium">{event.label}</span><time className="text-xs text-muted" dateTime={event.at}>{formatPacificDateTime(event.at)}</time></li>)}</ol>

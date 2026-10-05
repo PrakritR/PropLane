@@ -38,6 +38,7 @@ import {
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { ApplicationDetailReviewBody } from "@/components/portal/application-detail-review-body";
+import { ApplicationPaymentReceiptCard } from "@/components/portal/application-payment-receipt-card";
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeToggle } from "@/components/portal/application-holding-fee-box";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -1750,6 +1751,7 @@ export function ManagerApplications({
       activeTab === "overview" ? (
         <div className="space-y-4" data-attr="application-section-application">
           <ApplicationFactsLine row={detailRow} />
+          <ApplicationPaymentReceiptCard key={detailRow.id} applicationId={detailRow.id} />
           {(() => {
             const model = sharedRoomCardFor(
               detailRow,

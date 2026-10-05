@@ -5501,14 +5501,17 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
         : c.kind === "application_fee"
         ? c.status === "paid"
           ? "Application fee recorded as paid."
+          : c.status === "refunded" ? ""
           : "Application fee pending — awaiting payment."
         : c.kind === "holding_deposit"
           ? c.status === "paid"
             ? "Holding deposit recorded as paid — credited toward security deposit on approval."
             : "Holding deposit pending — secures the application and credits toward security deposit when paid."
         : c.kind === "work_order_charge"
-          ? "Work order pass-through — resident is billed this amount; mark as paid when you receive payment."
-          : "Awaiting payment.",
+          ? c.status === "paid" ? "Service charge recorded as paid."
+            : c.status === "refunded" ? ""
+            : "Work order pass-through — resident is billed this amount; mark as paid when you receive payment."
+          : c.status === "paid" || c.status === "refunded" ? "" : "Awaiting payment.",
   };
 }
 
