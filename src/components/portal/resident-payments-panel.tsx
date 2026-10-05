@@ -147,7 +147,6 @@ const CHECKOUT_METHOD_OPTIONS: {
 }[] = [
   { id: "ach", title: "Bank (ACH)" },
   { id: "card", title: RESIDENT_CARD_PAYMENT_DISPLAY_LABEL },
-  { id: "link", title: "Link" },
 ];
 
 function centsFromLabel(label: string): number {

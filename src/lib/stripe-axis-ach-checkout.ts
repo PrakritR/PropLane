@@ -131,8 +131,8 @@ export function axisAchCheckoutProcessing(session: Stripe.Checkout.Session): boo
  * which still surfaces Apple Pay on one-time (`mode: "payment"`) Checkout once
  * the domain is registered.
  *
- * `ach` stays an explicit `us_bank_account` session; `link` keeps its explicit
- * Link+card allowlist.
+ * `ach` stays an explicit `us_bank_account` session until the manual bank
+ * PaymentIntent flow replaces Checkout. Link is never offered.
  */
 async function paymentMethodStripeConfig(
   stripe: Stripe,
@@ -160,9 +160,7 @@ async function paymentMethodStripeConfig(
       },
     };
   }
-  if (method === "link") {
-    return { payment_method_types: ["link", "card"] };
-  }
+  if (method === "link") throw new Error("Link checkout is unavailable. Choose card or bank account.");
   const cardPmc = process.env.STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION?.trim();
   if (cardPmc && (await cardScopedPaymentMethodConfiguration(stripe, cardPmc))) {
     return { payment_method_configuration: cardPmc };
@@ -173,10 +171,10 @@ async function paymentMethodStripeConfig(
 /**
  * Payment methods that settle as the card method-class, i.e. the ones a "card"
  * session may legitimately surface. Apple Pay / Google Pay are card wallets and
- * settle as `card`; Link is commonly enabled alongside card, so a PMC carrying
- * it must not be rejected.
+ * settle as `card`; Link is excluded because it can open a separate wallet
+ * authentication surface outside the app.
  */
-const CARD_CLASS_PAYMENT_METHODS = new Set(["card", "apple_pay", "google_pay", "link"]);
+const CARD_CLASS_PAYMENT_METHODS = new Set(["card", "apple_pay", "google_pay"]);
 
 const cardPmcScopeCache = new Map<string, { cardScoped: boolean; expiresAt: number }>();
 const CARD_PMC_CACHE_TTL_MS = 10 * 60_000;
@@ -380,6 +378,7 @@ export async function createAxisAchCheckoutSession(
   const sessionBase = {
     mode: "payment" as const,
     customer_email: residentEmail,
+    wallet_options: { link: { display: "never" as const } },
     ...paymentMethodConfig,
     line_items: stripeLineItems,
     metadata: {

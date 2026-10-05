@@ -1,6 +1,6 @@
 # Apple Pay for manager subscriptions
 
-Manager **Pro** and **Business** subscriptions use **Stripe Checkout** (embedded on pricing / plan pages) **on the web**. Apple Pay is enabled through Stripe’s **dynamic payment methods**. Inside the iOS app, the manager subscription is bought via **Apple In-App Purchase**, not Stripe — see [`docs/agents/apple-iap.md`](agents/apple-iap.md); this document covers the web checkout only.
+Manager **Pro** and **Business** subscriptions use **Stripe Checkout** (embedded on pricing / plan pages) **on the web**. Sessions are restricted to card funding and hide Link, avoiding redirect payment methods. Apple Pay can appear for eligible card sessions on registered domains; verify it on the actual device and browser. Inside the iOS app, the manager subscription is bought via **Apple In-App Purchase**, not Stripe — see [`docs/agents/apple-iap.md`](agents/apple-iap.md); this document covers the web checkout only.
 
 ## Architecture
 
@@ -11,18 +11,12 @@ Manager **Pro** and **Business** subscriptions use **Stripe Checkout** (embedded
 | Portal upgrade checkout | `/api/stripe/checkout-portal` |
 | Embedded UI | `src/components/stripe-embedded-checkout.tsx` |
 
-**Important:** Subscription checkout must **not** set `payment_method_types: ["card"]` — that blocks Apple Pay. All manager subscription sessions go through `buildManagerSubscriptionCheckoutBase()`.
+**Important:** All manager subscription sessions go through `buildManagerSubscriptionCheckoutBase()`, which sets `payment_method_types: ["card"]` and `wallet_options.link.display: "never"`. Do not pass an unvalidated dynamic payment method configuration that could add offsite methods.
 
 ## One-time Stripe Dashboard setup
 
-1. **Settings → Payment methods** — turn on **Apple Pay** (and **Link** if desired).
+1. **Settings → Payment methods** — turn on **Apple Pay** for card sessions if desired.
 2. **Settings → Payment methods → Apple Pay** — complete any business verification Stripe requests.
-
-Optional: create a **Payment method configuration** for subscriptions only (e.g. Apple Pay + Card, no ACH) and set:
-
-```env
-STRIPE_SUBSCRIPTION_PAYMENT_METHOD_CONFIGURATION=pmc_...
-```
 
 ## Register your domains
 
@@ -68,7 +62,7 @@ The Stripe subscription checkout is a **web-only** surface: on iOS the plan page
 | Symptom | Fix |
 | --- | --- |
 | Only card fields, no Apple Pay | Enable Apple Pay in Dashboard; run domain setup script; use Safari/HTTPS |
-| `payment_method_types` in code | Remove it — use `buildManagerSubscriptionCheckoutBase()` only |
+| A redirect payment method appears | Confirm sessions use `buildManagerSubscriptionCheckoutBase()` with card-only funding |
 
 ## Related docs
 
