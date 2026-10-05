@@ -24,6 +24,15 @@ import type { PurchasesPackage } from "@revenuecat/purchases-capacitor";
 const PURCHASE_CANCELLED_CODE = "1";
 
 let configuredForUser: string | null = null;
+// Configuration, account switches, sign-out, and restore must observe one
+// identity in order. A restore queued for A cannot run after B has logged in.
+let identityOperation: Promise<void> = Promise.resolve();
+
+function withIdentityLock<T>(operation: () => Promise<T>): Promise<T> {
+  const result = identityOperation.then(operation, operation);
+  identityOperation = result.then(() => undefined, () => undefined);
+  return result;
+}
 
 function iosApiKey(): string {
   return process.env.NEXT_PUBLIC_REVENUECAT_IOS_API_KEY?.trim() ?? "";
@@ -40,7 +49,7 @@ async function isIosNative(): Promise<boolean> {
  * users). Idempotent — re-logs-in if the user changed. No-op off-iOS or when the
  * key is unset. Safe to call on every app launch and before showing the paywall.
  */
-export async function configureRevenueCat(appUserId: string): Promise<boolean> {
+async function configureForUser(appUserId: string): Promise<boolean> {
   const uid = appUserId.trim();
   const apiKey = iosApiKey();
   if (!uid || !apiKey) return false;
@@ -62,17 +71,23 @@ export async function configureRevenueCat(appUserId: string): Promise<boolean> {
   }
 }
 
+export function configureRevenueCat(appUserId: string): Promise<boolean> {
+  return withIdentityLock(() => configureForUser(appUserId));
+}
+
 /** Clears the RevenueCat identity on sign-out so the next user starts clean. */
-export async function logOutRevenueCat(): Promise<void> {
-  if (configuredForUser === null) return;
-  try {
-    const { Purchases } = await import("@revenuecat/purchases-capacitor");
-    await Purchases.logOut();
-  } catch {
-    /* not configured / off-native — nothing to clear */
-  } finally {
-    configuredForUser = null;
-  }
+export function logOutRevenueCat(): Promise<void> {
+  return withIdentityLock(async () => {
+    if (configuredForUser === null) return;
+    try {
+      const { Purchases } = await import("@revenuecat/purchases-capacitor");
+      await Purchases.logOut();
+    } catch {
+      /* not configured / off-native — nothing to clear */
+    } finally {
+      configuredForUser = null;
+    }
+  });
 }
 
 export type ManagerOffering = {
@@ -159,15 +174,20 @@ export async function purchaseManagerPackage(pkg: PurchasesPackage): Promise<Pur
  * server truth still comes from the webhook, so callers poll the subscription
  * route afterwards.
  */
-export async function restoreManagerPurchases(): Promise<{ ok: boolean; hasActiveEntitlement: boolean }> {
-  if (!(await isIosNative())) return { ok: false, hasActiveEntitlement: false };
-  try {
-    const { Purchases } = await import("@revenuecat/purchases-capacitor");
-    const customerInfo = await Purchases.restorePurchases();
-    const active = customerInfo.customerInfo?.entitlements?.active ?? {};
-    return { ok: true, hasActiveEntitlement: Object.keys(active).length > 0 };
-  } catch (err) {
-    console.error("[revenuecat] restore failed", err);
-    return { ok: false, hasActiveEntitlement: false };
-  }
+export function restoreManagerPurchases(appUserId: string): Promise<{ ok: boolean; hasActiveEntitlement: boolean }> {
+  return withIdentityLock(async () => {
+    const uid = appUserId.trim();
+    if (!uid || !(await configureForUser(uid)) || configuredForUser !== uid) {
+      return { ok: false, hasActiveEntitlement: false };
+    }
+    try {
+      const { Purchases } = await import("@revenuecat/purchases-capacitor");
+      const customerInfo = await Purchases.restorePurchases();
+      const active = customerInfo.customerInfo?.entitlements?.active ?? {};
+      return { ok: true, hasActiveEntitlement: Object.keys(active).length > 0 };
+    } catch (err) {
+      console.error("[revenuecat] restore failed", err);
+      return { ok: false, hasActiveEntitlement: false };
+    }
+  });
 }

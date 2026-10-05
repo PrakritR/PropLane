@@ -124,7 +124,7 @@ export function ManagerPlanNative({
 }: Props) {
   const { isNative, platform } = useIsNativeApp();
   const isIos = isNative === true && platform === "ios";
-  const { userId } = useManagerUserId();
+  const { userId, ready: sessionReady } = useManagerUserId();
   const { showToast } = useAppUi();
 
   const [offerings, setOfferings] = useState<ManagerOffering[]>([]);
@@ -135,18 +135,23 @@ export function ManagerPlanNative({
   const [activating, setActivating] = useState(false);
   const [switchingToFree, setSwitchingToFree] = useState(false);
   const [confirmingFree, setConfirmingFree] = useState(false);
-  const offeringsLoadedRef = useRef(false);
+  const offeringsLoadedForUserRef = useRef<string | null>(null);
+  const currentUserRef = useRef(userId);
+  useEffect(() => {
+    currentUserRef.current = userId;
+  }, [userId]);
 
   const canOffer = isIos && subLoaded && !planUnknown && !stripeManaged && !appleManaged;
 
   useEffect(() => {
-    if (!canOffer || !userId || offeringsLoadedRef.current) return;
-    offeringsLoadedRef.current = true;
+    if (!canOffer || !sessionReady || !userId || offeringsLoadedForUserRef.current === userId) return;
+    offeringsLoadedForUserRef.current = userId;
     let cancelled = false;
+    setOfferings([]);
     setLoadingOfferings(true);
     void (async () => {
-      await configureRevenueCat(userId);
-      const list = await getManagerOfferings();
+      const configured = await configureRevenueCat(userId);
+      const list = configured ? await getManagerOfferings() : [];
       if (!cancelled) {
         setOfferings(list);
         if (!list.some((offering) => offering.billing === "annual")) setBillingCadence("monthly");
@@ -156,7 +161,7 @@ export function ManagerPlanNative({
     return () => {
       cancelled = true;
     };
-  }, [canOffer, userId]);
+  }, [canOffer, sessionReady, userId]);
 
   /** Poll the subscription route until the webhook-granted tier lands (or we give up). */
   const pollUntilPaid = useCallback(async () => {
@@ -198,9 +203,15 @@ export function ManagerPlanNative({
 
   const onRestore = useCallback(async () => {
     if (purchasingProductId || restoring || switchingToFree) return;
+    const restoringUserId = sessionReady ? userId : null;
+    if (!restoringUserId) {
+      showToast("Sign in to restore purchases.");
+      return;
+    }
     setRestoring(true);
     try {
-      const { ok, hasActiveEntitlement } = await restoreManagerPurchases();
+      const { ok, hasActiveEntitlement } = await restoreManagerPurchases(restoringUserId);
+      if (currentUserRef.current !== restoringUserId) return;
       if (!ok) {
         showToast("Could not restore purchases.");
         return;
@@ -214,7 +225,7 @@ export function ManagerPlanNative({
     } finally {
       setRestoring(false);
     }
-  }, [purchasingProductId, restoring, switchingToFree, showToast, pollUntilPaid]);
+  }, [purchasingProductId, restoring, switchingToFree, sessionReady, userId, showToast, pollUntilPaid]);
 
   /**
    * Trial / comped accounts only (canOffer implies no Stripe and no Apple

@@ -132,7 +132,7 @@ describe("native manager plan surface — StoreKit only, no external purchase ro
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /restore purchases/i }));
-    await waitFor(() => expect(restoreManagerPurchases).toHaveBeenCalledOnce());
+    await waitFor(() => expect(restoreManagerPurchases).toHaveBeenCalledWith("u1"));
   });
 
   it("does not offer a second purchase when the plan is already Apple-managed", () => {
