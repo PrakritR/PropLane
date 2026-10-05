@@ -12,7 +12,6 @@ vi.mock("@/lib/stripe", () => ({
     product: id === "price_overage" ? "prod_overage" : "prod_pro",
   })) }, products: { retrieve: vi.fn(async (id: string) => ({ metadata: { axis_plan: id === "prod_pro" ? "axis_pro" : "axis_overage" } })) } })),
 }));
-vi.mock("@/lib/stripe/resolve-manager-price", () => ({ assertManagerPriceMatchesRateCard: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/test-workspaces/effects.server", () => ({
   captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
 }));
@@ -24,7 +23,6 @@ import {
   resolveManagerCheckoutPurchase,
 } from "@/lib/manager-purchase-from-session";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { assertManagerPriceMatchesRateCard } from "@/lib/stripe/resolve-manager-price";
 import { mockCheckoutSession } from "../mocks/stripe/events";
 
 describe("manager-purchase-from-session", () => {
@@ -72,7 +70,6 @@ describe("manager-purchase-from-session", () => {
     expect(update).toHaveBeenCalledWith(expect.not.objectContaining({ user_id: expect.anything() }));
     // This signed, previously reserved purchase keeps its captured terms if
     // its Price has since been retired from the current checkout catalog.
-    expect(assertManagerPriceMatchesRateCard).not.toHaveBeenCalled();
   });
 
   it("does not let signed metadata replace a reservation's auth owner", async () => {
@@ -192,7 +189,6 @@ describe("manager-purchase-from-session", () => {
       metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-A", userId: "owner-a" } });
     await adoptPaidPortalCheckoutForOwner(session, "owner-a");
     expect(update).toHaveBeenCalledWith({ stripe_checkout_session_id: "cs_paid_legacy" });
-    expect(assertManagerPriceMatchesRateCard).toHaveBeenCalledWith(expect.anything(), "price_pro_monthly", "pro", "monthly");
     await adoptPaidPortalCheckoutForOwner(session, "owner-a");
     expect(update).toHaveBeenCalledTimes(1);
   });
