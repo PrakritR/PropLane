@@ -81,6 +81,7 @@ import {
 import {
   RESIDENT_DETAIL_APPLICATION_BUCKET_TABS,
   RESIDENT_DETAIL_BACKGROUND_CHECK_TABS,
+  residentBackgroundCheckCompletedCount,
   RESIDENT_DETAIL_LEASE_PIPELINE_TABS,
   residentApplicationStatusBucket,
   type ResidentRecordStatusBucketId,
@@ -1241,6 +1242,7 @@ export function ManagerResidents({
       setChargeBucket("pending");
       setResidentServicesBucket("pending");
       setResidentLeasePipelineTab("manager");
+      setResidentDocumentTab("application");
     }
   }
 
@@ -1377,9 +1379,7 @@ export function ManagerResidents({
     return counts;
   }, [selectedApplicationRow]);
 
-  // The one Completed tab counts the one check this resident has, if there is one at all.
-  const residentBackgroundCheckCount =
-    selectedApplicationRow && applicationShowsBackgroundCheck(selectedApplicationRow) ? 1 : 0;
+  const residentBackgroundCheckCount = residentBackgroundCheckCompletedCount(selectedApplicationRow);
 
   // Open on the tab the record is under; the manager can still look at the others.
   const selectedApplicationBucket = selectedApplicationRow
@@ -3109,7 +3109,7 @@ export function ManagerResidents({
         }
         return;
       case "upload":
-        setResidentUploadKindPreset(resolvedDetailTab === "lease" ? "lease" : "other");
+        setResidentUploadKindPreset("other");
         setResidentUploadOpen(true);
         return;
       case "upload-for-resident":
@@ -3138,9 +3138,6 @@ export function ManagerResidents({
       case "add-tour":
         navigate(managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp));
         return;
-      case "add-inspection":
-        navigate(residentRecordMoveInHref(portalBase, residentsTab, selected.id, "inspections"));
-        return;
       case "approve":
         if (selectedApplicationRow) setApprovePreviewRow(selectedApplicationRow);
         return;
@@ -3161,12 +3158,6 @@ export function ManagerResidents({
           setCheckrScreeningShowPicker(true);
           setCheckrScreeningRowId(selectedApplicationRow.id);
         }
-        return;
-      case "send-lease":
-        if (residentLease && selected) openLeaseSendPreview(selected, residentLease);
-        return;
-      case "remind-sign":
-        if (residentLease) openLeaseSigningReminderPreview(selected, residentLease);
         return;
       case "remind-payment":
         setMessageReminderForPayment(true);

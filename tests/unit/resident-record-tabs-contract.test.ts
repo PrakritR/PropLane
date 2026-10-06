@@ -14,6 +14,7 @@ import { recordSections } from "@/lib/portals/record-sections";
 import {
   RESIDENT_DETAIL_BACKGROUND_CHECK_TABS,
   residentApplicationStatusBucket,
+  residentBackgroundCheckCompletedCount,
 } from "@/lib/resident-detail-subsection-tabs";
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
@@ -88,6 +89,23 @@ describe("Background check tab: one Completed tab", () => {
     expect(RESIDENT_DETAIL_BACKGROUND_CHECK_TABS.map((t) => t.label)).toEqual(["Completed"]);
   });
 
+  it("counts only a check that came back — a pending or unordered one is 0, not 'Completed 1'", () => {
+    expect(residentBackgroundCheckCompletedCount(null)).toBe(0);
+    // A submitted application with nothing ordered resolves to `pending_review`, which "applies"
+    // but is not finished: counting applicability read 1 while the panel said pending.
+    expect(residentBackgroundCheckCompletedCount(row({ application: {} as never }))).toBe(0);
+    expect(residentBackgroundCheckCompletedCount(row({ backgroundCheckStatus: "pending_review" }))).toBe(0);
+    expect(residentBackgroundCheckCompletedCount(row({ backgroundCheckStatus: "not_applicable" }))).toBe(0);
+    expect(residentBackgroundCheckCompletedCount(row({ backgroundCheckStatus: "passed" }))).toBe(1);
+    expect(residentBackgroundCheckCompletedCount(row({ backgroundCheckStatus: "flagged" }))).toBe(1);
+  });
+
+  it("the body still renders the check panel, so a pending check is visible with its true status", () => {
+    const residents = read("src/components/portal/pro-residents.tsx");
+    expect(residents).toContain("<ManagerResidentBackgroundCheckPanel row={selectedApplicationRow} />");
+    expect(residents).toContain("residentBackgroundCheckCompletedCount(selectedApplicationRow)");
+  });
+
   it("its header offers ordering a check and nothing to upload", () => {
     const ids = recordSections("manager", "resident", { basePath: "/portal" }, "background-check").headerActions.map((a) => a.id);
     expect(ids).toEqual(["run-check"]);
@@ -151,8 +169,17 @@ describe("Roommates reads the household from the server", () => {
   const section = read("src/components/portal/move-in-forms/resident-record-move-in-section.tsx");
 
   it("fetches only while the Roommates sub-tab is open, and never counts the household in a tab badge", () => {
-    expect(section).toContain('activeTab === "housemates" && Boolean(applicationId) && !demo');
+    expect(section).toContain('if (activeTab !== "housemates") return;');
+    expect(section).toContain("return readHousehold(false);");
     expect(section).toContain('count: id === "forms" ? rows.length : undefined');
+  });
+
+  it("only the retry forces a fresh read past the shared-GET cache", () => {
+    // A counter in state stayed truthy for the component's life, so one Try again made every later
+    // open of Roommates — for any resident — re-run the paged household sweep.
+    expect(section).toContain("readHousehold(true)");
+    expect(section).toContain("{ force }");
+    expect(section).not.toContain("housemateReloads");
   });
 
   it("a failed read is an error with a retry, never 'no residents'", () => {

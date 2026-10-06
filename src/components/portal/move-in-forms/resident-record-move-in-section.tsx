@@ -18,7 +18,7 @@
  *  - Inspections: this resident's move-in / move-out inspections (`InspectionsPanel`).
  * Only facts that exist are shown; there is no "Opened" row because nothing records it.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download, FileText, Pencil, Send } from "lucide-react";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
@@ -264,26 +264,34 @@ export function ResidentRecordMoveInSection({
     { applicationId: string; list: ResidentMoveInHousemate[] } | { applicationId: string; failed: true } | null
   >(null);
   const householdRead = loadedHousemates?.applicationId === applicationId ? loadedHousemates : null;
-  const [housemateReloads, setHousemateReloads] = useState(0);
-  const wantsHousemates = activeTab === "housemates" && Boolean(applicationId) && !demo;
+  // Only the retry button passes `force`, and only for the press that asked for it: a counter held
+  // in state stayed true for the component's life, so one Try again made every later open of
+  // Roommates — for any resident — bypass the shared-GET cache and re-run the paged sweep.
+  const readHousehold = useCallback(
+    (force: boolean) => {
+      if (!applicationId || demo) return () => {};
+      let cancelled = false;
+      void sharedGet(`/api/manager-applications/${encodeURIComponent(applicationId)}/housemates`, { force }).then(
+        (result) => {
+          if (cancelled) return;
+          if (!result.ok) {
+            setLoadedHousemates({ applicationId, failed: true });
+            return;
+          }
+          const list = (result.data as { housemates?: unknown } | null)?.housemates;
+          setLoadedHousemates({ applicationId, list: Array.isArray(list) ? (list as ResidentMoveInHousemate[]) : [] });
+        },
+      );
+      return () => {
+        cancelled = true;
+      };
+    },
+    [applicationId, demo],
+  );
   useEffect(() => {
-    if (!wantsHousemates) return;
-    let cancelled = false;
-    void sharedGet(`/api/manager-applications/${encodeURIComponent(applicationId)}/housemates`, {
-      force: housemateReloads > 0,
-    }).then((result) => {
-      if (cancelled) return;
-      if (!result.ok) {
-        setLoadedHousemates({ applicationId, failed: true });
-        return;
-      }
-      const list = (result.data as { housemates?: unknown } | null)?.housemates;
-      setLoadedHousemates({ applicationId, list: Array.isArray(list) ? (list as ResidentMoveInHousemate[]) : [] });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [wantsHousemates, applicationId, housemateReloads]);
+    if (activeTab !== "housemates") return;
+    return readHousehold(false);
+  }, [activeTab, readHousehold]);
   const details = useMemo(() => describeMoveInDetails(resolved, entireHome), [resolved, entireHome]);
 
   const open = (form: MoveInFormSummary) => {
@@ -453,7 +461,7 @@ export function ResidentRecordMoveInSection({
               data-attr="resident-move-in-roommates-error"
             >
               <p className="mb-3 text-sm">Couldn&apos;t load this household.</p>
-              <Button variant="outline" onClick={() => setHousemateReloads((n) => n + 1)}>
+              <Button variant="outline" onClick={() => readHousehold(true)}>
                 Try again
               </Button>
             </div>

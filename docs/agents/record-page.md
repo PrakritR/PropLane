@@ -76,7 +76,10 @@ A tab's own actions are icons in its section header card: `ManagerResidentSectio
 **no section name** (the rail already says which section is open) — only the tabs as
 `destinationRow` on the left, then icon actions, the blue + last. Application is
 Incomplete · Pending · Approved · Rejected (`residentApplicationStatusBucket`); Background check is
-ONE tab, Completed (`RESIDENT_DETAIL_BACKGROUND_CHECK_TABS`); Lease keeps Download only; Documents
+ONE tab, Completed, counting only a check that came back
+(`residentBackgroundCheckCompletedCount` — never `applicationShowsBackgroundCheck`, which says a
+check merely APPLIES), while its body keeps rendering the panel so a pending check still shows its
+true status; Lease keeps Download only; Documents
 draws its kinds (Application · Lease · Payments · Inspections · Other) as that same header card's
 tabs, never a second control row. Move in's sub-tabs are the resident's My home tabs in the same
 order, and an unrecognised sub-tab slug lands on Forms (`parseResidentRecordMoveInTab`).

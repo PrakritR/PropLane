@@ -1,4 +1,5 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { resolveBackgroundCheckStatus } from "@/lib/application-background-check";
 import type { LeaseListTabId } from "@/lib/lease-pipeline-storage";
 import {
   MANAGER_TOUR_BUCKET_LABELS,
@@ -33,6 +34,19 @@ export const RESIDENT_DETAIL_BACKGROUND_CHECK_TABS: {
   label: string;
   dataAttr: string;
 }[] = [{ id: "completed", label: "Completed", dataAttr: "resident-background-check-tab-completed" }];
+
+/**
+ * How many checks the Completed tab counts: a check that has actually come back, never one that
+ * merely applies. `applicationShowsBackgroundCheck` answers the second question (anything but
+ * `not_applicable`), so counting with it read "Completed 1" for every submitted application while
+ * the panel underneath said pending. `passed` / `flagged` are the two finished states both provider
+ * mappers write back onto the row.
+ */
+export function residentBackgroundCheckCompletedCount(row: DemoApplicantRow | null): number {
+  if (!row) return 0;
+  const status = resolveBackgroundCheckStatus(row);
+  return status === "passed" || status === "flagged" ? 1 : 0;
+}
 
 /**
  * Which Application tab an application sits under. Incomplete is an application that was started
