@@ -92,19 +92,35 @@ export async function listUncountersignedLeasesPastDeadline(
 }
 
 /**
- * Three distinct answers, because "no refund happened" is not one thing:
+ * Three distinct answers, because "no refund happened" is not one thing. What
+ * separates them is whether the resident's money is still with the manager:
  *
  * - `refunded` — money went back.
- * - `skipped` — there was nothing for THIS flow to send back: a `security_deposit`
- *   (it has its own Return deposit flow), an already-refunded charge, one never paid
- *   through PropLane. No money is outstanding, so the lease may still be voided.
- * - `needs_review` — the charge is paid and refundable but this flow cannot send it
- *   back. The resident's money is still held, so the lease must NOT be voided.
+ * - `skipped` — nothing is outstanding: the charge was never paid, or everything paid
+ *   has already been refunded or returned. The lease may be voided.
+ * - `needs_review` — money this flow collected is still held and it cannot send it
+ *   back here: a paid `security_deposit` (Return deposit owns it), a payment still
+ *   clearing, one taken outside PropLane, or a refusal from the refund rail. The lease
+ *   must NOT be voided — doing so would record that the move-in charges were refunded
+ *   over a resident who was never made whole.
  */
 type ChargeRefundOutcome =
   | { kind: "refunded" }
   | { kind: "skipped" }
   | { kind: "needs_review"; error: string };
+
+/**
+ * What the manager still holds of this charge. A security deposit tracks its returns in
+ * `depositReturnedCents` (Return deposit) while every other kind uses `refundedCents`,
+ * so the larger of the two is the amount already sent back either way.
+ */
+function outstandingHeldCents(charge: Record<string, unknown>, paidCents: number): number {
+  const sentBack = Math.max(
+    Math.round(Number(charge.refundedCents ?? 0)) || 0,
+    Math.round(Number(charge.depositReturnedCents ?? 0)) || 0,
+  );
+  return Math.max(0, Math.round(paidCents) - sentBack);
+}
 
 async function refundChargeIfPaid(
   stripe: Stripe,
@@ -134,7 +150,13 @@ async function refundChargeIfPaid(
     settled: charge.stripePaymentStatus !== "processing" && charge.stripePaymentStatus !== "pending",
   };
   const decision = decideChargeRefund(ctx);
-  if (!decision.ok) return { kind: "skipped" };
+  if (!decision.ok) {
+    // `not_paid` and `nothing_left` mean nothing is outstanding. Every other refusal
+    // is money still held that this flow cannot return, so it fails closed.
+    const settled = decision.reason === "not_paid" || decision.reason === "nothing_left" ||
+      outstandingHeldCents(charge, ctx.paidCents) <= 0;
+    return settled ? { kind: "skipped" } : { kind: "needs_review", error: decision.message };
+  }
 
   const attempt = Number(charge.refundAttempts ?? 0) + 1;
   // One rail decision, made by the payment: a central platform capture is
