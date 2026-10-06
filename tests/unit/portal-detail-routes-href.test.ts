@@ -20,10 +20,10 @@ import {
 describe("portal-detail-routes href helpers", () => {
   const base = "/portal";
 
-  it("folds Stays and Occupancy into the date tabs and redirects the old URLs", () => {
+  it("sends the retired Stays and Occupancy URLs to Calendar; the other tabs are unchanged", () => {
     expect(parseManagerBookingBucket("stays")).toBe("calendar");
     expect(parseManagerBookingBucket("occupancy")).toBe("calendar");
-    expect(LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS).toEqual({ stays: "upcoming", occupancy: "inhouse" });
+    expect(LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS).toEqual({ stays: "calendar", occupancy: "calendar" });
     for (const view of ["upcoming", "inhouse", "past"] as const) {
       expect(parseManagerBookingBucket(view)).toBe(view);
       expect(managerBookingListHref(base, view)).toBe(`/portal/bookings/${view}`);

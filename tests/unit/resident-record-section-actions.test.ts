@@ -46,10 +46,10 @@ describe("Application", () => {
   it("Approved: Download, Send lease", () => {
     expect(ids(app({ rowBucket: "approved", subTab: "approved" }))).toEqual(["download", "send-lease"]);
   });
-  it("Rejected: Download, Move to pending, Delete (danger)", () => {
+  it("Rejected: Download, Move to pending, Delete application (danger)", () => {
     const rejected = residentSectionHeaderActions(app({ rowBucket: "rejected", subTab: "rejected" }));
     expect(rejected.map((a) => a.id)).toEqual(["download", "move-pending", "delete-application"]);
-    expect(rejected.map((a) => a.label)).toEqual(["Download PDF", "Move to pending", "Delete"]);
+    expect(rejected.map((a) => a.label)).toEqual(["Download PDF", "Move to pending", "Delete application"]);
     expect(rejected[2].tone).toBe("danger");
     expect(ids(app({ rowBucket: "approved", subTab: "approved" }))).not.toContain("delete-application");
   });

@@ -50,32 +50,41 @@ afterEach(() => {
 });
 
 describe("Settings → Integrations", () => {
-  it("lists Messages, Bookings, Posting and Google as left sub-tabs, Messages first", () => {
+  it("renders Messages, Bookings, Posting and Google as four stacked sections on one page, with no tab list", () => {
     render(<ManagerIntegrationsPanel />);
     expect(INTEGRATIONS_TABS.map((t) => t.label)).toEqual(["Messages", "Bookings", "Posting", "Google"]);
-    const tabs = within(screen.getByRole("tablist")).getAllByRole("tab").map((t) => t.textContent);
-    expect(tabs).toEqual(["Messages", "Bookings", "Posting", "Google"]);
-    expect(screen.getByTestId("pane-messaging")).toBeTruthy();
-  });
-
-  it("each sub-tab shows only its own pane", () => {
-    render(<ManagerIntegrationsPanel />);
-    for (const [id, pane] of [["bookings", "pane-bookings"], ["google", "pane-google"], ["messages", "pane-messaging"]] as const) {
-      fireEvent.click(document.querySelector(`[data-attr="settings-integrations-tab-${id}"]`) as HTMLElement);
-      expect(screen.getByTestId(pane)).toBeTruthy();
-      for (const other of ["pane-messaging", "pane-bookings", "pane-google"]) if (other !== pane) expect(screen.queryByTestId(other)).toBeNull();
-    }
-    fireEvent.click(document.querySelector('[data-attr="settings-integrations-tab-posting"]') as HTMLElement);
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings.slice(0, 4)).toEqual(["Messages", "Bookings", "Posting", "Google"]);
+    for (const pane of ["pane-messaging", "pane-bookings", "pane-google"]) expect(screen.getByTestId(pane)).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-zillow-row"]')).not.toBeNull();
+    for (const id of ["messages", "bookings", "posting", "google"]) {
+      expect(document.querySelector(`[data-attr="settings-integrations-section-${id}"]`)).not.toBeNull();
+    }
   });
 
-  it("deep-links a sub-tab from the URL and keeps it there", () => {
+  it("an old &integration=<tab> URL lands on the page scrolled to that section", () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
     window.history.replaceState(null, "", "/portal/profile?tab=spreadsheets&integration=google");
+    vi.useFakeTimers();
     render(<ManagerIntegrationsPanel />);
     expect(screen.getByTestId("pane-google")).toBeTruthy();
-    fireEvent.click(document.querySelector('[data-attr="settings-integrations-tab-bookings"]') as HTMLElement);
-    expect(window.location.search).toContain("integration=bookings");
-    expect(window.location.search).toContain("tab=spreadsheets");
+    vi.advanceTimersByTime(10);
+    vi.useRealTimers();
+    expect(scroll).toHaveBeenCalled();
+    expect(scroll.mock.instances[0]).toBe(document.querySelector('[data-attr="settings-integrations-section-google"]'));
+  });
+
+  it("with no integration param it does not scroll", () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    vi.useFakeTimers();
+    render(<ManagerIntegrationsPanel />);
+    vi.advanceTimersByTime(3000);
+    vi.useRealTimers();
+    expect(scroll).not.toHaveBeenCalled();
   });
 
   it("Messages hands Manage over to the full Communication settings", () => {

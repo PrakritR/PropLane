@@ -3,7 +3,7 @@
  * (`application-before-tour.server.ts`), the public listing projection and the Forms editor.
  *
  * ONE input decides it: the workspace setting (`leasingPipeline.applicationBeforeTour`, Settings ->
- * Workspace -> Applications & leases). Captain, Oct 3 2026: "Tour order is just a workspace setting" --
+ * Workspace -> Automations). Captain, Oct 3 2026: "Tour order is just a workspace setting" --
  * an application form no longer has a tour order of its own. A `tourOrder` still stored on a template
  * (written before this rule) is IGNORED here; nothing reads it for a decision. No client value is read.
  */

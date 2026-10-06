@@ -51,13 +51,21 @@ export function occupancyCell(entries: readonly PropertyBookingEntry[], day: str
   const reserved = active.length > 0 && active.every(entry => ["hold", "block"].includes(occupancyStayKind(entry)) && entry.bookingStatus !== "confirmed" && entry.statusLabel?.toLowerCase() !== "confirmed");
   return { active, outgoing, incoming, conflicts, label: conflicts ? "Overlapping stays" : outgoing.length || incoming.length ? `${names(outgoing) || "Vacant"} → ${names(active) || "Vacant"}` : active.length ? `${reserved ? "Reserved · " : ""}${names(active)}` : "Vacant" };
 }
-/** Occupancy visualization excludes holds without changing availability/capacity arbitration. */
-export function calendarOccupancy(entries: readonly PropertyBookingEntry[], days: string[], propertyId: string, capacities: OccupancyCapacities) {
+/**
+ * Beds occupied across `propertyIds` over `days`, read through `occupancyForDay`
+ * (never a `rooms.length` count). Occupancy visualization excludes holds without
+ * changing availability/capacity arbitration. `peak` is the most beds occupied
+ * on any one day ("n of N occupied"); `percent` is bed-nights used over bed-nights offered.
+ */
+export function calendarOccupancySummary(entries: readonly PropertyBookingEntry[], days: string[], propertyIds: readonly string[], capacities: OccupancyCapacities) {
   const occupied = entries.filter(entry => occupancyStayKind(entry) !== "hold" || (entry.bookingStatus === "confirmed" || entry.statusLabel?.toLowerCase() === "confirmed"));
-  let used = 0, total = 0;
+  let used = 0, total = 0, peak = 0, beds = 0;
   for (const day of days) {
-    const cell = occupancyForDay(occupied, day, [propertyId], capacities);
-    used += cell.occupied; total += cell.total;
+    const cell = occupancyForDay(occupied, day, propertyIds, capacities);
+    used += cell.occupied; total += cell.total; peak = Math.max(peak, cell.occupied); beds = Math.max(beds, cell.total);
   }
-  return total ? Math.round(used / total * 100) : 0;
+  return { peak, beds, percent: total ? Math.round(used / total * 100) : 0 };
+}
+export function calendarOccupancy(entries: readonly PropertyBookingEntry[], days: string[], propertyId: string, capacities: OccupancyCapacities) {
+  return calendarOccupancySummary(entries, days, [propertyId], capacities).percent;
 }

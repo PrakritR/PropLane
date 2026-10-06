@@ -16,7 +16,7 @@ const MONTH_TO_MONTH_TERM = "Month-to-Month";
  * The Lease tab's settings gear. Property-scoped switches only (C2-CP8): which leases this
  * property offers, month-to-month, custom start dates, the property's default lease and whether a
  * lease is required. Workspace-wide choices (signing order, co-signer, deposit accounting, ...)
- * live in Settings -> Applications & leases.
+ * live in Settings -> Automations.
  */
 export function PropertyLeaseCatalogSettingsModal({
   open,

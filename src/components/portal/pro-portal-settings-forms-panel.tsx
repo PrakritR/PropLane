@@ -608,7 +608,7 @@ function LeaseFormAutomationBlock() {
           dataAttr="forms-lease-auto-generate"
         />
       </PortalSettingsRow>
-      {/* Auto-send lives in Settings → Workspace → Applications & leases (C2-CP8). */}
+      {/* Auto-send lives in Settings → Workspace → Automations (C2-CP8). */}
     </PortalSettingsGroup>
   );
 }

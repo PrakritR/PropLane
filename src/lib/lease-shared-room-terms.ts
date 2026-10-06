@@ -59,7 +59,7 @@ export function sharedRoomLeaseTerms(input: {
   propertyAddress: string;
   term?: string | null;
   residents: SharedRoomResident[];
-  /** Workspace default for a room that says "Property default" (Settings -> Applications & leases). Absent = individual. */
+  /** Workspace default for a room that says "Property default" (Settings -> Automations). Absent = individual. */
   workspaceSharedRoomLease?: SharedRoomLeaseDefault;
 }): SharedRoomLeaseTerms | null {
   const { room } = input;

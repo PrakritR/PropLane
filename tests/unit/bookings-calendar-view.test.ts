@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookingCheckout, bookingLanes, calendarOccupancy, calendarRange, calendarStatus, occupancyCell } from "@/lib/channel-calendar/bookings-calendar-view";
+import { bookingCheckout, bookingLanes, calendarOccupancy, calendarOccupancySummary, calendarRange, calendarStatus, occupancyCell } from "@/lib/channel-calendar/bookings-calendar-view";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 const stay = (overrides: Partial<PropertyBookingEntry> = {}): PropertyBookingEntry => ({ source: "proplane", propertyId: "p", propertyLabel: "House", roomId: "r", roomLabel: "Room 1", summary: "Guest", start: "2026-09-28", end: "2026-09-30", ...overrides });
 describe("bookings calendar views", () => {
@@ -29,6 +29,17 @@ describe("bookings calendar views", () => {
     expect(calendarOccupancy([stay({ source: "hold" })], days, "p", capacities)).toBe(0);
     expect(calendarOccupancy([stay(), stay()], days, "p", capacities)).toBe(67);
     expect(calendarOccupancy([stay({ source: "block", residentName: "Guest", statusLabel: "Confirmed" })], days, "p", capacities)).toBe(67);
+  });
+  it("both halves of 'n of N occupied' are peaks over the same range", () => {
+    // A capacity that differs by day: `beds` must be the peak, not whichever
+    // day happened to be last, so the two halves of the label agree.
+    const capacities = { bedsTotal: () => 1, roomCapacity: () => 1 };
+    const summary = calendarOccupancySummary([stay()], ["2026-09-29", "2026-09-30"], ["p"], capacities);
+    expect(summary).toEqual({ peak: 1, beds: 1, percent: 100 });
+    let call = 0;
+    const shrinking = { bedsTotal: () => (call++ === 0 ? 4 : 1), roomCapacity: () => 1 };
+    expect(calendarOccupancySummary([], ["2026-09-29", "2026-09-30"], ["p"], shrinking).beds).toBe(4);
+    expect(calendarOccupancySummary([], [], ["p"], capacities)).toEqual({ peak: 0, beds: 0, percent: 0 });
   });
   it("leaves open-ended stays active beyond their loaded horizon", () => {
     const open = stay({ openEnded: true });

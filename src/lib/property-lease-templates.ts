@@ -56,7 +56,7 @@ export type PropertyLeaseTemplate = {
   applicationLeaseTerms?: string[];
   /**
    * C2-CP9 (lease first): the ONE application this lease maps to. One application may serve many
-   * leases; a lease never maps to two. Set only from Settings -> Applications & leases.
+   * leases; a lease never maps to two. Set only from Settings -> Automations.
    * `null`/absent = unmapped, which falls back to the property's default application.
    */
   linkedApplicationTemplateId?: string | null;

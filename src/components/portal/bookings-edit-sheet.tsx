@@ -68,7 +68,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   const valid = Boolean(checkIn && (openEnded || (checkOut && checkOut > checkIn)));
   const pool = entries.filter((candidate) => candidate !== entry && (!entry.blockId || candidate.blockId !== entry.blockId));
   const conflictsForRoom = (id: string) => valid ? bookingConflictsFor(pool, { propertyId, roomId: id, start: checkIn, end: openEnded ? "9999-12-30" : lastNightBeforeCheckout(checkOut) }) : [];
-  const rooms = bookingRoomChoices(getRoomOptionsForProperty(propertyId, { includeUnavailable: true }), conflictsForRoom);
+  const rooms = bookingRoomChoices(getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }), conflictsForRoom);
   const conflicts = conflictsForRoom(roomId);
   const properties = propertyOptions.length ? propertyOptions : [{ id: entry.propertyId, label: entry.propertyLabel }];
   const chooseRoom = (id: string, property = propertyId) => { setRoomId(id); const next = bookingRoomRate(property, id); setRate(String(next.amount ?? "")); setBasis(next.basis); };

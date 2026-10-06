@@ -4,7 +4,7 @@ import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import Link from "next/link";
-import { escapeCsv } from "@/lib/csv";
+import { downloadCsv, toSafeCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -2404,8 +2404,8 @@ export function ManagerPaymentsLedgerPanel({
             if (actionId === "download") {
               const fields = ["Resident", "Charge", "Amount", "Status", "Due date"];
               const values = [detailRow.residentName, detailRow.chargeTitle, detailRow.lineAmount, detailRow.statusLabel, detailRow.dueDate];
-              const url = URL.createObjectURL(new Blob([[fields, values].map((line) => line.map((value) => escapeCsv(/^[\s]*[=+@-]/.test(value) ? `'${value}` : value)).join(",")).join("\n")], { type: "text/csv" }));
-              const anchor = document.createElement("a"); anchor.href = url; anchor.download = "payment.csv"; anchor.click(); URL.revokeObjectURL(url); return;
+              downloadCsv("payment.csv", toSafeCsv([fields, values]));
+              return;
             }
             if (actionId === "delete") {
               void removePayment(detailRow);

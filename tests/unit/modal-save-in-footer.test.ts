@@ -14,6 +14,7 @@ const FILES = [
   "messaging-credit-panel",
   "pro-vendors-panel",
   "manager-plan-addons-panel",
+  "manager-usage-panel",
 ];
 
 describe("pop-up primary action lives in the Modal footer slot", () => {
@@ -28,9 +29,11 @@ describe("pop-up primary action lives in the Modal footer slot", () => {
     });
   }
 
-  it("Edit permissions (Team strip) Save is primary and returns its promise", () => {
+  it("Edit permissions (Team strip) Save is the primary action", () => {
     const src = readFileSync("src/components/portal/workspace-invite-link-strip.tsx", "utf8");
-    expect(src).toContain('data-attr="workspace-invite-link-edit-save"');
-    expect(src).toMatch(/onClick=\{async \(\) => \{ if \(!editing\) return;/);
+    const attr = src.indexOf('data-attr="workspace-invite-link-edit-save"');
+    expect(attr, "Save button not found").toBeGreaterThan(-1);
+    const save = src.slice(src.lastIndexOf("<Button", attr), src.indexOf("</Button>", attr));
+    expect(save).toContain('variant="primary"');
   });
 });

@@ -500,7 +500,7 @@ lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the gr
 
 ## Application before a tour (workspace setting, Oct 3 2026)
 
-Settings -> Workspace -> Applications & leases -> "Application before a tour" (Not needed by
+Settings -> Workspace -> Automations -> "Application before a tour" (Not needed by
 default / Required, `leasingPipeline.applicationBeforeTour`). When Required a prospect cannot
 request a tour of a property until they have an **APPROVED** application for it — `tourBlockReason`
 (`application-before-tour-policy.ts`) is the one matrix: setting off, scheduling is open whatever the

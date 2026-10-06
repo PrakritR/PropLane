@@ -27,3 +27,34 @@ export function toCsv(header: readonly string[], rows: readonly (readonly unknow
 export function csvMoneyFromCents(cents: number): string {
   return (Number(cents ?? 0) / 100).toFixed(2);
 }
+
+/**
+ * One cell, formula-safe: a spreadsheet reads a leading `=`, `+`, `@` or `-` as a formula, and an
+ * apostrophe in front keeps the value text. Stringified here so a `null` writes an empty field.
+ */
+export function csvCell(value: unknown): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  return escapeCsv(/^[\s]*[=+@-]/.test(text) ? `'${text}` : text);
+}
+
+/** A formula-safe CSV document from rows of cells, the header row included. */
+export function toSafeCsv(rows: readonly (readonly unknown[])[]): string {
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+/**
+ * Hand a CSV to the browser as a download. The anchor is in the document when it is clicked and the
+ * object URL outlives the click's own task — a detached anchor or a URL revoked in the same task is
+ * how a browser abandons the download. Every export used to retype these lines.
+ */
+export function downloadCsv(filename: string, csv: string): void {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}

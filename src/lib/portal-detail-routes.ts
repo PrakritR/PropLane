@@ -507,13 +507,13 @@ export const MANAGER_BOOKING_BUCKET_LABELS: Record<ManagerBookingBucketId, strin
 };
 
 /**
- * Stays and Occupancy were folded into Upcoming / In-house / Past by date
- * (captain 2026-10-03). The old URLs redirect instead of dead-ending: a stay
- * list opens on Upcoming, "who is in which room now" on In-house.
+ * Stays and Occupancy are not tabs: occupancy ("n of N occupied", the range's
+ * staying / check-ins / check-outs) lives on Calendar, and stays are the date
+ * tabs. The old URLs redirect to Calendar instead of dead-ending.
  */
 export const LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS: Readonly<Record<string, ManagerBookingBucketId>> = {
-  stays: "upcoming",
-  occupancy: "inhouse",
+  stays: "calendar",
+  occupancy: "calendar",
 };
 
 export function parseManagerBookingBucket(

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The listing's phone action bar when the listing offers both stays: Apply, Long term, Short term,
- * Tour (each stay's button opens its own application), and the assistant floats above the bar
- * instead of sharing its row (captain, 2026-10-06).
+ * The listing's phone action bar: one button per stay the listing offers — both stays reads Long
+ * term, Short term, Tour, each opening its own application, and one stay reads Apply — with the
+ * assistant floating above the bar instead of sharing its row (captain, 2026-10-06).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -96,26 +96,34 @@ afterEach(() => {
 const bar = () => document.querySelector('[data-attr="listing-sticky-bar"]') as HTMLElement;
 const href = (selector: string) => bar().querySelector<HTMLAnchorElement>(selector)?.getAttribute("href") ?? "";
 
+const labels = () =>
+  [...bar().querySelectorAll('[data-attr="listing-sticky-actions"] a')].map((a) => a.querySelector("[aria-hidden]")?.textContent);
+
 describe("manager preview phone bar with both stays", () => {
-  it("shows Apply, Long term, Short term and Tour, each stay opening its own application", () => {
+  it("shows Long term, Short term and Tour, each stay opening its own application", () => {
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
-    const labels = [...bar().querySelectorAll('[data-attr="listing-sticky-actions"] a')].map((a) => a.querySelector('[aria-hidden]')?.textContent);
-    expect(labels).toEqual(["Apply", "Long term", "Short term", "Tour"]);
+    expect(labels()).toEqual(["Long term", "Short term", "Tour"]);
     expect(href('[data-attr="listing-web-apply-short"]')).toContain("rentalType=short_term");
-    expect(href('[data-attr="listing-web-apply-long"]')).toContain("/rent/apply");
-    expect(href('[data-attr="listing-web-apply-long"]')).not.toContain("rentalType");
-    expect(bar().querySelector('[data-attr="listing-web-apply-long"] .sr-only')?.textContent).toBe("Apply for the long-term stay");
+    expect(href('[data-attr="listing-web-apply"]')).toContain("/rent/apply");
+    expect(href('[data-attr="listing-web-apply"]')).not.toContain("rentalType");
+    expect(bar().querySelector('[data-attr="listing-web-apply"] .sr-only')?.textContent).toBe("Apply long term");
   });
 
-  it("gives the price its own row so four buttons are never squeezed beside it", () => {
+  it("never draws two buttons to the same application", () => {
+    render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
+    const hrefs = [...bar().querySelectorAll<HTMLAnchorElement>('[data-attr="listing-sticky-actions"] a')].map((a) => a.getAttribute("href"));
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+
+  it("gives the price its own row so the stay buttons are never squeezed beside it", () => {
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
     expect(bar().querySelector('[data-attr="listing-sticky-actions"]')?.parentElement?.className).toContain("flex-col");
   });
 
-  it("keeps one row and no Long term button when only long term is offered", () => {
+  it("keeps one row and a single Apply when only long term is offered", () => {
     stays.short = false;
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
-    expect(bar().querySelector('[data-attr="listing-web-apply-long"]')).toBeNull();
+    expect(labels()).toEqual(["Apply", "Tour"]);
     expect(bar().querySelector('[data-attr="listing-web-apply-short"]')).toBeNull();
     expect(bar().querySelector('[data-attr="listing-sticky-actions"]')?.parentElement?.className).not.toContain("flex-col");
   });

@@ -169,6 +169,13 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     const livePropertyCount = properties.filter(
       (p) => p.workspace_id === w.id && (p as { status?: string }).status === "live",
     ).length;
+    const nonDraftPropertyIds = [
+      ...new Set(
+        properties
+          .filter((p) => p.workspace_id === w.id && (p as { status?: string }).status !== "draft")
+          .map((p) => p.id),
+      ),
+    ];
     const ownedHere = w.owner_user_id === userId;
     const standing = standingByWorkspace.get(w.id) ?? null;
     const canManageMembers = ownedHere || Boolean(standing?.rights.members);
@@ -232,6 +239,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       ownerName: ownedHere ? undefined : ownerNames.get(w.owner_user_id),
       owned: ownedHere, isDefault: w.is_default,
       propertyIds,
+      nonDraftPropertyIds,
       livePropertyCount,
       propertyLabels: Object.fromEntries(
         properties.filter((p) => p.workspace_id === w.id).map((p) => [p.id, labelFor(p as { id: string; row_data?: unknown })]),

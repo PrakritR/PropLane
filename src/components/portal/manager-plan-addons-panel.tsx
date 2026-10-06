@@ -274,8 +274,8 @@ export function ManagerPlanAddonsPanel() {
         onClose={() => setConfirmOpen(false)}
         assistantStrip={false}
         footer={
-          <ModalFooter className="justify-end">
-            <Button variant="primary" className="rounded-full" onClick={save} loading={saving} data-attr="plan-addons-confirm">
+          <ModalFooter>
+            <Button variant="primary" onClick={save} loading={saving} data-attr="plan-addons-confirm">
               Confirm
             </Button>
           </ModalFooter>

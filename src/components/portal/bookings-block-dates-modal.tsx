@@ -177,7 +177,7 @@ export function BookingsBlockDatesModal({
   }, [open, initialPropertyId, initialRoomId, initialDayKey, editingBlock, propertyOptions, residentOptions]);
 
   const roomOptions = useMemo(
-    () => (propertyId ? getRoomOptionsForProperty(propertyId, { includeUnavailable: true }) : []),
+    () => (propertyId ? getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }) : []),
     [propertyId],
   );
 
