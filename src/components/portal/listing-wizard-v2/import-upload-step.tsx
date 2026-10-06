@@ -7,10 +7,10 @@
  * property is already a draft; this screen is the table of contents.
  */
 
-import { useRef, useState, type ReactNode } from "react";
+import { useContext, useRef, useState, type ReactNode } from "react";
 import { FileSpreadsheet, MoreHorizontal, Upload } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
+import { WorkspaceHeaderUploadPresent, WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
 import { StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { importReadinessLabel } from "@/components/portal/listing-wizard-v2/import-property-switcher";
 import { describeSourceRows, importedMonthlyRent } from "@/lib/property-import/to-submission";
@@ -93,6 +93,7 @@ export function ImportFileStrip({
   dataAttr?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const headerUpload = useContext(WorkspaceHeaderUploadPresent);
   void chips;
   const [hint, setHint] = useState("");
 
@@ -128,6 +129,7 @@ export function ImportFileStrip({
   );
 
   if (state.kind === "blank") {
+    if (headerUpload) return null;
     return <WorkspaceUploadAction accept={accept} onPick={onPickFile} disabled={busy} dataAttr={dataAttr} inputDataAttr="import-upload-file-input" />;
   }
 
