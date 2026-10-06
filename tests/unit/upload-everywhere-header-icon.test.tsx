@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { DocumentsStep } from "@/components/portal/resident-wizard/step-documents";
+import { LeaseStep } from "@/components/portal/resident-wizard/step-lease";
 import { ApplicationStep } from "@/components/portal/resident-wizard/step-application";
 import type { ResidentWizardDerived } from "@/components/portal/resident-wizard/derived";
 import { emptyAddPersonForm } from "@/components/portal/resident-wizard/state";
@@ -34,14 +36,17 @@ const derivedStub: ResidentWizardDerived = {
 
 afterEach(() => cleanup());
 
-describe("Application step: Upload application icon", () => {
+describe("Application step: the step's Start from a file card", () => {
   const renderStep = (props: { onPickApplicationFile?: (file: File) => void }) =>
     render(<ApplicationStep form={emptyAddPersonForm("resident")} patch={() => {}} derived={derivedStub} propertyLabel="12 Elm" {...props} />);
 
-  it("draws one inline Upload application icon at the step heading and hands the chosen file to the door", () => {
+  it("draws exactly one upload entry (the card, no inline icon) with the real formats and hands the file to the door", () => {
     const onPick = vi.fn();
     const { container } = renderStep({ onPickApplicationFile: onPick });
-    expect(screen.getAllByRole("button", { name: "Upload application" })).toHaveLength(1);
+    expect(container.querySelectorAll('[data-attr="residents-wizard-application-upload"]')).toHaveLength(1);
+    expect(screen.getByText("Start from a file")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Upload application" })).toBeNull();
+    for (const chip of [".pdf", "images", "PDF up to 3.5 MB"]) expect(screen.getByText(chip)).toBeTruthy();
     const input = container.querySelector<HTMLInputElement>('[data-attr="residents-wizard-application-upload-input"]');
     expect(input).not.toBeNull();
     const file = new File(["%PDF"], "application.pdf", { type: "application/pdf" });
@@ -49,9 +54,9 @@ describe("Application step: Upload application icon", () => {
     expect(onPick).toHaveBeenCalledWith(file);
   });
 
-  it("draws no icon when the door passes no handler (edit mode)", () => {
-    renderStep({});
-    expect(screen.queryByRole("button", { name: "Upload application" })).toBeNull();
+  it("draws no card when the door passes no handler (edit mode)", () => {
+    const { container } = renderStep({});
+    expect(container.querySelector('[data-attr="residents-wizard-application-upload"]')).toBeNull();
   });
 
   it("the parsed fields it feeds land as application answers through the mapper, blanks only", () => {
@@ -70,6 +75,33 @@ describe("Application step: Upload application icon", () => {
     expect(wizard).toContain('readPdf(file, "application")');
     expect(wizard).toContain("mapParsedFieldsToApplicationAnswers(parsed.fields)");
     expect(wizard).toContain("onPickApplicationFile={mode === \"edit\" ? undefined : onPickApplicationFile}");
+  });
+});
+
+describe("Add resident: every step with an upload path carries its own card", () => {
+  it("Documents step: one card wired to the attach handler, no second '+ Add document' entry", () => {
+    const onPick = vi.fn();
+    const { container } = render(<DocumentsStep form={emptyAddPersonForm("resident")} patch={() => {}} onPickFile={onPick} busy={false} />);
+    expect(container.querySelectorAll('[data-attr="residents-wizard-documents-upload"]')).toHaveLength(1);
+    expect(container.querySelector('[data-attr="residents-wizard-documents-add"]')).toBeNull();
+    const input = container.querySelector<HTMLInputElement>('[data-attr="residents-wizard-documents-input"]');
+    const file = new File(["x"], "id.png", { type: "image/png" });
+    fireEvent.change(input!, { target: { files: [file] } });
+    expect(onPick).toHaveBeenCalledWith(file);
+  });
+
+  it("Lease step: a PDF-only card at the top replaces the inline dropzone and reads through the lease reader", () => {
+    const onPick = vi.fn();
+    const { container } = render(<LeaseStep form={emptyAddPersonForm("resident")} patch={() => {}} derived={derivedStub} onPickLeasePdf={onPick} busy={false} />);
+    expect(container.querySelectorAll('[data-attr="residents-wizard-lease-upload"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-attr="residents-wizard-lease-pdf-input"]')).toHaveLength(1);
+    expect(container.querySelector('[data-attr="residents-wizard-lease-pdf-choose"]')).toBeNull();
+    expect(screen.getByText("up to 3.5 MB")).toBeTruthy();
+    const input = container.querySelector<HTMLInputElement>('[data-attr="residents-wizard-lease-pdf-input"]');
+    expect(input!.accept).toBe("application/pdf");
+    const file = new File(["%PDF"], "lease.pdf", { type: "application/pdf" });
+    fireEvent.change(input!, { target: { files: [file] } });
+    expect(onPick).toHaveBeenCalledWith(file);
   });
 });
 

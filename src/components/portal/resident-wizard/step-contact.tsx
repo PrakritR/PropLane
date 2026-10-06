@@ -21,6 +21,8 @@ import {
 } from "./state";
 
 export const RESIDENT_FILE_ACCEPT = "application/pdf,image/*";
+/** The reader's real limits, as chips on a step's "Start from a file" card (PDF cap is `MAX_PDF_BYTES` in index.tsx). */
+export const RESIDENT_STEP_FILE_CHIPS = [".pdf", "images", "PDF up to 3.5 MB"] as const;
 export const RESIDENT_FILE_CHIPS = ["application .pdf", "lease .pdf", "ID photo", "pay stub", "up to 3.5 MB each"] as const;
 
 export function ContactStep({

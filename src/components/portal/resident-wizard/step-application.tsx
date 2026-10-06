@@ -24,8 +24,8 @@ import {
   WizardStepper,
   WizardSelect,
 } from "@/components/portal/add-workspace/parts";
-import { WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
-import { RESIDENT_FILE_ACCEPT } from "./step-contact";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
+import { RESIDENT_FILE_ACCEPT, RESIDENT_STEP_FILE_CHIPS } from "./step-contact";
 import type { ResidentEditRecord } from "@/lib/resident-edit-record";
 import type { ResidentWizardDerived } from "./derived";
 import { EditApplicationBottomCards, EditApplicationTopCards } from "./edit-steps";
@@ -118,12 +118,10 @@ export function ApplicationStep({
 
   return (
     <StepColumn>
-      <StepHeading
-        title="Application"
-        action={onPickApplicationFile && !editRecord ? (
-          <WorkspaceUploadAction inline accept={RESIDENT_FILE_ACCEPT} onPick={onPickApplicationFile} disabled={uploadBusy} dataAttr="residents-wizard-application-upload" label="Upload application" />
-        ) : undefined}
-      />
+      <StepHeading title="Application" />
+      {onPickApplicationFile && !editRecord ? (
+        <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} chips={RESIDENT_STEP_FILE_CHIPS} onPick={onPickApplicationFile} disabled={uploadBusy} dataAttr="residents-wizard-application-upload" label="Upload application" />
+      ) : null}
       {editRecord ? (
         <EditApplicationTopCards record={editRecord} />
       ) : (

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import { FileText } from "lucide-react";
+import { useEffect, useMemo } from "react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { Input } from "@/components/ui/input";
 import { RESIDENT_LEASE_TERM_CUSTOM, residentLeaseTermSelectValue } from "@/lib/resident-manual-lease-terms";
@@ -28,7 +27,11 @@ import {
 } from "@/components/portal/application-resident-slot-picker";
 import type { ResidentEditRecord } from "@/lib/resident-edit-record";
 import type { ResidentWizardDerived } from "./derived";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { EditLeaseRecordCards } from "./edit-steps";
+
+/** The lease reader takes a PDF only, up to `MAX_PDF_BYTES` (3.5 MB) in index.tsx. */
+const LEASE_FILE_CHIPS = [".pdf", "up to 3.5 MB"] as const;
 import type { AddPersonForm, LeaseDocumentChoice } from "./state";
 
 const LEASE_DOCUMENT_OPTIONS: { value: LeaseDocumentChoice; label: string; hint: string }[] = [
@@ -59,7 +62,6 @@ export function LeaseStep({
   /** Edit mode: the resident's real lease status, signers and document. */
   editRecord?: ResidentEditRecord;
 }) {
-  const fileRef = useRef<HTMLInputElement>(null);
   const clearMark = (key: string) => {
     if (!form.marks[key]) return form.marks;
     const next = { ...form.marks };
@@ -141,6 +143,9 @@ export function LeaseStep({
   return (
     <StepColumn>
       <StepHeading title="The lease" />
+      {editRecord ? null : (
+        <WorkspaceFileCard accept="application/pdf" chips={LEASE_FILE_CHIPS} onPick={onPickLeasePdf} disabled={busy} fileName={form.leaseFileName || null} dataAttr="residents-wizard-lease-upload" inputDataAttr="residents-wizard-lease-pdf-input" label="Upload the lease PDF" />
+      )}
       {editRecord ? (
         <EditLeaseRecordCards
           record={editRecord}
@@ -277,39 +282,9 @@ export function LeaseStep({
           options={LEASE_DOCUMENT_OPTIONS}
           dataAttr="residents-wizard-lease-document-select"
         />
-        {form.leaseDocument !== "later" ? (
-          <div className="mt-3 rounded-xl border border-border">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/pdf"
-              className="sr-only"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onPickLeasePdf(file);
-                e.currentTarget.value = "";
-              }}
-              data-attr="residents-wizard-lease-pdf-input"
-            />
-            <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:flex-nowrap">
-              <span className="grid h-11 w-9 shrink-0 place-items-center rounded-md bg-primary/[0.08] text-[var(--pl-blue-deep)]">
-                <FileText className="h-4 w-4" aria-hidden />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[14px] font-semibold text-foreground">{form.leaseFileName || "Upload the lease PDF"}</span>
-                <span className="block text-[12px] text-muted">{form.leaseFileName ? "Read · term, dates, rent and deposit filled where blank" : "Up to 3.5 MB · we read the term, dates, rent and deposit from it"}</span>
-              </span>
-              {form.leaseFileName ? <WizardChip tone="ok">{form.leaseDocument === "signed" ? "Filed as signed" : "Filed for review"}</WizardChip> : null}
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={busy}
-                data-attr="residents-wizard-lease-pdf-choose"
-                className="min-h-[40px] w-full rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40 disabled:opacity-50 sm:w-auto"
-              >
-                {form.leaseFileName ? "Replace" : "Choose file"}
-              </button>
-            </div>
+        {form.leaseDocument !== "later" && form.leaseFileName ? (
+          <div className="mt-3">
+            <WizardLine label={form.leaseFileName} chip={<WizardChip tone="ok">{form.leaseDocument === "signed" ? "Filed as signed" : "Filed for review"}</WizardChip>} />
           </div>
         ) : null}
       </WizardSection>
