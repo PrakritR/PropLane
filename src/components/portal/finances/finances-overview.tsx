@@ -118,13 +118,6 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   const [error, setError] = useState("");
   const [month, setMonth] = useState("");
   const [clock, setClock] = useState(0);
-  const [rentDue, setRentDue] = useState<{ dueCents: number; collectedCents: number; percent: number | null } | null>(null);
-  useEffect(() => {
-    if (!month) return; let cancelled = false;
-    const query = new URLSearchParams({ period: month, ...(propertyId ? { propertyId } : {}) });
-    fetch(`/api/reports/rent-due?${query}`).then(async res => { if (!res.ok) throw new Error("Could not load rent due"); return res.json(); }).then(data => { if (!cancelled) setRentDue(data); }).catch(() => { if (!cancelled) setRentDue(null); });
-    return () => { cancelled = true; };
-  }, [month, propertyId, userId]);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const refresh = (event: Event) => { if (!invalidateFinancialActivity(event)) return; setSummary(null); setBalance(null); setOwed(undefined); setBillCount(undefined); setError(""); setRevision(n => n + 1); };
@@ -172,9 +165,9 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
         <FieldSingleSelect hideLabel label="Month" value={month} onChange={setMonth} triggerClassName={FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} dataAttr="finances-month"
           options={[...months].reverse().map(m => ({ value: m.key, label: new Date(`${m.key}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" }) }))} />
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4">
+      <div className="grid grid-cols-3">
         {tile("Revenue", totals.revenueCents, activityHref("in"), undefined, undefined, "positive")}{tile("Expenses", totals.expenseCents, activityHref("out"))}
-        {tile("Profit", totals.profitCents, undefined, undefined, undefined, "positive")}{tile("Rent collected", rentDue?.collectedCents, undefined, rentDue?.dueCents ? `of ${wholeMoney(rentDue.dueCents)} due · ${rentDue.percent}%` : undefined)}
+        {tile("Profit", totals.profitCents, undefined, undefined, undefined, "positive")}
       </div>
     </div>
     <MonthlyProfitChart onMonthSelect={setMonth} points={months.map(m => {
