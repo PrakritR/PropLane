@@ -13,13 +13,13 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 export const WorkspaceUploadTarget = createContext<HTMLElement | null>(null);
 
 /**
- * True when the pop-up draws ONE Upload icon at its top level (`AddWorkspace`'s `headerUpload`).
- * A step strip then stays out of the header: it keeps its reading / replace-confirm / filled
- * states, but draws no second Upload icon of its own in the blank state.
+ * True when the pop-up itself draws the ONE "Start from a file" card (`AddWorkspace`'s
+ * `headerUpload`, rendered at the top of the first step). A step's own file strip then keeps its
+ * reading / replace-confirm / filled states but draws no second card in the blank state.
  */
 export const WorkspaceHeaderUploadPresent = createContext(false);
 
-/** One more door in the Upload icon's menu — another way to bring a file in (e.g. a whole-portfolio import). */
+/** One more door on the "Start from a file" card — another way to bring a file in (e.g. a whole-portfolio import). */
 export type WorkspaceUploadExtraItem = {
   label: string;
   icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;

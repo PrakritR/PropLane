@@ -78,8 +78,10 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   // query and rail label are `reminders` so this does not collide with Account
   // Notifications.
   notifications: entryPoint("notifications", "Reminder settings", "automation"),
-  // Every other section has a settings gear; Communication did not. This
-  // entry is what that new gear (in `pro-communication.tsx`) opens.
+  // Communication has no toolbar gear of its own (captain, 2026-10-05) — this
+  // entry survives as the label/title/`data-attr` source for the central
+  // Settings hub's Communication tab, resolved through
+  // `getSettingsEntryPointForTab`.
   communication: entryPoint("communication", "Communication settings", "communication"),
   vendorServices: entryPoint("vendor-services", "Service settings"),
   vendorCalendar: entryPoint("vendor-calendar", "Calendar settings"),
@@ -109,10 +111,10 @@ export function getSettingsEntryPoint(id: ManagerSettingsModuleId): ManagerSetti
  * caller that only knows which tab it is about to open (e.g. a shared modal
  * instance reused across several resident-detail subsections). Falls back to
  * the generic resident-detail entry only for a tab with no dedicated entry
- * point at all — every current `ManagerPortalSettingsTab` value
- * has its own gear today (`communication` and `automation`/`notifications`
- * included); the fallback exists for defensiveness, not because any current
- * tab still needs it.
+ * point at all — every current `ManagerPortalSettingsTab` value has its own
+ * entry here (`communication` and `automation`/`notifications` included, even
+ * though Communication no longer draws a gear); the fallback exists for
+ * defensiveness, not because any current tab still needs it.
  */
 export function getSettingsEntryPointForTab(
   tab: ManagerPortalSettingsTab,

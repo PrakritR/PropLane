@@ -221,7 +221,7 @@ export function PromotionNewModal({
     return true;
   }
 
-  /** The pop-up header's Upload icon (every step): pick the "Upload your own" kind (the existing
+  /** The pop-up's "Start from a file" card (first step): pick the "Upload your own" kind (the existing
    *  "Switch promotion type?" confirm guards typed flyer / post content), land on Content where
    *  PromotionUploadComposer shows the file, and feed it the chosen file. */
   const pickUploadFromHeader = async (file: File) => {

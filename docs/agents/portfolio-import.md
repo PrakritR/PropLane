@@ -3,7 +3,9 @@
 A manager switching to PropLane uploads whatever files they have — a rent
 roll, an owner's own sheet, an AppFolio or Buildium export, PDFs — at
 `/portal/properties/import`, reviews ONE proposal covering everything the
-files describe, and creates it. Read this before touching
+files describe, and creates it. The Properties list has no Import icon of its
+own: the one in-product door is **"Import a portfolio"** on the New property
+pop-up's "Start from a file" card (captain, Oct 6). Read this before touching
 `src/lib/portfolio-import/`, `src/app/api/portal/portfolio-import/`, or
 `src/lib/tools/domains/portfolio-import.ts`.
 

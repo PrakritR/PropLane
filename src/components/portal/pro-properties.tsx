@@ -521,7 +521,7 @@ export function ManagerProperties({
                   data-attr="manager-properties-share-open"
                   onClick={() => openShareListing()}
                 />
-                {/* No Import icon: a portfolio import is a door in the New property pop-up's Upload menu. */}
+                {/* No Import icon: a portfolio import is a door on the New property pop-up's "Start from a file" card. */}
               </>
             }
             primary={

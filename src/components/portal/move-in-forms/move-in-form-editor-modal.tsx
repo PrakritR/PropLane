@@ -221,7 +221,7 @@ export function MoveInFormEditorModal({
     }
   };
 
-  /** The pop-up header's Upload icon (every step, Add mode): jump to the Form step that hosts the PDF row, set Start from = Upload a PDF, then run the one existing handler. */
+  /** The pop-up's "Start from a file" card (first step, Add mode): jump to the Form step that hosts the PDF row, set Start from = Upload a PDF, then run the one existing handler. */
   const pickPdfFromHeader = (file: File) => {
     setStep(0);
     if (startsFrom !== "upload") changeStartsFrom("upload");

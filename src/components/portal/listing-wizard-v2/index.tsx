@@ -125,8 +125,9 @@ export function ListingWizardV2({
 }: {
   onClose: () => void;
   /**
-   * The header's ONE Upload icon, drawn on every step of a new property (the file reader the Basics strip
-   * already uses). Picking a file jumps to Basics first, where the strip shows its reading / replace confirm.
+   * The ONE "Start from a file" card, drawn at the top of a new property's first step (the file reader the
+   * Basics strip already uses). Picking a file jumps to Basics first, where the strip shows its reading /
+   * replace confirm.
    */
   headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems" | "chips">;
   /**

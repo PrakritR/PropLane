@@ -617,10 +617,15 @@ signature.
   gone. An archive of prior executions on the row is the fix; it needs the
   amendment lane's owner.
 
-### New terms (Signed tab)
+### Send new lease (Signed tab)
 
-One **New terms** header action on Fully Signed rows, including
-`externallySignedLease`. `renewLease` archives the prior PDF/HTML onto
+One **Send new lease** header action on Fully Signed rows, including
+`externallySignedLease` (it replaced the old "New terms" label and sheet, captain
+Oct 6). It opens the standard pop-up — **Lease** (a PropLane template, or an
+uploaded PDF through that step's "Start from a file" card) · **Terms**, prefilled
+from the current lease · **Review & send**, with the Resident-sees preview —
+over the SAME write, uploaded-lease reader and send gate as before
+(`lease-send-new-modal.tsx`). `renewLease` archives the prior PDF/HTML onto
 `signedLeaseSnapshots`, clears signatures and the old executed PDF, and stashes
 `pendingRenewal`. Listing `rooms[].monthlyRent` is never written — house
 advertised price stays put. Future / pending rent follows the new terms only

@@ -125,7 +125,7 @@ export function CreateWorkspace({
   onImportPortfolio,
 }: {
   onClose: () => void;
-  /** The pop-up's Upload menu offers "Import a portfolio" (a rent roll of several properties and their residents) when given. */
+  /** The pop-up's "Start from a file" card offers "Import a portfolio" (a rent roll of several properties and their residents) when given. */
   onImportPortfolio?: () => void;
   /**
    * Footer Delete discarded the draft(s): the host forgets any "open the draft I just saved" memory before
@@ -154,7 +154,7 @@ export function CreateWorkspace({
   /** blank: the editor on a listing typed by hand; import: the Found list; edit: one imported property open. */
   const [phase, setPhase] = useState<"blank" | "import" | "edit">("blank");
   // The Properties list has no Import icon of its own: a whole rent roll (several properties and their
-  // residents) is one more door in this pop-up's Upload menu, when the host can take the manager there.
+  // residents) is one more door on this pop-up's "Start from a file" card, when the host can take the manager there.
   const portfolioImportItems = useMemo(
     () => (onImportPortfolio ? [{ label: "Import a portfolio", icon: Building2, onSelect: onImportPortfolio, dataAttr: "listing-v2-header-import-portfolio" }] : undefined),
     [onImportPortfolio],
@@ -391,7 +391,7 @@ export function CreateWorkspace({
   const needLook = entries.filter((e) => e.property.needsLook.length > 0).length;
   const fileName = read.kind === "found" ? read.understanding.fileName : read.kind === "reading" ? read.fileName : null;
 
-  /** The header Upload icon on an open imported property: a file replaces the batch only when the manager says so. */
+  /** The "Start from a file" card on an open imported property: a file replaces the batch only when the manager says so. */
   const onPickFileOverEntries = useCallback(
     (file: File) => {
       void confirm({

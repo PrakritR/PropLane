@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 
-/** One accept list for the composer's input and the New promotion pop-up's header Upload icon. */
+/** One accept list for the composer's input and the New promotion pop-up's "Start from a file" card. */
 export const PROMOTION_UPLOAD_ACCEPT = "image/*,application/pdf,.pdf";
 
 export function PromotionUploadComposer({

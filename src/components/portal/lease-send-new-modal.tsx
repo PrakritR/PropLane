@@ -2,12 +2,12 @@
 
 /**
  * Send new lease — a signed lease's replacement, in the standard pop-up shell (the New property wizard's:
- * header with the one Upload icon, step rail, the "Resident sees" preview flush right, centred step count,
+ * header, the one "Start from a file" card on the first step, step rail, the "Resident sees" preview flush right, centred step count,
  * primary on the right).
  *
  *   Lease  →  Terms  →  Review & send
  *
- * Lease: generate it from the property's lease template, or upload a lease PDF (the header Upload icon).
+ * Lease: generate it from the property's lease template, or upload a lease PDF (the "Start from a file" card).
  * Terms: term, start, end and rent, prefilled from the current lease. Review & send: what the resident gets.
  *
  * Nothing here is a new server path. The terms go through the existing amend route (`postLeaseRenewal`, the

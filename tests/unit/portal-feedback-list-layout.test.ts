@@ -8,11 +8,12 @@ const source = readFileSync(
 );
 
 describe("feedback list layout", () => {
-  it("uses the portal's dashed add row, not a desktop feedback table", () => {
-    // Feedback briefly dropped its dashed add row; "restore dashed add rows on
-    // all manager list sections" put it back, so this section now follows the
-    // same add affordance as every other portal list.
-    expect(source).toContain("<PortalListAddRow");
+  it("creates from the header's round +, not a dashed add row or a desktop table", () => {
+    // The dashed bottom "+ Add" row is gone from every list: the header command
+    // band's round blue + is the one create action (AGENTS.md § Portal UI system).
+    expect(source).toContain("<PortalListControlStack");
+    expect(source).toContain("<PortalPrimaryIconAction");
+    expect(source).not.toContain("<PortalListAddRow");
     // The mobile-card list stays — this section never goes back to a table.
     expect(source).not.toContain("<table");
   });

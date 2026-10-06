@@ -22,10 +22,15 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   Vendor catalog `BookOpen` · Payment setup `Wrench` ·
   Set up messaging `Phone` · Export CSV `Download` · Plan credit `Coins`
   (admin Accounts only — a global per-plan default, not a per-row action) ·
-  Import your portfolio `Upload` (Properties) · Send application link `Send`
-  (Applications).
-- The primary is `PortalPrimaryIconAction`: `Plus` for "add";
-  `MessageSquarePlus` / `PenSquare` (New message), `Upload` (documents),
+  Send application link `Send` (Applications). **No `Upload` utility on a list
+  command bar** (captain, Oct 6): reading a file in belongs to the Add pop-up's own
+  "Start from a file" card, so Properties lost Import your portfolio and Leases and
+  Applications lost their Upload glyph — see
+  [`ui-page-structure.md`](agents/ui-page-structure.md) § 4b. A single record's
+  header may still carry one (replacing THAT lease's PDF).
+- The primary is `PortalPrimaryIconAction`: `Plus` for "add" (Documents included —
+  its + is a plus, and uploading is what that + opens);
+  `MessageSquarePlus` / `PenSquare` (New message) and
   `FileBarChart` (reports) where the job is not "add". Keep the accessible name
   specific ("Add property"), keep the `data-attr`. Linking a channel calendar is
   NOT a primary — it is the `CalendarSync` utility above.
@@ -34,9 +39,12 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   check, Send lease) renders as a labelled pill, because that verb is the
   decision the section exists for and must read without a hover. The band's
   secondary utilities stay icon-only exactly as above.
-- Exactly one add per screen: the bar's primary, plus the titled
-  `PortalListEmptyCard` button only while the list is empty. The dashed
-  `PortalListAddRow` survives only for an embedded ledger with no bar.
+- Exactly one add per screen: the bar's primary, and nothing else. An empty list
+  shows `PortalListEmptyCard` titled off that add label ("Add lease" → "No leases
+  yet") with no Add button of its own, and **no list draws a dashed "+ Add" row**
+  under or inside it any more (captain, Oct 6) — `PortalListAddRow` survives only
+  in the retired `pro-add-listing-form` and the listing wizard's own look-alike
+  (occupied dates).
 - `ManagerPortalPageShell` no longer takes `primaryAction`; the headline row
   it drew is gone. Guard: `tests/unit/manager-portal-no-headline-actions.test.ts`.
 - Phone: tabs strip, then search + icons + primary on one row; when a bar has

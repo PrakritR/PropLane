@@ -3138,8 +3138,8 @@ export function ListingEditorV2({
 }: {
   submission: ManagerListingSubmissionV1;
   /**
-   * The pop-up's ONE Upload icon, drawn in the header on every step (Upload file, Take photo, Scan).
-   * Picking a file jumps to Basics first, where the "Start from a file" strip shows the reading or the
+   * The pop-up's ONE "Start from a file" card, drawn at the top of the first step (Upload file, Take photo,
+   * Scan). Picking a file jumps to Basics first, where that step's strip shows the reading or the
    * "Replace what you typed?" confirm, then hands the file to `onPick`. Absent on an edit.
    */
   headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems" | "chips">;

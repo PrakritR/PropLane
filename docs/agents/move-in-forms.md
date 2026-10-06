@@ -59,8 +59,10 @@ the action-event bus, domain `move_in_form`).
     "Finish your forms first" linking to the form (`useResidentFormsBlock`, display only).
   - Approval: `POST /api/manager-applications` (single-row upsert and batch `replace`), `PATCH /api/portal/resident-approval` and the
     agent's `update_application_bucket` refuse the transition INTO approved with 409 (`blocked: "forms"`) while an approval-blocking
-    form for that application is unsubmitted; an already-approved row stays editable. The Approve popup disables its button and
-    names the waiting form (`useApprovalFormsBlock`, display only).
+    form for that application is unsubmitted; an already-approved row stays editable. A forms read that FAILED refuses too, but as a
+    distinct retryable **503** (`blocked: "forms-check"`, `APPROVAL_FORMS_CHECK_FAILED_MESSAGE`) that names no form — nothing is known,
+    so nothing is named (the agent tool throws that same message). The Approve popup disables its button and names the waiting form
+    (`useApprovalFormsBlock`, display only).
 - **Editing a pending form**: `PATCH /api/move-in-forms/:id` (manager) edits `dueAt`, `blocks` and `questions` on a `sent` copy only.
   It re-derives the manager's edit scope from the session (a body id is never trusted; a foreign or resident caller gets 404), writes
   with a compare-and-swap on `status = 'sent'` and answers 409 once the copy is submitted or cancelled. A draft answer to a question

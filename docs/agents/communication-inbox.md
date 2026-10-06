@@ -58,6 +58,15 @@ record's own `recordRef`, else the newest thread with the contact, else none
 (a send then stamps a brand-new thread with this recordRef), exactly as
 before.
 
+**For a manager it is the full thread pane**, not a compact card: the renderer
+defaults `fill` to `role === "manager"` (`record-section-renderers.tsx`), so every
+manager record's Communication section fills the page, pins the real composer with
+its Schedule-for-later clock, and draws scheduled sends as the same pinned
+"N scheduled" card the main thread uses (`useThreadScheduledCards` feeding
+`InboxThreadView underHeader`, matching "Scheduled messages sit in a bar under the
+conversation name" below). Same composer and same send path — nothing about
+scheduling is record-specific.
+
 It reads the SAME persisted inbox cache every other Communication surface
 does, via `loadPersistedInbox` — synchronous, and empty on a cold page load
 until `syncPersistedInboxFromServer` completes at least once. That gap used to

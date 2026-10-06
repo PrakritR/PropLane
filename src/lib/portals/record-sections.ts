@@ -331,7 +331,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       services: [{ id: "add-service", label: "Add service", icon: Plus, tone: "primary" }],
       tours: [{ id: "add-tour", label: "Add tour", icon: Plus, tone: "primary" }],
       // One header action: the + (Add document). "Upload for resident" (read a filled application or
-      // lease PDF into this record) is the Upload icon in that pop-up's header.
+      // lease PDF into this record) is a second door on that pop-up's "Start from a file" card.
       documents: [
         { id: "upload", label: "Add document", icon: Upload, tone: "primary" },
       ],

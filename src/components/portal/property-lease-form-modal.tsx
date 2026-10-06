@@ -571,7 +571,7 @@ export function PropertyLeaseFormModal({
     );
   };
 
-  // The pop-up header's single Upload icon (every step, Add mode). Same door as the Lease step's
+  // The pop-up's one "Start from a file" card (first step, Add mode). Same door as the Lease step's
   // strip: jump to the step that hosts the strip + staged-import card so the reading state and the
   // "Replace what you typed?" confirm are visible, then run the one existing handler.
   const onPickLeaseFromHeader = (file: File) => {

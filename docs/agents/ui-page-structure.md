@@ -64,8 +64,9 @@ anatomy: the same list header, rows, ⋯ menus, record pages, pop-ups and Commun
 They show fewer sections, never a different layout.
 - **Communication** is called "Communication" in every portal (not "Inbox") and uses the manager
   layout: the work phone number and work email cards at the very top of the left pane (one
-  compact line each), then a left list card (Active | Archived tabs with counts, search, filter, gear, round
-  compose), conversation rows with ⋯, and the thread with the real composer on the right.
+  compact line each), then a left list card (Active | Archived tabs with counts, search, filter, round
+  compose — no settings gear: Communication-wide preferences live on the central Settings hub's
+  Communication tab), conversation rows with ⋯, and the thread with the real composer on the right.
 - **Every list page has status tabs on the left and icon buttons on the right**, like manager
   Residents' Potential · Current · Past, using the buckets that fit the section (Services: Open ·
   Scheduled · Done; Payments: Due · Paid; Inspections: Move-in · Move-out; Jobs: New · Scheduled ·
@@ -153,10 +154,12 @@ with the outcome. Phone: a bottom sheet with a grab handle. Every button has a l
 Every multi-field create or edit (Add property / listing editor, Schedule tour, Add resident,
 Add applicant, Add lease, …) is the same **full-screen editor**, never a small modal:
 - **Header:** title (+ status chip and address for an existing record), save state ("Not saved
-  yet" / "Saved"), the door's **one** Upload icon when it reads a file (`AddWorkspace` /
-  `ListingEditorV2` `headerUpload`: Upload file · Take photo · Scan, on every step, jumping to the
-  step that hosts the reading / replace-confirm strip), "✦ Ask PropLane", ✕. A step's own
-  "Start from a file" strip then draws no second Upload icon (`WorkspaceHeaderUploadPresent`).
+  yet" / "Saved"), "✦ Ask PropLane", ✕. No Upload icon: a door that reads a file declares it with
+  `AddWorkspace` / `ListingEditorV2` `headerUpload` and that renders the shared **"Start from a
+  file"** card (`WorkspaceFileCard`: upload tile, title, the flow's real format/size chips, Choose
+  file, plus any extra door like "Import a portfolio") at the top of the **first step** (captain,
+  Oct 6). A step's own file strip keeps its reading / filled / replace-confirm states but draws no
+  second card in the blank state (`WorkspaceHeaderUploadPresent`).
 - **Left column:** a drop card ("Add documents" / "Contact and tour") or cover photo; a "● N
   things to finish ›" card; the step list (title + one-line summary, red dot while
   required info is missing, the active step as a white card with a blue outline).

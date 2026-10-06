@@ -333,7 +333,7 @@ export function AddResidentWizard({
     [form.documents, patch, readPdf, showToast],
   );
 
-  /** The pop-up header's Upload icon (every step of an add): jump to Contact, where the reading and
+  /** The pop-up's "Start from a file" card (first step of an add): jump to Contact, where the reading and
    *  "Filled from your file" states live, then run the same reader as the Contact strip. */
   const onPickStartFileFromHeader = useCallback(
     (file: File) => {

@@ -126,7 +126,8 @@
     "test:lease-preview": "playwright test --config tests/browser/lease-preview.config.ts",
     "test:calendar-availability": "playwright test --config tests/browser/calendar-availability.config.ts",
     "test:payments-upcoming": "playwright test --config tests/browser/payments-upcoming.config.ts",
-    "test:central-payments": "playwright test --config tests/browser/central-payments.config.ts"
+    "test:central-payments": "playwright test --config tests/browser/central-payments.config.ts",
+    "test:lane-integration": "playwright test --config tests/browser/lane-integration-1006.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

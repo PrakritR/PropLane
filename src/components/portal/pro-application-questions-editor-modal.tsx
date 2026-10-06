@@ -1182,7 +1182,7 @@ export function ManagerApplicationQuestionsEditorModal({
     }
   };
 
-  // The ONE Upload icon in the Add application header (every step, add mode only). Picking a file sets
+  // The ONE "Start from a file" card on the Add application pop-up's first step (add mode only). Picking a file sets
   // Start from = Upload, jumps to the Application step that hosts the strip (so its reading state and the
   // staged "Apply changes from the file" card are visible), then runs the same import the strip runs.
   const headerUpload = templateEditorMode === "add" && applicationPreviewPropertyId && !isBulkSave

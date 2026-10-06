@@ -1022,6 +1022,48 @@ describe("update_application_bucket", () => {
     expect((tables.manager_application_records![1]!.row_data as Row).bucket).toBe("pending");
     expect(auditRows(tables)).toHaveLength(0);
   });
+
+  // The approval gate is on EVERY approve path, the agent tool included: a form sent with
+  // "Blocks: Approval" and still unsubmitted refuses the move, and writes nothing.
+  // The HTTP twin of this is tests/unit/application-approve-forms-block.test.ts.
+  it("refuses approval while a form that blocks approval is unsubmitted, and writes nothing", async () => {
+    const seed = residentSeed() as Record<string, Row[]>;
+    seed.resident_move_in_forms = [
+      {
+        id: "form_1",
+        application_id: "app_1",
+        form_id: "f1",
+        status: "sent",
+        sent_at: "2026-10-03T00:00:00Z",
+        snapshot: { kind: "other", blocks: "approval" },
+      },
+    ];
+    const { ctx, tables } = makeWriteCtx(seed);
+    const res = await executeWrite(updateApplicationBucketTool, ctx, { applicationId: "app_1", bucket: "approved" });
+    expect(res).toMatchObject({ ok: false });
+    if (!res.ok) expect(res.error).toContain("form");
+    expect((tables.manager_application_records![0]!.row_data as Row).bucket).toBe("pending");
+    expect(tables.profiles!.find((p) => p.id === "u1")!.application_approved).toBe(false);
+  });
+
+  it("goes through once that form is submitted", async () => {
+    const seed = residentSeed() as Record<string, Row[]>;
+    seed.resident_move_in_forms = [
+      {
+        id: "form_1",
+        application_id: "app_1",
+        form_id: "f1",
+        status: "submitted",
+        sent_at: "2026-10-03T00:00:00Z",
+        submitted_at: "2026-10-04T00:00:00Z",
+        snapshot: { kind: "other", blocks: "approval" },
+      },
+    ];
+    const { ctx, tables } = makeWriteCtx(seed);
+    const res = await executeWrite(updateApplicationBucketTool, ctx, { applicationId: "app_1", bucket: "approved" });
+    expect(res).toMatchObject({ ok: true });
+    expect((tables.manager_application_records![0]!.row_data as Row).bucket).toBe("approved");
+  });
 });
 
 // ---------------------------------------------------------------------------

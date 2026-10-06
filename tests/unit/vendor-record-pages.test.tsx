@@ -3,7 +3,7 @@
 // (PLAN-0920-1058, area 1c): a list row navigates to its own page instead of
 // expanding inline / opening a modal.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
 const navigate = vi.fn();
@@ -231,10 +231,15 @@ describe("vendor payout record page", () => {
     );
     await screen.findAllByText("Replace water heater");
 
-    const receiptButton = await screen.findByRole("button", { name: "Receipt" });
+    await screen.findByRole("button", { name: "Receipt" });
     expect(screen.getByRole("button", { name: "Refund" })).toBeTruthy();
 
-    fireEvent.click(receiptButton);
-    expect(openSpy).toHaveBeenCalledWith("/print/vendor-payout/payout-1", "_blank", "noopener");
+    // The Receipt button appears as soon as `feeBps` lands, but the payout row it
+    // prints is still resolving; clicking on that first paint did nothing and made
+    // this assertion fail under a loaded full-suite run. Retry until the row is in.
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Receipt" }));
+      expect(openSpy).toHaveBeenCalledWith("/print/vendor-payout/payout-1", "_blank", "noopener");
+    });
   });
 });

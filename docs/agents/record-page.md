@@ -79,16 +79,19 @@ longer exists — the phone has no sticky action of its own to prime.
 
 ## Manager resident record (2026-10-05)
 
-Rail: RESIDENT (Overview · Tours · Application · Background check), HOME (Lease · Move in · Payments ·
-Services, current residents only · Documents · Communication, last). No Activity tab; Inspections is a
-Move in sub-tab (`/move-in/inspections`, and an old `/inspections` link redirects there).
+Rail: RESIDENT (Overview · Tours · Application · Background check), HOME (Lease · Forms · Move in ·
+Payments · Services, current residents only · Documents · Communication, last). No Activity tab;
+Inspections is a Move in sub-tab (`/move-in/inspections`, and an old `/inspections` link redirects
+there). Forms is owned by [`move-in-forms.md`](move-in-forms.md) § Manager Forms page.
 
 The record's top-right icons are **Edit and Delete, and nothing else**, identical on every tab: the
 one `PortalRecordActions` in `pro-residents.tsx` publishes them from the registry's tab-independent
 `headerActions`, and no tab body may publish a second set (the slot is single, last wins). Everything
 that used to crowd that corner is an action of the tab it belongs to — Message is Communication's
 composer, Share · Archive (· Send invite, when there is no login yet) are the Overview tab's ⋯,
-Send application is Application's blue +, Upload for resident sits beside Documents' own +.
+Send application is Application's blue +, and Documents has only its own + (Add document) — "Upload
+for resident" is a second door on that pop-up's "Start from a file" card ("Read a filled application
+or lease"), not a header icon of its own.
 
 A tab's own actions are icons in its section header card: `ManagerResidentSectionToolbar` carries
 **no section name** (the rail already says which section is open) — only the tabs as
@@ -102,8 +105,9 @@ recorded by hand. Never `applicationShowsBackgroundCheck`, which says a check me
 body keeps rendering the panel, so a pending check still shows its true status; Lease keeps
 Download only; Documents
 draws its kinds (Application · Lease · Payments · Inspections · Other) as that same header card's
-tabs, never a second control row. Move in's sub-tabs are the resident's My home tabs in the same
-order, and an unrecognised sub-tab slug lands on Forms (`parseResidentRecordMoveInTab`).
+tabs, never a second control row. Move in's sub-tabs are Placement · Move-in details · Roommates ·
+Inspections, opening on Placement, and an unrecognised sub-tab slug lands there too
+(`parseResidentRecordMoveInTab`); `/move-in/forms` redirects to the record's own Forms item.
 
 Placement and Move-in details resolve from the record's OWN application row, never every row sharing
 the email, or an approved tenancy at another property describes this one. Roommates is a server read,
