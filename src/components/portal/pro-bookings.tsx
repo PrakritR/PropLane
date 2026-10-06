@@ -40,7 +40,7 @@ import { filterBookingEntriesByRoom, type PropertyBookingEntry } from "@/lib/cha
 import { deleteRoomDateBlock, saveRoomDateBlock } from "@/lib/channel-calendar/room-date-blocks";
 import { sendBookingResidentInviteRequest } from "@/lib/booking-resident-invite-client";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
-import { WORKSPACE_SELECTION_EVENT, activeWorkspacePropertyIds } from "@/lib/workspaces/selection";
+import { WORKSPACE_SELECTION_EVENT, activeWorkspaceLivePropertyIds } from "@/lib/workspaces/selection";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
@@ -619,7 +619,7 @@ export function ManagerBookings({
     [userId, propertyTick],
   );
 
-  const workspacePropertyIds = activeWorkspacePropertyIds();
+  const workspacePropertyIds = activeWorkspaceLivePropertyIds();
   const propertyIds = useMemo(() => {
     if (workspacePropertyIds !== null) return workspacePropertyIds;
     return propertyOptions.map((option) => option.id);

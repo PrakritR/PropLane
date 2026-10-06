@@ -35,11 +35,15 @@ const subscribe = (notify: () => void) => { window.addEventListener("resize", no
 const dateLabel = (key: string, options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }) => new Date(`${key}T12:00:00`).toLocaleDateString("en-US", options);
 const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
 
-function propertyRooms(propertyId: string, entries: PropertyBookingEntry[]) {
+/**
+ * The bookable rows of one property: a row per saved room (the room picker's
+ * list, so a blank name reads "Room n"), else booked rooms, else the whole home.
+ */
+export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[]) {
   const property = getPropertyById(propertyId);
+  const seen = new Map<string, { id: string; label: string; rent: string }>();
   const configured = property?.listingSubmission?.rooms ?? [];
   const options = getRoomOptionsForProperty(propertyId, { includeUnavailable: true });
-  const seen = new Map<string, { id: string; label: string; rent: string }>();
   for (const option of options) {
     const id = parseRoomChoiceValue(option.value).listingRoomId ?? "";
     const room = configured.find(row => row.id === id);
