@@ -164,15 +164,24 @@ export async function handleStripeTransferReversed(db: SupabaseClient, transfer:
       : transfer.source_transaction?.id ?? null;
   if (!chargeId) return;
   const { data: allocations, error } = await db.from("platform_payment_holds")
-    .select("id,owner_user_id,stripe_charge_id,stripe_transfer_id,source_verified_at")
+    .select("id,owner_user_id,source_allocation_mode,stripe_charge_id,stripe_transfer_id,source_verified_at")
     .eq("stripe_charge_id", chargeId).limit(2);
   if (error) throw new Error("Could not resolve reversed transfer source.");
   if (!allocations?.length) return;
-  if (allocations.length !== 1 || allocations[0].stripe_transfer_id !== transfer.id ||
-      !allocations[0].source_verified_at || transfer.currency !== "usd") {
+  if (allocations.length !== 1) {
     throw new Error("Reversed transfer does not match one verified allocation.");
   }
   const hold = allocations[0];
+  // Only a CENTRAL capture reverses through a reservation, which is what stamps the
+  // `platform_refund_attempt` metadata the loop below settles on. A destination charge
+  // refunded with `reverse_transfer: true` emits an auto-generated reversal carrying no
+  // metadata, and `handleStripeRefund` already books that refund on the legacy ledger
+  // path — the same scoping it and `handleStripeTransferCreated` use.
+  if (hold.source_allocation_mode !== "hold") return;
+  if (hold.stripe_transfer_id !== transfer.id ||
+      !hold.source_verified_at || transfer.currency !== "usd") {
+    throw new Error("Reversed transfer does not match one verified allocation.");
+  }
   const reversals = transfer.reversals;
   if (!reversals || reversals.has_more || !reversals.data.length ||
       reversals.data.reduce((sum, leg) => sum + leg.amount, 0) !== transfer.amount_reversed) {

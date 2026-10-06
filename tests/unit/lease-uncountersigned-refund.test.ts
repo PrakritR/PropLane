@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   listUncountersignedLeasesPastDeadline,
+  refundUncountersignedMoveInCharges,
   UNCOUNTER_SIGN_REFUND_AFTER_DAYS,
 } from "@/lib/lease-uncountersigned-refund.server";
 
@@ -72,5 +73,145 @@ describe("the daily scan narrows in the database", () => {
     const { db } = recordingDb([stale, countersigned, fresh]);
     const out = await listUncountersignedLeasesPastDeadline(db, now);
     expect(out.map((lease) => lease.leaseId)).toEqual(["lease-stale"]);
+  });
+});
+
+/**
+ * The cron voids the lease and reports it refunded. If a move-in charge is still
+ * holding the resident's money, voiding says the opposite of what happened — so a
+ * refusal that needs review fails the lease closed, exactly as a throw used to,
+ * while the refunds that did succeed stay recorded.
+ *
+ * A skip is NOT a refusal: `decideChargeRefund` skips a `security_deposit` (Return
+ * deposit owns it) and an already-refunded charge, and no money is outstanding for
+ * either. Treating those as "still held" would stall every lease forever.
+ */
+describe("a move-in charge that still holds money blocks the void", () => {
+  type ChargeRow = { id: string; status: string; row_data: Record<string, unknown> };
+
+  const lease = {
+    id: "lease-1",
+    manager_user_id: "mgr-1",
+    resident_email: "r@x.co",
+    row_data: {
+      status: "Manager Signature Pending",
+      residentSignature: { signedAtIso: "2026-01-01T00:00:00.000Z" },
+      residentEmail: "r@x.co",
+      residentName: "Rae",
+    },
+  };
+
+  function paidCharge(id: string, kind: string): ChargeRow {
+    return { id, status: "paid", row_data: { id, kind, residentEmail: "r@x.co", amountLabel: "$1,000.00" } };
+  }
+
+  function harness(charges: ChargeRow[]) {
+    const voided: string[] = [];
+    const refundedIds: string[] = [];
+    const db = {
+      from: (table: string) => {
+        let wantedId: string | null = null;
+        const q: Record<string, unknown> = {
+          select: () => q,
+          eq: (column: string, value: unknown) => {
+            if (column === "id" || column === "source_charge_id") wantedId = String(value);
+            return q;
+          },
+          lte: () => q,
+          is: () => q,
+          filter: () => q,
+          order: () => q,
+          range: () => q,
+          maybeSingle: async () => ({
+            data: table === "ledger_entries"
+              ? { stripe_charge_id: `ch_${wantedId}`, amount_cents: 100_000 }
+              : table === "portal_lease_pipeline_records"
+                ? lease
+                : charges.find((c) => c.id === wantedId) ?? null,
+            error: null,
+          }),
+          update: () => q,
+          upsert: async (row: Record<string, unknown>) => {
+            if (table === "portal_household_charge_records") refundedIds.push(String(row.id));
+            if (table === "portal_lease_pipeline_records") {
+              voided.push(String((row.row_data as { status?: string })?.status ?? ""));
+            }
+            return { error: null };
+          },
+          then: (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
+            Promise.resolve({
+              data: table === "portal_lease_pipeline_records" ? [lease] : charges,
+              error: null,
+            }).then(resolve),
+        };
+        return q;
+      },
+    };
+    return { db: db as never, voided, refundedIds };
+  }
+
+  const now = new Date("2026-10-03T00:00:00.000Z");
+
+  async function railSpy() {
+    const rail = await import("@/lib/household-charge-refund-rail.server");
+    return { rail, spy: vi.spyOn(rail, "refundPaidHouseholdCharge") };
+  }
+
+  it("leaves the lease untouched and counts it failed when a charge needs review", async () => {
+    const { rail, spy } = await railSpy();
+    spy.mockRejectedValue(
+      new rail.HouseholdChargeRefundReviewError(rail.PRE_ARBITRATION_REFUND_REVIEW_MESSAGE));
+
+    const { db, voided } = harness([paidCharge("chg-rent", "prorated_first_month_rent")]);
+    const result = await refundUncountersignedMoveInCharges({} as never, db, now);
+
+    expect(result.failed).toBe(1);
+    expect(result.refundedLeases).toBe(0);
+    expect(result.refundedCharges).toBe(0);
+    expect(voided).toHaveLength(0);
+    expect(result.errors[0]).toContain(rail.PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
+    spy.mockRestore();
+  });
+
+  it("keeps the refunds that succeeded while still blocking the void", async () => {
+    const { rail, spy } = await railSpy();
+    spy.mockImplementation(async (_stripe, _db, input: { chargeId: string }) => {
+      if (input.chargeId === "chg-old") {
+        throw new rail.HouseholdChargeRefundReviewError(rail.PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
+      }
+      return { refundId: "re_1", rail: "central" as const };
+    });
+
+    const { db, voided, refundedIds } = harness([
+      paidCharge("chg-rent", "prorated_first_month_rent"),
+      paidCharge("chg-old", "move_in_fee"),
+    ]);
+    const result = await refundUncountersignedMoveInCharges({} as never, db, now);
+
+    expect(result.refundedCharges).toBe(1);
+    expect(refundedIds).toEqual(["chg-rent"]);
+    expect(result.failed).toBe(1);
+    expect(result.refundedLeases).toBe(0);
+    expect(voided).toHaveLength(0);
+    spy.mockRestore();
+  });
+
+  it("voids as before when a skipped deposit sits beside a refunded charge", async () => {
+    const { spy } = await railSpy();
+    spy.mockResolvedValue({ refundId: "re_1", rail: "central" });
+
+    const { db, voided } = harness([
+      paidCharge("chg-rent", "prorated_first_month_rent"),
+      paidCharge("chg-dep", "security_deposit"),
+    ]);
+    const result = await refundUncountersignedMoveInCharges({} as never, db, now);
+
+    // `security_deposit` is skipped by `decideChargeRefund`, never refunded here. A skip
+    // must not read as "money still held", or no lease with a deposit could ever void.
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(result.failed).toBe(0);
+    expect(result.refundedLeases).toBe(1);
+    expect(voided).toEqual(["Voided"]);
+    spy.mockRestore();
   });
 });

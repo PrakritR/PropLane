@@ -91,17 +91,32 @@ export async function listUncountersignedLeasesPastDeadline(
   return out;
 }
 
+/**
+ * Three distinct answers, because "no refund happened" is not one thing:
+ *
+ * - `refunded` — money went back.
+ * - `skipped` — there was nothing for THIS flow to send back: a `security_deposit`
+ *   (it has its own Return deposit flow), an already-refunded charge, one never paid
+ *   through PropLane. No money is outstanding, so the lease may still be voided.
+ * - `needs_review` — the charge is paid and refundable but this flow cannot send it
+ *   back. The resident's money is still held, so the lease must NOT be voided.
+ */
+type ChargeRefundOutcome =
+  | { kind: "refunded" }
+  | { kind: "skipped" }
+  | { kind: "needs_review"; error: string };
+
 async function refundChargeIfPaid(
   stripe: Stripe,
   db: SupabaseClient,
   chargeId: string,
-): Promise<{ refunded: boolean; error?: string }> {
+): Promise<ChargeRefundOutcome> {
   const { data: row } = await db
     .from("portal_household_charge_records")
     .select("id, manager_user_id, status, row_data")
     .eq("id", chargeId)
     .maybeSingle();
-  if (!row) return { refunded: false };
+  if (!row) return { kind: "skipped" };
   const charge = (row.row_data ?? {}) as Record<string, unknown>;
   const { data: payment } = await db
     .from("ledger_entries")
@@ -119,7 +134,7 @@ async function refundChargeIfPaid(
     settled: charge.stripePaymentStatus !== "processing" && charge.stripePaymentStatus !== "pending",
   };
   const decision = decideChargeRefund(ctx);
-  if (!decision.ok) return { refunded: false };
+  if (!decision.ok) return { kind: "skipped" };
 
   const attempt = Number(charge.refundAttempts ?? 0) + 1;
   // One rail decision, made by the payment: a central platform capture is
@@ -135,7 +150,7 @@ async function refundChargeIfPaid(
     });
   } catch (error) {
     if (error instanceof HouseholdChargeRefundReviewError) {
-      return { refunded: false, error: error.message };
+      return { kind: "needs_review", error: error.message };
     }
     throw error;
   }
@@ -157,7 +172,7 @@ async function refundChargeIfPaid(
     },
     { onConflict: "id" },
   );
-  return { refunded: true };
+  return { kind: "refunded" };
 }
 
 async function voidLeaseRow(db: SupabaseClient, leaseId: string, reason: string): Promise<void> {
@@ -234,15 +249,27 @@ export async function refundUncountersignedMoveInCharges(
       }
       const { data: charges } = await chargeQuery;
       let refundedAny = false;
+      let needsReview = false;
       for (const row of charges ?? []) {
         const kind = String((row.row_data as { kind?: string })?.kind ?? "");
         if (!MOVE_IN_CHARGE_KINDS.has(kind)) continue;
-        const { refunded, error } = await refundChargeIfPaid(stripe, db, String(row.id));
-        if (error) result.errors.push(`${lease.leaseId}/${row.id}: ${error}`);
-        if (refunded) {
+        const outcome = await refundChargeIfPaid(stripe, db, String(row.id));
+        if (outcome.kind === "needs_review") {
+          needsReview = true;
+          result.errors.push(`${lease.leaseId}/${row.id}: ${outcome.error}`);
+          continue;
+        }
+        if (outcome.kind === "refunded") {
           refundedAny = true;
           result.refundedCharges += 1;
         }
+      }
+      // Money still held on any move-in charge means the lease stays as it is — voiding it
+      // would report a full refund over a resident who was never made whole. The refunds
+      // that did succeed stay recorded; the lease is counted failed, as a throw used to.
+      if (needsReview) {
+        result.failed += 1;
+        continue;
       }
       if (refundedAny || !(charges ?? []).some((c) => MOVE_IN_CHARGE_KINDS.has(String((c.row_data as { kind?: string })?.kind ?? "")))) {
         await voidLeaseRow(
