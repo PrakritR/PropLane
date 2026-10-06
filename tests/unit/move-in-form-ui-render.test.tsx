@@ -130,21 +130,24 @@ describe("shared question renderer", () => {
 });
 
 describe("builder live preview", () => {
-  it("walks the questions one at a time and starts uploaded forms on the document", () => {
+  it("pages a whole section at a time and starts uploaded forms on the document", () => {
     const onIndex = vi.fn();
-    const questions = [q("a"), q("b")];
+    const questions = [q("a", { section: "Keys" }), q("b", { section: "Keys" })];
     const { rerender } = render(
       <MoveInFormLivePreview name="Keys" source="built" questions={questions} pdfUrl={null} index={0} onIndexChange={onIndex} answers={{}} onAnswersChange={() => {}} />,
     );
+    // Both questions of the one section share step 1 under the section title.
     expect(screen.getByText("Label a")).toBeTruthy();
-    expect(screen.getByText("Step 1 of 2 · Keys")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
-    expect(onIndex).toHaveBeenCalledWith(1);
+    expect(screen.getByText("Label b")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Keys" })).toBeTruthy();
+    expect(screen.getByText("Step 1 of 1 · Keys")).toBeTruthy();
     rerender(
       <MoveInFormLivePreview name="Pets" source="upload" questions={questions} pdfUrl={null} index={0} onIndexChange={onIndex} answers={{}} onAnswersChange={() => {}} />,
     );
-    expect(screen.getByText("Step 1 of 3 · Pets")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 2 · Pets")).toBeTruthy();
     expect(screen.getByText("The PDF shows here")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+    expect(onIndex).toHaveBeenCalledWith(1);
   });
 
   it("shows a placeholder for a question still being typed", () => {

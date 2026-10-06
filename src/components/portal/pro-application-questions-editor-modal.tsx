@@ -14,7 +14,7 @@ import {
   StepHeading,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
-import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
+import { ApplicationFormBuilder, ApplicationSectionPreviewPane, applicationPreviewStepOfSection } from "@/components/portal/application-form-builder";
 import { ApplicationQuestionsEditor } from "@/components/portal/question-editor/application-questions-editor";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
@@ -673,11 +673,17 @@ export function ManagerApplicationQuestionsEditorModal({
   }, [applicationFields]);
   const hasFieldErrors = fieldErrors.size > 0;
 
-  // The Preview pane targets ONE section. It follows whichever section is open
-  // in the editor until the manager picks one in the pane itself — on a phone
-  // the editor list is hidden behind the preview, so the pane has to be able to
-  // walk the sections on its own (dropdown + Previous / Next).
-  const [previewSectionPick, setPreviewSectionPick] = useState<RentalApplicationSectionId | null>(null);
+  // The "Applicant sees" pane pages through the applicant form (shared `PreviewPager`: whole
+  // sections per step, short ones combined). It jumps to the step holding whichever section or
+  // question is open in the editor, until the manager steps with the pane's own arrows — on a phone
+  // the editor list is hidden behind the preview, so the pane walks the form on its own.
+  const [previewSectionPick, setPreviewSectionPickRaw] = useState<RentalApplicationSectionId | null>(null);
+  const [previewStepPick, setPreviewStepPick] = useState<number | null>(null);
+  /** Opening a section or question re-aims the pane at it (drops a manual arrow step). */
+  const setPreviewSectionPick = (id: RentalApplicationSectionId | null) => {
+    setPreviewSectionPickRaw(id);
+    setPreviewStepPick(null);
+  };
   const previewSectionId = useMemo((): RentalApplicationSectionId | null => {
     if (previewSectionPick) return previewSectionPick;
     const openSection = RENTAL_APPLICATION_SECTIONS.find((s) => expandedSectionIds.has(s.id));
@@ -687,30 +693,23 @@ export function ManagerApplicationQuestionsEditorModal({
     );
     return (firstWithQuestions ?? RENTAL_APPLICATION_SECTIONS[0])?.id ?? null;
   }, [previewSectionPick, expandedSectionIds, applicationFields]);
-  const previewSectionIndex = RENTAL_APPLICATION_SECTIONS.findIndex((s) => s.id === previewSectionId);
-  const stepPreviewSection = (delta: number) => {
-    const next = RENTAL_APPLICATION_SECTIONS[previewSectionIndex + delta];
-    if (next) setPreviewSectionPick(next.id);
-  };
-  const previewSection = useMemo(
-    () => RENTAL_APPLICATION_SECTIONS.find((s) => s.id === previewSectionId) ?? null,
-    [previewSectionId],
-  );
-  const previewFields = useMemo(
-    () => applicationFields.filter((f) => (f.section ?? "additional") === previewSectionId),
-    [applicationFields, previewSectionId],
-  );
 
   const visibleQuestionSections = useMemo(
     () => RENTAL_APPLICATION_SECTIONS.filter((section) => section.id !== "review" && !disabledSectionIds.includes(section.id)),
     [disabledSectionIds],
   );
 
-  const previewStepPosition = useMemo(() => {
-    const index = visibleQuestionSections.findIndex((section) => section.id === previewSectionId);
-    if (index < 0) return null;
-    return { index: index + 1, total: visibleQuestionSections.length };
-  }, [previewSectionId, visibleQuestionSections]);
+  const previewStepIndex = useMemo(() => {
+    if (previewStepPick !== null) return previewStepPick;
+    // The step of the focused section, or of the next section that has questions when it has none.
+    const from = Math.max(visibleQuestionSections.findIndex((section) => section.id === previewSectionId), 0);
+    for (const section of visibleQuestionSections.slice(from)) {
+      const step = applicationPreviewStepOfSection(visibleQuestionSections, applicationFields, section.id);
+      if (step >= 0) return step;
+    }
+    return 0;
+  }, [previewStepPick, previewSectionId, visibleQuestionSections, applicationFields]);
+  const previewFormName = templateLabel.trim() || "Application";
 
   const startFromFactLabel = useMemo(() => {
     const provenance =
@@ -1450,8 +1449,9 @@ export function ManagerApplicationQuestionsEditorModal({
             <p className="text-sm text-muted">No questions in this section.</p>
           ) : (
             <ApplicationSectionPreviewPane
-              section={RENTAL_APPLICATION_SECTIONS.find((s) => s.id === sectionId) ?? null}
+              sections={RENTAL_APPLICATION_SECTIONS.filter((s) => s.id === sectionId)}
               fields={sectionQuestions}
+              formName={previewFormName}
               applicationPreviewPropertyId={applicationPreviewPropertyId}
             />
           )}
@@ -1529,35 +1529,13 @@ export function ManagerApplicationQuestionsEditorModal({
         dataAttr="application-preview-section"
       />
       <ApplicationSectionPreviewPane
-        section={previewSection}
-        fields={previewFields}
+        sections={visibleQuestionSections}
+        fields={applicationFields}
+        formName={previewFormName}
         applicationPreviewPropertyId={applicationPreviewPropertyId}
+        index={previewStepIndex}
+        onIndexChange={setPreviewStepPick}
       />
-      <div className="flex items-center justify-between gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="rounded-full"
-          disabled={previewSectionIndex <= 0}
-          data-attr="application-preview-previous"
-          onClick={() => stepPreviewSection(-1)}
-        >
-          ‹ Previous
-        </Button>
-        <span className="text-xs text-muted" data-attr="application-preview-position">
-          {previewSectionIndex + 1} of {RENTAL_APPLICATION_SECTIONS.length}
-        </span>
-        <Button
-          type="button"
-          variant="primary"
-          className="rounded-full"
-          disabled={previewSectionIndex < 0 || previewSectionIndex >= RENTAL_APPLICATION_SECTIONS.length - 1}
-          data-attr="application-preview-next"
-          onClick={() => stepPreviewSection(1)}
-        >
-          Next ›
-        </Button>
-      </div>
     </div>
   );
 
@@ -1591,10 +1569,12 @@ export function ManagerApplicationQuestionsEditorModal({
             />
             <div className={`${compareView === "form" ? "block" : "hidden md:block"} h-[34rem] overflow-y-auto rounded-xl border border-border bg-card p-3`}>
               <ApplicationSectionPreviewPane
-                section={previewSection}
-                fields={previewFields}
+                sections={visibleQuestionSections}
+                fields={applicationFields}
+                formName={previewFormName}
                 applicationPreviewPropertyId={applicationPreviewPropertyId}
-                stepPosition={previewStepPosition}
+                index={previewStepIndex}
+                onIndexChange={setPreviewStepPick}
               />
             </div>
           </div>
@@ -1629,10 +1609,12 @@ export function ManagerApplicationQuestionsEditorModal({
         assistantScopeKey="edit-application-workspace"
         sidePanel={
           <ApplicationSectionPreviewPane
-            section={previewSection}
-            fields={previewFields}
+            sections={visibleQuestionSections}
+            fields={applicationFields}
+            formName={previewFormName}
             applicationPreviewPropertyId={applicationPreviewPropertyId}
-            stepPosition={previewStepPosition}
+            index={previewStepIndex}
+            onIndexChange={setPreviewStepPick}
           />
         }
         headerUpload={headerUpload}
