@@ -1,6 +1,7 @@
 /** Full manager “add listing” payload — drives generated listing detail page (localStorage-backed). */
 
 import type { ListingPrefillRecordV1 } from "@/lib/listing-prefill/types";
+import type { StayAppliesTo } from "@/lib/property-stay-tabs";
 import {
   LISTING_PLACE_CATEGORY_OPTIONS,
   LISTING_PROPERTY_TYPE_OPTIONS,
@@ -693,6 +694,11 @@ export type ManagerSharedSpaceSubmission = {
 };
 
 export const AI_COMMUNICATION_INFO_SECTIONS = ["tours", "rules", "pricing", "neighborhood"] as const;
+/** Narrows a stored "applies to" to a real value; anything else is absent (= both). */
+function readAppliesTo(raw: unknown): StayAppliesTo | undefined {
+  return raw === "long_term" || raw === "short_term" || raw === "both" ? raw : undefined;
+}
+
 export type AiCommunicationInfoSection = (typeof AI_COMMUNICATION_INFO_SECTIONS)[number];
 export type AiCommunicationInfo = Record<AiCommunicationInfoSection, string>;
 
@@ -709,6 +715,26 @@ export function normalizeAiCommunicationInfo(raw: unknown): AiCommunicationInfo 
   return any ? out : undefined;
 }
 
+/**
+ * A short-term version of an AI info row. Rows are shared by default; a row listed here answers a short-term
+ * prospect with this text instead (`property-ai-info-by-stay.ts`). "about" is the About this home row.
+ */
+export const AI_COMMUNICATION_INFO_SHORT_TERM_KEYS = ["about", ...AI_COMMUNICATION_INFO_SECTIONS] as const;
+export type AiCommunicationInfoShortTermKey = (typeof AI_COMMUNICATION_INFO_SHORT_TERM_KEYS)[number];
+export type AiCommunicationInfoShortTerm = Partial<Record<AiCommunicationInfoShortTermKey, string>>;
+
+/** Only non-empty short-term texts survive; none left reads as absent. */
+export function normalizeAiCommunicationInfoShortTerm(raw: unknown): AiCommunicationInfoShortTerm | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+  const out: AiCommunicationInfoShortTerm = {};
+  for (const key of AI_COMMUNICATION_INFO_SHORT_TERM_KEYS) {
+    const value = typeof row[key] === "string" ? (row[key] as string).trim() : "";
+    if (value) out[key] = value;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 export type AiCommunicationCustomGroup = "home" | "leasing" | "rules" | "area" | "custom";
 
 export type AiCommunicationCustomItem = {
@@ -716,6 +742,8 @@ export type AiCommunicationCustomItem = {
   title: string;
   text: string;
   group: AiCommunicationCustomGroup;
+  /** Which stay this row is for; absent = both (shown in both tabs, told to every prospect). */
+  appliesTo?: StayAppliesTo;
 };
 
 export function normalizeAiCommunicationCustom(raw: unknown): AiCommunicationCustomItem[] | undefined {
@@ -733,7 +761,8 @@ export function normalizeAiCommunicationCustom(raw: unknown): AiCommunicationCus
       groupRaw === "home" || groupRaw === "leasing" || groupRaw === "rules" || groupRaw === "area"
         ? groupRaw
         : "custom";
-    out.push({ id, title, text, group });
+    const appliesTo = readAppliesTo(row.appliesTo);
+    out.push({ id, title, text, group, ...(appliesTo ? { appliesTo } : {}) });
   }
   return out.length ? out : undefined;
 }
@@ -866,6 +895,8 @@ export type ManagerListingSubmissionV1 = {
    * neighborhood. Assistant-only — never projected to the public listing.
    */
   aiCommunicationInfo?: AiCommunicationInfo;
+  /** Short-term versions of the AI info rows above; a row without one is shared by both stays. */
+  aiCommunicationInfoShortTerm?: AiCommunicationInfoShortTerm;
   /** Manager-added AI knowledge rows grouped under Home / Leasing / Rules / Area. */
   aiCommunicationCustom?: AiCommunicationCustomItem[];
   /** Built-in promotion toggles and overrides (flyer, blurb, social, door card). */
@@ -1485,6 +1516,8 @@ export type ManagerListingServiceOption = {
   available: boolean;
   /** Drives Requests vs Add-ons on the property Services tab. Inferred from price when absent. */
   billingCadence?: ServiceBillingCadence;
+  /** Which stay this service is offered for; absent = both (shown in both property Services tabs). */
+  appliesTo?: StayAppliesTo;
   residentEmails?: string[];
   createdAt: string;
 };
@@ -2696,6 +2729,11 @@ function normalizeManagerListingSubmissionV1Base(
                 .filter((value): value is string => typeof value === "string" && value.trim().includes("@"))
                 .map((value) => value.trim().toLowerCase())
             : [];
+          const billingCadence =
+            item.billingCadence === "per_request" || item.billingCadence === "monthly" || item.billingCadence === "one_time"
+              ? item.billingCadence
+              : undefined;
+          const appliesTo = readAppliesTo(item.appliesTo);
           return {
             id: idRaw || `offer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             name: typeof item.name === "string" ? item.name.trim() : "",
@@ -2703,6 +2741,8 @@ function normalizeManagerListingSubmissionV1Base(
             price: typeof item.price === "string" ? item.price.trim() : "",
             deposit: typeof item.deposit === "string" ? item.deposit.trim() : "",
             available: item.available !== false,
+            ...(billingCadence ? { billingCadence } : {}),
+            ...(appliesTo ? { appliesTo } : {}),
             residentEmails: residentEmailsRaw.length > 0 ? residentEmailsRaw : undefined,
             createdAt:
               typeof item.createdAt === "string" && item.createdAt.trim()
@@ -2932,6 +2972,9 @@ function normalizeManagerListingSubmissionV1Base(
     homeStructureNote: typeof sub.homeStructureNote === "string" ? sub.homeStructureNote : "",
     marketingNotes: typeof sub.marketingNotes === "string" ? sub.marketingNotes : "",
     aiCommunicationInfo: normalizeAiCommunicationInfo((sub as { aiCommunicationInfo?: unknown }).aiCommunicationInfo),
+    aiCommunicationInfoShortTerm: normalizeAiCommunicationInfoShortTerm(
+      (sub as { aiCommunicationInfoShortTerm?: unknown }).aiCommunicationInfoShortTerm,
+    ),
     aiCommunicationCustom: normalizeAiCommunicationCustom((sub as { aiCommunicationCustom?: unknown }).aiCommunicationCustom),
     promotionBuiltins: normalizePromotionBuiltins((sub as { promotionBuiltins?: unknown }).promotionBuiltins),
     alsoListedAs: typeof (sub as { alsoListedAs?: unknown }).alsoListedAs === "string"

@@ -133,9 +133,10 @@ describe("Move-in → Forms empty state", () => {
         showToast={() => {}}
         chooserOpen={false}
         onChooserOpenChange={() => {}}
+        stay="long_term"
       />,
     );
-    expect(screen.getByText("No move-in forms for this property")).toBeTruthy();
+    expect(screen.getByText("No long-term move-in forms")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /new form/i })).toBeNull();
     expect(document.querySelector('[data-attr="property-move-in-forms-empty-new"]')).toBeNull();
   });

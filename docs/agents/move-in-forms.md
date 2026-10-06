@@ -101,9 +101,19 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   was sending stops and nothing that was off starts. Duplicates and copies to another property
   start as "only when I send it". Dispatch uses the stored forms and nothing else, so a property
   that never added a form sends nothing on its own.
-- **The editor is the application editor's frame** (`AddWorkspace`: Form, Questions, live
-  resident view, red Delete on the left in edit) and its Questions step draws each question
-  through `BuilderQuestionCard`, the same row the application editor uses.
+- **The editor is the application editor's frame** (`AddWorkspace`: Form, Questions, Who & when;
+  red Delete on the left in edit) and its Questions step draws each question
+  through `BuilderQuestionCard`, the same row the application editor uses. The right-hand
+  "Resident sees" pane is the application editor's card ("Step n of N · form name"), not a phone
+  frame. The footer is the one shared shell: Back (never on step 1) then Next, and on the last
+  step Save (edit) / Create (add) (`editor-footer-state.ts`, read by both editors).
+- **Forms sit under Long-term forms / Short-term forms tabs** (Move-in: Whole house · Rooms · Long-term
+  forms · Short-term forms). A form's stay is its "Applies to" (`src/lib/move-in-forms/stays.ts`):
+  All (`leaseType` absent/`all`) shows in BOTH tabs as the same record; Long-term / Short-term residents
+  in that tab only; Specific leases take the stay their leases share (else both). The Short-term tab is
+  hidden when the property does not allow short stays, unless a short-term-only form still exists
+  (`moveInFormStayTabs`; a both-stay form never holds a disallowed tab open). Quick add and the round +
+  create for the open tab (the new form's `leaseType` is that stay).
 - The table is classified in `account-purge-manifest.ts`; clients hold no
   privileges on it (RLS on, no policies).
 - **Delete resident erases the forms too.** `resident_move_in_forms` is a target of
@@ -157,8 +167,8 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 - **A new property starts with a Move-in checklist for every lease type** (`submissionWithDefaultLeasingSetup`, `leasing-quick-add.ts`, with its Long-term/Short-term/Co-signer
   applications and leases). It sends only once the manager has SAVED the property (the server ignores a move-in list that was never stored). Every other form is added by hand;
   the list's bottom "Quick add" row re-adds any starter the property lacks (as a form that sends only when the manager sends it).
-- **Lease type** (`MoveInFormTemplate.leaseType`: absent/`all`, `long-term`, `short-term`; a specific lease is `linkedLeaseTemplateIds`): dispatch on a signed lease sends only the forms
-  whose Lease type admits the signed lease's kind (the lease template's `kind`, else the application's rental type; an unknown kind never matches a restricted form).
+- **Applies to** (the editor's label for Lease type; stored shape unchanged, `MoveInFormTemplate.leaseType`: absent/`all`, `long-term`, `short-term`; a specific lease is `linkedLeaseTemplateIds`, picked under "Specific leases…"): dispatch on a signed lease sends only the forms
+  whose Applies to admits the signed lease's kind (the lease template's `kind`, else the application's rental type; an unknown kind never matches a restricted form).
 - **Nothing else is added automatically.** The Intake, Move-in and Move-out forms are templates (`starterKey` `intake-form`, `move-in-form`,
   `move-out-form`, with `kind` `intake | move-in | move-out`), offered beside the five older ones under "Start from a template". A form the
   manager adds is an ordinary form: editable and deletable (confirm dialog), with no pinned rows and no "Reset to default questions".

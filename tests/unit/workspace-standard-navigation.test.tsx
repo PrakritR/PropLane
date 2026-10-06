@@ -104,7 +104,7 @@ describe("workspace required fields", () => {
       <label>Name<input required /></label>
       <div hidden><input required aria-label="Other step" /></div>
     </AddWorkspace>);
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next: Review" }));
     expect(screen.getByRole("alert").textContent).toContain("Required");
     expect(onJump).not.toHaveBeenCalled();
     expect(before).not.toHaveBeenCalled();
@@ -113,7 +113,7 @@ describe("workspace required fields", () => {
       <label>Name<input required defaultValue="Casey" /></label>
       <div hidden><input required aria-label="Other step" /></div>
     </AddWorkspace>);
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next: Review" }));
     expect(before).toHaveBeenCalledTimes(1);
     expect(onJump).toHaveBeenCalledExactlyOnceWith(1);
   });

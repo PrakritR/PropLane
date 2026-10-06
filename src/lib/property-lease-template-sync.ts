@@ -9,6 +9,7 @@ import { resolveLeaseForApplicationTemplate } from "@/lib/application-lease-mapp
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import {
   createPropertyLeaseTemplate,
+  explicitDefaultLeaseForStay,
   readPropertyLeaseTemplates,
   syncLegacyLeaseFieldsFromTemplates,
   type PropertyLeaseListingSeedKey,
@@ -334,14 +335,19 @@ export function resolvePropertyLeaseTemplateForApplication(
     templates.find((t) => t.kind === "long-term") ??
     templates[0]!;
 
+  // A lease the manager SET as a stay's default (Leases -> Default) stands in for the stay-kind pick below.
+  // With no explicit default this is null and the pick is exactly what it always was.
+  const explicitShort = explicitDefaultLeaseForStay(templates, "short_term");
+  const explicitLong = explicitDefaultLeaseForStay(templates, "long_term");
+
   if (application.rentalType === "short_term") {
-    return shortTermTemplate ?? longTermTemplate;
+    return explicitShort ?? shortTermTemplate ?? longTermTemplate;
   }
 
   const term = normalizeApplicationLeaseTerm(application.leaseTerm ?? "");
 
   if (term === SHORT_TERM_LEASE_TERM) {
-    return shortTermTemplate ?? longTermTemplate;
+    return explicitShort ?? shortTermTemplate ?? longTermTemplate;
   }
 
   if (term) {
@@ -356,7 +362,7 @@ export function resolvePropertyLeaseTemplateForApplication(
     }
   }
 
-  return longTermTemplate;
+  return explicitLong ?? longTermTemplate;
 }
 
 /**

@@ -137,13 +137,13 @@ describe("builder live preview", () => {
       <MoveInFormLivePreview name="Keys" source="built" questions={questions} pdfUrl={null} index={0} onIndexChange={onIndex} answers={{}} onAnswersChange={() => {}} />,
     );
     expect(screen.getByText("Label a")).toBeTruthy();
-    expect(screen.getByText("1 of 2")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 1 of 2 · Keys")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     expect(onIndex).toHaveBeenCalledWith(1);
     rerender(
       <MoveInFormLivePreview name="Pets" source="upload" questions={questions} pdfUrl={null} index={0} onIndexChange={onIndex} answers={{}} onAnswersChange={() => {}} />,
     );
-    expect(screen.getByText("Read the document")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 3 · Pets")).toBeTruthy();
     expect(screen.getByText("The PDF shows here")).toBeTruthy();
   });
 
@@ -151,7 +151,7 @@ describe("builder live preview", () => {
     render(
       <MoveInFormLivePreview name="" source="built" questions={[q("a", { label: "" })]} pdfUrl={null} index={0} onIndexChange={() => {}} answers={{}} onAnswersChange={() => {}} />,
     );
-    expect(screen.getByText("Untitled form")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 1 · Untitled form")).toBeTruthy();
     expect(screen.getByText("Your question")).toBeTruthy();
   });
 });
@@ -305,6 +305,7 @@ describe("property Move-in › Forms", () => {
     showToast: vi.fn(),
     chooserOpen: false,
     onChooserOpenChange: vi.fn(),
+    stay: "long_term" as const,
   };
 
   const rowOf = (name: string): HTMLElement => {
@@ -367,7 +368,7 @@ describe("property Move-in › Forms", () => {
     for (const empty of [blank, { ...blank, moveInFormTemplates: [] }]) {
       cleanup();
       render(<PropertyMoveInFormsPanel {...base} sub={empty as typeof blank} />);
-      expect(screen.getByText("No move-in forms for this property")).toBeTruthy();
+      expect(screen.getByText("No long-term move-in forms")).toBeTruthy();
       expect(screen.queryAllByRole("listitem")).toHaveLength(0);
       // The round + in the band is the only add: no "New form" button inside the empty card.
       expect(screen.queryByRole("button", { name: "New form" })).toBeNull();
@@ -586,7 +587,7 @@ describe("builder popup", () => {
 
   it("will not leave the first step without a name, and says why", async () => {
     await openBuilder();
-    fireEvent.click(screen.getByRole("button", { name: /continue to questions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /next: questions/i }));
     expect((await screen.findAllByText(/Name this form|Required/)).length).toBeGreaterThan(0);
     expect(labels()).toEqual([]);
   });
@@ -596,14 +597,14 @@ describe("builder popup", () => {
     const { onSave, onClose } = await openBuilder(starter);
     expect(screen.queryByText("Already-signed residents")).toBeNull();
     // Create is on the last step only.
-    expect(screen.queryByRole("button", { name: "Create form" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /continue to questions/i }));
+    expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /next: questions/i }));
     for (const question of starter.questions) expect((await screen.findAllByText(question.label)).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "Create form" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /continue to who & when/i }));
+    expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /next: who & when/i }));
     expect(await screen.findByText("Sends")).toBeTruthy();
     expect(screen.queryByText("Already-signed residents")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Create form" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const [saved, options] = onSave.mock.calls[0]!;
     expect("enabled" in saved).toBe(false);
@@ -617,10 +618,10 @@ describe("builder popup", () => {
     const { onSave } = await openBuilder(newMoveInFormTemplate("built", "move-in-checklist"));
     // The choice lives on Who & when, not on the Form step.
     expect(screen.queryByText("Already-signed residents")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /continue to questions/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /continue to who & when/i }));
+    fireEvent.click(screen.getByRole("button", { name: /next: questions/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /next: who & when/i }));
     expect(await screen.findByText("Already-signed residents")).toBeTruthy();
-    fireEvent.click(await screen.findByRole("button", { name: "Create form" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]![0].trigger).toBe("lease-signed");
     expect(onSave.mock.calls[0]![1]).toEqual({ sendToCurrent: true });
@@ -634,7 +635,7 @@ describe("builder popup", () => {
     for (const toggle of document.querySelectorAll<HTMLElement>('[data-attr^="move-in-questions-editor-section-toggle-"][aria-expanded="false"]')) fireEvent.click(toggle);
     for (const question of MOVE_IN_FORM_STARTERS[1]!.questions) expect(screen.getAllByText(question.label).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /continue to who & when/i }));
+    fireEvent.click(screen.getByRole("button", { name: /next: who & when/i }));
     // Nothing changed yet, so Save is there but not armed.
     const save = await screen.findByRole("button", { name: "Save" });
     expect(save.hasAttribute("disabled") || save.getAttribute("aria-disabled") === "true").toBe(true);
@@ -704,8 +705,8 @@ describe("builder popup", () => {
     it("the link rows only render when the property has such templates", async () => {
       await openBuilder(defaultMoveInForm("move-in"), "edit", 2);
       expect(screen.queryByText("Linked application")).toBeNull();
-      // Lease type is always there (All by default); only the application link needs applications.
-      expect(screen.getByText("Lease type")).toBeTruthy();
+      // Applies to is always there (both stays by default); only the application link needs applications.
+      expect(screen.getByText("Applies to")).toBeTruthy();
       expect(screen.queryByText("Linked lease")).toBeNull();
       cleanup();
       await openBuilder(defaultMoveInForm("move-in"), "edit", 2, undefined, {
@@ -713,19 +714,36 @@ describe("builder popup", () => {
         leaseTemplates: [{ id: "lease1", label: "Standard lease" }],
       });
       expect(screen.getByText("Linked application")).toBeTruthy();
-      expect(screen.getByText("Lease type")).toBeTruthy();
+      expect(screen.getByText("Applies to")).toBeTruthy();
     });
 
-    it("Lease type offers All, Long-term, Short-term and each custom lease by name, defaulting to All", async () => {
+    it("Applies to offers both stays, Long-term, Short-term and Specific leases, defaulting to both stays", async () => {
       await openBuilder(defaultMoveInForm("move-in"), "edit", 2, undefined, {
         applicationTemplates,
         leaseTemplates: [{ id: "lease1", label: "Pet addendum lease", custom: true }, { id: "lease2", label: "Long-term lease", custom: false }],
       });
       const trigger = attr("move-in-form-lease-type")!;
-      expect(trigger.textContent).toContain("All leases");
+      expect(trigger.textContent).toContain("Long-term and short-term residents");
       fireEvent.click(trigger);
       const labels = screen.getAllByRole("option").map((option) => option.textContent?.replace("✓", ""));
-      expect(labels).toEqual(["All leases", "Long-term", "Short-term", "Pet addendum lease"]);
+      expect(labels).toEqual(["Long-term and short-term residents", "Long-term residents", "Short-term residents", "Specific leases…"]);
+    });
+
+    it("Specific leases… opens the lease picker; the other Applies to choices keep the stored shape and hide it", async () => {
+      const { onSave } = await openBuilder(defaultMoveInForm("move-in"), "edit", 2, undefined, {
+        leaseTemplates: [{ id: "lease1", label: "Standard lease" }],
+      });
+      expect(attr("move-in-form-linked-leases")).toBeNull();
+      await pick("move-in-form-lease-type", "Specific leases…");
+      expect(attr("move-in-form-linked-leases")).toBeTruthy();
+      await waitFor(() => expect(screen.queryAllByRole("option")).toHaveLength(0));
+      await pick("move-in-form-lease-type", "Short-term residents");
+      expect(attr("move-in-form-linked-leases")).toBeNull();
+      fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [saved] = onSave.mock.calls[0]!;
+      expect(saved.leaseType).toBe("short-term");
+      expect(saved.linkedLeaseTemplateIds).toEqual([]);
     });
 
     it("Before move-out shows 'Days before the lease ends' and hides 'Already-signed residents'", async () => {
@@ -755,7 +773,7 @@ describe("builder popup", () => {
       await pick("move-in-form-trigger", "Before move-out");
       expect(screen.getByText("Days before the lease ends")).toBeTruthy();
       await pick("move-in-form-move-out-days", "30 days");
-      fireEvent.click(await screen.findByRole("button", { name: "Create form" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Create" }));
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
       const [saved, options] = onSave.mock.calls[0]!;
       expect(saved.trigger).toBe("before-move-out");
@@ -785,7 +803,7 @@ describe("builder popup", () => {
     it("picking some rooms with none chosen blocks Create and says why on this step", async () => {
       const { onSave } = await openBuilder({ ...newMoveInFormTemplate("built", "key-receipt") }, "add", 2);
       await pick("move-in-form-audience", "Some rooms");
-      fireEvent.click(await screen.findByRole("button", { name: "Create form" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Create" }));
       expect(await screen.findByText("Pick at least one room.")).toBeTruthy();
       expect(onSave).not.toHaveBeenCalled();
     });

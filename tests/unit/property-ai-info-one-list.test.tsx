@@ -40,11 +40,11 @@ function renderPanel() {
 
 /** studio-redesign(property-tabs) round 1: AI info is ONE flat list, not four sub-tabs. */
 describe("ManagerPropertyAiInfoPanel", () => {
-  it("renders one list with no tablist: header count, search, round +, one row per entry", () => {
+  it("renders one list under a Long term tab (Short term hidden when not allowed): count, search, round +, one row per entry", () => {
     const { container } = renderPanel();
     expect(screen.queryByRole("tablist")).toBeNull();
     expect(container.querySelectorAll('[data-slot="local-destination-nav"] button')).toHaveLength(1);
-    expect(container.querySelector('[data-slot="local-destination-nav"]')!.textContent).toContain("What the assistant knows");
+    expect(container.querySelector('[data-slot="local-destination-nav"]')!.textContent).toContain("Long term");
     expect(container.querySelector('[data-slot="local-destination-nav"]')!.textContent).toContain("6");
     expect(screen.getByRole("button", { name: "Add to what the assistant knows" })).toBeTruthy();
     expect(container.querySelector('[data-attr="property-ai-info-search"]')).toBeTruthy();

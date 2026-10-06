@@ -47,6 +47,27 @@ export function moveInLeaseTypeOptions(
   ];
 }
 
+/**
+ * The "Applies to" choices of a move-in form: both stays (stored as leaseType "all"), Long-term residents,
+ * Short-term residents, and Specific leases (which opens the lease picker). Labels only: the stored
+ * `leaseType` / `linkedLeaseTemplateIds` keep their shape.
+ */
+export const MOVE_IN_APPLIES_TO_OPTIONS: { value: string; label: string }[] = [
+  { value: "all", label: "Long-term and short-term residents" },
+  { value: "long-term", label: "Long-term residents" },
+  { value: "short-term", label: "Short-term residents" },
+  { value: "specific", label: "Specific leases…" },
+];
+
+/** The select's value: "specific" once any lease is linked (or picked), else the stored leaseType. */
+export function moveInAppliesToValue(
+  template: Pick<MoveInFormTemplate, "leaseType" | "linkedLeaseTemplateIds">,
+  specificPicked = false,
+): string {
+  if (specificPicked || template.linkedLeaseTemplateIds.length > 0) return "specific";
+  return template.leaseType ?? "all";
+}
+
 /** A copy of `record` without `key` (keeps the destructure-and-discard idiom out of call sites). */
 export function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
   const next = { ...record };
@@ -319,7 +340,7 @@ export function templateSourceLine(template: Pick<MoveInFormTemplate, "source" |
   return `${template.pdf.fileName} · ${pages} page${pages === 1 ? "" : "s"}`;
 }
 
-export type MoveInFormRowFactId = "questions" | "audience" | "sends" | "source" | "linked";
+export type MoveInFormRowFactId = "questions" | "stays" | "audience" | "sends" | "source" | "linked";
 
 /**
  * The facts on a property move-in form row, in reading order: how many questions, who gets it (only when it
@@ -331,10 +352,13 @@ export function moveInFormRowFacts(
   rooms: readonly { id: string; label: string }[],
   applicationTemplates: readonly { id: string; label: string }[],
   leaseTemplates: readonly { id: string; label: string }[],
+  /** The form shows in both the Long-term and Short-term forms tabs: say so on the row. */
+  bothStays = false,
 ): { id: MoveInFormRowFactId; text: string }[] {
   const facts: { id: MoveInFormRowFactId; text: string }[] = [
     { id: "questions", text: questionCountLabel(template.questions.length) },
   ];
+  if (bothStays) facts.push({ id: "stays", text: "Long and short term" });
   if (template.audience.kind !== "every-room") facts.push({ id: "audience", text: audienceSummary(template.audience, rooms) });
   facts.push({ id: "sends", text: triggerSummary(template.trigger, template.moveOutDaysBefore) });
   if (template.source === "upload") facts.push({ id: "source", text: "PDF" });

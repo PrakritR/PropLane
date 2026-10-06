@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Check, Home, KeyRound, MapPin, ShieldCheck, Sparkles, type LucideIcon } from "lucide-react";
+import { AlertCircle, ArrowLeftRight, Check, Home, KeyRound, MapPin, ShieldCheck, Sparkles, type LucideIcon } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
@@ -15,6 +15,14 @@ import {
   type AiCommunicationInfoSection,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
+import {
+  inStay,
+  stayLabel,
+  stayTabsFor,
+  type PropertyStay,
+  type StayAppliesTo,
+} from "@/lib/property-stay-tabs";
+import { withShortTermText } from "@/lib/property-ai-info-by-stay";
 import {
   persistManagerListingSubmissionOnServer,
   resolveManagerListingSubmissionForPropertyId,
@@ -31,6 +39,10 @@ type SectionKey = "about" | AiCommunicationInfoSection;
 function readBuiltinText(sub: ManagerListingSubmissionV1, key: SectionKey): string {
   if (key === "about") return sub.marketingNotes ?? "";
   return sub.aiCommunicationInfo?.[key] ?? "";
+}
+
+function readShortTermText(sub: ManagerListingSubmissionV1, key: SectionKey): string {
+  return sub.aiCommunicationInfoShortTerm?.[key] ?? "";
 }
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
@@ -70,11 +82,27 @@ export function ManagerPropertyAiInfoPanel({
   const [editorValue, setEditorValue] = useState("");
   const [editorTitle, setEditorTitle] = useState("");
   const [editorGroup, setEditorGroup] = useState<AiInfoTabId>("home");
+  const [editorShortOn, setEditorShortOn] = useState(false);
+  const [editorShortValue, setEditorShortValue] = useState("");
+  const [editorAppliesTo, setEditorAppliesTo] = useState<StayAppliesTo>("both");
+  const [stayPick, setStayPick] = useState<PropertyStay>("long_term");
   const [saving, setSaving] = useState(false);
 
-  const customItems = resolved?.sub.aiCommunicationCustom ?? [];
+  const customItems = useMemo(() => resolved?.sub.aiCommunicationCustom ?? [], [resolved]);
 
-  const totalCount = AI_INFO_BUILTIN_ROWS.length + customItems.length;
+  // Every built-in row is shared, so it shows in both tabs; a custom row shows where it applies. Only a row
+  // that belongs to one stay alone holds a tab open on a property that does not allow that stay.
+  const tabStays: PropertyStay[] = resolved
+    ? stayTabsFor(resolved.sub, {
+        long_term: customItems.filter((c) => c.appliesTo === "long_term").length,
+        short_term:
+          customItems.filter((c) => c.appliesTo === "short_term").length +
+          AI_INFO_BUILTIN_ROWS.filter((row) => readShortTermText(resolved.sub, row.key).trim()).length,
+      })
+    : ["long_term"];
+  const stay: PropertyStay = tabStays.includes(stayPick) ? stayPick : (tabStays[0] ?? "long_term");
+  const countFor = (s: PropertyStay) =>
+    AI_INFO_BUILTIN_ROWS.length + customItems.filter((c) => inStay(c.appliesTo, s)).length;
 
   const openBuiltin = useCallback((key: AiInfoBuiltinKey) => {
     if (!resolved) return;
@@ -86,6 +114,9 @@ export function ManagerPropertyAiInfoPanel({
       sampleQuestion: row.sampleQuestion,
     });
     setEditorValue(readBuiltinText(resolved.sub, key));
+    const short = readShortTermText(resolved.sub, key);
+    setEditorShortOn(Boolean(short.trim()));
+    setEditorShortValue(short);
     setEditorOpen(true);
   }, [resolved]);
 
@@ -100,10 +131,11 @@ export function ManagerPropertyAiInfoPanel({
     setEditorTitle(item.title);
     setEditorGroup(item.group === "custom" ? "custom" : (item.group as AiInfoTabId));
     setEditorValue(item.text);
+    setEditorAppliesTo(item.appliesTo ?? "both");
     setEditorOpen(true);
   }, []);
 
-  const openNewCustom = useCallback(() => {
+  const openNewCustom = () => {
     setEditorTarget({
       kind: "custom",
       id: "",
@@ -115,8 +147,9 @@ export function ManagerPropertyAiInfoPanel({
     setEditorTitle("");
     setEditorGroup("home");
     setEditorValue("");
+    setEditorAppliesTo(stay);
     setEditorOpen(true);
-  }, []);
+  };
 
   const persistSubmission = useCallback(
     async (next: ManagerListingSubmissionV1) => {
@@ -139,11 +172,20 @@ export function ManagerPropertyAiInfoPanel({
     const text = editorValue.slice(0, PROMOTION_HOUSE_NOTES_MAX_CHARS).trim();
     if (editorTarget.kind === "builtin") {
       const key = editorTarget.key;
+      const base: ManagerListingSubmissionV1 = {
+        ...resolved.sub,
+        // Switched off clears the short-term text; on keeps (or adds) it beside the shared text.
+        aiCommunicationInfoShortTerm: withShortTermText(
+          resolved.sub.aiCommunicationInfoShortTerm,
+          key,
+          editorShortOn ? editorShortValue.slice(0, PROMOTION_HOUSE_NOTES_MAX_CHARS) : "",
+        ),
+      };
       const next: ManagerListingSubmissionV1 =
         key === "about"
-          ? { ...resolved.sub, marketingNotes: text }
+          ? { ...base, marketingNotes: text }
           : {
-              ...resolved.sub,
+              ...base,
               aiCommunicationInfo: {
                 tours: resolved.sub.aiCommunicationInfo?.tours ?? "",
                 rules: resolved.sub.aiCommunicationInfo?.rules ?? "",
@@ -170,6 +212,7 @@ export function ManagerPropertyAiInfoPanel({
       title,
       text: editorValue.slice(0, PROMOTION_HOUSE_NOTES_MAX_CHARS),
       group: editorGroup,
+      ...(editorAppliesTo === "both" ? {} : { appliesTo: editorAppliesTo }),
     };
     const nextList = existing
       ? list.map((c) => (c.id === existing.id ? item : c))
@@ -179,16 +222,20 @@ export function ManagerPropertyAiInfoPanel({
       setEditorOpen(false);
       showToast(existing ? "Saved" : `${title} added`);
     }
-  }, [editorGroup, editorTarget, editorTitle, editorValue, persistSubmission, resolved, showToast]);
+  }, [editorAppliesTo, editorGroup, editorShortOn, editorShortValue, editorTarget, editorTitle, editorValue, persistSubmission, resolved, showToast]);
 
   const clearEditor = useCallback(async () => {
     if (!resolved || !editorTarget || editorTarget.kind !== "builtin") return;
     const key = editorTarget.key;
+    const cleared: ManagerListingSubmissionV1 = {
+      ...resolved.sub,
+      aiCommunicationInfoShortTerm: withShortTermText(resolved.sub.aiCommunicationInfoShortTerm, key, ""),
+    };
     const next: ManagerListingSubmissionV1 =
       key === "about"
-        ? { ...resolved.sub, marketingNotes: "" }
+        ? { ...cleared, marketingNotes: "" }
         : {
-            ...resolved.sub,
+            ...cleared,
             aiCommunicationInfo: {
               tours: resolved.sub.aiCommunicationInfo?.tours ?? "",
               rules: resolved.sub.aiCommunicationInfo?.rules ?? "",
@@ -233,11 +280,15 @@ export function ManagerPropertyAiInfoPanel({
   const clearEditorForKey = useCallback(
     async (key: AiInfoBuiltinKey) => {
       if (!resolved) return;
+      const cleared: ManagerListingSubmissionV1 = {
+        ...resolved.sub,
+        aiCommunicationInfoShortTerm: withShortTermText(resolved.sub.aiCommunicationInfoShortTerm, key, ""),
+      };
       const next: ManagerListingSubmissionV1 =
         key === "about"
-          ? { ...resolved.sub, marketingNotes: "" }
+          ? { ...cleared, marketingNotes: "" }
           : {
-              ...resolved.sub,
+              ...cleared,
               aiCommunicationInfo: {
                 tours: resolved.sub.aiCommunicationInfo?.tours ?? "",
                 rules: resolved.sub.aiCommunicationInfo?.rules ?? "",
@@ -265,30 +316,38 @@ export function ManagerPropertyAiInfoPanel({
     title: string;
     group: string;
     len: number;
+    /** "Shared" | "Long term" | "Short term": what the row says in this tab. */
+    stayFact: string;
     custom: AiCommunicationCustomItem | null;
     builtinKey: AiInfoBuiltinKey | null;
   };
   const entries: Entry[] = [
-    ...AI_INFO_BUILTIN_ROWS.map(
-      (row): Entry => ({
+    ...AI_INFO_BUILTIN_ROWS.map((row): Entry => {
+      // The Short term tab shows a row's short-term version when it has one; every other view is the shared text.
+      const short = stay === "short_term" ? readShortTermText(resolved.sub, row.key).trim() : "";
+      return {
         id: row.key,
         title: row.title,
         group: row.group,
-        len: readBuiltinText(resolved.sub, row.key).trim().length,
+        len: (short || readBuiltinText(resolved.sub, row.key).trim()).length,
+        stayFact: short ? "Short term" : "Shared",
         custom: null,
         builtinKey: row.key,
-      }),
-    ),
-    ...customItems.map(
-      (item): Entry => ({
-        id: `custom-${item.id}`,
-        title: item.title,
-        group: item.group,
-        len: item.text.trim().length,
-        custom: item,
-        builtinKey: null,
-      }),
-    ),
+      };
+    }),
+    ...customItems
+      .filter((item) => inStay(item.appliesTo, stay))
+      .map(
+        (item): Entry => ({
+          id: `custom-${item.id}`,
+          title: item.title,
+          group: item.group,
+          len: item.text.trim().length,
+          stayFact: item.appliesTo === "long_term" || item.appliesTo === "short_term" ? stayLabel(item.appliesTo) : "Shared",
+          custom: item,
+          builtinKey: null,
+        }),
+      ),
   ]
     .map((entry, index) => ({ entry, index }))
     .sort((x, y) => groupRank(x.entry.group) - groupRank(y.entry.group) || x.index - y.index)
@@ -303,13 +362,13 @@ export function ManagerPropertyAiInfoPanel({
         destinationRow={
           <LocalDestinationNav
             appearance="command"
-            items={[{ id: "knows", label: "What the assistant knows", count: totalCount }]}
-            activeId="knows"
-            onChange={() => {}}
+            items={tabStays.map((id) => ({ id, label: stayLabel(id), count: countFor(id) }))}
+            activeId={stay}
+            onChange={(id) => setStayPick(id as PropertyStay)}
             ariaLabel="What the assistant knows"
           />
         }
-        activeDestinationId="knows"
+        activeDestinationId={stay}
         search={{
           value: search,
           onChange: setSearch,
@@ -340,6 +399,9 @@ export function ManagerPropertyAiInfoPanel({
                 <>
                   <PortalRowFact icon={GROUP_ICONS[entry.group] ?? Sparkles} srLabel="Category">
                     {groupLabel(entry.group)}
+                  </PortalRowFact>
+                  <PortalRowFact icon={ArrowLeftRight} srLabel="Applies to">
+                    {entry.stayFact}
                   </PortalRowFact>
                   {entry.len ? (
                     <PortalRowFact icon={Check}>{entry.len} chars</PortalRowFact>
@@ -378,6 +440,12 @@ export function ManagerPropertyAiInfoPanel({
         showCustomTitle={editorTarget?.kind === "custom"}
         group={editorGroup}
         onGroupChange={(next) => setEditorGroup(next as AiInfoTabId)}
+        appliesTo={editorAppliesTo}
+        onAppliesToChange={editorTarget?.kind === "custom" ? (next) => setEditorAppliesTo(next as StayAppliesTo) : undefined}
+        shortTermEnabled={editorShortOn}
+        onShortTermEnabledChange={editorTarget?.kind === "builtin" ? setEditorShortOn : undefined}
+        shortTermValue={editorShortValue}
+        onShortTermValueChange={setEditorShortValue}
         onClose={() => setEditorOpen(false)}
         onSave={() => void saveEditor()}
         onClear={editorTarget?.kind === "builtin" && editorValue.trim() ? () => void clearEditor() : undefined}

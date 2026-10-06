@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { ToggleRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PROMOTION_HOUSE_NOTES_MAX_CHARS } from "@/components/portal/promotion-house-notes";
 import { AI_INFO_GROUP_OPTIONS, firstSentences } from "@/lib/property-ai-info-rows";
 
@@ -29,6 +30,12 @@ export function PropertyAiInfoEditorModal({
   onCustomTitleChange,
   group,
   onGroupChange,
+  shortTermEnabled,
+  onShortTermEnabledChange,
+  shortTermValue = "",
+  onShortTermValueChange,
+  appliesTo,
+  onAppliesToChange,
 }: {
   open: boolean;
   target: AiInfoEditorTarget | null;
@@ -45,6 +52,14 @@ export function PropertyAiInfoEditorModal({
   /** Category of a custom entry; picked here now that the list has no tabs. */
   group?: string;
   onGroupChange?: (next: string) => void;
+  /** Built-in rows: the "Different for short term" switch and its second text (cleared when switched off). */
+  shortTermEnabled?: boolean;
+  onShortTermEnabledChange?: (next: boolean) => void;
+  shortTermValue?: string;
+  onShortTermValueChange?: (next: string) => void;
+  /** Custom rows: which stay it is for ("both" | "long_term" | "short_term"). */
+  appliesTo?: string;
+  onAppliesToChange?: (next: string) => void;
 }) {
   const previewAnswer = useMemo(() => {
     const trimmed = value.trim();
@@ -122,6 +137,22 @@ export function PropertyAiInfoEditorModal({
                 />
               </div>
             ) : null}
+            {onAppliesToChange ? (
+              <div className="mt-3">
+                <FieldSingleSelect
+                  label="Applies to"
+                  labelClassName="mb-2 block text-sm font-semibold text-foreground"
+                  value={appliesTo ?? "both"}
+                  onChange={onAppliesToChange}
+                  options={[
+                    { value: "both", label: "Long and short term" },
+                    { value: "long_term", label: "Long term" },
+                    { value: "short_term", label: "Short term" },
+                  ]}
+                  dataAttr="property-ai-info-applies-to"
+                />
+              </div>
+            ) : null}
           </>
         ) : null}
         <label className="mt-3 block text-sm font-semibold text-foreground" htmlFor="property-ai-info-text">
@@ -138,6 +169,34 @@ export function PropertyAiInfoEditorModal({
         <p className="mt-1 text-right text-xs text-muted">
           {value.length}/{PROMOTION_HOUSE_NOTES_MAX_CHARS}
         </p>
+        {onShortTermEnabledChange ? (
+          <>
+            <ToggleRow
+              label="Different for short term"
+              checked={Boolean(shortTermEnabled)}
+              onChange={onShortTermEnabledChange}
+              dataAttr="property-ai-info-short-term-toggle"
+            />
+            {shortTermEnabled ? (
+              <>
+                <label className="mt-2 block text-sm font-semibold text-foreground" htmlFor="property-ai-info-text-short-term">
+                  What the assistant should know for short term
+                </label>
+                <Textarea
+                  id="property-ai-info-text-short-term"
+                  value={shortTermValue}
+                  onChange={(e) => onShortTermValueChange?.(e.target.value.slice(0, PROMOTION_HOUSE_NOTES_MAX_CHARS))}
+                  rows={6}
+                  className="mt-2"
+                  data-attr="property-ai-info-text-short-term"
+                />
+                <p className="mt-1 text-right text-xs text-muted">
+                  {shortTermValue.length}/{PROMOTION_HOUSE_NOTES_MAX_CHARS}
+                </p>
+              </>
+            ) : null}
+          </>
+        ) : null}
       </div>
     </Modal>
   );

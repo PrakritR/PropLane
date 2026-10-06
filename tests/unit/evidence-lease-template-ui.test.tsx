@@ -96,6 +96,13 @@ function selectLeaseRowByLabel(container: HTMLElement, label: string) {
   fireEvent.keyDown(trigger, { key: "ArrowDown" });
 }
 
+/** The Long-term / Short-term leases tabs: a lease shows in the tab of its stay. */
+function openLeaseTab(container: HTMLElement, tab: "long_term" | "short_term" | "default") {
+  const button = container.querySelector<HTMLElement>(`[data-attr="property-lease-tab-${tab}"]`);
+  if (!button) throw new Error(`lease tab not found: ${tab}`);
+  fireEvent.click(button);
+}
+
 /** Panel + a live `sub` so a Delete inside the modal really updates the list. */
 function Harness({ initial }: { initial: ManagerListingSubmissionV1 }) {
   const [sub, setSub] = useState(initial);
@@ -135,7 +142,9 @@ describe("evidence · lease templates are opt-in", () => {
       "short-term",
     );
     const b = render(<Harness initial={withBoth} />);
-    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease", "Short-term lease"]);
+    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]);
+    openLeaseTab(b.container, "short_term");
+    expect(leaseRowLabels(b.container)).toEqual(["Short-term lease"]);
     writePanel(
       "lease-b-added",
       "B · After adding the two PropLane defaults — 'Long-term lease' and 'Short-term lease' (the retired 'Lease bundle' rows are gone).",
@@ -148,7 +157,10 @@ describe("evidence · lease templates are opt-in", () => {
     await act(async () => {
       fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     });
+    // This property does not allow short stays, so with its last short-term lease gone the Short-term tab
+    // disappears and the list falls back to Long-term leases.
     await waitFor(() => expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]));
+    expect(b.container.querySelector('[data-attr="property-lease-tab-short_term"]')).toBeNull();
     writePanel(
       "lease-c-deleted",
       "C · Deleted 'Short-term lease' from the Edit modal. The row is gone and a re-sync no longer resurrects it — this is the bug the change fixes.",

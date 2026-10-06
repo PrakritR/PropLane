@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
-import { DestinationNav, LocalDestinationNav } from "@/components/ui/destination-nav";
+import { LocalDestinationNav, type LocalDestinationNavItem } from "@/components/ui/destination-nav";
 
 export type FormAutomationPane = "form" | "automation";
 
@@ -33,7 +33,7 @@ export function PropertyFormAutomationCommandBar({
   activeFilterChips,
   panes = PANES,
   search,
-  propertyFormsSectionNav,
+  stayTabs,
 }: {
   pane: FormAutomationPane;
   onPaneChange: (pane: FormAutomationPane) => void;
@@ -62,37 +62,23 @@ export function PropertyFormAutomationCommandBar({
    */
   panes?: { id: FormAutomationPane; label: string }[];
   /**
-   * Property record Applications / Leases header: ONE underlined tab for the section this page is
-   * (never the other section's tab), with its count when known. No settings gear.
+   * Property record Applications / Leases header: the Long term · Short term · Default tabs (counts
+   * included), built by the caller from `property-stay-tabs.ts` so a stay's tab hides identically everywhere.
    */
-  propertyFormsSectionNav?: {
-    activeId: "application" | "lease";
-    href: string;
-    count?: number;
+  stayTabs?: {
+    items: LocalDestinationNavItem[];
+    activeId: string;
+    onChange: (id: string) => void;
+    ariaLabel: string;
   };
 }) {
-  const destinationRow = propertyFormsSectionNav
+  const destinationRow = stayTabs
     ? (
-        <DestinationNav
-          items={[
-            propertyFormsSectionNav.activeId === "application"
-              ? {
-                  id: "application",
-                  label: "Applications",
-                  href: propertyFormsSectionNav.href,
-                  count: propertyFormsSectionNav.count,
-                  dataAttr: "property-form-section-application",
-                }
-              : {
-                  id: "lease",
-                  label: "Leases",
-                  href: propertyFormsSectionNav.href,
-                  count: propertyFormsSectionNav.count,
-                  dataAttr: "property-form-section-lease",
-                },
-          ]}
-          activeId={propertyFormsSectionNav.activeId}
-          ariaLabel={propertyFormsSectionNav.activeId === "application" ? "Applications" : "Leases"}
+        <LocalDestinationNav
+          items={stayTabs.items}
+          activeId={stayTabs.activeId}
+          onChange={stayTabs.onChange}
+          ariaLabel={stayTabs.ariaLabel}
           appearance="command"
         />
       )
@@ -117,8 +103,8 @@ export function PropertyFormAutomationCommandBar({
       className="mb-2 max-lg:mb-1.5"
       variant="command"
       destinationRow={destinationRow}
-      activeDestinationId={pane}
-      destinationAriaLabel="Form or automation"
+      activeDestinationId={stayTabs?.activeId ?? pane}
+      destinationAriaLabel={stayTabs?.ariaLabel ?? "Form or automation"}
       search={search}
       actions={
         <>

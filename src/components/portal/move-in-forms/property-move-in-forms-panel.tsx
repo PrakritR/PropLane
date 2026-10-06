@@ -9,7 +9,7 @@
  * and never live here.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DoorOpen, FileText, Link2, ListChecks, Send } from "lucide-react";
+import { ArrowLeftRight, DoorOpen, FileText, Link2, ListChecks, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MoveInFormChooser, type MoveInChooserPick, type MoveInCopySource } from "@/components/portal/move-in-forms/move-in-form-chooser";
 import {
@@ -50,6 +50,8 @@ import {
   sendMoveInFormToCurrentResidents,
 } from "@/lib/move-in-forms/client";
 import { newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import { moveInFormAppliesTo, moveInFormForStay, moveInFormStayTabs, moveInFormsInStay } from "@/lib/move-in-forms/stays";
+import type { PropertyStay } from "@/lib/property-stay-tabs";
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import type { MoveInFormStarterKey, MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
@@ -59,6 +61,7 @@ import { readExtraListingsForUser, readPendingManagerPropertiesForUser } from "@
 
 const ROW_FACT_ICON: Record<MoveInFormRowFactId, typeof ListChecks> = {
   questions: ListChecks,
+  stays: ArrowLeftRight,
   audience: DoorOpen,
   sends: Send,
   source: FileText,
@@ -66,6 +69,7 @@ const ROW_FACT_ICON: Record<MoveInFormRowFactId, typeof ListChecks> = {
 };
 const ROW_FACT_LABEL: Record<MoveInFormRowFactId, string> = {
   questions: "Questions",
+  stays: "Applies to",
   audience: "Audience",
   sends: "Sent",
   source: "Source",
@@ -119,6 +123,7 @@ export function PropertyMoveInFormsPanel({
   showToast,
   chooserOpen,
   onChooserOpenChange,
+  stay,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: ManagerPropertySaveTarget | null;
@@ -128,6 +133,8 @@ export function PropertyMoveInFormsPanel({
   showToast: (message: string) => void;
   chooserOpen: boolean;
   onChooserOpenChange: (open: boolean) => void;
+  /** The open Long-term / Short-term forms tab: it filters the rows and is what Quick add and the + create for. */
+  stay: PropertyStay;
 }) {
   const { userId: viewerId } = usePortalSession();
   const propertyId = saveTarget?.saveId ?? "";
@@ -149,6 +156,13 @@ export function PropertyMoveInFormsPanel({
         custom: item.listingSeedKey !== "primary" && item.listingSeedKey !== "short-term" && item.listingSeedKey !== "airbnb",
       })),
     [sub],
+  );
+  const stayLeases = useMemo(() => readPropertyLeaseTemplates(sub).map((item) => ({ id: item.id, kind: item.kind })), [sub]);
+  const stayRows = useMemo(() => moveInFormsInStay(templates, stay, stayLeases), [templates, stay, stayLeases]);
+  // A form for both stays says so on its row, but only when this property shows both tabs.
+  const showsBothTabs = useMemo(
+    () => moveInFormStayTabs(sub, templates, stayLeases).tabs.length > 1,
+    [sub, templates, stayLeases],
   );
   const copySources = useCopySources(managerUserId, propertyId);
   const [editor, setEditor] = useState<EditorState>(null);
@@ -195,15 +209,16 @@ export function PropertyMoveInFormsPanel({
 
   const onPick = (pick: MoveInChooserPick) => {
     onChooserOpenChange(false);
-    if (pick.kind === "upload") {
-      setEditor({ mode: "add", template: newMoveInFormTemplate("upload"), startStep: 0 });
-    } else if (pick.kind === "starter") {
-      setEditor({ mode: "add", template: newMoveInFormTemplate("built", pick.starterKey), startStep: 0 });
-    } else if (pick.kind === "copy") {
-      setEditor({ mode: "add", template: copyTemplateToProperty(pick.template, newMoveInFormTemplate(pick.template.source).id), startStep: 0 });
-    } else {
-      setEditor({ mode: "add", template: newMoveInFormTemplate("built"), startStep: 0 });
-    }
+    // The round + creates for the open tab: the new form's Applies to is that stay.
+    const template =
+      pick.kind === "upload"
+        ? newMoveInFormTemplate("upload")
+        : pick.kind === "starter"
+          ? newMoveInFormTemplate("built", pick.starterKey)
+          : pick.kind === "copy"
+            ? copyTemplateToProperty(pick.template, newMoveInFormTemplate(pick.template.source).id)
+            : newMoveInFormTemplate("built");
+    setEditor({ mode: "add", template: moveInFormForStay(template, stay), startStep: 0 });
   };
 
   const saveFromEditor = async (template: MoveInFormTemplate, options: MoveInEditorSaveOptions): Promise<boolean> => {
@@ -258,16 +273,16 @@ export function PropertyMoveInFormsPanel({
   return (
     <>
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" dataAttr="property-move-in-forms">
-        {templates.length === 0 ? (
+        {stayRows.length === 0 ? (
           <PortalListEmptyCard
-            title="No move-in forms for this property"
+            title={stay === "short_term" ? "No short-term move-in forms" : "No long-term move-in forms"}
             icon={<ListChecks className="size-[22px]" strokeWidth={1.6} aria-hidden />}
             workspaceAware={false}
             dataAttr="property-move-in-forms-empty"
           />
         ) : (
           <div role="list" aria-label="Move-in forms">
-            {templates.map((template) => {
+            {stayRows.map((template) => {
               const name = template.name.trim() || "Untitled form";
               return (
                 <RecordActionContext.Provider
@@ -305,7 +320,7 @@ export function PropertyMoveInFormsPanel({
                   <div role="listitem" className="transition-transform duration-(--motion-base) ease-(--motion-crossfade) hover:-translate-y-px motion-reduce:transition-none" data-attr="move-in-form-row">
                     <PortalPropertyRecordRow
                       title={name}
-                      facts={moveInFormRowFacts(template, rooms, applicationTemplates, leaseTemplates).map((fact) => (
+                      facts={moveInFormRowFacts(template, rooms, applicationTemplates, leaseTemplates, showsBothTabs && moveInFormAppliesTo(template, stayLeases) === "both").map((fact) => (
                         <PortalRowFact key={fact.id} icon={ROW_FACT_ICON[fact.id]} srLabel={ROW_FACT_LABEL[fact.id]}>
                           {fact.text}
                         </PortalRowFact>
@@ -337,11 +352,11 @@ export function PropertyMoveInFormsPanel({
 
       {canEdit ? (
         <LeasingQuickAddRow
-          entries={missingMoveInStarters(sub)}
+          entries={missingMoveInStarters(sub, stay)}
           noun="move-in form"
           dataAttr="property-move-in-quick-add"
           onAdd={(key) => {
-            const added = readMoveInFormTemplates(submissionWithMoveInStarter(sub, key as MoveInFormStarterKey));
+            const added = readMoveInFormTemplates(submissionWithMoveInStarter(sub, key as MoveInFormStarterKey, stay));
             void persist(added, "Form added. It is sent only when you send it.");
           }}
         />

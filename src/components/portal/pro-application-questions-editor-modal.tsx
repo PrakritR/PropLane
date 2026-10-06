@@ -6,6 +6,7 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { editorFinishLabel } from "@/lib/editor-footer-state";
 import {
   FloatingLabelField,
   MoneyInput,
@@ -244,6 +245,7 @@ export function ManagerApplicationQuestionsEditorModal({
   managerUserId,
   applicationPreviewPropertyId,
   initialVariant = "standard",
+  initialAppliesTo,
   lockVariant = false,
   templateEditorMode,
   applicationTemplate = null,
@@ -272,6 +274,8 @@ export function ManagerApplicationQuestionsEditorModal({
   applicationPreviewPropertyId?: string;
   /** Which stay-type form opens first (long-term vs short-term). */
   initialVariant?: ApplicationFormVariant;
+  /** A NEW application opens set to this stay (the open Long term / Short term tab). */
+  initialAppliesTo?: "long_term" | "short_term";
   /** Property detail row edit — one stay type only; hide the long-term / short-term switcher. */
   lockVariant?: boolean;
   /** Property tab — add or edit a named application on one page with questions below the name. */
@@ -393,7 +397,7 @@ export function ManagerApplicationQuestionsEditorModal({
       initializedEditorRef.current = null;
       return;
     }
-    const editorKey = `${applicationPreviewPropertyId ?? "portfolio"}:${templateEditorMode ?? "listing"}:${applicationTemplate?.id ?? "new"}:${initialVariant}`;
+    const editorKey = `${applicationPreviewPropertyId ?? "portfolio"}:${templateEditorMode ?? "listing"}:${applicationTemplate?.id ?? "new"}:${initialVariant}:${initialAppliesTo ?? ""}`;
     if (initializedEditorRef.current === editorKey) return;
     initializedEditorRef.current = editorKey;
     const templateDraft = applicationTemplate ? draftQuestionConfigForTemplate(applicationTemplate) : null;
@@ -437,7 +441,8 @@ export function ManagerApplicationQuestionsEditorModal({
     // A NEW application starts from the PropLane defaults: the default lease of its type (Standard ->
     // Long-term lease) and PropLane's Co-signer application. The saved links above stay what Save compares to,
     // so a new application always writes them.
-    const startAppliesTo: ApplicationAppliesTo = listingOfferedStays(sub).long_term ? "long_term" : "short_term";
+    const startAppliesTo: ApplicationAppliesTo =
+      initialAppliesTo ?? (listingOfferedStays(sub).long_term ? "long_term" : "short_term");
     const openAppliesTo: ApplicationAppliesTo = applicationTemplate
       ? applicationAppliesTo(applicationTemplate, leaseCatalog)
       : startAppliesTo;
@@ -480,7 +485,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setAddModeTemplateId(templateEditorMode === "add" ? makePropertyApplicationTemplateId() : null);
     setRoutingLeaseTemplates(leaseCatalog);
     setRoutingApplicationTemplates(readPropertyApplicationTemplates(sub));
-  }, [open, sub, initialVariant, templateEditorMode, applicationTemplate, applicationPreviewPropertyId, templates, leaseCatalog]);
+  }, [open, sub, initialVariant, initialAppliesTo, templateEditorMode, applicationTemplate, applicationPreviewPropertyId, templates, leaseCatalog]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
   const isBulkSave = bulkIds.length > 0;
@@ -1655,7 +1660,7 @@ export function ManagerApplicationQuestionsEditorModal({
             stepPosition={previewStepPosition}
           />
         }
-        lastLabel={templateEditorMode === "add" ? "Create application" : "Save"}
+        lastLabel={editorFinishLabel(templateEditorMode ?? "edit")}
         lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() || Boolean(duplicateTemplateNameError) : !dirty) || hasFieldErrors || Boolean(pendingImport)}
         onBeforeNext={() => {
           if (stepId === "name" && !templateLabel.trim()) {

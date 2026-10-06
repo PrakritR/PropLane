@@ -24,11 +24,15 @@ describe("Application / Lease Bookings chrome", () => {
       expect(file).not.toMatch(/>\s*Settings\s*</);
     }
 
-    // Property Application / Lease pages each show ONE underlined tab (Applications, or Leases)
-    // with its count, never the other section's tab — no settings gear on the property record
-    // page (C228 automation lives on Settings -> Forms and on each form editor).
-    expect(application).toContain("propertyFormsSectionNav");
-    expect(lease).toContain("propertyFormsSectionNav");
+    // Property Application / Lease pages show Long term · Short term · Default tabs (each with its count, a
+    // stay's tab hidden by `property-stay-tabs.ts`), never the other section's tab — no settings gear on the
+    // property record page (C228 automation lives on Settings -> Forms and on each form editor).
+    expect(application).toContain("stayTabs");
+    expect(lease).toContain("stayTabs");
+    expect(application).toContain("property-stay-tabs");
+    expect(lease).toContain("property-stay-tabs");
+    expect(application).not.toContain("propertyFormsSectionNav");
+    expect(lease).not.toContain("propertyFormsSectionNav");
     const chrome = src("src/components/portal/property-form-automation-chrome.tsx");
     expect(chrome).not.toContain("applicationHref");
     expect(chrome).not.toContain("leaseHref");
