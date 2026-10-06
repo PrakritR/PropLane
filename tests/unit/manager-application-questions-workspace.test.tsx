@@ -336,7 +336,7 @@ describe("built-in controls that match the applicant form", () => {
     expect(within(listbox).getByText("5", { exact: true })).toBeTruthy();
   });
 
-  it("co-signer built-ins are as editable as any other question, except that name and email always stay", async () => {
+  it("co-signer built-ins are as editable as any other question, name and email included", async () => {
     const sub = { ...createDefaultListingSubmission(), cosignerApplicationConfigMode: "custom" as const, cosignerDisabledStandardApplicationKeys: [] };
     renderEditor(sub, "cosigner");
     await waitWorkspace();
@@ -344,10 +344,10 @@ describe("built-in controls that match the applicant form", () => {
     const nameRow = document.querySelector('[data-attr="application-question-edit-std-personal-full-legal-name"]') as HTMLElement;
     fireEvent.click(nameRow);
     expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
-    // The identity floor: the words and position are the manager's; Required, Type and Delete are not.
-    expect(document.querySelector('[data-attr="application-question-required"]')).toBeNull();
+    // Nothing is locked: Required, Reorder and Delete are offered on name like any other question.
+    expect(document.querySelector('[data-attr="application-question-required"]')).not.toBeNull();
     expect(screen.queryByRole("button", { name: /^Reorder Full legal name/ })).not.toBeNull();
-    expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
+    expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
     fireEvent.click(nameRow);
     jumpRail("employment");
     const employerRow = document.querySelector('[data-attr="application-question-edit-std-employment-employer-employer-address"]') as HTMLElement;

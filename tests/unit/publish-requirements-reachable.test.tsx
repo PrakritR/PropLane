@@ -65,7 +65,7 @@ function mount(submission: ManagerListingSubmissionV1, onOpenPricing?: () => voi
 
 function publish() {
   fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
-  fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create property" }));
 }
 
 describe("a missing rent is fixed on Pricing, not on a step with no rent field", () => {

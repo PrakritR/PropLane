@@ -195,7 +195,7 @@ describe("Add promotion workspace chrome", () => {
 });
 
 describe("Add application template workspace chrome", () => {
-  it("opens Name → Preview instead of a small dialog", async () => {
+  it("opens one Name step with the standard footer and no separate Preview step", async () => {
     render(
       <PropertyApplicationFormModal
         open
@@ -207,9 +207,11 @@ describe("Add application template workspace chrome", () => {
     );
     await screen.findByRole("dialog", { name: "Add application" });
     expect(document.querySelector('[data-attr="listing-v2-rail-name"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-rail-preview"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="property-application-next"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="property-application-save"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-rail-preview"]')).toBeNull();
+    expect(document.querySelector('[data-attr="property-application-next"]')).toBeNull();
+    const create = document.querySelector('[data-attr="property-application-save"]') as HTMLElement;
+    expect(create.textContent).toContain("Create application");
+    expect(screen.queryByRole("button", { name: "Add application" })).toBeNull();
   });
 });
 

@@ -6,7 +6,7 @@ application asks, and the forms an answer can pull in behind it. Stay types,
 [`lease-generation.md`](lease-generation.md); the move-in form product itself
 belongs to [`move-in-forms.md`](move-in-forms.md).
 
-## Everything is editable except the identity floor
+## Everything is editable
 
 The question editor is shared by the application and the move-in form
 (`src/components/portal/question-editor/`, adapter
@@ -16,14 +16,11 @@ every variant. `canEditBuiltInApplicationField`
 (`src/lib/application-editor-fields.ts`) is the one decision; the editor only
 draws what it returns.
 
-- **The identity floor** (captain, Oct 4 2026): every application asks the
-  applicant's **full legal name and email**. Both can be reworded and moved, but
-  they cannot be removed, switched off, made optional or retyped
-  (`IDENTITY_FLOOR_STANDARD_KEYS` / `isIdentityFloorStandardKey` in
-  `src/lib/rental-application/application-field-catalog.ts`). Leases, screening
-  and the resident account are created from them. A section holding one of them
-  has no off switch (`lockedApplicationSectionIds`). **Phone is not on the
-  floor** — it is as optional and removable as any other question.
+- **Nothing is locked** (captain, Oct 5 2026, superseding the Oct 4 identity
+  floor): full legal name, email and phone are removable, optional and
+  retypable like any other question; every section has a live switch and every
+  question's ⋯ menu offers Edit · Duplicate · Delete. The server falls back to the
+  signed-in account's name and email when those questions are removed.
 - **Two structural limits, not locks.** A built-in whose choices the wizard
   compares by stored value (`BUILT_IN_ANSWER_VALUES`) can have each choice
   reworded but not added, removed or reordered — position *i* stores value *i*.

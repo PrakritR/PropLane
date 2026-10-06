@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPropertyApplicationTemplate, applicationDraftReviewFingerprint, applicationTemplateQuestionConfigFromSlice, publishApplicationTemplateQuestionDraft } from "@/lib/property-application-templates";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { listingCustomApplicationFields } from "@/lib/rental-application/custom-fields";
-import { IDENTITY_FLOOR_STANDARD_KEYS, REQUIRED_IDENTITY_STANDARD_KEYS, applicationConfigForVariant, isWizardFormFieldEnabled, isWizardFormFieldRequired, removeListingApplicationField, resolveListingApplicationFields } from "@/lib/rental-application/application-field-catalog";
+import { REQUIRED_IDENTITY_STANDARD_KEYS, applicationConfigForVariant, isWizardFormFieldEnabled, isWizardFormFieldRequired, removeListingApplicationField, resolveListingApplicationFields } from "@/lib/rental-application/application-field-catalog";
 import { CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS, normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 import { applicationImportMappingToDraft, mapApplicationPdfImport } from "@/lib/rental-application/application-pdf-import";
 
@@ -231,45 +231,37 @@ describe("application PDF import mapping", () => {
 });
 
 describe("applicant identity policy", () => {
-  it("phone can be switched off and removed; full legal name and email always stay on", () => {
+  it("name, phone and email can all be switched off and removed", () => {
     const config = applicationConfigForVariant({ disabledStandardApplicationKeys: [...REQUIRED_IDENTITY_STANDARD_KEYS] }, "standard");
-    // A forged or stale disabled list cannot turn the floor off; phone goes.
-    expect(config.disabledStandardApplicationKeys).toEqual(REQUIRED_IDENTITY_STANDARD_KEYS.filter((key) => !IDENTITY_FLOOR_STANDARD_KEYS.includes(key)));
+    expect(config.disabledStandardApplicationKeys).toEqual(REQUIRED_IDENTITY_STANDARD_KEYS);
     const resolved = resolveListingApplicationFields(config, normalizeCustomApplicationFields);
-    expect(IDENTITY_FLOOR_STANDARD_KEYS.every((key) => resolved.some((field) => field.standardKey === key))).toBe(true);
-    expect(resolved.some((field) => field.label === "Phone")).toBe(false);
+    for (const label of ["Full legal name", "Phone", "Email"]) expect(resolved.some((field) => field.label === label), label).toBe(false);
     expect(isWizardFormFieldEnabled(config, "phone")).toBe(false);
-    expect(isWizardFormFieldEnabled(config, "fullLegalName")).toBe(true);
-    expect(isWizardFormFieldEnabled(config, "email")).toBe(true);
+    expect(isWizardFormFieldEnabled(config, "fullLegalName")).toBe(false);
+    expect(isWizardFormFieldEnabled(config, "email")).toBe(false);
 
     const fresh = applicationConfigForVariant({}, "standard");
     const fields = resolveListingApplicationFields(fresh, normalizeCustomApplicationFields);
-    const phone = fields.find((field) => field.label === "Phone")!;
-    expect(removeListingApplicationField(fresh, phone).disabledStandardApplicationKeys).toContain(phone.standardKey);
-    const name = fields.find((field) => field.label === "Full legal name")!;
-    expect(removeListingApplicationField(fresh, name).disabledStandardApplicationKeys).not.toContain(name.standardKey);
+    for (const label of ["Full legal name", "Phone", "Email"]) {
+      const field = fields.find((candidate) => candidate.label === label)!;
+      expect(removeListingApplicationField(fresh, field).disabledStandardApplicationKeys, label).toContain(field.standardKey);
+    }
   });
 
-  it("an optional phone is the manager's choice and publishes; name and email stay required whatever a stored override says", () => {
+  it("every identity question may be optional or removed and the template still publishes", () => {
     const override = (standardKey: string, required: boolean) => ({ id: standardKey, key: standardKey, standardKey, label: standardKey, type: "text" as const, required, options: [], section: "personal" as const });
-    const phoneOnly = {
+    const optional = {
       disabledStandardApplicationKeys: [],
-      customApplicationFields: REQUIRED_IDENTITY_STANDARD_KEYS.filter((key) => !IDENTITY_FLOOR_STANDARD_KEYS.includes(key)).map((key) => override(key, false)),
+      customApplicationFields: REQUIRED_IDENTITY_STANDARD_KEYS.map((key) => override(key, false)),
       applicationConfigMode: "custom" as const,
     };
-    const template = { ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice(phoneOnly) };
+    const template = { ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice(optional) };
     expect(() => publishApplicationTemplateQuestionDraft(template)).not.toThrow();
-    expect(isWizardFormFieldRequired(phoneOnly, "phone")).toBe(false);
+    expect(isWizardFormFieldRequired(optional, "phone")).toBe(false);
+    expect(isWizardFormFieldRequired(optional, "fullLegalName")).toBe(false);
+    expect(isWizardFormFieldRequired(optional, "email")).toBe(false);
 
-    const forged = { ...phoneOnly, customApplicationFields: REQUIRED_IDENTITY_STANDARD_KEYS.map((key) => override(key, false)) };
-    const resolved = resolveListingApplicationFields(forged, normalizeCustomApplicationFields);
-    expect(IDENTITY_FLOOR_STANDARD_KEYS.every((key) => resolved.find((field) => field.standardKey === key)?.required === true)).toBe(true);
-    expect(isWizardFormFieldRequired(forged, "fullLegalName")).toBe(true);
-    expect(isWizardFormFieldRequired(forged, "email")).toBe(true);
-    // The publish gate refuses a draft that tries to make them optional or turn them off.
-    const bad = { ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice(forged) };
-    expect(() => publishApplicationTemplateQuestionDraft(bad)).toThrow(/must remain required/);
-    const off = { ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({ ...phoneOnly, disabledStandardApplicationKeys: [...IDENTITY_FLOOR_STANDARD_KEYS] }) };
-    expect(() => publishApplicationTemplateQuestionDraft(off)).toThrow(/always asked/);
+    const off = { ...createPropertyApplicationTemplate({ kind: "long-term" }), draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({ ...optional, disabledStandardApplicationKeys: [...REQUIRED_IDENTITY_STANDARD_KEYS] }) };
+    expect(() => publishApplicationTemplateQuestionDraft(off)).not.toThrow();
   });
 });

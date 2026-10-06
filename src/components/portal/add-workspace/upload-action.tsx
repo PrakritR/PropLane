@@ -10,13 +10,35 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 /** File readers retain ownership of parsing and limits; only the picker moves to chrome. */
 export const WorkspaceUploadTarget = createContext<HTMLElement | null>(null);
 
-export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inputDataAttr, label = "Start from a file" }: {
+/**
+ * True when the pop-up draws ONE Upload icon at its top level (`AddWorkspace`'s `headerUpload`).
+ * A step strip then stays out of the header: it keeps its reading / replace-confirm / filled
+ * states, but draws no second Upload icon of its own in the blank state.
+ */
+export const WorkspaceHeaderUploadPresent = createContext(false);
+
+export type WorkspaceHeaderUploadProps = {
+  accept: string;
+  onPick: (file: File) => void;
+  disabled?: boolean;
+  dataAttr?: string;
+  label?: string;
+};
+
+/** The pop-up's single header Upload icon: Upload file · Take photo · Scan, on every step. */
+export function WorkspaceHeaderUpload({ accept, onPick, disabled, dataAttr = "workspace-header-upload", label = "Upload" }: WorkspaceHeaderUploadProps) {
+  return <WorkspaceUploadAction accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} inputDataAttr={`${dataAttr}-input`} label={label} />;
+}
+
+export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inputDataAttr, label = "Start from a file", inline = false }: {
   accept: string;
   onPick: (file: File) => void;
   disabled?: boolean;
   dataAttr: string;
   inputDataAttr?: string;
   label?: string;
+  /** Render in place (e.g. at a step heading's right) instead of portalling into `WorkspaceUploadTarget`. */
+  inline?: boolean;
 }) {
   const target = useContext(WorkspaceUploadTarget);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -59,5 +81,5 @@ export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inpu
       </DropdownMenuContent>
     </DropdownMenu>
   </div>;
-  return target ? createPortal(content, target) : content;
+  return target && !inline ? createPortal(content, target) : content;
 }

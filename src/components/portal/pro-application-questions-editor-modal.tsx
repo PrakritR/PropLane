@@ -16,8 +16,6 @@ import {
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
 import { ApplicationQuestionsEditor } from "@/components/portal/question-editor/application-questions-editor";
-import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
-import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
   PORTAL_EDIT_ROW_ICON_BUTTON_CLASS,
@@ -234,6 +232,8 @@ function duplicateApplicationNameError(
   );
   return clashes ? `An application named "${label.trim()}" already exists on this property.` : null;
 }
+
+const APPLICATION_UPLOAD_ACCEPT = "application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 export function ManagerApplicationQuestionsEditorModal({
   open,
@@ -1179,6 +1179,26 @@ export function ManagerApplicationQuestionsEditorModal({
     }
   };
 
+  // The ONE Upload icon in the Add application header (every step, add mode only). Picking a file sets
+  // Start from = Upload, jumps to the Application step that hosts the strip (so its reading state and the
+  // staged "Apply changes from the file" card are visible), then runs the same import the strip runs.
+  const headerUpload = templateEditorMode === "add" && applicationPreviewPropertyId && !isBulkSave
+    ? {
+        accept: APPLICATION_UPLOAD_ACCEPT,
+        disabled: importing || saving,
+        dataAttr: "property-application-header-upload",
+        label: "Upload application",
+        onPick: (file: File) => {
+          setStartFrom("upload");
+          setCopyFromApplicationId(null);
+          const nameIndex = workspaceSteps.findIndex((step) => step.id === "name");
+          if (nameIndex >= 0) jump(nameIndex);
+          setSectionsUploadFileName(file.name);
+          void importPdf(file);
+        },
+      }
+    : undefined;
+
   const removeField = (field: ResolvedApplicationField) => {
     if (!canEditBuiltIn(field, "visibility")) return;
     applyEditedSlice(removeListingApplicationField(configSlice, field));
@@ -1570,52 +1590,14 @@ export function ManagerApplicationQuestionsEditorModal({
               src={`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&path=${encodeURIComponent(originalPdfPath)}`}
             />
             <div className={`${compareView === "form" ? "block" : "hidden md:block"} h-[34rem] overflow-y-auto rounded-xl border border-border bg-card p-3`}>
-              {variant === "cosigner" ? <CosignerApplyFlow
-                onBack={() => {}}
-                previewMode
-                embedded
-                showToast={showToast}
-                applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
-                previewConfig={configSlice}
-              /> : <RentalApplicationWizard
-                showToast={showToast}
-                mode="manager"
-                layout="embedded"
-                linkedPropertyId={applicationPreviewPropertyId}
-                linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
-                templatePreviewVariant={variant}
-                templatePreview
-                templatePreviewSubmission={{
-                  ...localSub,
-                  ...mergeApplicationConfigForVariant(variant, configSlice),
-                }}
-              />}
+              <ApplicationSectionPreviewPane
+                section={previewSection}
+                fields={previewFields}
+                applicationPreviewPropertyId={applicationPreviewPropertyId}
+                stepPosition={previewStepPosition}
+              />
             </div>
           </div>
-        </div>
-      ) : null}
-      {applicationPreviewPropertyId && !originalPdfPath ? (
-        <div className="rounded-2xl border border-border bg-card p-3" data-attr="application-full-wizard-preview">
-          {variant === "cosigner" ? <CosignerApplyFlow
-            onBack={() => {}}
-            previewMode
-            embedded
-            showToast={showToast}
-            applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
-            previewConfig={configSlice}
-          /> : <RentalApplicationWizard
-            showToast={showToast}
-            mode="manager"
-            layout="embedded"
-            linkedPropertyId={applicationPreviewPropertyId}
-            linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
-            templatePreviewVariant={variant}
-            templatePreview
-            templatePreviewSubmission={{
-              ...localSub,
-              ...mergeApplicationConfigForVariant(variant, configSlice),
-            }}
-          />}
         </div>
       ) : null}
     </>
@@ -1653,6 +1635,7 @@ export function ManagerApplicationQuestionsEditorModal({
             stepPosition={previewStepPosition}
           />
         }
+        headerUpload={headerUpload}
         lastLabel={editorFinishLabel(templateEditorMode ?? "edit")}
         lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() || Boolean(duplicateTemplateNameError) : !dirty) || hasFieldErrors || Boolean(pendingImport)}
         onBeforeNext={() => {
@@ -1865,7 +1848,7 @@ export function ManagerApplicationQuestionsEditorModal({
               ref={replaceApplicationFileRef}
               type="file"
               className="hidden"
-              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept={APPLICATION_UPLOAD_ACCEPT}
               data-attr="application-replace-upload-input"
               onChange={(event) => {
                 const file = event.target.files?.[0] ?? null;
@@ -1878,7 +1861,7 @@ export function ManagerApplicationQuestionsEditorModal({
             {isTemplateEditor && templateEditorMode === "add" && startFrom === "upload" && applicationPreviewPropertyId && !isBulkSave ? <ImportFileStrip
               dataAttr="property-application-start-from-file"
               chips={[".pdf", ".docx", "Your current application", "up to 5 MB"]}
-              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept={APPLICATION_UPLOAD_ACCEPT}
               busy={importing}
               state={
                 importing

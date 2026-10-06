@@ -31,6 +31,8 @@ import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboardin
 import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consent";
 import { revokeApplicationScopedSmsConsentOnWithdrawal } from "@/lib/sms/application-consent.server";
 import { validateResidentApplicationRowForPersistence } from "@/lib/rental-application/validate-application-submit.server";
+import { fillApplicantIdentityFromAccount } from "@/lib/rental-application/applicant-identity.server";
+import { isApplicantWizardRow } from "@/lib/rental-application/applicant-identity";
 import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -405,6 +407,7 @@ type StoredApplicationRecord = {
   id?: string | null;
   row_data?: DemoApplicantRow | null;
   manager_user_id?: string | null;
+  resident_email?: string | null;
   property_id?: string | null;
   assigned_property_id?: string | null;
 };
@@ -1272,6 +1275,27 @@ export async function POST(req: Request) {
       });
     }
     const { role, email } = await resolvePortalRole(db, user);
+    // A template can drop "Email" like any other question, so the wizard row then carries none. A signed-in
+    // applicant writing their OWN application takes the row's email from their ACCOUNT — never from the body
+    // (a differing email is still refused below). Gated on the stored row being theirs or absent, so a
+    // manager editing someone else's blank-email row never has their own address stamped onto it.
+    if (!(row.email ?? "").trim() && email && isApplicantWizardRow(row)) {
+      const identityStored = await loadStoredApplicationRecord(db, requestedRowId);
+      if (identityStored.error) {
+        return NextResponse.json({ error: "Could not load the existing application." }, { status: 500 });
+      }
+      const storedIdentityRow = (identityStored.record?.row_data ?? null) as DemoApplicantRow | null;
+      const storedIdentityEmail = String(identityStored.record?.resident_email ?? storedIdentityRow?.email ?? "")
+        .trim()
+        .toLowerCase();
+      const accountOwnsStored =
+        !storedIdentityRow ||
+        (storedIdentityRow.bucket === "pending" &&
+          (storedIdentityRow.residentUserId === user.id || storedIdentityEmail === email));
+      if (accountOwnsStored) {
+        row = await fillApplicantIdentityFromAccount(db, user, row, { submitted: false });
+      }
+    }
     // SELF-APPLICATION by a signed-in NON-resident (a manager/owner/pro/vendor
     // who continued as guest on the public apply page, or a multi-role login
     // applying somewhere they do not manage): the write is the APPLICANT's own,
@@ -1383,6 +1407,11 @@ export async function POST(req: Request) {
         );
       }
       row = linked.row;
+      // The answers were validated above; whatever identity the template no longer asks for now comes
+      // from the applicant's own account, so the stored row (resident_email, name, answers) is complete.
+      if (!isDraftShapedApplicationRow(row)) {
+        row = await fillApplicantIdentityFromAccount(db, user, row, { submitted: true });
+      }
       row = anchorServerOwnedSmsConsent(row, existing ?? null);
     } else {
       const writeGate = await assertManagerOrAdminWriteAccess(db, user);

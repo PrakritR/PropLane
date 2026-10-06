@@ -202,7 +202,9 @@ describe("F-editor c: footer-only commit", () => {
     const uploadOption = await screen.findByRole("option", { name: "Upload a PDF" });
     fireEvent.pointerDown(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
-    expect(document.querySelector('[data-attr="property-lease-name-upload"]')).not.toBeNull();
+    // The one Upload icon lives in the pop-up header (every step); the strip draws only its reading / confirm states.
+    expect(document.querySelector('[data-attr="property-lease-header-upload"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="property-lease-name-upload"]')).toBeNull();
     expect(screen.queryByRole("button", { name: "Choose file" })).toBeNull();
   });
 

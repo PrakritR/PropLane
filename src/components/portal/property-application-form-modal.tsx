@@ -99,7 +99,6 @@ export function PropertyApplicationFormModal({
   const workspaceTitle = mode === "edit" ? "Edit application" : "Add application";
   const workspaceSteps: AddWorkspaceStep[] = [
     { id: "name", label: "Name", incomplete: !label.trim(), summary: label.trim() || "Name this application" },
-    { id: "preview", label: "Preview", summary: typeMeta?.label ?? "Application" },
   ];
   const current = Math.min(stepIdx, workspaceSteps.length - 1);
   const stepId = workspaceSteps[current]!.id;
@@ -136,7 +135,7 @@ export function PropertyApplicationFormModal({
           creates={[{ tone: "yes", text: mode === "add" ? "Adds this application on the property" : "Saves this application" }]}
         />
       }
-      lastLabel={mode === "edit" ? "Save" : "Add application"}
+      lastLabel={mode === "edit" ? "Save" : "Create application"}
       lastDisabled={!label.trim()}
       onBeforeNext={() => {
         if (stepId === "name" && !label.trim()) {
@@ -150,18 +149,8 @@ export function PropertyApplicationFormModal({
       dataAttrPrefix="property-application"
       finishDataAttr="property-application-save"
       footerNote={error ? <span className="text-sm text-rose-600">{error}</span> : null}
-      dangerAction={
-        mode === "edit" && canDelete && onDelete ? (
-          <button
-            type="button"
-            className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700"
-            data-attr="property-application-delete"
-            onClick={onDelete}
-          >
-            Delete
-          </button>
-        ) : null
-      }
+      onDelete={mode === "edit" && canDelete && onDelete ? onDelete : undefined}
+      deleteDataAttr="property-application-delete"
     >
       {stepId === "name" ? (
         <StepColumn>
@@ -191,20 +180,6 @@ export function PropertyApplicationFormModal({
               setLabel(e.target.value);
             }}
             placeholder={defaultApplicationLabel(kind)}
-          />
-        </StepColumn>
-      ) : null}
-      {stepId === "preview" ? (
-        <StepColumn>
-          <StepHeading title="Preview" />
-          <PreviewPanel
-            title="Application preview"
-            name={label.trim() || defaultApplicationLabel(kind)}
-            facts={[
-              { label: "Type", value: typeMeta?.label ?? "Application" },
-              { label: "Name", value: label.trim() || "Not set", warn: !label.trim() },
-            ]}
-            creates={[{ tone: "yes", text: mode === "add" ? "Adds this application on the property" : "Saves this application" }]}
           />
         </StepColumn>
       ) : null}

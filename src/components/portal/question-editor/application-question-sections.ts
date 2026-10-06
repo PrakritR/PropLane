@@ -3,9 +3,8 @@
  * config slice (the stored shape, unchanged) and this reads it as sections and writes each editor
  * change back through the same catalog functions the form always used.
  *
- * One floor, nothing else: full legal name and email keep being asked, stay required and keep their type
- * (`isIdentityFloorStandardKey`); every other question's words, type, Required, choices, order and on/off
- * can be edited.
+ * Nothing is locked: every question's words, type, Required, choices, order and on/off can be edited
+ * (full legal name, email and phone included).
  * Changing the type or choices of a built-in retires that built-in and asks a custom question of the new
  * type in its place (a new custom key), so only NEW applications change; a submitted application keeps the
  * answers it already stored. When the system reads that built-in by key (`SYSTEM_READ_ANSWER_STANDARD_KEYS`),
@@ -21,7 +20,6 @@ import {
 import { builtInAnswersAreFixed, canEditBuiltInApplicationField } from "@/lib/application-editor-fields";
 import {
   addListingApplicationField,
-  isIdentityFloorStandardKey,
   patchListingApplicationField,
   reenableListingApplicationField,
   removeListingApplicationField,
@@ -66,15 +64,6 @@ const sectionOf = (field: Pick<ResolvedApplicationField, "section">): string => 
 
 /** The sections the application questions step lists (the Review step asks nothing of its own). */
 export const APPLICATION_EDITOR_SECTIONS = RENTAL_APPLICATION_SECTIONS.filter((section) => section.id !== "review");
-
-/** A section holding a question that is always asked (the identity floor: full legal name, email) cannot be switched off. */
-export function lockedApplicationSectionIds(
-  ctx: Pick<ApplicationEditorContext, "fields" | "disabledFields">,
-): RentalApplicationSectionId[] {
-  return APPLICATION_EDITOR_SECTIONS.filter((section) =>
-    [...ctx.fields, ...ctx.disabledFields].some((field) => sectionOf(field) === section.id && isIdentityFloorStandardKey(field.standardKey)),
-  ).map((section) => section.id);
-}
 
 function toEditorQuestion(
   field: ResolvedApplicationField,
@@ -197,7 +186,6 @@ export function applyApplicationEditorChange(
   switch (change.kind) {
     case "toggle-section": {
       const sectionId = change.sectionId as RentalApplicationSectionId;
-      if (!change.enabled && lockedApplicationSectionIds(ctx).includes(sectionId)) return state;
       let next: ApplicationConfigSlice = slice;
       if (!change.enabled) {
         for (const field of ctx.fields) {

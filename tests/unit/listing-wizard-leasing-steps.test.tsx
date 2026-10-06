@@ -26,7 +26,7 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
 
-import { ListingEditorV2, LISTING_V2_STEPS, listingRailChrome } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { ListingEditorV2, LISTING_V2_STEPS, listingRailChrome, listingV2PathStepIds } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { createDefaultListingSubmission, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import { longTermPrivateArrangementRow, placementFeeOptionsFor, resolvePlacementStandardFees } from "@/lib/listing-placement-standard-fees";
@@ -92,10 +92,10 @@ describe("the wizard rail", () => {
     expect(LISTING_V2_STEPS).toHaveLength(9);
   });
 
-  it("counts the leasing steps on the Continue path (Basics, Rooms, 4 leasing, Review), not five", () => {
+  it("walks the leasing steps on the Next path (Basics, Rooms, 4 leasing, Review), not five", () => {
     mount();
-    expect(screen.getAllByText(/^Step 1 of 7$/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Step 1 of 5$/)).toBeNull();
+    expect(listingV2PathStepIds(sub())).toHaveLength(7);
+    expect(screen.queryByText(/^Step \d+ of \d+$/)).toBeNull(); // the footer carries no counter
   });
 
   it("the phone step tabs list the new steps", () => {

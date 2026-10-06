@@ -20,6 +20,7 @@ vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
 vi.mock("@/lib/manager-subscription-client", () => ({ loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false) }));
 
 import { CreateWorkspace, mergeImportedProperties } from "@/components/portal/listing-wizard-v2/create-workspace";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import type { PropertyImportProperty, PropertyImportUnderstanding } from "@/lib/property-import/types";
 
 const pike: PropertyImportProperty = {
@@ -110,17 +111,16 @@ describe("CreateWorkspace", () => {
   it("opens at Basics with the file action in the header and no Import step yet", () => {
     mount();
     expect(screen.getByText("The home itself")).toBeInTheDocument();
-    const strip = document.querySelector("[data-attr='create-file-strip']")!;
-    expect(strip.getAttribute("data-state")).toBe("blank");
-    expect(screen.getByRole("button", { name: "Start from a file" })).toBeInTheDocument();
-    expect(strip.textContent).not.toContain(".xlsx");
-    // The strip comes before the first question.
-    expect(strip.compareDocumentPosition(document.querySelector("[data-attr='listing-v2-kind-house']")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // ONE Upload icon, in the header; the Basics strip draws no second one while it is blank.
+    const header = document.querySelector("[data-attr='listing-v2-header-upload']")!;
+    expect(header.getAttribute("data-state")).toBe("blank");
+    expect(screen.getAllByRole("button", { name: "Upload" })).toHaveLength(1);
+    expect(document.querySelector("[data-attr='create-file-strip']")).toBeNull();
     const rail = screen.getByRole("navigation", { name: "Listing sections" });
     expect(rail.textContent).not.toContain("Import");
     expect(rail.textContent).toContain("Basics");
-    // No Import step yet: the footer counts the listing's own path only.
-    expect(screen.getAllByText(/^Step 1 of \d$/).length).toBeGreaterThan(0); // footer, and the phone step picker
+    // No Import step yet: the bar has one segment per listing step, none for Import.
+    expect(document.querySelectorAll("[data-step-progress]")).toHaveLength(9);
     expect(screen.getByText("New listing")).toBeInTheDocument();
   });
 
@@ -148,8 +148,8 @@ describe("CreateWorkspace", () => {
     expect(screen.getByRole("navigation", { name: "Listing sections" }).textContent).toContain("owner-messy.xlsx · 1 found");
     expect(screen.getAllByText("Imported").length).toBeGreaterThan(0);
     expect(document.querySelector("[data-attr='import-property-switcher']")).toBeNull();
-    // Basics is now the second step: Import counts in the footer.
-    expect(screen.getAllByText(/^Step 2 of \d$/).length).toBeGreaterThan(0);
+    // Basics is now the second step: Import counts in the progress bar.
+    expect(document.querySelectorAll("[data-step-progress]")).toHaveLength(10);
   });
 
   it("a file picked over typed work asks first; Keep drops the file, Replace reads it", async () => {
@@ -163,7 +163,7 @@ describe("CreateWorkspace", () => {
     const readCalls = () => (fetch as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/property-import/read"));
     expect(readCalls()).toHaveLength(0);
     fireEvent.click(document.querySelector("[data-attr='create-file-keep']")!);
-    await waitFor(() => expect(strip().getAttribute("data-state")).toBe("blank"));
+    await waitFor(() => expect(document.querySelector("[data-attr='create-file-strip']")).toBeNull());
     await userEvent.upload(input(), file());
     await waitFor(() => expect(strip().getAttribute("data-state")).toBe("confirm"));
     fireEvent.click(document.querySelector("[data-attr='create-file-replace']")!);
@@ -206,8 +206,6 @@ describe("CreateWorkspace", () => {
     expect(nav.textContent).toContain("By the room");
     expect(nav.textContent).toMatch(/4 rooms/);
     expect(nav.textContent).toContain("Draft");
-    const importStep = screen.getAllByText(/^Step 1 of \d+$/)[0]!.textContent;
-    const total = importStep?.match(/of (\d+)/)?.[1];
     fireEvent.click(document.querySelector("[data-attr='listing-v2-rail-rooms']")!);
     // Rooms has no Default card (PLAN-0921-1648); its chrome is the "N rooms"
     // heading plus each room's own card.
@@ -220,7 +218,7 @@ describe("CreateWorkspace", () => {
     await screen.findByText("Found 2 properties");
     fireEvent.click(document.querySelector("[data-attr='import-upload-continue']")!);
     await screen.findByText("The home itself");
-    expect(screen.getByText(`Step 2 of ${total}`)).toBeInTheDocument();
+    expect(document.querySelector("[data-attr='listing-v2-rail-basics']")?.getAttribute("aria-current")).toBe("step");
   });
 
   it("Import switcher stays on the Found list and refreshes rail summaries", async () => {
@@ -307,6 +305,35 @@ describe("CreateWorkspace · a file with nothing in it", () => {
     expect(screen.getByText("The home itself")).toBeInTheDocument();
     expect(screen.getByRole("alert").textContent).toContain("This file holds placeholder text only.");
     expect(saveDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe("CreateWorkspace · footer Delete discards the draft(s)", () => {
+  it("on the Import step it asks, deletes every draft the file made, and closes", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onClose = vi.fn();
+    const onDiscarded = vi.fn();
+    render(<CreateWorkspace onClose={onClose} onDiscarded={onDiscarded} onDraftsChanged={vi.fn()} userId="mgr-1" skuTier="pro" propertyCount={0} showToast={vi.fn()} />);
+    await uploadAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(deleteDraft).toHaveBeenCalledWith("mgr-draft-1", "mgr-1");
+    expect(deleteDraft).toHaveBeenCalledWith("mgr-draft-2", "mgr-1");
+    expect(onDiscarded).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
+  });
+
+  it("on a new property it deletes the saved draft, tells the host, then closes", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onClose = vi.fn();
+    const onDiscarded = vi.fn();
+    render(<CreateWorkspace onClose={onClose} onDiscarded={onDiscarded} onDraftsChanged={vi.fn()} initialDraftId="draft-9" initialSubmission={createDefaultListingSubmission()} userId="mgr-1" skuTier="pro" propertyCount={0} showToast={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(deleteDraft).toHaveBeenCalledWith("draft-9", "mgr-1");
+    expect(onDiscarded).toHaveBeenCalledTimes(1);
+    expect(onDiscarded.mock.invocationCallOrder[0]!).toBeLessThan(onClose.mock.invocationCallOrder[0]!);
+    vi.restoreAllMocks();
   });
 });
 

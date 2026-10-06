@@ -56,7 +56,7 @@ describe("a new property opens in the editor itself", () => {
     expect(document.querySelector('[data-attr="quick-add-kind-house"]')).toBeNull();
     // The full editor's own affordances are on the first screen.
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Next: Rooms$/ })).toBeTruthy();
   });
 });
 

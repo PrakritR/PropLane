@@ -32,6 +32,7 @@ import { editorFooterState } from "@/lib/editor-footer-state";
 import { cn } from "@/lib/utils";
 import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
 import { WorkspaceDeleteButton } from "./frame";
+import { WorkspaceHeaderUpload, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "./upload-action";
 
 export { WORKSPACE_PREVIEW_TITLE_CLASS, WorkspaceDeleteButton, WorkspacePreviewTitle, workspaceSaveState } from "./frame";
 
@@ -86,6 +87,7 @@ export function AddWorkspace({
   footerNote,
   overlay,
   headerActions,
+  headerUpload,
   skipOffPath = false,
   numberedSteps = false,
   hideFooterStepCount = false,
@@ -150,6 +152,12 @@ export function AddWorkspace({
   overlay?: ReactNode;
   /** Icon actions beside Ask PropLane — Generate / Upload on Add lease. */
   headerActions?: ReactNode;
+  /**
+   * The pop-up's ONE Upload icon (Upload file · Take photo · Scan), drawn in the header beside
+   * Ask PropLane on every step. Its handler is the door's existing file reader; the step strips
+   * then draw no second icon of their own.
+   */
+  headerUpload?: WorkspaceHeaderUploadProps;
   /**
    * When true, Next / Back skip `offPath` extras (Add resident Also create).
    * Other doors keep walking every listed step so optional rail rows stay reachable from Next.
@@ -295,6 +303,7 @@ export function AddWorkspace({
 
   return (
     <WizardInvalidFields.Provider value={invalidFields}>
+    <WorkspaceHeaderUploadPresent.Provider value={Boolean(headerUpload)}>
     <ListingWizardOverlay ariaLabel={title}>
       <div ref={workspaceRef} data-rail={singleStep ? "none" : undefined} className={cn("relative h-full w-full", singleStep && (sidePanel ? SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS : SINGLE_STEP_NO_RAIL_CLASS))} onInput={(event) => {
         const target = event.target;
@@ -315,6 +324,7 @@ export function AddWorkspace({
         onContinue={isLast ? finish : goNext}
         headerAside={
           <>
+            {headerUpload ? <WorkspaceHeaderUpload {...headerUpload} /> : null}
             {headerActions}
             <ModalAssistantStrip contextHint={`${assistantContext} — ${steps[current]?.label ?? title} (Step ${current + 1} of ${steps.length})`} storageScopeKey={assistantScopeKey} />
           </>
@@ -327,6 +337,7 @@ export function AddWorkspace({
           </>
         }
         sidePanel={sidePanel}
+        previewInEye
         footer={
           <>
             <div className="flex items-center gap-2.5">
@@ -410,6 +421,7 @@ export function AddWorkspace({
       ) : null}
       </div>
     </ListingWizardOverlay>
+    </WorkspaceHeaderUploadPresent.Provider>
     </WizardInvalidFields.Provider>
   );
 }

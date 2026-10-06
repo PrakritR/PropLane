@@ -31,6 +31,8 @@ import {
 import { LEASE_TYPES, leaseTypeIdsFromStored, leaseTypeLabel } from "@/lib/rental-application/lease-terms";
 import { WizardFieldError } from "@/components/portal/add-workspace/validation";
 import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
+import { WorkspaceDeleteButton } from "@/components/portal/add-workspace/frame";
+import { editorFooterState } from "@/lib/editor-footer-state";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useTabOverflowFade } from "@/components/ui/destination-nav";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
@@ -263,6 +265,123 @@ export function ListingWorkspace({
       {previewInEye && sidePanel && eyeOpen ? <PreviewSheet onClose={() => setEyeOpen(false)}>{sidePanel}</PreviewSheet> : null}
     </div>
     </WorkspaceUploadTarget.Provider>
+  );
+}
+
+/**
+ * The step progress bar every Add pop-up draws above its step: one segment per rail step, filled up to
+ * the current one, red for a step the manager moved past with something still missing. The same markup
+ * `AddWorkspace` draws, so Add property reads like Add resident.
+ */
+export function WizardStepProgress({
+  steps,
+  current,
+  attempted,
+}: {
+  steps: ReadonlyArray<{ id: string; attention?: number }>;
+  current: number;
+  /** Indexes of steps the manager pressed Next on. */
+  attempted?: ReadonlySet<number>;
+}) {
+  if (steps.length < 2) return null;
+  return (
+    <div className="mb-5 hidden gap-1 lg:flex" aria-label="Step progress">
+      {steps.map((step, index) => {
+        const error = Boolean(attempted?.has(index) && (step.attention ?? 0) > 0);
+        return (
+          <span
+            key={step.id}
+            data-step-progress={step.id}
+            data-error={error || undefined}
+            className={`h-1 flex-1 rounded-full ${error ? "bg-destructive" : index <= current ? "bg-primary" : "bg-border"}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The footer of an Add pop-up: Delete at the left, Back then Next (the commit word on the last step) at
+ * the right, nothing between. The same rule and classes `AddWorkspace` uses (`editorFooterState`), so the
+ * property wizard's footer is the one every other Add pop-up draws. Delete is drawn only when `onDelete`
+ * is given (a new property; an edit has none).
+ */
+export function WizardFooterActions({
+  hasPrev,
+  hasNext,
+  lastLabel,
+  busy = false,
+  onBack,
+  onNext,
+  onFinish,
+  nextAriaLabel,
+  onDelete,
+  deleteDataAttr,
+  dataAttrPrefix,
+  finishDataAttr,
+  nextDataAttr,
+  center,
+}: {
+  hasPrev: boolean;
+  hasNext: boolean;
+  /** The commit word on the last step: "Create property" on a new property, "Save" on an edit. */
+  lastLabel: string;
+  busy?: boolean;
+  onBack: () => void;
+  onNext: () => void;
+  onFinish: () => void;
+  nextAriaLabel?: string;
+  onDelete?: () => void;
+  deleteDataAttr?: string;
+  dataAttrPrefix: string;
+  finishDataAttr?: string;
+  nextDataAttr?: string;
+  center?: ReactNode;
+}) {
+  const footer = editorFooterState({ hasPrev, hasNext, lastLabel });
+  return (
+    <>
+      <div className="flex items-center gap-2.5">
+        {onDelete ? <WorkspaceDeleteButton onClick={onDelete} disabled={busy} dataAttr={deleteDataAttr ?? `${dataAttrPrefix}-delete`} /> : null}
+      </div>
+      <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">{center}</span>
+      <div className="flex items-center gap-2.5">
+        {footer.showBack ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onBack}
+            data-attr={`${dataAttrPrefix}-back`}
+            className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
+          >
+            Back
+          </button>
+        ) : null}
+        {footer.isLast ? (
+          <button
+            type="button"
+            onClick={onFinish}
+            disabled={busy}
+            data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
+            className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+          >
+            {busy ? "Saving…" : footer.primaryLabel}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={busy}
+            data-attr={nextDataAttr ?? `${dataAttrPrefix}-next`}
+            aria-label={nextAriaLabel ?? "Next"}
+            className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45"
+          >
+            {footer.primaryLabel}
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 
