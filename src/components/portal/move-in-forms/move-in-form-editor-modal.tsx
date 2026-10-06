@@ -18,7 +18,6 @@ import { FloatingLabelField, StepColumn, StepHeading } from "@/components/portal
 import { MoveInQuestionsEditor } from "@/components/portal/move-in-forms/move-in-questions-editor";
 import { MoveInFormLivePreview, moveInPreviewStepOf } from "@/components/portal/move-in-forms/move-in-form-live-preview";
 import {
-  audienceSummary,
   cleanMoveInTemplateForSave,
   dueForTriggerChange,
   dueOptionsForTrigger,
