@@ -1661,9 +1661,14 @@ export async function renderPortalSection(
     }
     const moveInTab = tabParts[0]!;
     // An unsubmitted form that blocks "Move-in details" is decided here, on the server, from the forms
-    // table: the details tab renders its lock and no house detail is loaded into the page at all.
+    // table: the details tab renders its lock and no house detail is loaded into the page at all. A
+    // read that FAILED holds the same lock without naming a form, the way the approve and lease
+    // refusals do.
     const formsLock = residentAccess?.blockingFormsPending?.moveInDetails
-      ? { formId: residentAccess.blockingFormsPending.formIds?.moveInDetails ?? null }
+      ? {
+          formId: residentAccess.blockingFormsPending.formIds?.moveInDetails ?? null,
+          readFailed: residentAccess.blockingFormsPending.readFailed ?? false,
+        }
       : undefined;
     // My home › Inspections: `/inspections` (all), `/inspections/{move-in|move-out}` (one type) and
     // `/inspections/{move-in|move-out}/{reportId}` (one filed report, on its own page).

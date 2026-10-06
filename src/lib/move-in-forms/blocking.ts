@@ -106,6 +106,33 @@ export async function loadResidentBlockingForms(
 }
 
 /**
+ * The columns the facts read needs, and nothing more: the two snapshot keys a block is derived from are
+ * projected out of the jsonb rather than dragging every form's questions and PDF metadata onto the
+ * resident's hot path (AGENTS.md § Performance & egress).
+ */
+const FACTS_SELECT = "id, form_id, status, sent_at, resident_user_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks";
+
+type FormsFactsRow = {
+  id: string;
+  form_id?: string | null;
+  status: string;
+  sent_at?: string | null;
+  resident_user_id?: string | null;
+  snapshot_kind?: string | null;
+  snapshot_blocks?: string | null;
+};
+
+function factsRowAsBlockingRow(row: FormsFactsRow): BlockingRow {
+  return {
+    id: row.id,
+    form_id: row.form_id,
+    status: row.status,
+    sent_at: row.sent_at,
+    snapshot: { kind: (row.snapshot_kind ?? undefined) as MoveInFormKind | undefined, blocks: row.snapshot_blocks ?? undefined },
+  };
+}
+
+/**
  * Both forms facts the resident portal's access state needs, from ONE read of the resident's
  * non-cancelled copies: whether a form has ever been sent to them at all, and what their unsubmitted
  * ones block. `blockingFormsFromRows` counts only the `sent` rows, so one select answers both and the
@@ -121,16 +148,16 @@ export async function loadResidentFormsFacts(
   try {
     const { data, error } = await db
       .from("resident_move_in_forms")
-      .select(SELECT)
+      .select(FACTS_SELECT)
       .eq("resident_email", email)
       .neq("status", "cancelled");
     if (error) {
       return { hasForms: false, blocking: tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED };
     }
-    const rows = ((data ?? []) as Array<BlockingRow & { resident_user_id?: string | null }>).filter(
+    const rows = ((data ?? []) as FormsFactsRow[]).filter(
       (row) => !row.resident_user_id || !who.userId || row.resident_user_id === who.userId,
     );
-    return { hasForms: rows.length > 0, blocking: blockingFormsFromRows(rows) };
+    return { hasForms: rows.length > 0, blocking: blockingFormsFromRows(rows.map(factsRowAsBlockingRow)) };
   } catch {
     return { hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED };
   }

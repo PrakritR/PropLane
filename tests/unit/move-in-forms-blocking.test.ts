@@ -76,15 +76,16 @@ describe("blockingFormsPending derivation", () => {
 /** A one-table fake: records the filters it was asked for and answers with `result`. */
 function fakeDb(result: { data?: unknown[]; error?: { code?: string; message?: string } | null } | "throw") {
   const calls: Array<[string, string, unknown]> = [];
+  const selects: string[] = [];
   const query: Record<string, unknown> = {};
   const chain = (name: string) => (column: string, value: unknown) => { calls.push([name, column, value]); return query; };
-  query.select = () => query;
+  query.select = (columns: string) => { selects.push(columns); return query; };
   query.eq = chain("eq");
   query.neq = chain("neq");
   query.in = chain("in");
   query.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
     (result === "throw" ? Promise.reject(new Error("down")) : Promise.resolve({ data: result.data ?? null, error: result.error ?? null })).then(resolve, reject);
-  return { db: { from: () => query } as never, calls };
+  return { db: { from: () => query } as never, calls, selects };
 }
 
 describe("loading what a resident or an application is blocked on", () => {
@@ -129,10 +130,15 @@ describe("loading what a resident or an application is blocked on", () => {
  * select of the non-cancelled copies (AGENTS.md § Performance & egress).
  */
 describe("one read answers both resident forms facts", () => {
+  /** The row shape the facts select actually returns: the two snapshot keys, projected out of the jsonb. */
+  const factsRow = (patch: Record<string, unknown> = {}) => ({
+    id: "r1", form_id: "f1", status: "sent", sent_at: "2026-10-01T00:00:00Z", snapshot_kind: "other", snapshot_blocks: null, ...patch,
+  });
+
   it("asks once, excluding cancelled copies, and derives hasForms and the blocks together", async () => {
     const { db, calls } = fakeDb({ data: [
-      row({ id: "mine", resident_user_id: "u1", snapshot: { blocks: "approval" } }),
-      row({ id: "done", resident_user_id: "u1", status: "submitted", snapshot: { blocks: "lease_signing" } }),
+      factsRow({ id: "mine", resident_user_id: "u1", snapshot_blocks: "approval" }),
+      factsRow({ id: "done", resident_user_id: "u1", status: "submitted", snapshot_blocks: "lease_signing" }),
     ] });
     const facts = await loadResidentFormsFacts(db, { email: " A@Example.TEST ", userId: "u1" });
     expect(facts.hasForms).toBe(true);
@@ -140,18 +146,37 @@ describe("one read answers both resident forms facts", () => {
     expect(calls).toEqual([["eq", "resident_email", "a@example.test"], ["neq", "status", "cancelled"]]);
   });
 
+  // Every resident page runs this read, so it must never drag the whole snapshot (questions + PDF
+  // metadata) along for the two keys a block is derived from.
+  it("selects only the columns it reads, projecting the two snapshot keys out of the jsonb", async () => {
+    const { db, selects } = fakeDb({ data: [] });
+    await loadResidentFormsFacts(db, { email: "a@example.test" });
+    expect(selects).toHaveLength(1);
+    expect(selects[0]).toBe("id, form_id, status, sent_at, resident_user_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks");
+    expect(selects[0]).not.toMatch(/(^|[ ,])snapshot([ ,]|$)/);
+  });
+
   it("a copy tied to another login is neither a form of theirs nor a block", async () => {
-    const { db } = fakeDb({ data: [row({ id: "theirs", resident_user_id: "u2", snapshot: { blocks: "approval" } })] });
+    const { db } = fakeDb({ data: [factsRow({ id: "theirs", resident_user_id: "u2", snapshot_blocks: "approval" })] });
     const facts = await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
     expect(facts.hasForms).toBe(false);
     expect(facts.blocking).toMatchObject({ moveInDetails: false, leaseSigning: false, approval: false });
   });
 
   it("a submitted-only resident has forms but nothing blocked", async () => {
-    const { db } = fakeDb({ data: [row({ id: "done", status: "submitted", snapshot: { kind: "intake" } })] });
+    const { db } = fakeDb({ data: [factsRow({ id: "done", status: "submitted", snapshot_kind: "intake" })] });
     const facts = await loadResidentFormsFacts(db, { email: "a@example.test" });
     expect(facts.hasForms).toBe(true);
     expect(facts.blocking).toMatchObject({ moveInDetails: false });
+  });
+
+  it("falls back to the kind's default, and to the form id when the snapshot has no kind", async () => {
+    const intake = fakeDb({ data: [factsRow({ snapshot_kind: "intake" })] });
+    expect((await loadResidentFormsFacts(intake.db, { email: "a@example.test" })).blocking.moveInDetails).toBe(true);
+    const byFormId = fakeDb({ data: [factsRow({ form_id: "default-intake", snapshot_kind: null })] });
+    expect((await loadResidentFormsFacts(byFormId.db, { email: "a@example.test" })).blocking.moveInDetails).toBe(true);
+    const explicitNothing = fakeDb({ data: [factsRow({ snapshot_kind: "intake", snapshot_blocks: "nothing" })] });
+    expect((await loadResidentFormsFacts(explicitNothing.db, { email: "a@example.test" })).blocking.moveInDetails).toBe(false);
   });
 
   it("fails closed on a read error without claiming a form exists; a missing table blocks nothing", async () => {

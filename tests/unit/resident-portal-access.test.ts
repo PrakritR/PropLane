@@ -446,8 +446,10 @@ describe("resident portal access state — blockingFormsPending", () => {
     return base;
   }
   const load = () => loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
+  // The shape the access state's narrow select returns: the two snapshot keys, projected out of the jsonb.
   const sent = (id: string, blocks: string, extra: Record<string, unknown> = {}) => ({
-    id, form_id: "f", status: "sent", sent_at: "2026-10-01T00:00:00Z", resident_user_id: "user-1", snapshot: { kind: "other", blocks }, ...extra,
+    id, form_id: "f", status: "sent", sent_at: "2026-10-01T00:00:00Z", resident_user_id: "user-1",
+    snapshot_kind: "other", snapshot_blocks: blocks, ...extra,
   });
 
   it("is computed on the server from the resident's unsubmitted forms, with the form that unlocks each", async () => {

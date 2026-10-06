@@ -1087,6 +1087,20 @@ describe("manager edit of a pending form (PATCH /api/move-in-forms/:id)", () => 
     expect(objects["move-in-form-files"]!.has(`${ID}/sig/${UUID}.png`)).toBe(true);
   });
 
+  it("never touches a surviving question's objects — a photo uploaded seconds ago has no saved answer yet", async () => {
+    stored();
+    const justUploaded = `${ID}/room_photos/${"b".repeat(8)}-0000-4000-8000-000000000000.jpg`;
+    objects["move-in-form-files"]!.set(justUploaded, new Uint8Array([2]));
+    // The resident's debounced draft has not landed, so no answer references either photo yet.
+    forms = [formRow({ answers: [] })];
+    await editMoveInForm(manager(), ID, {
+      questions: [q("room_photos", "photos", { required: true }), q("sig", "signature", { required: true })],
+    });
+    expect(objects["move-in-form-files"]!.has(justUploaded)).toBe(true);
+    expect(objects["move-in-form-files"]!.has(`${ID}/room_photos/${UUID}.jpg`)).toBe(true);
+    expect(objects["move-in-form-files"]!.has(`${ID}/sig/${UUID}.png`)).toBe(true);
+  });
+
   it("re-derives ownership from the signed-in manager: another manager, and a resident, get a 404 and nothing changes", async () => {
     await expect(editMoveInForm(manager("other-owner"), ID, { blocks: "approval" })).rejects.toMatchObject({ status: 404 });
     await expect(editMoveInForm(resident(), ID, { blocks: "approval" })).rejects.toMatchObject({ status: 404 });
