@@ -963,8 +963,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         onHeaderAction={onCatalogHeaderAction}
       >
         {catalogDetailTab === "communication" && catalogDetail ? (
-          <div className="min-h-[520px] px-1 sm:px-2" data-attr="vendor-catalog-communication">
+          <div className="flex min-h-[520px] flex-col px-1 sm:px-2" data-attr="vendor-catalog-communication">
             <RecordCommunicationSection
+              fill
               role="manager"
               recordRef={{
                 kind: "vendor",

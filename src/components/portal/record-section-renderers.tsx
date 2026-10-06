@@ -193,7 +193,8 @@ function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, pr
       contactIds={contactIds}
       contactName={contactName}
       contactPhone={contactPhone}
-      fill={fill}
+      // Every manager record's Communication fills the page and carries the main composer (schedule clock included).
+      fill={fill ?? role === "manager"}
       autoOpenCompose={autoOpenCompose}
     />
   );

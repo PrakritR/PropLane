@@ -50,6 +50,7 @@ import {
   InboxComposerScheduleMenu,
 } from "@/components/portal/inbox-composer-tools";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
+import { useThreadScheduledCards } from "@/components/portal/use-thread-scheduled-cards";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { setInboxFullScreen } from "@/lib/inbox-full-screen";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -383,6 +384,12 @@ export function RecordCommunicationSection({
 
   const [scheduleLater, setScheduleLater] = useState(false);
   const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
+  // Scheduled sends render inline above the timeline (pinned "N scheduled" card), like the main thread.
+  const { scheduledCards, reloadScheduled } = useThreadScheduledCards({
+    recipientEmail,
+    smsAvailable,
+    enabled: fill && role === "manager",
+  });
 
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<InboxComposerAttachment[]>([]);
@@ -476,6 +483,8 @@ export function RecordCommunicationSection({
         setDraft("");
         setScheduleLater(false);
         appUi?.showToast("Message scheduled.");
+        // Pull the pinned "N scheduled" card in so the manager sees it landed.
+        reloadScheduled();
       } catch {
         setSendError("Could not schedule message.");
       } finally {
@@ -532,7 +541,7 @@ export function RecordCommunicationSection({
     } finally {
       setSending(false);
     }
-  }, [activeRef, appUi, attachments, draft, emailAvailable, fill, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scheduleLater, scheduleSendAt, scope, senderIdentity, smsAvailable, viaEmail, viaProplane, viaSms]);
+  }, [activeRef, appUi, attachments, draft, emailAvailable, fill, onEnsureRecord, primaryThread, propertyId, recipientEmail, role, scheduleLater, scheduleSendAt, scope, senderIdentity, smsAvailable, viaEmail, viaProplane, viaSms, reloadScheduled]);
 
   const handleArchive = useCallback(async () => {
     if (!primaryThread || archiving) return;
@@ -673,6 +682,7 @@ export function RecordCommunicationSection({
               avatarName={counterpartyName}
               messages={messages}
               headerActions={headerActions}
+              underHeader={scheduledCards}
               composer={composer}
               emptyLabel={initialSyncDone ? "No messages yet." : "Loading messages…"}
               threadKey={primaryThread?.id ?? `record:${activeRef.kind}:${activeRef.id}`}

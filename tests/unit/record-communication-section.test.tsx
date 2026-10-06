@@ -300,6 +300,36 @@ describe("RecordCommunicationSection", () => {
     expect(screen.getByText(/Vendor · .*vendor@example\.com/)).toBeInTheDocument();
   });
 
+  it("fill mode draws the contact's scheduled sends inline above the timeline, like the main thread", async () => {
+    threadRows = [];
+    const sendAt = new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).startsWith("/api/portal/scheduled-inbox-messages")) {
+          return {
+            ok: true,
+            json: async () => ({
+              messages: [
+                { id: "sch-1", managerUserId: "m", sendAt, status: "scheduled", subject: "Lease question", body: "Reminder about the lease.", recipientEmail: "vendor@example.com", recipientName: "Acme", deliverViaEmail: true, deliverViaSms: false, deliverViaInbox: true, createdAt: new Date().toISOString() },
+              ],
+            }),
+          };
+        }
+        return { ok: false, json: async () => ({}) };
+      }) as unknown as typeof fetch,
+    );
+    render(
+      <RecordCommunicationSection
+        fill
+        role="manager"
+        recordRef={{ kind: "vendor", id: "vendor-1", label: "Acme Plumbing" }}
+        contactIds={["vendor@example.com"]}
+      />,
+    );
+    await waitFor(() => expect(document.querySelector('[data-attr="inbox-scheduled-bar-row"]')).not.toBeNull());
+  });
+
   it("keeps the channel picker in the tools row beside the field, never floating over the message input", async () => {
     threadRows = [];
     render(
@@ -381,5 +411,13 @@ describe("RecordCommunicationSection", () => {
       await screen.findByText("Hello Liam.");
       await waitFor(() => expect(screen.queryByText("Self copy of a charge notice.")).toBeNull());
     });
+  });
+
+  it("every manager record's Communication fills the page: the renderer defaults to the full pane for managers", async () => {
+    const { readFileSync } = await import("node:fs");
+    const renderer = readFileSync("src/components/portal/record-section-renderers.tsx", "utf8");
+    expect(renderer).toContain('fill={fill ?? role === "manager"}');
+    const catalog = readFileSync("src/components/portal/pro-vendors-panel.tsx", "utf8");
+    expect(catalog).toMatch(/<RecordCommunicationSection\s+fill\s+role="manager"/);
   });
 });
