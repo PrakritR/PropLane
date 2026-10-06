@@ -273,3 +273,53 @@ describe("F004: a brand-new (unsaved) application stages before persisting too",
     expect(created?.draftQuestionConfig?.importProvenance?.sourcePath).toBe(PARSED_DRAFT.importProvenance!.sourcePath);
   });
 });
+
+describe("Add application: one header Upload icon on every step", () => {
+  function renderAdd(mode: "add" | "edit") {
+    const template = createPropertyApplicationTemplate({ kind: "long-term", label: "Long-term application" });
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title={mode === "add" ? "Add application" : "Application"}
+        sub={createDefaultListingSubmission()}
+        managerUserId="mgr-1"
+        applicationPreviewPropertyId="prop-1"
+        templateEditorMode={mode}
+        applicationTemplate={mode === "edit" ? { ...template, id: "app-tpl-1" } : null}
+        templates={mode === "edit" ? [{ ...template, id: "app-tpl-1" }] : readPropertyApplicationTemplates(createDefaultListingSubmission())}
+        onPersistSubmission={async () => true}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+  }
+  const headerInput = () => document.querySelector('[data-attr="property-application-header-upload-input"]') as HTMLInputElement | null;
+
+  it("is present on the Application step and the Questions step, and only once", async () => {
+    renderAdd("add");
+    await screen.findByRole("dialog", { name: "Add application" });
+    expect(document.querySelectorAll('[data-attr="property-application-header-upload"]')).toHaveLength(1);
+    expect(headerInput()?.accept).toContain("application/pdf");
+    expect(headerInput()?.accept).toContain(".docx");
+    jumpRail("sections");
+    expect(document.querySelectorAll('[data-attr="property-application-header-upload"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-attr="property-application-start-from-file"] [data-attr$="-upload"]')).toHaveLength(0);
+  });
+
+  it("picking a file from the Questions step sets Start from to Upload, returns to the Application step and runs the import", async () => {
+    renderAdd("add");
+    await screen.findByRole("dialog", { name: "Add application" });
+    jumpRail("sections");
+    fireEvent.change(headerInput()!, { target: { files: [new File(["%PDF-1.4"], "lease.pdf", { type: "application/pdf" })] } });
+    await waitFor(() => expect(document.querySelector('[data-attr="application-pending-import"]')).not.toBeNull());
+    expect((document.querySelector('[data-attr="property-application-start-from"]') as HTMLElement).textContent).toContain("Upload");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/api/portal/application-template-import"))).toBe(true);
+  });
+
+  it("edit mode has no header Upload icon (its Replace action stays)", async () => {
+    renderAdd("edit");
+    await screen.findByRole("dialog", { name: "Application" });
+    expect(headerInput()).toBeNull();
+  });
+});

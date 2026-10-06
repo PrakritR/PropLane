@@ -219,18 +219,20 @@ describe("sections", () => {
     expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
   });
 
-  it("only the section holding name and email is locked on; the others switch off and back on", () => {
+  it("no section is locked: every switch is live and switches off and back on", () => {
     const onState = vi.fn();
     render(<ApplicationHarness onState={onState} />);
     const sw = (id: string) => document.querySelector(`[data-attr="application-questions-editor-section-switch-${id}"]`) as HTMLButtonElement;
-    expect(sw("personal").disabled).toBe(true);
-    expect(document.querySelector('[data-attr="application-questions-editor-section-lock-personal"]')).not.toBeNull();
+    expect(sw("personal").disabled).toBe(false);
+    expect(document.querySelector('[data-attr="application-questions-editor-section-lock-personal"]')).toBeNull();
     expect(sw("property").disabled).toBe(false);
     expect(document.querySelector('[data-attr="application-questions-editor-section-lock-property"]')).toBeNull();
     const slice = startSlice();
     const state: ApplicationEditorState = { slice, disabledSectionIds: [] };
-    // Switching Personal off is refused (name and email are always asked)...
-    expect(applyApplicationEditorChange(state, { kind: "toggle-section", sectionId: "personal", enabled: false }, ctxFor(slice))).toBe(state);
+    // Switching Personal off takes name, phone and email with it...
+    const personalOff = applyApplicationEditorChange(state, { kind: "toggle-section", sectionId: "personal", enabled: false }, ctxFor(slice));
+    expect(personalOff.disabledSectionIds).toEqual(["personal"]);
+    expect(personalOff.slice.disabledStandardApplicationKeys).toContain(NAME_KEY);
     // ...Property goes off and its questions with it.
     const off = applyApplicationEditorChange(state, { kind: "toggle-section", sectionId: "property", enabled: false }, ctxFor(slice));
     expect(off.disabledSectionIds).toEqual(["property"]);
@@ -284,7 +286,7 @@ describe("every question is editable, except what the system reads by key", () =
     expect(state.slice.disabledStandardApplicationKeys).not.toContain("additional-number-of-occupants");
   });
 
-  it("full legal name and email: their words persist, but their type, Required and Delete are fixed", () => {
+  it("full legal name: words, type, Required and Delete all persist", () => {
     let state = state0();
     const ctx = () => ctxFor(state.slice);
     const name = find(state.slice, NAME_KEY);
@@ -294,14 +296,11 @@ describe("every question is editable, except what the system reads by key", () =
     expect(renamed.standardKey).toBe(NAME_KEY);
     expect(renamed.type).toBe("text");
     const q = applicationSectionsForEditor({ ...ctx(), disabledSectionIds: [] }).find((s) => s.id === "personal")!.questions.find((x) => x.id === name.id)!;
-    expect(q.can).toMatchObject({ type: false, remove: false, label: true, required: false, move: true });
-    for (const patch of [{ type: "long_text" as const }, { required: false }]) {
-      const next = applyApplicationEditorChange(state, { kind: "edit-question", sectionId: "personal", questionId: name.id, patch }, ctx());
-      expect(next.slice.disabledStandardApplicationKeys).not.toContain(NAME_KEY);
-      expect(ctxFor(next.slice).fields.find((f) => f.standardKey === NAME_KEY)).toMatchObject({ type: "text", required: true });
-    }
+    expect(q.can).toMatchObject({ remove: true, label: true, required: true, move: true });
+    const optional = applyApplicationEditorChange(state, { kind: "edit-question", sectionId: "personal", questionId: name.id, patch: { required: false } }, ctx());
+    expect(ctxFor(optional.slice).fields.find((f) => f.standardKey === NAME_KEY)).toMatchObject({ required: false });
     const deleted = applyApplicationEditorChange(state, { kind: "delete-question", sectionId: "personal", questionId: name.id }, ctx());
-    expect(deleted.slice.disabledStandardApplicationKeys).not.toContain(NAME_KEY);
+    expect(deleted.slice.disabledStandardApplicationKeys).toContain(NAME_KEY);
   });
 
   it("a phone field's text edit persists; its type change detaches it and delete works", () => {
@@ -380,17 +379,17 @@ describe("every question is editable, except what the system reads by key", () =
     expect(next.disabledStandardApplicationKeys).toContain(PETS_KEY);
   });
 
-  it("name and email have no Delete and a fixed type", async () => {
+  it("name has Delete in its menu and an editable type and Required", async () => {
     render(<ApplicationHarness onState={vi.fn()} />);
     openSection("personal");
     const row = rowFor("Full legal name");
     fireEvent.keyDown(row.querySelector('[data-attr="application-questions-editor-question-menu"]') as HTMLElement, { key: "ArrowDown" });
-    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+    expect(await screen.findByRole("menuitem", { name: "Delete" })).toBeTruthy();
     fireEvent.keyDown(document.body, { key: "Escape" });
     fireEvent.click(row.querySelector('[data-attr="application-questions-editor-question-open"]') as HTMLElement);
-    expect(document.querySelector('[data-attr="application-questions-editor-question-type-text"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="application-questions-editor-question-type"]')).toBeNull();
-    expect(document.querySelector('[data-attr="application-questions-editor-question-required"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-questions-editor-question-type-text"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-questions-editor-question-type"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="application-questions-editor-question-required"]')).not.toBeNull();
   });
 
   it("an identity question's Type is a dropdown, its menu has Delete, and a type change asks first (phone)", async () => {

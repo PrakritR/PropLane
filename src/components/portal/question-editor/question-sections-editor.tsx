@@ -10,7 +10,7 @@
  * `QuestionEditorChange` and the host writes it to its own storage.
  */
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileText, GripVertical, Lock, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, GripVertical, MoreHorizontal } from "lucide-react";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { linkedFormKey } from "@/lib/application-linked-forms";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,6 @@ export function QuestionSectionsEditor({
   onChange,
   allowedTypes,
   linkedFormOptions,
-  lockedSectionIds = [],
   onRestoreDefaults,
   restoreLabel = "Restore PropLane defaults",
   canAddSection = true,
@@ -55,7 +54,6 @@ export function QuestionSectionsEditor({
   /** Forms a question can link. Absent hides the Linked forms block and the row facts. */
   linkedFormOptions?: readonly LinkedFormOption[];
   /** Sections holding a question PropLane always asks (name, email): the switch is on, disabled and carries a lock. */
-  lockedSectionIds?: readonly string[];
   onRestoreDefaults?: () => void;
   restoreLabel?: string;
   /** False when there is no section left to add (every section already on). */
@@ -121,7 +119,6 @@ export function QuestionSectionsEditor({
       <div className="divide-y divide-border/70 rounded-2xl border border-border bg-card">
         {sections.map((section) => {
           const open = openSections.has(section.id);
-          const locked = lockedSectionIds.includes(section.id);
           const active = section.questions.filter((q) => !q.off);
           const off = section.questions.filter((q) => q.off);
           const hasSwitch = section.enabled !== undefined;
@@ -130,18 +127,12 @@ export function QuestionSectionsEditor({
             <section key={section.id} data-attr={`${dataAttrPrefix}-section-${section.id}`} data-section-id={section.id}>
               <div className="flex items-center gap-3 px-4">
                 {hasSwitch ? (
-                  <>
-                    <PortalSettingsToggle
-                      checked={section.enabled === true || locked}
-                      disabled={locked}
-                      onChange={(next) => onChange({ kind: "toggle-section", sectionId: section.id, enabled: next })}
-                      label={`${title} on`}
-                      dataAttr={`${dataAttrPrefix}-section-switch-${section.id}`}
-                    />
-                    {locked ? (
-                      <Lock className="h-3.5 w-3.5 shrink-0 text-muted" aria-label="Required by PropLane" data-attr={`${dataAttrPrefix}-section-lock-${section.id}`} />
-                    ) : null}
-                  </>
+                  <PortalSettingsToggle
+                    checked={section.enabled === true}
+                    onChange={(next) => onChange({ kind: "toggle-section", sectionId: section.id, enabled: next })}
+                    label={`${title} on`}
+                    dataAttr={`${dataAttrPrefix}-section-switch-${section.id}`}
+                  />
                 ) : null}
                 <button
                   type="button"

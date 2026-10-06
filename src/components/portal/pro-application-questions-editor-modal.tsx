@@ -236,6 +236,8 @@ function duplicateApplicationNameError(
   return clashes ? `An application named "${label.trim()}" already exists on this property.` : null;
 }
 
+const APPLICATION_UPLOAD_ACCEPT = "application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 export function ManagerApplicationQuestionsEditorModal({
   open,
   title = "Application",
@@ -1186,6 +1188,26 @@ export function ManagerApplicationQuestionsEditorModal({
     }
   };
 
+  // The ONE Upload icon in the Add application header (every step, add mode only). Picking a file sets
+  // Start from = Upload, jumps to the Application step that hosts the strip (so its reading state and the
+  // staged "Apply changes from the file" card are visible), then runs the same import the strip runs.
+  const headerUpload = templateEditorMode === "add" && applicationPreviewPropertyId && !isBulkSave
+    ? {
+        accept: APPLICATION_UPLOAD_ACCEPT,
+        disabled: importing || saving,
+        dataAttr: "property-application-header-upload",
+        label: "Upload application",
+        onPick: (file: File) => {
+          setStartFrom("upload");
+          setCopyFromApplicationId(null);
+          const nameIndex = workspaceSteps.findIndex((step) => step.id === "name");
+          if (nameIndex >= 0) jump(nameIndex);
+          setSectionsUploadFileName(file.name);
+          void importPdf(file);
+        },
+      }
+    : undefined;
+
   const removeField = (field: ResolvedApplicationField) => {
     if (!canEditBuiltIn(field, "visibility")) return;
     applyEditedSlice(removeListingApplicationField(configSlice, field));
@@ -1660,6 +1682,7 @@ export function ManagerApplicationQuestionsEditorModal({
             stepPosition={previewStepPosition}
           />
         }
+        headerUpload={headerUpload}
         lastLabel={editorFinishLabel(templateEditorMode ?? "edit")}
         lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() || Boolean(duplicateTemplateNameError) : !dirty) || hasFieldErrors || Boolean(pendingImport)}
         onBeforeNext={() => {
@@ -1872,7 +1895,7 @@ export function ManagerApplicationQuestionsEditorModal({
               ref={replaceApplicationFileRef}
               type="file"
               className="hidden"
-              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept={APPLICATION_UPLOAD_ACCEPT}
               data-attr="application-replace-upload-input"
               onChange={(event) => {
                 const file = event.target.files?.[0] ?? null;
@@ -1885,7 +1908,7 @@ export function ManagerApplicationQuestionsEditorModal({
             {isTemplateEditor && templateEditorMode === "add" && startFrom === "upload" && applicationPreviewPropertyId && !isBulkSave ? <ImportFileStrip
               dataAttr="property-application-start-from-file"
               chips={[".pdf", ".docx", "Your current application", "up to 5 MB"]}
-              accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept={APPLICATION_UPLOAD_ACCEPT}
               busy={importing}
               state={
                 importing

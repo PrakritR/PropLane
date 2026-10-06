@@ -4,8 +4,6 @@ import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submissio
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import type { ApplicationFormVariant } from "@/lib/rental-application/application-field-catalog";
 import {
-  IDENTITY_FLOOR_STANDARD_KEYS,
-  isIdentityFloorStandardKey,
   type ApplicationConfigSlice,
 } from "@/lib/rental-application/application-field-catalog";
 import type { RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
@@ -253,15 +251,6 @@ export function applicationTemplateQuestionPublishGate(
     draft.importProvenance.reviewedDraftFingerprint !== applicationDraftReviewFingerprint(draft)
   )) {
     return { ok: false, reason: "Compare and confirm the imported PDF before publishing." };
-  }
-  const disabled = new Set(draft.disabledStandardApplicationKeys);
-  if (IDENTITY_FLOOR_STANDARD_KEYS.some((key) => disabled.has(key))) {
-    return { ok: false, reason: "Full legal name and email are always asked." };
-  }
-  if (draft.customApplicationFields.some((field) =>
-    isIdentityFloorStandardKey(field.standardKey) && field.required !== true,
-  )) {
-    return { ok: false, reason: "Full legal name and email must remain required." };
   }
   return { ok: true };
 }
