@@ -106,7 +106,7 @@ that does not apply is absent, never disabled. Application: Incomplete = Remind 
 Pending = Reject · Edit · Download · Approve; Approved = Download · Send lease; Rejected = Download. Lease:
 Draft = Edit · Send lease; Resident signature = Remind; Manager signature = Sign; Signed = Download. Payments:
 Pending / Overdue = Remind · +; Paid = Download. Background check = Run check / Run new check. Tours: the + on
-Scheduled and Upcoming, nothing on Past. Forms: the + on Pending only. "Upload completed application" is the
+Scheduled and Upcoming, nothing on Past, and the Settings gear (the one way into tour rules). Forms: the + on Pending only. "Upload completed application" is the
 "Start from a file" card inside the Send application pop-up (`ShareLeadLinkModal`'s
 `onUploadCompletedApplication`), not a menu item. The sets live in `residentSectionHeaderActions`
 (`pro-residents.tsx`).

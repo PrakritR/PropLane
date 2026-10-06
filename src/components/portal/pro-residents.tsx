@@ -352,6 +352,7 @@ const residentsSettingsEntry = getSettingsEntryPoint("residents");
 const leasesSettingsEntry = getSettingsEntryPoint("leases");
 const applicationsSettingsEntry = getSettingsEntryPoint("applications");
 const paymentsSettingsEntry = getSettingsEntryPoint("payments");
+const toursSettingsEntry = getSettingsEntryPoint("tours");
 
 /**
  * Whether Approve / Decline are a real move on this application.
@@ -3552,6 +3553,15 @@ export function ManagerResidents({
                                     onAction={onResidentSectionHeaderAction}
                                     destinationRow={destinationRow}
                                     search={toursSearch}
+                                    // Tour rules (notice, auto-confirm, reminders) are reachable from here and nowhere else.
+                                    extraActions={
+                                      <PortalIconAction
+                                        icon={SettingsIcon}
+                                        label={toursSettingsEntry.label}
+                                        data-attr={toursSettingsEntry.dataAttr}
+                                        onClick={() => openResidentDetailSettings("tours")}
+                                      />
+                                    }
                                   />
                                 )}
                                 buildTourListHref={
@@ -3610,7 +3620,7 @@ export function ManagerResidents({
                                       className="w-full"
                                     />
                                   }
-                                  overflowMenu={
+                                  extraActions={
                                     // A selection's bulk actions live in this header card, not in the page's title row.
                                     embeddedPaymentBulkActions
                                   }
@@ -3620,7 +3630,7 @@ export function ManagerResidents({
                                 <ManagerResidentSectionToolbar
                                   actions={[]}
                                   onAction={onResidentSectionHeaderAction}
-                                  overflowMenu={embeddedPaymentFooterActions}
+                                  extraActions={embeddedPaymentFooterActions}
                                 />
                               ) : null}
                               <PortalPageScrollBody
@@ -3729,7 +3739,7 @@ export function ManagerResidents({
                                   placeholder: "Search services",
                                   dataAttr: "resident-services-search",
                                 }}
-                                overflowMenu={
+                                extraActions={
                                   <PortalIconAction
                                     icon={SettingsIcon}
                                     label={residentsSettingsEntry.label}

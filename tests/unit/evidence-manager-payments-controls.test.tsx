@@ -192,18 +192,17 @@ describe("evidence · Payments action rows", () => {
     dump("payments-section-action-row", html);
   });
 
-  it("a resident's Payments tab publishes Settings and Edit via shared chrome (PRP-395)", () => {
+  it("a resident's Payments tab header shows only what fits the open sub-tab (Remind and the +), no Settings, Edit or ⋯", () => {
     const html = renderToStaticMarkup(
       <ManagerResidents residentId={RESIDENT_ID} detailTab="payments" />,
     );
 
-    // C2-RT3: the section's own header card (status tabs, Settings, Edit and the
-    // round + Add charge) — not a second dock pair of Settings / Setup under the
-    // list, and no disabled Filter placeholder beside the tabs.
-    expect(html).toContain('data-attr="settings-open-payments"');
-    expect(html).toContain('data-attr="resident-detail-edit"');
+    // Captain, 2026-10-06: Pending / Overdue = Remind + the +; Paid = Download. No Settings / Edit pair,
+    // no disabled Filter placeholder, no second dock pair of Settings / Setup under the list.
     expect(html).toContain('data-attr="resident-section-action-add-charge"');
     expect(html).toContain('data-attr="resident-payments-bucket-pending"');
+    expect(html).not.toContain('data-attr="settings-open-payments"');
+    expect(html).not.toContain('data-attr="resident-detail-edit"');
     expect(html).not.toContain('data-attr="resident-detail-filter"');
     expect(html).not.toContain('data-attr="resident-payments-settings-open"');
     expect(html).not.toContain('data-attr="resident-payment-setup-open"');
