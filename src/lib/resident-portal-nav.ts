@@ -1,3 +1,4 @@
+import { isResidentFormId } from "@/lib/resident-forms-routes";
 import type { ResidentPortalAccessState } from "@/lib/resident-portal-access-types";
 
 /** Resident mobile bottom bar + sidebar lock stages. */
@@ -6,8 +7,9 @@ export type ResidentPortalNavStage =
   | "application_submitted"
   /**
    * Submitted, not yet approved, AND a form (the Intake form, or one that blocks approval) has been sent
-   * to them. Locked exactly like `application_submitted` in the nav; the Forms section is reachable by
-   * its direct link only (`isResidentPathAllowedForAccess`), so the form can be filled out.
+   * to them. Locked exactly like `application_submitted` in the nav; only a FORM'S OWN `/forms/<id>`
+   * address opens (`isResidentPathAllowedForAccess`), so the form can be filled out while the section
+   * itself — list included — stays shut until the application is accepted.
    */
   | "application_submitted_forms"
   | "booking_residency"
@@ -191,10 +193,14 @@ export function isResidentPathAllowedForAccess(
 
   // Forms used to be My home's first tab: that address (`/move-in/forms`) is redirected to the Forms
   // section by `renderPortalSection`, so the guard judges it as the Forms section.
-  const isFormsAddress = section === "forms" || (section === "move-in" && pathname.split("/").filter(Boolean)[2] === "forms");
+  const parts = pathname.split("/").filter(Boolean);
+  const isFormsAddress = section === "forms" || (section === "move-in" && parts[2] === "forms");
   if (isFormsAddress) {
-    // A form sent before approval (the Intake form, or one that blocks approval) is fillable by its link.
-    if (stage === "application_submitted_forms") return true;
+    // Before approval, a form sent early (the Intake form, or one that blocks approval) is fillable by
+    // its OWN direct link and nothing more: the resident sees the Forms section itself only once their
+    // application is accepted, so the bare list and `/forms/completed` are refused here (and the nav
+    // row stays inert). The legacy `/move-in/forms` address is the list, so it is refused too.
+    if (stage === "application_submitted_forms") return section === "forms" && isResidentFormId(parts[2]);
     return residentSectionUnlockedForStage("forms", stage);
   }
 

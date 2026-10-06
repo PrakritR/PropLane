@@ -2,7 +2,7 @@ import { cache } from "react";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentHasTourLinks } from "@/lib/tour-resident-link.server";
-import { loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
+import { loadResidentFormsFacts } from "@/lib/move-in-forms/blocking";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
 import type {
@@ -198,16 +198,6 @@ export async function loadResidentLeaseSignedStatus(email: string, managerUserId
   });
 }
 
-/** Whether a move-in form (any status but cancelled) has been sent to this email. A missing table reads as no. */
-async function residentHasMoveInForms(db: ReturnType<typeof createSupabaseServiceRoleClient>, email: string): Promise<boolean> {
-  try {
-    const { data, error } = await db.from("resident_move_in_forms").select("id").eq("resident_email", email).neq("status", "cancelled").limit(1);
-    return !error && (data ?? []).length > 0;
-  } catch {
-    return false;
-  }
-}
-
 const loadResidentPortalAccessStateCached = cache(
   async (
     userId: string | null,
@@ -308,14 +298,16 @@ const loadResidentPortalAccessStateCached = cache(
       !leaseAccessUnlocked &&
       (hasTourLink || hasSubmittedApplication || applicationApproved);
 
-    // What the resident's unsubmitted forms hold back, read from the forms table for this login. A failed
-    // read blocks (fail closed); a table that is not set up blocks nothing.
-    const blockingFormsPending = await loadResidentBlockingForms(db, { email, userId });
+    // ONE read of this login's non-cancelled forms answers both facts — what the unsubmitted ones hold
+    // back, and whether a form was ever sent at all. This runs on every resident page, so the table is
+    // never queried twice here (AGENTS.md § Performance & egress). A failed read blocks (fail closed);
+    // a table that is not set up blocks nothing.
+    const forms = await loadResidentFormsFacts(db, { email, userId });
+    const blockingFormsPending = forms.blocking;
 
     // Only a resident who has neither approval nor lease access can be waiting on a pre-approval form.
-    const hasMoveInForms = leaseAccessUnlocked || applicationApproved || !hasCompletedApplicationSubmission
-      ? false
-      : await residentHasMoveInForms(db, email);
+    const hasMoveInForms =
+      !leaseAccessUnlocked && !applicationApproved && hasCompletedApplicationSubmission && forms.hasForms;
 
     return {
       roleOk,

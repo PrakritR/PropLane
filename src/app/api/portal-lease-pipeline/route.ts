@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { FINISH_FORMS_FIRST_MESSAGE, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
+import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
@@ -1148,6 +1148,13 @@ export async function POST(req: Request) {
             userId: ctx.user.id,
             propertyId: existingRecord?.property_id ?? null,
           });
+          // A read that failed refuses too, but as a retryable 503: there is no form to point them at.
+          if (formsBlocking.readFailed) {
+            return NextResponse.json(
+              { error: RESIDENT_FORMS_CHECK_FAILED_MESSAGE, code: "FORMS_CHECK_FAILED" },
+              { status: 503 },
+            );
+          }
           if (formsBlocking.leaseSigning) {
             return NextResponse.json(
               { error: FINISH_FORMS_FIRST_MESSAGE, code: "FORMS_BLOCK_LEASE_SIGNING", formId: formsBlocking.formIds?.leaseSigning ?? null },

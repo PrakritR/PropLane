@@ -446,8 +446,10 @@ describe("resident portal access state — blockingFormsPending", () => {
     return base;
   }
   const load = () => loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
+  // The shape the access state's narrow select returns: the two snapshot keys, projected out of the jsonb.
   const sent = (id: string, blocks: string, extra: Record<string, unknown> = {}) => ({
-    id, form_id: "f", status: "sent", sent_at: "2026-10-01T00:00:00Z", resident_user_id: "user-1", snapshot: { kind: "other", blocks }, ...extra,
+    id, form_id: "f", status: "sent", sent_at: "2026-10-01T00:00:00Z", resident_user_id: "user-1",
+    snapshot_kind: "other", snapshot_blocks: blocks, ...extra,
   });
 
   it("is computed on the server from the resident's unsubmitted forms, with the form that unlocks each", async () => {
@@ -467,5 +469,14 @@ describe("resident portal access state — blockingFormsPending", () => {
   it("fails closed when the forms cannot be read", async () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(dbWithForms("error") as never);
     expect((await load()).blockingFormsPending).toMatchObject({ moveInDetails: true, leaseSigning: true });
+  });
+
+  // This load runs on every resident page, so both forms facts come from ONE select of the
+  // non-cancelled copies (AGENTS.md § Performance & egress).
+  it("reads the forms table exactly once for both blockingFormsPending and hasMoveInForms", async () => {
+    const db = dbWithForms([sent("a", "move_in_details")]);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    await load();
+    expect(db.from.mock.calls.filter(([table]) => table === "resident_move_in_forms")).toHaveLength(1);
   });
 });

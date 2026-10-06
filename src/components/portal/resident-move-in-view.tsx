@@ -504,8 +504,11 @@ export function ResidentMoveInShell({
   resolved: ResidentMoveInResolved | null;
   email: string;
   locked?: boolean;
-  /** A form that blocks Move-in details is unsubmitted: that tab is a lock that links to the form. */
-  formsLock?: { formId?: string | null };
+  /**
+   * A form that blocks Move-in details is unsubmitted: that tab is a lock that links to the form.
+   * `readFailed` is the same lock after a failed forms read — held, but with no form to name.
+   */
+  formsLock?: { formId?: string | null; readFailed?: boolean };
   /** A `room` search param naming a structured room id. Ignored unless it matches the viewer's OWN room. */
   focusRoomId?: string;
   /** Feeds the placement tab's move-in checklist (C130) — already resolved by the caller. */
@@ -564,7 +567,7 @@ export function ResidentMoveInShell({
             destinationDenseEqualRow
           />
           {formsLock && tabId === "info" ? (
-            <ResidentFormsLock basePath={basePath} formId={formsLock.formId} />
+            <ResidentFormsLock basePath={basePath} formId={formsLock.formId} readFailed={formsLock.readFailed} />
           ) : (
           <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} focusRoomId={focusRoomId} basePath={basePath} leaseSigned={leaseSigned} />
           )}

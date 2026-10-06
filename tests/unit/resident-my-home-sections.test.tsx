@@ -139,6 +139,16 @@ describe("My home sections", () => {
     expect(container.querySelector('[data-attr="resident-forms-lock"]')).not.toBeNull();
   });
 
+  it("a forms read that failed holds the lock but names no form: try again, and no Open form button", () => {
+    const { container } = shell("info", { formsLock: { formId: null, readFailed: true } });
+    expect(screen.getByText("Could not check your forms — try again.")).toBeTruthy();
+    expect(screen.queryByText("Finish your forms first")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open form" })).toBeNull();
+    expect(container.querySelector('[data-attr="resident-forms-lock-unchecked"]')).not.toBeNull();
+    // Still fail closed: no house detail reaches the page.
+    expect(screen.queryByText("Key is in the lockbox.")).toBeNull();
+  });
+
   it("the lock is only on Move-in details: placement and Roommates still open, and a lock with no known form goes to the list", () => {
     shell("placement", { formsLock: { formId: null } });
     expect(screen.queryByText("Finish your forms first")).toBeNull();

@@ -751,14 +751,15 @@ export async function renderPortalSection(
     }
 
     // Move-in has no page of its own any more: the bare address (and any old form tab slug) goes to
-    // Forms. `/move-in/inspections` and `/move-in/inspections/{move-in|move-out}` do too; a single
-    // report (`.../inspections/{move-in|move-out}/{reportId}[/{recordTab}]`) keeps its page.
+    // Forms. An inspections LIST address goes to the Residents list instead — inspections live on a
+    // resident's own record now; a single report (`.../inspections/{move-in|move-out}/{reportId}
+    // [/{recordTab}]`) keeps its page.
     if ((kind === "manager" || kind === "pro") && section === "move-in") {
       const moveInTab = tabParts?.[0];
       if (moveInTab === "inspections") {
         const inspectionKind = tabParts?.[1] ?? "move-in";
         if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || (tabParts?.length ?? 0) > 4) notFound();
-        if (!tabParts?.[2]) redirect(`${def.basePath}/forms`);
+        if (!tabParts?.[2]) redirect(`${def.basePath}/residents/current`);
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[2])) notFound();
         return subscriptionGated(
           <ManagerInspectionsPage
@@ -1628,8 +1629,8 @@ export async function renderPortalSection(
   }
 
   // Resident Forms: Pending · Completed, and one form at `/forms/<id>`. Unlocked from an approved
-  // application on; a form sent before approval is still reachable by its direct link (the stage guard
-  // above allows exactly that), so only the list is judged here, never the form's own address.
+  // application on; before approval the stage guard allows ONLY a form's own `/forms/<id>` address, so
+  // the list and `/forms/completed` are refused until then.
   if (kind === "resident" && section === "forms") {
     if ((tabParts?.length ?? 0) > 1) notFound();
     const seg = tabParts?.[0];
@@ -1668,9 +1669,14 @@ export async function renderPortalSection(
     }
     const moveInTab = tabParts[0]!;
     // An unsubmitted form that blocks "Move-in details" is decided here, on the server, from the forms
-    // table: the details tab renders its lock and no house detail is loaded into the page at all.
+    // table: the details tab renders its lock and no house detail is loaded into the page at all. A
+    // read that FAILED holds the same lock without naming a form, the way the approve and lease
+    // refusals do.
     const formsLock = residentAccess?.blockingFormsPending?.moveInDetails
-      ? { formId: residentAccess.blockingFormsPending.formIds?.moveInDetails ?? null }
+      ? {
+          formId: residentAccess.blockingFormsPending.formIds?.moveInDetails ?? null,
+          readFailed: residentAccess.blockingFormsPending.readFailed ?? false,
+        }
       : undefined;
     // My home › Inspections: `/inspections` (all), `/inspections/{move-in|move-out}` (one type) and
     // `/inspections/{move-in|move-out}/{reportId}` (one filed report, on its own page).

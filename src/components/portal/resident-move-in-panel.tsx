@@ -28,7 +28,7 @@ export async function ResidentMoveInPanel({
    * house, and no door code, Wi-Fi, rule or photo is loaded into the page for any tab.
    * `formId` is the form that unlocks it, when known.
    */
-  formsLock?: { formId?: string | null };
+  formsLock?: { formId?: string | null; readFailed?: boolean };
   /** Inspections tab only: the list preselected to one type. */
   inspectionsTypeFilter?: ResidentInspectionTypeFilter;
 }) {

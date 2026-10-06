@@ -20,16 +20,25 @@ export type BlockingFormsPending = {
   moveInDetails: boolean;
   leaseSigning: boolean;
   approval: boolean;
+  /**
+   * The read itself failed, so every block is on without a form behind any of them. Still a refusal
+   * (fail closed), but a retryable one: a caller must say "could not check", never name a form the
+   * manager or resident would then go looking for.
+   */
+  readFailed?: boolean;
   /** The first (oldest) blocking form per kind of block, so a lock can link to the form that unlocks it. */
   formIds?: Partial<Record<"moveInDetails" | "leaseSigning" | "approval", string>>;
 };
 
 export const NO_BLOCKING_FORMS: BlockingFormsPending = { moveInDetails: false, leaseSigning: false, approval: false };
 
-export const BLOCKING_FORMS_FAIL_CLOSED: BlockingFormsPending = { moveInDetails: true, leaseSigning: true, approval: true };
+export const BLOCKING_FORMS_FAIL_CLOSED: BlockingFormsPending = { moveInDetails: true, leaseSigning: true, approval: true, readFailed: true };
 
 export const FINISH_FORMS_FIRST_MESSAGE = "Finish your forms first. A form your manager sent has to be submitted before you can sign.";
 export const APPROVAL_BLOCKED_BY_FORM_MESSAGE = "A form sent to this applicant has to be submitted before you can approve the application.";
+/** The read failed: nothing is known, so nothing is named. Both sides of a 503 say "try again". */
+export const APPROVAL_FORMS_CHECK_FAILED_MESSAGE = "Could not check this applicant's forms — try again.";
+export const RESIDENT_FORMS_CHECK_FAILED_MESSAGE = "Could not check your forms — try again.";
 
 type BlockingRow = {
   id: string;
@@ -93,6 +102,64 @@ export async function loadResidentBlockingForms(
     return blockingFormsFromRows(rows);
   } catch {
     return BLOCKING_FORMS_FAIL_CLOSED;
+  }
+}
+
+/**
+ * The columns the facts read needs, and nothing more: the two snapshot keys a block is derived from are
+ * projected out of the jsonb rather than dragging every form's questions and PDF metadata onto the
+ * resident's hot path (AGENTS.md § Performance & egress).
+ */
+const FACTS_SELECT = "id, form_id, status, sent_at, resident_user_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks";
+
+type FormsFactsRow = {
+  id: string;
+  form_id?: string | null;
+  status: string;
+  sent_at?: string | null;
+  resident_user_id?: string | null;
+  snapshot_kind?: string | null;
+  snapshot_blocks?: string | null;
+};
+
+function factsRowAsBlockingRow(row: FormsFactsRow): BlockingRow {
+  return {
+    id: row.id,
+    form_id: row.form_id,
+    status: row.status,
+    sent_at: row.sent_at,
+    snapshot: { kind: (row.snapshot_kind ?? undefined) as MoveInFormKind | undefined, blocks: row.snapshot_blocks ?? undefined },
+  };
+}
+
+/**
+ * Both forms facts the resident portal's access state needs, from ONE read of the resident's
+ * non-cancelled copies: whether a form has ever been sent to them at all, and what their unsubmitted
+ * ones block. `blockingFormsFromRows` counts only the `sent` rows, so one select answers both and the
+ * resident hot path never queries this table twice. A failed read blocks (fail closed) and reports
+ * `hasForms: false` — a form nobody can read must not also unlock a nav row.
+ */
+export async function loadResidentFormsFacts(
+  db: SupabaseClient,
+  who: { email: string; userId?: string | null },
+): Promise<{ hasForms: boolean; blocking: BlockingFormsPending }> {
+  const email = who.email.trim().toLowerCase();
+  if (!email) return { hasForms: false, blocking: NO_BLOCKING_FORMS };
+  try {
+    const { data, error } = await db
+      .from("resident_move_in_forms")
+      .select(FACTS_SELECT)
+      .eq("resident_email", email)
+      .neq("status", "cancelled");
+    if (error) {
+      return { hasForms: false, blocking: tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED };
+    }
+    const rows = ((data ?? []) as FormsFactsRow[]).filter(
+      (row) => !row.resident_user_id || !who.userId || row.resident_user_id === who.userId,
+    );
+    return { hasForms: rows.length > 0, blocking: blockingFormsFromRows(rows.map(factsRowAsBlockingRow)) };
+  } catch {
+    return { hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED };
   }
 }
 

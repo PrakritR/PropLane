@@ -16,7 +16,7 @@ import { orderScreeningForApplication } from "@/lib/screening/order-screening";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { smsAccessAllowsRow } from "@/lib/sms/manager-sms-access";
 import { writeAuditLog, updateAuditResult } from "../audit";
-import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, loadApplicationBlockingForms } from "@/lib/move-in-forms/blocking";
+import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, APPROVAL_FORMS_CHECK_FAILED_MESSAGE, loadApplicationBlockingForms } from "@/lib/move-in-forms/blocking";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
@@ -224,7 +224,10 @@ export const updateApplicationBucketTool = defineWriteTool({
     // A form sent with "Blocks: Approval" has to be submitted before the application can be approved.
     if (input.bucket === "approved") {
       const ids = [...new Set([rec.id, String(r.id ?? "")].map((id) => id.trim()).filter(Boolean))];
-      if ((await loadApplicationBlockingForms(ctx.db, ids)).approval) throw new Error(APPROVAL_BLOCKED_BY_FORM_MESSAGE);
+      const blocking = await loadApplicationBlockingForms(ctx.db, ids);
+      // A read that failed refuses too, but says so: naming a form nobody can find sends the manager hunting.
+      if (blocking.readFailed) throw new Error(APPROVAL_FORMS_CHECK_FAILED_MESSAGE);
+      if (blocking.approval) throw new Error(APPROVAL_BLOCKED_BY_FORM_MESSAGE);
     }
 
     // One-shot per application+bucket: re-approving after a bounce records anew

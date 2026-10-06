@@ -180,11 +180,12 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   as a guest whose address is only typed. The in-portal form is always created, but the "form waiting" notice is sent
   only when a login with a confirmed email owns that address, and goes to that login. Every other trigger follows a
   manager's decision about a known resident and notifies as before.
-- **Forms page (sidebar).** Replaced the Move-in page (one tab per form name): see "Forms section" above. Inspections have no list page;
-  `/portal/inspections`, `/portal/move-in/inspections` and `/portal/move-in/inspections/{move-in|move-out}` redirect to `/portal/move-in`,
-  which redirects to `/portal/forms` (`next.config.ts`, `renderPortalSection`). A single report
-  (`.../inspections/{move-in|move-out}/{reportId}`) keeps its page so the resident record's Inspections tab still opens it; inspection data
-  and `/api/inspections` are untouched.
+- **Forms page (sidebar).** Replaced the Move-in page (one tab per form name): see "Forms section" above. The bare `/portal/move-in`
+  address and any old form tab slug redirect to `/portal/forms`. Inspections have no list page and are NOT Forms:
+  `/portal/inspections`, `/portal/move-in/inspections` and `/portal/move-in/inspections/{move-in|move-out}` redirect in one hop to
+  `/portal/residents/current` (`next.config.ts`, `renderPortalSection`), because an inspection now lives on a resident's own record
+  (Move in › Inspections). A single report (`.../inspections/{move-in|move-out}/{reportId}`) keeps its page so the resident record's
+  Inspections tab still opens it; inspection data and `/api/inspections` are untouched.
 - **Resident record › Forms** lists only the forms already SENT to that resident (Pending, Completed); a form goes out from the round +
   (the send popup pointed at that resident, which the server allows only for an approved residency with a property and an email).
   A property's unsent forms are not rows any more. Move in (Placement · Move-in details · Roommates · Inspections) holds no forms.

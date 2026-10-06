@@ -353,12 +353,13 @@ Link builders must assert the path **resolves** against `src/app`
 ### Resident stage unlocks: one stage, two tables that must agree
 
 `STAGE_UNLOCKED_SECTIONS` and `RESIDENT_BOTTOM_NAV_PRIMARY` must agree.
-Approved application unlocks Lease + Payments + Documents. Signed lease unlocks
-Services. My home opens for its **Forms** tab from the first sent move-in form
-(`RESIDENT_PRE_LEASE_MOVE_IN_TABS`, stage `application_submitted_forms`); every
-other My home tab stays locked until signed, with the row visible. Native
-bottom-nav constants are **derived**, not copied. `applicationApproved` reads
-the `resident_email` **column**, not `row_data.email`.
+Approved application unlocks Lease + Payments + Documents + **Forms** (its own
+resident section, never a My home tab). Before approval, a sent form opens by
+its OWN `/resident/forms/<id>` link only — the list stays shut and the nav row
+inert (stage `application_submitted_forms`). My home stays locked until the
+lease is signed, with the row visible. Native bottom-nav constants are
+**derived**, not copied. `applicationApproved` reads the `resident_email`
+**column**, not `row_data.email`.
 
 ## `profiles.role` is legacy and singular — authorize off `profile_roles`
 

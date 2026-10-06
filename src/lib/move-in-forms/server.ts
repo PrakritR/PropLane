@@ -879,10 +879,12 @@ export async function editMoveInForm(actor: MoveInFormActor, id: string, raw: un
   const input = editSchema.parse(raw);
   const row = await getRow(actor, id, "edit");
   if (row.status !== "sent") throw new MoveInFormError("Only a form still waiting on the resident can be edited.", 409);
-  const snapshot: MoveInFormRow["snapshot"] = { ...row.snapshot, questions: questionsOf(row) };
+  const previousQuestions = questionsOf(row);
+  const snapshot: MoveInFormRow["snapshot"] = { ...row.snapshot, questions: previousQuestions };
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.blocks) snapshot.blocks = input.blocks as MoveInFormRecord["snapshot"]["blocks"];
   if (input.dueAt !== undefined) patch.due_at = input.dueAt;
+  let removedQuestions: MoveInFormQuestion[] = [];
   if (input.questions) {
     const questions = normalizeMoveInFormQuestions(input.questions);
     if (questions.length === 0 && row.source !== "upload") throw new MoveInFormError("A form needs at least one question.", 400);
@@ -893,6 +895,7 @@ export async function editMoveInForm(actor: MoveInFormActor, id: string, raw: un
     // A draft answer to a question that no longer exists is dropped, never kept hidden.
     const keys = new Set(questions.map((question) => question.key));
     patch.answers = (Array.isArray(row.answers) ? row.answers : []).filter((answer) => keys.has(answer.key));
+    removedQuestions = previousQuestions.filter((question) => !keys.has(question.key));
   }
   patch.snapshot = snapshot;
   const auditKey = await audit(actor, "edit", { form_record_id: row.id, fields: Object.keys(input) });
@@ -901,6 +904,18 @@ export async function editMoveInForm(actor: MoveInFormActor, id: string, raw: un
   await updateAuditResult(actor.context, auditKey, { status: error || !data ? "failed" : "success" });
   if (error) throw new MoveInFormError("Could not save the form.", 500);
   if (!data) throw new MoveInFormError("This form was already submitted, so it is locked.", 409);
+  // Dropping a question drops its answer, so the photo or signature the resident already uploaded for
+  // it is now unreferenced. Only the REMOVED questions' prefixes are swept: a surviving question's
+  // object may have been uploaded seconds ago and not yet be in a saved draft answer, and deleting it
+  // here would break the resident's own submit.
+  if (removedQuestions.length > 0) {
+    await pruneUnreferencedFiles(
+      actor.context.db.storage.from(MOVE_IN_FORM_FILES_BUCKET),
+      row.id,
+      removedQuestions,
+      [],
+    ).catch(() => undefined);
+  }
   return { form: toRecord(data as unknown as MoveInFormRow, "manager") };
 }
 

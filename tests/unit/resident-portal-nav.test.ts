@@ -229,7 +229,8 @@ describe("resident portal nav — Forms open at approval, My home at lease signi
 /**
  * The Intake form goes out the moment an application is submitted (and a form can block approval), so a
  * resident who has submitted and has a form waiting must be able to open it. The nav stays exactly as locked
- * as `application_submitted`; Forms alone is reachable, by its direct link.
+ * as `application_submitted`; only a form's OWN `/resident/forms/<id>` address opens — the Forms list and
+ * `/resident/forms/completed` stay shut until the application is accepted.
  */
 describe("resident portal nav — submitted application with a form waiting (application_submitted_forms)", () => {
   const submittedNoForms = { leaseAccessUnlocked: false, applicationApproved: false, hasCompletedApplicationSubmission: true };
@@ -272,10 +273,13 @@ describe("resident portal nav — submitted application with a form waiting (app
     }
   });
 
-  it("a form waiting before approval is still fillable by its direct link, and so is the old emailed address", () => {
-    expect(isResidentPathAllowedForAccess("/resident/forms", submittedWithForms)).toBe(true);
+  it("a form waiting before approval opens by its own link only — the list stays shut", () => {
     expect(isResidentPathAllowedForAccess(FORM, submittedWithForms)).toBe(true);
-    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", submittedWithForms)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/forms", submittedWithForms)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/forms/completed", submittedWithForms)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/forms/pending", submittedWithForms)).toBe(false);
+    // The retired My home address is the list, so it is refused the same way.
+    expect(isResidentPathAllowedForAccess("/resident/move-in/forms", submittedWithForms)).toBe(false);
   });
 
   it("keeps My home, Lease and Payments locked", () => {

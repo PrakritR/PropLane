@@ -368,7 +368,7 @@ export function moveInInspectionsHref(basePath: string, kind?: "move-in" | "move
   return kind ? `${basePath}/move-in/inspections/${kind}` : `${basePath}/move-in/inspections`;
 }
 
-/** A form tab's URL segment: a lowercase slug (`moveInFormTabGroups` makes them). */
+/** A retired Move-in form tab's URL segment: a lowercase slug, kept so an old address can redirect to Forms. */
 export function isMoveInFormTabSlug(raw: string | undefined | null): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw ?? "") && (raw ?? "").length <= 70;
 }

@@ -12,7 +12,7 @@
  * record's Forms tab (`applicationId` set: that resident only, so no Resident or Property filter and
  * no resident in the place line).
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { FileText, Lock, Unlock, Clock, CheckCircle2, type LucideIcon } from "lucide-react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -162,7 +162,15 @@ export function FormsList({
   const [sendOpen, setSendOpen] = useState(false);
   const demo = isDemoModeActive();
   const scopedToResident = Boolean(applicationId);
-  const now = useMemo(() => new Date(), []);
+  // A due date passes while the tab sits open. Without this tick `now` froze at mount, so a form went
+  // on reading "Due Oct 12" (and sorting as not-late) here while the resident's own list, which
+  // recomputes every render, already called it late.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const now = useMemo(() => new Date(nowMs), [nowMs]);
 
   // The workspace narrows the list to its own houses, like every other list; the tab counts are the
   // narrowed, unfiltered totals so a tab and its rows can never disagree.

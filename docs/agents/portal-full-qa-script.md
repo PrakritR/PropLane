@@ -181,9 +181,11 @@ For each section: **load URL → heading visible → no error toast → primary 
 - [ ] No erroneous "Previous" tab
 - [ ] Links to application / lease / communication work
 
-### 1.6b Inspections (`/portal/move-in/inspections`)
+### 1.6b Inspections (resident record › Move in › Inspections; there is no manager inspections list)
 
 - [ ] Walk the flow and states described in [`docs/agents/inspections.md`](inspections.md) § Lifecycle (that file owns the contract)
+- [ ] `/portal/inspections` and `/portal/move-in/inspections` land on `/portal/residents/current` in one hop
+- [ ] A resident record's Move in › Inspections lists that residency's reports; a report address still opens directly
 
 ### 1.7 Payments (`/portal/payments`)
 
