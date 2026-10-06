@@ -2,15 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// This test locks in the money-routing invariant the captain flagged:
-// a resident charge for a manager's property must be created on THAT manager's
-// OWN Stripe connected account, and a manager who has not onboarded must have
-// the charge BLOCKED — never silently routed to the platform account.
+// This test locks in the money-routing invariant the captain flagged, under the
+// central source-arbitration contract (source_arbitration_v=1): a resident
+// household charge is captured by the PLATFORM (no Connect destination, no
+// provider application fee) from a frozen whole-cart claim, and is attributed to
+// the exact canonical owner of the property; the central source credit
+// (creditVerifiedHouseholdCheckoutSource) allocates it to THAT manager's own
+// funds / hold after the paid capture is verified. So the routing facts proved
+// here are: the claim names the right owner per manager (never another), the
+// session is created from the frozen platform params whether or not the manager
+// has onboarded or has transfers active, and onboarding state is never a reason
+// to block or reroute the capture.
 //
-// `@/lib/stripe-connect` is deliberately NOT mocked: the real resolver reads the
-// manager's stored `profiles.stripe_connect_account_id` from the fake DB, so the
-// assertion proves the destination is derived per-manager, not hardcoded.
+// `@/lib/stripe-connect` is deliberately NOT mocked: if checkout ever went back to
+// resolving a destination, the real resolver would call the Stripe account stub
+// below, which these tests assert it never does.
 
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/stripe", () => ({
   getStripe: vi.fn(),
 }));
@@ -34,7 +42,9 @@ vi.mock("@/lib/household-charge-payment-eligibility", () => ({
   resolveListingForHouseholdCharge: vi.fn().mockResolvedValue({ v: 1 }),
 }));
 
-vi.mock("@/lib/payment-policy", () => ({
+vi.mock("@/lib/payment-policy", async (importOriginal) => ({
+  // Real fee math + accepted-method resolution: the claim freezes the real quote.
+  ...(await importOriginal<typeof import("@/lib/payment-policy")>()),
   axisPaymentsEnabledOnListing: vi.fn(() => true),
   resolveServiceFeePayer: vi.fn(() => "resident"),
   // Production resolves through the precedence-aware form; a double that omits it makes the call
@@ -80,17 +90,59 @@ function makeStripe(account: Partial<Stripe.Account>): Stripe {
   } as unknown as Stripe;
 }
 
+
 /**
- * Fake Supabase client scoped to the three tables the checkout core reads. The
- * `profiles` row is what proves per-manager routing: the resolver reads the
- * connected-account id from here, keyed on the manager's user id.
+ * Models the whole-cart claim RPCs. `reserve_resident_checkout_attempt` freezes the
+ * request it is handed (what the SQL does for a fresh cart); `bind_resident_checkout_session`
+ * stamps the provider id. Calls are recorded so a test can prove what was claimed, and in
+ * what order relative to the provider call.
+ */
+function claimRpc(rpcCalls: Array<{ name: string; args: Record<string, unknown> }>) {
+  return async (name: string, args: Record<string, unknown>) => {
+    rpcCalls.push({ name, args });
+    if (name === "reserve_resident_checkout_attempt") {
+      return {
+        data: {
+          id: "attempt_1",
+          attempt_token: args.p_attempt_token,
+          resident_user_id: args.p_resident_user_id,
+          resident_email: args.p_resident_email,
+          manager_user_id: args.p_manager_user_id,
+          charge_ids: args.p_charge_ids,
+          charge_cents: args.p_charge_cents,
+          subtotal_cents: args.p_subtotal_cents,
+          payer_total_cents: args.p_payer_total_cents,
+          recipient_net_cents: args.p_recipient_net_cents,
+          payment_method: args.p_payment_method,
+          currency: "usd",
+          provider_params: args.p_provider_params,
+          stripe_session_id: null,
+          stripe_payment_intent_id: null,
+          status: "pending",
+          created_at: new Date().toISOString(),
+        },
+        error: null,
+      };
+    }
+    if (name === "bind_resident_checkout_session") return { data: true, error: null };
+    return { data: null, error: null };
+  };
+}
+
+/**
+ * Fake Supabase client scoped to the tables the checkout core reads. The property row
+ * names the canonical owner; the charge row is stamped with that same manager (a charge
+ * created under anyone else is refused before any claim, see the owner test file).
+ * `profiles` still carries each manager's connected-account id so a regression that
+ * resolved a destination from it would be visible to the Stripe stub.
  */
 function makeDb(opts: {
   managerUserId: string;
   managerAccountId: string | null;
   propertyId?: string;
-}): SupabaseClient {
+}) {
   const propertyId = opts.propertyId ?? "prop_1";
+  const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const charge = {
     id: "charge_1",
     kind: "rent",
@@ -117,7 +169,10 @@ function makeDb(opts: {
         };
       }
       if (table === "manager_property_records") {
-        return { data: { property_data: { listingSubmission: { v: 1 } } }, error: null };
+        return {
+          data: { property_data: { listingSubmission: { v: 1 } }, manager_user_id: opts.managerUserId },
+          error: null,
+        };
       }
       if (table === "profiles") {
         return { data: { stripe_connect_account_id: opts.managerAccountId }, error: null };
@@ -127,7 +182,7 @@ function makeDb(opts: {
     return chain;
   };
 
-  return { from } as unknown as SupabaseClient;
+  return { db: { from, rpc: claimRpc(rpcCalls) } as unknown as SupabaseClient, rpcCalls };
 }
 
 const checkoutInput = {
@@ -135,7 +190,8 @@ const checkoutInput = {
   userEmail: "resident@example.com",
   chargeIds: ["charge_1"],
   mode: "embedded" as const,
-  paymentMethod: "ach" as const,
+  // Card goes through the shared Checkout builder; bank (ACH) is a manual PaymentIntent.
+  paymentMethod: "card" as const,
   appOrigin: "https://app.test",
 };
 
@@ -155,55 +211,98 @@ describe("resident charge routes to the manager's OWN connected account", () => 
     });
   });
 
-  it("creates the charge on manager A's stored connected account", async () => {
-    vi.mocked(getStripe).mockReturnValue(
-      makeStripe({ id: "acct_manager_A", capabilities: { transfers: "active" }, payouts_enabled: true }),
-    );
-    const db = makeDb({ managerUserId: "mgr_A", managerAccountId: "acct_manager_A" });
+  /** The claim reserved for this cart, and the frozen params the provider was handed. */
+  function claimed(rpcCalls: Array<{ name: string; args: Record<string, unknown> }>) {
+    return rpcCalls.find((c) => c.name === "reserve_resident_checkout_attempt")!.args;
+  }
+  function providerParams() {
+    return createAxisAchCheckoutSession.mock.calls[0]?.[1] as {
+      destinationAccountId?: string | null;
+      fundingModel?: string;
+      metadata: Record<string, string>;
+    };
+  }
+
+  it("captures manager A's charge on the platform and claims it for manager A's own account", async () => {
+    const stripe = makeStripe({ id: "acct_manager_A", capabilities: { transfers: "active" }, payouts_enabled: true });
+    vi.mocked(getStripe).mockReturnValue(stripe);
+    const { db, rpcCalls } = makeDb({ managerUserId: "mgr_A", managerAccountId: "acct_manager_A" });
 
     const result = await createHouseholdChargeCheckout(db, checkoutInput);
 
     expect(result.ok).toBe(true);
     expect(createAxisAchCheckoutSession).toHaveBeenCalledTimes(1);
-    const passed = createAxisAchCheckoutSession.mock.calls[0]?.[1] as { destinationAccountId?: string };
-    expect(passed.destinationAccountId).toBe("acct_manager_A");
+    // The claim names the property owner as the payee (claim-before-provider ordering is proven in ach-checkout.test.ts).
+    expect(claimed(rpcCalls)).toMatchObject({ p_manager_user_id: "mgr_A", p_charge_ids: ["charge_1"] });
+    const passed = providerParams();
+    expect(passed.metadata.manager_user_id).toBe("mgr_A");
+    // Central capture: no Connect destination, even though A is fully onboarded.
+    expect(passed.destinationAccountId ?? "").toBe("");
+    expect(passed.fundingModel).toBe("connect_destination");
+    expect(stripe.accounts.retrieve).not.toHaveBeenCalled();
   });
 
-  it("routes a different manager's charge to a DIFFERENT account (per-manager isolation)", async () => {
+  it("claims a different manager's charge for a DIFFERENT owner (per-manager isolation)", async () => {
     vi.mocked(getStripe).mockReturnValue(
       makeStripe({ id: "acct_manager_B", capabilities: { transfers: "active" }, payouts_enabled: true }),
     );
-    const db = makeDb({ managerUserId: "mgr_B", managerAccountId: "acct_manager_B" });
+    const { db, rpcCalls } = makeDb({ managerUserId: "mgr_B", managerAccountId: "acct_manager_B" });
 
     const result = await createHouseholdChargeCheckout(db, checkoutInput);
 
     expect(result.ok).toBe(true);
-    const passed = createAxisAchCheckoutSession.mock.calls[0]?.[1] as { destinationAccountId?: string };
-    expect(passed.destinationAccountId).toBe("acct_manager_B");
-    expect(passed.destinationAccountId).not.toBe("acct_manager_A");
-  });
-
-  it("charges the platform (hold) when the manager has not onboarded", async () => {
-    vi.mocked(getStripe).mockReturnValue(makeStripe({ id: "acct_platform" }));
-    const db = makeDb({ managerUserId: "mgr_new", managerAccountId: null });
-
-    const result = await createHouseholdChargeCheckout(db, checkoutInput);
-
-    expect(result.ok).toBe(true);
-    const passed = createAxisAchCheckoutSession.mock.calls[0]?.[1] as { destinationAccountId?: string };
+    expect(claimed(rpcCalls).p_manager_user_id).toBe("mgr_B");
+    expect(claimed(rpcCalls).p_manager_user_id).not.toBe("mgr_A");
+    const passed = providerParams();
+    expect(passed.metadata.manager_user_id).toBe("mgr_B");
+    expect(passed.metadata.manager_user_id).not.toBe("mgr_A");
     expect(passed.destinationAccountId ?? "").toBe("");
   });
 
-  it("charges the platform (hold) when the manager's transfers capability is not active", async () => {
-    vi.mocked(getStripe).mockReturnValue(
-      makeStripe({ id: "acct_incomplete", capabilities: { transfers: "inactive" }, payouts_enabled: false }),
-    );
-    const db = makeDb({ managerUserId: "mgr_incomplete", managerAccountId: "acct_incomplete" });
+  it("still captures on the platform (hold) when the manager has not onboarded", async () => {
+    const stripe = makeStripe({ id: "acct_platform" });
+    vi.mocked(getStripe).mockReturnValue(stripe);
+    const { db, rpcCalls } = makeDb({ managerUserId: "mgr_new", managerAccountId: null });
+
+    const result = await createHouseholdChargeCheckout(db, checkoutInput);
+
+    // Never a 422 for missing Connect and never a reroute: the claim is for mgr_new and the money is held for them.
+    expect(result.ok).toBe(true);
+    expect(claimed(rpcCalls).p_manager_user_id).toBe("mgr_new");
+    expect(providerParams().destinationAccountId ?? "").toBe("");
+    expect(stripe.accounts.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("still captures on the platform (hold) when the manager's transfers capability is not active", async () => {
+    const stripe = makeStripe({ id: "acct_incomplete", capabilities: { transfers: "inactive" }, payouts_enabled: false });
+    vi.mocked(getStripe).mockReturnValue(stripe);
+    const { db, rpcCalls } = makeDb({ managerUserId: "mgr_incomplete", managerAccountId: "acct_incomplete" });
 
     const result = await createHouseholdChargeCheckout(db, checkoutInput);
 
     expect(result.ok).toBe(true);
-    const passed = createAxisAchCheckoutSession.mock.calls[0]?.[1] as { destinationAccountId?: string };
-    expect(passed.destinationAccountId ?? "").toBe("");
+    expect(claimed(rpcCalls).p_manager_user_id).toBe("mgr_incomplete");
+    expect(providerParams().destinationAccountId ?? "").toBe("");
+    expect(stripe.accounts.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("creates a bank (ACH) PaymentIntent with no transfer destination for an onboarded manager too", async () => {
+    const stripe = makeStripe({ id: "acct_manager_A", capabilities: { transfers: "active" }, payouts_enabled: true });
+    const create = vi.fn(async (params: Record<string, unknown>) => ({
+      id: "pi_manual", ...params, status: "requires_payment_method", client_secret: "pi_manual_secret",
+    }));
+    (stripe as unknown as { paymentIntents: unknown }).paymentIntents = { create };
+    vi.mocked(getStripe).mockReturnValue(stripe);
+    const { db, rpcCalls } = makeDb({ managerUserId: "mgr_A", managerAccountId: "acct_manager_A" });
+
+    const result = await createHouseholdChargeCheckout(db, { ...checkoutInput, paymentMethod: "ach" as never });
+
+    expect(result.ok).toBe(true);
+    expect(claimed(rpcCalls)).toMatchObject({ p_manager_user_id: "mgr_A", p_payment_method: "ach" });
+    const [piParams] = create.mock.calls[0]!;
+    expect(piParams).not.toHaveProperty("transfer_data");
+    expect(piParams).not.toHaveProperty("application_fee_amount");
+    expect(piParams).toMatchObject({ metadata: { manager_user_id: "mgr_A", platform_hold: "1" } });
+    expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
   });
 });

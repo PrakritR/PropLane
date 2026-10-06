@@ -54,9 +54,10 @@ export function resolvePayoutsReadiness(account: Stripe.Account): PayoutsReadine
     identitySnapshot.status === "verified" ? "done" : identitySnapshot.status === "pending" ? "pending" : "needed";
 
   const destinations = payoutDestinationsFromAccount(account);
-  const defaultDestination = destinations.find((d) => d.default) ?? destinations[0] ?? null;
+  const defaultDestination = destinations.find((d) => d.default) ?? null;
   const hasPayableDefaultDestination =
-    account.payouts_enabled === true && defaultDestination != null && defaultDestination.status !== "errored";
+    account.payouts_enabled === true && account.capabilities?.transfers === "active" &&
+    defaultDestination?.payable === true;
   const bank: "done" | "needed" = hasPayableDefaultDestination ? "done" : "needed";
 
   return {

@@ -62,23 +62,28 @@ describe("PayoutVerifySheet", () => {
     expect(screen.queryByTestId("embedded")).not.toBeInTheDocument();
   });
 
-  it("falls back to the embedded component for a legacy (express) account", async () => {
+  it("blocks a legacy (express) account with a support error: no embedded component, no form, no Submit", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse({ ...OWN_FORM_REQUIREMENTS, isApplicationCollected: false })),
     );
     render(<PayoutVerifySheet open onClose={vi.fn()} connectBase="/api/stripe/connect" />);
-    expect(await screen.findByTestId("embedded")).toHaveTextContent("account_onboarding");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Stripe sign-in outside PropLane. Contact support");
+    expect(screen.queryByTestId("embedded")).not.toBeInTheDocument();
     expect(screen.queryByText("Last 4 of SSN")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Submit" })).not.toBeInTheDocument();
   });
 
-  it("falls back to the embedded component when the spec cannot map a requirement key", async () => {
+  it("blocks with a support error when the spec cannot map a requirement key: no embedded component, no half-drawn form", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse({ ...OWN_FORM_REQUIREMENTS, fallbackToEmbedded: true })),
     );
     render(<PayoutVerifySheet open onClose={vi.fn()} connectBase="/api/stripe/connect" />);
-    expect(await screen.findByTestId("embedded")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Contact support");
+    expect(screen.queryByTestId("embedded")).not.toBeInTheDocument();
+    expect(screen.queryByText("Legal name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Submit" })).not.toBeInTheDocument();
   });
 
   it("tokenizes SSN client-side via createToken('account', …) and never sends it as a plain field", async () => {

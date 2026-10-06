@@ -41,6 +41,8 @@ export function useAddOnVendorJob({
   const [offers, setOffers] = useState<WorkOrderVendorOffer[]>([]);
   const [sending, setSending] = useState(false);
   const [approvingBidId, setApprovingBidId] = useState<string | null>(null);
+  const [payCheckoutSecret, setPayCheckoutSecret] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
 
   const reload = useCallback(async (id: string) => {
     const [nextBids, nextOffers] = await Promise.all([fetchWorkOrderBids(id), fetchWorkOrderVendorOffers(id)]);
@@ -137,20 +139,41 @@ export function useAddOnVendorJob({
     showToast(done ? "Marked done." : ADD_ON_NOT_APPROVED_REFUSAL.error);
   }, [request, job, acceptedBid, showToast, onChanged]);
 
+  /**
+   * The add-on's Pay: a card/ACH payment comes back as an embedded Checkout client secret that the
+   * caller MOUNTS (`payCheckoutSecret`). The vendor is not paid until that form is completed, so the
+   * settled toast belongs to `completePayCheckout`, never to a session that was merely created.
+   */
   const pay = useCallback(async () => {
-    if (!job) return;
-    const result = await payVendorJob(job);
-    if (!result.ok) {
-      showToast(result.error);
-      return;
+    if (!job || paying) return;
+    setPaying(true);
+    try {
+      const result = await payVendorJob(job);
+      if (!result.ok) {
+        showToast(result.error);
+        return;
+      }
+      if (result.clientSecret) {
+        setPayCheckoutSecret(result.clientSecret);
+        return;
+      }
+      onChanged();
+      showToast("Approved and paid.");
+    } finally {
+      setPaying(false);
     }
-    if (result.checkoutUrl) {
-      window.location.assign(result.checkoutUrl);
-      return;
-    }
-    onChanged();
-    showToast("Approved and paid.");
-  }, [job, showToast, onChanged]);
+  }, [job, paying, showToast, onChanged]);
 
-  return { bids, offers, sending, approvingBidId, send, approve, withdraw, markDone, pay, acceptedBid };
+  const closePayCheckout = useCallback(() => setPayCheckoutSecret(null), []);
+
+  const completePayCheckout = useCallback(() => {
+    setPayCheckoutSecret(null);
+    onChanged();
+    showToast("Payment submitted. Bank transfers may take several days to clear.");
+  }, [onChanged, showToast]);
+
+  return {
+    bids, offers, sending, approvingBidId, paying, send, approve, withdraw, markDone, pay,
+    acceptedBid, payCheckoutSecret, closePayCheckout, completePayCheckout,
+  };
 }

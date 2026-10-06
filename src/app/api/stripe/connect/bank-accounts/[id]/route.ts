@@ -10,6 +10,7 @@ import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 import {
+  assertOwnedPayoutAccount,
   refreshPayoutDestinationsCacheFromStripe,
   removePayoutDestination,
   setDefaultPayoutDestination,
@@ -49,6 +50,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (!accountId) return NextResponse.json({ error: "No payout account yet." }, { status: 422 });
 
     const stripe = getStripe();
+    await assertOwnedPayoutAccount(stripe, accountId, auth.ownerUserId);
     const result = await setDefaultPayoutDestination(stripe, accountId, id);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 
@@ -69,6 +71,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     if (!accountId) return NextResponse.json({ error: "No payout account yet." }, { status: 422 });
 
     const stripe = getStripe();
+    await assertOwnedPayoutAccount(stripe, accountId, auth.ownerUserId);
     const result = await removePayoutDestination(stripe, auth.service, accountId, id);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 

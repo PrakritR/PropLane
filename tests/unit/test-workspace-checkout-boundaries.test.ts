@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   authUser: null as { id: string; email?: string } | null,
   ensurePricing: vi.fn(),
   checkoutCreate: vi.fn(),
+  priceRetrieve: vi.fn(),
+  productRetrieve: vi.fn(),
   classification: vi.fn(),
   serviceDb: vi.fn(),
 }));
@@ -20,7 +22,11 @@ vi.mock("@/lib/auth/manager-pricing-selection", () => ({
   ensureProvisionedManagerForPricing: mocks.ensurePricing,
 }));
 vi.mock("@/lib/stripe", () => ({
-  getStripe: () => ({ checkout: { sessions: { create: mocks.checkoutCreate } } }),
+  getStripe: () => ({
+    checkout: { sessions: { create: mocks.checkoutCreate } },
+    prices: { retrieve: mocks.priceRetrieve },
+    products: { retrieve: mocks.productRetrieve },
+  }),
 }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({
   resolveTestWorkspaceClassification: mocks.classification,
@@ -28,6 +34,7 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 
 import { POST } from "@/app/api/stripe/checkout/route";
 import { createManagerCheckoutSession } from "@/lib/stripe/manager-checkout";
+import { RATE_CARD } from "@/lib/billing/rate-card";
 
 function request(body: Record<string, unknown>) {
   return new Request("http://localhost/api/stripe/checkout", {
@@ -61,6 +68,12 @@ describe("test-workspace manager checkout boundary", () => {
     mocks.classification.mockResolvedValue({ kind: "normal" });
     mocks.ensurePricing.mockResolvedValue({ kind: "ready", managerId: "MGR-AUTH" });
     process.env.STRIPE_PRICE_PRO_MONTHLY = "price_pro_monthly_test";
+    mocks.priceRetrieve.mockResolvedValue({
+      id: "price_pro_monthly_test", active: true, currency: "usd",
+      type: "recurring", unit_amount: RATE_CARD.pro.floorMonthlyCents,
+      recurring: { interval: "month", interval_count: 1 }, product: "prod_pro_test",
+    });
+    mocks.productRetrieve.mockResolvedValue({ id: "prod_pro_test", metadata: { axis_plan: "axis_pro" } });
   });
 
   it("rejects a guest body UUID when the submitted email belongs to a classified account", async () => {

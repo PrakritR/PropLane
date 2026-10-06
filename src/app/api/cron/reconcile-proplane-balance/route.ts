@@ -3,6 +3,9 @@ import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { reconcilePlatformLedgerCharges } from "@/lib/proplane-balance/reconcile.server";
+import { reconcileReservedPlatformOwnerRecovery, reconcileUnhydratedCentralSourceMirrors } from "@/lib/platform-owner-recovery.server";
+import { reconcileReservedPlatformHoldTransfers } from "@/lib/platform-hold-release.server";
+import { reconcileClassifiedBalanceWithdrawals } from "@/lib/proplane-balance/withdraw-reconcile.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -40,6 +43,29 @@ export async function GET(req: Request) {
 
   const db = createSupabaseServiceRoleClient();
   const stripe = getStripe();
-  const result = await reconcilePlatformLedgerCharges(stripe, db);
-  return NextResponse.json(result);
+  // Each reconciler catches its own per-row failures but throws outright if its
+  // initial list read fails. Only two of these can finish money left in an
+  // unknown provider state, so one bad read must not skip the stages after it.
+  // `stageErrors` is deliberately not `errors` — that key is the first
+  // reconciler's own per-row report and is spread into this response.
+  const stageErrors: Array<{ stage: string; message: string }> = [];
+  async function stage<T>(name: string, run: () => Promise<T>): Promise<T | null> {
+    try {
+      return await run();
+    } catch (error) {
+      stageErrors.push({ stage: name, message: error instanceof Error ? error.message : "Unknown error" });
+      return null;
+    }
+  }
+
+  const result = await stage("ledgerCharges", () => reconcilePlatformLedgerCharges(stripe, db));
+  const ownerRecovery = await stage("ownerRecovery", () => reconcileReservedPlatformOwnerRecovery(db, stripe));
+  const centralAvailability = await stage("centralAvailability", () => reconcileUnhydratedCentralSourceMirrors(db, stripe));
+  const holdTransfers = await stage("holdTransfers", () => reconcileReservedPlatformHoldTransfers(db, stripe));
+  const withdrawals = await stage("withdrawals", () => reconcileClassifiedBalanceWithdrawals(stripe, db));
+  return NextResponse.json(
+    { ...(result ?? {}), ownerRecovery, centralAvailability, holdTransfers, withdrawals,
+      ...(stageErrors.length > 0 ? { stageErrors } : {}) },
+    { status: stageErrors.length > 0 ? 500 : 200 },
+  );
 }

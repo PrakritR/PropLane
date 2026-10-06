@@ -29,19 +29,11 @@ import {
   availableCentsFromHoldAndStripe,
   payoutsAvailableNote,
 } from "@/lib/stripe-platform-hold";
-import { listPlatformHoldsForOwner, sumHeldCentsForOwner } from "@/lib/stripe-platform-hold.server";
+import { listPlatformHoldsForOwner, readOwnerPlatformFunds } from "@/lib/stripe-platform-hold.server";
 
 const CURRENCY = "usd";
 
-/**
- * How long an in-app claim that never received a Stripe payout id is given
- * before reconciliation writes it off as failed. A claim only lacks the id
- * when the process died between `stripe.payouts.create` and the stamp, or
- * the stamp itself failed twice — either way, a payout Stripe did create is
- * found by `findPayoutForUnstampedClaim` first, so only a genuinely
- * unconfirmed claim ever ages out.
- */
-const UNCONFIRMED_CLAIM_GRACE_MS = 15 * 60 * 1000;
+const MAX_PAYOUT_RECONCILE_ROWS = 1_000;
 
 export type PayoutSnapshot = {
   currency: "usd";
@@ -49,7 +41,11 @@ export type PayoutSnapshot = {
   instantAvailableCents: number;
   pendingCents: number;
   onTheWayCents: number;
+  payoutReconciliationPending?: boolean;
+  recoveryOutstandingCents?: number;
+  recoveryReservedCents?: number;
   heldCents: number;
+  releasePendingCents?: number;
   heldDepositCents?: number;
   withdrawableCents: number;
   availableNote: string;
@@ -66,7 +62,11 @@ export function emptyPayoutSnapshot(): PayoutSnapshot {
     instantAvailableCents: 0,
     pendingCents: 0,
     onTheWayCents: 0,
+    payoutReconciliationPending: false,
+    recoveryOutstandingCents: 0,
+    recoveryReservedCents: 0,
     heldCents: 0,
+    releasePendingCents: 0,
     withdrawableCents: 0,
     availableNote: "",
     bank: null,
@@ -170,26 +170,144 @@ async function readHistory(
   });
 }
 
-/** Sum of `stripe_payouts` rows already sent to the bank but not yet arrived ("On the way"). */
-async function readOnTheWayCents(db: SupabaseClient, ownerUserId: string): Promise<number> {
-  const { data, error } = await db
-    .from("stripe_payouts")
-    .select("amount_cents")
-    .eq("manager_user_id", ownerUserId)
-    .in("status", ["pending", "in_transit"]);
-  if (error) throw new Error(error.message);
-  return (data ?? []).reduce((sum, row) => sum + (Number((row as { amount_cents: number }).amount_cents) || 0), 0);
+/** Stamped provider payouts are on the way; unstamped claims are unknown. */
+export async function readPayoutTransit(db: SupabaseClient, ownerUserId: string): Promise<{
+  onTheWayCents: number; payoutReconciliationPending: boolean;
+}> {
+  let onTheWayCents = 0;
+  let payoutReconciliationPending = false;
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await db
+      .from("stripe_payouts")
+      .select("id, amount_cents, fee_cents, method, row_data, stripe_payout_id, initiated_in_app")
+      .eq("manager_user_id", ownerUserId)
+      .in("status", ["pending", "in_transit"])
+      .order("id", { ascending: true })
+      .range(offset, offset + 499);
+    if (error) throw new Error(error.message);
+    if (!data?.length) return { onTheWayCents, payoutReconciliationPending };
+    for (const row of data) {
+      const payout = row as { id: string; amount_cents: number; fee_cents: number | null;
+        method: string | null; row_data: unknown; stripe_payout_id: string | null;
+        initiated_in_app: boolean };
+      if (!Number.isSafeInteger(payout.amount_cents) || payout.amount_cents <= 0) {
+        throw new Error("Pending payout has invalid durable amount.");
+      }
+      if (!payout.stripe_payout_id) {
+        if (!payout.initiated_in_app) throw new Error("Pending payout is missing provider identity.");
+        payoutReconciliationPending = true;
+      } else {
+        const terms = frozenPayoutTerms(payout);
+        const bankAmount = payout.initiated_in_app && payout.method === "instant"
+          ? terms?.stripeAmountCents ?? (Number.isSafeInteger(payout.fee_cents)
+            ? netCentsForPayout(payout.amount_cents, payout.fee_cents!) : NaN)
+          : payout.amount_cents;
+        if (!Number.isSafeInteger(bankAmount) || bankAmount <= 0) {
+          throw new Error("Pending payout has invalid bank amount.");
+        }
+        onTheWayCents += bankAmount;
+      }
+    }
+    offset += data.length;
+  }
+}
+
+/** Creditor debt is an obligation, never added to available money. Reserved
+ * fresh income is shown separately until exact clearing posts recovered cash. */
+export async function readOwnerRecoveryStatus(db: SupabaseClient, ownerUserId: string): Promise<{
+  recoveryOutstandingCents: number; recoveryReservedCents: number;
+}> {
+  const creditors = new Map<string, { outstanding: number; reserved: number }>();
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await db.from("platform_hold_refund_attempts")
+      .select("id, funded_debt_cents, recovered_cents")
+      .eq("owner_user_id", ownerUserId).eq("status", "succeeded")
+      .order("id", { ascending: true }).range(offset, offset + 499);
+    if (error) throw new Error("Could not read owner recovery creditors.");
+    if (!data?.length) break;
+    for (const row of data) {
+      const funded = Number(row.funded_debt_cents);
+      const recovered = Number(row.recovered_cents);
+      if (typeof row.id !== "string" || !Number.isSafeInteger(funded) || funded < 0 ||
+          !Number.isSafeInteger(recovered) || recovered < 0 || recovered > funded) {
+        throw new Error("Owner recovery creditor has inconsistent durable totals.");
+      }
+      creditors.set(row.id, { outstanding: funded - recovered, reserved: 0 });
+    }
+    offset += data.length;
+  }
+  offset = 0;
+  for (;;) {
+    const { data, error } = await db.from("platform_source_consumption_legs")
+      .select("id, creditor_refund_attempt_id, source_net_cents")
+      .eq("owner_user_id", ownerUserId).eq("kind", "owner_debt_recovery")
+      .eq("status", "reserved")
+      .order("id", { ascending: true }).range(offset, offset + 499);
+    if (error) throw new Error("Could not read reserved owner recovery.");
+    if (!data?.length) break;
+    for (const row of data) {
+      const creditor = creditors.get(String(row.creditor_refund_attempt_id ?? ""));
+      const reserved = Number(row.source_net_cents);
+      if (!creditor || !Number.isSafeInteger(reserved) || reserved <= 0) {
+        throw new Error("Owner recovery reservation lacks an exact creditor.");
+      }
+      creditor.reserved += reserved;
+      if (!Number.isSafeInteger(creditor.reserved) || creditor.reserved > creditor.outstanding) {
+        throw new Error("Owner recovery reservations exceed outstanding debt.");
+      }
+    }
+    offset += data.length;
+  }
+  let recoveryOutstandingCents = 0;
+  let recoveryReservedCents = 0;
+  for (const creditor of creditors.values()) {
+    recoveryOutstandingCents += creditor.outstanding;
+    recoveryReservedCents += creditor.reserved;
+  }
+  if (!Number.isSafeInteger(recoveryOutstandingCents) ||
+      !Number.isSafeInteger(recoveryReservedCents)) {
+    throw new Error("Owner recovery totals exceed safe money range.");
+  }
+  return { recoveryOutstandingCents, recoveryReservedCents };
 }
 
 type PendingClaimRow = {
   id: string;
+  manager_user_id: string;
   stripe_payout_id: string | null;
   amount_cents: number;
   fee_cents: number | null;
   method: string | null;
   vendor_user_id: string | null;
   created_at: string;
+  row_data?: unknown;
 };
+
+type FrozenPayoutTerms = {
+  version: 1;
+  destinationId: string;
+  stripeAmountCents: number;
+  originalClaimId?: string;
+};
+
+function frozenPayoutTerms(claim: Pick<PendingClaimRow, "row_data">): FrozenPayoutTerms | null {
+  const value = claim.row_data;
+  if (!value || typeof value !== "object") return null;
+  const terms = (value as { inAppPayout?: FrozenPayoutTerms }).inAppPayout;
+  return terms?.version === 1 && typeof terms.destinationId === "string" && terms.destinationId.length > 0 &&
+    Number.isSafeInteger(terms.stripeAmountCents) && terms.stripeAmountCents > 0 ? terms : null;
+}
+
+function payoutMatchesClaim(payout: Stripe.Payout, claim: PendingClaimRow, accountId: string): boolean {
+  const terms = frozenPayoutTerms(claim);
+  return terms != null && payout.metadata?.proplane_in_app_claim === (terms.originalClaimId ?? claim.id) &&
+    payout.metadata?.owner_user_id === claim.manager_user_id &&
+    payout.metadata?.stripe_account_id === accountId &&
+    payout.amount === terms.stripeAmountCents && payout.currency === CURRENCY &&
+    payout.method === methodFromRow(claim.method) && payout.destination === terms.destinationId;
+}
 
 function isUniqueViolation(error: { code?: string; message?: string } | null | undefined): boolean {
   if (!error) return false;
@@ -227,17 +345,22 @@ function payoutStatusPatch(payout: Stripe.Payout, method: PayoutMethod) {
 async function mergeClaimIntoWebhookRow(db: SupabaseClient, claimId: string, payoutId: string): Promise<void> {
   const { data: claim, error: claimReadError } = await db
     .from("stripe_payouts")
-    .select("amount_cents, fee_cents, method, vendor_user_id")
+    .select("amount_cents, fee_cents, method, vendor_user_id, row_data")
     .eq("id", claimId)
     .maybeSingle();
   if (claimReadError) throw new Error(claimReadError.message);
   if (claim) {
-    const row = claim as Pick<PendingClaimRow, "amount_cents" | "fee_cents" | "method" | "vendor_user_id">;
+    const row = claim as Pick<PendingClaimRow, "amount_cents" | "fee_cents" | "method" | "vendor_user_id" | "row_data">;
     const patch: Record<string, unknown> = {
       initiated_in_app: true,
       amount_cents: row.amount_cents,
       fee_cents: row.fee_cents,
       method: row.method,
+      row_data: row.row_data && typeof row.row_data === "object"
+        ? { ...row.row_data, inAppPayout: {
+            ...(row.row_data as { inAppPayout?: Record<string, unknown> }).inAppPayout,
+            originalClaimId: claimId } }
+        : row.row_data,
       updated_at: new Date().toISOString(),
     };
     if (row.vendor_user_id) patch.vendor_user_id = row.vendor_user_id;
@@ -270,37 +393,42 @@ async function stampClaimWithPayout(
 }
 
 /**
- * For a claim that never got its Stripe id: the payout Stripe created for it,
- * if any — matched on the connected account by creation time, method and the
- * exact amount sent to Stripe, skipping ids another in-app row already holds.
+ * Only exact claim metadata and frozen destination/amount may adopt an
+ * unstamped payout. An older claim without those terms remains for review.
  */
 async function findPayoutForUnstampedClaim(
   stripe: Stripe,
-  db: SupabaseClient,
+  _db: SupabaseClient,
   accountId: string,
   claim: PendingClaimRow,
   method: PayoutMethod,
 ): Promise<Stripe.Payout | null> {
+  void method;
+  if (!frozenPayoutTerms(claim)) return null;
   const createdAtSeconds = Math.floor(Date.parse(claim.created_at) / 1000);
   if (!Number.isFinite(createdAtSeconds)) return null;
-  const feeCents = claim.fee_cents ?? feeCentsForMethod(method, claim.amount_cents);
-  const expectedAmount = method === "instant" ? netCentsForPayout(claim.amount_cents, feeCents) : claim.amount_cents;
-  const list = await stripe.payouts.list(
-    { limit: 25, created: { gte: createdAtSeconds - 60 } },
-    { stripeAccount: accountId },
-  );
-  const candidates = (list.data ?? []).filter((p) => p.amount === expectedAmount && p.method === method);
-  if (candidates.length === 0) return null;
-  const { data: claimedRows } = await db
-    .from("stripe_payouts")
-    .select("stripe_payout_id")
-    .in(
-      "stripe_payout_id",
-      candidates.map((p) => p.id),
-    )
-    .eq("initiated_in_app", true);
-  const taken = new Set((claimedRows ?? []).map((r) => String((r as { stripe_payout_id: string }).stripe_payout_id)));
-  return candidates.find((p) => !taken.has(p.id)) ?? null;
+  let after: string | undefined;
+  let scanned = 0;
+  let match: Stripe.Payout | null = null;
+  for (;;) {
+    const page = await stripe.payouts.list({ limit: 100,
+      created: { gte: createdAtSeconds - 60 }, ...(after ? { starting_after: after } : {}) },
+    { stripeAccount: accountId });
+    for (const payout of page.data ?? []) {
+      scanned += 1;
+      if (payout.metadata?.proplane_in_app_claim !== claim.id) continue;
+      if (!payoutMatchesClaim(payout, claim, accountId) || match) {
+        throw new Error("Payout claim has conflicting provider evidence.");
+      }
+      match = payout;
+    }
+    if (scanned > MAX_PAYOUT_RECONCILE_ROWS || (page.has_more &&
+        (!page.data?.length || scanned >= MAX_PAYOUT_RECONCILE_ROWS))) {
+      throw new Error("Payout provider history is incomplete.");
+    }
+    if (!page.has_more) return match;
+    after = page.data[page.data.length - 1]?.id;
+  }
 }
 
 async function reconcileClaim(
@@ -312,6 +440,9 @@ async function reconcileClaim(
   const method = methodFromRow(claim.method);
   if (claim.stripe_payout_id) {
     const payout = await stripe.payouts.retrieve(claim.stripe_payout_id, {}, { stripeAccount: accountId });
+    if (frozenPayoutTerms(claim) && !payoutMatchesClaim(payout, claim, accountId)) {
+      throw new Error("Stamped payout no longer matches its frozen claim.");
+    }
     const patch = payoutStatusPatch(payout, method);
     if (patch.status === "pending") return;
     const { error } = await db.from("stripe_payouts").update(patch).eq("id", claim.id);
@@ -324,17 +455,8 @@ async function reconcileClaim(
     await stampClaimWithPayout(db, { claimId: claim.id, payout, method });
     return;
   }
-  const ageMs = Date.now() - Date.parse(claim.created_at);
-  if (!Number.isFinite(ageMs) || ageMs < UNCONFIRMED_CLAIM_GRACE_MS) return;
-  const { error } = await db
-    .from("stripe_payouts")
-    .update({
-      status: "failed",
-      failure_message: "Stripe never confirmed this payout.",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", claim.id);
-  if (error) throw new Error(error.message);
+  // Absence in a list cannot prove that Stripe rejected the original create.
+  // Keep the claim reserved for exact provider reconciliation/manual review.
 }
 
 /**
@@ -343,7 +465,7 @@ async function reconcileClaim(
  * the product rule (`stripe_payouts_pending_claim_unique`), and the
  * `payout.*` webhooks normally advance the row — but a webhook that never
  * arrives (local, preview, an endpoint not subscribed for connected
- * accounts) must not leave that index blocking Pay out forever. Runs before
+ * accounts) leaves an unstamped claim reserved until exact evidence arrives. Runs before
  * every snapshot read and every new payout attempt. Each claim is handled on
  * its own; a failure is logged and never blocks the read or the payout.
  */
@@ -354,7 +476,7 @@ export async function reconcilePendingInAppClaims(
 ): Promise<void> {
   const { data, error } = await db
     .from("stripe_payouts")
-    .select("id, stripe_payout_id, amount_cents, fee_cents, method, vendor_user_id, created_at")
+    .select("id, manager_user_id, stripe_payout_id, amount_cents, fee_cents, method, vendor_user_id, created_at, row_data")
     .eq("stripe_connect_account_id", accountId)
     .eq("status", "pending")
     .eq("initiated_in_app", true);
@@ -377,12 +499,17 @@ export async function readPayoutSnapshot(
   db: SupabaseClient,
   opts: { accountId: string; ownerUserId: string; portal: "manager" | "vendor" },
 ): Promise<PayoutSnapshot> {
+  const account = await stripe.accounts.retrieve(opts.accountId);
+  if (account.id !== opts.accountId || account.metadata?.axis_user_id !== opts.ownerUserId) {
+    throw new Error("Saved payout account does not belong to this owner.");
+  }
   await reconcilePendingInAppClaims(stripe, db, opts.accountId);
-  const [account, balance, history, onTheWayCents] = await Promise.all([
-    stripe.accounts.retrieve(opts.accountId),
+  const [balance, history, transit, recovery] = await Promise.all([
     stripe.balance.retrieve({}, { stripeAccount: opts.accountId }),
     readHistory(db, { ownerUserId: opts.ownerUserId, portal: opts.portal }),
-    readOnTheWayCents(db, opts.ownerUserId),
+    readPayoutTransit(db, opts.ownerUserId),
+    opts.portal === "manager" ? readOwnerRecoveryStatus(db, opts.ownerUserId)
+      : Promise.resolve({ recoveryOutstandingCents: 0, recoveryReservedCents: 0 }),
   ]);
 
   const bank = bankInfoFromAccount(account);
@@ -391,8 +518,8 @@ export async function readPayoutSnapshot(
   const schedule = fromStripePayoutSchedule(account.settings?.payouts?.schedule ?? null);
   const stripeAvailableCents = currencyAmount(balance.available, CURRENCY);
   const nextPayoutAt = computeNextPayoutDate(schedule);
-  const heldCents = await sumHeldCentsForOwner(db, opts.ownerUserId).catch(() => 0);
-  const holdHistory = await holdHistoryItems(db, opts.ownerUserId).catch(() => []);
+  const { heldCents, releasePendingCents } = await readOwnerPlatformFunds(db, opts.ownerUserId);
+  const holdHistory = await holdHistoryItems(db, opts.ownerUserId);
   let heldDepositCents = 0;
   if (opts.portal === "manager") {
     const { data: deposits, error: depositError } = await db.from("security_deposit_ledger").select("amount_held_cents").eq("manager_user_id", opts.ownerUserId);
@@ -406,8 +533,11 @@ export async function readPayoutSnapshot(
     availableCents: availableCentsFromHoldAndStripe(heldCents, stripeAvailableCents),
     instantAvailableCents: currencyAmount(balance.instant_available, CURRENCY),
     pendingCents: currencyAmount(balance.pending, CURRENCY),
-    onTheWayCents,
+    onTheWayCents: transit.onTheWayCents,
+    payoutReconciliationPending: transit.payoutReconciliationPending,
+    ...recovery,
     heldCents,
+    releasePendingCents,
     withdrawableCents: stripeAvailableCents,
     heldDepositCents,
     availableNote: payoutsAvailableNote({ ready: setup.ready, heldCents, bankLabel }),
@@ -423,12 +553,16 @@ export async function snapshotWithPlatformHolds(
   ownerUserId: string,
   base: PayoutSnapshot = emptyPayoutSnapshot(),
 ): Promise<PayoutSnapshot> {
-  const heldCents = await sumHeldCentsForOwner(db, ownerUserId).catch(() => 0);
-  const holdHistory = await holdHistoryItems(db, ownerUserId).catch(() => []);
+  const [{ heldCents, releasePendingCents }, holdHistory, recovery] = await Promise.all([
+    readOwnerPlatformFunds(db, ownerUserId), holdHistoryItems(db, ownerUserId),
+    readOwnerRecoveryStatus(db, ownerUserId),
+  ]);
   return {
     ...base,
     availableCents: availableCentsFromHoldAndStripe(heldCents, base.withdrawableCents),
     heldCents,
+    releasePendingCents,
+    ...recovery,
     availableNote: payoutsAvailableNote({ ready: base.setup.ready, heldCents }),
     history: [...holdHistory, ...base.history],
   };
@@ -436,25 +570,37 @@ export async function snapshotWithPlatformHolds(
 
 async function holdHistoryItems(db: SupabaseClient, ownerUserId: string): Promise<PayoutHistoryItem[]> {
   const rows = await listPlatformHoldsForOwner(db, ownerUserId);
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    if (!Number.isSafeInteger(row.amountCents) || row.amountCents < 0 ||
+        !row.createdAt || !Number.isFinite(Date.parse(row.createdAt))) {
+      throw new Error("Held payment history has invalid durable terms.");
+    }
+    const historicalAmount = row.originalAmountCents == null ? row.amountCents : row.originalAmountCents;
+    if (!Number.isSafeInteger(historicalAmount) || historicalAmount < 0 ||
+        (row.originalAmountCents != null && historicalAmount <= 0)) {
+      throw new Error("Held payment history has invalid original allocation.");
+    }
+    return ({
     id: `hold:${row.id}`,
-    amountCents: row.amountCents,
+    kind: "source_movement" as const,
+    amountCents: historicalAmount,
     feeCents: 0,
-    netCents: row.amountCents,
-    method: "standard" as const,
-    status: row.status === "held" ? "pending" : row.status === "refunded" ? "canceled" : "paid",
-    destinationLast4: "",
-    createdAt: row.createdAt ?? new Date().toISOString(),
+    netCents: historicalAmount,
+    method: null,
+    status: row.status === "held" || row.status === "classified_held" ? "pending" : row.status === "refunded" ? "canceled" : "paid",
+    destinationLast4: null,
+    createdAt: row.createdAt,
     arrivalDate: null,
     initiatedInApp: false,
     failureMessage: null,
     serviceLabel:
       row.status === "transferred"
-        ? "Moved from PropLane"
-        : row.status === "held"
-          ? "Held"
-          : "Refunded hold",
-  }));
+        ? "Moved from PropLane to Stripe"
+        : row.status === "held" || row.status === "classified_held"
+          ? row.originalAmountCents == null ? "Remaining source amount" : "Captured source allocation"
+          : "Refunded source allocation",
+    });
+  });
 }
 
 export type CreateInAppPayoutResult =
@@ -494,7 +640,9 @@ export async function createInAppPayout(
     stripe.accounts.retrieve(opts.accountId),
     stripe.balance.retrieve({}, { stripeAccount: opts.accountId }),
   ]);
-  const bank = bankInfoFromAccount(account);
+  if (account.id !== opts.accountId || account.metadata?.axis_user_id !== opts.ownerUserId) {
+    return { ok: false, status: 409, error: "Reconnect your Stripe account before withdrawing." };
+  }
   const setup = resolvePayoutsReadiness(account);
 
   // A `destinationId` names a specific external account/card off THIS
@@ -510,9 +658,13 @@ export async function createInAppPayout(
     if (!destination) {
       return { ok: false, status: 400, error: "That destination is not on this account." };
     }
-    if (opts.input.method === "instant" && destination.kind !== "card") {
-      return { ok: false, status: 400, error: "Instant payouts need a debit card destination." };
-    }
+  }
+  const payableDestination = destination ?? setup.destinations.find((item) => item.default) ?? null;
+  if (!payableDestination?.payable ||
+      (opts.input.method === "instant" &&
+        (payableDestination.kind !== "card" || !payableDestination.instantEligible)) ||
+      (opts.input.method === "standard" && payableDestination.kind !== "bank")) {
+    return { ok: false, status: 422, error: "Choose an eligible payout destination." };
   }
 
   const validation = validatePayoutAgainstBalance(
@@ -520,13 +672,19 @@ export async function createInAppPayout(
     {
       availableCents: currencyAmount(balance.available, CURRENCY),
       instantAvailableCents: currencyAmount(balance.instant_available, CURRENCY),
-      bankInstantEligible: destination ? destination.kind === "card" : (bank?.instantEligible ?? false),
+      bankInstantEligible: payableDestination.kind === "card" && payableDestination.instantEligible,
     },
     setup,
   );
   if (!validation.ok) return { ok: false, status: 422, error: validation.error };
 
   const feeCents = (opts.computeFeeCents ?? feeCentsForMethod)(opts.input.method, opts.input.amountCents);
+  const stripeAmount = opts.input.method === "instant"
+    ? netCentsForPayout(opts.input.amountCents, feeCents) : opts.input.amountCents;
+  const frozenDestinationId = payableDestination.id;
+  if (!frozenDestinationId) {
+    return { ok: false, status: 422, error: "Add a payout destination before withdrawing." };
+  }
 
   await reconcilePendingInAppClaims(stripe, db, opts.accountId);
 
@@ -542,7 +700,8 @@ export async function createInAppPayout(
       currency: CURRENCY,
       status: "pending",
       initiated_in_app: true,
-      row_data: {},
+      row_data: { inAppPayout: { version: 1, destinationId: frozenDestinationId,
+        stripeAmountCents: stripeAmount } },
     })
     .select("id")
     .maybeSingle();
@@ -570,19 +729,28 @@ export async function createInAppPayout(
   // already checked against `instant_available`, so the balance has room for
   // both the net transfer and Stripe's fee. Standard has no fee, so gross ==
   // net and this is a no-op there.
-  const stripeAmount =
-    opts.input.method === "instant" ? netCentsForPayout(opts.input.amountCents, feeCents) : opts.input.amountCents;
-
   try {
     const payout = await stripe.payouts.create(
       {
         amount: stripeAmount,
         currency: CURRENCY,
         method: opts.input.method,
-        ...(destination ? { destination: destination.id } : {}),
+        destination: frozenDestinationId,
+        metadata: { proplane_in_app_claim: claimId, owner_user_id: opts.ownerUserId,
+          stripe_account_id: opts.accountId },
       },
       { stripeAccount: opts.accountId, idempotencyKey: `in-app-payout:${claimId}` },
     );
+    if (!payoutMatchesClaim(payout, {
+      id: claimId, manager_user_id: opts.ownerUserId, stripe_payout_id: null,
+      amount_cents: opts.input.amountCents, fee_cents: feeCents,
+      method: opts.input.method, vendor_user_id: opts.vendorUserId ?? null,
+      created_at: new Date().toISOString(),
+      row_data: { inAppPayout: { version: 1, destinationId: frozenDestinationId,
+        stripeAmountCents: stripeAmount } },
+    }, opts.accountId)) {
+      throw new Error("Stripe payout did not match the frozen claim.");
+    }
 
     const arrivalDate = arrivalDateForPayout(payout, opts.input.method);
 
@@ -605,14 +773,9 @@ export async function createInAppPayout(
       method: opts.input.method,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Stripe payout failed.";
-    // Frees the partial-unique-index slot (status is no longer 'pending') so a
-    // retry after a transient Stripe failure is not permanently blocked.
-    await db
-      .from("stripe_payouts")
-      .update({ status: "failed", failure_message: message, updated_at: new Date().toISOString() })
-      .eq("id", claimId);
-    return { ok: false, status: 400, error: message };
+    console.error(`[stripe-payouts] payout create outcome unknown for ${claimId}`, error);
+    return { ok: false, status: 409,
+      error: "Payout is being reconciled. Check its status before trying again." };
   }
 }
 

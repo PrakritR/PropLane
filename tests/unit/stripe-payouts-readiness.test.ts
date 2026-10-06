@@ -28,6 +28,7 @@ const card = (over: Partial<Stripe.Card> = {}): Stripe.Card =>
     brand: "Visa",
     last4: "4242",
     funding: "debit",
+    available_payout_methods: ["instant"],
     default_for_currency: true,
     ...over,
   }) as Stripe.Card;
@@ -41,6 +42,7 @@ function makeAccount(opts: {
   return {
     id: "acct_1",
     payouts_enabled: opts.payoutsEnabled,
+    capabilities: { transfers: "active" },
     details_submitted: opts.detailsSubmitted ?? true,
     requirements: { ...VERIFIED_REQUIREMENTS, ...opts.requirements },
     external_accounts: { data: opts.externalAccounts ?? [] },
@@ -93,9 +95,27 @@ describe("resolvePayoutsReadiness — bank status semantics", () => {
     expect(resolvePayoutsReadiness(account).bank).toBe("needed");
   });
 
+  it("requires active transfers and rejects unknown bank or unqualified card states", () => {
+    const account = makeAccount({ payoutsEnabled: true, externalAccounts: [bankAccount()] });
+    account.capabilities!.transfers = "inactive";
+    expect(resolvePayoutsReadiness(account).ready).toBe(false);
+    expect(resolvePayoutsReadiness(makeAccount({ payoutsEnabled: true,
+      externalAccounts: [bankAccount({ status: "unexpected" as Stripe.BankAccount["status"] })] })).bank).toBe("needed");
+    expect(resolvePayoutsReadiness(makeAccount({ payoutsEnabled: true,
+      externalAccounts: [card({ funding: "credit" })] })).bank).toBe("needed");
+    expect(resolvePayoutsReadiness(makeAccount({ payoutsEnabled: true,
+      externalAccounts: [card({ available_payout_methods: [] })] })).bank).toBe("needed");
+  });
+
   it("requires an actual default external account — none present is never payable", () => {
     const account = makeAccount({ payoutsEnabled: true, externalAccounts: [] });
     expect(resolvePayoutsReadiness(account).bank).toBe("needed");
+  });
+
+  it("does not guess a default from a non-default external account", () => {
+    const account = makeAccount({ payoutsEnabled: true,
+      externalAccounts: [bankAccount({ default_for_currency: false })] });
+    expect(resolvePayoutsReadiness(account)).toMatchObject({ bank: "needed", ready: false });
   });
 
   it("gates on the DEFAULT destination, not any destination — an errored default beats a verified non-default", () => {

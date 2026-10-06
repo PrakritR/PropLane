@@ -185,6 +185,9 @@ export type HouseholdCharge = {
   processingStartedAt?: string;
   /** Total cents charged to the resident at checkout, when higher than the charge face amount. */
   paidAmountCents?: number;
+  /** Immutable provider source for a verified online payment. */
+  stripeCheckoutSessionId?: string;
+  stripePaymentStatus?: string;
   /**
    * Application fee only: which room / lease type the amount was computed for and which level of
    * the fee chain set it. A later room or term change does not re-price a paid fee; this is the
@@ -197,8 +200,8 @@ export type HouseholdCharge = {
   paidNote?: string;
   /** Resident questions or issues about this charge, newest last. */
   residentChargeMessages?: ResidentChargeMessage[];
-  /** Snapshot of whether Axis ACH was enabled on the listing when the charge was created or synced. */
-  axisPaymentsEnabledSnapshot?: boolean;
+  /** Stored creation snapshot; server reads replace it with the current policy. null means the current policy could not be confirmed. */
+  axisPaymentsEnabledSnapshot?: boolean | null;
   /** Server-synced: manager Stripe Connect ready for destination charges (false blocks Pay). */
   managerStripeConnectReadySnapshot?: boolean;
   /** Payment methods the property currently accepts, refreshed from the listing on each server sync. */
@@ -717,26 +720,30 @@ function currentRentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
+/**
+ * Strip leading/trailing `_` with a scan instead of `/^_+|_+$/`: the anchored
+ * `_+$` alternative backtracks quadratically on a long run of underscores.
+ */
+function trimUnderscores(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === "_") start += 1;
+  while (end > start && value[end - 1] === "_") end -= 1;
+  return value.slice(start, end);
+}
+
 function chargeKeyPart(raw: string): string {
   const trimmed = raw.trim();
   const upper = trimmed.toUpperCase();
   if (upper.startsWith("AXIS-")) {
-    const suffix = upper
-      .slice(5)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
+    const suffix = trimUnderscores(upper.slice(5).toLowerCase().replace(/[^a-z0-9]+/g, "_"));
     return suffix ? `pl_${suffix}` : "unknown";
   }
   if (upper.startsWith("PROPLANE-")) {
-    const suffix = upper
-      .slice(9)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
+    const suffix = trimUnderscores(upper.slice(9).toLowerCase().replace(/[^a-z0-9]+/g, "_"));
     return suffix ? `pl_${suffix}` : "unknown";
   }
-  const cleaned = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const cleaned = trimUnderscores(trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_"));
   return cleaned || "unknown";
 }
 
@@ -758,7 +765,7 @@ function approvedChargeIdAliases(applicationId: string, kind: HouseholdChargeKin
   const trimmed = applicationId.trim();
   const upper = trimmed.toUpperCase();
   if (upper.startsWith("PROPLANE-") || upper.startsWith("AXIS-")) {
-    const legacySlug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const legacySlug = trimUnderscores(trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_"));
     variants.add(`hc_app_${legacySlug}_${kind}`);
   }
   return [...variants];
@@ -769,7 +776,7 @@ export function publicChargeIdForUrl(id: string): string {
   return id.replace(/_axis_/g, "_pl_");
 }
 
-function applicationFeeChargeIdForApplication(applicationId: string): string {
+export function applicationFeeChargeIdForApplication(applicationId: string): string {
   return `hc_app_fee_${chargeKeyPart(applicationId)}`;
 }
 
@@ -979,9 +986,16 @@ function chargeBusinessKey(charge: HouseholdCharge): string {
   ) {
     return `utilities_recurring|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${charge.rentMonth}`;
   }
-  /** One pending/paid application fee per resident email + listing — avoids duplicates when id linkage or property id varies on the row. */
+  /** The exact application is one obligation across pending -> paid sync.
+   * Preserve the captured row's immutable id when those representations merge. */
   if (charge.kind === "application_fee") {
-    return `application_fee|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}`;
+    if (charge.applicationId?.trim()) {
+      return `application_fee_application|${charge.managerUserId}|${charge.applicationId.trim()}`;
+    }
+    if (charge.status === "paid" && charge.stripeCheckoutSessionId) {
+      return `application_fee_paid_legacy|${charge.id}`;
+    }
+    return `application_fee_legacy|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}`;
   }
   if (charge.kind === "holding_deposit") {
     return `holding_deposit|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}`;
@@ -1033,7 +1047,7 @@ function mergeHouseholdApplicationFeeRows(a: HouseholdCharge, b: HouseholdCharge
           })();
   const applicationId = primary.applicationId?.trim() || secondary.applicationId?.trim() || undefined;
   const paid = aPaid || bPaid;
-  const mergedId = applicationId ? applicationFeeChargeIdForApplication(applicationId) : primary.id;
+  const mergedId = paid ? primary.id : applicationId ? applicationFeeChargeIdForApplication(applicationId) : primary.id;
   return {
     ...primary,
     id: mergedId,
@@ -1418,10 +1432,28 @@ function shouldDisplayChargeInPayments(charge: HouseholdCharge, now = new Date()
   return due.getTime() <= endOfNextMonth.getTime();
 }
 
-/** Resident Payments list + dashboard: failed stays owed; processing is clearing. */
+/**
+ * The amount a resident sees on a charge. An unpaid charge shows what is still owed. A paid charge's
+ * balance is $0.00 by definition, so it shows what was actually paid: the recorded paid amount when the
+ * receipt carries one, else the charge's own amount. Never the zero balance.
+ */
+export function residentChargeAmountLabel(charge: HouseholdCharge): string {
+  if (charge.status !== "paid") return charge.balanceLabel;
+  const paid = charge.paidAmountCents;
+  if (typeof paid === "number" && Number.isSafeInteger(paid) && paid > 0) {
+    return `$${(paid / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return charge.amountLabel || charge.balanceLabel;
+}
+
+/** A manual bank PI may still need microdeposit verification; the charge alone cannot attest clearing. */
 export function residentChargeListDueLabel(charge: HouseholdCharge): string {
   if (charge.status === "failed") return "Card declined. Pay again";
-  if (charge.status === "processing") return "Bank transfer clearing";
+  if (charge.status === "processing") {
+    return charge.stripeCheckoutSessionId?.startsWith("pi_")
+      ? "Bank payment pending"
+      : "Bank transfer clearing";
+  }
   return chargeDueLabel(charge);
 }
 
@@ -2021,13 +2053,13 @@ export function findApplicationFeeCharge(
   const props = new Set(
     [propertyId, ...(propertyIdAliases ?? [])].map((p) => String(p ?? "").trim()).filter(Boolean),
   );
+  const exactApplicationId = applicationId?.trim() || "";
+  const exactChargeId = exactApplicationId ? applicationFeeChargeIdForApplication(exactApplicationId) : "";
   return readAll().find((r) => {
     if (r.kind !== "application_fee") return false;
     const emailMatch = r.residentEmail.trim().toLowerCase() === e;
     const userMatch = Boolean(residentUserId && r.residentUserId === residentUserId);
-    if (applicationId?.trim() && r.applicationId === applicationId.trim()) {
-      return emailMatch || userMatch;
-    }
+    if (exactApplicationId && r.applicationId !== exactApplicationId && r.id !== exactChargeId) return false;
     if (!emailMatch && !userMatch) return false;
     if (props.size === 0) return false;
     return props.has(r.propertyId);
@@ -2035,7 +2067,7 @@ export function findApplicationFeeCharge(
 }
 
 /** Removes a pending application-fee line (e.g. after promo waive) so managers do not see a stray unpaid fee. */
-export function removePendingApplicationFeeCharge(residentEmail: string, propertyId: string): void {
+export function removePendingApplicationFeeCharge(residentEmail: string, propertyId: string, applicationId?: string): void {
   const e = residentEmail.trim().toLowerCase();
   const rows = readAll();
   const next = rows.filter(
@@ -2044,6 +2076,7 @@ export function removePendingApplicationFeeCharge(residentEmail: string, propert
         r.kind === "application_fee" &&
         r.propertyId === propertyId &&
         r.residentEmail.trim().toLowerCase() === e &&
+        (!applicationId || r.applicationId === applicationId) &&
         r.status === "pending"
       )
   );
@@ -3395,15 +3428,19 @@ export function markPastDueHouseholdChargesPaid(
   return { markedIds: [...targets] };
 }
 
-export function markHouseholdChargePending(
+export async function markHouseholdChargePending(
   chargeId: string,
   managerUserId: string | null,
   opts?: ChargeManagerScopeOpts,
-): boolean {
+): Promise<boolean> {
   const rows = readAll();
   const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (i === -1) return false;
   if (rows[i]!.status === "pending") return true;
+  // A settled source has no accounting-safe correction path yet. Wait for
+  // server authorization before changing the browser copy.
+  const confirmed = await postHouseholdPayloadAwait({ action: "unmarkPaid", id: chargeId }).catch(() => false);
+  if (!confirmed) return false;
   const next = [...rows];
   // Clear dueDateLabel so parseDueDateLabelToDate returns null → isHouseholdChargeOverdue is false
   // → the charge lands in the Pending bucket, not Overdue, regardless of the original due date.
@@ -3419,16 +3456,6 @@ export function markHouseholdChargePending(
   };
   next[i] = updated;
   writeAll(next);
-  // Reverting a paid charge is an explicit, deliberate action. Route it through
-  // the dedicated `unmarkPaid` server action — the full-list "replace" mirror can
-  // no longer downgrade a paid charge (paid is sticky server-side), so this is the
-  // only path that persists the revert.
-  void postHouseholdPayloadAwait({
-    action: "unmarkPaid",
-    id: chargeId,
-  }).then((ok) => {
-    if (ok) emit();
-  });
   return true;
 }
 
@@ -3506,6 +3533,7 @@ export function recordApplicationCharges(
     input.residentEmail,
     input.propertyId,
     input.residentUserId,
+    input.applicationId,
   );
 
   const serverAmount =
@@ -5147,16 +5175,29 @@ export function shortToLongTermUpgradeBreakdown(
   const totalDue = depositDelta + moveInDelta;
 
   return {
-    applicationFee: { amount: appFeeAmount, waived: true, label: appFeeAmount > 0 ? `$${appFeeAmount.toFixed(2)} (waived — already paid)` : "Waived" },
+    applicationFee: { amount: appFeeAmount, waived: true, label: appFeeAmount > 0 ? `$${appFeeAmount.toFixed(2)} (not charged again)` : "No additional fee" },
     moveInFee: { amount: longTermMoveIn, delta: moveInDelta, label: moveInDelta > 0 ? `$${moveInDelta.toFixed(2)} balance` : "Fully paid" },
     securityDeposit: { amount: longTermDeposit, delta: depositDelta, label: depositDelta > 0 ? `$${depositDelta.toFixed(2)} balance` : "Fully paid" },
     totalDue,
   };
 }
 
+/** A conversion projection cancels an unpaid obligation without inventing cash or waiver authority. */
+export function projectShortToLongTermApplicationFeeCharge(charge: HouseholdCharge): HouseholdCharge {
+  if (!["pending", "failed"].includes(charge.status) || charge.paidAt || charge.paidMethod ||
+      charge.paidAmountCents || charge.stripeCheckoutSessionId || charge.stripePaymentStatus) return charge;
+  return {
+    ...charge,
+    status: "cancelled",
+    balanceLabel: "$0.00",
+    title: "Application fee (no additional charge for conversion)",
+  };
+}
+
 /**
  * Creates the delta charges when a resident upgrades from short-term to long-term.
- * Marks application fee as waived. Only creates new delta lines — idempotent per applicationId.
+ * The application fee projection is noncash; server waiver audit fields are
+ * deliberately not created by this browser-only helper.
  */
 export function recordShortToLongTermConversionCharges(
   row: DemoApplicantRow,
@@ -5184,12 +5225,11 @@ export function recordShortToLongTermConversionCharges(
   const rows = readAll();
   const created: HouseholdCharge[] = [];
 
-  // Mark application fee paid/waived
+  // A paid receipt remains its exact source; an unpaid conversion obligation
+  // becomes noncash cancelled. The ordinary mirror cannot mint a waiver audit.
   const appFeeId = applicationFeeChargeIdForApplication(applicationId);
   const appFeeIdx = rows.findIndex((r) => r.id === appFeeId || (r.kind === "application_fee" && r.applicationId === applicationId));
-  if (appFeeIdx !== -1 && rows[appFeeIdx]!.status !== "paid") {
-    rows[appFeeIdx] = { ...rows[appFeeIdx]!, status: "paid", paidAt: new Date().toISOString(), balanceLabel: "$0.00", title: "Application fee (waived — already paid short-term)" };
-  }
+  if (appFeeIdx !== -1) rows[appFeeIdx] = projectShortToLongTermApplicationFeeCharge(rows[appFeeIdx]!);
 
   const makeId = (suffix: string) => `hc_upgrade_${chargeKeyPart(applicationId)}_${suffix}`;
 
@@ -5486,14 +5526,17 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
         : c.kind === "application_fee"
         ? c.status === "paid"
           ? "Application fee recorded as paid."
+          : c.status === "refunded" ? ""
           : "Application fee pending — awaiting payment."
         : c.kind === "holding_deposit"
           ? c.status === "paid"
             ? "Holding deposit recorded as paid — credited toward security deposit on approval."
             : "Holding deposit pending — secures the application and credits toward security deposit when paid."
         : c.kind === "work_order_charge"
-          ? "Work order pass-through — resident is billed this amount; mark as paid when you receive payment."
-          : "Awaiting payment.",
+          ? c.status === "paid" ? "Service charge recorded as paid."
+            : c.status === "refunded" ? ""
+            : "Work order pass-through — resident is billed this amount; mark as paid when you receive payment."
+          : c.status === "paid" || c.status === "refunded" ? "" : "Awaiting payment.",
   };
 }
 

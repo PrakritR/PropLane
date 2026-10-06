@@ -257,9 +257,6 @@ export async function resolveAndValidateManagerConnectForPayments(
     };
   }
   const result = await validateManagerConnectForDestinationCharge(stripe, accountId);
-  if (!result.ok && result.code === "NO_ACCOUNT") {
-    await clearManagerConnectAccountId(db, managerUserId);
-  }
   return result;
 }
 

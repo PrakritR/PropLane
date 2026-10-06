@@ -16,6 +16,7 @@ const isAdminUser = vi.fn(async () => false);
 const resolveManagerWorkspaceRowScope = vi.fn();
 const managerHasCoManagerPermissionForProperty = vi.fn(async () => false);
 const syncLedgerPaymentEntry = vi.fn(async () => undefined);
+const syncLedgerChargeEntry = vi.fn(async () => undefined);
 const resolvePropertyPayoutOwners = vi.fn(async () => new Map());
 
 type Row = Record<string, unknown>;
@@ -25,6 +26,8 @@ const state = {
   charges: new Map<string, Row>(),
   deletedIds: [] as string[],
   upserted: [] as Row[],
+  beforeCas: null as null | (() => void),
+  insertErrorId: null as string | null,
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -61,7 +64,7 @@ vi.mock("@/lib/reports/ledger-sync", () => ({
   deleteLedgerEntriesForCharge: async () => undefined,
   householdChargeLedgerFingerprint: () => "fp",
   reconcileDuplicateChargeList: async () => undefined,
-  syncLedgerChargeEntry: async () => undefined,
+  syncLedgerChargeEntry: (...args: unknown[]) => syncLedgerChargeEntry(...(args as [])),
   syncLedgerPaymentEntry: (...args: unknown[]) => syncLedgerPaymentEntry(...(args as [])),
 }));
 vi.mock("@/lib/domain-action-events.server", () => ({ emitHouseholdChargeTransition: async () => undefined }));
@@ -94,19 +97,29 @@ vi.mock("@/lib/supabase/service", () => ({
           }),
           update: (patch: Row) => {
             const filters: Record<string, unknown> = {};
+            const apply = () => {
+              if (filters.updated_at && state.beforeCas) { const race = state.beforeCas; state.beforeCas = null; race(); }
+              const row = state.charges.get(String(filters.id));
+              if (!row || Object.entries(filters).some(([key, value]) => key !== "id" && (row[key] ?? null) !== value)) return { data: null, error: null };
+              state.charges.set(String(filters.id), { ...row, ...patch });
+              return { data: { id: filters.id }, error: null };
+            };
             const query = {
               eq: (key: string, value: unknown) => { filters[key] = value; return query; },
               is: (key: string, value: unknown) => { filters[key] = value; return query; },
               select: () => query,
-              maybeSingle: async () => {
-                const row = state.charges.get(String(filters.id));
-                if (!row || Object.entries(filters).some(([key, value]) => key !== "id" && (row[key] ?? null) !== value)) return { data: null, error: null };
-                state.charges.set(String(filters.id), { ...row, ...patch });
-                return { data: { id: filters.id }, error: null };
-              },
+              maybeSingle: async () => apply(),
+              then: (resolve: (v: unknown) => unknown) => Promise.resolve(apply()).then(({ data, error }) => resolve({ data: data ? [data] : [], error })),
             };
             return query;
           },
+          insert: (row: Row) => ({ select: async () => {
+            if (state.insertErrorId === row.id) return { data: null, error: { code: "XX001", message: "write failed" } };
+            if (state.charges.has(String(row.id))) return { data: null, error: { code: "23505", message: "duplicate" } };
+            state.upserted.push(row);
+            state.charges.set(String(row.id), row);
+            return { data: [{ id: row.id }], error: null };
+          } }),
           delete: () => ({
             eq: async (_col: string, id: string) => {
               state.deletedIds.push(id);
@@ -138,6 +151,8 @@ beforeEach(() => {
   state.charges = new Map();
   state.deletedIds = [];
   state.upserted = [];
+  state.beforeCas = null;
+  state.insertErrorId = null;
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@test.local" } } });
   resolvePropertyPayoutOwners.mockResolvedValue(new Map());
 });
@@ -205,6 +220,95 @@ describe("charges upsert — a new charge must land in the active workspace", ()
 
     expect(res.status).toBe(200);
     expect(state.upserted.map((r) => r.id)).toEqual(["chg-new"]);
+  });
+});
+
+describe("ordinary charge mirror cannot create a receipt", () => {
+  beforeEach(() => resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: null, untaggedOwnedVisible: true }));
+
+  it("keeps a pending charge unpaid despite a forged paid snapshot", async () => {
+    state.charges.set("chg-1", { id: "chg-1", manager_user_id: "mgr-1", property_id: "prop-1", status: "pending",
+      row_data: { id: "chg-1", kind: "application_fee", status: "pending", amountLabel: "$50.00", balanceLabel: "$50.00" } });
+    const res = await post({ charges: [{ id: "chg-1", propertyId: "prop-1", kind: "application_fee", status: "paid",
+      amountLabel: "$50.00", paidAt: "2026-01-02T12:00:00.000Z", paidAmountCents: 1,
+      stripeCheckoutSessionId: "cs_test_forged", stripePaymentStatus: "succeeded" }] });
+    expect(res.status).toBe(200);
+    expect(state.charges.get("chg-1")?.status).toBe("pending");
+    expect(state.upserted).toEqual([]);
+    expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
+    expect(syncLedgerPaymentEntry).not.toHaveBeenCalled();
+  });
+
+  it("preserves a paid row's exact stored receipt on a same-status mirror", async () => {
+    const stored = { id: "chg-2", kind: "application_fee", status: "paid", amountLabel: "$50.00",
+      paidAt: "2026-01-01T12:00:00.000Z", stripeCheckoutSessionId: "cs_test_original" };
+    state.charges.set("chg-2", { id: "chg-2", manager_user_id: "mgr-1", property_id: "prop-1", status: "paid", row_data: stored });
+    expect((await post({ charges: [{ ...stored, propertyId: "prop-1", paidAt: "2026-01-03T12:00:00.000Z",
+      stripeCheckoutSessionId: "cs_test_other" }] })).status).toBe(200);
+    expect(state.charges.get("chg-2")?.row_data).toEqual(stored);
+    expect(state.upserted).toEqual([]);
+    expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
+  });
+
+  it("strips forged receipt, provider, and waiver fields from a pending mirror", async () => {
+    expect((await post({ charges: [{ id: "chg-3", propertyId: "prop-1", kind: "application_fee", status: "pending",
+      amountLabel: "$50.00", balanceLabel: "$0.00", paidAt: "2026-01-02T12:00:00.000Z",
+      stripeCheckoutSessionId: "cs_test_forged", waivedAt: "2026-01-02T12:00:00.000Z",
+      waivedByUserId: "mgr-1" }] })).status).toBe(200);
+    expect(state.upserted[0]?.row_data).toMatchObject({ status: "pending", amountLabel: "$50.00", balanceLabel: "$50.00" });
+    for (const key of ["paidAt", "stripeCheckoutSessionId", "waivedAt", "waivedByUserId"]) {
+      expect(state.upserted[0]?.row_data).not.toHaveProperty(key);
+    }
+    expect(syncLedgerPaymentEntry).not.toHaveBeenCalled();
+  });
+
+  it("loses CAS when Stripe settles after the mirror read and never syncs stale cash", async () => {
+    state.charges.set("chg-race", { id: "chg-race", manager_user_id: "mgr-1", resident_user_id: null,
+      resident_email: null, property_id: "prop-1", kind: "application_fee", status: "pending",
+      updated_at: "2026-01-01T00:00:00Z", row_data: { id: "chg-race", kind: "application_fee", status: "pending", amountLabel: "$50.00" } });
+    const paid = { id: "chg-race", kind: "application_fee", status: "paid", amountLabel: "$50.00",
+      paidAt: "2026-01-02T12:00:00Z", stripeCheckoutSessionId: "cs_test_real" };
+    state.beforeCas = () => state.charges.set("chg-race", { ...state.charges.get("chg-race")!, status: "paid",
+      updated_at: "2026-01-02T12:00:00Z", row_data: paid });
+    expect((await post({ charges: [{ id: "chg-race", propertyId: "prop-1", kind: "application_fee",
+      status: "pending", amountLabel: "$50.00", title: "Stale title" }] })).status).toBe(200);
+    expect(state.charges.get("chg-race")?.row_data).toEqual(paid);
+    expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
+    expect(syncLedgerPaymentEntry).not.toHaveBeenCalled();
+  });
+
+  it("syncs the first persisted charge even when a later insert fails", async () => {
+    state.insertErrorId = "second";
+    const res = await post({ charges: [
+      { id: "first", propertyId: "prop-1", kind: "rent", status: "pending", amountLabel: "$10.00" },
+      { id: "second", propertyId: "prop-1", kind: "rent", status: "pending", amountLabel: "$20.00" },
+    ] });
+    expect(res.status).toBe(500);
+    expect(state.charges.has("first")).toBe(true);
+    expect(state.charges.has("second")).toBe(false);
+    expect(syncLedgerChargeEntry).toHaveBeenCalledTimes(1);
+    expect(syncLedgerChargeEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "first" }));
+  });
+});
+
+describe("unmarkPaid refuses receipt correction without accounting reversal", () => {
+  beforeEach(() => resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: null, untaggedOwnedVisible: true }));
+
+  it.each([
+    { label: "provider paid", status: "paid", fields: { paidAt: "2026-01-02", stripeCheckoutSessionId: "cs_test_original" } },
+    { label: "offline paid", status: "paid", fields: { paidAt: "2026-01-02", paidMethod: "Check" } },
+    { label: "processing", status: "processing", fields: { stripePaymentStatus: "processing" } },
+    { label: "partially paid", status: "partially_paid", fields: { paidAmountCents: 2500 } },
+  ])("keeps $label source unchanged", async ({ status, fields }) => {
+    const rowData = { id: "charge-source", status, amountLabel: "$50.00", ...fields };
+    const stored = { id: "charge-source", manager_user_id: "mgr-1", property_id: "prop-1", status, row_data: rowData };
+    state.charges.set("charge-source", stored);
+    const res = await post({ action: "unmarkPaid", id: "charge-source" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("Receipt correction is not available.");
+    expect(state.charges.get("charge-source")).toEqual(stored);
+    expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
+    expect(syncLedgerPaymentEntry).not.toHaveBeenCalled();
   });
 });
 

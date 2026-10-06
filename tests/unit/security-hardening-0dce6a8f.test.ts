@@ -83,9 +83,21 @@ describe("work-order completion cannot re-own another manager's row", () => {
     expect(source).toMatch(/status: 403/);
   });
 
-  it("writes the stored owner rather than stamping the caller", () => {
-    expect(source).toContain("manager_user_id: ownerManagerUserId");
+  it("derives the owner from the stored row and hands only that owner to the completion RPC, never the caller", () => {
+    // Owner comes from the row that was read (and ownership-checked above), not the request or the caller.
+    expect(source).toMatch(/const ownerManagerUserId = String\(existing\.manager_user_id\)/);
+    expect(source).toContain('rpc("complete_work_order_record"');
+    expect(source).toMatch(/p_manager:\s*ownerManagerUserId/);
+    // No write path that could stamp or re-own the row as the caller.
+    expect(source).not.toMatch(/p_manager:\s*auth\.userId/);
     expect(source).not.toMatch(/manager_user_id:\s*auth\.userId/);
+    expect(source).not.toMatch(/\.upsert\(/);
+    expect(source).not.toMatch(/\.from\("portal_work_order_records"\)\s*\.(?:insert|update)\(/);
+  });
+
+  it("the RPC patch is completion facts only: no owner, resident, property or vendor identity from the body", () => {
+    const patch = source.slice(source.indexOf("p_patch: {"), source.indexOf("});", source.indexOf("p_patch: {")));
+    expect(patch).not.toMatch(/manager_user_id|managerUserId|vendor_user_id|vendorUserId|residentEmail|propertyId/);
   });
 });
 

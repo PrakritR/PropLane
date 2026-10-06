@@ -3,12 +3,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import {
-  householdChargeCheckoutPaid,
   householdChargeCheckoutProcessing,
   isHouseholdChargeCheckoutSession,
   markHouseholdChargePaidFromStripeSession,
   markHouseholdChargeProcessingFromStripeSession,
 } from "@/lib/stripe-household-charge";
+import { loadResidentCheckoutAttemptForSession } from "@/lib/resident-checkout-claim.server";
+import { creditVerifiedHouseholdCheckoutSource } from "@/lib/household-captured-source.server";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 
 export const runtime = "nodejs";
 
@@ -31,20 +33,28 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
     }
 
+    const db = createSupabaseServiceRoleClient();
+    const { data: profile, error: profileError } = await db.from("profiles")
+      .select("role").eq("id", user.id).maybeSingle();
+    if (profileError || !(await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role }))) {
+      return NextResponse.json({ error: "Resident access required." }, { status: 403 });
+    }
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     if (!isHouseholdChargeCheckoutSession(session)) {
       return NextResponse.json({ error: "Not a household charge checkout session." }, { status: 400 });
     }
-
-    const residentEmail = session.metadata?.resident_email?.trim().toLowerCase() ?? session.customer_email?.trim().toLowerCase() ?? "";
-    const userEmail = (user.email ?? "").trim().toLowerCase();
-    if (residentEmail && userEmail && residentEmail !== userEmail) {
-      return NextResponse.json({ error: "This checkout session does not belong to your account." }, { status: 403 });
+    if (session.metadata?.source_arbitration_v !== "1") {
+      return NextResponse.json({ paid: false, processing: false,
+        error: "This earlier checkout needs payment review." }, { status: 409 });
     }
+    // The original authenticated user id, not a session email that can be
+    // reused after deletion, owns verification and binds a lost create stamp.
+    const attempt = await loadResidentCheckoutAttemptForSession(db, session, user.id);
 
-    const paid = householdChargeCheckoutPaid(session);
+    const paid = session.status === "complete" && session.payment_status === "paid" &&
+      attempt.payer_total_cents > 0 && Boolean(session.payment_intent);
     const processing = householdChargeCheckoutProcessing(session);
 
     if (!paid && !processing) {
@@ -60,19 +70,26 @@ export async function GET(req: Request) {
       );
     }
 
-    let chargeId: string | null = session.metadata?.charge_id?.trim() ?? null;
+    const chargeId = attempt.charge_ids[0] ?? null;
     let alreadyPaid = false;
 
     if (paid) {
-      const db = createSupabaseServiceRoleClient();
       const result = await markHouseholdChargePaidFromStripeSession(db, session);
-      chargeId = result.chargeId ?? chargeId;
+      if (!result.ok) return NextResponse.json({ paid: false, processing: false,
+        error: "The payment source could not be settled yet." }, { status: 409 });
+      try {
+        await creditVerifiedHouseholdCheckoutSource(db, stripe, session);
+      } catch {
+        return NextResponse.json({ paid: false, processing: false,
+          error: "The payment source needs review." }, { status: 409 });
+      }
       alreadyPaid = result.alreadyPaid ?? false;
     } else if (processing) {
       // Persist the clearing-window hold immediately on return from checkout —
       // the webhook usually lands first, but this covers delayed delivery.
-      const db = createSupabaseServiceRoleClient();
-      await markHouseholdChargeProcessingFromStripeSession(db, session);
+      const result = await markHouseholdChargeProcessingFromStripeSession(db, session);
+      if (!result.ok) return NextResponse.json({ paid: false, processing: false,
+        error: "The payment source could not be held as processing." }, { status: 409 });
     }
 
     return NextResponse.json({
@@ -85,6 +102,12 @@ export async function GET(req: Request) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to verify session";
+    if (message.includes("does not belong to your account")) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
+    if (message.includes("checkout attempt") || message.includes("saved attempt")) {
+      return NextResponse.json({ paid: false, processing: false, error: "Payment needs review." }, { status: 409 });
+    }
     if (message.includes("STRIPE_SECRET_KEY") || message.includes("Missing STRIPE")) {
       return NextResponse.json({ error: "Stripe is not configured on the server." }, { status: 503 });
     }

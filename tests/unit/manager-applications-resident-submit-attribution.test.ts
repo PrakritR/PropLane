@@ -36,6 +36,11 @@ vi.mock("@/lib/auth/provision-approved-resident", () => ({
   provisionApprovedResidentAccount: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock("@/lib/screening/order-screening", () => ({ tryAutoOrderScreening: vi.fn() }));
+// Fee authority has its own focused tests. These fixtures exercise attribution
+// on listings without an application fee.
+vi.mock("@/lib/rental-application/application-fee-submit-guard.server", () => ({
+  authorizeApplicationFeeSubmission: vi.fn(async () => ({ ok: true })),
+}));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));

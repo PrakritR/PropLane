@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import {
   residentServiceFeeBreakdown,
+  type ResidentServiceFeeBreakdown,
   type ResidentAxisPaymentMethod,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
@@ -42,6 +43,12 @@ export type AxisAchCheckoutInput = {
    */
   destinationAccountId?: string | null;
   paymentMethod?: ResidentAxisPaymentMethod;
+  /** Freeze claim-backed card attempts to the explicit card allowlist so a
+   * dashboard PMC change cannot alter Stripe idempotency parameters on retry. */
+  forceExplicitCard?: boolean;
+  /** A claim-backed attempt stores this server-calculated quote before
+   * provider creation; retries must reuse it after pricing code changes. */
+  fixedFeeBreakdown?: ResidentServiceFeeBreakdown;
   managerTier?: string | null;
   /**
    * Who bears the service fee on this charge. Callers resolve it from the
@@ -149,15 +156,16 @@ export function axisAchCheckoutProcessing(session: Stripe.Checkout.Session): boo
  * which still surfaces Apple Pay on one-time (`mode: "payment"`) Checkout once
  * the domain is registered.
  *
- * `ach` stays an explicit `us_bank_account` session; `link` keeps its explicit
- * Link+card allowlist.
+ * `ach` stays an explicit `us_bank_account` session until the manual bank
+ * PaymentIntent flow replaces Checkout. Link is never offered.
  */
 async function paymentMethodStripeConfig(
   stripe: Stripe,
   method: ResidentAxisPaymentMethod,
+  forceExplicitCard = false,
 ): Promise<
   | {
-      payment_method_types: ("card" | "link" | "us_bank_account")[];
+      payment_method_types: ("card" | "us_bank_account")[];
       payment_method_options?: {
         us_bank_account?: {
           financial_connections: { permissions: ["payment_method"] };
@@ -178,9 +186,12 @@ async function paymentMethodStripeConfig(
       },
     };
   }
-  if (method === "link") {
-    return { payment_method_types: ["link", "card"] };
-  }
+  /* Link is not a ResidentAxisPaymentMethod, so nothing in the app can ask for
+     it — but a legacy caller or a stored `payment_method` row still can. Refuse
+     rather than fall through to a card session: Link opens a wallet
+     authentication surface outside the app. */
+  if (String(method) === "link") throw new Error("Link checkout is unavailable. Choose card or bank account.");
+  if (forceExplicitCard) return { payment_method_types: ["card"] };
   const cardPmc = process.env.STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION?.trim();
   if (cardPmc && (await cardScopedPaymentMethodConfiguration(stripe, cardPmc))) {
     return { payment_method_configuration: cardPmc };
@@ -191,10 +202,10 @@ async function paymentMethodStripeConfig(
 /**
  * Payment methods that settle as the card method-class, i.e. the ones a "card"
  * session may legitimately surface. Apple Pay / Google Pay are card wallets and
- * settle as `card`; Link is commonly enabled alongside card, so a PMC carrying
- * it must not be rejected.
+ * settle as `card`; Link is excluded because it can open a separate wallet
+ * authentication surface outside the app.
  */
-const CARD_CLASS_PAYMENT_METHODS = new Set(["card", "apple_pay", "google_pay", "link"]);
+const CARD_CLASS_PAYMENT_METHODS = new Set(["card", "apple_pay", "google_pay"]);
 
 const cardPmcScopeCache = new Map<string, { cardScoped: boolean; expiresAt: number }>();
 const CARD_PMC_CACHE_TTL_MS = 10 * 60_000;
@@ -231,7 +242,7 @@ async function cardScopedPaymentMethodConfiguration(stripe: Stripe, pmcId: strin
   const cardScoped = offending.length === 0;
   if (!cardScoped) {
     console.error(
-      `[stripe] STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION (${pmcId}) enables non-card methods [${offending.join(", ")}], which would mislabel metadata.payment_method; falling back to explicit card payment methods. Scope the configuration to card + Apple Pay + Google Pay (+ Link).`,
+      `[stripe] STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION (${pmcId}) enables non-card methods [${offending.join(", ")}], which would mislabel metadata.payment_method; falling back to explicit card payment methods. Scope the configuration to card + Apple Pay + Google Pay.`,
     );
   }
   cardPmcScopeCache.set(pmcId, { cardScoped, expiresAt: Date.now() + CARD_PMC_CACHE_TTL_MS });
@@ -288,7 +299,15 @@ export async function createAxisAchCheckoutSession(
     throw new Error("Amount must be at least $1.00.");
   }
 
-  const fee = residentServiceFeeBreakdown(subtotalCents, paymentMethod, feePayer);
+  const fee = input.fixedFeeBreakdown ?? residentServiceFeeBreakdown(subtotalCents, paymentMethod, feePayer);
+  if (input.fixedFeeBreakdown && (
+    !Object.values(fee).every((value) => Number.isSafeInteger(value) && value >= 0) ||
+    fee.totalCents !== subtotalCents + fee.residentAddedFeeCents ||
+    fee.totalCents - fee.applicationFeeCents !== fee.managerPayoutCents ||
+    (feePayer === "resident" && (fee.residentAddedFeeCents !== fee.serviceFeeCents || fee.managerPayoutCents !== subtotalCents)) ||
+    (feePayer === "manager" && (fee.residentAddedFeeCents !== 0 || fee.applicationFeeCents !== fee.serviceFeeCents)) ||
+    (feePayer === "proplane" && (fee.serviceFeeCents !== 0 || fee.residentAddedFeeCents !== 0 || fee.applicationFeeCents !== 0))
+  )) throw new Error("Stored payment quote does not reconcile.");
   // `processingFeeCents` in the result/metadata means "what the resident is
   // charged on top" (0 unless the resident pays), so the resident-facing
   // itemization derives straight from it. `axisFeeCents` stays the 0-bps
@@ -393,11 +412,12 @@ export async function createAxisAchCheckoutSession(
     throw new Error("Checkout total does not reconcile with the manager payout.");
   }
 
-  const paymentMethodConfig = await paymentMethodStripeConfig(stripe, paymentMethod);
+  const paymentMethodConfig = await paymentMethodStripeConfig(stripe, paymentMethod, input.forceExplicitCard);
 
   const sessionBase = {
     mode: "payment" as const,
     customer_email: residentEmail,
+    wallet_options: { link: { display: "never" as const } },
     ...paymentMethodConfig,
     line_items: stripeLineItems,
     metadata: {
@@ -466,6 +486,5 @@ export async function createAxisAchCheckoutSession(
 
 function residentProcessingFeeLabel(method: ResidentAxisPaymentMethod): string {
   if (method === "ach") return "Bank processing";
-  if (method === "link") return "Link processing";
   return "Card processing";
 }

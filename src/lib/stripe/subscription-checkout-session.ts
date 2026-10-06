@@ -26,13 +26,14 @@ export type ManagerSubscriptionCheckoutBaseInput = {
 
 export type ManagerSubscriptionCheckoutBaseParams = {
   mode: "subscription";
+  wallet_options: { link: { display: "never" } };
+  payment_method_types: ["card"];
   line_items: Array<{ price: string; quantity: number }>;
   metadata: Record<string, string>;
   customer_email?: string;
   client_reference_id?: string;
   discounts?: ManagerSubscriptionCheckoutDiscount[];
   allow_promotion_codes?: boolean;
-  payment_method_configuration?: string;
   subscription_data?: {
     trial_period_days?: number;
     metadata?: Record<string, string>;
@@ -42,10 +43,9 @@ export type ManagerSubscriptionCheckoutBaseParams = {
 /**
  * Manager Pro/Business subscription checkout — shared by signup and portal upgrade.
  *
- * Apple Pay (and Link) appear when:
- * 1. This module omits `payment_method_types` (Stripe dynamic payment methods).
- * 2. Apple Pay is enabled in Stripe Dashboard → Settings → Payment methods.
- * 3. Checkout domains are registered — run scripts/setup-stripe-apple-pay-domains.mjs.
+ * Card-funded Checkout stays in-app. Stripe can show Apple Pay for eligible
+ * card sessions when the domain is registered; Link and redirect methods are
+ * excluded from this subscription surface.
  *
  * @see docs/stripe-apple-pay-subscriptions.md
  */
@@ -54,8 +54,6 @@ export type ManagerSubscriptionCheckoutBaseParams = {
 export function buildManagerSubscriptionCheckoutBase(
   input: ManagerSubscriptionCheckoutBaseInput,
 ): ManagerSubscriptionCheckoutBaseParams {
-  const paymentMethodConfiguration = process.env.STRIPE_SUBSCRIPTION_PAYMENT_METHOD_CONFIGURATION?.trim();
-
   const trialDays =
     typeof input.trialPeriodDays === "number" && input.trialPeriodDays > 0
       ? Math.floor(input.trialPeriodDays)
@@ -63,13 +61,14 @@ export function buildManagerSubscriptionCheckoutBase(
 
   return {
     mode: "subscription",
+    wallet_options: { link: { display: "never" as const } },
+    payment_method_types: ["card"],
     line_items: [{ price: input.priceId, quantity: 1 }, ...(input.extraLineItems ?? [])],
     metadata: input.metadata,
     ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
     ...(input.clientReferenceId ? { client_reference_id: input.clientReferenceId } : {}),
     ...(input.discounts?.length ? { discounts: input.discounts } : {}),
     ...(input.allowPromotionCodes ? { allow_promotion_codes: true } : {}),
-    ...(paymentMethodConfiguration ? { payment_method_configuration: paymentMethodConfiguration } : {}),
     ...(trialDays
       ? {
           subscription_data: {
@@ -78,15 +77,17 @@ export function buildManagerSubscriptionCheckoutBase(
           },
         }
       : {}),
-    // Do not set payment_method_types — it restricts to card-only and blocks Apple Pay.
   };
 }
 
-/** Guard used in tests — subscription checkout must stay on dynamic payment methods. */
-export function subscriptionCheckoutUsesDynamicPaymentMethods(
+/** Guard used in tests — subscription checkout must stay card scoped. */
+export function subscriptionCheckoutUsesCardOnlyFunding(
   params: Record<string, unknown>,
 ): boolean {
-  return !("payment_method_types" in params);
+  return Array.isArray(params.payment_method_types) && params.payment_method_types.length === 1 &&
+    params.payment_method_types[0] === "card" &&
+    !params.payment_method_configuration &&
+    JSON.stringify(params.wallet_options) === JSON.stringify({ link: { display: "never" } });
 }
 
 /** Hostnames that should be registered for Apple Pay on subscription checkout. */

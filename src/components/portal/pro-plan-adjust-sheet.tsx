@@ -60,7 +60,11 @@ export function planAdjustTransitionFact(
   targetTier: AdjustablePaidTier,
   targetBilling: BillingInterval,
   renewalLabel: string | null,
+  trialActivation = false,
 ): string | null {
+  if (trialActivation && targetTier !== "free") {
+    return `${tierLabel(targetTier)} billing starts after checkout`;
+  }
   if (targetTier === currentTier) {
     if (targetBilling === currentBilling) return null;
     if (currentBilling === "monthly" && targetBilling === "annual") return "Annual applies today · prorated";
@@ -68,6 +72,17 @@ export function planAdjustTransitionFact(
   }
   if (tierRank(targetTier) > tierRank(currentTier)) return `${tierLabel(targetTier)} today · prorated`;
   return renewalLabel ? `${tierLabel(targetTier)} from ${renewalLabel}` : `${tierLabel(targetTier)} at your next renewal`;
+}
+
+export function planAdjustCanConfirm(
+  currentTier: ManagerSkuTier,
+  currentBilling: BillingInterval,
+  selected: AdjustablePaidTier | null,
+  billing: BillingInterval,
+  trialActivation: boolean,
+): boolean {
+  return selected !== null && (selected !== currentTier ||
+    (selected !== "free" && (trialActivation || billing !== currentBilling)));
 }
 
 export function PlanAdjustSheet({
@@ -79,6 +94,7 @@ export function PlanAdjustSheet({
   busy,
   onConfirm,
   residentCount = null,
+  trialActivation = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -86,10 +102,12 @@ export function PlanAdjustSheet({
   currentBilling: BillingInterval;
   renewalLabel: string | null;
   busy: boolean;
-  onConfirm: (target: AdjustablePaidTier, billing: BillingInterval) => void;
+  onConfirm: (target: AdjustablePaidTier, billing: BillingInterval) => Promise<void> | void;
   /** This account's live resident count, so each card can price what switching
    * to it would actually cost. `null` while still loading. */
   residentCount?: number | null;
+  /** A no-card signup trial is a tier entitlement, not a paid subscription. */
+  trialActivation?: boolean;
 }) {
   const [billing, setBilling] = useState<BillingInterval>(currentBilling);
   const [selected, setSelected] = useState<AdjustablePaidTier | null>(
@@ -102,7 +120,7 @@ export function PlanAdjustSheet({
   };
 
   const fact =
-    selected != null ? planAdjustTransitionFact(currentTier, currentBilling, selected, billing, renewalLabel) : null;
+    selected != null ? planAdjustTransitionFact(currentTier, currentBilling, selected, billing, renewalLabel, trialActivation) : null;
 
   return (
     <Modal open={open} title="Change plan" onClose={close}>
@@ -115,7 +133,7 @@ export function PlanAdjustSheet({
         {(["free", "pro", "business"] as const).map((tier) => <button key={tier} type="button" role="radio" aria-checked={selected === tier} disabled={busy} onClick={() => setSelected(tier)} data-attr={`plan-adjust-row-${tier}`} className={`flex w-full gap-3 rounded-xl border p-3.5 text-left ${selected === tier ? "border-primary bg-primary/5" : "border-border"}`}>
           <span className={`mt-1 size-5 shrink-0 rounded-full border ${selected === tier ? "border-[6px] border-primary" : "border-border"}`} />
           <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-baseline gap-2"><strong>{tierLabel(tier)}</strong>{currentTier === tier ? <span className="text-xs text-muted">✓ Current plan</span> : null}<span className="ml-auto text-sm">{formatRateCardUsd(billing === "annual" ? RATE_CARD[tier].floorAnnualCents : RATE_CARD[tier].floorMonthlyCents)} / {billing === "annual" ? "yr" : "mo"}</span></span>
+            <span className="flex flex-wrap items-baseline gap-2"><strong>{tierLabel(tier)}</strong>{currentTier === tier ? <span className="text-xs text-muted">✓ {trialActivation ? "Current trial" : "Current plan"}</span> : null}<span className="ml-auto text-sm">{formatRateCardUsd(billing === "annual" ? RATE_CARD[tier].floorAnnualCents : RATE_CARD[tier].floorMonthlyCents)} / {billing === "annual" ? "yr" : "mo"}</span></span>
             <span className="mt-2 grid gap-1 text-sm">
               <span>✓ {includedResidentsForTier(tier)} residents included{RATE_CARD[tier].perExtraDoorMonthlyCents ? ` · ${formatRateCardUsd(RATE_CARD[tier].perExtraDoorMonthlyCents!)} each after` : ""}</span>
               <span>✓ {WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces} workspace{WORKSPACE_PLAN_ENTITLEMENTS[tier].workspaces === 1 ? "" : "s"}</span>
@@ -133,7 +151,7 @@ export function PlanAdjustSheet({
         </tbody></table>
       </details>
       {fact ? <p className="text-sm text-muted" data-attr="plan-adjust-fact">{fact}</p> : null}
-      <ModalFooter><Button disabled={busy || !selected || (selected === currentTier && (selected === "free" || billing === currentBilling))} onClick={() => selected && onConfirm(selected, billing)} data-attr="plan-adjust-confirm">{busy ? "Processing…" : selected === currentTier ? "Change billing period" : `Switch to ${selected ? tierLabel(selected) : "a plan"}`}</Button></ModalFooter>
+      <ModalFooter><Button disabled={busy || !planAdjustCanConfirm(currentTier, currentBilling, selected, billing, trialActivation)} onClick={() => selected ? onConfirm(selected, billing) : undefined} data-attr="plan-adjust-confirm">{busy ? "Processing…" : trialActivation && selected !== "free" ? `Start paid ${tierLabel(selected ?? currentTier)}` : selected === currentTier ? "Change billing period" : `Switch to ${selected ? tierLabel(selected) : "a plan"}`}</Button></ModalFooter>
     </Modal>
   );
 }

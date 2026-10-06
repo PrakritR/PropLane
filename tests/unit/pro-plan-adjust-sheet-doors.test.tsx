@@ -7,7 +7,7 @@
  * `TIER_MONTHLY_USD` this replaces ($20/$200 — half the real $49/$249 floor).
  */
 import type { ReactNode } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/ui/modal", () => ({
@@ -27,6 +27,26 @@ afterEach(() => {
 });
 
 describe("Adjust plan cards price this account's real residents", () => {
+  it("offers same-tier paid activation to a no-card Pro trial", () => {
+    const confirm = vi.fn();
+    render(<PlanAdjustSheet open onClose={() => {}} currentTier="pro"
+      currentBilling="monthly" renewalLabel={null} busy={false} onConfirm={confirm}
+      trialActivation residentCount={0} />);
+    const button = screen.getByRole("button", { name: "Start paid Pro" });
+    expect(button).not.toHaveProperty("disabled", true);
+    expect(screen.getByText("✓ Current trial")).toBeTruthy();
+    fireEvent.click(button);
+    expect(confirm).toHaveBeenCalledWith("pro", "monthly");
+  });
+
+  it("keeps a settled same-tier paid plan as a no-op", () => {
+    const confirm = vi.fn();
+    render(<PlanAdjustSheet open onClose={() => {}} currentTier="pro"
+      currentBilling="monthly" renewalLabel={null} busy={false} onConfirm={confirm}
+      residentCount={0} />);
+    expect(screen.getByRole("button", { name: "Change billing period" })).toHaveProperty("disabled", true);
+    expect(confirm).not.toHaveBeenCalled();
+  });
   it("reads the rate card's actual floor, not the stale $20/$200 figures", () => {
     render(
       <PlanAdjustSheet

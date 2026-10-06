@@ -78,7 +78,22 @@ function makeDb(
     };
     return builder;
   };
-  return { db: { from } as never, inserts, readCount: () => reads };
+  // Each settled line is one atomic, replay-safe RPC keyed on (manager, work order, component),
+  // like `ensure_paid_work_order_expense` (migration 20261004220000): a second call for the same
+  // component returns the existing row instead of inserting.
+  const rpc = async (name: string, args: Record<string, unknown>) => {
+    expect(name).toBe("ensure_paid_work_order_expense");
+    const existing = rows.find((row) => row.source_work_order_id === args.p_work_order &&
+      row.source_work_order_component === args.p_component);
+    if (existing) return { data: existing.id, error: null };
+    const id = `exp-${inserts.length + 1}`;
+    const row = { manager_user_id: args.p_manager, category_code: args.p_category, amount_cents: args.p_amount,
+      source_work_order_id: args.p_work_order, source_work_order_component: args.p_component };
+    inserts.push(row);
+    rows.push({ id, ...row });
+    return { data: id, error: null };
+  };
+  return { db: { from, rpc } as never, inserts, readCount: () => reads };
 }
 
 const invoiceRow = (over: Row = {}): Row => ({

@@ -8,10 +8,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   reconcilePlatformLedgerCharges: vi.fn(),
+  reconcileReservedPlatformOwnerRecovery: vi.fn(),
+  reconcileUnhydratedCentralSourceMirrors: vi.fn(),
+  reconcileReservedPlatformHoldTransfers: vi.fn(),
+  reconcileClassifiedBalanceWithdrawals: vi.fn(),
 }));
 
 vi.mock("@/lib/proplane-balance/reconcile.server", () => ({
   reconcilePlatformLedgerCharges: mocks.reconcilePlatformLedgerCharges,
+}));
+vi.mock("@/lib/platform-owner-recovery.server", () => ({
+  reconcileReservedPlatformOwnerRecovery: mocks.reconcileReservedPlatformOwnerRecovery,
+  reconcileUnhydratedCentralSourceMirrors: mocks.reconcileUnhydratedCentralSourceMirrors,
+}));
+vi.mock("@/lib/platform-hold-release.server", () => ({
+  reconcileReservedPlatformHoldTransfers: mocks.reconcileReservedPlatformHoldTransfers,
+}));
+vi.mock("@/lib/proplane-balance/withdraw-reconcile.server", () => ({
+  reconcileClassifiedBalanceWithdrawals: mocks.reconcileClassifiedBalanceWithdrawals,
 }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({}) }));
 vi.mock("@/lib/stripe", () => ({ getStripe: () => ({}) }));
@@ -34,6 +48,61 @@ beforeEach(() => {
     skipped: 0,
     errors: [],
   });
+  mocks.reconcileReservedPlatformOwnerRecovery.mockReset().mockResolvedValue({
+    scanned: 1, settled: 0, pending: 1, truncated: false, errors: [],
+  });
+  mocks.reconcileUnhydratedCentralSourceMirrors.mockReset().mockResolvedValue({
+    scanned: 1, hydrated: 0, pending: 1, truncated: false, errors: [],
+  });
+  mocks.reconcileReservedPlatformHoldTransfers.mockReset().mockResolvedValue({
+    scanned: 1, transferred: 1, pending: 0, truncated: false, errors: [],
+  });
+  mocks.reconcileClassifiedBalanceWithdrawals.mockReset().mockResolvedValue({
+    scanned: 2, transfers: 1, payouts: 1, pending: 0, errors: [],
+  });
+});
+
+/**
+ * `reconcileReservedPlatformHoldTransfers` and `reconcileClassifiedBalanceWithdrawals`
+ * are the only paths that finish money left in an unknown provider state, so an
+ * earlier stage's transient list-read failure must not skip them.
+ */
+describe("one failing stage does not skip the rest", () => {
+  it("still runs every later stage and reports the failure", async () => {
+    mocks.reconcileReservedPlatformOwnerRecovery.mockRejectedValue(
+      new Error("Could not load reserved owner recovery sources."));
+
+    const res = await GET(request("cron-secret"));
+
+    expect(res.status).toBe(500);
+    expect(mocks.reconcileUnhydratedCentralSourceMirrors).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileReservedPlatformHoldTransfers).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileClassifiedBalanceWithdrawals).toHaveBeenCalledTimes(1);
+    const body = await res.json();
+    expect(body.ownerRecovery).toBeNull();
+    expect(body.stageErrors).toEqual([
+      { stage: "ownerRecovery", message: "Could not load reserved owner recovery sources." },
+    ]);
+    // The first reconciler's own per-row report is not clobbered by the stage report.
+    expect(body.errors).toEqual([]);
+    expect(body.holdTransfers).toMatchObject({ transferred: 1 });
+  });
+
+  it("reports every failed stage and keeps the successful ones", async () => {
+    mocks.reconcilePlatformLedgerCharges.mockRejectedValue(new Error("ledger read failed"));
+    mocks.reconcileClassifiedBalanceWithdrawals.mockRejectedValue(new Error("withdrawal read failed"));
+
+    const res = await GET(request("cron-secret"));
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.stageErrors).toEqual([
+      { stage: "ledgerCharges", message: "ledger read failed" },
+      { stage: "withdrawals", message: "withdrawal read failed" },
+    ]);
+    expect(body.holdTransfers).toMatchObject({ transferred: 1 });
+    expect(body.withdrawals).toBeNull();
+  });
 });
 
 describe("authorization", () => {
@@ -41,6 +110,7 @@ describe("authorization", () => {
     const res = await GET(request());
     expect(res.status).toBe(401);
     expect(mocks.reconcilePlatformLedgerCharges).not.toHaveBeenCalled();
+    expect(mocks.reconcileReservedPlatformOwnerRecovery).not.toHaveBeenCalled();
   });
 
   it("fails closed on a Vercel preview deployment with no secret configured", async () => {
@@ -49,6 +119,7 @@ describe("authorization", () => {
     const res = await GET(request());
     expect(res.status).toBe(401);
     expect(mocks.reconcilePlatformLedgerCharges).not.toHaveBeenCalled();
+    expect(mocks.reconcileReservedPlatformOwnerRecovery).not.toHaveBeenCalled();
   });
 
   it("allows secretless access on localhost only", async () => {
@@ -63,6 +134,19 @@ describe("authorization", () => {
     const res = await GET(request("cron-secret"));
     expect(res.status).toBe(200);
     expect(mocks.reconcilePlatformLedgerCharges).toHaveBeenCalledTimes(1);
-    expect(await res.json()).toEqual({ scanned: 3, credited: 1, alreadyCredited: 2, skipped: 0, errors: [] });
+    expect(mocks.reconcileReservedPlatformOwnerRecovery).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileUnhydratedCentralSourceMirrors).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileReservedPlatformHoldTransfers).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileClassifiedBalanceWithdrawals).toHaveBeenCalledTimes(1);
+    expect(await res.json()).toEqual({ scanned: 3, credited: 1, alreadyCredited: 2,
+      skipped: 0, errors: [], ownerRecovery: {
+        scanned: 1, settled: 0, pending: 1, truncated: false, errors: [],
+      }, centralAvailability: {
+        scanned: 1, hydrated: 0, pending: 1, truncated: false, errors: [],
+      }, holdTransfers: {
+        scanned: 1, transferred: 1, pending: 0, truncated: false, errors: [],
+      }, withdrawals: {
+        scanned: 2, transfers: 1, payouts: 1, pending: 0, errors: [],
+      } });
   });
 });

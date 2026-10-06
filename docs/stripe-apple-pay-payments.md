@@ -10,19 +10,26 @@ not conflate the two.)
 
 ## How Apple Pay is enabled here
 
-Both resident/applicant flows use **Stripe Checkout** and funnel through one
-builder, `createAxisAchCheckoutSession()` (`src/lib/stripe-axis-ach-checkout.ts`).
+The **card** flows use **Stripe Checkout** and funnel through one builder,
+`createAxisAchCheckoutSession()` (`src/lib/stripe-axis-ach-checkout.ts`).
 
 | Flow | Route | Checkout | Method-class |
 | --- | --- | --- | --- |
-| Rent (household charges) | `/api/stripe/household-charge-checkout` | Embedded (`StripeEmbeddedCheckout`) | resident picks Bank / **Card** / Link |
+| Rent (household charges), card | `/api/stripe/household-charge-checkout` | Embedded (`StripeEmbeddedCheckout`) | **Card** |
+| Rent (household charges), bank | `/api/stripe/household-charge-checkout` → `mode: "manual_ach"` | **No Checkout** — an in-app PaymentIntent with microdeposit verification, resumed by `GET /api/stripe/resident-ach-payment` | Bank (ACH) |
 | Application fee | `/api/stripe/application-fee-checkout` | Embedded (`ApplicationFeeInlinePayment` → `StripeEmbeddedCheckout`), default `mode: "embedded"`; legacy `mode: "hosted"` redirect retained | **Card** (was ACH) |
 
 Apple Pay and Google Pay are **card wallets** — they only ride on the **card**
-method-class, never on the bank/ACH session. The total is the same whether the
-buyer taps Apple Pay, Google Pay, or types a card; who bears Stripe's
-processing cost is the plan-based fee model owned by
-[`docs/agents/resident-payments.md`](agents/resident-payments.md).
+method-class, never on the bank/ACH path, which has no Checkout UI to surface
+them in. The total is the same whether the buyer taps Apple Pay, Google Pay, or
+types a card; who bears Stripe's processing cost is the plan-based fee model
+owned by [`docs/agents/resident-payments.md`](agents/resident-payments.md),
+which also owns the in-app bank flow.
+
+**Stripe Link is never offered.** `ResidentAxisPaymentMethod` is `"ach" | "card"`,
+so nothing in the app can ask for it; `/api/stripe/household-charge-checkout`
+refuses a request body that still names `link`, and `paymentMethodStripeConfig`
+throws on it too, rather than silently charging another method.
 
 **Surfacing the wallets.** Stripe only shows Apple Pay/Google Pay when the session
 uses **dynamic payment methods** scoped to card. `paymentMethodStripeConfig()`:
@@ -33,18 +40,22 @@ uses **dynamic payment methods** scoped to card. `paymentMethodStripeConfig()`:
   flow's dynamic payment methods. The PMC **must exclude bank/ACH** so the
   `metadata.payment_method = "card"` the webhook reads back stays truthful — and
   that is *enforced at runtime*, not just documented: before using the PMC the
-  builder retrieves it from Stripe (cached 10 min) and checks that no method
-  outside card / Apple Pay / Google Pay / Link is enabled. Link is allowed
-  because it settles as the card method-class, and Stripe commonly enables it
-  alongside card. A PMC that also offers `us_bank_account`, Klarna, Affirm, … (or
-  a PMC that cannot be retrieved) logs a `console.error` and falls back to the
-  explicit `["card"]` allowlist rather than creating a session that would
-  mislabel `metadata.payment_method`.
+  builder retrieves it from Stripe (cached 10 min) and checks that nothing
+  outside `CARD_CLASS_PAYMENT_METHODS` — card / Apple Pay / Google Pay — is
+  enabled. **Link is not in that set**: it can open a wallet authentication
+  surface outside the app, so a PMC that enables it is rejected like any other
+  non-card method. A PMC that also offers `link`, `us_bank_account`, Klarna,
+  Affirm, … (or a PMC that cannot be retrieved) logs a `console.error` and falls
+  back to the explicit `["card"]` allowlist rather than creating a session that
+  would mislabel `metadata.payment_method`.
 - **Card, no PMC env** → explicit `payment_method_types: ["card"]`. Apple Pay
   still appears on one-time (`mode: "payment"`) Checkout once the domain is
   registered, and this never mislabels the payment method. Safe default.
-- **ACH** → explicit `["us_bank_account"]` (its own lower fee). **Link** →
-  `["link","card"]`.
+- **ACH** → explicit `["us_bank_account"]` (its own lower fee). This branch now
+  serves the vendor-invoice and linked-form fee checkouts; resident rent by bank
+  goes through the in-app PaymentIntent instead.
+- **Link** → not a payment method the app has; a request naming it is refused at
+  the checkout route and again here (`throw`), so no session is ever created for it.
 
 Regression coverage: `tests/unit/stripe-axis-ach-checkout.test.ts`.
 
@@ -86,7 +97,7 @@ domain is registered.
    to register the production hostname(s), then `--validate-only` until Apple Pay
    reads `active`.
 3. **Recommended:** create a **card-scoped** Payment Method Configuration
-   (Apple Pay + Google Pay + Card, optionally Link, **no** ACH) and set
+   (Apple Pay + Google Pay + Card only — **no** Link, **no** ACH) and set
    `STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION=pmc_…` in the app env. This
    guarantees the wallets surface via dynamic payment methods while keeping
    `metadata.payment_method` truthful. Without it, card sessions fall back to `["card"]`.

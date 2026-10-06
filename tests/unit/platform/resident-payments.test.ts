@@ -33,7 +33,7 @@ function mkCharge(overrides: Partial<HouseholdCharge> = {}): HouseholdCharge {
 }
 
 describe("resident payment surface policy", () => {
-  it("offers ACH, Link, and card on the web", () => {
+  it("offers ACH and card on the web — never Link", () => {
     expect(residentPaymentMethodsForSurface(false)).toEqual(RESIDENT_WEB_PAYMENT_METHODS);
   });
 
@@ -41,15 +41,15 @@ describe("resident payment surface policy", () => {
     expect(residentPaymentMethodsForSurface(true)).toEqual(RESIDENT_NATIVE_PAYMENT_METHODS);
   });
 
-  it("coerces link to ACH in the native app", () => {
+  it("falls back to ACH when no method is named in the native app", () => {
     expect(coerceResidentPaymentMethodForSurface("card", true)).toBe("card");
-    expect(coerceResidentPaymentMethodForSurface("link", true)).toBe("ach");
+    expect(coerceResidentPaymentMethodForSurface(undefined, true)).toBe("ach");
     expect(coerceResidentPaymentMethodForSurface("ach", true)).toBe("ach");
   });
 
   it("preserves web payment method choice", () => {
     expect(coerceResidentPaymentMethodForSurface("card", false)).toBe("card");
-    expect(coerceResidentPaymentMethodForSurface("link", false)).toBe("link");
+    expect(coerceResidentPaymentMethodForSurface("ach", false)).toBe("ach");
   });
 });
 
@@ -79,7 +79,7 @@ describe("household charge payments (Stripe only)", () => {
     expect(chargesSupportPlatformCheckout(charges)).toBe(true);
   });
 
-  it("is not payable when the manager's Stripe account is not ready", () => {
+  it("remains payable through a platform hold when the manager's Stripe account is not ready", () => {
     const charges = [
       mkCharge({
         id: "blocked",
@@ -87,8 +87,8 @@ describe("household charge payments (Stripe only)", () => {
         managerStripeConnectReadySnapshot: false,
       }),
     ];
-    expect(chargesSupportPlatformCheckout(charges)).toBe(false);
-    expect(isPayableHouseholdCharge(charges[0]!)).toBe(false);
+    expect(chargesSupportPlatformCheckout(charges)).toBe(true);
+    expect(isPayableHouseholdCharge(charges[0]!)).toBe(true);
   });
 });
 

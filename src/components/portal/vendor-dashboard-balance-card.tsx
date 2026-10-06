@@ -11,87 +11,89 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowUpFromLine } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import {
-  bankToWithdrawAccounts,
   formatMoney,
+  isPortalPayoutBalance,
   type PortalPayoutBalance,
 } from "@/components/portal/portal-payouts-panel";
 import { PayoutWithdrawSheet } from "@/components/portal/payout-withdraw-sheet";
 import { AddBankFlow } from "@/components/portal/add-bank-flow";
 import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
 import { track } from "@/lib/analytics/track-client";
-
-function isPayoutBalance(body: unknown): body is PortalPayoutBalance {
-  return (
-    Boolean(body) &&
-    typeof body === "object" &&
-    typeof (body as { availableCents?: unknown }).availableCents === "number" &&
-    typeof (body as { currency?: unknown }).currency === "string" &&
-    Boolean((body as { setup?: unknown }).setup)
-  );
-}
+import { sharedGet } from "@/lib/shared-get-cache";
+import { isPayoutDestinationSummary, type PayoutDestinationSummary } from "@/components/portal/payout-bank-sheet";
 
 export function VendorDashboardBalanceCard() {
   const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
+  const [destinations, setDestinations] = useState<PayoutDestinationSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [addBankOpen, setAddBankOpen] = useState(false);
 
   const loadBalance = useCallback(async () => {
-    try {
-      const res = await fetch("/api/vendor/payouts/balance", { credentials: "include" });
-      const body: unknown = await res.json().catch(() => null);
-      if (res.ok && isPayoutBalance(body)) {
-        setBalance(body);
-      }
-    } catch {
-      /* the card just stays hidden — Payments still has the full page */
-    } finally {
-      setLoading(false);
+    setLoading(true);
+    setLoadError(false);
+    const [balanceRead, banksRead] = await Promise.all([
+      sharedGet("/api/vendor/payouts/balance", { ttlMs: 0 }),
+      sharedGet("/api/vendor/stripe-connect/bank-accounts", { ttlMs: 0 }),
+    ]);
+    const bankBody = banksRead.ok ? banksRead.data as { destinations?: unknown } | null : null;
+    if (!balanceRead.ok || !isPortalPayoutBalance(balanceRead.data) || !bankBody ||
+        !Array.isArray(bankBody.destinations) || !bankBody.destinations.every(isPayoutDestinationSummary)) {
+      setLoadError(true);
+    } else {
+      setBalance(balanceRead.data);
+      setDestinations(bankBody.destinations);
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     void loadBalance();
   }, [loadBalance]);
 
-  if (loading || !balance) return null;
+  if (loading) return null;
+  if (loadError || !balance || !destinations) return <div role="alert" className="rounded-xl border border-border p-4 text-sm" data-attr="vendor-dashboard-balance-error">Could not load payout funds or bank accounts.</div>;
 
   const withdrawableCents = withdrawableCentsFromSnapshot(balance);
-  const ready = balance.setup.ready;
+  const withdrawAccounts = destinations.filter((row) => row.payable)
+    .sort((a, b) => Number(b.default) - Number(a.default))
+    .map((row) => ({ id: row.id, label: row.label, last4: row.last4, kind: row.kind, instantEligible: row.instantEligible }));
+  const ready = balance.setup.ready && withdrawAccounts.length > 0;
   const heldCents = balance.heldCents ?? 0;
-  // The balance route only includes feeBps once vendor banking is on — the same
-  // signal the Payments page uses to say "Available now" and "held by PropLane".
-  const vendorBankingOn = typeof balance.feeBps === "number";
-
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-sm" data-attr="vendor-dashboard-balance">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-            {vendorBankingOn ? "Available now" : "Balance"}
+            Available to withdraw
           </p>
           <p
             className="mt-1 text-[26px] font-extrabold leading-none tracking-tight text-foreground"
             data-attr="vendor-dashboard-balance-available"
           >
-            {formatMoney(vendorBankingOn ? withdrawableCents : balance.availableCents, balance.currency)}
+            {formatMoney(withdrawableCents, balance.currency)}
           </p>
           {balance.onTheWayCents > 0 ? (
             <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-balance-pending">
-              {formatMoney(balance.onTheWayCents, balance.currency)} pending
+              {formatMoney(balance.onTheWayCents, balance.currency)} on the way to your bank
             </p>
           ) : null}
-          {vendorBankingOn && heldCents > 0 ? (
+          {balance.pendingCents > 0 ? <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-payment-pending">{formatMoney(balance.pendingCents, balance.currency)} pending payment</p> : null}
+          {heldCents > 0 ? (
             <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-balance-held">
               {formatMoney(heldCents, balance.currency)} held by PropLane
             </p>
           ) : null}
+          {(balance.releasePendingCents ?? 0) > 0 ? <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-release-pending">{formatMoney(balance.releasePendingCents ?? 0, balance.currency)} release pending</p> : null}
+          {(balance.withdrawableCents ?? 0) < 0 ? <p className="mt-1.5 text-xs text-danger" data-attr="vendor-dashboard-provider-deficit">Provider deficit {formatMoney(-(balance.withdrawableCents ?? 0), balance.currency)}</p> : null}
+          {balance.payoutReconciliationPending ? <p className="mt-1.5 text-xs text-muted">Checking a prior withdrawal</p> : null}
         </div>
         <PortalIconAction
           icon={ArrowUpFromLine}
-          label="Withdraw"
+          label={ready ? "Withdraw" : "Add bank account"}
           data-attr="vendor-dashboard-withdraw"
-          disabled={ready && withdrawableCents <= 0}
+          disabled={ready && (balance.payoutReconciliationPending || withdrawableCents <= 0)}
           onClick={() => {
             // No bank yet: the one Add bank account flow, never a Withdraw sheet
             // with nowhere to send the money.
@@ -120,7 +122,7 @@ export function VendorDashboardBalanceCard() {
         currency={balance.currency}
         availableCents={withdrawableCents}
         instantAvailableCents={balance.instantAvailableCents}
-        accounts={bankToWithdrawAccounts(balance.bank)}
+        accounts={withdrawAccounts}
         onSuccess={(result) => {
           setWithdrawOpen(false);
           track("payout_withdraw_completed", {

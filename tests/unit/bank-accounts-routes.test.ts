@@ -50,6 +50,8 @@ type Row = Record<string, unknown>;
 
 function makeFakeDb() {
   const tables: Record<string, Row[]> = { payout_destinations_cache: [], stripe_payouts: [] };
+  let nextVersion = 0;
+  const appliedVersions = new Map<string, number>();
 
   function chain(table: string, mode: "select" | "delete") {
     const filters: Array<(r: Row) => boolean> = [];
@@ -79,6 +81,22 @@ function makeFakeDb() {
   }
 
   const client = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name === "begin_payout_destination_cache_refresh") return { data: ++nextVersion, error: null };
+      if (name === "finish_payout_destination_cache_refresh") {
+        const owner = String(args.p_owner_user_id);
+        const version = Number(args.p_version);
+        if (version <= (appliedVersions.get(owner) ?? 0)) return { data: false, error: null };
+        tables.payout_destinations_cache = tables.payout_destinations_cache.filter((row) => row.owner_user_id !== owner);
+        tables.payout_destinations_cache.push(...(args.p_destinations as Row[]).map((row) => ({
+          owner_user_id: owner, stripe_external_account_id: row.id, kind: row.kind,
+          label: row.label, last4: row.last4, status: row.status, is_default: row.is_default,
+        })));
+        appliedVersions.set(owner, version);
+        return { data: true, error: null };
+      }
+      throw new Error(`unexpected rpc ${name}`);
+    },
     from(table: string) {
       return {
         select: () => chain(table, "select"),
@@ -102,10 +120,14 @@ vi.mock("@/lib/supabase/service", () => ({
 const bankAccount = (over: Partial<Stripe.BankAccount> = {}): Stripe.BankAccount =>
   ({ id: "ba_1", object: "bank_account", bank_name: "Chase", last4: "4321", status: "new", default_for_currency: false, ...over }) as Stripe.BankAccount;
 
+let resolvedOwnerId = "owner-1";
+let forcedProviderOwnerId: string | null = null;
 function makeFakeStripe(externalAccounts: Stripe.ExternalAccount[] = [bankAccount()]) {
   return {
     accounts: {
-      retrieve: vi.fn().mockResolvedValue({ id: "acct_owner", external_accounts: { data: externalAccounts } }),
+      retrieve: vi.fn().mockImplementation(async () => ({ id: "acct_owner",
+        metadata: { axis_user_id: forcedProviderOwnerId ?? resolvedOwnerId },
+        external_accounts: { data: externalAccounts } })),
       createExternalAccount: vi.fn().mockResolvedValue(bankAccount({ id: "ba_new" })),
       updateExternalAccount: vi.fn().mockResolvedValue(bankAccount({ default_for_currency: true })),
       deleteExternalAccount: vi.fn().mockResolvedValue({ id: "ba_1", deleted: true }),
@@ -123,7 +145,10 @@ vi.mock("@/lib/stripe", () => ({ getStripe: () => fakeStripe }));
 let connectAccountId: string | null = "acct_owner";
 vi.mock("@/lib/stripe-connect", async () => {
   const actual = await vi.importActual<typeof import("@/lib/stripe-connect")>("@/lib/stripe-connect");
-  return { ...actual, resolveManagerConnectAccountId: async () => connectAccountId };
+  return { ...actual, resolveManagerConnectAccountId: async (_db: unknown, ownerId: string) => {
+    resolvedOwnerId = ownerId;
+    return connectAccountId;
+  } };
 });
 
 let vendorAccess: { ok: true; actor: { userId: string; email: string } } | { ok: false; status: 401 | 403 } = {
@@ -152,6 +177,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   sessionUser = { id: "caller-1" };
   connectAccountId = "acct_owner";
+  resolvedOwnerId = "owner-1";
+  forcedProviderOwnerId = null;
   payoutContext.payoutOwnerUserId = "owner-1";
   payoutContext.canEditBankAccount = true;
   payoutContext.isCoManagerForPayout = false;
@@ -176,12 +203,24 @@ describe("GET /api/stripe/connect/bank-accounts", () => {
     expect(fakeStripe.accounts.retrieve).not.toHaveBeenCalled();
   });
 
+  it("refuses a saved foreign account before reading cache or attaching a bank", async () => {
+    forcedProviderOwnerId = "other-owner";
+    const read = await managerGet();
+    expect(read.status).toBe(500);
+    const add = await managerPost(jsonRequest("http://x/api/stripe/connect/bank-accounts",
+      { token: "btok_1" }));
+    expect(add.status).toBe(500);
+    expect(fakeStripe.accounts.createExternalAccount).not.toHaveBeenCalled();
+    expect(fakeDb.tables.payout_destinations_cache).toHaveLength(0);
+  });
+
   it("lists live destinations and refreshes the cache", async () => {
     const res = await managerGet();
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.destinations).toEqual([
-      { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "verifying", default: false },
+      { id: "ba_1", kind: "bank", label: "Chase", last4: "4321", status: "new",
+        payable: true, instantEligible: false, default: false },
     ]);
     expect(fakeDb.tables.payout_destinations_cache).toHaveLength(1);
   });

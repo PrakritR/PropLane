@@ -21,14 +21,14 @@ import type { ManagerSkuTier } from "@/lib/manager-access";
 // charge so the resident total, the retained application fee, and the manager
 // payout always reconcile.
 
-const METHODS: ResidentAxisPaymentMethod[] = ["ach", "card", "link"];
+const METHODS: ResidentAxisPaymentMethod[] = ["ach", "card"];
 
 describe("residentProcessingFeeCents — Stripe's real per-method cost", () => {
-  it("card/Link are 2.9% + $0.30", () => {
+  it("card is 2.9% + $0.30", () => {
     expect(residentProcessingFeeCents(100, "card")).toBe(32); // floor(2.9)=2 + 30
     expect(residentProcessingFeeCents(5_000, "card")).toBe(175); // 145 + 30
     expect(residentProcessingFeeCents(10_000, "card")).toBe(320); // 290 + 30
-    expect(residentProcessingFeeCents(62_500, "link")).toBe(1_842); // floor(1812.5)=1812 + 30
+    expect(residentProcessingFeeCents(62_500, "card")).toBe(1_842); // floor(1812.5)=1812 + 30
   });
 
   it("ACH is 0.8% capped at $5.00", () => {
@@ -50,7 +50,6 @@ describe("residentProcessingFeeCents — Stripe's real per-method cost", () => {
   it("discloses the real per-method rate", () => {
     expect(residentProcessingFeeDisplayLabel("ach")).toContain("0.8%");
     expect(residentProcessingFeeDisplayLabel("card")).toContain("2.9%");
-    expect(residentProcessingFeeDisplayLabel("link")).toContain("2.9%");
   });
 });
 

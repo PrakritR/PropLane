@@ -89,11 +89,12 @@ describe("scheduled payment listing loader", () => {
     expect(propertyQueries).toEqual([undefined]);
   });
 
-  it("surfaces query errors and malformed relevant listings", async () => {
+  it("surfaces scoped query errors and treats a malformed relevant listing as unresolved", async () => {
     const failure = new Error("property read failed");
     const charge = { row_data: { id: "charge-1", propertyId: "relevant" } };
     await expect(loadManagerScheduledMessages(fakeDb([], [charge], failure).db, "manager-1")).rejects.toBe(failure);
     expect(await loadListingByPropertyId(fakeDb([], [], failure).db)).toEqual(new Map());
-    await expect(loadListingByPropertyId(fakeDb([malformedProperty]).db, ["unrelated"])).rejects.toThrow();
+    expect(await loadListingByPropertyId(fakeDb([malformedProperty]).db, ["unrelated"]))
+      .toEqual(new Map());
   });
 });

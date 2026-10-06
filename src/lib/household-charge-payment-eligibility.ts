@@ -14,6 +14,12 @@ export function listingFromPropertyData(propertyData: unknown): ManagerListingSu
   const submission = (propertyData as { listingSubmission?: unknown }).listingSubmission;
   if (!submission || typeof submission !== "object") return null;
   if ((submission as { v?: unknown }).v !== 1) return null;
+  // Some older/test property rows carry only a partial v1 payload. They are
+  // not a trustworthy payment-policy source, and the normalizer requires these
+  // collections. A malformed unrelated listing must not break a paid charge's
+  // reminder cleanup or a resident's charge list.
+  if (!Array.isArray((submission as { rooms?: unknown }).rooms) ||
+      !Array.isArray((submission as { bathrooms?: unknown }).bathrooms)) return null;
   return normalizeManagerListingSubmissionV1(submission as ManagerListingSubmissionV1);
 }
 
@@ -46,9 +52,10 @@ export function enrichHouseholdChargePaymentFlags(
   const snapshots = paymentSnapshotsFromListing(listing);
   return {
     ...charge,
-    axisPaymentsEnabledSnapshot:
-      charge.axisPaymentsEnabledSnapshot ?? snapshots.axisPaymentsEnabledSnapshot,
-    acceptedPaymentMethodsSnapshot: snapshots.acceptedPaymentMethodsSnapshot ?? charge.acceptedPaymentMethodsSnapshot,
+    // The creation snapshot is historical. A server read must expose the
+    // current owned-listing policy and clear stale flags when it cannot be read.
+    axisPaymentsEnabledSnapshot: snapshots.axisPaymentsEnabledSnapshot ?? null,
+    acceptedPaymentMethodsSnapshot: snapshots.acceptedPaymentMethodsSnapshot,
   };
 }
 
@@ -59,8 +66,8 @@ export function canPayHouseholdChargeWithAxisAch(charge: HouseholdCharge): boole
 /**
  * Can the resident pay this line in PropLane?
  *
- *  - `payable`  — PropLane payments are on for the listing and the manager can receive.
- *  - `offline`  — the listing says so: PropLane payments off, or no usable payout account.
+ *  - `payable`  — PropLane payments are on for the listing. An unready payout account uses a platform hold.
+ *  - `offline`  — the listing says PropLane payments are off.
  *  - `unknown`  — the listing could not be resolved at all (a failed property read,
  *    or a record carrying no `v === 1` listing submission).
  *
@@ -74,7 +81,10 @@ export function householdChargeProplanePayability(
   charge: HouseholdCharge,
 ): "payable" | "offline" | "unknown" {
   if (charge.status === "paid") return "offline";
-  if (charge.managerStripeConnectReadySnapshot === false) return "offline";
+  // One ledger payment row per charge cannot attribute a second provider
+  // receipt for a partial balance. Keep Pay unavailable pending books review.
+  if (charge.status === "partially_paid") return "unknown";
+  if (charge.axisPaymentsEnabledSnapshot === null) return "unknown";
   if (charge.axisPaymentsEnabledSnapshot === true) return "payable";
   if (charge.axisPaymentsEnabledSnapshot === false) return "offline";
 

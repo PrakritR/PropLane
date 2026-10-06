@@ -229,7 +229,7 @@ the manager routes resolve a payout OWNER (a co-manager may act on the owner's a
 the vendor routes act only on the signed-in vendor's own account and gate on the vendor
 role. Onboarding is embedded (Stripe's `account_onboarding` / `account_management`
 components from `account-session`) — there is no Account Link redirect and no Express
-Dashboard login link; the vendor's balance, Pay out and schedule live on the Payouts tab of
+Dashboard login link; the vendor's balance, Withdraw and schedule live on the Payouts tab of
 Finances (`/vendor/financials/payouts`, `PortalPayoutsPanel portal="vendor"`, routes under
 `/api/vendor/payouts/`). Owner of the payout model: `financials.md` § In-app payouts. The
 shared `PortalStripeConnectPanel` component

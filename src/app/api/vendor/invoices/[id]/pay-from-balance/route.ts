@@ -1,5 +1,4 @@
 import { claimInvoicePayment, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
-import { releaseInvoicePaymentClaim } from "@/lib/vendor-invoice-claim.server";
 import { NextResponse } from "next/server";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
 import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
@@ -75,7 +74,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // with no money moved made `claim_vendor_invoice_payment` reject every other
     // rail and the invoice could no longer be paid, scheduled or deleted at all.
     // Only an unpaid invoice still claimed by "balance" is released (C2-MN3).
-    const releaseClaim = () => releaseInvoicePaymentClaim(auth.db, auth.userId, id, "balance");
+    const releaseClaim = async () => {
+      const { error } = await auth.db.rpc("release_vendor_invoice_balance_claim", { p_invoice: id, p_manager: auth.userId });
+      if (error) throw new Error(error.message);
+    };
 
     let move: Awaited<ReturnType<typeof payVendorFromBalance>>;
     try {
@@ -105,8 +107,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       );
     }
     if (!move.ok) {
-      await releaseClaim().catch(() => undefined);
       if (move.code === "insufficient_balance") {
+        await releaseClaim();
         return NextResponse.json(
           {
             error: `The PropLane balance has ${(move.availableCents / 100).toFixed(2)} available; this invoice needs ${(move.requestedCents / 100).toFixed(2)}.`,
@@ -118,7 +120,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           { status: 422 },
         );
       }
-      return NextResponse.json({ error: move.error }, { status: 500 });
+      // An RPC error object may describe a lost response after a committed
+      // debit. Retain the claim and retry with the same idempotency root.
+      return NextResponse.json({ error: "Payment status is being reconciled. Retry this payment shortly.", code: "PAYMENT_STATUS_UNKNOWN" }, { status: 503 });
     }
 
     await settleInvoicePayment(auth.db, auth.userId, id, "balance");

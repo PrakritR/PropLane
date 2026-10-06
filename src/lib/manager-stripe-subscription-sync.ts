@@ -3,6 +3,7 @@ import { resolveRateCardVersionMetadataPatch, syncManagerDoorQuantity } from "@/
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
+import { assertManagerPriceMatchesRateCard } from "@/lib/stripe/resolve-manager-price";
 import { stripeSubscriptionPeriodEndSec } from "@/lib/stripe-subscription-helpers";
 import {
   inferBillingFromStripePriceId,
@@ -69,6 +70,7 @@ export async function applyScheduledDowngradeAfterInvoicePaid(
   const targetBilling = sb as StripeBilling;
   const newPriceId = stripePriceIdForPaidTier(targetPaid, targetBilling)?.trim();
   if (!newPriceId) return;
+  await assertManagerPriceMatchesRateCard(stripe, newPriceId, targetPaid, targetBilling);
 
   const currentPriceId = typeof item.price === "string" ? item.price : item.price?.id;
   if (currentPriceId === newPriceId) {

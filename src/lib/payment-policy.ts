@@ -26,7 +26,8 @@ export type ManagerPaymentPresetId = (typeof MANAGER_PAYMENT_PRESETS)[number]["i
 /** @deprecated Legacy display constant — prefer residentProcessingFeeCents. Stripe's ACH rate is 0.8%. */
 export const AXIS_ACH_FEE_PERCENT = 0.8;
 
-export type ResidentAxisPaymentMethod = "ach" | "card" | "link";
+/** Stripe Link is deliberately absent: every resident payment stays inside PropLane. */
+export type ResidentAxisPaymentMethod = "ach" | "card";
 
 /** User-facing label for the card method-class (includes Apple Pay / Google Pay wallets in Checkout). */
 export const RESIDENT_CARD_PAYMENT_DISPLAY_LABEL = "Card · Apple Pay";
@@ -348,7 +349,7 @@ export function resolveServiceFeePayerFor(input: ServiceFeePayerInputs): Service
  * pass-through of Stripe's price, never a PropLane markup:
  * - ACH/bank: 0.8% of the subtotal, capped at $5.00 (a cap, hence computed here
  *   rather than a flat bps+fixed).
- * - card/Link: 2.9% + $0.30.
+ * - card: 2.9% + $0.30.
  * The single knob for the fee amount; every disclosure and every charge derives
  * from it so they can never drift.
  */
@@ -362,12 +363,10 @@ export const achPlatformRecoupCents = achProcessingFeeCents;
 
 const RESIDENT_PROCESSING_FEE_BPS: Record<Exclude<ResidentAxisPaymentMethod, "ach">, number> = {
   card: 290,
-  link: 290,
 };
 
 const RESIDENT_PROCESSING_FEE_FIXED_CENTS: Record<Exclude<ResidentAxisPaymentMethod, "ach">, number> = {
   card: 30,
-  link: 30,
 };
 
 /**
@@ -451,13 +450,11 @@ export function managerAbsorbedPaymentFeeCents(
 /** Per-method fee disclosure — the rate a resident sees when THEY pay the fee. */
 export function residentProcessingFeeDisplayLabel(method: ResidentAxisPaymentMethod): string {
   if (method === "ach") return "0.8% bank processing (max $5.00)";
-  if (method === "link") return "2.9% + $0.30 Link processing";
   return "2.9% + $0.30 card processing";
 }
 
 export function residentPaymentMethodLabel(method: ResidentAxisPaymentMethod): string {
   if (method === "ach") return "Bank (ACH)";
-  if (method === "link") return "Link";
   return RESIDENT_CARD_PAYMENT_DISPLAY_LABEL;
 }
 
@@ -510,7 +507,7 @@ export function residentPaymentMethodsSummary(
 ): string[] {
   if (!sub) return ["Contact your property manager for payment instructions."];
   if (axisPaymentsEnabledOnListing(sub)) {
-    return ["PropLane payments — bank (ACH), card (Apple Pay), or Link"];
+    return ["PropLane payments — bank (ACH) or card (Apple Pay)"];
   }
   return ["PropLane online payments — ask your manager to finish payment setup."];
 }

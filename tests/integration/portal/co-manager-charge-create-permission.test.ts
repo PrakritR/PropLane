@@ -81,9 +81,11 @@ function makeDb(properties: PropertyRow[], opts?: { propertyReadFails?: boolean 
             in: async () => ({ data: [], error: null }),
             eq: () => ({ maybeSingle: async () => ({ data: null }) }),
           }),
-          upsert: async (rows: Array<Record<string, unknown>>) => {
-            upserted.push(...rows);
-            return { error: null };
+          // The route is insert-only for a new id (a concurrent provider writer may
+          // own the row); `upserted` keeps its name but records the inserted rows.
+          insert: (row: Record<string, unknown>) => {
+            upserted.push(row);
+            return { select: async () => ({ data: [{ id: row.id }], error: null }) };
           },
         };
       }
