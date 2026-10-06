@@ -1275,6 +1275,14 @@ export async function renderPortalSection(
           `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours/pending`,
         );
       }
+      // Forms is its own property tab now: the old `/move-in/forms` path and `?tab=forms` land on it.
+      if (
+        propertyKey &&
+        propertyDetailTabRaw === "move-in" &&
+        (tabParts[3] === "forms" || firstSearchParam(searchParams, "tab") === "forms")
+      ) {
+        redirect(`${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/forms`);
+      }
       const {
         parsePropertyDetailTab,
         parseManagerTourBucket,

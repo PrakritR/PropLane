@@ -117,7 +117,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       expect(onAddResident).toHaveBeenCalledTimes(1);
     });
 
-    it("reads Whole house | Rooms | Long-term forms in that one bar, with no Details tab, Whole house first", () => {
+    it("reads Whole house | Rooms in that one bar (forms live in the property's own Forms tab), Whole house first", () => {
       const { container } = render(
         <ManagerPropertyRoomMoveInPanel
           sub={roomListing()}
@@ -131,12 +131,10 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       );
       const stack = container.querySelector('[data-slot="portal-list-control-stack"]') as HTMLElement;
       expect(within(stack).queryByRole("button", { name: /^Details/ })).toBeNull();
+      expect(within(stack).queryByRole("button", { name: /forms/i })).toBeNull();
+      expect(within(stack).queryByRole("button", { name: "Add move-in form" })).toBeNull();
       expect(container.querySelector('[data-attr="property-move-in-house-row"]')).toBeTruthy();
-      fireEvent.click(within(stack).getByRole("button", { name: /^Long-term forms/ }));
-      expect(container.querySelector('[data-attr="property-move-in-house-row"]')).toBeNull();
-      expect(container.querySelectorAll('[data-slot="portal-list-control-stack"]')).toHaveLength(1);
-      expect(within(container.querySelector('[data-slot="portal-list-control-stack"]') as HTMLElement).getByRole("button", { name: "Add move-in form" })).toBeTruthy();
-      fireEvent.click(within(container.querySelector('[data-slot="portal-list-control-stack"]') as HTMLElement).getByRole("button", { name: /^Rooms/ }));
+      fireEvent.click(within(stack).getByRole("button", { name: /^Rooms/ }));
       expect(container.querySelector('[data-attr="property-move-in-house-row"]')).toBeNull();
       expect(container.querySelector('[data-attr^="property-move-in-room-row-"]')).toBeTruthy();
     });

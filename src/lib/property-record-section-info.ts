@@ -25,6 +25,10 @@ export const PROPERTY_RECORD_SECTION_INFO: Readonly<
     title: "Lease",
     body: "Leases you can send for this property. Open one to preview it, add or upload a lease.",
   },
+  forms: {
+    title: "Forms",
+    body: "Forms residents fill out after they sign: add one, edit its questions, and choose which stay it applies to.",
+  },
   pricing: {
     title: "Pricing",
     body: "What residents pay: each room, bundles, and the whole house — rent, deposit, fees and utilities.",

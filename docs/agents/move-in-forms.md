@@ -144,8 +144,10 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   "Resident sees" pane is the application editor's card ("Step n of N · form name"), not a phone
   frame. Its footer is the shared `AddWorkspace` shell both editors read, not one of its own
   (`editor-footer-state.ts`; the shape is [`ui-page-structure.md`](ui-page-structure.md) § 4b).
-- **Forms sit under Long-term forms / Short-term forms tabs** (Move-in: Whole house · Rooms · Long-term
-  forms · Short-term forms). A form's stay is its "Applies to" (`src/lib/move-in-forms/stays.ts`):
+- **A property's Forms is its own rail item** in the Leasing group right after Lease (Applications · Lease ·
+  Forms · Move-in · Pricing; tab id `forms`, `ManagerPropertyFormsPanel`). Its header card is the shared underline
+  nav with the Long term / Short term tabs, then the Settings gear and the round blue +; Move-in keeps only
+  Whole house · Rooms. An old `.../move-in/forms` or `?tab=forms` link redirects to `.../forms`. A form's stay is its "Applies to" (`src/lib/move-in-forms/stays.ts`):
   All (`leaseType` absent/`all`) shows in BOTH tabs as the same record; Long-term / Short-term residents
   in that tab only; Specific leases take the stay their leases share (else both). The Short-term tab is
   hidden when the property does not allow short stays, unless a short-term-only form still exists

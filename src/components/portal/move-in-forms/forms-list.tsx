@@ -361,7 +361,7 @@ export function FormsList({
           onClose={() => setSendOpen(false)}
           onOpenProperty={(id) => {
             setSendOpen(false);
-            navigate(propertyDetailHref(basePath, "all", id, "move-in"));
+            navigate(propertyDetailHref(basePath, "all", id, "forms"));
           }}
         />
       ) : null}

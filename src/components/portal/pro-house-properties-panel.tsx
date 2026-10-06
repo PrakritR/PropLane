@@ -60,6 +60,7 @@ import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-proper
 import { PropertyPricingPanel } from "@/components/portal/property-pricing-panel";
 import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
+import { ManagerPropertyFormsPanel } from "@/components/portal/pro-property-forms-panel";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
 import { ManagerPropertyPromotionPanel } from "@/components/portal/pro-property-promotion-panel";
@@ -798,8 +799,8 @@ function ManagerPropertyInlineDetails({
         : bucket === 3
           ? ["preview"]
           : bucket === 2 && listingId
-            ? ["preview", "house-details", "move-in", "application", "lease", "pricing", "requests", "promotion", "ai-info"]
-            : ["preview", "house-details", "move-in", "application", "lease", "pricing"],
+            ? ["preview", "house-details", "move-in", "application", "lease", "forms", "pricing", "requests", "promotion", "ai-info"]
+            : ["preview", "house-details", "move-in", "application", "lease", "forms", "pricing"],
     [bucket, listingId],
   );
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
@@ -1348,6 +1349,18 @@ function ManagerPropertyInlineDetails({
           showToast={showToast}
           propertyLabel={propertyShareLabel}
           onAddResident={sharePropertyId ? () => setResidentOnboardOpen(true) : undefined}
+        />
+      ) : null}
+
+      {activeDetailTab === "forms" && bucket !== 3 && bucket !== 5 ? (
+        <ManagerPropertyFormsPanel
+          sub={managerSubmission}
+          saveTarget={houseSaveTarget}
+          managerUserId={listingOwnerUserId}
+          canEdit={canEditAction}
+          onUpdated={onUpdated}
+          showToast={showToast}
+          propertyLabel={propertyShareLabel}
         />
       ) : null}
 

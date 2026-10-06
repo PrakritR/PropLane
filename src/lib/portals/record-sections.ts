@@ -243,7 +243,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { label: "Leasing", ids: [
         { id: "application", label: "Applications" },
         { id: "lease", label: "Lease" },
-        // Move-in forms are part of leasing, between the lease and the price (captain, Oct 3).
+        // Forms are part of leasing, right after the lease; Move-in keeps only the house and rooms
+        // (captain, Oct 5).
+        { id: "forms", label: "Forms" },
         { id: "move-in", label: "Move-in" },
         { id: "pricing", label: "Pricing" },
       ] },

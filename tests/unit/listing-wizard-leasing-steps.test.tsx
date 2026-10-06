@@ -1045,13 +1045,13 @@ describe("Stays you offer and the Long term / Short term / Both sections", () =>
 });
 
 describe("property record sidebar", () => {
-  it("puts Move-in under Leasing, in the order Applications, Lease, Move-in, Pricing", () => {
+  it("puts Forms and Move-in under Leasing, in the order Applications, Lease, Forms, Move-in, Pricing", () => {
     const groups = recordSections("manager", "property", { basePath: "/portal" }).groups;
     const ids = (label: string) => groups.find((g) => g.label === label)?.items.map((i) => i.id);
-    expect(ids("Leasing")).toEqual(["application", "lease", "move-in", "pricing"]);
+    expect(ids("Leasing")).toEqual(["application", "lease", "forms", "move-in", "pricing"]);
     expect(ids("Property")).toEqual(["preview", "house-details"]);
     const leasing = groups.find((g) => g.label === "Leasing")!.items.map((i) => i.label);
-    expect(leasing).toEqual(["Applications", "Lease", "Move-in", "Pricing"]);
+    expect(leasing).toEqual(["Applications", "Lease", "Forms", "Move-in", "Pricing"]);
     // the URL does not change
     const moveIn = groups.flatMap((g) => g.items).find((i) => i.id === "move-in")!;
     expect(moveIn.href("p1")).toMatch(/\/move-in$/);
