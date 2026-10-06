@@ -310,7 +310,7 @@ function StickyBar({
     const bothStays = termCtas.length > 1;
     // With both stays the bar says which application each button opens: Apply, Long term, Short
     // term, Tour. Four buttons plus the price cannot share one row, so the price gets its own.
-    const slimCta = bothStays ? "!min-h-[40px] !w-auto min-w-0 flex-1 !px-2 !text-[13px]" : "!min-h-[40px] !w-auto flex-none !px-4 !py-2";
+    const slimCta = bothStays ? "!min-h-[40px] !w-auto min-w-0 flex-auto whitespace-nowrap !px-2 !text-[13px]" : "!min-h-[40px] !w-auto flex-none !px-4 !py-2";
     const applyButtons = (
       <>
         {termCtas.map((cta, index) => (
