@@ -2756,6 +2756,12 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
   html:has([data-attr="dashboard-your-jobs"]) .axis-assistant-fab {
     bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 3.75rem) !important;
   }
+
+  /* A listing page's sticky action bar (price · Apply · Tour): the assistant floats above it,
+     clear of the buttons, by the bar's own measured height (listing-detail-sections.tsx). */
+  html:has([data-attr="listing-sticky-bar"]) .axis-assistant-fab {
+    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + var(--listing-sticky-bar-h, 4rem) + 1rem) !important;
+  }
 }
 
 /* Desktop has no assistant FAB (Ask PropLane lives in the top bar), so
