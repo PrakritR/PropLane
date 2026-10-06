@@ -1,4 +1,4 @@
-// Leases read Resident signature · Manager signature · Signed; Applications read Pending · Approved · Declined.
+// Leases read Draft · Resident signature · Manager signature · Signed; Applications read Pending · Approved · Declined.
 // Incomplete and Withdrawn are facts on a Pending row, and the words people type land on the real route ids.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -20,44 +20,51 @@ const row = (over: Partial<LeasePipelineRow>): LeasePipelineRow =>
 
 describe("lease list stages", () => {
   const draft = row({ id: "d", bucket: "manager", status: "Draft" });
+  const inReview = row({ id: "v", bucket: "manager", status: "Manager Review" });
+  const adminReview = row({ id: "a", bucket: "manager", status: "Admin Review" });
   const waitingOnResident = row({ id: "r", bucket: "resident", status: "Resident Signature Pending" });
   const waitingOnYou = row({ id: "m", bucket: "signed", status: "Manager Signature Pending" });
   const done = row({ id: "s", bucket: "signed", status: "Fully Signed" });
-  const rows = [draft, waitingOnResident, waitingOnYou, done];
+  const rows = [draft, inReview, adminReview, waitingOnResident, waitingOnYou, done];
 
-  it("a lease sits in the stage of whose turn it is: the resident's, the manager's (draft or countersign), done", () => {
+  it("Draft is a lease not yet sent; then the resident's turn, the manager's (review or countersign), done", () => {
+    expect(rows.filter((r) => leaseRowMatchesListTab(r, "draft")).map((r) => r.id)).toEqual(["d"]);
     expect(rows.filter((r) => leaseRowMatchesListTab(r, "resident")).map((r) => r.id)).toEqual(["r"]);
-    expect(rows.filter((r) => leaseRowMatchesListTab(r, "manager")).map((r) => r.id)).toEqual(["d", "m"]);
+    expect(rows.filter((r) => leaseRowMatchesListTab(r, "manager")).map((r) => r.id)).toEqual(["v", "a", "m"]);
     expect(rows.filter((r) => leaseRowMatchesListTab(r, "completed")).map((r) => r.id)).toEqual(["s"]);
   });
 
   it("an old /leases/signed link reads as Manager signature", () => {
-    expect(rows.filter((r) => leaseRowMatchesListTab(r, "signed")).map((r) => r.id)).toEqual(["d", "m"]);
+    expect(rows.filter((r) => leaseRowMatchesListTab(r, "signed")).map((r) => r.id)).toEqual(["v", "a", "m"]);
   });
 
-  it("counts match the three tabs", () => {
-    expect(countLeaseListTabs(rows)).toEqual({ resident: 1, manager: 2, completed: 1 });
+  it("counts match the four tabs", () => {
+    expect(countLeaseListTabs(rows)).toEqual({ draft: 1, resident: 1, manager: 3, completed: 1 });
   });
 
-  it("the tabs read Resident signature · Manager signature · Signed on the Leases page and the resident record", () => {
+  it("the tabs read Draft · Resident signature · Manager signature · Signed on the Leases page and the resident record", () => {
     const page = readFileSync("src/components/portal/pro-leases.tsx", "utf8");
+    expect(page.indexOf('label: "Draft"')).toBeLessThan(page.indexOf('label: "Resident signature"'));
     expect(page.indexOf('label: "Resident signature"')).toBeLessThan(page.indexOf('label: "Manager signature"'));
     expect(page.indexOf('label: "Manager signature"')).toBeLessThan(page.indexOf('label: "Signed"'));
     expect(RESIDENT_DETAIL_LEASE_PIPELINE_TABS.map((t) => [t.id, t.label])).toEqual([
+      ["draft", "Draft"],
       ["resident", "Resident signature"],
       ["manager", "Manager signature"],
       ["completed", "Signed"],
     ]);
-    expect(page).not.toMatch(/label: "(Draft|Sent)"/);
+    expect(page).not.toMatch(/label: "Sent"/);
   });
 });
 
 describe("route words", () => {
-  it("the stage names (and the retired Draft and Sent) land on the lease route ids; the first tab is the default", () => {
-    expect(parseLeasePipelineTab(undefined)).toBe("resident");
+  it("the stage names (and the retired Sent) land on the lease route ids; Draft is the default", () => {
+    expect(parseLeasePipelineTab(undefined)).toBe("draft");
     expect(parseLeasePipelineTab("resident-signature")).toBe("resident");
     expect(parseLeasePipelineTab("manager-signature")).toBe("manager");
-    expect(parseLeasePipelineTab("draft")).toBe("manager");
+    expect(parseLeasePipelineTab("draft")).toBe("draft");
+    expect(parseLeasePipelineTab("resident")).toBe("resident");
+    expect(parseLeasePipelineTab("manager")).toBe("manager");
     expect(parseLeasePipelineTab("sent")).toBe("resident");
     expect(parseLeasePipelineTab("executed")).toBe("completed");
     expect(parseLeasePipelineTab("completed")).toBe("completed");

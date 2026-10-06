@@ -23,7 +23,7 @@ describe("portal empty copy", () => {
 
   it("covers the tabs the sections actually route", () => {
     for (const key of [
-      "properties.all", "properties.drafts", "tours.pending", "applications.rejected", "leases.manager", "leases.completed",
+      "properties.all", "properties.drafts", "tours.pending", "applications.rejected", "leases.draft", "leases.manager", "leases.completed",
       "residents.past", "inspections.move-out", "payments.paid", "payments.outgoing", "services.open", "services.declined",
       "vendors", "vendors.catalog", "tasks.open", "tasks.completed", "bookings.inhouse", "communication.archived", "promotion", "promotion.text", "promotion.image", "finances.expenses", "documents.other",
       "work-orders.open", "work-orders.assigned", "work-orders.scheduled", "work-orders.completed",

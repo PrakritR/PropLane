@@ -1161,7 +1161,7 @@ export async function renderPortalSection(
 
     if (section === "leases") {
       if (!tabParts?.length) {
-        redirect(`${def.basePath}/leases/resident`);
+        redirect(`${def.basePath}/leases/draft`);
       }
       if (tabParts.length > 3) notFound();
       const tabRaw = tabParts[0]!;

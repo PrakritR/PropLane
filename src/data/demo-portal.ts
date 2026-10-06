@@ -403,7 +403,7 @@ export const demoManagerWorkOrderRowsFull: DemoManagerWorkOrderRow[] = [];
 export type ManagerLeaseBucket = "manager" | "resident" | "signed";
 
 /** UI tabs on the manager Leases page (includes fully signed leases separate from countersign). */
-export type ManagerLeaseTab = ManagerLeaseBucket | "completed";
+export type ManagerLeaseTab = ManagerLeaseBucket | "completed" | "draft";
 
 export type DemoManagerLeaseDraftRow = {
   id: string;

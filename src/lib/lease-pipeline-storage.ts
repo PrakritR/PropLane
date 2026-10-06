@@ -1590,35 +1590,47 @@ function stageLabelForBucket(b: ManagerLeaseBucket): string {
 }
 
 export function leaseRowMatchesManagerTab(row: LeasePipelineRow, tab: ManagerLeaseTab): boolean {
+  if (tab === "draft") return row.bucket === "manager" && row.status === "Draft";
   if (tab === "completed") return row.status === "Fully Signed";
   if (tab === "signed") return row.bucket === "signed" && row.status !== "Fully Signed";
   return row.bucket === tab;
 }
 
 /**
- * The Leases list has three stages — Resident signature, Manager signature, Signed — in that
- * order. "Resident signature" is every lease out waiting on the resident (`resident`).
- * "Manager signature" is the manager's turn: a draft in review (`manager`) and the
- * countersignature (`signed`, not yet Fully Signed). The route ids stay `resident` / `manager` /
- * `completed`; a legacy `/leases/signed` link lands on Manager signature.
+ * The Leases list has four stages — Draft, Resident signature, Manager signature, Signed — in
+ * that order. "Draft" is a lease not yet sent to the resident (workflow status `Draft`: no
+ * document generated or uploaded yet). "Resident signature" is every lease out waiting on the
+ * resident (`resident`). "Manager signature" is the manager's turn: a lease reviewed and ready
+ * (`Manager Review` / `Admin Review`, bucket `manager`) and the countersignature (bucket
+ * `signed`, `Manager Signature Pending`, not yet Fully Signed). The route ids are `draft` /
+ * `resident` / `manager` / `completed`; a legacy `/leases/signed` link lands on Manager signature.
  */
-export type LeaseListTabId = "manager" | "resident" | "completed";
+export type LeaseListTabId = "draft" | "manager" | "resident" | "completed";
 
 export function leaseRowMatchesListTab(row: LeasePipelineRow, tab: ManagerLeaseTab): boolean {
   if (tab === "manager" || tab === "signed") {
-    return leaseRowMatchesManagerTab(row, "manager") || leaseRowMatchesManagerTab(row, "signed");
+    return (
+      (leaseRowMatchesManagerTab(row, "manager") && !leaseRowMatchesManagerTab(row, "draft")) ||
+      leaseRowMatchesManagerTab(row, "signed")
+    );
   }
   return leaseRowMatchesManagerTab(row, tab);
 }
 
 export function countLeaseListTabs(rows: LeasePipelineRow[]): Record<LeaseListTabId, number> {
   const counts = countManagerLeaseTabs(rows);
-  return { resident: counts.resident, manager: counts.manager + counts.signed, completed: counts.completed };
+  return {
+    draft: counts.draft,
+    resident: counts.resident,
+    manager: counts.manager - counts.draft + counts.signed,
+    completed: counts.completed,
+  };
 }
 
 export function countManagerLeaseTabs(rows: LeasePipelineRow[]): Record<ManagerLeaseTab, number> {
   return {
     manager: rows.filter((r) => r.bucket === "manager").length,
+    draft: rows.filter((r) => leaseRowMatchesManagerTab(r, "draft")).length,
     resident: rows.filter((r) => r.bucket === "resident").length,
     signed: rows.filter((r) => r.bucket === "signed" && r.status !== "Fully Signed").length,
     completed: rows.filter((r) => r.status === "Fully Signed").length,
@@ -1645,15 +1657,15 @@ export type LeasePipelineProgress = {
  * there is nothing to summarize — an empty bar communicates nothing.
  */
 export function computeLeasePipelineProgress(
-  counts: Record<ManagerLeaseTab, number>,
+  counts: Partial<Record<ManagerLeaseTab, number>>,
   order: ManagerLeaseTab[] = ["manager", "resident", "signed", "completed"],
 ): LeasePipelineProgress | null {
-  const total = order.reduce((sum, id) => sum + counts[id], 0);
+  const total = order.reduce((sum, id) => sum + (counts[id] ?? 0), 0);
   if (total === 0) return null;
   return {
     total,
-    signed: counts.completed,
-    segments: order.map((id) => ({ id, count: counts[id], pct: (counts[id] / total) * 100 })),
+    signed: counts.completed ?? 0,
+    segments: order.map((id) => ({ id, count: counts[id] ?? 0, pct: ((counts[id] ?? 0) / total) * 100 })),
   };
 }
 

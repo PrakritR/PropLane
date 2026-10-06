@@ -32,6 +32,7 @@ export const PORTAL_EMPTY_COPY = {
   "applications.pending": T("No applications pending", "applications"),
   "applications.approved": T("Nothing approved yet", "applications"),
   "applications.rejected": T("Nothing rejected", "applications"),
+  "leases.draft": T("No drafts", "leases"),
   "leases.manager": T("Nothing to review", "leases"),
   "leases.resident": T("Nothing awaiting the resident", "leases"),
   "leases.signed": T("Nothing for you to sign", "leases"),

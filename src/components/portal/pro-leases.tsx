@@ -30,19 +30,21 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
 
 /**
- * Three stages, in this order: Resident signature, Manager signature, Signed. A lease sits in
- * the stage of whose turn it is — a draft in review and the manager's countersignature are both
- * Manager signature. The route ids are unchanged (`resident`, `manager`, `completed`); a legacy
- * `/leases/signed` link lands on Manager signature, and the first tab is the default.
+ * Four stages, in this order: Draft, Resident signature, Manager signature, Signed. Draft is a
+ * lease not yet sent to the resident; after that a lease sits in the stage of whose turn it is — a
+ * lease in review and the manager's countersignature are both Manager signature. The route ids
+ * are `draft`, `resident`, `manager`, `completed`; a legacy `/leases/signed` link lands on Manager
+ * signature, and the first tab (Draft) is the default.
  */
-const LEASE_LABELS: { id: "manager" | "resident" | "completed"; label: string; dataAttr: string }[] = [
+const LEASE_LABELS: { id: "draft" | "manager" | "resident" | "completed"; label: string; dataAttr: string }[] = [
+  { id: "draft", label: "Draft", dataAttr: "leases-tab-draft" },
   { id: "resident", label: "Resident signature", dataAttr: "leases-tab-resident" },
   { id: "manager", label: "Manager signature", dataAttr: "leases-tab-manager" },
   { id: "completed", label: "Signed", dataAttr: "leases-tab-completed" },
 ];
 
 export function ManagerLeases({
-  tab: tabProp = "resident",
+  tab: tabProp = "draft",
   basePath = "/portal",
   leaseId: leaseIdProp,
   leaseDetailTab,

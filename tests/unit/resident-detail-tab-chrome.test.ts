@@ -39,6 +39,7 @@ describe("resident detail tab chrome", () => {
 
   it("lease subsection pills match the Leases hub pipeline stages", () => {
     expect(RESIDENT_DETAIL_LEASE_PIPELINE_TABS.map((tab) => tab.label)).toEqual([
+      "Draft",
       "Resident signature",
       "Manager signature",
       "Signed",
