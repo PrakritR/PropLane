@@ -52,15 +52,22 @@ function baseRpc(): Record<string, (args: Record<string, unknown>) => Result> {
   };
 }
 
-function makeStripe(opts: { accountReady?: boolean; transferError?: Error; payoutError?: Error }) {
+function makeStripe(opts: { accountReady?: boolean; accountOwner?: string;
+  returnedAccountId?: string; transferError?: Error; payoutError?: Error }) {
   const transfersCreate: Array<{ params: Record<string, unknown>; options: Record<string, unknown> }> = [];
   const payoutsCreate: Array<{ params: Record<string, unknown>; options: Record<string, unknown> }> = [];
   const stripe = {
     accounts: {
       retrieve: async (id: string) => ({
-        id,
+        id: opts.returnedAccountId ?? id,
+        metadata: { axis_user_id: opts.accountOwner ?? "manager-1" },
         capabilities: { transfers: opts.accountReady === false ? "inactive" : "active" },
         payouts_enabled: opts.accountReady !== false,
+        details_submitted: opts.accountReady !== false,
+        requirements: { currently_due: [], past_due: [], pending_verification: [] },
+        external_accounts: { data: [{ object: "bank_account", id: "ba_ready",
+          bank_name: "Bank", last4: "6789", status: "new",
+          default_for_currency: true }] },
       }),
     },
     transfers: {
@@ -97,6 +104,16 @@ describe("withdrawFromBalance", () => {
     const { db } = makeDb({ rpc: baseRpc(), profile: { data: { stripe_connect_account_id: "acct_x" }, error: null } });
     const result = await withdrawFromBalance(stripe, db, CALL);
     expect(result).toEqual({ ok: false, status: 402, error: "Finish Stripe payout setup before withdrawing." });
+  });
+
+  it("refuses a saved account whose provider identity belongs to another owner", async () => {
+    const { stripe, transfersCreate, payoutsCreate } = makeStripe({ accountOwner: "another-user" });
+    const { db, insertCalls } = makeDb({ rpc: baseRpc(),
+      profile: { data: { stripe_connect_account_id: "acct_x" }, error: null } });
+    expect(await withdrawFromBalance(stripe, db, CALL)).toMatchObject({ ok: false, status: 402 });
+    expect(insertCalls).toHaveLength(0);
+    expect(transfersCreate).toHaveLength(0);
+    expect(payoutsCreate).toHaveLength(0);
   });
 
   it("maps a concurrent withdrawal claim to 409", async () => {

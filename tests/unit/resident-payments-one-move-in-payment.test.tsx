@@ -103,13 +103,28 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => {
 vi.mock("@/components/stripe-embedded-checkout", () => ({
   StripeEmbeddedCheckout: () => <div data-testid="stripe-checkout" />,
 }));
+vi.mock("@/components/portal/resident-bank-account-form", () => ({
+  ResidentBankAccountForm: ({ intentId }: { intentId: string }) => <div data-testid="bank-form">{intentId}</div>,
+}));
 
-const checkoutBodies: Array<{ chargeIds: string[] }> = [];
+const checkoutBodies: Array<{ chargeIds: string[]; paymentMethod: string }> = [];
+let checkoutFailures = 0;
+const manualRequests: Array<{ method: string }> = [];
 vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
+  if (url.includes("/api/stripe/resident-ach-payment?payment_intent_id=pi_move_in")) {
+    manualRequests.push({ method: init?.method ?? "GET" });
+    return new Response(JSON.stringify({ clientSecret: "pi_secret_move_in", chargeIds: ["rent1", "dep", "fee", "clean"],
+      bankStatus: "verification", subtotalCents: 230000, processingFeeCents: 0,
+      axisFeeCents: 0, totalCents: 230000 }), { status: 200 });
+  }
   if (url.includes("/api/portal/household-charge-checkout") || url.includes("checkout")) {
-    const body = JSON.parse(String(init?.body ?? "{}")) as { chargeIds: string[] };
+    const body = JSON.parse(String(init?.body ?? "{}")) as { chargeIds: string[]; paymentMethod: string };
     checkoutBodies.push(body);
+    if (checkoutFailures > 0) {
+      checkoutFailures -= 1;
+      return new Response(JSON.stringify({ error: "Try again." }), { status: 503 });
+    }
     // The sheet shows the server-priced total, so the stub prices the ids it was sent.
     const cents: Record<string, number> = { rent1: 110000, dep: 80000, fee: 25000, clean: 15000, nov: 110000 };
     const total = body.chargeIds.reduce((sum, id) => sum + (cents[id] ?? 0), 0);
@@ -135,6 +150,12 @@ afterEach(() => {
   resetResidentLedgerCache();
   navigated.length = 0;
   checkoutBodies.length = 0;
+  checkoutFailures = 0;
+  manualRequests.length = 0;
+  for (const row of CHARGES) {
+    row.status = "pending";
+    row.stripeCheckoutSessionId = undefined;
+  }
 });
 
 const rowTexts = (container: HTMLElement) =>
@@ -188,6 +209,8 @@ describe("one move-in payment", () => {
     // and the one checkout is for exactly the four move-in lines.
     const previewText = (sheet.querySelector("[data-popup-preview]") as HTMLElement).textContent ?? "";
     for (const title of ["First month's rent", "Security deposit", "Move-in cost", "Cleaning"]) expect(previewText).toContain(title);
+    expect(checkoutBodies).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Bank (ACH)" }));
     await waitFor(() => expect(checkoutBodies.at(-1)?.chargeIds.slice().sort()).toEqual(["clean", "dep", "fee", "rent1"]));
   });
 
@@ -198,6 +221,46 @@ describe("one move-in payment", () => {
     const sheet = await screen.findByRole("dialog");
     expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
     expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
+    expect(checkoutBodies).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Bank (ACH)" }));
     await waitFor(() => expect(checkoutBodies.at(-1)?.chargeIds.slice().sort()).toEqual(["clean", "dep", "fee", "nov", "rent1"]));
+  });
+
+  it("switches from the default bank choice to Card before creating exactly one rail", async () => {
+    render(<ResidentPaymentsPanel bucket="pending" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pay all" }));
+    expect(checkoutBodies).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Card.*Apple Pay/ }));
+    expect(checkoutBodies).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Continue with Card/ }));
+    await waitFor(() => expect(checkoutBodies).toHaveLength(1));
+    expect(checkoutBodies[0]?.paymentMethod).toBe("card");
+    expect(await screen.findByTestId("stripe-checkout")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Bank \(ACH\)/ })).not.toBeInTheDocument();
+  });
+
+  it("retries the same selected card rail after an uncertain request failure", async () => {
+    checkoutFailures = 1;
+    render(<ResidentPaymentsPanel bucket="pending" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pay all" }));
+    fireEvent.click(screen.getByRole("button", { name: /Card.*Apple Pay/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Continue with Card/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Retry Card/ }));
+    expect(await screen.findByTestId("stripe-checkout")).toBeInTheDocument();
+    expect(checkoutBodies).toHaveLength(2);
+    expect(checkoutBodies[1]).toEqual(checkoutBodies[0]);
+  });
+
+  it("resumes one exact move-in bank intent from the group detail without a new checkout", async () => {
+    for (const row of CHARGES.slice(0, 4)) {
+      row.status = "processing";
+      row.stripeCheckoutSessionId = "pi_move_in";
+    }
+    render(<ResidentPaymentsPanel bucket="pending" chargeId="movein:maya@example.com|prop-8th" />);
+    expect(await screen.findAllByText("Bank payment pending")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "Verify bank or check status" }));
+    expect(await screen.findByTestId("bank-form")).toHaveTextContent("pi_move_in");
+    expect(manualRequests).toEqual([{ method: "GET" }]);
+    expect(checkoutBodies).toHaveLength(0);
   });
 });

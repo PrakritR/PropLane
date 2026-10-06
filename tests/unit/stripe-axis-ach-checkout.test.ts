@@ -126,14 +126,22 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
     logged.mockRestore();
   });
 
-  // Link is priced at the card rate here, so a card+wallets+Link PMC is still
-  // fee-exact — rejecting it would strip Apple Pay from a valid configuration.
-  it("accepts a PMC that also enables Link (identical card-rate fee)", async () => {
+  it("rejects a PMC that enables Link and never displays the Link wallet", async () => {
     process.env.STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION = "pmc_card_wallets_link";
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const { stripe, calls } = captureStripe({ ...CARD_SCOPED_PMC, link: enabled() });
     await createAxisAchCheckoutSession(stripe, { ...baseInput, paymentMethod: "card" });
-    expect(calls[0]).not.toHaveProperty("payment_method_types");
-    expect(calls[0]?.payment_method_configuration).toBe("pmc_card_wallets_link");
+    expect(calls[0]?.payment_method_types).toEqual(["card"]);
+    expect(calls[0]?.wallet_options).toEqual({ link: { display: "never" } });
+    logged.mockRestore();
+  });
+
+  // Link is not a ResidentAxisPaymentMethod, so this is a legacy/stored string
+  // reaching the builder. It must be refused, never charged as card.
+  it("rejects explicit Link checkout", async () => {
+    const { stripe, calls } = captureStripe();
+    await expect(createAxisAchCheckoutSession(stripe, { ...baseInput, paymentMethod: "link" })).rejects.toThrow("Link checkout is unavailable");
+    expect(calls).toHaveLength(0);
   });
 
   it("rejects a PMC that enables a deferred-payment method (klarna) too", async () => {
@@ -176,7 +184,7 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
   // the money always lands in the manager's own account. Only who bears the
   // service fee moves; `application_fee_amount` and the fee line item follow.
   describe("service fee placement by fee-payer", () => {
-    const methods = ["ach", "card", "link"] as const;
+    const methods = ["ach", "card"] as const;
     // $1.00 floor, a $0.30-fixed-fee-sensitive amount, the ACH cap boundary, and
     // a large rent payment.
     const subtotals = [100, 5_000, 62_500, 499_900];
@@ -436,7 +444,6 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
 
     it("hold path: no destination account -> the hold credit nets the extra fee (hold_amount_cents already excludes it)", async () => {
       const { stripe, calls } = captureStripe();
-      const stripeCost = residentProcessingFeeCents(10_000, "ach");
       await createAxisAchCheckoutSession(stripe, {
         ...baseInput,
         amountCents: 10_000,

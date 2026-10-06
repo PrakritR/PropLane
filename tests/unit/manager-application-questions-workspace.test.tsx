@@ -854,3 +854,42 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     expect(saved?.linkedLeaseTemplateId).toBe(leases.find((l) => l.listingSeedKey === "short-term")!.id);
   });
 });
+
+
+describe("application promo codes alongside a legacy template waiver", () => {
+  it("uses the current code API and preserves a legacy code when saving an unrelated form edit", async () => {
+    window.history.replaceState({}, "", "/portal/applications");
+    const template = { ...createPropertyApplicationTemplate({ kind: "long-term", label: "Waiver application" }), waiverCodeOverride: "LONGSTAY" };
+    const persist = vi.fn().mockResolvedValue(true);
+    const code = { id: "code-1", managerUserId: "manager-1", code: "INHERIT10", label: null,
+      propertyId: null, propertyIds: ["mgr-house-1"], appliesTo: "application", status: "active",
+      maxUses: null, usedCount: 0, expiresAt: null, createdAt: "2026-10-05T00:00:00Z", revokedAt: null };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/manager/application-fee-waivers") {
+        return new Response(JSON.stringify(init?.method === "POST" ? { code } : { codes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ template }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ManagerApplicationQuestionsEditorModal open title={template.label} sub={createDefaultListingSubmission()}
+      managerUserId="manager-1" applicationPreviewPropertyId="mgr-house-1" templateEditorMode="edit"
+      applicationTemplate={template} templates={[template]} onPersistSubmission={persist}
+      onClose={vi.fn()} onSaved={vi.fn()} showToast={vi.fn()} />);
+    await waitWorkspace(template.label);
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    expect(screen.getByLabelText("Application fee")).toHaveValue("");
+    expect(screen.queryByRole("switch", { name: "Promo code that waives the fee" })).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Promo code" }), { target: { value: "inherit10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByText("INHERIT10");
+    const post = fetchMock.mock.calls.find(([url, init]) => url === "/api/manager/application-fee-waivers" && init?.method === "POST");
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({ code: "INHERIT10", appliesTo: "application", propertyIds: ["mgr-house-1"] });
+    jumpRail("sections");
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((item) => item.id === template.id);
+    expect(saved?.feeCentsOverride).toBeNull();
+    expect(saved?.waiverCodeOverride).toBe("LONGSTAY");
+  });
+});

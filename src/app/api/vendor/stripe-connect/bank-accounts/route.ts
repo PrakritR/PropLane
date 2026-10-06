@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 import {
+  assertOwnedPayoutAccount,
   addPayoutDestination,
   refreshPayoutDestinationsCacheFromStripe,
   validateAddBankAccountRequestBody,
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
     }
 
     const stripe = getStripe();
+    await assertOwnedPayoutAccount(stripe, accountId, access.actor.userId);
     const result = await addPayoutDestination(stripe, accountId, validated.input);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 

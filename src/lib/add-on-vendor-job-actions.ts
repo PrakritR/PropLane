@@ -120,7 +120,8 @@ function jobCostCents(row: DemoManagerWorkOrderRow): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 100) : 0;
 }
 
-/** Mark the vendor job done: the same completion route (and expense logging) a maintenance service uses. */
+/** Mark the vendor job done: the same completion route a maintenance service uses. The expense is
+ * booked at payment, not at completion. */
 export async function completeVendorJob(row: DemoManagerWorkOrderRow, bid: Pick<WorkOrderBid, "amountCents" | "materialsCents"> | null): Promise<Result> {
   if (isDemoModeActive()) return DEMO_REFUSAL;
   const vendorCostCents = bid?.amountCents ?? jobCostCents(row);
@@ -138,8 +139,12 @@ export async function completeVendorJob(row: DemoManagerWorkOrderRow, bid: Pick<
   return { ok: true };
 }
 
-/** Approve and pay the vendor's bill through the existing approve-pay route; a card checkout redirects. */
-export async function payVendorJob(row: DemoManagerWorkOrderRow): Promise<Result & { checkoutUrl?: string }> {
+/** Approve and pay the vendor's bill through the existing approve-pay route. A card/ACH payment comes
+ * back as an embedded Checkout client secret the caller must MOUNT — the payment is not taken until the
+ * manager completes that form, so a bare `{ ok: true }` is the only settled answer. */
+export async function payVendorJob(
+  row: DemoManagerWorkOrderRow,
+): Promise<Result & { clientSecret?: string; sessionId?: string }> {
   if (isDemoModeActive()) return DEMO_REFUSAL;
   const res = await postJson("/api/portal/work-orders/approve-pay", {
     workOrder: row,
@@ -151,7 +156,13 @@ export async function payVendorJob(row: DemoManagerWorkOrderRow): Promise<Result
     paymentChannel: "ach",
   });
   if (!res.ok) return { ok: false, error: errorOf(res.data, "Could not approve payment.") };
-  if (typeof res.data.checkoutUrl === "string" && res.data.checkoutUrl) return { ok: true, checkoutUrl: res.data.checkoutUrl };
+  if (typeof res.data.clientSecret === "string" && res.data.clientSecret) {
+    return {
+      ok: true,
+      clientSecret: res.data.clientSecret,
+      ...(typeof res.data.sessionId === "string" && res.data.sessionId ? { sessionId: res.data.sessionId } : {}),
+    };
+  }
   await syncManagerWorkOrdersFromServer({ force: true });
   return { ok: true };
 }

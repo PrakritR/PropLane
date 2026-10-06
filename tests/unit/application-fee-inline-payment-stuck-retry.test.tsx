@@ -24,6 +24,9 @@ vi.mock("@/lib/rental-application/fee-checkout-resume", () => ({
 vi.mock("@/lib/rental-application/drafts", () => ({
   loadRentalWizardDraftAxisId: () => undefined,
 }));
+vi.mock("@/lib/manager-applications-storage", () => ({
+  settlePendingApplicationRowUpserts: vi.fn().mockResolvedValue(undefined),
+}));
 
 import {
   ApplicationFeeInlinePayment,
@@ -33,6 +36,7 @@ import {
 function renderComponent() {
   return render(
     <ApplicationFeeInlinePayment
+      getApplicationId={() => "app-1"}
       propertyId="prop-1"
       residentEmail="dana@example.com"
       managerUserId="mgr-1"

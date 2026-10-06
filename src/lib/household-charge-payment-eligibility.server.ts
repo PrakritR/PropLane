@@ -9,51 +9,29 @@ import {
   listingFromPropertyData,
 } from "@/lib/household-charge-payment-eligibility";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { getStripe } from "@/lib/stripe";
-import { validateManagerConnectForDestinationCharge } from "@/lib/stripe-connect";
 
-async function managerStripeConnectReadyByManagerId(
+/** A propertyless one-off has no listing policy. Its exact owning manager's
+ * stored account setting is the only fallback; an absent or unreadable setting
+ * is not evidence that online payment was enabled. */
+export async function resolvePropertylessManagerPaymentPolicy(
   db: SupabaseClient,
-  managerIds: string[],
-): Promise<{ ready: Map<string, boolean>; lookupFailed: boolean }> {
-  const out = new Map<string, boolean>();
-  if (managerIds.length === 0) return { ready: out, lookupFailed: false };
-
-  const { data: profiles, error } = await db
-    .from("profiles")
-    .select("id, stripe_connect_account_id")
-    .in("id", managerIds);
-  // A failed read leaves every snapshot undefined, which reads as "payable" -
-  // so the resident would be held at 402 behind a checkout that may not work.
-  // The caller turns this into the retryable answer instead.
-  if (error) return { ready: out, lookupFailed: true };
-
-  let stripe: ReturnType<typeof getStripe> | null = null;
-  try {
-    stripe = getStripe();
-  } catch {
-    stripe = null;
+  managerUserId: string,
+): Promise<boolean | null> {
+  const ownerId = managerUserId.trim();
+  if (!ownerId) return null;
+  let result = await db.from("manager_automation_settings")
+    .select("manual_payments,row_data").eq("manager_user_id", ownerId).maybeSingle();
+  if (result.error?.message.toLowerCase().includes("manual_payments") &&
+      result.error.message.toLowerCase().includes("does not exist")) {
+    result = await db.from("manager_automation_settings")
+      .select("row_data").eq("manager_user_id", ownerId).maybeSingle();
   }
-
-  for (const row of profiles ?? []) {
-    const id = String(row.id ?? "").trim();
-    const accountId = String(
-      (row as { stripe_connect_account_id?: string | null }).stripe_connect_account_id ?? "",
-    ).trim();
-    if (!id) continue;
-    if (!accountId) {
-      out.set(id, false);
-      continue;
-    }
-    if (!stripe) {
-      out.set(id, true);
-      continue;
-    }
-    const result = await validateManagerConnectForDestinationCharge(stripe, accountId);
-    out.set(id, result.ok);
-  }
-
-  return { ready: out, lookupFailed: false };
+  if (result.error || !result.data) return null;
+  const stored = result.data as { manual_payments?: unknown; row_data?: { manualPayments?: unknown } | null };
+  const policy = stored.manual_payments ?? stored.row_data?.manualPayments;
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return null;
+  const enabled = (policy as { axisPaymentsEnabled?: unknown }).axisPaymentsEnabled;
+  return typeof enabled === "boolean" ? enabled : null;
 }
 
 export async function resolveListingForHouseholdCharge(
@@ -114,59 +92,45 @@ export async function enrichHouseholdChargesFromPropertyRecordsResult(
   let lookupFailed = false;
 
   const propertyIds = [...new Set(charges.map((c) => c.propertyId?.trim()).filter(Boolean))] as string[];
-  const listingByPropertyId = new Map<string, ManagerListingSubmissionV1 | null>();
+  const listingByPropertyId = new Map<string, { ownerId: string; listing: ManagerListingSubmissionV1 | null }>();
 
   if (propertyIds.length > 0) {
     const { data, error } = await db
       .from("manager_property_records")
-      .select("id, property_data")
+      .select("id, manager_user_id, property_data")
       .in("id", propertyIds);
     if (error) lookupFailed = true;
     for (const row of data ?? []) {
-      listingByPropertyId.set(String(row.id), listingFromPropertyData(row.property_data));
-    }
-  }
-
-  const managerIds = [...new Set(charges.map((c) => c.managerUserId?.trim()).filter(Boolean))] as string[];
-  const listingsByManager = new Map<string, Array<{ buildingName: string; listing: ManagerListingSubmissionV1 | null }>>();
-  const connect = await managerStripeConnectReadyByManagerId(db, managerIds);
-  const connectReadyByManager = connect.ready;
-  if (connect.lookupFailed) lookupFailed = true;
-
-  if (managerIds.length > 0) {
-    const { data, error } = await db
-      .from("manager_property_records")
-      .select("manager_user_id, property_data")
-      .in("manager_user_id", managerIds)
-      .limit(500);
-    if (error) lookupFailed = true;
-    for (const row of data ?? []) {
-      const managerId = String(row.manager_user_id ?? "").trim();
-      if (!managerId) continue;
-      const bucket = listingsByManager.get(managerId) ?? [];
-      bucket.push({
-        buildingName: listingBuildingName(row.property_data),
+      listingByPropertyId.set(String(row.id), {
+        ownerId: String(row.manager_user_id ?? "").trim(),
         listing: listingFromPropertyData(row.property_data),
       });
-      listingsByManager.set(managerId, bucket);
     }
   }
 
+  const propertylessManagerIds = [...new Set(charges.filter((c) => !c.propertyId?.trim())
+    .map((c) => c.managerUserId?.trim()).filter(Boolean))] as string[];
+  const accountPolicies = new Map<string, boolean | null>();
+  await Promise.all(propertylessManagerIds.map(async (managerId) => {
+    const policy = await resolvePropertylessManagerPaymentPolicy(db, managerId);
+    if (policy === null) lookupFailed = true;
+    accountPolicies.set(managerId, policy);
+  }));
+
   const enriched = charges.map((charge) => {
-    const managerId = charge.managerUserId?.trim() ?? "";
-    let listing = listingByPropertyId.get(charge.propertyId?.trim() ?? "") ?? null;
-    if (!listing) {
-      const label = displayPropertyLabel(charge.propertyLabel ?? "").toLowerCase();
-      if (label && managerId) {
-        listing =
-          listingsByManager.get(managerId)?.find((row) => row.buildingName.toLowerCase() === label)?.listing ??
-          null;
-      }
+    const propertyId = charge.propertyId?.trim();
+    if (!propertyId) {
+      const accountPolicy = accountPolicies.get(charge.managerUserId?.trim() ?? "") ?? null;
+      return { ...charge, axisPaymentsEnabledSnapshot: accountPolicy,
+        acceptedPaymentMethodsSnapshot: accountPolicy === null ? undefined : ["ach", "card"] as HouseholdCharge["acceptedPaymentMethodsSnapshot"] };
     }
-    return {
-      ...enrichHouseholdChargePaymentFlags(charge, listing),
-      managerStripeConnectReadySnapshot: managerId ? connectReadyByManager.get(managerId) : undefined,
-    };
+    const property = listingByPropertyId.get(propertyId);
+    // A historical co-manager may have created the charge, with its AR booked
+    // to that creator. Until those books are reconciled, payment must stay
+    // unavailable rather than switch the payee from under an existing charge.
+    const listing = property?.ownerId && property.ownerId === charge.managerUserId?.trim()
+      ? property.listing : null;
+    return enrichHouseholdChargePaymentFlags(charge, listing);
   });
   return { charges: enriched, lookupFailed };
 }

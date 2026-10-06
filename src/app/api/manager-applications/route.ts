@@ -31,6 +31,7 @@ import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboardin
 import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consent";
 import { revokeApplicationScopedSmsConsentOnWithdrawal } from "@/lib/sms/application-consent.server";
 import { validateResidentApplicationRowForPersistence } from "@/lib/rental-application/validate-application-submit.server";
+import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
@@ -1216,6 +1217,10 @@ export async function POST(req: Request) {
             { status: validation.status },
           );
         }
+        if (!isDraftShapedApplicationRow(row)) {
+          const fee = await authorizeApplicationFeeSubmission(db, row);
+          if (!fee.ok) return NextResponse.json({ error: fee.error }, { status: fee.status });
+        }
       }
       const previousRow = existing ?? null;
       const persistedGuestRow = await persistNormalizedRow(db, existingRecord?.id ?? row.id, row, existingRecord ?? null);
@@ -1354,6 +1359,10 @@ export async function POST(req: Request) {
             },
             { status: validation.status },
           );
+        }
+        if (!isDraftShapedApplicationRow(row)) {
+          const fee = await authorizeApplicationFeeSubmission(db, row);
+          if (!fee.ok) return NextResponse.json({ error: fee.error }, { status: fee.status });
         }
       }
       const linked = await linkResidentOnApplicationSubmit(db, {

@@ -73,7 +73,57 @@ type Server = {
   seed: ReturnType<typeof buildSeed>;
   settings: Record<string, unknown>;
   writes: { url: string; method: string; body: unknown }[];
+  balance: Record<string, unknown>;
+  destinations: Record<string, unknown>[];
 };
+
+/**
+ * `/api/stripe/payouts/balance` the way `snapshotWithPlatformHolds` composes it:
+ * money captured on the PropLane platform sits in `heldCents` until it is
+ * transferred to the owner's Connect account, `withdrawableCents` is what the
+ * provider actually holds, and the recovery legs carry refund/recovery debt.
+ * Two hold-history rows stand in for a captured source allocation still held and
+ * one already moved across.
+ */
+function payoutsBalance(): Record<string, unknown> {
+  return {
+    currency: "usd",
+    availableCents: 184_000,
+    withdrawableCents: 59_000,
+    instantAvailableCents: 0,
+    pendingCents: 0,
+    onTheWayCents: 0,
+    payoutReconciliationPending: false,
+    heldCents: 125_000,
+    releasePendingCents: 0,
+    recoveryOutstandingCents: 0,
+    recoveryReservedCents: 0,
+    heldDepositCents: 95_000,
+    availableNote: "",
+    bank: { last4: "6789", bankName: "Test Bank", accountType: "checking", instantEligible: false, verifiedAt: "2026-09-30T18:00:00.000Z" },
+    schedule: { interval: "weekly", nextPayoutAt: null },
+    setup: { identity: "done", bank: "done", ready: true },
+    history: [
+      {
+        id: "hold:held-1", kind: "source_movement", amountCents: 125_000, feeCents: 0, netCents: 125_000,
+        method: null, status: "pending", destinationLast4: null, createdAt: "2026-10-02T17:00:00.000Z",
+        arrivalDate: null, initiatedInApp: false, failureMessage: null, serviceLabel: "Captured source allocation",
+      },
+      {
+        id: "hold:moved-1", kind: "source_movement", amountCents: 59_000, feeCents: 0, netCents: 59_000,
+        method: null, status: "paid", destinationLast4: null, createdAt: "2026-09-29T17:00:00.000Z",
+        arrivalDate: null, initiatedInApp: false, failureMessage: null, serviceLabel: "Moved from PropLane to Stripe",
+      },
+    ],
+  };
+}
+
+function payoutDestinations(): Record<string, unknown>[] {
+  return [{
+    id: "ba_test_6789", kind: "bank", label: "Test Bank checking", last4: "6789",
+    status: "verified", payable: true, instantEligible: false, default: true,
+  }];
+}
 
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -158,19 +208,26 @@ async function wire(page: Page, server: Server) {
     }
     // Payment settings mounts the payouts page, which reads `balance.setup.ready`
     // straight off this body — the catch-all's `{ ok: true }` crashed it (and
-    // with it the whole dialog), so answer the real contract shape.
+    // with it the whole dialog), so answer the real contract shape. Central
+    // source arbitration added the platform-hold legs to that contract
+    // (`isPortalPayoutBalance` now demands `withdrawableCents`, `heldCents`,
+    // `releasePendingCents`, `recoveryOutstandingCents`, `recoveryReservedCents`);
+    // a body missing them is rejected whole and the dialog renders
+    // "Could not load payouts." instead of its sections.
     if (url.pathname === "/api/stripe/payouts/balance") {
-      return json(route, {
-        currency: "usd",
-        availableCents: 0,
-        instantAvailableCents: 0,
-        pendingCents: 0,
-        onTheWayCents: 0,
-        bank: null,
-        schedule: { interval: "weekly", nextPayoutAt: null },
-        setup: { identity: "done", bank: "done", ready: true },
-        history: [],
-      });
+      return json(route, server.balance);
+    }
+    // Payout destinations are read from the live Connect list, not off the
+    // balance's display-only bank summary; the catch-all's `{ ok: true }` has no
+    // `destinations`, which the page treats as unverifiable.
+    if (url.pathname === "/api/stripe/connect/bank-accounts") {
+      return json(route, { destinations: server.destinations });
+    }
+    if (url.pathname === "/api/portal/proplane-balance") {
+      return json(route, { enabled: true });
+    }
+    if (url.pathname.startsWith("/api/portal/manager-manual-payment-settings")) {
+      return json(route, { workspacePaymentSettings: {} });
     }
     if (url.pathname.startsWith("/api/stripe/connect/status")) {
       return json(route, { connected: true, chargesEnabled: true, payoutsEnabled: true, paymentReady: true });
@@ -180,7 +237,7 @@ async function wire(page: Page, server: Server) {
 }
 
 function fresh(): Server {
-  return { seed: buildSeed(), settings: {}, writes: [] };
+  return { seed: buildSeed(), settings: {}, writes: [], balance: payoutsBalance(), destinations: payoutDestinations() };
 }
 
 function collectErrors(page: Page) {

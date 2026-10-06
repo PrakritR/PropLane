@@ -40,8 +40,7 @@ export async function residentHasPriorApplicationServer(
         .select("row_data, manager_user_id")
         .eq("resident_email", e)
         .eq("manager_user_id", managerId)
-        .order("updated_at", { ascending: false })
-        .limit(25),
+        .order("updated_at", { ascending: false }),
     );
   }
   if (userId) {
@@ -51,15 +50,19 @@ export async function residentHasPriorApplicationServer(
         .select("row_data, manager_user_id")
         .eq("manager_user_id", managerId)
         .eq("row_data->>residentUserId", userId)
-        .order("updated_at", { ascending: false })
-        .limit(25),
+        .order("updated_at", { ascending: false }),
     );
   }
 
-  const results = await Promise.all(queries);
-  for (const { data, error } of results) {
-    if (error) throw error;
-    if ((data ?? []).some(submittedApplicationFromRow)) return true;
+  for (const query of queries) {
+    // A recent-draft limit can hide an older submitted application and collect
+    // a fee that the first-only policy waived. Walk the complete owned scope.
+    for (let offset = 0;; offset += 200) {
+      const { data, error } = await query.range(offset, offset + 199);
+      if (error) throw error;
+      if ((data ?? []).some(submittedApplicationFromRow)) return true;
+      if ((data ?? []).length < 200) break;
+    }
   }
   return false;
 }
@@ -77,11 +80,13 @@ export async function residentHasPaidApplicationFeeServer(
     .from("portal_household_charge_records")
     .select("row_data, manager_user_id")
     .eq("resident_email", e)
-    .eq("manager_user_id", managerId);
+    .eq("manager_user_id", managerId)
+    .eq("kind", "application_fee")
+    .eq("status", "paid");
   if (residentUserId?.trim()) {
     query = query.or(`resident_user_id.eq.${residentUserId.trim()},resident_user_id.is.null`);
   }
-  const { data, error } = await query.limit(100);
+  const { data, error } = await query.limit(1);
   if (error) throw error;
   return (data ?? []).some((row) => {
     const charge = (row.row_data ?? {}) as { kind?: string; status?: string };

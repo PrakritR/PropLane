@@ -6,6 +6,7 @@ import { resolveStripePriceIdForPaidTier } from "@/lib/stripe/resolve-manager-pr
 import { buildManagerSubscriptionCheckoutBase } from "@/lib/stripe/subscription-checkout-session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
+import { checkoutSessionIndicatesPaidPurchase, recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
 import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
 import {
   MANAGER_PLAN_CHECKOUT_CANCELLED_PATH,
@@ -117,9 +118,79 @@ export async function POST(req: Request) {
 
     const stripe = getStripe();
 
+    // A portal Checkout has to own a durable purchase row before its secret
+    // reaches the browser. Otherwise a completed $49/$249 session cannot pass
+    // resolveManagerCheckoutPurchase and the manager remains on Free.
+    const { data: purchase, error: purchaseError } = await actor.db.from("manager_purchases")
+      .select("id,user_id,email,manager_id,tier,billing,stripe_subscription_id,stripe_checkout_session_id,apple_original_transaction_id")
+      .eq("manager_id", managerId).maybeSingle();
+    if (purchaseError || (purchase && (purchase.user_id !== user.id ||
+        String(purchase.email ?? "").trim().toLowerCase() !== email))) {
+      return NextResponse.json({ error: "Your manager billing record needs to be reconciled before checkout." }, { status: 409 });
+    }
+    if (!purchase) {
+      const { data: otherPurchases, error: otherError } = await actor.db.from("manager_purchases")
+        .select("id").eq("user_id", user.id).limit(2);
+      if (otherError || (otherPurchases?.length ?? 0) > 0) {
+        return NextResponse.json({ error: "Your manager billing record needs to be reconciled before checkout." }, { status: 409 });
+      }
+    }
+    // A signup trial grants a temporary Pro/Business entitlement without a
+    // paid Stripe or Apple subscription. Preserve that row until a verified
+    // Checkout fulfills it, including a same-tier activation.
+    const signupTrial = purchase?.billing === "trial" &&
+      (purchase.tier === "pro" || purchase.tier === "business") &&
+      !purchase.stripe_subscription_id && !purchase.apple_original_transaction_id;
+    if (purchase && (purchase.stripe_subscription_id || purchase.apple_original_transaction_id ||
+        (purchase.tier !== null && purchase.tier !== "free" && !signupTrial))) {
+      return NextResponse.json({ error: "Manage your existing paid plan from Billing instead of starting another subscription." }, { status: 409 });
+    }
+    const customer = await ensureManagerBillingCustomer(actor.db, user.id);
+    const priorSessionId = String(purchase?.stripe_checkout_session_id ?? "").trim();
+    const prior = priorSessionId.startsWith("cs_")
+      ? await stripe.checkout.sessions.retrieve(priorSessionId) : null;
+    if (prior) {
+      const priorCustomer = typeof prior.customer === "string" ? prior.customer : prior.customer?.id;
+      if (prior.metadata?.userId !== user.id || prior.metadata?.manager_id !== managerId ||
+          prior.mode !== "subscription" || priorCustomer !== customer) {
+        return NextResponse.json({ error: "An earlier subscription checkout needs reconciliation." }, { status: 409 });
+      }
+      if (prior.status === "complete") {
+        if (checkoutSessionIndicatesPaidPurchase(prior)) {
+          await recordPaidManagerCheckoutSession(prior);
+          return NextResponse.json({ error: "Your previous subscription payment completed. Refresh Billing to see the plan." }, { status: 409 });
+        }
+        return NextResponse.json({ error: "Your previous subscription payment is still processing." }, { status: 409 });
+      }
+    }
+    // A legacy Free account can lack a local purchase row while its Stripe
+    // customer already has a subscription. Provider truth blocks a second one.
+    const subscriptions = await stripe.subscriptions.list({ customer, status: "all", limit: 20 });
+    if (subscriptions.has_more || subscriptions.data.some((sub) => !["canceled", "incomplete_expired"].includes(sub.status))) {
+      return NextResponse.json({ error: "A subscription already exists for this billing account. Refresh Billing before starting another." }, { status: 409 });
+    }
+    if (prior) {
+      if (prior.status === "open") {
+        if (prior.metadata?.tier === tier && prior.metadata?.billing === billing &&
+            prior.metadata?.floor_price_id === price &&
+            (useEmbedded ? Boolean(prior.client_secret) : Boolean(prior.url))) {
+          return NextResponse.json(useEmbedded
+            ? { clientSecret: prior.client_secret, sessionId: prior.id, embedded: true }
+            : { url: prior.url, sessionId: prior.id, embedded: false });
+        }
+        // Old open sessions may carry a retired price or a different billing
+        // cadence. Expire them before replacing their reserved attempt.
+        await stripe.checkout.sessions.expire(prior.id);
+      }
+      if (prior.status !== "expired" && prior.status !== "open") {
+        return NextResponse.json({ error: "Your previous subscription payment is still processing." }, { status: 409 });
+      }
+    }
+
     const metadata: Record<string, string> = {
       tier,
       billing,
+      floor_price_id: price,
       manager_id: managerId,
       email,
       userId: user.id,
@@ -127,10 +198,6 @@ export async function POST(req: Request) {
     const fn = profile?.full_name?.trim();
     if (fn) metadata.full_name = fn;
 
-    const customer = await ensureManagerBillingCustomer(
-      actor.db,
-      user.id,
-    );
     const sessionBase = {
       ...buildManagerSubscriptionCheckoutBase({
         priceId: price,
@@ -139,6 +206,32 @@ export async function POST(req: Request) {
         allowPromotionCodes: tier === "pro" && billing === "monthly",
       }),
       customer,
+    };
+
+    const reserve = async (sessionId: string): Promise<boolean> => {
+      let result: { data: { id: string } | null; error: { message: string } | null };
+      if (purchase) {
+        let query = actor.db.from("manager_purchases").update({ stripe_checkout_session_id: sessionId })
+          .eq("id", purchase.id).eq("user_id", user.id).eq("manager_id", managerId)
+          .is("stripe_subscription_id", null).is("apple_original_transaction_id", null);
+        query = priorSessionId ? query.eq("stripe_checkout_session_id", priorSessionId)
+          : query.is("stripe_checkout_session_id", null);
+        query = purchase.tier === null ? query.is("tier", null) : query.eq("tier", purchase.tier);
+        if (signupTrial) query = query.eq("billing", "trial");
+        result = await query.select("id").maybeSingle();
+      } else {
+        result = await actor.db.from("manager_purchases").insert({
+            user_id: user.id, manager_id: managerId, email,
+            full_name: profile?.full_name?.trim() || null,
+            tier: "free", billing: "monthly", stripe_checkout_session_id: sessionId,
+          }).select("id").maybeSingle();
+      }
+      const { data, error } = result;
+      if (error) {
+        await stripe.checkout.sessions.expire(sessionId).catch(() => undefined);
+        throw new Error("Could not reserve manager checkout ownership.");
+      }
+      return Boolean(data?.id);
     };
 
     if (useEmbedded) {
@@ -153,6 +246,11 @@ export async function POST(req: Request) {
           { error: "Stripe did not return a checkout client secret." },
           { status: 500 },
         );
+      }
+
+      if (!(await reserve(session.id))) {
+        await stripe.checkout.sessions.expire(session.id).catch(() => undefined);
+        return NextResponse.json({ error: "Another checkout already started for this manager. Refresh Billing." }, { status: 409 });
       }
 
       return NextResponse.json({
@@ -174,6 +272,11 @@ export async function POST(req: Request) {
         { error: "Stripe did not return a checkout URL." },
         { status: 500 },
       );
+    }
+
+    if (!(await reserve(session.id))) {
+      await stripe.checkout.sessions.expire(session.id).catch(() => undefined);
+      return NextResponse.json({ error: "Another checkout already started for this manager. Refresh Billing." }, { status: 409 });
     }
 
     return NextResponse.json({

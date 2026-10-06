@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
-import { createApplicationFeeCheckout } from "@/lib/application-fee-checkout.server";
+import { createClaimedApplicationFeeCheckout } from "@/lib/application-fee-payment-claim.server";
 import { resolveAppOrigin } from "@/lib/app-url";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
+import { isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
+import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
+import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
+import { openApplicantRow } from "@/lib/security/applicant-identity";
+import type { DemoApplicantRow } from "@/data/demo-portal";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { stripeNotConfiguredError } from "@/lib/stripe-axis-ach-checkout";
@@ -9,6 +17,8 @@ import { stripeNotConfiguredError } from "@/lib/stripe-axis-ach-checkout";
 export const runtime = "nodejs";
 
 type Body = {
+  applicationId?: string;
+  setupToken?: string;
   propertyId?: string;
   residentEmail?: string;
   residentName?: string;
@@ -49,22 +59,60 @@ export async function POST(req: Request) {
 
     const body = (await req.json()) as Body;
     const propertyId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
+    const applicationId = typeof body.applicationId === "string" ? body.applicationId.trim() : "";
     const residentEmail = typeof body.residentEmail === "string" ? body.residentEmail.trim() : "";
-    const residentName = typeof body.residentName === "string" ? body.residentName.trim() : "";
     const managerUserId = typeof body.managerUserId === "string" ? body.managerUserId.trim() : "";
 
-    if (!propertyId || !residentEmail.includes("@") || !managerUserId) {
-      return NextResponse.json({ error: "propertyId, residentEmail, and managerUserId are required." }, { status: 400 });
+    if (!applicationId || !propertyId || !residentEmail.includes("@") || !managerUserId) {
+      return NextResponse.json({ error: "Save your application before starting payment." }, { status: 400 });
+    }
+    if (body.mode === "hosted") {
+      return NextResponse.json({ error: "Open payment inside your application." }, { status: 400 });
     }
 
     const db = createSupabaseServiceRoleClient();
+    const { data: application, error: applicationError } = await db.from("manager_application_records")
+      .select("id,manager_user_id,property_id,resident_email,row_data,updated_at")
+      .eq("id", applicationId).maybeSingle();
+    if (applicationError) throw new Error(applicationError.message);
+    if (!application || !isDraftShapedApplicationRow(application.row_data ?? {}) ||
+        isWithdrawnApplicationRow(application.row_data ?? {})) {
+      return NextResponse.json({ code: "APPLICATION_DRAFT_PENDING", error: "Your application is still saving. Try payment again shortly." }, { status: 409 });
+    }
+    if (application.manager_user_id !== managerUserId || application.property_id !== propertyId ||
+        String(application.resident_email ?? "").trim().toLowerCase() !== residentEmail.toLowerCase()) {
+      return NextResponse.json({ error: "This payment does not match your saved application." }, { status: 403 });
+    }
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    let authorized = false;
+    if (user?.email?.trim().toLowerCase() === residentEmail.toLowerCase()) {
+      const { data: profile, error: profileError } = await db.from("profiles")
+        .select("role").eq("id", user.id).maybeSingle();
+      if (profileError) throw new Error(profileError.message);
+      authorized = await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role });
+    }
+    if (!authorized && typeof body.setupToken === "string") {
+      authorized = isResidentSetupTokenValid(application.row_data ?? {}, body.setupToken);
+    }
+    if (!authorized) return NextResponse.json({ error: "Application access required before payment." }, { status: 403 });
+    let savedApplication: DemoApplicantRow["application"];
+    try {
+      savedApplication = openApplicantRow(application.row_data as DemoApplicantRow, application.id).application;
+    } catch {
+      return NextResponse.json({ error: "Your saved application could not be read. Try again." }, { status: 409 });
+    }
+    if (!savedApplication) {
+      return NextResponse.json({ code: "APPLICATION_DRAFT_PENDING", error: "Your application is still saving. Try payment again shortly." }, { status: 409 });
+    }
+
     const stripe = getStripe();
     const appUrl = resolveAppOrigin(req);
     const returnPath =
       typeof body.returnPath === "string" && body.returnPath.startsWith("/")
         ? body.returnPath.split("?")[0] ?? "/rent/apply"
         : "/rent/apply";
-    const mode = body.mode === "hosted" ? "hosted" : "embedded";
+    const mode = "embedded" as const;
 
     // Stamp propertyId on the return URL so the wizard can re-bind the listing
     // after embedded Checkout (PRP-427). Checkout used to drop every query
@@ -73,16 +121,18 @@ export async function POST(req: Request) {
     // Keep `{CHECKOUT_SESSION_ID}` literal (not URLSearchParams) so Stripe can
     // substitute it — encoding the braces breaks the placeholder.
     const pidQ = encodeURIComponent(propertyId);
-    const result = await createApplicationFeeCheckout(db, stripe, {
+    const result = await createClaimedApplicationFeeCheckout(db, stripe, {
+      applicationId,
+      draftUpdatedAt: application.updated_at,
       propertyId,
       residentEmail,
-      residentName: residentName || undefined,
-      managerUserId,
-      rentalType: body.rentalType === "short_term" ? "short_term" : "standard",
-      leaseTerm: typeof body.leaseTerm === "string" ? body.leaseTerm.slice(0, 40) : undefined,
-      roomChoice1: typeof body.roomChoice1 === "string" ? body.roomChoice1.slice(0, 200) : undefined,
-      bundleId: typeof body.bundleId === "string" ? body.bundleId.slice(0, 200) : undefined,
-      applicationTemplateId: typeof body.applicationTemplateId === "string" ? body.applicationTemplateId.slice(0, 80) : undefined,
+      residentName: savedApplication.fullLegalName?.trim() || undefined,
+      managerUserId: String(application.manager_user_id),
+      rentalType: applicationRentalTypeFor(savedApplication.rentalType),
+      leaseTerm: savedApplication.leaseTerm?.slice(0, 40) || undefined,
+      roomChoice1: savedApplication.roomChoice1?.slice(0, 200) || undefined,
+      bundleId: (savedApplication as { bundleId?: string }).bundleId?.slice(0, 200) || undefined,
+      applicationTemplateId: savedApplication.applicationTemplateId?.slice(0, 80) || undefined,
       mode,
       // Embedded returns the applicant to the same apply step after paying; the
       // wizard verifies the session server-side before treating the fee as paid.
@@ -99,9 +149,8 @@ export async function POST(req: Request) {
       // `clientSecret` drives the inline embedded form; `url` is present only on
       // the legacy hosted path. Itemized so the caller shows "application fee +
       // service fee = total" before paying — never a surprise amount.
-      mode: result.mode,
-      clientSecret: result.mode === "embedded" ? result.clientSecret : undefined,
-      url: result.mode === "hosted" ? result.url : undefined,
+      mode: "embedded",
+      clientSecret: result.clientSecret,
       sessionId: result.sessionId,
       applicationFeeCents: result.itemization.applicationFeeCents,
       serviceFeeCents: result.itemization.serviceFeeCents,

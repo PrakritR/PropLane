@@ -1,30 +1,24 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/stripe";
-import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
 import { createAxisAchCheckoutSession } from "@/lib/stripe-axis-ach-checkout";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
+import { directInvoiceHoldSourceId } from "@/lib/stripe-platform-hold";
+import { creditVerifiedVendorCheckoutSource, verifyLegacyVendorCheckoutSource } from "@/lib/vendor-captured-source.server";
+import { releaseVerifiedPlatformHoldsForOwner } from "@/lib/platform-hold-release.server";
 import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { vendorPayFeeCents } from "@/lib/platform-fees";
+import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
-import {
-  assertNoCrossRailPayout,
-  claimInvoicePayment,
-  settleInvoicePayment,
-} from "@/lib/vendor-invoice-settlement.server";
-import { readInvoicePaymentClaimId, releaseInvoicePaymentClaim } from "@/lib/vendor-invoice-claim.server";
+import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
+import { assertNoCrossRailPayout, authorizeOutgoingInvoice, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
 import { isVendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
 
 export const VENDOR_INVOICE_DIRECT_PAY_PURPOSE = "vendor_invoice_direct_pay";
-
-/**
- * How long an unpaid direct-pay session may hold the invoice's cross-rail claim. Stripe's floor
- * for `expires_at` is exactly 30 minutes out, so the half-minute is clock-skew headroom.
- */
-const VENDOR_INVOICE_CHECKOUT_TTL_SECONDS = 30 * 60 + 30;
 
 export type StartInvoicePayFailure = { ok: false; status: number; error: string };
 export type StartInvoicePaySuccess = {
@@ -33,6 +27,8 @@ export type StartInvoicePaySuccess = {
   sessionId: string;
   invoiceCents: number;
   platformFeeCents: number;
+  processingFeeCents: number;
+  totalCents: number;
 };
 
 /**
@@ -42,11 +38,11 @@ export type StartInvoicePaySuccess = {
  */
 export async function startVendorInvoicePayCheckout(
   db: SupabaseClient,
-  opts: { invoiceId: string; managerUserId: string; managerEmail: string },
+  opts: { invoiceId: string; managerUserId: string; managerEmail: string; paymentMethod: "card" | "ach" },
 ): Promise<StartInvoicePaySuccess | StartInvoicePayFailure> {
   const { data: invoice, error } = await db
     .from("vendor_invoices")
-    .select("id, manager_user_id, vendor_user_id, total_cents, status, invoice_number, memo, work_order_id, estimate_visit_bid_id")
+    .select("id, manager_user_id, vendor_user_id, total_cents, status, invoice_number, memo, payment_claim, checkout_session_id, stripe_checkout_provider_terms, bill_id, work_order_id, estimate_visit_bid_id")
     .eq("id", opts.invoiceId)
     .eq("manager_user_id", opts.managerUserId)
     .maybeSingle();
@@ -60,6 +56,10 @@ export async function startVendorInvoicePayCheckout(
     status: string;
     invoice_number: string | null;
     memo: string | null;
+    payment_claim: string | null;
+    checkout_session_id: string | null;
+    stripe_checkout_provider_terms: unknown;
+    bill_id: string | null;
     work_order_id: string | null;
     estimate_visit_bid_id: string | null;
   };
@@ -68,187 +68,146 @@ export async function startVendorInvoicePayCheckout(
   }
   const invoiceCents = Math.round(Number(row.total_cents) || 0);
   if (invoiceCents < 100) return { ok: false, status: 400, error: "Invoice total must be at least $1.00." };
+  if (row.payment_claim && row.payment_claim !== "stripe") {
+    return { ok: false, status: 409, error: "Payment already started using another source." };
+  }
+  const preexistingCheckout = row.checkout_session_id;
+  const preexistingTerms = row.stripe_checkout_provider_terms;
 
+  // A service-linked invoice still needs the service/workspace/assignee checks. The cross-rail
+  // read is only the FRIENDLY pre-check: the claim RPC below and the `vendor_payouts` cross-rail
+  // trigger (migration 20261004160000) are what arbitrate a race, so a refusal from either is
+  // the same 409.
+  try {
+    await authorizeOutgoingInvoice(db, opts.managerUserId, row.id);
+    if (row.payment_claim !== "stripe") await assertNoCrossRailPayout(db, row);
+  } catch (e) {
+    if (isVendorInvoicePaymentRefusal(e)) return { ok: false, status: 409, error: e.message };
+    // A table that could not be READ is a fault, not a double-pay refusal.
+    return { ok: false, status: 500, error: e instanceof Error ? e.message : "Could not authorize this invoice." };
+  }
+  if (row.status === "approved" && !row.bill_id) await createBillFromVendorInvoice(db, opts.managerUserId, row.id);
+
+  const stripe = getStripe();
+  const claim = await db.rpc("claim_vendor_invoice_stripe_checkout", {
+    p_invoice: row.id,
+    p_manager: opts.managerUserId,
+    p_attempt: `attempt:${opts.paymentMethod}:${randomUUID()}`,
+  });
+  if (claim.error || typeof claim.data !== "string") {
+    return { ok: false, status: 409, error: claim.error?.message ?? "Could not claim invoice payment." };
+  }
+  const attempt = claim.data;
+  if (!attempt.startsWith("attempt:")) {
+    const existing = await stripe.checkout.sessions.retrieve(attempt);
+    if (existing.status === "expired") {
+      await releaseFailedVendorInvoiceCheckout(db, existing);
+      return { ok: false, status: 409, error: "The prior payment attempt expired. Try again to start a new checkout." };
+    }
+    if (existing.status !== "open" || existing.metadata?.payment_method !== opts.paymentMethod || !existing.client_secret) {
+      return { ok: false, status: 409, error: "A payment is already in progress for this invoice. Check its status before trying another method." };
+    }
+    return {
+      ok: true,
+      clientSecret: existing.client_secret,
+      sessionId: existing.id,
+      invoiceCents,
+      platformFeeCents: Number(existing.metadata?.platform_fee_cents ?? 0),
+      processingFeeCents: Number(existing.metadata?.processing_fee_cents ?? 0),
+      totalCents: existing.amount_total ?? 0,
+    };
+  }
+  if (!attempt.startsWith(`attempt:${opts.paymentMethod}:`)) {
+    return { ok: false, status: 409, error: "A payment is already starting with another method." };
+  }
+
+  if (preexistingCheckout?.startsWith("attempt:") && !preexistingTerms) {
+    return { ok: false, status: 409, error: "The prior invoice checkout needs provider-term reconciliation." };
+  }
   const platformFeeCents = vendorBankingEnabled() ? vendorPayFeeCents(invoiceCents) : 0;
-
-  // A job invoice RESERVES the payout before the card is charged, using the same claim the
-  // offline and balance rails take: while it is held, Approve + pay and the other invoice rails
-  // are refused, by the database, not by a read-then-write race. Checking without claiming let a
-  // manager open this checkout, run Approve + pay, and then complete the card payment — the second
-  // charge went through and only its bookkeeping was refused.
-  // A standalone invoice (no service) has no job for a second rail to pay, so there is nothing to
-  // claim; `assertNoCrossRailPayout` is a no-op for it and for an estimate-visit fee.
-  const claimsPayout = Boolean(row.work_order_id?.trim());
-  let claimId: string | null = null;
-  try {
-    if (claimsPayout) {
-      await claimInvoicePayment(db, opts.managerUserId, row.id, "stripe");
-      claimId = await readInvoicePaymentClaimId(db, opts.managerUserId, row.id);
-    } else await assertNoCrossRailPayout(db, row);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "This service has already been paid.";
-    if (isVendorInvoicePaymentRefusal(e)) return { ok: false, status: 409, error: message };
-    console.error("[vendor-invoice-pay] could not claim the invoice; no checkout was started", {
-      invoiceId: row.id,
-      managerUserId: opts.managerUserId,
-      error: message,
-    });
-    return { ok: false, status: 500, error: message };
+  const origin = resolveShareableAppOrigin();
+  const label = row.invoice_number ? `Invoice ${row.invoice_number}` : row.memo?.trim() || "Vendor invoice";
+  const candidateRequest = {
+    idempotencyKey: `vendor-invoice:${row.id}:${attempt}`,
+    residentEmail: opts.managerEmail,
+    amountCents: invoiceCents,
+    productName: label.slice(0, 120),
+    productDescription: "Invoice total to the vendor. You pay Stripe’s processing cost.",
+    metadata: {
+      purpose: VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
+      invoice_id: row.id,
+      manager_user_id: row.manager_user_id,
+      vendor_user_id: row.vendor_user_id,
+      invoice_cents: String(invoiceCents),
+      platform_fee_cents: String(platformFeeCents),
+      source_arbitration_v: "1",
+      checkout_attempt: attempt,
+    },
+    destinationAccountId: null,
+    mode: "embedded",
+    paymentMethod: opts.paymentMethod,
+    forceExplicitCard: opts.paymentMethod === "card",
+    fixedFeeBreakdown: residentServiceFeeBreakdown(invoiceCents, opts.paymentMethod, "resident"),
+    feePayer: "resident",
+    extraApplicationFeeCents: platformFeeCents,
+    returnUrl: `${origin}/portal/finances?invoice_pay=success&session_id={CHECKOUT_SESSION_ID}`,
+  } as const;
+  const { data: frozenRaw, error: freezeError } = await db.rpc("freeze_vendor_invoice_stripe_checkout_terms", {
+    p_invoice: row.id, p_manager: opts.managerUserId, p_attempt: attempt,
+    p_terms: { invoiceId: row.id, managerUserId: opts.managerUserId,
+      vendorUserId: row.vendor_user_id, invoiceCents, request: candidateRequest },
+  });
+  const frozen = frozenRaw as { invoiceId?: string; managerUserId?: string;
+    vendorUserId?: string; invoiceCents?: number;
+    request?: Parameters<typeof createAxisAchCheckoutSession>[1] } | null;
+  const frozenFeeCents = Number(frozen?.request?.extraApplicationFeeCents);
+  if (freezeError || !frozen?.request || frozen.invoiceId !== row.id ||
+      frozen.managerUserId !== opts.managerUserId ||
+      frozen.vendorUserId !== row.vendor_user_id || frozen.invoiceCents !== invoiceCents ||
+      frozen.request.idempotencyKey !== candidateRequest.idempotencyKey ||
+      frozen.request.destinationAccountId ||
+      !Number.isSafeInteger(frozenFeeCents) || frozenFeeCents < 0 ||
+      frozen.request.metadata?.platform_fee_cents !== String(frozenFeeCents) ||
+      frozen.request.forceExplicitCard !== (opts.paymentMethod === "card") ||
+      !frozen.request.fixedFeeBreakdown ||
+      frozen.request.fixedFeeBreakdown.totalCents !==
+        invoiceCents + frozen.request.fixedFeeBreakdown.residentAddedFeeCents ||
+      frozen.request.metadata?.source_arbitration_v !== "1") {
+    return { ok: false, status: 409, error: "Invoice provider terms need reconciliation." };
   }
-
-  const releaseClaim = async (opts2: { checkoutSessionId?: string } = {}) => {
-    if (!claimsPayout) return;
-    await releaseInvoicePaymentClaim(db, opts.managerUserId, row.id, "stripe", opts2).catch((e) =>
-      console.error("[vendor-invoice-pay] could not release the claim after a failed checkout start", e),
-    );
-  };
-
-  // A claim with no row to point at cannot be tied to one session, and an untied claim is the
-  // stranded kind: nothing would ever release it. Refuse now rather than open a checkout.
-  if (claimsPayout && !claimId) {
-    await releaseClaim();
-    console.error("[vendor-invoice-pay] claimed the invoice but found no claim row", { invoiceId: row.id });
-    return { ok: false, status: 500, error: "Could not reserve this invoice for payment; nothing was charged." };
-  }
-
-  // The short expiry exists to bound how long a CLAIM is held. A standalone invoice holds no
-  // claim, so it keeps Stripe's own 24-hour default — the window its invoice-wide idempotency key
-  // already matches, which is what stops a retry replaying a session that has died.
-  const expiresAtUnix = claimsPayout ? Math.floor(Date.now() / 1000) + VENDOR_INVOICE_CHECKOUT_TTL_SECONDS : undefined;
-
-  // Everything from here on can fail without a cent moving — Stripe refusing the session, a
-  // Connect lookup timing out — and every one of those must hand the claim back, or an invoice
-  // nobody paid stays unpayable by any rail until it expires.
-  let result: Awaited<ReturnType<typeof createAxisAchCheckoutSession>>;
-  let stripe: ReturnType<typeof getStripe>;
-  try {
-    stripe = getStripe();
-    const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, row.vendor_user_id);
-    const origin = resolveShareableAppOrigin();
-    const label = row.invoice_number ? `Invoice ${row.invoice_number}` : row.memo?.trim() || "Vendor invoice";
-    result = await createAxisAchCheckoutSession(stripe, {
-      // Scoped to the CLAIM, not the invoice. Stripe keeps an idempotency key for 24 hours and
-      // replays the first response, so an invoice-wide key outlived the 30-minute session it
-      // created: after an abandon-and-retry it handed back the expired session's client secret,
-      // the checkout died in the browser, and the fresh claim was never released — leaving the
-      // invoice unpayable, unschedulable and undeletable by every rail. A re-submit of the SAME
-      // claim still replays (one session per claim); a new claim gets a new session.
-      idempotencyKey: `vendor-invoice:${row.id}:${claimId ?? "unclaimed"}`,
-      residentEmail: opts.managerEmail,
-      amountCents: invoiceCents,
-      productName: label.slice(0, 120),
-      productDescription: "Invoice total to the vendor. You pay Stripe’s processing cost.",
-      metadata: {
-        purpose: VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
-        invoice_id: row.id,
-        manager_user_id: row.manager_user_id,
-        vendor_user_id: row.vendor_user_id,
-        invoice_cents: String(invoiceCents),
-        platform_fee_cents: String(platformFeeCents),
-      },
-      destinationAccountId: destinationAccountId ?? undefined,
-      mode: "embedded",
-      paymentMethod: "ach",
-      feePayer: "resident",
-      extraApplicationFeeCents: platformFeeCents,
-      returnUrl: `${origin}/portal/finances?invoice_pay=success&session_id={CHECKOUT_SESSION_ID}`,
-      expiresAtUnix,
-    });
-  } catch (e) {
-    await releaseClaim();
-    const message = e instanceof Error ? e.message : "Could not start invoice checkout.";
-    console.error("[vendor-invoice-pay] Stripe would not open a checkout session", { invoiceId: row.id, error: message });
-    return { ok: false, status: 500, error: message };
-  }
+  const result = await createAxisAchCheckoutSession(stripe, frozen.request);
   if (result.mode !== "embedded" || !result.clientSecret) {
-    await releaseClaim();
     return { ok: false, status: 500, error: "Could not start invoice checkout." };
   }
-  // Belt and braces behind the per-claim key. The body Stripe hands back can be a 24-hour
-  // idempotency REPLAY of this claim's first request, so its status and expiry describe the
-  // session as it was CREATED, not as it is now — a replay is exactly how a dead session reaches
-  // this point, and also how a live one looks dead.
-  const nowUnix = Math.floor(Date.now() / 1000);
-  const replayLooksDead =
-    result.status === "expired" ||
-    result.status === "complete" ||
-    (result.expiresAtUnix != null && result.expiresAtUnix <= nowUnix);
-  if (replayLooksDead) {
-    // Ask Stripe what the session IS before concluding anything. An ACH debit settles for days
-    // with the session `complete` and the invoice still `approved`, and that claim is backing real
-    // money: releasing it on a stale `expires_at` unblocked Approve + pay mid-debit and let the
-    // vendor be paid twice. A lookup we cannot complete keeps the claim too — fail closed.
-    let live: Stripe.Checkout.Session | null = null;
-    try {
-      live = await stripe.checkout.sessions.retrieve(result.sessionId);
-    } catch {
-      live = null;
-    }
-    const liveExpiresAt = live?.expires_at ?? null;
-    const liveIsExpired =
-      live?.status === "expired" || (live?.status === "open" && liveExpiresAt != null && liveExpiresAt <= Math.floor(Date.now() / 1000));
-    if (liveIsExpired) {
-      await releaseClaim({ checkoutSessionId: result.sessionId });
-      console.error("[vendor-invoice-pay] the checkout session had expired; released the claim", {
-        invoiceId: row.id,
-        sessionId: result.sessionId,
-      });
-      return { ok: false, status: 500, error: "That payment window closed before it opened. Try again." };
-    }
-    if (!live || live.status === "complete") {
-      console.error("[vendor-invoice-pay] a payment is already in flight for this invoice", {
-        invoiceId: row.id,
-        sessionId: result.sessionId,
-        liveStatus: live?.status ?? null,
-        livePaymentStatus: live?.payment_status ?? null,
-      });
-      return { ok: false, status: 409, error: "A payment for this invoice is already processing." };
-    }
+  const stored = await db.from("vendor_invoices")
+    .update({ checkout_session_id: result.sessionId, updated_at: new Date().toISOString() })
+    .eq("id", row.id).eq("manager_user_id", opts.managerUserId)
+    .eq("payment_claim", "stripe").eq("checkout_session_id", attempt)
+    .select("id").maybeSingle();
+  if (stored.error || !stored.data) {
+    return { ok: false, status: 503, error: "Payment status is being reconciled. Try again shortly." };
   }
-
-  // Ties the claim to the session that holds it, so only THAT session's expiry or bounced debit
-  // releases it — a replayed event for an abandoned attempt must not free a live payment's claim.
-  if (claimsPayout) {
-    const { data: tied } = await db
-      .from("vendor_invoices")
-      .update({ checkout_session_id: result.sessionId, updated_at: new Date().toISOString() })
-      .eq("id", row.id)
-      .eq("manager_user_id", opts.managerUserId)
-      .eq("payment_claim", "stripe")
-      .select("id")
-      .maybeSingle();
-    if (!(tied as { id?: unknown } | null)?.id) {
-      await releaseClaim();
-      console.error("[vendor-invoice-pay] could not tie the claim to its checkout session", {
-        invoiceId: row.id,
-        sessionId: result.sessionId,
-      });
-      return { ok: false, status: 500, error: "Could not reserve this invoice for payment; nothing was charged." };
-    }
-  }
-
   return {
     ok: true,
     clientSecret: result.clientSecret,
     sessionId: result.sessionId,
     invoiceCents,
-    platformFeeCents,
+    platformFeeCents: frozenFeeCents,
+    processingFeeCents: result.processingFeeCents,
+    totalCents: result.totalCents,
   };
 }
 
 /**
- * The session never got paid (expired, or the bank debit bounced): hand its cross-rail claim back
- * so the invoice is payable again. No money moved, so nothing is being undone.
+ * The session never got paid (expired, or the bank debit bounced): hand its claim back so the
+ * invoice is payable again. One rule for the Stripe rail: the session id is compared in the
+ * database and Stripe's live state must be terminal first (`releaseFailedVendorInvoiceCheckout`).
  */
 export async function releaseVendorInvoiceDirectPayClaim(
   db: SupabaseClient,
   session: Stripe.Checkout.Session,
 ): Promise<void> {
-  if (session.metadata?.purpose !== VENDOR_INVOICE_DIRECT_PAY_PURPOSE) return;
-  const invoiceId = session.metadata.invoice_id?.trim();
-  const managerUserId = session.metadata.manager_user_id?.trim();
-  if (!invoiceId || !managerUserId) return;
-  await releaseInvoicePaymentClaim(db, managerUserId, invoiceId, "stripe", { checkoutSessionId: session.id });
+  await releaseFailedVendorInvoiceCheckout(db, session);
 }
 
 /**
@@ -272,63 +231,133 @@ export async function completeVendorInvoicePaymentFromStripeSession(
 
   if (session.payment_status !== "paid") return;
 
-  const invoiceCents = Number(session.metadata.invoice_cents ?? 0);
   const isHold = session.metadata.platform_hold === "1";
-  const platformFeeCents = vendorBankingEnabled() ? Number(session.metadata.platform_fee_cents ?? 0) || 0 : 0;
+  const platformFeeCents = Number(session.metadata.platform_fee_cents ?? 0);
 
-  const { data: existing } = await db
-    .from("vendor_invoices")
-    .select("status, payment_claim")
-    .eq("id", invoiceId)
-    .maybeSingle();
-  const invoiceRow = (existing ?? null) as { status?: string; payment_claim?: string | null } | null;
-  const alreadyPaid = invoiceRow?.status === "paid";
-  const holdsClaim = invoiceRow?.payment_claim === "stripe";
-
-  // Converts the held claim into the settled payout: invoice paid, bill paid, expense entry, GL
-  // posting and the claim's own `vendor_payouts` row flipped to paid — the same settle the offline
-  // and balance rails run. Idempotent, so a redelivery repeats it harmlessly.
-  if (holdsClaim) await settleInvoicePayment(db, managerUserId, invoiceId, "stripe");
-
-  const stripeChargeId = vendorBankingEnabled()
-    ? await resolveChargeIdFromCheckoutSession(getStripe(), session).catch(() => null)
-    : null;
-  await creditHoldFromPaidSession(db, session, stripeChargeId ?? undefined);
-
-  if (!holdsClaim && alreadyPaid) return;
+  const { data: existing, error: lookupError } = await db.from("vendor_invoices")
+    .select("status, payment_claim, checkout_session_id, stripe_checkout_provider_terms, manager_user_id, vendor_user_id, total_cents")
+    .eq("id", invoiceId).eq("manager_user_id", managerUserId).maybeSingle();
+  if (lookupError || !existing || existing.payment_claim !== "stripe" || existing.checkout_session_id !== session.id) {
+    // A session created before claim tracking needs manual reconciliation. A
+    // stale session must never mark a newer balance/offline payment paid.
+    throw new Error("Invoice checkout has no matching Stripe payment claim.");
+  }
+  const invoiceCents = Math.round(Number(existing.total_cents));
+  const processingFeeCents = Number(session.metadata.processing_fee_cents);
+  if (existing.manager_user_id !== managerUserId || existing.vendor_user_id !== vendorUserId ||
+      !Number.isSafeInteger(invoiceCents) || invoiceCents < 100 ||
+      Number(session.metadata.invoice_cents) !== invoiceCents ||
+      !Number.isSafeInteger(processingFeeCents) || processingFeeCents < 0 ||
+      !Number.isSafeInteger(platformFeeCents) || platformFeeCents < 0 ||
+      platformFeeCents >= invoiceCents ||
+      session.currency?.toLowerCase() !== "usd" ||
+      session.amount_total !== invoiceCents + processingFeeCents ||
+      (session.metadata.payment_method !== "card" && session.metadata.payment_method !== "ach")) {
+    throw new Error("Invoice checkout amount or owner differs from the approved invoice.");
+  }
+  const stripe = getStripe();
+  let verifiedHoldId: string | null = null;
+  let stripeChargeId: string | null;
+  if (session.metadata.source_arbitration_v === "1") {
+    const frozen = existing.stripe_checkout_provider_terms as {
+      invoiceId?: string; managerUserId?: string; vendorUserId?: string;
+      invoiceCents?: number; request?: { idempotencyKey?: string;
+        destinationAccountId?: string | null; paymentMethod?: string;
+        metadata?: Record<string, string>; extraApplicationFeeCents?: number;
+        fixedFeeBreakdown?: { residentAddedFeeCents: number; totalCents: number } };
+    } | null;
+    if (!frozen?.request || frozen.invoiceId !== invoiceId ||
+        frozen.managerUserId !== managerUserId || frozen.vendorUserId !== vendorUserId ||
+        frozen.invoiceCents !== invoiceCents ||
+        frozen.request.destinationAccountId ||
+        frozen.request.paymentMethod !== session.metadata.payment_method ||
+        frozen.request.extraApplicationFeeCents !== platformFeeCents ||
+        frozen.request.fixedFeeBreakdown?.residentAddedFeeCents !== processingFeeCents ||
+        frozen.request.fixedFeeBreakdown?.totalCents !== session.amount_total ||
+        frozen.request.metadata?.source_arbitration_v !== "1" ||
+        frozen.request.metadata?.platform_fee_cents !== String(platformFeeCents) ||
+        frozen.request.idempotencyKey !==
+          `vendor-invoice:${invoiceId}:${session.metadata.checkout_attempt}`) {
+      throw new Error("Invoice Checkout differs from its frozen provider claim.");
+    }
+    const source = await creditVerifiedVendorCheckoutSource(db, stripe, session, {
+      purpose: VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
+      managerUserId, vendorUserId, sourceId: directInvoiceHoldSourceId(invoiceId),
+      componentId: invoiceId, componentKind: "vendor_invoice",
+      principalCents: invoiceCents, platformFeeCents,
+    });
+    verifiedHoldId = source.holdId;
+    stripeChargeId = source.chargeId;
+  } else {
+    if (session.metadata.source_arbitration_v) {
+      throw new Error("Unknown invoice source arbitration version.");
+    }
+    const legacy = await verifyLegacyVendorCheckoutSource(db, stripe, session, {
+      purpose: VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
+      managerUserId, vendorUserId, principalCents: invoiceCents,
+      platformFeeCents, sourceId: directInvoiceHoldSourceId(invoiceId),
+    });
+    stripeChargeId = legacy.chargeId;
+  }
+  if (!verifiedHoldId) await creditHoldFromPaidSession(db, session, stripeChargeId);
+  await settleInvoicePayment(db, managerUserId, invoiceId, "stripe");
+  if (isHold && !stripeChargeId) throw new Error("Paid invoice Checkout has no resolvable Stripe charge.");
 
   await upsertInvoiceVendorPayout(db, {
-    invoiceId,
-    managerUserId,
-    vendorUserId,
-    amountCents: invoiceCents,
-    stripeTransferId: isHold ? null : session.id,
-    platformFeeCents,
-    destination: isHold ? "hold" : "destination_charge",
-    stripeChargeId,
+      invoiceId,
+      managerUserId,
+      vendorUserId,
+      amountCents: invoiceCents,
+      stripeTransferId: isHold ? null : session.id,
+      platformFeeCents,
+      destination: isHold ? "hold" : "destination_charge",
+      stripeChargeId,
+      platformHoldId: verifiedHoldId,
   });
 
-  if (vendorBankingEnabled()) {
-    // Idempotent on `invoice:<id>:charge` / `:platform_fee`, so a redelivery credits nothing twice.
-    await recordVendorBankingChargeAndFee(db, {
-      vendorUserId,
-      managerUserId,
-      grossCents: invoiceCents,
-      feeCents: platformFeeCents,
-      source: "invoice",
-      sourceId: invoiceId,
-      description: "Payment for invoice",
-      stripeObjectId: stripeChargeId ?? session.id,
-    }).catch((e) => console.error("[vendor-banking] ledger write failed for invoice pay", e));
+  if (platformFeeCents > 0) {
+      await recordVendorBankingChargeAndFee(db, {
+        vendorUserId,
+        managerUserId,
+        grossCents: invoiceCents,
+        feeCents: platformFeeCents,
+        source: "invoice",
+        sourceId: invoiceId,
+        description: "Payment for invoice",
+        stripeObjectId: stripeChargeId ?? session.id,
+      });
   }
+  if (verifiedHoldId) await releaseVerifiedPlatformHoldsForOwner(db, {
+    ownerUserId: vendorUserId, holdId: verifiedHoldId, stripe,
+  });
+}
 
-  if (!holdsClaim) {
-    const nowIso = new Date().toISOString();
-    await db
-      .from("vendor_invoices")
-      .update({ status: "paid", paid_at: nowIso, paid_from: "stripe", updated_at: nowIso })
-      .eq("id", invoiceId);
+/** Release only a terminal failed/expired Stripe attempt. Webhooks and retries
+ * both pass through the same session-id compare-and-swap database function. */
+export async function releaseFailedVendorInvoiceCheckout(
+  db: SupabaseClient,
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  if (session.metadata?.purpose !== VENDOR_INVOICE_DIRECT_PAY_PURPOSE) return;
+  const invoiceId = session.metadata.invoice_id?.trim();
+  const managerUserId = session.metadata.manager_user_id?.trim();
+  if (!invoiceId || !managerUserId) return;
+  const stripe = getStripe();
+  const current = await stripe.checkout.sessions.retrieve(session.id);
+  let terminal = current.status === "expired";
+  if (!terminal && current.status === "complete" && current.payment_status === "unpaid" && current.payment_intent) {
+    const intent = typeof current.payment_intent === "string"
+      ? await stripe.paymentIntents.retrieve(current.payment_intent)
+      : current.payment_intent;
+    terminal = intent.status === "requires_payment_method" || intent.status === "canceled";
   }
+  if (!terminal) return;
+  const { error } = await db.rpc("release_vendor_invoice_stripe_checkout", {
+    p_invoice: invoiceId,
+    p_manager: managerUserId,
+    p_session: session.id,
+  });
+  if (error) throw new Error(error.message);
 }
 
 async function upsertInvoiceVendorPayout(
@@ -342,10 +371,14 @@ async function upsertInvoiceVendorPayout(
     platformFeeCents: number;
     destination: "destination_charge" | "hold";
     stripeChargeId: string | null;
+    platformHoldId: string | null;
   },
 ): Promise<void> {
   const nowIso = new Date().toISOString();
-  const { data: existing } = await db.from("vendor_payouts").select("id").eq("invoice_id", opts.invoiceId).maybeSingle();
+  const { data: existing, error: readError } = await db.from("vendor_payouts")
+    .select("id,manager_user_id,vendor_user_id,amount_cents,status,stripe_transfer_id,platform_fee_cents,destination,stripe_charge_id,platform_hold_id")
+    .eq("invoice_id", opts.invoiceId).maybeSingle();
+  if (readError) throw new Error(`Could not read invoice payout: ${readError.message}`);
   const patch = {
     manager_user_id: opts.managerUserId,
     vendor_user_id: opts.vendorUserId,
@@ -356,11 +389,34 @@ async function upsertInvoiceVendorPayout(
     platform_fee_cents: opts.platformFeeCents,
     destination: opts.destination,
     stripe_charge_id: opts.stripeChargeId,
+    platform_hold_id: opts.platformHoldId,
     updated_at: nowIso,
   };
   if (existing?.id) {
-    const { error } = await db.from("vendor_payouts").update(patch).eq("id", existing.id);
-    if (error) throw new Error(error.message);
+    const metadataUninitialized = !existing.destination && !existing.stripe_charge_id;
+    if (existing.manager_user_id !== opts.managerUserId || existing.vendor_user_id !== opts.vendorUserId ||
+        Number(existing.amount_cents) !== opts.amountCents ||
+        !["pending", "paid", "partially_refunded", "refunded"].includes(String(existing.status)) ||
+        (existing.stripe_transfer_id && opts.stripeTransferId && existing.stripe_transfer_id !== opts.stripeTransferId) ||
+        (existing.stripe_charge_id && opts.stripeChargeId && existing.stripe_charge_id !== opts.stripeChargeId) ||
+        (existing.platform_hold_id && opts.platformHoldId && existing.platform_hold_id !== opts.platformHoldId) ||
+        (existing.status !== "pending" && !metadataUninitialized && Number(existing.platform_fee_cents) !== opts.platformFeeCents) ||
+        (existing.destination && existing.destination !== opts.destination)) {
+      throw new Error("Invoice payout terms no longer match the paid session.");
+    }
+    const { data: updated, error } = await db.from("vendor_payouts").update({
+      ...((existing.status === "pending" || metadataUninitialized) ? { platform_fee_cents: opts.platformFeeCents } : {}),
+      ...(existing.status === "pending" ? { status: "paid" } : {}),
+      ...(!existing.stripe_transfer_id && opts.stripeTransferId ? { stripe_transfer_id: opts.stripeTransferId } : {}),
+      ...(!existing.stripe_charge_id && opts.stripeChargeId ? { stripe_charge_id: opts.stripeChargeId } : {}),
+      ...(!existing.platform_hold_id && opts.platformHoldId ? { platform_hold_id: opts.platformHoldId } : {}),
+      ...(!existing.destination ? { destination: opts.destination } : {}),
+      updated_at: nowIso,
+    }).eq("id", existing.id)
+      .eq("manager_user_id", opts.managerUserId).eq("vendor_user_id", opts.vendorUserId)
+      .eq("amount_cents", opts.amountCents).eq("status", existing.status)
+      .select("id").maybeSingle();
+    if (error || !updated?.id) throw new Error(`Could not repair invoice payout: ${error?.message ?? "row changed"}`);
   } else {
     const { error } = await db.from("vendor_payouts").insert({ ...patch, created_at: nowIso });
     if (error) throw new Error(error.message);

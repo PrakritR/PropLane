@@ -148,6 +148,20 @@ describe("reconcilePlatformLedgerCharges", () => {
     });
   });
 
+  it("keeps a charge pending when Stripe has not supplied a clearing date", async () => {
+    const pi: FakePaymentIntent = {
+      id: "pi_waiting", metadata: { manager_user_id: "manager-1", manager_payout_cents: "5000" },
+      latest_charge: { id: "ch_waiting", balance_transaction: null },
+    };
+    const { stripe } = makeStripe({ pages: [[pi]],
+      sessionsByPaymentIntentId: { pi_waiting: { id: "cs_waiting" } } });
+    const { db, insertCalls } = makeDb();
+    const result = await reconcilePlatformLedgerCharges(stripe, db);
+    expect(result.credited).toBe(0);
+    expect(result.errors).toEqual([expect.stringMatching(/waiting for Stripe clearing evidence/)]);
+    expect(insertCalls).toHaveLength(0);
+  });
+
   it("skips (does not re-credit) a charge that already has a matching ledger entry", async () => {
     const pi: FakePaymentIntent = {
       id: "pi_2",
@@ -191,7 +205,7 @@ describe("reconcilePlatformLedgerCharges", () => {
     const ok: FakePaymentIntent = {
       id: "pi_ok",
       metadata: { manager_user_id: "manager-1", manager_payout_cents: "1000" },
-      latest_charge: { id: "ch_ok" },
+      latest_charge: { id: "ch_ok", balance_transaction: { available_on: 1_800_000_000 } },
     };
     const bad: FakePaymentIntent = {
       id: "pi_bad",
@@ -216,7 +230,7 @@ describe("reconcilePlatformLedgerCharges", () => {
     const piFor = (n: number): FakePaymentIntent => ({
       id: `pi_${n}`,
       metadata: { manager_user_id: "manager-1", manager_payout_cents: "1000" },
-      latest_charge: { id: `ch_${n}` },
+      latest_charge: { id: `ch_${n}`, balance_transaction: { available_on: 1_800_000_000 } },
     });
     const page1 = [piFor(1), piFor(2)];
     const page2 = [piFor(3)];

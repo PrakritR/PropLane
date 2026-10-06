@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isDeepStrictEqual } from "node:util";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchRowsForManagerWithLinked,
@@ -16,7 +17,6 @@ import { advanceStaleProcessingHouseholdCharges } from "@/lib/household-charges"
 import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility.server";
 import {
   cancelFuturePaymentRemindersForCharge,
-  restoreFuturePaymentRemindersForCharge,
 } from "@/lib/payment-reminder-lifecycle.server";
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
@@ -86,7 +86,7 @@ export async function GET() {
 
     let chargeQuery = db
       .from("portal_household_charge_records")
-      .select("id, row_data, updated_at")
+      .select("id, row_data, manager_user_id, updated_at")
       .order("updated_at", { ascending: false })
       // Higher bound so a high-volume manager's older paid rows stay in the
       // snapshot (missing paid rows would vanish from the UI; the server-side
@@ -136,7 +136,7 @@ export async function GET() {
     if (chargeResult.error) return NextResponse.json({ error: chargeResult.error.message }, { status: 500 });
     if (profileResult.error) return NextResponse.json({ error: profileResult.error.message }, { status: 500 });
 
-    type ChargeRecordRow = { id: string; row_data: unknown; updated_at: string | null };
+    type ChargeRecordRow = { id: string; row_data: unknown; manager_user_id?: string | null; updated_at: string | null };
     let chargeRows = (chargeResult.data ?? []) as ChargeRecordRow[];
     if (user.role === "manager") {
       // Co-managers with "payments" access on linked properties also see those charges —
@@ -156,7 +156,14 @@ export async function GET() {
       }
     }
 
-    const rawCharges = chargeRows.map((r) => r.row_data as HouseholdCharge);
+    const rawCharges = chargeRows.map((r) => {
+      const charge = r.row_data as HouseholdCharge;
+      // The stored column names the charge manager for every row. Browser
+      // row_data must not choose whose owned listing/account policy is shown.
+      return r.manager_user_id
+        ? { ...charge, managerUserId: r.manager_user_id }
+        : charge;
+    });
     const advanced = localDevAchShortcutAllowed()
       ? advanceStaleProcessingHouseholdCharges(rawCharges)
       : rawCharges;
@@ -324,32 +331,14 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
       const rowData = (existing.row_data ?? {}) as Record<string, unknown>;
-      const restoredBalance =
-        typeof rowData.amountLabel === "string" && rowData.amountLabel.trim()
-          ? rowData.amountLabel
-          : (rowData.balanceLabel ?? null);
-      const nextRow = {
-        ...rowData,
-        status: "pending",
-        paidAt: null,
-        paidMethod: null,
-        paidNote: null,
-        balanceLabel: restoredBalance,
-        // Match the client unmark: drop the (past) due date so it lands in Pending,
-        // not Overdue, and reopen reminders.
-        dueDateLabel: null,
-        cancelledReminders: null,
-        stripeCheckoutSessionId: null,
-      };
-      const { error } = await db
-        .from("portal_household_charge_records")
-        .update({ status: "pending", row_data: nextRow, updated_at: now })
-        .eq("id", id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      await restoreFuturePaymentRemindersForCharge(db, ownerId, id).catch(() => undefined);
-      await syncLedgerChargeEntry(db, { ...(nextRow as unknown as HouseholdCharge), managerUserId: ownerId }).catch(
-        () => undefined,
-      );
+      // This action previously erased the source pointer while leaving its
+      // payment ledger/GL cash journal behind. There is no accounting-safe
+      // reversal here, for either provider-backed or offline receipts.
+      if (existing.status !== "pending" || rowData.paidAt || rowData.stripeCheckoutSessionId || rowData.paidMethod || rowData.paidAmountCents || rowData.stripePaymentStatus) {
+        return NextResponse.json({ error: "Receipt correction is not available." }, { status: 409 });
+      }
+      // Already pending: the client's stale copy may reconcile itself. No
+      // financial, provider, reminder, or ledger fields change on this route.
       return NextResponse.json({ ok: true });
     }
 
@@ -372,24 +361,30 @@ export async function POST(req: Request) {
       const previousStatusById = new Map<string, string | null>();
       const existingOwnerById = new Map<string, string | null>();
       const existingPropertyById = new Map<string, string | null>();
+      const existingUpdatedAtById = new Map<string, string | null>();
       const existingLedgerFingerprintById = new Map<string, string>();
       const existingResidentVisibleAtById = new Map<string, string>();
+      const existingRowDataById = new Map<string, Record<string, unknown>>();
+      const existingRecordById = new Map<string, Record<string, unknown>>();
       // A lease fee a manager WAIVED (cancelled with `waivedAt`): only the waiver route reverses it.
       const existingWaivedIds = new Set<string>();
       if (chargeIds.length > 0) {
         const { data: existingRows, error: existingRowsError } = await db
           .from("portal_household_charge_records")
-          .select("id, status, manager_user_id, property_id, row_data")
+          .select("id, status, manager_user_id, resident_user_id, resident_email, property_id, kind, row_data, updated_at")
           .in("id", chargeIds);
         if (existingRowsError) {
           return NextResponse.json({ error: existingRowsError.message }, { status: 500 });
         }
         for (const row of existingRows ?? []) {
           const id = String(row.id);
+          existingRecordById.set(id, row as Record<string, unknown>);
           previousStatusById.set(id, typeof row.status === "string" ? row.status : null);
           existingOwnerById.set(id, row.manager_user_id ? String(row.manager_user_id) : null);
           existingPropertyById.set(id, row.property_id ? String(row.property_id) : null);
+          existingUpdatedAtById.set(id, typeof row.updated_at === "string" ? row.updated_at : null);
           if (row.row_data && typeof row.row_data === "object") {
+            existingRowDataById.set(id, row.row_data as Record<string, unknown>);
             existingLedgerFingerprintById.set(
               id,
               householdChargeLedgerFingerprint(row.row_data as Record<string, unknown>),
@@ -449,15 +444,14 @@ export async function POST(req: Request) {
       for (const c of normalizedCharges) {
         if (!c.id) continue;
         const id = String(c.id);
-        // PAID IS STICKY. The client mirrors its full charge list on nearly every
-        // local write; if a charge was marked paid out-of-band (Stripe webhook,
-        // another device, a co-manager) while this client still holds a stale
-        // pending copy, its mirror must NOT downgrade the paid row back to
-        // pending/overdue. Skip any incoming downgrade of a stored-paid charge —
-        // the only legitimate revert is action:"unmarkPaid" above.
-        if (previousStatusById.get(id) === "paid" && (typeof c.status !== "string" || c.status !== "paid")) {
-          continue;
-        }
+        // The full-list browser mirror is not a payment authority. A paid or
+        // in-flight server row must remain intact even when the browser sends
+        // the same status with different provider/receipt fields. A new paid
+        // row, or a pending row promoted to paid here, must use the dedicated
+        // server-authorized payment path instead.
+        const storedStatus = previousStatusById.get(id);
+        if (["paid", "processing", "partially_paid", "refunded"].includes(storedStatus ?? "")) continue;
+        if (typeof c.status !== "string" || !["pending", "cancelled", "failed"].includes(c.status)) continue;
         // A WAIVER IS STICKY too: a stale tab still holding the pending lease fee must not bring it back.
         // Restoring is a deliberate manager action through /api/manager/lease-fee-waivers.
         if (existingWaivedIds.has(id) && c.status !== "cancelled") continue;
@@ -509,7 +503,20 @@ export async function POST(req: Request) {
         // `residentVisibleAt` is server-owned (stamped by the reminder route): a
         // client copy that predates the stamp must not strip it on its mirror.
         const storedVisibleAt = existingResidentVisibleAtById.get(id);
-        const rowData = storedVisibleAt && !c.residentVisibleAt ? { ...c, residentVisibleAt: storedVisibleAt } : c;
+        const rowData: Record<string, unknown> = storedVisibleAt && !c.residentVisibleAt
+          ? { ...c, residentVisibleAt: storedVisibleAt }
+          : { ...c };
+        const storedData = existingRowDataById.get(id);
+        // A receipt, provider binding, or waiver marker belongs to an explicit
+        // server action. Keep any stored values; discard all mirror-supplied
+        // values, including on a same-status update of an existing charge.
+        for (const key of ["paidAt", "paidAmountCents", "paidMethod", "paidNote", "processingStartedAt",
+          "stripeCheckoutSessionId", "stripePaymentStatus", "waivedAt", "waivedByUserId", "waiverReason"] as const) {
+          if (storedData && Object.hasOwn(storedData, key)) rowData[key] = storedData[key];
+          else delete rowData[key];
+        }
+        if (rowData.status === "pending") rowData.balanceLabel = rowData.amountLabel;
+        if (rowData.status === "cancelled") rowData.balanceLabel = "$0.00";
         mappedRows.push({
           id,
           manager_user_id: managerUserId,
@@ -522,15 +529,43 @@ export async function POST(req: Request) {
           updated_at: now,
         });
       }
-      const rows = mappedRows;
-      if (rows.length > 0) {
-        const { error } = await db.from("portal_household_charge_records").upsert(rows, { onConflict: "id" });
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      const persistedRows: typeof mappedRows = [];
+      let chargeWriteError: string | null = null;
+      for (const row of mappedRows) {
+        if (existingOwnerById.has(row.id)) {
+          const stored = existingRecordById.get(row.id);
+          if (stored && isDeepStrictEqual(stored.row_data, row.row_data) &&
+              stored.manager_user_id === row.manager_user_id && stored.resident_user_id === row.resident_user_id &&
+              stored.resident_email === row.resident_email && stored.property_id === row.property_id &&
+              stored.kind === row.kind && stored.status === row.status) continue;
+          const expectedStatus = previousStatusById.get(row.id);
+          const expectedUpdatedAt = existingUpdatedAtById.get(row.id);
+          // A missing version cannot safely be compared; a subsequent load
+          // can recover this row without risking a provider settlement.
+          if (!expectedStatus || !expectedUpdatedAt) continue;
+          const { data, error } = await db.from("portal_household_charge_records")
+            .update(row)
+            .eq("id", row.id)
+            .eq("status", expectedStatus)
+            .eq("updated_at", expectedUpdatedAt)
+            .select("id");
+          if (error) { chargeWriteError = error.message; break; }
+          if ((data ?? []).length > 0) persistedRows.push(row);
+        } else {
+          // Insert-only: a concurrent provider/manager writer may have created
+          // this id after our read. Never turn that row into an upsert target.
+          const { data, error } = await db.from("portal_household_charge_records").insert(row).select("id");
+          if (error?.code === "23505") continue;
+          if (error) { chargeWriteError = error.message; break; }
+          if ((data ?? []).length > 0) persistedRows.push(row);
+        }
+      }
+      if (persistedRows.length > 0) {
         // Batch-scoped dedupe only — a full-table sweep on every client mirror
         // was taking tens of seconds and blocking the whole portal load.
         await reconcileDuplicateChargeList(
           db,
-          mappedRows.map((row) => row.row_data as HouseholdCharge),
+          persistedRows.map((row) => row.row_data as HouseholdCharge),
           user.role === "admin" ? undefined : user.id,
           new Set(chargeIds),
         ).catch(() => undefined);
@@ -540,7 +575,7 @@ export async function POST(req: Request) {
         // reach syncLedgerChargeEntry, which would otherwise write owner-attributed
         // ledger/GL rows from the co-manager's untrusted mirror copy. The owner id
         // comes from the row's resolved manager_user_id, not the caller.
-        for (const row of mappedRows) {
+        for (const row of persistedRows) {
           const chargeId = row.id;
           const nextStatus = row.status;
           if (!nextStatus) continue;
@@ -569,6 +604,7 @@ export async function POST(req: Request) {
           }).catch(() => undefined);
         }
       }
+      if (chargeWriteError) return NextResponse.json({ error: chargeWriteError }, { status: 500 });
     }
 
     if (rentProfiles.length > 0) {

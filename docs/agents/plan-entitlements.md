@@ -177,6 +177,18 @@ subscription) and reported back by `GET /api/manager/subscription` as
 The Adjust sheet reuses this existing plumbing rather than inventing a second
 scheduling mechanism.
 
+A no-card signup trial (`billing: trial`, Pro or Business entitlement, no
+Stripe/Apple subscription) is not an existing paid plan. Billing & plan lets
+that manager select the same tier and monthly cadence and start an embedded
+paid checkout. The route reserves the owned Checkout session on the existing
+trial purchase row without changing its tier or trial billing first; only
+verified paid fulfillment replaces those terms. Concurrent starts keep one
+reserved session and expire the losing new session. An existing paid Stripe or
+Apple subscription is never offered a second subscription checkout, and a
+failed purchase read cannot be treated as Free. Coverage:
+`tests/unit/manager-trial-portal-checkout.test.ts`,
+`tests/unit/pro-plan-adjust-sheet-doors.test.tsx`.
+
 ## Workspaces, work numbers and seats
 
 `WORKSPACE_PLAN_ENTITLEMENTS` (`src/lib/workspaces/types.ts`) is the third axis:

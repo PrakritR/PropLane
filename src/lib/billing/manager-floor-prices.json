@@ -1,0 +1,5 @@
+{
+  "free": { "monthlyCents": 0, "annualCents": 0 },
+  "pro": { "monthlyCents": 4900, "annualCents": 49000 },
+  "business": { "monthlyCents": 24900, "annualCents": 249000 }
+}

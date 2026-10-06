@@ -53,7 +53,7 @@ import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { deleteManagerPaymentLedgerEntry, markManagerPaymentLedgerPaid, markManagerPaymentLedgerPending } from "@/lib/demo-manager-payment-ledger";
-import { readHouseholdCharges, recordHouseholdChargeOfflinePayment, deleteHouseholdCharge, legacyChargeIdAliases, markHouseholdChargePaid, markHouseholdChargePending, publicChargeIdForUrl, updateHouseholdChargeAmount, type ChargeManagerScopeOpts } from "@/lib/household-charges";
+import { readHouseholdCharges, recordHouseholdChargeOfflinePayment, deleteHouseholdCharge, legacyChargeIdAliases, publicChargeIdForUrl, updateHouseholdChargeAmount, type ChargeManagerScopeOpts } from "@/lib/household-charges";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import {
   syncResidentAfterStayPaymentEdit,
@@ -80,7 +80,6 @@ import {
   cancelFutureRemindersForPaidCharge,
   ChargeRemindersModal,
   patchScheduledMessage,
-  restoreFutureRemindersForPendingCharge,
 } from "@/components/portal/payment-schedule-ui";
 import type { ManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
@@ -144,6 +143,12 @@ function isPaidRow(row: DemoManagerPaymentLedgerRow): boolean {
   return row.statusLabel === "Paid" || parseMoneyLabel(row.balanceDue) <= 0;
 }
 
+function hasProviderRefundSource(row: DemoManagerPaymentLedgerRow): boolean {
+  if (!row.householdChargeId) return false;
+  const charge = readHouseholdCharges().find((item) => item.id === row.householdChargeId);
+  return Boolean(charge?.stripeCheckoutSessionId?.trim() && !charge.paidMethod);
+}
+
 /**
  * A paid security deposit is the only thing PropLane can send back.
  *
@@ -152,7 +157,7 @@ function isPaidRow(row: DemoManagerPaymentLedgerRow): boolean {
  * action that will always be refused.
  */
 function isReturnableDepositRow(row: DemoManagerPaymentLedgerRow): boolean {
-  return row.chargeKind === "security_deposit" && isPaidRow(row) && Boolean(row.householdChargeId);
+  return row.chargeKind === "security_deposit" && isPaidRow(row) && hasProviderRefundSource(row);
 }
 
 /**
@@ -160,7 +165,7 @@ function isReturnableDepositRow(row: DemoManagerPaymentLedgerRow): boolean {
  * their own dedicated Return-deposit action; this is the general counterpart for paid rent/fees.
  */
 function isRefundableChargeRow(row: DemoManagerPaymentLedgerRow): boolean {
-  return row.chargeKind !== "security_deposit" && isPaidRow(row) && Boolean(row.householdChargeId);
+  return row.chargeKind !== "security_deposit" && isPaidRow(row) && hasProviderRefundSource(row);
 }
 
 function isRemindableRow(row: DemoManagerPaymentLedgerRow): boolean {
@@ -334,6 +339,7 @@ export function ManagerPaymentsLedgerPanel({
   const [paymentToday] = useState(() => new Date().setHours(0, 0, 0, 0));
   const [takePaymentRow, setTakePaymentRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [offlineRow, setOfflineRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
+  const [offlineRows, setOfflineRows] = useState<DemoManagerPaymentLedgerRow[]>([]);
   // Lease fee waiver: the row being waived (or restored) and the reason the manager types.
   const [waiveRow, setWaiveRow] = useState<{ row: DemoManagerPaymentLedgerRow; restore: boolean } | null>(null);
   const [waiveReason, setWaiveReason] = useState("");
@@ -579,16 +585,10 @@ export function ManagerPaymentsLedgerPanel({
     [showToast],
   );
 
-  /** Reverts exactly the rows `markSelectedAsPaid`/`recordPaid` just marked paid — the Undo toast's one click (AGENTS.md § The pop-up: "reversible actions run immediately with an Undo toast"). Mirrors `moveToPending`/`moveSelectedToPending`. */
+  /** Undo applies only to legacy local rows; a recorded receipt has no accounting-safe Undo path. */
   const revertToPending = async (paidRows: DemoManagerPaymentLedgerRow[]) => {
     for (const row of paidRows) {
-      if (row.householdChargeId) {
-        if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) {
-          await restoreFutureRemindersForPendingCharge(row.householdChargeId).catch(() => undefined);
-        }
-      } else {
-        markManagerPaymentLedgerPending(row.id);
-      }
+      if (!row.householdChargeId) markManagerPaymentLedgerPending(row.id);
     }
     onRowsChanged?.();
     onScheduleChanged?.();
@@ -597,17 +597,15 @@ export function ManagerPaymentsLedgerPanel({
   const markSelectedAsPaid = async () => {
     const targets = rows.filter((row) => selectedIds.has(row.id) && isMarkableAsPaid(row));
     if (targets.length === 0) return;
+    if (targets.some((row) => row.householdChargeId)) {
+      setOfflineRows(targets);
+      setOfflineRow(targets[0]!);
+      return;
+    }
     const paid: DemoManagerPaymentLedgerRow[] = [];
     for (const row of targets) {
-      if (row.householdChargeId) {
-        if (markHouseholdChargePaid(row.householdChargeId, managerUserId, chargeScopeOpts)) {
-          await cancelFutureRemindersForPaidCharge(row.householdChargeId, scheduledMessages).catch(() => undefined);
-          paid.push(row);
-        }
-      } else {
-        markManagerPaymentLedgerPaid(row.id);
-        paid.push(row);
-      }
+      markManagerPaymentLedgerPaid(row.id);
+      paid.push(row);
     }
     setSelectedIds(new Set());
     onRowsChanged?.();
@@ -628,23 +626,15 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const moveSelectedToPending = async () => {
-    const targets = selectedRows;
+    const targets = selectedRows.filter((row) => !row.householdChargeId);
     if (targets.length === 0) return;
     let ok = 0;
     for (const row of targets) {
-      if (row.householdChargeId) {
-        if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) ok += 1;
-      } else {
-        markManagerPaymentLedgerPending(row.id);
-        ok += 1;
-      }
+      markManagerPaymentLedgerPending(row.id);
+      ok += 1;
     }
     onRowsChanged?.();
     onScheduleChanged?.();
-    for (const row of targets) {
-      if (!row.householdChargeId) continue;
-      await restoreFutureRemindersForPendingCharge(row.householdChargeId).catch(() => undefined);
-    }
     onScheduleChanged?.();
     setSelectedIds(new Set());
     if (ok === 0) {
@@ -1337,7 +1327,7 @@ export function ManagerPaymentsLedgerPanel({
         } else if (isRefundableChargeRow(row)) {
           actions.push({ id: "refund", label: "Refund", icon: RotateCcw });
         }
-        actions.push({ id: "move-pending", label: "Move to pending", icon: CalendarDays });
+        if (!row.householdChargeId) actions.push({ id: "move-pending", label: "Move to pending", icon: CalendarDays });
       }
       actions.push({ id: "download", label: "Download", icon: Download });
       if (rowDeletable(row)) {
@@ -1378,15 +1368,19 @@ export function ManagerPaymentsLedgerPanel({
             {charge?.paidNote ? <RecordFactRow label="Note" value={charge.paidNote} /> : null}
             {row.notes ? <RecordFactRow label="Details" value={row.notes} /> : null}
             {row.residentChargeMessages?.map((message) => <RecordFactRow key={message.id} label={formatPacificDateTime(message.sentAt)} value={message.body} />)}
-            <RecordFactRow
-              label={isPaidRow(row) ? "Paid into" : "Pays into"}
-              value={
-                <span className="inline-flex items-center gap-1">
-                  {workspaceBalanceLabel}
-                  <PortalIconAction icon={ArrowUpRight} label="Go to Finances" onClick={() => navigate(`${listBasePath ?? "/portal"}/financials`)} />
-                </span>
-              }
-            />
+            {isPaidRow(row) && charge?.paidMethod ? (
+              <RecordFactRow label="Paid via" value={charge.paidMethod} />
+            ) : (
+              <RecordFactRow
+                label={isPaidRow(row) ? "Paid into" : "Pays into"}
+                value={
+                  <span className="inline-flex items-center gap-1">
+                    {workspaceBalanceLabel}
+                    <PortalIconAction icon={ArrowUpRight} label="Go to Finances" onClick={() => navigate(`${listBasePath ?? "/portal"}/financials`)} />
+                  </span>
+                }
+              />
+            )}
           </RecordFactCard>
           <RecordFactCard title="History" dataAttr="payment-overview-history">
             <ol className="space-y-4 p-4">{events.map((event, index) => <li key={`${event.at}-${index}`} className="border-l-2 border-primary/30 pl-3"><span className="block text-sm font-medium">{event.label}</span><time className="text-xs text-muted" dateTime={event.at}>{formatPacificDateTime(event.at)}</time></li>)}</ol>
@@ -1437,19 +1431,17 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const recordPaid = async (row: DemoManagerPaymentLedgerRow, toastMessage: string) => {
+    if (row.householdChargeId) {
+      setOfflineRows([]);
+      setOfflineRow(row);
+      return;
+    }
     try {
       await runRecordActionGate(
         {
           reversible: true,
           run: async () => {
-            if (row.householdChargeId) {
-              if (!markHouseholdChargePaid(row.householdChargeId, managerUserId, chargeScopeOpts)) {
-                throw new Error("Could not update this line.");
-              }
-              await cancelFutureRemindersForPaidCharge(row.householdChargeId, scheduledMessages).catch(() => undefined);
-            } else {
-              markManagerPaymentLedgerPaid(row.id);
-            }
+            markManagerPaymentLedgerPaid(row.id);
             navigateToList();
             onRowsChanged?.();
             onScheduleChanged?.();
@@ -1496,16 +1488,7 @@ export function ManagerPaymentsLedgerPanel({
 
   const moveToPending = async (row: DemoManagerPaymentLedgerRow) => {
     if (row.householdChargeId) {
-      if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) {
-        onRowsChanged?.();
-        onScheduleChanged?.();
-        await restoreFutureRemindersForPendingCharge(row.householdChargeId).catch(() => undefined);
-        onScheduleChanged?.();
-        showToast("Moved to pending.");
-        navigateToList();
-        return;
-      }
-      showToast("Could not update this line.");
+      showToast("Receipt correction is not available.");
       return;
     }
     markManagerPaymentLedgerPending(row.id);
@@ -1586,7 +1569,7 @@ export function ManagerPaymentsLedgerPanel({
   const renderDetailActions = (row: DemoManagerPaymentLedgerRow) => {
     const canEdit = Boolean(row.householdChargeId && !isPaidRow(row)) && rowEditable(row);
     const showSendReminder = !isPaidRow(row);
-    const showMoveToPending = activeBucket === "paid";
+    const showMoveToPending = activeBucket === "paid" && !row.householdChargeId;
     const showDelete = rowDeletable(row);
     const showReturnDeposit = isReturnableDepositRow(row);
     const showRefund = isRefundableChargeRow(row);
@@ -1938,7 +1921,7 @@ export function ManagerPaymentsLedgerPanel({
       });
     }
 
-    if (activeBucket === "paid" && selectedRows.length > 0) {
+    if (activeBucket === "paid" && selectedRows.length > 0 && selectedRows.every((row) => !row.householdChargeId)) {
       actions.push({
         id: "move-pending",
         keepPriority: 3,
@@ -2305,13 +2288,30 @@ export function ManagerPaymentsLedgerPanel({
           </label>
         )}
       </PortalDialog>
-      <PortalDialog open={Boolean(offlineRow)} title="Mark paid offline" onClose={() => setOfflineRow(null)} primaryAction={{ label: "Mark paid", onClick: async () => {
-        if (!offlineRow?.householdChargeId) { showToast("This payment cannot be recorded offline."); return; }
+      <PortalDialog open={Boolean(offlineRow)} title={offlineRows.length > 1 ? `Mark ${offlineRows.length} paid offline` : "Mark paid offline"} onClose={() => { setOfflineRow(null); setOfflineRows([]); }} primaryAction={{ label: "Mark paid", onClick: async () => {
+        const targets = offlineRows.length > 0 ? offlineRows : offlineRow ? [offlineRow] : [];
+        if (targets.length === 0) return;
         const paidAt = offlineDate === new Date().toLocaleDateString("en-CA") ? new Date().toISOString() : `${offlineDate}T12:00:00`;
-        const ok = await recordHouseholdChargeOfflinePayment(offlineRow.householdChargeId, managerUserId, { paidAt, method: offlineMethod, note: offlineNote }, chargeScopeOpts);
-        if (!ok) { showToast("Could not record payment. Check the date and refresh the charge."); return; }
-        await cancelFutureRemindersForPaidCharge(offlineRow.householdChargeId, scheduledMessages).catch(() => undefined);
-        setOfflineRow(null); setOfflineNote(""); onRowsChanged?.(); onScheduleChanged?.(); showToast("Payment recorded.");
+        let recorded = 0;
+        for (const target of targets) {
+          if (target.householdChargeId) {
+            const ok = await recordHouseholdChargeOfflinePayment(target.householdChargeId, managerUserId, { paidAt, method: offlineMethod, note: offlineNote }, chargeScopeOpts);
+            if (!ok) {
+              const remaining = targets.slice(recorded);
+              setOfflineRows(remaining);
+              setOfflineRow(remaining[0] ?? null);
+              onRowsChanged?.(); onScheduleChanged?.();
+              showToast(recorded > 0 ? `Recorded ${recorded} payments. Could not record the next payment; refresh and retry.` : "Could not record payment. Check the date and refresh the charge.");
+              return;
+            }
+            await cancelFutureRemindersForPaidCharge(target.householdChargeId, scheduledMessages).catch(() => undefined);
+          } else {
+            markManagerPaymentLedgerPaid(target.id);
+          }
+          recorded += 1;
+        }
+        setOfflineRow(null); setOfflineRows([]); setOfflineNote(""); setSelectedIds(new Set());
+        onRowsChanged?.(); onScheduleChanged?.(); showToast(recorded === 1 ? "Payment recorded." : `${recorded} payments recorded.`);
       } }}>
         <div className="space-y-4">
           <label className="block text-sm">Date paid<Input type="date" value={offlineDate} max={new Date().toLocaleDateString("en-CA")} onChange={(event) => setOfflineDate(event.target.value)} /></label>
@@ -2401,7 +2401,7 @@ export function ManagerPaymentsLedgerPanel({
             if (actionId === "waive-lease-fee") { setWaiveReason(""); setWaiveRow({ row: detailRow, restore: false }); return; }
             if (actionId === "restore-lease-fee") { setWaiveRow({ row: detailRow, restore: true }); return; }
             if (actionId === "take-payment") { setTakePaymentRow(detailRow); return; }
-            if (actionId === "mark-paid") { setOfflineRow(detailRow); return; }
+            if (actionId === "mark-paid") { setOfflineRows([]); setOfflineRow(detailRow); return; }
             if (actionId === "edit") { startEdit(detailRow); return; }
             if (actionId === "move-pending") { void moveToPending(detailRow); return; }
             if (actionId === "download") {

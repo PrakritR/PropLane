@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
+const release = vi.hoisted(() => vi.fn(async () => ({ transferred: 0, pending: 0 })));
+const recover = vi.hoisted(() => vi.fn(async () => ({ settled: 0, pending: 0 })));
+vi.mock("@/lib/platform-hold-release.server", () => ({ releaseVerifiedPlatformHoldsForOwner: release }));
+vi.mock("@/lib/platform-owner-recovery.server", () => ({ settleClearedPlatformOwnerRecovery: recover }));
+vi.mock("@/lib/stripe", () => ({ getStripe: () => ({}) }));
 import { handleStripeAccountUpdated } from "@/lib/stripe-webhook-financials";
 
 /**
@@ -73,6 +78,10 @@ function account(overrides: Partial<Stripe.Account>): Stripe.Account {
 }
 
 describe("handleStripeAccountUpdated — payout_identity_status cache refresh is scoped per event", () => {
+  beforeEach(() => {
+    release.mockReset().mockResolvedValue({ transferred: 0, pending: 0 });
+    recover.mockReset().mockResolvedValue({ settled: 0, pending: 0 });
+  });
   it("upserts only the row for THIS event's account, never a different owner's", async () => {
     const { db, upserts } = fakeDb();
 
@@ -95,11 +104,23 @@ describe("handleStripeAccountUpdated — payout_identity_status cache refresh is
     expect(upserts[1]!.row).toMatchObject({ owner_user_id: "owner-b", status: "verified" });
     // The first owner's row is untouched by the second event.
     expect(upserts[0]!.row.owner_user_id).toBe("owner-a");
+    expect(release).toHaveBeenNthCalledWith(1, db, { ownerUserId: "owner-a" });
+    expect(release).toHaveBeenNthCalledWith(2, db, { ownerUserId: "owner-b" });
+    expect(recover).toHaveBeenNthCalledWith(1, db, expect.anything(), { ownerUserId: "owner-a" });
+    expect(recover).toHaveBeenNthCalledWith(2, db, expect.anything(), { ownerUserId: "owner-b" });
   });
 
   it("does nothing when the account cannot be resolved to any owner", async () => {
     const { db, upserts } = fakeDb();
     await handleStripeAccountUpdated(db as never, account({ id: "acct_unknown" }));
     expect(upserts).toHaveLength(0);
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed source-backed drain instead of acknowledging it", async () => {
+    const { db } = fakeDb();
+    release.mockRejectedValueOnce(new Error("source needs review"));
+    await expect(handleStripeAccountUpdated(db as never, account({ id: "acct_owner_a" })))
+      .rejects.toThrow(/source needs review/);
   });
 });

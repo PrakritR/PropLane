@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isStripeConnectAccountAccessError } from "@/lib/stripe-connect";
 
 export type PayoutDestinationKind = "bank" | "card";
-export type PayoutDestinationStatus = "verified" | "verifying" | "errored";
+export type PayoutDestinationStatus = "new" | "validated" | "verified" | "errored" | "unknown";
 
 export type PayoutDestination = {
   id: string;
@@ -14,6 +14,8 @@ export type PayoutDestination = {
   label: string;
   last4: string;
   status: PayoutDestinationStatus;
+  payable: boolean;
+  instantEligible: boolean;
   default: boolean;
 };
 
@@ -42,27 +44,28 @@ function stripeExternalAccountErrorMessage(e: unknown, context: string): string 
 }
 
 /**
- * Maps a Stripe external account's `status` to the three states the UI shows.
+ * Maps Stripe's actual external-account state without claiming verification.
  * Documented values for an EXTERNAL (Connect) bank account are `new`,
  * `errored`, `verification_failed`, `tokenized_account_number_deactivated`
  * (the `validated`/`verified` states describe a CUSTOMER-owned bank account) —
  * this still maps the fuller set defensively since Stripe's own typing
  * leaves `status` as a bare `string`. An unrecognized future value fails
- * closed to "verifying" rather than claiming "verified".
+ * closed to unknown rather than claiming verification.
  */
 function bankAccountStatus(bank: Stripe.BankAccount): PayoutDestinationStatus {
   switch (bank.status) {
     case "verified":
       return "verified";
     case "new":
+      return "new";
     case "validated":
-      return "verifying";
+      return "validated";
     case "errored":
     case "verification_failed":
     case "tokenized_account_number_deactivated":
       return "errored";
     default:
-      return "verifying";
+      return "unknown";
   }
 }
 
@@ -75,6 +78,9 @@ function toPayoutDestination(ea: Stripe.ExternalAccount): PayoutDestination | nu
       label: ea.bank_name?.trim() || "Bank account",
       last4: ea.last4,
       status: bankAccountStatus(ea),
+      payable: ["new", "validated", "verified"].includes(bankAccountStatus(ea)),
+      instantEligible: Array.isArray(ea.available_payout_methods) &&
+        ea.available_payout_methods.includes("instant"),
       default: Boolean(ea.default_for_currency),
     };
   }
@@ -84,10 +90,11 @@ function toPayoutDestination(ea: Stripe.ExternalAccount): PayoutDestination | nu
       kind: "card",
       label: ea.brand?.trim() || "Card",
       last4: ea.last4,
-      // A card external account has no verification pipeline of its own —
-      // Stripe accepts or rejects it synchronously at attach time, so a card
-      // that exists on the account is always usable.
-      status: "verified",
+      status: ea.funding === "debit" ? "verified" : "unknown",
+      payable: ea.funding === "debit" && Array.isArray(ea.available_payout_methods) &&
+        ea.available_payout_methods.includes("instant"),
+      instantEligible: ea.funding === "debit" && Array.isArray(ea.available_payout_methods) &&
+        ea.available_payout_methods.includes("instant"),
       default: Boolean(ea.default_for_currency),
     };
   }
@@ -117,6 +124,16 @@ export function payoutDestinationsFromAccount(account: Stripe.Account): PayoutDe
 export async function listPayoutDestinations(stripe: Stripe, accountId: string): Promise<PayoutDestination[]> {
   const account = await stripe.accounts.retrieve(accountId);
   return payoutDestinationsFromAccount(account);
+}
+
+/** Saved Connect id is a pointer, not ownership authority. */
+export async function assertOwnedPayoutAccount(stripe: Stripe, accountId: string,
+  ownerUserId: string): Promise<Stripe.Account> {
+  const account = await stripe.accounts.retrieve(accountId);
+  if (account.id !== accountId || account.metadata?.axis_user_id !== ownerUserId) {
+    throw new Error("Saved payout account does not belong to this owner.");
+  }
+  return account;
 }
 
 /**
@@ -277,23 +294,13 @@ export async function removePayoutDestination(
  * just an untyped path (`docs.stripe.com/api/external_account_bank_accounts/verify`).
  */
 export async function verifyPayoutDestinationMicroDeposits(
-  stripe: Stripe,
-  accountId: string,
-  destinationId: string,
-  amounts: [number, number],
+  _stripe: Stripe,
+  _accountId: string,
+  _destinationId: string,
+  _amounts: [number, number],
 ): Promise<AddDestinationResult> {
-  try {
-    const updated = (await stripe.rawRequest(
-      "POST",
-      `/v1/accounts/${encodeURIComponent(accountId)}/external_accounts/${encodeURIComponent(destinationId)}/verify`,
-      { amounts },
-    )) as Stripe.ExternalAccount;
-    const destination = toPayoutDestination(updated);
-    if (!destination) return { ok: false, status: 400, error: "Could not verify that account." };
-    return { ok: true, destination };
-  } catch (e) {
-    return { ok: false, status: 400, error: stripeExternalAccountErrorMessage(e, "stripe-external-accounts verify") };
-  }
+  return { ok: false, status: 400,
+    error: "This payout bank account does not use in-app microdeposit verification." };
 }
 
 // ---------------------------------------------------------------------------
@@ -347,29 +354,41 @@ export function validateVerifyMicroDepositsRequestBody(body: unknown): ValidateV
 // Display cache (Stripe stays the source; this is read-path-only display data)
 // ---------------------------------------------------------------------------
 
-/** Replaces every cached row for this owner. Never stores anything beyond what {@link listPayoutDestinations} already returns (last4/brand/bank name — never full numbers). */
+async function beginPayoutDestinationsCacheRefresh(db: SupabaseClient, ownerUserId: string): Promise<number> {
+  const { data, error } = await db.rpc("begin_payout_destination_cache_refresh", { p_owner_user_id: ownerUserId });
+  if (error || !Number.isSafeInteger(data) || Number(data) <= 0) {
+    throw new Error(error?.message ?? "Could not begin payout destination refresh.");
+  }
+  return Number(data);
+}
+
+/** Atomically replaces this owner's display rows, provided a newer Stripe
+ * read has not already been applied. Nothing beyond last4 and bank/card label
+ * is stored. */
 export async function replacePayoutDestinationsCache(
   db: SupabaseClient,
   ownerUserId: string,
+  connectAccountId: string,
   destinations: PayoutDestination[],
+  version?: number,
 ): Promise<void> {
-  const { error: deleteError } = await db.from("payout_destinations_cache").delete().eq("owner_user_id", ownerUserId);
-  if (deleteError) throw new Error(deleteError.message);
-  if (destinations.length === 0) return;
-
-  const now = new Date().toISOString();
+  const token = version ?? await beginPayoutDestinationsCacheRefresh(db, ownerUserId);
   const rows = destinations.map((d) => ({
-    owner_user_id: ownerUserId,
-    stripe_external_account_id: d.id,
+    id: d.id,
     kind: d.kind,
     label: d.label,
     last4: d.last4,
-    status: d.status,
+    // The retained display cache predates live payable/status fields. Keep
+    // its existing SQL enum while the live route carries exact Stripe state.
+    status: d.status === "verified" ? "verified"
+      : d.status === "new" || d.status === "validated" ? "verifying" : "errored",
     is_default: d.default,
-    updated_at: now,
   }));
-  const { error: insertError } = await db.from("payout_destinations_cache").insert(rows);
-  if (insertError) throw new Error(insertError.message);
+  const { error } = await db.rpc("finish_payout_destination_cache_refresh", {
+    p_owner_user_id: ownerUserId, p_connect_account_id: connectAccountId,
+    p_version: token, p_destinations: rows,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /** Reads live from Stripe and refreshes the cache in one step — the pattern every route and the webhook handler use after a mutation. */
@@ -379,7 +398,9 @@ export async function refreshPayoutDestinationsCacheFromStripe(
   ownerUserId: string,
   accountId: string,
 ): Promise<PayoutDestination[]> {
-  const destinations = await listPayoutDestinations(stripe, accountId);
-  await replacePayoutDestinationsCache(db, ownerUserId, destinations);
+  const version = await beginPayoutDestinationsCacheRefresh(db, ownerUserId);
+  const account = await assertOwnedPayoutAccount(stripe, accountId, ownerUserId);
+  const destinations = payoutDestinationsFromAccount(account);
+  await replacePayoutDestinationsCache(db, ownerUserId, accountId, destinations, version);
   return destinations;
 }

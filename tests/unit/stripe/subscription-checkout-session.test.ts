@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildManagerSubscriptionCheckoutBase,
   subscriptionCheckoutApplePayDomains,
-  subscriptionCheckoutUsesDynamicPaymentMethods,
+  subscriptionCheckoutUsesCardOnlyFunding,
 } from "@/lib/stripe/subscription-checkout-session";
 
 describe("subscription-checkout-session (Apple Pay)", () => {
-  it("omits payment_method_types so Stripe can offer Apple Pay", () => {
+  it("uses only in-app card funding and hides Link", () => {
     const params = buildManagerSubscriptionCheckoutBase({
       priceId: "price_test",
       metadata: { tier: "pro", billing: "monthly", manager_id: "AXIS-TEST" },
@@ -16,11 +16,12 @@ describe("subscription-checkout-session (Apple Pay)", () => {
 
     expect(params.mode).toBe("subscription");
     expect(params.line_items).toEqual([{ price: "price_test", quantity: 1 }]);
-    expect(subscriptionCheckoutUsesDynamicPaymentMethods(params)).toBe(true);
-    expect("payment_method_types" in params).toBe(false);
+    expect(subscriptionCheckoutUsesCardOnlyFunding(params)).toBe(true);
+    expect(params.payment_method_types).toEqual(["card"]);
+    expect(params.wallet_options).toEqual({ link: { display: "never" } });
   });
 
-  it("passes optional payment method configuration from env", () => {
+  it("ignores an unverified dynamic method configuration", () => {
     const prev = process.env.STRIPE_SUBSCRIPTION_PAYMENT_METHOD_CONFIGURATION;
     process.env.STRIPE_SUBSCRIPTION_PAYMENT_METHOD_CONFIGURATION = "pmc_test_subscriptions";
     try {
@@ -28,7 +29,8 @@ describe("subscription-checkout-session (Apple Pay)", () => {
         priceId: "price_test",
         metadata: { tier: "business", billing: "annual", manager_id: "AXIS-TEST" },
       });
-      expect(params.payment_method_configuration).toBe("pmc_test_subscriptions");
+      expect(params).not.toHaveProperty("payment_method_configuration");
+      expect(subscriptionCheckoutUsesCardOnlyFunding(params)).toBe(true);
     } finally {
       if (prev === undefined) delete process.env.STRIPE_SUBSCRIPTION_PAYMENT_METHOD_CONFIGURATION;
       else process.env.STRIPE_SUBSCRIPTION_PAYMENT_METHOD_CONFIGURATION = prev;

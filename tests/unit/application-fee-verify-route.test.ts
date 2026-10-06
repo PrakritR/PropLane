@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromoteIncompleteAfterFeeResult } from "@/lib/promote-incomplete-application-after-fee.server";
+import { DestinationSourcePendingError } from "@/lib/platform-destination-source.server";
 
 /**
  * Route-level coverage for POST /api/stripe/application-fee-verify — the
@@ -23,6 +24,14 @@ const orphanReport = vi.fn();
 
 vi.mock("@/lib/report-orphaned-application-fee.server", () => ({
   reportOrphanedApplicationFeePayment: (...args: unknown[]) => orphanReport(...args),
+}));
+vi.mock("@/lib/application-fee-fulfillment.server", () => ({
+  fulfillApplicationFeePayment: vi.fn(async (_db: unknown, _stripe: unknown, session: { metadata?: { includes_holding_deposit?: string; resident_email?: string } }) => {
+    if (session.metadata?.includes_holding_deposit === "true") throw new Error("Combined legacy payment needs source review.");
+    if (!session.metadata?.resident_email) throw new Error("Claimed payment has no saved applicant identity.");
+    return { chargeId: "hc-app-fee-1", alreadyPaid: false, managerUserId: "manager-1" };
+  }),
+  promoteClaimedApplicationAfterFee: (...args: unknown[]) => promoteIncomplete(...args),
 }));
 
 vi.mock("@/lib/auth/resident-setup-token", () => ({
@@ -71,6 +80,8 @@ function paidSession(overrides: Record<string, unknown> = {}) {
     customer_email: APPLICANT,
     metadata: {
       purpose: "rental_application_fee",
+      application_id: "AXIS-PROMOTED-1",
+      attempt_token: "attempt-1",
       property_id: "mgr-demo-pioneer",
       resident_email: APPLICANT,
     },
@@ -118,6 +129,48 @@ describe("POST /api/stripe/application-fee-verify", () => {
     });
   });
 
+  it("repairs an exact bound historical payment without promoting an arbitrary application", async () => {
+    const { fulfillApplicationFeePayment } = await import("@/lib/application-fee-fulfillment.server");
+    vi.mocked(fulfillApplicationFeePayment).mockResolvedValueOnce({
+      chargeId: "hc_applicant@example.com_historical", alreadyPaid: true, managerUserId: "manager-1", legacy: true,
+    });
+    retrieve.mockResolvedValueOnce(paidSession({
+      metadata: { purpose: "rental_application_fee", resident_email: APPLICANT,
+        property_id: "mgr-demo-pioneer" },
+    }));
+    const { POST } = await import("@/app/api/stripe/application-fee-verify/route");
+    const res = await POST(post({ sessionId: "cs_test_app_fee" }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ paid: true, alreadyPaid: true, applicationPromoted: false });
+    expect(json.chargeId).toBeUndefined();
+    expect(JSON.stringify(json)).not.toContain("applicant@example.com");
+    vi.mocked(fulfillApplicationFeePayment).mockResolvedValueOnce({
+      chargeId: "hc_applicant@example.com_historical", alreadyPaid: true, managerUserId: "manager-1", legacy: true,
+    });
+    retrieve.mockResolvedValueOnce(paidSession({
+      metadata: { purpose: "rental_application_fee", resident_email: APPLICANT,
+        property_id: "mgr-demo-pioneer" },
+    }));
+    const wrongEmail = await POST(post({ sessionId: "cs_test_app_fee", expectedEmail: "other@example.com" }));
+    expect(wrongEmail.status).toBe(200);
+    expect(JSON.stringify(await wrongEmail.json())).not.toContain("applicant@example.com");
+    expect(promoteIncomplete).not.toHaveBeenCalled();
+    expect(orphanReport).not.toHaveBeenCalled();
+  });
+
+  it("reports captured-but-routing payment as processing until provider destination legs hydrate", async () => {
+    const { fulfillApplicationFeePayment } = await import("@/lib/application-fee-fulfillment.server");
+    vi.mocked(fulfillApplicationFeePayment).mockRejectedValueOnce(
+      new DestinationSourcePendingError("Stripe transfer has not hydrated"));
+    const { POST } = await import("@/app/api/stripe/application-fee-verify/route");
+    const res = await POST(post({ sessionId: "cs_test_app_fee" }));
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ paid: false, processing: true,
+      paymentStatus: "paid" });
+    expect(promoteIncomplete).not.toHaveBeenCalled();
+  });
+
   it("reports paid unpromoted returns with Stripe's stored email, never the caller's email", async () => {
     promoteIncomplete.mockResolvedValue({ ok: true, promoted: false, reason: "validation_failed" });
     const { POST } = await import("@/app/api/stripe/application-fee-verify/route");
@@ -131,13 +184,13 @@ describe("POST /api/stripe/application-fee-verify", () => {
     expect(emailDelivery).not.toHaveBeenCalled();
   });
 
-  it("uses customer_email for server-side reporting when resident_email metadata is absent", async () => {
+  it("does not attribute a paid session missing its saved applicant identity", async () => {
     retrieve.mockResolvedValue(paidSession({ metadata: { purpose: "rental_application_fee", property_id: "mgr-demo-pioneer" } }));
     promoteIncomplete.mockResolvedValue({ ok: true, promoted: false, reason: "no_draft" });
     const { POST } = await import("@/app/api/stripe/application-fee-verify/route");
     const json = await (await POST(post({ sessionId: "cs_test_app_fee" }))).json();
-    expect(json).toMatchObject({ paid: true, applicationPromoted: false });
-    expect(orphanReport).toHaveBeenCalledWith(expect.anything(), { sessionId: "cs_test_app_fee", expectedEmail: "applicant@example.com" });
+    expect(json.error).toMatch(/saved applicant identity/);
+    expect(orphanReport).not.toHaveBeenCalled();
     expect(JSON.stringify(json)).not.toMatch(/applicant@example.com/i);
   });
 
@@ -172,7 +225,7 @@ describe("POST /api/stripe/application-fee-verify", () => {
     expect(orphanReport).not.toHaveBeenCalled();
   });
 
-  it("also marks the holding deposit paid — and returns its charge id — on a combined session", async () => {
+  it("holds an earlier combined fee/deposit session for source review", async () => {
     retrieve.mockResolvedValue(
       paidSession({ metadata: { purpose: "rental_application_fee", property_id: "mgr-demo-pioneer", resident_email: APPLICANT, includes_holding_deposit: "true" } }),
     );
@@ -180,10 +233,9 @@ describe("POST /api/stripe/application-fee-verify", () => {
     const res = await POST(post({ sessionId: "cs_test_app_fee", expectedEmail: APPLICANT }));
     const json = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(json.chargeId).toBe("hc-app-fee-1");
-    expect(json.depositChargeId).toBe("hc-deposit-1");
-    expect(markDeposit).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(500);
+    expect(json.error).toMatch(/source review/);
+    expect(markDeposit).not.toHaveBeenCalled();
   });
 
   it("never calls the deposit-marking path for a plain (non-combined) session", async () => {
@@ -205,7 +257,7 @@ describe("POST /api/stripe/application-fee-verify", () => {
     expect(json.paid).toBe(true);
     expect(json.emailMatches).toBe(true);
     expect(json.propertyId).toBe("mgr-demo-pioneer");
-    expect(json.chargeId).toBe("hc-app-fee-1");
+    expect(json.chargeId).toBeUndefined();
     expect(json.applicationPromoted).toBe(true);
     expect(json.applicationAxisId).toBe("AXIS-PROMOTED-1");
     // The whole payload, not just the removed `residentEmail` key.
@@ -323,13 +375,13 @@ describe("POST /api/stripe/application-fee-verify", () => {
     expect(emailDelivery).not.toHaveBeenCalled();
   });
 
-  it("falls back to customer_email when the session metadata carries no resident_email", async () => {
+  it("fails closed when the session metadata carries no resident_email", async () => {
     retrieve.mockResolvedValue(
       paidSession({ metadata: { purpose: "rental_application_fee", property_id: "mgr-demo-pioneer" } }),
     );
     const { POST } = await import("@/app/api/stripe/application-fee-verify/route");
     const res = await POST(post({ sessionId: "cs_test_app_fee", expectedEmail: APPLICANT }));
-    expect((await res.json()).emailMatches).toBe(true);
+    expect(res.status).toBe(500);
   });
 
   it("rejects a request with no sessionId in the body", async () => {

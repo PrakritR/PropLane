@@ -6,6 +6,7 @@ import { coerceResidentPaymentMethodForSurface } from "@/lib/platform/resident-p
 import { readNativePlatformHeader } from "@/lib/platform/native-client";
 import type { ResidentAxisPaymentMethod } from "@/lib/payment-policy";
 import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 
 export const runtime = "nodejs";
 
@@ -17,8 +18,10 @@ type Body = {
 };
 
 function normalizePaymentMethod(raw: unknown, isNativeApp: boolean): ResidentAxisPaymentMethod {
-  const method: ResidentAxisPaymentMethod =
-    raw === "card" || raw === "link" ? raw : "ach";
+  /* Link is never offered — a client that still asks for it is refused rather
+     than silently charged on another method. */
+  if (raw === "link") throw new Error("Link checkout is unavailable. Choose card or bank account.");
+  const method: ResidentAxisPaymentMethod = raw === "card" ? "card" : "ach";
   return coerceResidentPaymentMethodForSurface(method, isNativeApp);
 }
 
@@ -49,6 +52,11 @@ export async function POST(req: Request) {
     ];
 
     const db = createSupabaseServiceRoleClient();
+    const { data: profile, error: profileError } = await db.from("profiles")
+      .select("role").eq("id", user.id).maybeSingle();
+    if (profileError || !(await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role }))) {
+      return NextResponse.json({ error: "Resident access required." }, { status: 403 });
+    }
     const result = await createHouseholdChargeCheckout(db, {
       userId: user.id,
       userEmail: (user.email ?? "").trim().toLowerCase(),
@@ -65,6 +73,23 @@ export async function POST(req: Request) {
       );
     }
 
+    if (result.mode === "manual_ach") {
+      return NextResponse.json({
+        mode: result.mode,
+        clientSecret: result.clientSecret,
+        paymentIntentId: result.paymentIntentId,
+        bankStatus: result.bankStatus,
+        sessionId: result.sessionId,
+        amountCents: result.amountCents,
+        subtotalCents: result.subtotalCents,
+        processingFeeCents: result.processingFeeCents,
+        axisFeeCents: result.axisFeeCents,
+        platformFeeCents: result.platformFeeCents,
+        totalCents: result.totalCents,
+        paymentMethod: result.paymentMethod,
+        chargeIds: result.chargeIds,
+      });
+    }
     if (result.mode === "embedded") {
       return NextResponse.json({
         clientSecret: result.clientSecret,

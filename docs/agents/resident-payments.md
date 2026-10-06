@@ -22,18 +22,16 @@ Manager settings and staff overrides use separate atomic RPCs on the same row, s
 manager save cannot overwrite a concurrent staff revocation. Unknown plan reads stop
 checkout before deciding who pays.
 
-**Two paths, one fee math.** Ready Connect + bank
-(`connectAccountReadyForAchPayouts`: transfers active AND `payouts_enabled`)
-is a destination charge on the PLATFORM account
-(`transfer_data.destination = <that person's connected account>`, **never** a
-direct charge / `on_behalf_of` / a `Stripe-Account` header). No bank yet: the
-same checkout still completes as a platform charge (`platform_hold=1`); the
-webhook credits `platform_payment_holds` and `account.updated` transfers the
-leftover when they become ready. Withdraw never spends a hold. Only who
-bears the fee moves, via `application_fee_amount` on the destination path
-(omitted on the hold path):
+**One captured source, one fee math.** New marked household card Checkout,
+manual bank PaymentIntents and autopay PaymentIntents capture centrally with
+`source_arbitration_v=1`, no Connect destination or provider application fee.
+After the exact captured USD Charge is attested and the charge is atomically
+marked paid, `household-captured-source.server.ts` allocates the frozen
+principal, processing fee and manager net to the owner or a durable hold.
+Manager withdrawal spends only available, verified funds. The economic fee
+split remains:
 
-| Fee payer | Resident charged | `application_fee_amount` | Manager receives | PropLane net |
+| Fee payer | Resident charged | Processing fee allocation | Manager receives | PropLane net |
 | --- | --- | --- | --- | --- |
 | resident (Free, or an explicit paid-plan choice) | subtotal + fee | fee | subtotal | ≈ 0 |
 | manager (explicit paid-plan choice) | subtotal | fee | subtotal − fee | ≈ 0 |
@@ -41,7 +39,7 @@ bears the fee moves, via `application_fee_amount` on the destination path
 
 `src/lib/payment-policy.ts` is the single source of truth:
 - `residentProcessingFeeCents(subtotal, method)` — Stripe's cost (ACH 0.8% cap
-  $5; card/Link 2.9% + $0.30). A pass-through, never a markup.
+  $5; card 2.9% + $0.30). A pass-through, never a markup.
 - `resolveServiceFeePayer(tier, proChoice)` — the plan rule above. `tier` is the
   normalized SKU tier (`normalizeManagerSkuTier(...) ?? "free"`), so a
   legacy/unknown tier resolves to `resident`.
@@ -64,8 +62,60 @@ bears the fee moves, via `application_fee_amount` on the destination path
   (resident total, retained `application_fee_amount`, manager payout). The
   checkout builder and every disclosure derive from this, holding the invariant
   `totalCents − applicationFeeCents === managerPayoutCents` in all three cases;
-  `createAxisAchCheckoutSession` throws before creating the session if it ever
-  fails, and adds the resident fee line item ONLY when the resident pays.
+  the checkout builder refuses a non-reconciling quote before provider work and
+  adds the resident fee line item only when the resident pays.
+
+### Resident claim and in-app bank payment boundary (October 2026)
+
+`20261004230000_resident_checkout_attempt_claims.sql` reserves every selected
+charge in one transaction before Stripe work. Its slot excludes another cart or
+autopay run; retry reuses the original immutable amount, owner, fee terms,
+provider idempotency key and source. Partial payment, changed amounts, owner
+mismatch, an unknown listing/payment policy, and any stored legacy source
+without a new slot require review before another debit. A historical co-manager
+charge booked under someone other than the actual listing owner also needs
+books review; the new source never reassigns that charge or its journals.
+
+Residents enter a bank account inside Payments or the move-in pay step. Stripe.js
+receives account and routing numbers directly; the app server receives only a
+marked PaymentIntent ID and later microdeposit code or cent amounts. The custom
+form displays one-time debit terms for the exact quoted amount before calling
+`confirmUsBankAccountPayment`. Saved-bank setup uses a customer-owned SetupIntent,
+separate future-payment terms, and `confirmUsBankAccountSetup`. These terms and
+the account holder email are necessary because Stripe's [ACH mandate guidance](https://docs.stripe.com/payments/ach-direct-debit#mandates)
+requires a custom form to show authorization before confirmation and describes
+mandate copies by billing email. [Stripe's direct API guide](https://docs.stripe.com/payments/ach-direct-debit/accept-a-payment?payment-ui=direct-api)
+and [saved-bank guide](https://docs.stripe.com/payments/ach-direct-debit/set-up-payment?payment-ui=elements)
+cover the microdeposit and confirmation states. Verification can resume after
+closing the UI: the processing charge carries the exact PI reference, while
+Settings recovers a pending SI only under the authenticated resident's exact
+Stripe customer and metadata. A retryable `requires_payment_method` PI retains
+its claim and client secret; a failed event cannot release a slot while that PI
+could still confirm. Manager-assisted collection stays card only; a resident
+must authorize their own bank account in Payments.
+
+**Claim, source and route order.** Every marked payment (`source_arbitration_v`
+metadata) goes: resident role → test-workspace effect gate → Stripe, on every new
+PI/SI route (`resident-ach-payment`, `resident-bank-setup`, and the SetupIntent
+POST of `resident-payment-methods`); a nonresident or test-workspace caller never reaches a
+provider call. Reopening after close or reload is `GET` on the exact original
+PI/SI only: no new claim, no new PI, no credit until the PI is paid. Once exactly
+paid, the card verify route, manual-ACH route, synchronous autopay and the
+webhook each call the matching `creditVerifiedHousehold{Checkout,Manual,Autopay}Source`
+(`household-captured-source.server.ts`) before success; failure is 409/review, never
+a swallowed hold insert. Source, slot and funds model: `financials.md` § Source
+arbitration. Manager-assisted collection is card-only and settles by webhook.
+
+A legacy open household Checkout source may carry no charge-side session
+reference, so the new SQL cannot discover it. Such a charge needs books review —
+resolved to terminally expired and unpaid, or reconciled to its exact paid
+source — before another debit is started against it; nothing here expires a
+provider session or mutates production. Delayed autopay PI events after account deletion need
+provider reconciliation because the existing account purge cascades the run;
+they must not attach money or an old attempt to a replacement login. A deleted
+manual claim keeps immutable provider/source terms with resident access detached;
+the same-email replacement cannot verify it. This tranche does not add a second
+receipt to a partially paid charge or a new reversal workflow.
 
 The **manager choice** is `serviceFeePayer: "resident" | "manager" | "proplane"` on
 `ManagerManualPaymentSettings` (default `resident`), edited in the manager
@@ -176,17 +226,50 @@ still shows only the application fee (no plan tier leaks there); the itemized
 service fee only appears once an applicant reaches the payment step
 (`/api/public/application-fee-preview` returns the same breakdown the checkout
 route will charge, so the wizard itemizes it before the applicant pays).
-**Payment is INLINE (embedded), not a redirect** — `application-fee-checkout`
-defaults to `mode: "embedded"` and returns a `clientSecret`; the wizard renders
+**Payment is INLINE (embedded)** — `application-fee-checkout`
+requires `mode: "embedded"` and returns a `clientSecret`; the wizard renders
 Stripe's embedded card form in-step (`ApplicationFeeInlinePayment` →
 `StripeEmbeddedCheckout`). On success Stripe returns the applicant to
 `…?fee_checkout=return&session_id=…` which the wizard verifies before treating
 the fee as paid; an abandoned/failed payment leaves the applicant on the step
-with a clear error and their answers intact. A legacy `mode: "hosted"` redirect
-path is still supported for callers that ask for it.
+with a clear error and their answers intact. The wizard drains its serialized
+draft save before checkout; the server derives room, term and template from
+that exact authorized saved application. A durable application claim freezes
+the quote and provider create parameters, arbitrates concurrent `first_only`
+payments across that manager and applicant, and binds paid settlement to the
+same application, attempt, session, PaymentIntent and charge. The webhook and
+return verifier share the idempotent ledger/hold fulfillment; accounting errors
+retry rather than acknowledging an incomplete payment. Older paid platform-hold
+sessions without a claim can repair financial records only when one existing
+paid charge is already bound to that exact session and Stripe confirms the
+owner, amount, charge and absence of refunds. That repair does not promote an
+application. Other historical sessions remain source-review items; email and
+property matching never assign them or authorize a second charge.
+
+Before deploying application-fee claims, inventory the existing Stripe
+application-fee Checkout sessions read-only for the target environment, including
+open sessions and completed paid sessions. Join paid sessions to
+`portal_household_charge_records` by the exact stored
+`row_data.stripeCheckoutSessionId`, then compare the actual PaymentIntent and
+charge to the stored owner, property, applicant, USD gross, principal, refund
+status and hold/destination mode. Record zero or multiple exact matches as
+reconciliation items. Old open sessions without a claim must be confirmed
+terminally expired AND unpaid under a separately reviewed operation before
+rollout; a
+late paid session with no exact source remains retryable and requires source
+review, never ambient email/property adoption or a second charge. The bounded
+legacy verifier can repair only an exact, already-paid, refund-free platform
+hold source; historical direct destinations need separate owner/transfer
+evidence. This inventory is a rollout gate, not a runtime scan or permission
+to expire or transfer production money.
+
 **A manager-owned waiver code (`src/lib/application-fee-waiver.ts`,
 `/api/public/application-fee-waiver`) can waive the application fee entirely**
 — a redeemed code skips Stripe altogether (no $0 charge, no session).
+New redemptions bind the saved application ID after applicant access is checked;
+a code redeemed on one `every_time` draft does not waive another. Historical
+redemptions with a null application ID need explicit source review and are not
+automatically assigned to every new draft.
 
 **`manager_application_fee_waiver_codes` is the only authority on which code is
 live.** Two surfaces write it: Applications settings
@@ -340,25 +423,22 @@ normalization + plan transitions), `tests/unit/stripe-axis-ach-checkout.test.ts`
 `application_fee_amount`, `transfer_data` destination, no `on_behalf_of`), and
 `tests/unit/stripe-ledger-fees.test.ts` (fee attribution).
 
-**A third funding model exists behind a flag: the PropLane balance ledger
-(night/vendor-pay, `PROPLANE_BALANCE_ENABLED`, default off).** When on,
-`createHouseholdChargeCheckout` passes `fundingModel: "platform_ledger"` to
-`createAxisAchCheckoutSession` — the ONE new branch in that builder — instead
-of resolving a destination account: no `transfer_data`, no
-`application_fee_amount`, no `platform_hold` metadata; the charge lands on the
-platform outright (separate charges and transfers). The resident-facing fee
-math (`residentServiceFeeBreakdown`) is byte-identical either way — only where
-the settled money goes changes. The `checkout.session.completed` webhook
-credits `manager_payout_cents` as a PENDING entry in the manager's PropLane
-balance (`src/lib/proplane-balance/household-charge-credit.server.ts`),
-available once Stripe's own balance-transaction `available_on` passes. Nothing
-else (application fees, vendor-invoice-pay checkout, autopay) ever requests
-this funding model, and with the flag off `createHouseholdChargeCheckout`
-resolves the SAME destination-or-hold path it always has. See
-`.lavish/night/build-vendor-pay.md` for the full architecture and the
-switch-on checklist.
+**Historical household funding models remain readable, not reusable for new
+marked captures.** Earlier Checkout sources could be Connect destination,
+platform hold, or the flagged `platform_ledger` path introduced for night and
+vendor pay. Their original provider routing and payment evidence must remain
+attached to those receipts. New `source_arbitration_v=1` household captures
+always use the central source allocator described above, independently of
+`PROPLANE_BALANCE_ENABLED`; the fee math remains the same. See
+`.lavish/night/build-vendor-pay.md` for the older funding model's context.
 
-**The destination is per-manager when they are ready.**
+**Marked household captures have no Connect destination** (`destinationAccountId`
+is null, claim terms reject one); the platform captures and the central source
+allocator credits the exact owner. The paragraph below describes the historical
+and application-fee/autopay-era routing.
+
+**The destination is per-manager when they are ready (historical household
+sessions, application fees).**
 `resolveConnectDestinationIfReady` (`src/lib/stripe-connect.ts`) reads that
 manager's own `profiles.stripe_connect_account_id` and returns the account id
 only when transfers are active and `payouts_enabled`. Otherwise the session
@@ -369,17 +449,19 @@ fees (`application-fee-checkout.server.ts`), and autopay
 ONLY when Stripe reports the account can actually receive money; an
 existing-but-unfinished account reads as "incomplete"
 (`src/lib/stripe-setup-state.ts`). Coverage:
-`tests/unit/manager-connect-destination-routing.test.ts` (per-manager
-destination isolation + hold when not onboarded),
+`tests/unit/manager-connect-destination-routing.test.ts` (claim owner isolation,
+platform capture with no destination for marked household checkout),
 `tests/unit/stripe-connect.test.ts` (the resolver gate), and
 `tests/unit/stripe-setup-state.test.ts` (the UI truth mapping).
 
-**Ledger attribution: the Stripe fee is NOT the manager's.** `ledger_entries` is
-the manager's book, so `enrichLedgerPaymentFromStripeCharge` writes
-`stripe_fee_cents = 0` and `net_cents = charge.amount - application_fee` (the
-destination transfer), rather than the platform balance transaction's fee/net.
-PropLane's real cost lives in PropLane's own Stripe balance. Do not post a
-`stripe_fee` GL entry against a manager — nothing left their payout.
+**Ledger attribution.** `ledger_entries` is the manager's book;
+[`financials.md`](financials.md) § Ledger fee capture owns exactly what each
+shape writes into `stripe_fee_cents` / `net_cents`. The invariant either way:
+never post a `stripe_fee` GL entry against a manager without reading who bore
+the fee. On a legacy destination charge Stripe's cost is PropLane's, and on a
+platform capture `stripe_fee_cents` is the owner-borne fee under the frozen fee
+payer — not Stripe's processing fee — and stays NULL (never 0, never gross)
+until the frozen terms are verified.
 
 **Every pre-Stripe confirmation states the exact total, itemizing any service
 fee the resident pays.** The resident payments panel resolves its manager's
@@ -414,8 +496,13 @@ only beat Stripe above ~1,000 payments/month once monthly minimums are counted
 listing still lists. `isPayableHouseholdCharge` and `filterChargesForPayMethod`
 are PropLane/Stripe alone (`src/lib/platform/resident-payments.ts`); the
 resident payments panel has no manual-channel branch. `residentPaymentMethodsSummary`
-says either "PropLane payments — bank (ACH), card (Apple Pay), or Link" or, when
+says either "PropLane payments — bank (ACH) or card (Apple Pay)" or, when
 the manager has not finished setup, to ask the manager to finish it.
+
+Stripe Link is not one of the two — `ResidentAxisPaymentMethod` is
+`"ach" | "card"` on every surface, so every payment stays in-app. How a `link`
+request is refused is owned by
+[`docs/stripe-apple-pay-payments.md`](../stripe-apple-pay-payments.md).
 
 There is no receipt inbox, no Gmail connection, no "I paid by hand" report from
 the resident, and no per-charge payment reference code. `HouseholdCharge` has no
@@ -742,21 +829,18 @@ never a forked fee calculation.** `chargeAutopay`
 `stripe-household-charge-checkout.server.ts`, also used by
 `createHouseholdChargeCheckout`) that a manual payment uses, then
 `residentServiceFeeBreakdown` for the numbers — the SAME single source of
-truth this file describes above. Only the Stripe object differs: a manual
-payment creates a Checkout Session (someone is present to complete it); autopay
-creates a PaymentIntent directly with `confirm: true, off_session: true`,
-setting `transfer_data.destination` and `application_fee_amount` straight on
-the PaymentIntent instead of nested under a session's `payment_intent_data`.
-Marking the charge paid also reuses the manual path's own per-charge core
-(`markOneHouseholdChargePaid` in `stripe-household-charge.ts`), so the ledger
-write-through, reminder cancellation, and outbound webhook are identical
-either way. `payment_intent.succeeded` / `.payment_failed` additively update
-the `resident_autopay_runs` row in `stripe-webhook-financials.ts`; a declined
-PaymentIntent still carries `metadata.charge_id`, so the EXISTING
-`handlePaymentIntentFailed` flips the charge to `failed` (and creates an NSF
-fee if the manager's billing settings call for one) exactly like a declined
-manual payment, and the autopay-specific handler only additionally updates the
-run row and sends the decline notice.
+truth this file describes above. A manual card payment creates a Checkout
+Session; a manual bank payment and autopay each create a centrally captured
+PaymentIntent, with `manual_ach=1` and `autopay_run_id` respectively to keep
+their authorities distinct. The run attempt number is frozen in autopay
+metadata; an old PI event cannot settle a newer attempt. Before the first
+marked paid transition, the exact latest Charge and refund history are
+attested; after atomic charge/ledger settlement, the captured source is
+allocated once. `payment_intent.payment_failed` for a marked manual PI retains
+its claim because the same client secret can still be confirmed. The autopay
+decline handler updates only the exact current run and releases its slot under
+its existing retry policy; historical unmarked events continue through their
+separate compatibility path.
 
 **A manager setting gates enrollment, per workspace** — `payment_settings`
 jsonb on `portal_workspaces`, alongside `serviceFeePayer` (see above):

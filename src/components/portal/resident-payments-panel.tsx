@@ -10,13 +10,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { track } from "@/lib/analytics/track-client";
 import { Button } from "@/components/ui/button";
-import { Select, Input } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
+import { ResidentBankAccountForm } from "@/components/portal/resident-bank-account-form";
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_PRIMARY_ACTION_BTN,
@@ -45,6 +46,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useNativePlatform } from "@/hooks/use-native-platform";
 import {
   chargeDueLabel,
+  residentChargeAmountLabel,
   residentChargeListDueLabel,
   residentChargeCountsAsDue,
   compareChargesByDueDate,
@@ -122,6 +124,8 @@ import {
 type PayConfirmState = {
   chargeIds: string[];
   method: ResidentAxisPaymentMethod;
+  /** An exact existing bank PI was loaded; opening this modal must not create another payment. */
+  resumePaymentIntentId?: string;
 };
 
 type CheckoutState = {
@@ -129,6 +133,9 @@ type CheckoutState = {
   chargeIds: string[];
   paymentMethod: ResidentAxisPaymentMethod;
   clientSecret: string | null;
+  mode?: "checkout" | "manual_ach";
+  paymentIntentId?: string;
+  bankStatus?: "entry" | "verification" | "clearing" | "paid" | "review";
   loading: boolean;
   error: string | null;
   /** False when retrying cannot help — a missing key or an unfinished manager setup. */
@@ -147,7 +154,6 @@ const CHECKOUT_METHOD_OPTIONS: {
 }[] = [
   { id: "ach", title: "Bank (ACH)" },
   { id: "card", title: RESIDENT_CARD_PAYMENT_DISPLAY_LABEL },
-  { id: "link", title: "Link" },
 ];
 
 function centsFromLabel(label: string): number {
@@ -493,17 +499,6 @@ export function ResidentPaymentsPanel({
     [termCharges],
   );
 
-  const managerStripeConnectBlocked = useMemo(
-    () =>
-      charges.some(
-        (c) =>
-          c.status === "pending" &&
-          c.axisPaymentsEnabledSnapshot === true &&
-          c.managerStripeConnectReadySnapshot === false,
-      ),
-    [charges],
-  );
-
   const refresh = useCallback(() => {
     setTick((n) => n + 1);
   }, []);
@@ -764,6 +759,9 @@ export function ResidentPaymentsPanel({
         });
         const payload = (await res.json().catch(() => ({}))) as {
           clientSecret?: string;
+          mode?: "checkout" | "manual_ach";
+          paymentIntentId?: string;
+          bankStatus?: "entry" | "verification" | "clearing" | "paid" | "review";
           url?: string;
           error?: string;
           code?: string;
@@ -794,11 +792,19 @@ export function ResidentPaymentsPanel({
           return;
         }
         if (payload.clientSecret) {
+          if (method === "ach" && (payload.mode !== "manual_ach" || !payload.paymentIntentId)) {
+            setCheckout({ key, chargeIds: ids, paymentMethod: method, clientSecret: null, loading: false,
+              error: "Bank payment needs review." });
+            return;
+          }
           setCheckout({
             key,
             chargeIds: ids,
             paymentMethod: method,
             clientSecret: payload.clientSecret,
+            mode: payload.mode,
+            paymentIntentId: payload.paymentIntentId,
+            bankStatus: payload.bankStatus,
             loading: false,
             error: null,
             subtotalCents: payload.subtotalCents,
@@ -819,6 +825,7 @@ export function ResidentPaymentsPanel({
           clientSecret: null,
           loading: false,
           error: "Could not start payment.",
+          canRetry: true,
         });
       }
     },
@@ -829,39 +836,62 @@ export function ResidentPaymentsPanel({
     const ids = [...new Set(chargeIds.map((id) => id.trim()).filter(Boolean))];
     if (ids.length === 0) return;
     setCheckout(null);
-    setPayModalStep("pay");
+    setPayModalStep("select");
     setPayConfirm({ chargeIds: ids, method });
   }, []);
 
-  // Each load creates a payment session, so it must fire only when the
-  // selection or method changes — never because a callback identity did.
-  const loadCheckoutRef = useRef(loadCheckout);
-  useEffect(() => {
-    loadCheckoutRef.current = loadCheckout;
-  }, [loadCheckout]);
-  useEffect(() => {
-    if (!payConfirm) return;
-    void loadCheckoutRef.current(payConfirm.chargeIds, payConfirm.method);
-  }, [payConfirm]);
+  const resumeManualAch = useCallback(async (paymentIntentId: string) => {
+    const response = await fetch(`/api/stripe/resident-ach-payment?payment_intent_id=${encodeURIComponent(paymentIntentId)}`,
+      { credentials: "include", cache: "no-store" });
+    const result = await response.json() as { clientSecret?: string; chargeIds?: string[];
+      bankStatus?: CheckoutState["bankStatus"]; subtotalCents?: number; totalCents?: number;
+      processingFeeCents?: number; axisFeeCents?: number; error?: string };
+    if (!response.ok || !result.clientSecret || !Array.isArray(result.chargeIds) ||
+        result.chargeIds.length === 0 || !result.bankStatus ||
+        !Number.isSafeInteger(result.subtotalCents) || !Number.isSafeInteger(result.totalCents) ||
+        !Number.isSafeInteger(result.processingFeeCents) || !Number.isSafeInteger(result.axisFeeCents) ||
+        (result.subtotalCents ?? 0) <= 0 || (result.processingFeeCents ?? 0) < 0 ||
+        (result.axisFeeCents ?? 0) < 0 ||
+        result.totalCents !== (result.subtotalCents ?? 0) + (result.processingFeeCents ?? 0) + (result.axisFeeCents ?? 0)) {
+      showToast(result.error ?? "Bank payment needs review.");
+      return;
+    }
+    setPayModalStep("pay");
+    setCheckout({ key: checkoutKey(result.chargeIds, "ach"), chargeIds: result.chargeIds,
+      paymentMethod: "ach", clientSecret: result.clientSecret, mode: "manual_ach",
+      paymentIntentId, bankStatus: result.bankStatus, subtotalCents: result.subtotalCents,
+      processingFeeCents: result.processingFeeCents, axisFeeCents: result.axisFeeCents,
+      totalCents: result.totalCents, loading: false, error: null });
+    setPayConfirm({ chargeIds: result.chargeIds, method: "ach", resumePaymentIntentId: paymentIntentId });
+    await syncHouseholdChargesFromServer(true, { skipReconcile: true });
+    refresh();
+  }, [refresh, showToast]);
 
   const selectPayModalMethod = useCallback((method: ResidentAxisPaymentMethod) => {
     setPaymentMethod(method);
     setCheckout(null);
-    setPayModalStep("select");
-    setPayConfirm((prev) => (prev ? { ...prev, method } : null));
+    setPayConfirm((prev) => (prev && !prev.resumePaymentIntentId ? { ...prev, method } : prev));
   }, []);
 
+  const checkoutStartRef = useRef(false);
+  const continuePayModal = useCallback(async () => {
+    if (!payConfirm || payConfirm.resumePaymentIntentId || checkoutStartRef.current ||
+        (payModalStep === "pay" && (!checkout?.error || !checkout.canRetry))) return;
+    checkoutStartRef.current = true;
+    setPayModalStep("pay");
+    try {
+      await loadCheckout(payConfirm.chargeIds, payConfirm.method);
+    } finally {
+      checkoutStartRef.current = false;
+    }
+  }, [checkout?.canRetry, checkout?.error, loadCheckout, payConfirm, payModalStep]);
+
   const closePayModal = useCallback(() => {
+    if (checkoutStartRef.current) return;
     setPayConfirm(null);
     setPayModalStep("select");
     setCheckout(null);
   }, []);
-
-  const continuePayModal = useCallback(async () => {
-    if (!payConfirm) return;
-    setPayModalStep("pay");
-    await loadCheckout(payConfirm.chargeIds, payConfirm.method);
-  }, [loadCheckout, payConfirm]);
 
   // A move-in row stands for its lines: ticking it selects every one of them,
   // so Pay and the bulk bar keep working on real charge ids only.
@@ -950,7 +980,9 @@ export function ResidentPaymentsPanel({
   ]);
 
   const showCheckoutInExpandedRow = Boolean(
-    payConfirm === null && checkout && expandedId && checkout.chargeIds.includes(expandedId),
+    payConfirm === null && checkout && expandedId &&
+    (checkout.chargeIds.includes(expandedId) || moveInGroups.some(group => group.id === expandedId &&
+      group.items.some(item => checkout.chargeIds.includes(item.id)))),
   );
   const showBulkCheckoutBar = Boolean(
     payConfirm === null && checkout && checkout.chargeIds.length > 1 && !showCheckoutInExpandedRow,
@@ -1013,7 +1045,7 @@ export function ResidentPaymentsPanel({
     return (
       <div className="space-y-3">
         <p className="text-sm font-semibold text-foreground">{label}</p>
-        {renderPaymentMethodPicker(scopeCharges)}
+        {checkout.mode !== "manual_ach" ? renderPaymentMethodPicker(scopeCharges) : null}
         {checkout.totalCents != null && checkout.subtotalCents != null ? (
           <div className="flex items-baseline justify-between rounded-xl border border-border bg-accent/30 px-4 py-3">
             <span className="text-xs text-muted">
@@ -1051,6 +1083,13 @@ export function ResidentPaymentsPanel({
               </Link>
             ) : null}
           </div>
+        ) : checkout.mode === "manual_ach" && checkout.clientSecret && checkout.paymentIntentId ? (
+          <ResidentBankAccountForm key={checkout.paymentIntentId} kind="payment"
+            clientSecret={checkout.clientSecret} intentId={checkout.paymentIntentId}
+            amountCents={checkout.totalCents} initialStatus={checkout.bankStatus}
+            onStatusChange={(status) => { if (status !== "entry") {
+              void syncHouseholdChargesFromServer(true, { skipReconcile: true }).then(refresh);
+            } }} onComplete={refresh} />
         ) : checkout.clientSecret ? (
           <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />
         ) : null}
@@ -1072,11 +1111,7 @@ export function ResidentPaymentsPanel({
         </p>
         {row.status === "processing" ? (
           <div className={`${PORTAL_INLINE_STATUS_NOTICE_CLASS} bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`}>
-            <p className="text-xs font-semibold">Bank transfer in progress</p>
-            <p className="mt-1 text-sm leading-relaxed">
-              Your payment was submitted and is clearing. Bank transfers take 3–5 business days. No late fees or
-              reminders apply while it clears, and you&apos;ll get a confirmation the moment it lands.
-            </p>
+            <p className="text-xs font-semibold">Bank payment in progress</p>
           </div>
         ) : null}
         {payable && rowPayIds.length > 0 ? (
@@ -1084,7 +1119,7 @@ export function ResidentPaymentsPanel({
             Tap <span className="font-semibold text-foreground">Pay {row.balanceLabel}</span> above to pay through
             PropLane secure checkout, or message your manager if something looks wrong.
           </p>
-        ) : !achPayable ? (
+        ) : row.status !== "processing" && row.status !== "paid" && !achPayable ? (
           <p className="mb-4 leading-relaxed text-sm text-muted">
             Your property manager will update this charge when online payment is available or when they record payment
             manually.
@@ -1126,8 +1161,20 @@ export function ResidentPaymentsPanel({
   const renderExpandedActions = (row: HouseholdCharge) => {
     const payable = isPayableHouseholdCharge(row);
     const rowPayIds = filterChargesForPayMethod([row]).map((c) => c.id);
+    const group = moveInGroups.find((entry) => entry.id === row.id);
+    const processingRefs = group?.items.filter(item => item.status === "processing")
+      .map(item => item.stripeCheckoutSessionId) ?? [row.stripeCheckoutSessionId];
+    const manualIntentId = row.status === "processing" && processingRefs.length > 0 &&
+      processingRefs.every(ref => ref === processingRefs[0]) && processingRefs[0]?.startsWith("pi_")
+      ? processingRefs[0] : null;
     return (
       <PortalTableDetailActions>
+        {manualIntentId ? (
+          <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN}
+            data-attr="resident-payments-resume-bank" onClick={() => resumeManualAch(manualIntentId)}>
+            Verify bank or check status
+          </Button>
+        ) : null}
         {payable && rowPayIds.length > 0 ? (
           <Button
             type="button"
@@ -1190,46 +1237,6 @@ export function ResidentPaymentsPanel({
       checkout.clientSecret,
   );
 
-  const payMethodDropdownOptions = useMemo(
-    () =>
-      paymentMethodOptions.map((option) => ({
-        id: option.id,
-        title: option.title,
-      })),
-    [paymentMethodOptions],
-  );
-
-  const renderPayModalMethodFooter = () => {
-    if (!payConfirm || payMethodDropdownOptions.length === 0) return null;
-    const selectedOption = payMethodDropdownOptions.find((option) => option.id === payConfirm.method);
-    return (
-      <div className="mt-auto space-y-2 border-t border-border pt-4">
-        <label htmlFor="resident-payments-pay-method-select" className="text-xs font-semibold text-muted">
-          Payment method
-        </label>
-        <Select
-          aria-label="Payment method"
-          value={payConfirm.method}
-          data-attr="resident-payments-pay-method-select"
-          onChange={(event) => {
-            selectPayModalMethod(event.target.value as ResidentAxisPaymentMethod);
-          }}
-        >
-          {payMethodDropdownOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.title}
-            </option>
-          ))}
-        </Select>
-        {selectedOption ? (
-          <p className="text-xs text-muted">
-            Secure checkout opens in this window. Apple Pay and Google Pay appear when supported.
-          </p>
-        ) : null}
-      </div>
-    );
-  };
-
   const showPayActions =
     paymentsUnlocked &&
     unpaidPayableCharges.length > 0 &&
@@ -1285,8 +1292,7 @@ export function ResidentPaymentsPanel({
   // On Paid, the outstanding balance is $0.00 by definition — showing it turns
   // every paid row into "$0.00" and hides what the resident actually paid. The
   // unpaid buckets keep showing what is still owed.
-  const rowAmountLabel = (row: HouseholdCharge) =>
-    row.status === "paid" ? row.amountLabel || row.balanceLabel : row.balanceLabel;
+  const rowAmountLabel = residentChargeAmountLabel;
 
   const moveInGroupForRow = useCallback(
     (row: HouseholdCharge): MoveInChargeGroup | undefined =>
@@ -1548,21 +1554,38 @@ export function ResidentPaymentsPanel({
               {checkout?.totalCents != null ? formatUsd(checkout.totalCents) : confirmTotalLabel}
             </p>
             <p className="text-xs text-muted">
-              {(checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0) > 0
+              {checkout?.totalCents == null ? "Processing fee: Pending quote" :
+              (checkout.processingFeeCents ?? 0) + (checkout.axisFeeCents ?? 0) > 0
                 ? `Processing fee ${formatUsd((checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0))}`
                 : "Processing fee: None"}
             </p>
           </div>
-          {renderPaymentMethodPicker(confirmCharges, {
+          {payModalStep === "select" ? renderPaymentMethodPicker(confirmCharges, {
             selected: payConfirm.method,
             onSelect: (method) => selectPayModalMethod(method),
-          })}
-          {checkout?.loading ? (
+          }) : null}
+          {payModalStep === "select" ? (
+            <Button type="button" variant="primary" data-attr="resident-payments-continue"
+              onClick={() => continuePayModal()}>
+              Continue with {residentPaymentMethodLabel(payConfirm.method)}
+            </Button>
+          ) : checkout?.loading ? (
             <p className="text-sm text-muted">Loading secure checkout…</p>
           ) : checkout?.error ? (
             <div className="rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="resident-payment-error">
               <p>{checkout.error}</p>
+              {checkout.canRetry ? <Button type="button" variant="outline" className="mt-3"
+                data-attr="resident-payments-retry" onClick={() => continuePayModal()}>
+                Retry {residentPaymentMethodLabel(payConfirm.method)}
+              </Button> : null}
             </div>
+          ) : checkout?.mode === "manual_ach" && checkout.clientSecret && checkout.paymentIntentId ? (
+            <ResidentBankAccountForm key={checkout.paymentIntentId} kind="payment"
+              clientSecret={checkout.clientSecret} intentId={checkout.paymentIntentId}
+              amountCents={checkout.totalCents} initialStatus={checkout.bankStatus}
+              onStatusChange={(status) => { if (status !== "entry") {
+                void syncHouseholdChargesFromServer(true, { skipReconcile: true }).then(refresh);
+              } }} onComplete={refresh} />
           ) : checkout?.clientSecret ? (
             <div className="min-h-[min(50vh,28rem)] overflow-hidden rounded-2xl border border-border bg-card">
               <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />
@@ -1587,6 +1610,11 @@ export function ResidentPaymentsPanel({
 
   if (chargeIdProp && detailMoveInGroup) {
     const group = detailMoveInGroup;
+    const processingRefs = group.items.filter((item) => item.status === "processing")
+      .map((item) => item.stripeCheckoutSessionId);
+    const manualIntentId = processingRefs.length > 0 &&
+      processingRefs.every((ref) => ref === processingRefs[0]) && processingRefs[0]?.startsWith("pi_")
+      ? processingRefs[0] : null;
     const payableIds = filterChargesForPayMethod(group.items.filter((c) => isPayableHouseholdCharge(c))).map(
       (c) => c.id,
     );
@@ -1606,6 +1634,12 @@ export function ResidentPaymentsPanel({
           inlineActions
           actions={
             <PortalTableDetailActions>
+              {manualIntentId ? (
+                <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN}
+                  data-attr="resident-payments-resume-bank" onClick={() => resumeManualAch(manualIntentId)}>
+                  Verify bank or check status
+                </Button>
+              ) : null}
               {payableIds.length > 0 ? (
                 <Button
                   type="button"
@@ -1649,7 +1683,7 @@ export function ResidentPaymentsPanel({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{item.title || "Charge"}</p>
                   <p className="text-xs text-muted">
-                    {item.status === "processing" ? "Bank transfer clearing" : chargeDueLabel(item)}
+                    {item.status === "processing" ? residentChargeListDueLabel(item) : chargeDueLabel(item)}
                   </p>
                 </div>
                 <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{item.balanceLabel}</span>
@@ -1719,7 +1753,7 @@ export function ResidentPaymentsPanel({
                   recordId: detailCharge.id,
                   recordLabel: detailCharge.title,
                   overviewTiles: [
-                    { id: "amount", label: "Amount", value: detailCharge.balanceLabel },
+                    { id: "amount", label: "Amount", value: residentChargeAmountLabel(detailCharge) },
                     { id: "due", label: "Due", value: chargeDueLabel(detailCharge), tone: bucket === "overdue" ? "danger" : "default" },
                     { id: "status", label: "Status", value: detailCharge.status },
                     { id: "balance", label: "Balance", value: detailCharge.balanceLabel },
@@ -1801,15 +1835,6 @@ export function ResidentPaymentsPanel({
             ) : (paymentsCommandActions ?? undefined)
           }
         />
-        {managerStripeConnectBlocked ? (
-          <div
-            className={`${PORTAL_INLINE_STATUS_NOTICE_CLASS} mb-3 border-[var(--status-pending-border)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`}
-            data-attr="resident-payments-connect-blocked"
-          >
-            Your property manager is still finishing PropLane payment setup, so bank and card checkout
-            is not available yet. Message your manager in Communication if you need help.
-          </div>
-        ) : null}
         {paymentsCards}
         {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}
         <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={paySelectionActions} />}>{paymentsBody}</PortalRecordListSurface>

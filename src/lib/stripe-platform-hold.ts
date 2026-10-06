@@ -10,7 +10,7 @@ export type PlatformHoldSource = (typeof PLATFORM_HOLD_SOURCES)[number];
 export const PLATFORM_HOLD_ROLES = ["manager", "vendor"] as const;
 export type PlatformHoldOwnerRole = (typeof PLATFORM_HOLD_ROLES)[number];
 
-export const PLATFORM_HOLD_STATUSES = ["held", "transferred", "refunded"] as const;
+export const PLATFORM_HOLD_STATUSES = ["held", "classified_held", "transferred", "refunded"] as const;
 export type PlatformHoldStatus = (typeof PLATFORM_HOLD_STATUSES)[number];
 
 export type PlatformHoldRow = {
@@ -20,11 +20,22 @@ export type PlatformHoldRow = {
   source: PlatformHoldSource;
   sourceId: string;
   amountCents: number;
+  originalAmountCents?: number | null;
   status: PlatformHoldStatus;
   stripeChargeId: string | null;
   stripeTransferId: string | null;
   createdAt?: string;
 };
+
+/** Direct invoice holds share the vendor_invoice source with service payments.
+ * Prefix the invoice UUID so a linked invoice never collides with its service. */
+export function directInvoiceHoldSourceId(invoiceId: string): string {
+  return `direct:${invoiceId.trim()}`;
+}
+
+export function directInvoiceIdFromHoldSourceId(sourceId: string): string | null {
+  return sourceId.startsWith("direct:") ? sourceId.slice("direct:".length) : null;
+}
 
 export function platformHoldCreditKey(source: PlatformHoldSource, sourceId: string): string {
   return `${source}:${sourceId.trim()}`;
@@ -36,7 +47,7 @@ export function canCreditPlatformHold(existing: Pick<PlatformHoldRow, "source" |
 }
 
 export function sumHeldCents(rows: ReadonlyArray<Pick<PlatformHoldRow, "amountCents" | "status">>): number {
-  return rows.reduce((sum, row) => (row.status === "held" ? sum + Math.max(0, row.amountCents) : sum), 0);
+  return rows.reduce((sum, row) => (row.status === "held" || row.status === "classified_held" ? sum + Math.max(0, row.amountCents) : sum), 0);
 }
 
 export function holdsReadyToTransfer(
@@ -60,15 +71,16 @@ export function availableCentsFromHoldAndStripe(heldCents: number, stripeAvailab
   return Math.max(0, heldCents) + Math.max(0, stripeAvailableCents);
 }
 
-/** Withdraw spends Stripe balance only. A legacy snapshot without hold fields still uses Available. */
+/** Withdraw spends explicitly attested Stripe balance only. */
 export function withdrawableCentsFromSnapshot(opts: {
   availableCents: number;
   withdrawableCents?: number;
   heldCents?: number;
 }): number {
-  if (typeof opts.withdrawableCents === "number") return Math.max(0, opts.withdrawableCents);
-  if ((opts.heldCents ?? 0) > 0) return 0;
-  return Math.max(0, opts.availableCents);
+  if (typeof opts.withdrawableCents === "number" && Number.isSafeInteger(opts.withdrawableCents)) {
+    return Math.max(0, opts.withdrawableCents);
+  }
+  return 0;
 }
 
 export function payoutsAvailableNote(opts: {

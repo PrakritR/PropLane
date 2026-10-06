@@ -31,8 +31,8 @@ describe("PRP-431 / PRP-432 guest Stripe finalize + in-account confirmations", (
   });
 
   it("promotes Incomplete applications on verify and webhook after fee paid", () => {
-    expect(VERIFY).toContain("promoteIncompleteApplicationAfterFeePaid");
-    expect(WEBHOOK).toContain("promoteIncompleteApplicationAfterFeePaid");
+    expect(VERIFY).toContain("promoteClaimedApplicationAfterFee");
+    expect(WEBHOOK).toContain("promoteClaimedApplicationAfterFee");
   });
 
   it("keeps the resident tour modal open so confirmation is visible", () => {

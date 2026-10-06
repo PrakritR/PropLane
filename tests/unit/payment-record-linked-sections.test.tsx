@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
+import { householdChargeToLedgerRow, seedDemoHouseholdCharges, type HouseholdCharge } from "@/lib/household-charges";
 
 vi.mock("@/lib/portal-nav-client", () => ({
   usePortalNavigate: () => vi.fn(),
@@ -50,6 +51,7 @@ vi.stubGlobal(
 
 afterEach(() => {
   cleanup();
+  seedDemoHouseholdCharges([]);
 });
 
 function sampleRow(overrides: Partial<DemoManagerPaymentLedgerRow> = {}): DemoManagerPaymentLedgerRow {
@@ -78,7 +80,7 @@ function renderDetail(row: DemoManagerPaymentLedgerRow) {
     <ManagerPaymentsLedgerPanel
       rows={[row]}
       managerUserId="mgr-test"
-      activeBucket="pending"
+      activeBucket={row.bucket}
       direction="incoming"
       listBasePath="/portal"
       paymentId={row.id}
@@ -121,6 +123,45 @@ describe("payment record page hides tabs that can never have content (C095)", ()
 // (`portal-record-overview-kit.tsx`, docs/agents/record-page.md point 3)
 // instead of the bespoke grid every other kind had already moved off of.
 describe("payment record Overview uses the shared record-page kit (C095)", () => {
+  it("shows an offline Check receipt without claiming money entered workspace balance", () => {
+    const charge: HouseholdCharge = { id: "hc-offline", createdAt: "2026-10-04T12:00:00Z",
+      residentEmail: "resident@example.test", residentName: "Resident", residentUserId: null,
+      propertyId: "property-1", propertyLabel: "The Magnolia", managerUserId: "mgr-test", kind: "rent",
+      title: "October rent", amountLabel: "$1.00", balanceLabel: "$0.00", status: "paid",
+      paidAt: "2026-10-05T12:00:00Z", paidMethod: "Check", blocksLeaseUntilPaid: false };
+    seedDemoHouseholdCharges([charge]);
+    const row = householdChargeToLedgerRow(charge);
+    const { container } = renderDetail(row);
+    const details = container.querySelector('[data-attr="payment-overview-card-details"]')?.textContent ?? "";
+    expect(details).toContain("Paid via");
+    expect(details).toContain("Check");
+    expect(details).not.toContain("workspace balance");
+    expect(details).not.toContain("Awaiting payment");
+    expect(container.querySelector('[aria-label="Refund"]')).toBeNull();
+    expect(row.notes).not.toBe("Awaiting payment.");
+  });
+
+  it("offers Refund for a paid provider-backed charge", () => {
+    const charge: HouseholdCharge = { id: "hc-provider", createdAt: "2026-10-04T12:00:00Z",
+      residentEmail: "resident@example.test", residentName: "Resident", residentUserId: null,
+      propertyId: "property-1", propertyLabel: "The Magnolia", managerUserId: "mgr-test", kind: "rent",
+      title: "October rent", amountLabel: "$1.00", balanceLabel: "$0.00", status: "paid",
+      paidAt: "2026-10-05T12:00:00Z", stripeCheckoutSessionId: "cs_test_paid", blocksLeaseUntilPaid: false };
+    seedDemoHouseholdCharges([charge]);
+    const { container } = renderDetail(householdChargeToLedgerRow(charge));
+    expect(container.querySelector('[aria-label="Refund"]')).not.toBeNull();
+  });
+
+  it("does not offer Return deposit for an offline deposit receipt", () => {
+    const charge: HouseholdCharge = { id: "hc-deposit", createdAt: "2026-10-04T12:00:00Z",
+      residentEmail: "resident@example.test", residentName: "Resident", residentUserId: null,
+      propertyId: "property-1", propertyLabel: "The Magnolia", managerUserId: "mgr-test", kind: "security_deposit",
+      title: "Deposit", amountLabel: "$1.00", balanceLabel: "$0.00", status: "paid",
+      paidAt: "2026-10-05T12:00:00Z", paidMethod: "Check", blocksLeaseUntilPaid: false };
+    seedDemoHouseholdCharges([charge]);
+    const { container } = renderDetail(householdChargeToLedgerRow(charge));
+    expect(container.querySelector('[aria-label="Return deposit"]')).toBeNull();
+  });
   it("shows amount, status, due date and days tiles with Details and History", () => {
     const { container } = renderDetail(sampleRow());
     expect(container.querySelector('[data-attr="payment-overview-tile-amount"]')?.textContent).toContain(

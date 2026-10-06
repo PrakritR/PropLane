@@ -152,13 +152,14 @@ All three are documented in `.env.example` (Optional section).
 
 - **Paid Applications Agreement** Active (banking → "Clear" + tax + DSA trader
   status) — hard prerequisite; nothing sandbox-testable until signed.
-- **App Store Connect products** (immutable ids): `space.proplane.app.pro.monthly`
-  ($20/mo), `space.proplane.app.pro.annual` ($191.99/yr, Apple's nearest price
-  point to the rounded $192 web price),
-  `space.proplane.app.business.monthly` ($200/mo), and
-  `space.proplane.app.business.annual` ($1,919.99/yr, Apple's nearest price
-  point to the rounded $1,920 web price), in one auto-renewable
-  subscription group, prices at web parity, Small Business Program enrolled,
+- **App Store Connect products** (immutable ids): `space.proplane.app.pro.monthly`,
+  `space.proplane.app.pro.annual`, `space.proplane.app.business.monthly`, and
+  `space.proplane.app.business.annual` in one auto-renewable subscription group.
+  Check the current web floor against `RATE_CARD` in
+  `src/lib/billing/rate-card.ts` before setting new App Store prices; historical
+  subscribers retain their Store terms. The native purchase screen displays
+  RevenueCat's actual localized Store price (`offering.priceString`), never a
+  hardcoded web amount. Small Business Program enrolled,
   14-day intro offer, billing grace enabled,
   review screenshot of the native purchase screen. The ids track the CURRENT bundle
   id `space.proplane.app` (renamed from `com.axisseattlehousing.app`); they are the

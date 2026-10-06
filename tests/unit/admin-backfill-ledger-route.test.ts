@@ -150,8 +150,8 @@ function seedCharges(): Record<string, Row[]> {
     paidAt: "2026-06-02T00:00:00.000Z",
     rentMonth: undefined,
   };
-  // Legacy fallback row for the same fee (same resident + property, no
-  // applicationId linkage) — the duplicate the sweep must remove.
+  // A legacy paid row with no applicationId cannot be assigned to this
+  // application's receipt just because resident and property match.
   const fallbackFee: HouseholdCharge = {
     ...canonicalFee,
     id: "hc_app_fee_res_test_com_prop_1",
@@ -166,8 +166,7 @@ function seedCharges(): Record<string, Row[]> {
       { id: fallbackFee.id, manager_user_id: MANAGER_ID, row_data: fallbackFee },
     ],
     ledger_entries: [
-      // Stale entry pointing at the duplicate row — must be deleted so income
-      // is not double-counted.
+      // Existing income from the legacy receipt must remain tied to its own row.
       {
         id: "le-stale",
         manager_user_id: MANAGER_ID,
@@ -231,19 +230,19 @@ describe("POST /api/admin/backfill-ledger", () => {
     expect(db.tables.ledger_entries).toHaveLength(1);
   });
 
-  it("sweeps charges into the ledger for admins and reports the real duplicates-removed count", async () => {
+  it("backfills each exact charge without deleting an ambiguous legacy paid receipt", async () => {
     state.user = { id: ADMIN_ID };
     const res = await post({});
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, synced: 2, removedDuplicates: 1 });
+    expect(await res.json()).toEqual({ ok: true, synced: 3, removedDuplicates: 0 });
 
     const db = state.db as ReturnType<typeof makeFakeDb>;
-    // Duplicate fallback fee row and its stale ledger entry are gone.
+    // Same-email/property is not enough evidence to discard a paid source.
     const chargeIds = db.tables.portal_household_charge_records!.map((r) => r.id);
-    expect(chargeIds.sort()).toEqual(["hc-rent-1", "hc_app_fee_app123"]);
-    expect(db.tables.ledger_entries!.some((r) => r.source_charge_id === "hc_app_fee_res_test_com_prop_1")).toBe(false);
+    expect(chargeIds.sort()).toEqual(["hc-rent-1", "hc_app_fee_app123", "hc_app_fee_res_test_com_prop_1"]);
+    expect(db.tables.ledger_entries!.some((r) => r.source_charge_id === "hc_app_fee_res_test_com_prop_1")).toBe(true);
 
-    // Pending rent → one charge entry; paid app fee → charge + payment entries.
+    // Pending rent → one charge entry; each paid fee keeps separate books.
     const byKey = new Map(
       db.tables.ledger_entries!.map((r) => [`${r.source_charge_id}:${r.entry_type}`, r]),
     );
@@ -251,6 +250,8 @@ describe("POST /api/admin/backfill-ledger", () => {
       "hc-rent-1:charge",
       "hc_app_fee_app123:charge",
       "hc_app_fee_app123:payment",
+      "hc_app_fee_res_test_com_prop_1:charge",
+      "hc_app_fee_res_test_com_prop_1:payment",
     ]);
     expect(byKey.get("hc-rent-1:charge")).toMatchObject({ amount_cents: 120000, manager_user_id: MANAGER_ID });
     expect(byKey.get("hc_app_fee_app123:payment")).toMatchObject({ amount_cents: 5000 });

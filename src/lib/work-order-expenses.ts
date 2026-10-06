@@ -156,10 +156,38 @@ export async function createExpensesFromWorkOrder(
   alreadyPostedLines?: PostedWorkOrderExpenseLines,
 ): Promise<string[]> {
   const ids: string[] = [];
-  const now = new Date().toISOString();
-  const expenseDate = (input.completedAt || now).slice(0, 10);
+  const expenseDate = (input.completedAt || new Date().toISOString()).slice(0, 10);
   const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category] ?? "maintenance";
   const memoBase = input.workDoneSummary?.trim() || `Work order ${input.workOrderId}`;
+
+  const ensureComponent = async (component: "labor" | "materials", amountCents: number, categoryCode: string, memo: string) => {
+    const { data, error } = await db.rpc("ensure_paid_work_order_expense", {
+      p_manager: managerUserId,
+      p_work_order: input.workOrderId,
+      p_component: component,
+      p_amount: amountCents,
+      p_category: categoryCode,
+      p_date: expenseDate,
+      p_property: input.propertyId?.trim() || null,
+      p_vendor: input.vendorId?.trim() || null,
+      p_memo: memo,
+      p_deductible: isCategoryDeductible(categoryCode),
+    });
+    if (error || typeof data !== "string") throw new Error(error?.message ?? "Paid expense create failed");
+    ids.push(data);
+    // GL posting is keyed by this stable expense id. If the first delivery
+    // failed after inserting the expense, replay repairs the journal.
+    await postGlExpenseEntry(db, {
+      managerUserId,
+      expenseId: data,
+      categoryCode,
+      amountCents,
+      entryDate: expenseDate,
+      propertyId: input.propertyId?.trim() || null,
+      vendorId: input.vendorId?.trim() || null,
+      memo,
+    });
+  };
 
   const wantsLabor = Boolean(input.vendorCostCents && input.vendorCostCents > 0);
   const wantsMaterials = Boolean(input.materialsCostCents && input.materialsCostCents > 0);
@@ -169,6 +197,9 @@ export async function createExpensesFromWorkOrder(
   // cost fail outright whenever that read fails. Marking a job done is not a money move.
   if (!wantsLabor && !wantsMaterials) return ids;
 
+  // The posted-lines read also sees an expense the invoice rail already booked for this job
+  // (`source_vendor_invoice_id`), which the per-component RPC key below cannot: one job is never
+  // expensed twice across rails. The RPC then makes each remaining line atomic and replay-safe.
   let known = alreadyPostedLines;
   if (!known) {
     const read = await readPostedWorkOrderExpenseLines(db, managerUserId, input.workOrderId);
@@ -181,38 +212,8 @@ export async function createExpensesFromWorkOrder(
   }
   const postedLabor = known.get("labor");
   if (postedLabor) ids.push(postedLabor);
-
-  if (!postedLabor && wantsLabor && input.vendorCostCents && input.vendorCostCents > 0) {
-    const { data, error } = await db
-      .from("manager_expense_entries")
-      .insert({
-        manager_user_id: managerUserId,
-        property_id: input.propertyId?.trim() || null,
-        category_code: laborCategory,
-        amount_cents: input.vendorCostCents,
-        expense_date: expenseDate,
-        memo: memoBase,
-        vendor_id: input.vendorId?.trim() || null,
-        tax_deductible: isCategoryDeductible(laborCategory),
-        source_work_order_id: input.workOrderId,
-        updated_at: now,
-      })
-      .select("id")
-      .single();
-    if (error) throw new Error(error.message);
-    if (data?.id) {
-      ids.push(String(data.id));
-      await postGlExpenseEntry(db, {
-        managerUserId,
-        expenseId: String(data.id),
-        categoryCode: laborCategory,
-        amountCents: input.vendorCostCents,
-        entryDate: expenseDate,
-        propertyId: input.propertyId?.trim() || null,
-        vendorId: input.vendorId?.trim() || null,
-        memo: memoBase,
-      });
-    }
+  if (!postedLabor && wantsLabor && input.vendorCostCents) {
+    await ensureComponent("labor", input.vendorCostCents, laborCategory, memoBase);
   }
 
   if (wantsMaterials && !known.has("materials")) {
@@ -220,38 +221,8 @@ export async function createExpensesFromWorkOrder(
   }
   const postedMaterials = known.get("materials");
   if (postedMaterials && postedMaterials !== postedLabor) ids.push(postedMaterials);
-
-  if (!postedMaterials && wantsMaterials && input.materialsCostCents && input.materialsCostCents > 0) {
-    const { data, error } = await db
-      .from("manager_expense_entries")
-      .insert({
-        manager_user_id: managerUserId,
-        property_id: input.propertyId?.trim() || null,
-        category_code: "materials",
-        amount_cents: input.materialsCostCents,
-        expense_date: expenseDate,
-        memo: input.materialsMemo?.trim() || `${memoBase} — materials`,
-        vendor_id: input.vendorId?.trim() || null,
-        tax_deductible: isCategoryDeductible("materials"),
-        source_work_order_id: input.workOrderId,
-        updated_at: now,
-      })
-      .select("id")
-      .single();
-    if (error) throw new Error(error.message);
-    if (data?.id) {
-      ids.push(String(data.id));
-      await postGlExpenseEntry(db, {
-        managerUserId,
-        expenseId: String(data.id),
-        categoryCode: "materials",
-        amountCents: input.materialsCostCents,
-        entryDate: expenseDate,
-        propertyId: input.propertyId?.trim() || null,
-        vendorId: input.vendorId?.trim() || null,
-        memo: input.materialsMemo?.trim() || `${memoBase} — materials`,
-      });
-    }
+  if (!postedMaterials && wantsMaterials && input.materialsCostCents) {
+    await ensureComponent("materials", input.materialsCostCents, "materials", input.materialsMemo?.trim() || `${memoBase} — materials`);
   }
 
   return ids;
@@ -272,7 +243,7 @@ export function mergeWorkOrderCompletion(
     materialsMemo: input.materialsMemo,
     workDoneSummary: input.workDoneSummary,
     completedAt: input.completedAt || new Date().toISOString(),
-    expenseEntryIds: [...(row.expenseEntryIds ?? []), ...expenseEntryIds],
+    expenseEntryIds: [...new Set([...(row.expenseEntryIds ?? []), ...expenseEntryIds])],
   };
 }
 

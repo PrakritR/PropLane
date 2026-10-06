@@ -32,6 +32,7 @@ export function ApplicationFeeReturnPanel({ sessionId }: { sessionId: string }) 
         const data = (await response.json()) as {
           paid?: boolean;
           processing?: boolean;
+          processingReason?: "bank_clearing" | "recipient_routing";
           error?: string;
           applicationPromoted?: boolean;
           applicationAxisId?: string | null;
@@ -44,7 +45,9 @@ export function ApplicationFeeReturnPanel({ sessionId }: { sessionId: string }) 
           return;
         }
         const error = data.processing === true
-          ? "Your bank transfer is still processing. Retry verification after it clears."
+          ? data.processingReason === "recipient_routing"
+            ? "Payment was captured. Manager payout routing is still processing. Retry verification shortly."
+            : "Your bank transfer is still processing. Retry verification after it clears."
           : data.paid === true
             ? "Payment succeeded, but your saved application could not be submitted. Retry verification or contact the manager with your payment receipt."
             : typeof data.error === "string" && data.error.trim()

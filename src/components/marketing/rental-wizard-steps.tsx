@@ -2316,6 +2316,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             // an abandoned/failed payment keeps them on this step with their
             // answers intact.
             <ApplicationFeeInlinePayment
+              getApplicationId={p.getApplicationId}
+              getSetupToken={p.getPhotoSetupToken}
               propertyId={form.propertyId}
               residentEmail={form.email.trim()}
               residentName={form.fullLegalName.trim() || undefined}

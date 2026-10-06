@@ -7,7 +7,6 @@ import { AlertCircle, CheckCircle2, Clock, ShieldAlert } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
@@ -170,9 +169,9 @@ function AddressControl({
  * resulting token id.
  *
  * A legacy `stripe_dashboard.type: "express"` account, or any requirement key
- * this module does not know how to draw a field for, mounts Stripe's embedded
- * `account_onboarding` component in this same sheet instead (Decide 2 of the
- * plan) — never a half-drawn form.
+ * this module does not know how to draw a field for, shows an explicit support
+ * message in this same sheet — never a half-drawn form and never a fallback to
+ * a Stripe-hosted or embedded sign-in.
  */
 export function PayoutVerifySheet({
   open,
@@ -369,13 +368,7 @@ export function PayoutVerifySheet({
         {loading ? <div role="status" aria-label="Loading" className="h-32 animate-pulse rounded-xl bg-accent/40" /> : null}
 
         {!loading && requirements && useEmbedded ? (
-          <StripeConnectEmbedded
-            connectBase={connectBase}
-            component="account_onboarding"
-            onExit={() => {
-              void load();
-            }}
-          />
+          <p role="alert" className="text-sm text-danger">This payout account needs a Stripe sign-in outside PropLane. Contact support to review payout setup.</p>
         ) : null}
 
         {!loading && requirements && !useEmbedded ? (

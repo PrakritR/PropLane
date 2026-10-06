@@ -36,33 +36,34 @@ import {
 } from "@/lib/stripe-subscription-helpers";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { reconcileManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
-import {
-  markApplicationDepositPaidFromStripeSession,
-  markApplicationFeePaidFromStripeSession,
-} from "@/lib/stripe-application-fee";
+import { fulfillApplicationFeePayment, promoteClaimedApplicationAfterFee } from "@/lib/application-fee-fulfillment.server";
 import { LINKED_FORM_FEE_PURPOSE, markLinkedFormFeePaidFromStripeSession } from "@/lib/linked-form-fee.server";
-import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import {
   householdChargeCheckoutProcessing,
   isHouseholdChargeCheckoutSession,
   markHouseholdChargePaidFromStripeSession,
   markHouseholdChargeProcessingFromStripeSession,
+  reconcileResidentManualAchPaymentIntent,
   revertHouseholdChargeProcessingFromStripeSession,
 } from "@/lib/stripe-household-charge";
 import { releaseShortStayHold } from "@/lib/short-stay-booking.server";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { runScreeningFromStripeSession, SCREENING_CHECKOUT_PURPOSE } from "@/lib/stripe-screening";
 import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
-import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
-import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
+import { completeVendorPayFromStripeSession, releaseFailedVendorPayCheckout } from "@/lib/work-order-approve-pay.server";
 import { VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
 import {
   completeVendorInvoicePaymentFromStripeSession,
-  releaseVendorInvoiceDirectPayClaim,
+  releaseFailedVendorInvoiceCheckout,
   VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
 } from "@/lib/vendor-invoice-pay.server";
 import { creditProplaneBalanceFromHouseholdChargeSession } from "@/lib/proplane-balance/household-charge-credit.server";
+import { creditHoldFromPaidSession } from "@/lib/stripe-platform-hold.server";
+import { creditVerifiedHouseholdCheckoutSource, creditVerifiedHouseholdManualSource,
+  verifyExistingHistoricalHouseholdHold } from "@/lib/household-captured-source.server";
 import {
+  assertMarkedAutopayFailureClaim,
+  assertMarkedCheckoutPaymentIntentClaim,
   handleAutopayPaymentIntentFailed,
   handleAutopayPaymentIntentSucceeded,
   handleConnectPayoutEvent,
@@ -297,24 +298,14 @@ export async function POST(req: Request) {
           }
         });
       } else if (session.metadata?.purpose === "rental_application_fee") {
-        try {
-          await markApplicationFeePaidFromStripeSession(db, session);
-          // No-op on any session that did not combine a holding deposit
-          // (`metadata.includes_holding_deposit` — legacy-only; nothing
-          // creates combined fee+deposit sessions anymore).
-          await markApplicationDepositPaidFromStripeSession(db, session);
-          // PRP-431: promote Incomplete → Submitted even when the browser never
-          // returns from Checkout (or returns with a wiped form).
-          await promoteIncompleteApplicationAfterFeePaid(db, session);
-          await enrichCheckoutLedgerFees(stripe, session);
-          await creditHoldFromPaidSession(db, session).catch((e) => {
-            console.error("[stripe webhook] application fee platform hold", e);
-          });
-          const distinctId = session.client_reference_id ?? session.id;
-          track("application_fee_paid", distinctId, { session_id: session.id });
-        } catch (e) {
-          console.error("[stripe webhook] rental_application_fee checkout", e);
-        }
+        if (session.payment_status !== "paid") return NextResponse.json({ received: true }, { status: 200 });
+        // A captured fee is never acknowledged until its exact persisted
+        // application claim, charge, ledger and recipient hold are repaired.
+        // Legacy sessions without a claim fail closed for source review.
+        const fulfilled = await fulfillApplicationFeePayment(db, stripe, session);
+        if (!("legacy" in fulfilled)) await promoteClaimedApplicationAfterFee(db, session);
+        const distinctId = session.client_reference_id ?? session.id;
+        track("application_fee_paid", distinctId, { session_id: session.id });
       } else if (session.metadata?.purpose === LINKED_FORM_FEE_PURPOSE) {
         // A payer who closes the tab before returning is still recorded: bound to the checkout's own metadata
         // (request, payer, manager), paid-sticky and idempotent on the session. A throw returns 500 so Stripe
@@ -322,9 +313,9 @@ export async function POST(req: Request) {
         const settled = await markLinkedFormFeePaidFromStripeSession(db, session);
         if (settled.ok) {
           await enrichCheckoutLedgerFees(stripe, session);
-          await creditHoldFromPaidSession(db, session).catch((e) => {
-            console.error("[stripe webhook] linked form fee platform hold", e);
-          });
+          // Not swallowed: a captured fee whose recipient hold could not be booked fails the
+          // delivery so Stripe retries (the credit is idempotent per session).
+          await creditHoldFromPaidSession(db, session);
           track("linked_form_fee_paid", session.client_reference_id ?? session.id, { session_id: session.id });
         }
       } else if (session.metadata?.purpose === SCREENING_CHECKOUT_PURPOSE) {
@@ -336,21 +327,31 @@ export async function POST(req: Request) {
           if (householdChargeCheckoutProcessing(session)) {
             // ACH submitted, clearing for 3–5 business days: hold the charges
             // in `processing` so late fees / reminders / re-pay stay quiet.
-            await markHouseholdChargeProcessingFromStripeSession(db, session);
+            const processing = await markHouseholdChargeProcessingFromStripeSession(db, session);
+            if (session.metadata?.source_arbitration_v === "1" && !processing.ok) {
+              throw new Error("Marked household checkout could not enter processing.");
+            }
           } else {
-            await markHouseholdChargePaidFromStripeSession(db, session);
+            const paid = await markHouseholdChargePaidFromStripeSession(db, session);
+            if (session.metadata?.source_arbitration_v === "1" && !paid.ok) {
+              throw new Error("Marked household checkout did not settle its claim.");
+            }
             await enrichCheckoutLedgerFees(stripe, session);
-            await creditHoldFromPaidSession(db, session).catch((e) => {
-              console.error("[stripe webhook] household charge platform hold", e);
-            });
-            await creditProplaneBalanceFromHouseholdChargeSession(db, stripe, session).catch((e) => {
-              console.error("[stripe webhook] household charge balance ledger credit", e);
-            });
+            if (session.metadata?.source_arbitration_v === "1") {
+              await creditVerifiedHouseholdCheckoutSource(db, stripe, session);
+            } else {
+              if (session.metadata?.source_arbitration_v) {
+                throw new Error("Unknown household source arbitration version.");
+              }
+              await verifyExistingHistoricalHouseholdHold(db, stripe, session);
+              await creditProplaneBalanceFromHouseholdChargeSession(db, stripe, session);
+            }
             const distinctId = session.client_reference_id ?? session.id;
             track("household_charge_paid", distinctId, { session_id: session.id });
           }
         } catch (e) {
           console.error("[stripe webhook] household_charge checkout", e);
+          throw e;
         }
       } else if (session.metadata?.purpose === VENDOR_INVOICE_PAY_PURPOSE) {
         try {
@@ -401,20 +402,32 @@ export async function POST(req: Request) {
 
     if (event.type === "checkout.session.async_payment_failed") {
       const session = event.data.object as Stripe.Checkout.Session;
+      // No money moved, so the invoice must not stay claimed by a payment that never happened. Not
+      // swallowed: a half-released claim leaves the invoice unpayable by every rail, and only a
+      // redelivery of this event finishes the job. Stripe's live state must be terminal first.
+      await releaseFailedVendorInvoiceCheckout(db, session);
+      await releaseFailedVendorPayCheckout(db, session);
       // The bank debit bounced: release the clearing-window hold so the charge
       // is payable again. NSF fee + `failed` status come from the
       // payment_intent.payment_failed handler below, never from here.
       await revertHouseholdChargeProcessingFromStripeSession(db, session).catch((e) => {
         console.error("[stripe webhook] async_payment_failed household_charge", e);
       });
-      // No money moved, so the invoice must not stay claimed by a payment that never happened.
-      // Deliberately NOT swallowed: a half-released claim leaves the invoice unpayable by every
-      // rail, and nothing but a redelivery of this event will ever finish the job.
-      await releaseVendorInvoiceDirectPayClaim(db, session);
     }
 
     if (event.type === "checkout.session.expired") {
-      await releaseVendorInvoiceDirectPayClaim(db, event.data.object as Stripe.Checkout.Session);
+      const expired = event.data.object as Stripe.Checkout.Session;
+      await releaseFailedVendorInvoiceCheckout(db, expired);
+      await releaseFailedVendorPayCheckout(db, expired);
+      if (expired.metadata?.purpose === "rental_application_fee" &&
+          expired.metadata.application_id && expired.metadata.attempt_token) {
+        const { error } = await db.rpc("retire_expired_application_fee_checkout", {
+          p_application_id: expired.metadata.application_id,
+          p_attempt_token: expired.metadata.attempt_token,
+          p_session_id: expired.id,
+        });
+        if (error) throw new Error("Could not release the expired application fee attempt.");
+      }
     }
 
     if (event.type === "checkout.session.expired" && isHouseholdChargeCheckoutSession(event.data.object as Stripe.Checkout.Session)) {
@@ -562,8 +575,10 @@ export async function POST(req: Request) {
       });
       const refunds = charge.refunds?.data ?? [];
       for (const refund of refunds) {
-        if (refund.status === "succeeded" || refund.status === "pending") {
-          await handleStripeRefund(db, refund, charge.id).catch((e) => {
+        if (["pending", "succeeded", "failed", "canceled"].includes(refund.status ?? "")) {
+          const pi = typeof charge.payment_intent === "string"
+            ? charge.payment_intent : charge.payment_intent?.id ?? null;
+          await handleStripeRefund(db, refund, charge.id, pi).catch((e) => {
             console.error("[stripe webhook] charge.refunded", e);
             throw e;
           });
@@ -573,12 +588,12 @@ export async function POST(req: Request) {
 
     if (event.type === "refund.created" || event.type === "refund.updated") {
       const refund = event.data.object as Stripe.Refund;
-      if (refund.status === "succeeded") {
+      if (["pending", "succeeded", "failed", "canceled"].includes(refund.status ?? "")) {
         const chargeId = typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
         const paymentIntentId =
           typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
         if (chargeId) {
-          if (paymentIntentId) {
+          if (paymentIntentId && refund.status === "succeeded") {
             // The companion `charge.refunded` event carries the charge inline and
             // owns the refund-before-fulfillment check, so an unmatched refund
             // here is acknowledged without a Stripe round-trip.
@@ -637,26 +652,83 @@ export async function POST(req: Request) {
 
     if (event.type === "payment_intent.payment_failed") {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
-      await handlePaymentIntentFailed(db, paymentIntent).catch((e) => {
-        console.error("[stripe webhook] payment_intent.payment_failed", e);
-        throw e;
-      });
-      // Additive: an autopay off-session PaymentIntent (metadata.autopay_run_id)
-      // also updates its own run row and sends the resident the decline notice.
-      // The charge itself is already handled above, exactly like a declined
-      // manual payment — this never duplicates that write.
-      await handleAutopayPaymentIntentFailed(db, paymentIntent).catch((e) => {
-        console.error("[stripe webhook] autopay payment_intent.payment_failed", e);
-      });
+      if (paymentIntent.metadata?.source_arbitration_v === "1" &&
+          paymentIntent.metadata?.purpose === "household_charge") {
+        if (paymentIntent.metadata.manual_ach === "1") {
+          const result = await reconcileResidentManualAchPaymentIntent(db, paymentIntent);
+          if (result.ok || result.paid || result.processing) {
+            throw new Error("Failed manual ACH intent differs from its frozen claim.");
+          }
+        } else if (paymentIntent.metadata.autopay_run_id) {
+          await assertMarkedAutopayFailureClaim(db, paymentIntent);
+        } else if (paymentIntent.metadata.resident_attempt_token) {
+          await assertMarkedCheckoutPaymentIntentClaim(db, stripe, paymentIntent);
+        } else {
+          throw new Error("Marked household failure has no claim flow.");
+        }
+        // A failed bank confirmation can still succeed on the same PI.
+        // The claim/slot remains bound; no NSF or fresh debit is created.
+      } else {
+        if (paymentIntent.metadata?.source_arbitration_v &&
+            paymentIntent.metadata?.purpose === "household_charge") {
+          throw new Error("Unknown household source arbitration version.");
+        }
+        await handlePaymentIntentFailed(db, paymentIntent);
+        await handleAutopayPaymentIntentFailed(db, paymentIntent).catch((e) => {
+          console.error("[stripe webhook] autopay payment_intent.payment_failed", e);
+        });
+      }
+    }
+
+    if (event.type === "payment_intent.processing") {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      if (paymentIntent.metadata?.source_arbitration_v === "1" &&
+          paymentIntent.metadata.manual_ach === "1") {
+        const result = await reconcileResidentManualAchPaymentIntent(db, paymentIntent);
+        if (!result.ok || !result.processing) {
+          // Stripe does not order deliveries: a late `processing` can land after
+          // the PaymentIntent succeeded and its claim settled. Acknowledge it only
+          // when the live PI really is succeeded, by replaying the same idempotent
+          // settlement + source credit; anything else is a real mismatch.
+          const current = await stripe.paymentIntents.retrieve(paymentIntent.id);
+          if (current.status !== "succeeded") {
+            throw new Error("Manual ACH processing differs from its frozen claim.");
+          }
+          const settled = await reconcileResidentManualAchPaymentIntent(db, current);
+          if (!settled.ok || !settled.paid) {
+            throw new Error("Manual ACH processing differs from its frozen claim.");
+          }
+          await creditVerifiedHouseholdManualSource(db, stripe, current);
+        }
+      }
     }
 
     if (event.type === "payment_intent.succeeded") {
-      // Only autopay's off-session PaymentIntents carry this metadata — every
-      // other household-charge payment settles through checkout.session.completed
-      // above, so this is scoped and never double-marks a manual payment.
-      await handleAutopayPaymentIntentSucceeded(db, event.data.object as Stripe.PaymentIntent).catch((e) => {
-        console.error("[stripe webhook] autopay payment_intent.succeeded", e);
-      });
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      if (paymentIntent.metadata?.source_arbitration_v === "1" &&
+          paymentIntent.metadata.manual_ach === "1") {
+        const result = await reconcileResidentManualAchPaymentIntent(db, paymentIntent);
+        if (!result.ok || !result.paid) {
+          throw new Error("Captured manual ACH did not settle its frozen claim.");
+        }
+        await creditVerifiedHouseholdManualSource(db, stripe, paymentIntent);
+      } else if (paymentIntent.metadata?.source_arbitration_v === "1" &&
+          paymentIntent.metadata.purpose === "household_charge") {
+        if (paymentIntent.metadata.autopay_run_id) {
+          await handleAutopayPaymentIntentSucceeded(db, paymentIntent);
+        } else if (paymentIntent.metadata.resident_attempt_token) {
+          await assertMarkedCheckoutPaymentIntentClaim(db, stripe, paymentIntent);
+        } else {
+          throw new Error("Marked household capture has no claim flow.");
+        }
+      } else if (paymentIntent.metadata?.source_arbitration_v &&
+          paymentIntent.metadata.purpose === "household_charge") {
+        throw new Error("Unknown household source arbitration version.");
+      } else {
+        await handleAutopayPaymentIntentSucceeded(db, paymentIntent).catch((e) => {
+          console.error("[stripe webhook] autopay payment_intent.succeeded", e);
+        });
+      }
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : "Webhook handler error";

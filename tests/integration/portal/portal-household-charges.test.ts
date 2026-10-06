@@ -41,10 +41,11 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import { POST } from "@/app/api/portal-household-charges/route";
 
-type Stored = { status: string; manager_user_id: string; property_id: string | null; row_data: Record<string, unknown> };
+type Stored = { status: string; manager_user_id: string; property_id: string | null; row_data: Record<string, unknown>; updated_at?: string };
+const STORED_AT = "2026-10-01T00:00:00.000Z";
 
 function makeDb(seed: Record<string, Stored>) {
-  const stored = new Map<string, Stored>(Object.entries(seed));
+  const stored = new Map<string, Stored>(Object.entries(seed).map(([id, row]) => [id, { updated_at: STORED_AT, ...row }]));
   const upserted: Array<Record<string, unknown>> = [];
   const db = {
     from(table: string) {
@@ -66,25 +67,33 @@ function makeDb(seed: Record<string, Stored>) {
               maybeSingle: async () => ({ data: stored.has(id) ? { id, ...stored.get(id)! } : null }),
             }),
           }),
-          upsert: async (rows: Array<Record<string, unknown>>) => {
-            for (const r of rows) {
-              upserted.push(r);
-              stored.set(String(r.id), {
-                status: String(r.status),
-                manager_user_id: String(r.manager_user_id),
-                property_id: (r.property_id as string | null) ?? null,
-                row_data: r.row_data as Record<string, unknown>,
-              });
-            }
-            return { error: null };
+          // Existing rows are compare-and-set on (status, updated_at); new ids are insert-only.
+          insert: (r: Record<string, unknown>) => {
+            upserted.push(r);
+            stored.set(String(r.id), {
+              status: String(r.status), manager_user_id: String(r.manager_user_id),
+              property_id: (r.property_id as string | null) ?? null,
+              row_data: r.row_data as Record<string, unknown>, updated_at: STORED_AT,
+            });
+            return { select: async () => ({ data: [{ id: r.id }], error: null }) };
           },
-          update: (patch: Record<string, unknown>) => ({
-            eq: async (_col: string, id: string) => {
-              const cur = stored.get(id);
-              if (cur) stored.set(id, { ...cur, status: String(patch.status), row_data: patch.row_data as Record<string, unknown> });
-              return { error: null };
-            },
-          }),
+          update: (patch: Record<string, unknown>) => {
+            const filters: Record<string, unknown> = {};
+            const chain = {
+              eq: (col: string, value: unknown) => { filters[col] = value; return chain; },
+              select: async () => {
+                const id = String(filters.id);
+                const cur = stored.get(id);
+                if (!cur || cur.status !== filters.status || cur.updated_at !== filters.updated_at) {
+                  return { data: [], error: null };
+                }
+                upserted.push({ id, ...patch });
+                stored.set(id, { ...cur, status: String(patch.status), row_data: patch.row_data as Record<string, unknown> });
+                return { data: [{ id }], error: null };
+              },
+            };
+            return chain;
+          },
         };
       }
       return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) };
@@ -128,8 +137,8 @@ describe("portal-household-charges POST — paid is sticky", () => {
     expect(upserted.find((r) => r.id === "hc_1")).toBeUndefined();
   });
 
-  it("still applies a legitimate paid upgrade (pending → paid) via replace", async () => {
-    const { db, stored } = makeDb({
+  it("does NOT promote a pending charge to paid from the browser mirror (payment authority is server-only)", async () => {
+    const { db, stored, upserted } = makeDb({
       hc_2: { status: "pending", manager_user_id: "mgr_1", property_id: "prop_1", row_data: { id: "hc_2", status: "pending" } },
     });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
@@ -137,17 +146,22 @@ describe("portal-household-charges POST — paid is sticky", () => {
     const res = await POST(
       jsonReq({
         action: "replace",
-        charges: [{ id: "hc_2", status: "paid", propertyId: "prop_1", residentEmail: "r@test.com" }],
+        charges: [{ id: "hc_2", status: "paid", propertyId: "prop_1", residentEmail: "r@test.com",
+          paidAt: "2026-10-01T00:00:00.000Z", paidMethod: "check" }],
       }),
     );
 
     expect(res.status).toBe(200);
-    expect(stored.get("hc_2")!.status).toBe("paid");
+    expect(stored.get("hc_2")!.status).toBe("pending");
+    expect(stored.get("hc_2")!.row_data).not.toHaveProperty("paidAt");
+    expect(upserted).toHaveLength(0);
+    expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
   });
 
   it("returns 200 when the ledger/GL write-through rejects — the charge row is already persisted", async () => {
     const { db, stored } = makeDb({
-      hc_4: { status: "pending", manager_user_id: "mgr_1", property_id: "prop_1", row_data: { id: "hc_4", status: "pending" } },
+      hc_4: { status: "pending", manager_user_id: "mgr_1", property_id: "prop_1",
+        row_data: { id: "hc_4", status: "pending", title: "Rent" } },
     });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
     vi.mocked(syncLedgerChargeEntry).mockRejectedValueOnce(new Error("duplicate ledger entry"));
@@ -155,13 +169,13 @@ describe("portal-household-charges POST — paid is sticky", () => {
     const res = await POST(
       jsonReq({
         action: "replace",
-        charges: [{ id: "hc_4", status: "paid", propertyId: "prop_1", residentEmail: "r@test.com" }],
+        charges: [{ id: "hc_4", status: "pending", title: "Rent (edited)", propertyId: "prop_1", residentEmail: "r@test.com" }],
       }),
     );
 
     expect(res.status).toBe(200);
     expect(syncLedgerChargeEntry).toHaveBeenCalled();
-    expect(stored.get("hc_4")!.status).toBe("paid");
+    expect((stored.get("hc_4")!.row_data as { title?: string }).title).toBe("Rent (edited)");
   });
 
   it("skips ledger sync when a mirror POST repeats unchanged charge rows", async () => {
@@ -191,7 +205,7 @@ describe("portal-household-charges POST — paid is sticky", () => {
     expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
   });
 
-  it("action:'unmarkPaid' explicitly reverts a paid charge to pending", async () => {
+  it("action:'unmarkPaid' refuses to revert a paid receipt and leaves the row untouched", async () => {
     const { db, stored } = makeDb({
       hc_3: {
         status: "paid",
@@ -204,9 +218,11 @@ describe("portal-household-charges POST — paid is sticky", () => {
 
     const res = await POST(jsonReq({ action: "unmarkPaid", id: "hc_3" }));
 
-    expect(res.status).toBe(200);
-    expect(stored.get("hc_3")!.status).toBe("pending");
-    // Balance is restored to the face amount so the reopened charge shows what's owed.
-    expect((stored.get("hc_3")!.row_data as { balanceLabel?: string }).balanceLabel).toBe("$100.00");
+    // Approved contract: no accounting-safe reversal exists for a recorded receipt.
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("Receipt correction is not available.");
+    expect(stored.get("hc_3")!.status).toBe("paid");
+    expect((stored.get("hc_3")!.row_data as { balanceLabel?: string }).balanceLabel).toBe("$0.00");
+    expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
   });
 });

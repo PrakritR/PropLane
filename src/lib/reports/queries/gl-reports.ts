@@ -140,10 +140,18 @@ export async function queryBalanceSheet(
   let assetTotal = 0;
   let liabilityTotal = 0;
   let equityTotal = 0;
+  let unclosedEarnings = 0;
 
   for (const [code, sums] of [...totals.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     const acct = systemChartAccountByCode(code);
     const type = acct?.accountType;
+    if (type === "income" || type === "expense") {
+      // Nominal accounts stay open until a closing journal transfers their
+      // balance to equity. The same scoped, as-of GL totals used for assets
+      // provide their signed contribution, without a balancing plug.
+      unclosedEarnings += sums.credits - sums.debits;
+      continue;
+    }
     if (!type || !["asset", "liability", "equity"].includes(type)) continue;
     const balance = accountBalanceCents(code, sums.debits, sums.credits);
     if (balance === 0) continue;
@@ -156,6 +164,14 @@ export async function queryBalanceSheet(
       section: type === "asset" ? "Assets" : type === "liability" ? "Liabilities" : "Equity",
       account: chartAccountLabel(code),
       amount: centsToUsd(balance),
+    });
+  }
+  if (unclosedEarnings !== 0) {
+    equityTotal += unclosedEarnings;
+    rows.push({
+      section: "Equity",
+      account: "Unclosed earnings",
+      amount: centsToUsd(unclosedEarnings),
     });
   }
 
