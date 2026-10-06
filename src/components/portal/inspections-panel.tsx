@@ -270,7 +270,7 @@ export function ResidentInspectionsPage({
 
 /**
  * Manager inspections live inside the Move-in page (`/portal/move-in/inspections[/{move-in|move-out}[/{id}]]`).
- * The list is the hub's Inspections tab (`ManagerMoveInFormsPage`); this page is the one report, which
+ * There is no list page (Move-in redirects to Forms); this page is the one report, which
  * opens on its own record page like every other record.
  */
 export function ManagerInspectionsPage({ kind = "move-in", reportId, recordTab, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; recordTab?: string; basePath?: string }) {
