@@ -13,7 +13,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deleteResidentAccount } from "@/lib/auth/delete-portal-account";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
+import {
+  createApplicationAccessMemo,
+  managerCanAccessApplicationRecord,
+  type ApplicationAccessMemo,
+} from "@/lib/auth/manager-application-access";
 import {
   BLOCKING_FORMS_FAIL_CLOSED,
   NO_BLOCKING_FORMS,
@@ -46,12 +50,14 @@ export function loadCallerScopedResidentBlockingForms(
   db: SupabaseClient,
   actor: ResidentApprovalActor,
   email: string,
+  /** Share the caller's owned/co-managed property reads with the rest of this request's checks. */
+  memo: ApplicationAccessMemo = createApplicationAccessMemo(db, actor.userId),
 ): Promise<BlockingFormsPending> {
   return loadResidentBlockingForms(db, {
     email,
     callerHolds: actor.isAdmin
       ? undefined
-      : (form) => managerCanAccessApplicationRecord(db, actor.userId, { manager_user_id: form.manager_user_id, property_id: form.property_id }),
+      : (form) => managerCanAccessApplicationRecord(db, actor.userId, { manager_user_id: form.manager_user_id, property_id: form.property_id }, { memo }),
   });
 }
 
@@ -73,14 +79,21 @@ export async function loadResidentApprovalBlocking(
       .select("id, manager_user_id, property_id, assigned_property_id, row_data")
       .eq("resident_email", normalized);
     if (error) return BLOCKING_FORMS_FAIL_CLOSED;
+    const records = (data ?? []) as Array<{ id: string; manager_user_id: string | null; property_id: string | null; assigned_property_id: string | null; row_data: { id?: unknown } | null }>;
+    // ONE memo for every ownership test this gate makes — the application rows here and the form rows
+    // `loadCallerScopedResidentBlockingForms` scans below — and the rows are tested concurrently.
+    const memo = createApplicationAccessMemo(db, actor.userId);
+    const held = await Promise.all(
+      records.map((record) => (actor.isAdmin ? Promise.resolve(true) : managerCanAccessApplicationRecord(db, actor.userId, record, { memo }))),
+    );
     const ids: string[] = [];
-    for (const record of (data ?? []) as Array<{ id: string; manager_user_id: string | null; property_id: string | null; assigned_property_id: string | null; row_data: { id?: unknown } | null }>) {
-      if (!actor.isAdmin && !(await managerCanAccessApplicationRecord(db, actor.userId, record))) continue;
+    records.forEach((record, index) => {
+      if (!held[index]) return;
       ids.push(String(record.id), String(record.row_data?.id ?? ""));
-    }
+    });
     const [byApplication, byEmail] = await Promise.all([
       loadApplicationBlockingForms(db, ids),
-      loadCallerScopedResidentBlockingForms(db, actor, normalized),
+      loadCallerScopedResidentBlockingForms(db, actor, normalized, memo),
     ]);
     if (byApplication.readFailed || byEmail.readFailed) return BLOCKING_FORMS_FAIL_CLOSED;
     return {

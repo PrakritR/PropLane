@@ -107,7 +107,32 @@ describe("get_move_in_info while a move-in-details-blocking form is unsubmitted"
   });
 });
 
-describe("loadMoveInDetailsLock (the one derivation every resident context builder uses)", () => {
+describe("moveInDetailsLockFromBlocking (what the context builders derive from the access state's own read)", () => {
+  it("locks on a pending block, names the form, and locks with no form when the read failed or is absent", async () => {
+    const { moveInDetailsLockFromBlocking } = await import("@/lib/tools/resident-context");
+    expect(moveInDetailsLockFromBlocking({ moveInDetails: false, leaseSigning: false, approval: false })).toEqual({
+      moveInDetailsLocked: false,
+      moveInDetailsLockFormId: null,
+      moveInDetailsLockReadFailed: false,
+    });
+    expect(
+      moveInDetailsLockFromBlocking({ moveInDetails: true, leaseSigning: false, approval: false, formIds: { moveInDetails: "F1" } }),
+    ).toEqual({ moveInDetailsLocked: true, moveInDetailsLockFormId: "F1", moveInDetailsLockReadFailed: false });
+    expect(moveInDetailsLockFromBlocking({ moveInDetails: true, leaseSigning: true, approval: true, readFailed: true })).toEqual({
+      moveInDetailsLocked: true,
+      moveInDetailsLockFormId: null,
+      moveInDetailsLockReadFailed: true,
+    });
+    // An access state that never computed it (`emptyAccessState`) must lock, not open.
+    expect(moveInDetailsLockFromBlocking(undefined)).toEqual({
+      moveInDetailsLocked: true,
+      moveInDetailsLockFormId: null,
+      moveInDetailsLockReadFailed: true,
+    });
+  });
+});
+
+describe("loadMoveInDetailsLock (the SMS test harness, the one builder with no access state to read)", () => {
   it("locks on a sent default-blocking form, unlocks when it is submitted, and locks on a failed read", async () => {
     const { loadMoveInDetailsLock } = await import("@/lib/tools/resident-context");
     const sentRows = [{ id: "F1", form_id: null, status: "sent", sent_at: "2026-06-01", resident_user_id: null, snapshot_kind: "intake", snapshot_blocks: null }];

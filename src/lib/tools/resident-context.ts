@@ -14,7 +14,7 @@ import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import type { ManagerSubscriptionTier } from "@/lib/manager-access";
-import { loadResidentFormsFacts } from "@/lib/move-in-forms/blocking";
+import { loadResidentFormsFacts, type BlockingFormsPending } from "@/lib/move-in-forms/blocking";
 
 /**
  * One image the resident attached to THIS chat turn, already stored privately
@@ -54,7 +54,8 @@ export type ResidentAgentContext = {
    * holds the same lock). The portal withholds the house's door codes, Wi-Fi, rules and instructions
    * behind this (`blockingFormsPending.moveInDetails` + `redactMoveInDetails`); every agent surface
    * must withhold the same. REQUIRED, so a context builder that forgets it fails typecheck. Build it
-   * with `loadMoveInDetailsLock` — never default it to `false`.
+   * with `moveInDetailsLockFromBlocking` (from the access state's own forms read) or, where there is no
+   * access state, `loadMoveInDetailsLock` — never default it to `false`.
    */
   moveInDetailsLocked: boolean;
   /** The form that unlocks it, when known (absent after a failed read — nothing is named then). */
@@ -84,9 +85,26 @@ export type ResidentAgentContext = {
 export type MoveInDetailsLock = Pick<ResidentAgentContext, "moveInDetailsLocked" | "moveInDetailsLockFormId" | "moveInDetailsLockReadFailed">;
 
 /**
- * The one place every resident agent context builder (portal chat, SMS, inbox, SMS test harness)
- * derives `moveInDetailsLocked`, from the same forms-facts loader the portal uses. A read that fails
- * or throws locks (fail closed) and names no form.
+ * The one place `moveInDetailsLocked` is derived, from the SAME `BlockingFormsPending` the resident
+ * portal computes (`loadResidentPortalAccessState().blockingFormsPending`). Pure, so a context builder
+ * that already holds the access state reuses its single forms read rather than querying
+ * `resident_move_in_forms` a second time on the resident hot path (AGENTS.md § Performance & egress).
+ * An absent value is a read that never produced an answer, so it locks like a failed one.
+ */
+export function moveInDetailsLockFromBlocking(blocking: BlockingFormsPending | null | undefined): MoveInDetailsLock {
+  if (!blocking) return { moveInDetailsLocked: true, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: true };
+  if (!blocking.moveInDetails) return { moveInDetailsLocked: false, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: false };
+  return {
+    moveInDetailsLocked: true,
+    moveInDetailsLockFormId: blocking.readFailed ? null : (blocking.formIds?.moveInDetails ?? null),
+    moveInDetailsLockReadFailed: blocking.readFailed === true,
+  };
+}
+
+/**
+ * The same derivation for a builder with NO access state to read it off (the SMS test harness), which is
+ * the only caller that still owes this table a query. A read that fails or throws locks (fail closed)
+ * and names no form.
  */
 export async function loadMoveInDetailsLock(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
@@ -94,12 +112,7 @@ export async function loadMoveInDetailsLock(
 ): Promise<MoveInDetailsLock> {
   try {
     const { blocking } = await loadResidentFormsFacts(db, who);
-    if (!blocking.moveInDetails) return { moveInDetailsLocked: false, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: false };
-    return {
-      moveInDetailsLocked: true,
-      moveInDetailsLockFormId: blocking.readFailed ? null : (blocking.formIds?.moveInDetails ?? null),
-      moveInDetailsLockReadFailed: blocking.readFailed === true,
-    };
+    return moveInDetailsLockFromBlocking(blocking);
   } catch {
     return { moveInDetailsLocked: true, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: true };
   }
@@ -125,7 +138,7 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
   if (!email) return null;
 
   const managerId = String(profile?.manager_id ?? "").trim();
-  const [managerIds, managerTier, access, moveInLock] = await Promise.all([
+  const [managerIds, managerTier, access] = await Promise.all([
     managerIdsOwningResident(db, email),
     managerId ? getManagerSubscriptionTierByManagerId(managerId) : Promise.resolve(null),
     loadResidentPortalAccessState({
@@ -134,7 +147,6 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
       email,
       managerSubscriptionTier: null,
     }),
-    loadMoveInDetailsLock(db, { email, userId: user.id }),
   ]);
 
   return {
@@ -145,7 +157,7 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
     channel: "portal",
     phase: access.leaseAccessUnlocked ? "approved" : "application",
     managerTier,
-    ...moveInLock,
+    ...moveInDetailsLockFromBlocking(access.blockingFormsPending),
     landlordId: user.id,
     db,
   };

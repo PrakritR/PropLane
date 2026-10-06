@@ -31,6 +31,41 @@ export async function managerOwnedPropertyIdSet(db: ServiceClient, userId: strin
 }
 
 /**
+ * One request's answers to the two reads `managerCanAccessApplicationRecord` makes, so a caller testing
+ * MANY records for the SAME manager pays per distinct property instead of per row. Without it, a gate
+ * that walks a resident's applications and then their forms re-queries `manager_property_records` and
+ * the co-manager links once per row — dozens of serial queries on one write path
+ * (AGENTS.md § Performance & egress). Promises are memoized, not values, so concurrent checks share the
+ * in-flight read; a rejected one stays rejected, which keeps the predicate failing closed.
+ *
+ * Request-scoped on purpose: holding it longer would cache a revoked grant.
+ */
+export type ApplicationAccessMemo = {
+  ownedPropertyIds(): Promise<Set<string>>;
+  coManagerPermission(propertyId: string, module: "applications" | "residents", level: CoManagerPermissionLevel): Promise<boolean>;
+};
+
+export function createApplicationAccessMemo(db: ServiceClient, userId: string): ApplicationAccessMemo {
+  let owned: Promise<Set<string>> | null = null;
+  const permissions = new Map<string, Promise<boolean>>();
+  return {
+    ownedPropertyIds() {
+      owned ??= managerOwnedPropertyIdSet(db, userId);
+      return owned;
+    },
+    coManagerPermission(propertyId, module, level) {
+      const key = `${propertyId}\u0000${module}\u0000${level}`;
+      let hit = permissions.get(key);
+      if (!hit) {
+        hit = managerHasCoManagerPermissionForProperty(db, userId, propertyId, module, level);
+        permissions.set(key, hit);
+      }
+      return hit;
+    },
+  };
+}
+
+/**
  * Does this manager have access to one application record?
  *
  * This is the SAME visibility test the Applications list uses
@@ -53,7 +88,7 @@ export async function managerCanAccessApplicationRecord(
   db: ServiceClient,
   userId: string,
   record: ApplicationAccessRecord,
-  options?: { level?: CoManagerPermissionLevel },
+  options?: { level?: CoManagerPermissionLevel; memo?: ApplicationAccessMemo },
 ): Promise<boolean> {
   const level = options?.level ?? "read";
   if (!userId) return false;
@@ -65,10 +100,14 @@ export async function managerCanAccessApplicationRecord(
   ].filter(Boolean);
   if (candidateIds.length === 0) return false;
 
+  // A caller testing one record gets a memo of its own, which costs exactly what the uncached reads
+  // did; a caller testing many passes one in and pays for each distinct property once.
+  const memo = options?.memo ?? createApplicationAccessMemo(db, userId);
+
   // Direct ownership — resolved through the SAME `managerOwnedPropertyIdSet`
   // helper the Applications list uses, so the list and this guard can never
   // disagree about which properties the manager owns.
-  const owned = await managerOwnedPropertyIdSet(db, userId);
+  const owned = await memo.ownedPropertyIds();
   if (candidateIds.some((id) => owned.has(id))) return true;
 
   // Co-manager grant at `level` on EITHER the applications or residents module —
@@ -76,10 +115,10 @@ export async function managerCanAccessApplicationRecord(
   // grant). This is the ONE level-aware check: `assertCanDeleteApplicationRecords`
   // delegates here at level "delete" rather than running its own.
   for (const propertyId of candidateIds) {
-    if (await managerHasCoManagerPermissionForProperty(db, userId, propertyId, "applications", level)) {
+    if (await memo.coManagerPermission(propertyId, "applications", level)) {
       return true;
     }
-    if (await managerHasCoManagerPermissionForProperty(db, userId, propertyId, "residents", level)) {
+    if (await memo.coManagerPermission(propertyId, "residents", level)) {
       return true;
     }
   }

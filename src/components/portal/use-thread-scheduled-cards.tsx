@@ -39,8 +39,12 @@ export function useThreadScheduledCards({
   const showToast = useOptionalAppUi()?.showToast;
   const { messages: automation, settings, reload: reloadAutomation } = useScheduledPaymentMessages({ includeHidden: false, enabled });
 
-  // Every network call below is gated on this. `/demo` never writes or reads real rows, and a disabled
+  // Every call that only a real workspace can answer is gated on this: the reads, and the manual
+  // scheduled-inbox API (`/demo` has no manual rows to act on, and never writes real ones). A disabled
   // hook (its section is not showing) must not reach the API through a stale callback either.
+  // `patchScheduledMessage` is deliberately NOT gated: it carries `/demo`'s own local override, so Cancel
+  // and Save on a projected demo reminder still take effect in the sandbox instead of silently doing
+  // nothing. Only a disabled hook makes them no-ops.
   const live = useCallback(() => enabled && !isDemoModeActive(), [enabled]);
 
   const reloadManual = useCallback(async () => {
@@ -86,7 +90,8 @@ export function useThreadScheduledCards({
 
   const cancel = useCallback(
     async (item: ScheduledRef) => {
-      if (!live()) return;
+      if (!enabled) return;
+      if (item.source === "manual" && !live()) return;
       setBusyId(item.id);
       setFailure(null);
       try {
@@ -106,7 +111,7 @@ export function useThreadScheduledCards({
         setBusyId(null);
       }
     },
-    [live, reloadScheduled],
+    [enabled, live, reloadScheduled],
   );
 
   const sendNow = useCallback(
@@ -131,8 +136,9 @@ export function useThreadScheduledCards({
       item: ScheduledRef,
       next: { subject: string; body: string; deliverViaInbox?: boolean; deliverViaEmail?: boolean; deliverViaSms?: boolean; sendAt?: string },
     ) => {
-      if (!live()) return;
+      if (!enabled) return;
       if (item.source === "manual") {
+        if (!live()) return;
         const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -159,7 +165,7 @@ export function useThreadScheduledCards({
       }
       reloadScheduled();
     },
-    [live, reloadScheduled],
+    [enabled, live, reloadScheduled],
   );
 
   // The bar reads its children's props as scheduled rows, so the refusal sits above it, never inside.

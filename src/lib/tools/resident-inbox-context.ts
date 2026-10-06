@@ -15,7 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
-import { loadMoveInDetailsLock, type ResidentAgentContext } from "@/lib/tools/resident-context";
+import { moveInDetailsLockFromBlocking, type ResidentAgentContext } from "@/lib/tools/resident-context";
 
 export type ResidentInboxIdentity =
   | { ok: true; ctx: ResidentAgentContext }
@@ -72,7 +72,7 @@ export async function resolveResidentInboxAgentContext(
     return { ok: false, reason: "manager_not_linked" };
   }
 
-  const [managerTier, access, moveInLock] = await Promise.all([
+  const [managerTier, access] = await Promise.all([
     getManagerSubscriptionTierByManagerId(ownerManagerUserId),
     loadResidentPortalAccessState({
       userId,
@@ -81,7 +81,6 @@ export async function resolveResidentInboxAgentContext(
       managerSubscriptionTier: null,
       managerUserId: ownerManagerUserId,
     }),
-    loadMoveInDetailsLock(db as ResidentAgentContext["db"], { email, userId }),
   ]);
 
   return {
@@ -94,7 +93,7 @@ export async function resolveResidentInboxAgentContext(
       activeManagerId: ownerManagerUserId,
       phase: access.leaseAccessUnlocked ? "approved" : "application",
       managerTier,
-      ...moveInLock,
+      ...moveInDetailsLockFromBlocking(access.blockingFormsPending),
       landlordId: userId,
       db: db as ResidentAgentContext["db"],
     },

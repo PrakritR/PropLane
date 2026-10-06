@@ -141,11 +141,12 @@ export async function loadResidentBlockingForms(
       rows = rows.filter((row) => row.property_id === who.propertyId || appIds.has(String(row.application_id ?? "").trim().toUpperCase()));
     }
     if (who.callerHolds) {
-      const keep: typeof rows = [];
-      for (const row of rows) {
-        if (await who.callerHolds({ manager_user_id: row.manager_user_id ?? null, property_id: row.property_id ?? null })) keep.push(row);
-      }
-      rows = keep;
+      // Concurrently: the predicate shares one request-scoped memo of the caller's property scope, so a
+      // resident with several forms costs one round of checks rather than one per row.
+      const holds = await Promise.all(
+        rows.map((row) => who.callerHolds!({ manager_user_id: row.manager_user_id ?? null, property_id: row.property_id ?? null })),
+      );
+      rows = rows.filter((_, index) => holds[index]);
     }
     return blockingFormsFromRows(rows);
   } catch {

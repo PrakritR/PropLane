@@ -1140,6 +1140,19 @@ describe("manager edit of a pending form (PATCH /api/move-in-forms/:id)", () => 
     expect(form.snapshot.blocks).toBe("approval");
   });
 
+  it("loses a race with a cancel: the 409 says cancelled, not submitted", async () => {
+    const { writeAuditLog } = await import("@/lib/tools/audit");
+    forms = [formRow({ updated_at: "2026-10-02T00:00:00.000Z" })];
+    vi.mocked(writeAuditLog).mockImplementationOnce(async () => {
+      forms[0]!.status = "cancelled";
+      return { recorded: true } as never;
+    });
+    await expect(editMoveInForm(manager(), ID, { blocks: "approval" })).rejects.toMatchObject({
+      status: 409,
+      message: "This form was cancelled, so it can no longer be edited.",
+    });
+  });
+
   it("refuses a body that names an id, a status or an owner, and a block value it does not know", async () => {
     await expect(editMoveInForm(manager(), ID, { status: "submitted" })).rejects.toThrow();
     await expect(editMoveInForm(manager(), ID, { managerUserId: "someone-else" })).rejects.toThrow();

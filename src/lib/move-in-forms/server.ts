@@ -909,10 +909,16 @@ export async function editMoveInForm(actor: MoveInFormActor, id: string, raw: un
   await updateAuditResult(actor.context, auditKey, { status: error || !data ? "failed" : "success" });
   if (error) throw new MoveInFormError("Could not save the form.", 500);
   if (!data) {
-    // Lost the swap: either the resident submitted (locked) or just saved a draft (reopen and retry).
+    // Lost the swap: the resident submitted (locked), the form was cancelled, or the resident just saved
+    // a draft (reopen and retry). Each refusal names what actually happened — a cancel race used to be
+    // reported as a submission.
     const { data: now } = await actor.context.db.from(TABLE).select("status").eq("id", row.id).maybeSingle();
-    if (now && (now as { status?: string }).status === "sent") {
+    const status = (now as { status?: string } | null)?.status;
+    if (status === "sent") {
       throw new MoveInFormError("The resident just saved; reopen and try again", 409);
+    }
+    if (status === "cancelled") {
+      throw new MoveInFormError("This form was cancelled, so it can no longer be edited.", 409);
     }
     throw new MoveInFormError("This form was already submitted, so it is locked.", 409);
   }

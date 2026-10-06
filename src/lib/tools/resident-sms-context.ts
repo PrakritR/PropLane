@@ -36,7 +36,7 @@ import { profilePhoneVariants } from "@/lib/sms-consent";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
-import { loadMoveInDetailsLock, type ResidentAgentContext } from "@/lib/tools/resident-context";
+import { moveInDetailsLockFromBlocking, type ResidentAgentContext } from "@/lib/tools/resident-context";
 
 export type ResidentSmsIdentityFailure =
   | "invalid_phone"
@@ -120,7 +120,7 @@ export async function resolveResidentSmsAgentContext(
     return { ok: false, reason: "manager_not_linked" };
   }
 
-  const [managerTier, access, moveInLock] = await Promise.all([
+  const [managerTier, access] = await Promise.all([
     getManagerSubscriptionTierByManagerId(ownerManagerUserId),
     loadResidentPortalAccessState({
       userId,
@@ -129,7 +129,6 @@ export async function resolveResidentSmsAgentContext(
       managerSubscriptionTier: null,
       managerUserId: ownerManagerUserId,
     }),
-    loadMoveInDetailsLock(db as ResidentAgentContext["db"], { email, userId }),
   ]);
 
   return {
@@ -143,7 +142,7 @@ export async function resolveResidentSmsAgentContext(
       channel: "sms",
       phase: access.leaseAccessUnlocked ? "approved" : "application",
       managerTier,
-      ...moveInLock,
+      ...moveInDetailsLockFromBlocking(access.blockingFormsPending),
       landlordId: userId,
       db: db as ResidentAgentContext["db"],
     },
