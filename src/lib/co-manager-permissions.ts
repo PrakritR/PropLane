@@ -385,6 +385,7 @@ export const PORTAL_SECTION_CO_MANAGER_PERMISSION: Partial<Record<string, CoMana
   residents: "residents",
   // The Move-in hub (forms and inspections) is the residents' paperwork: the same grant as the resident record.
   "move-in": "residents",
+  forms: "residents",
   leases: "leases",
   payments: "payments",
   outgoing: "financials",

@@ -92,8 +92,9 @@ export async function emitMoveInFormEvent(
     : { audience: "resident" as const, userId: row.resident_user_id ?? undefined, email: row.resident_email || undefined };
   const rendered = renderMoveInFormEvent(event, recipient.audience, facts);
   if (!rendered) return;
-  // The resident lands on the Forms tab itself (My home › Forms), the one tab open before a lease is signed.
-  const link = `${base}/${recipient.audience === "manager" ? "portal/move-in" : "resident/move-in/forms"}`;
+  // The resident lands on the form itself (Forms › that form): the direct link works before approval,
+  // when a form that blocks approval is sent while the Forms section is still locked in the nav.
+  const link = `${base}/${recipient.audience === "manager" ? "portal/forms/completed" : `resident/forms/${row.id}`}`;
   await emitActionEvent(db, {
     eventId: `${row.id}:${event}${event === "reminder" ? `:${input.nonce ?? Date.now()}` : ""}`,
     domain: "move_in_form",
@@ -131,7 +132,7 @@ export async function emailManagerOfMoveInFormSubmission(
     dueLabel: "",
   });
   if (!rendered) return false;
-  const link = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/move-in`;
+  const link = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/forms/completed`;
   const text = `${rendered.text}\n\n${link}`;
   // Quotes too: this value also lands inside an `href="…"`, where an unescaped double quote would
   // close the attribute and let the rest of it become new markup.

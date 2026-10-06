@@ -159,14 +159,16 @@ describe("platform parity (web + native WebView)", () => {
     }
   });
 
-  it("manager Move-in forms section is registered, smoke-tested and in the native bar order", () => {
-    const section = proPortal.sections.find((s) => s.section === "move-in");
-    // The tabs are the manager's own forms, so none are fixed in the registry.
+  it("manager Forms section is registered, smoke-tested and in the native bar order", () => {
+    const section = proPortal.sections.find((s) => s.section === "forms");
+    // Pending / Completed is the URL's first segment, so no tab is fixed in the registry.
     expect(section?.tabs).toEqual([]);
-    expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path === "/portal/move-in")).toBe(true);
+    expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path === "/portal/forms")).toBe(true);
     expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path.startsWith("/portal/move-in/inspections"))).toBe(false);
     expect(MANAGER_PORTAL_SMOKE_PATHS.some((entry) => entry.path.startsWith("/portal/inspections"))).toBe(false);
-    expect(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER).toContain("move-in");
+    expect(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER).toContain("forms");
+    // Move-in stays registered only so a single inspection report keeps its address.
+    expect(proPortal.sections.some((s) => s.section === "move-in")).toBe(true);
     // One sidebar row: the manager portal has no Inspections section or native bar slot of its own.
     expect(proPortal.sections.some((s) => s.section === "inspections")).toBe(false);
     expect(NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER as readonly string[]).not.toContain("inspections");

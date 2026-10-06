@@ -387,7 +387,7 @@ export function usePortalNavCounts(
         tasks: countState(openTasks, tasksOverdue > 0 ? "alert" : "muted"),
         services: countState(servicesOpen),
         communication: countState(inbox, "alert"),
-        "move-in": countState(moveInUnread.scope === userId ? moveInUnread.unread : 0),
+        forms: countState(moveInUnread.scope === userId ? moveInUnread.unread : 0),
       };
     }
 

@@ -14,6 +14,7 @@ import {
   Inbox,
   LayoutDashboard,
   ListTodo,
+  FileText,
   LogIn,
   Megaphone,
   MessageSquare,
@@ -76,6 +77,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   managers: UserCog,
   relationships: UserCog,
   "move-in": LogIn,
+  forms: FileText,
   promotion: Megaphone,
   app: Smartphone,
 };

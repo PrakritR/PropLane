@@ -8,6 +8,7 @@ import { Bell, CheckCircle2, Download, XCircle, Settings as SettingsIcon, Pencil
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
+import { ResidentRecordForms } from "@/components/portal/move-in-forms/forms-list";
 import { ResidentRecordMoveInSection } from "@/components/portal/move-in-forms/resident-record-move-in-section";
 import { useResidentMoveInNeedsYou } from "@/components/portal/move-in-forms/use-resident-move-in-needs";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -66,7 +67,9 @@ import {
   managerResidentItemDetailHref,
   managerResidentTourDetailHref,
   managerResidentTourListHref,
+  parseFormsBucket,
   residentDetailHref,
+  residentFormsHref,
   residentListHref,
   residentPaymentDetailHref,
   residentRecordMoveInHref,
@@ -643,6 +646,8 @@ export function ManagerResidents({
   const residentMoveInSubTab = parseResidentRecordMoveInTab(
     (detailTabProp as string | undefined) === "inspections" ? "inspections" : moveInTabProp,
   );
+  // On the Forms tab the same route segment is the bucket: `/forms` (Pending) or `/forms/completed`.
+  const residentFormsBucket = parseFormsBucket(moveInTabProp) ?? "pending";
   const [applicationEditOpen, setApplicationEditOpen] = useState(false);
   const [applicationEditInitialStep, setApplicationEditInitialStep] = useState<number | undefined>(undefined);
   const [messageReminderForPayment, setMessageReminderForPayment] = useState(false);
@@ -3393,6 +3398,16 @@ export function ManagerResidents({
                                     showToast(`${label} copied`);
                                   }}
                                   extraNeedsYou={moveInNeedsYou}
+                                />
+                              </ResidentDetailTabPanel>
+                            ) : resolvedDetailTab === "forms" ? (
+                              <ResidentDetailTabPanel>
+                                <ResidentRecordForms
+                                  userId={userId ?? ""}
+                                  applicationId={selectedApplicationRow?.id ?? selected.id}
+                                  bucket={residentFormsBucket}
+                                  basePath={portalBase}
+                                  bucketHref={(next) => residentFormsHref(portalBase, residentsTab, selected.id, next)}
                                 />
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "move-in" ? (

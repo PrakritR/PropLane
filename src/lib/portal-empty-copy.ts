@@ -43,6 +43,9 @@ export const PORTAL_EMPTY_COPY = {
   "move-in.forms": T("No move-in forms yet", "move-in"),
   // A form's tab with no resident copy sent yet.
   "move-in.copies": T("Nothing sent yet", "move-in"),
+  // The Forms page (and a resident record's Forms tab): nothing waiting, nothing filed.
+  "forms.pending": T("No pending forms", "forms"),
+  "forms.completed": T("No completed forms", "forms"),
   "inspections.move-in": T("No move-in inspections", "inspections"),
   "inspections.move-out": T("No move-out inspections", "inspections"),
   "payments.pending": T("Nothing pending", "payments"),

@@ -38,6 +38,7 @@ export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
  */
 export function isHiddenFromMobileNav(kind: PortalKind, section: string): boolean {
   if (section === "bugs-feedback") return kind !== "admin";
+  if (section === "move-in" && (kind === "manager" || kind === "pro")) return true;
   // Settings (`profile`) is reachable from the avatar menu AND the More sheet
   // (PLAN-0923-1805). It stays off the desktop sidebar and the fixed primary
   // bottom-bar slots — callers that build a top strip must still omit it.
@@ -59,7 +60,7 @@ const PRO_GROUPS: NavGroupConfig[] = [
   // it stays routable from Settings and the native shell never showed it anyway.
   { id: "workspace", label: "Workspace", sections: ["dashboard", "properties"] },
   { id: "leasing", label: "Leasing", sections: ["tours", "applications", "leases"] },
-  { id: "tenancy", label: "Tenancy", sections: ["residents", "move-in", "payments", "services"] },
+  { id: "tenancy", label: "Tenancy", sections: ["residents", "forms", "payments", "services"] },
   { id: "operations", label: "Operations", sections: ["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"] },
   { id: "marketing", label: "Marketing", sections: ["promotion"] },
   // Team (co-managers) is Settings → Workspaces only; `/portal/teams` redirects.
@@ -75,7 +76,7 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
 
 const RESIDENT_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "tour", "applications"] },
-  { id: "my-home", label: "My home", sections: ["lease", "move-in", "services"] },
+  { id: "my-home", label: "My home", sections: ["lease", "forms", "move-in", "services"] },
   { id: "finances", label: "Finances", sections: ["payments", "documents"] },
   { id: "messages", label: "Messages", sections: ["communication"] },
 ];
@@ -134,7 +135,10 @@ export function groupNavItems<T extends { section: string }>(
       !assigned.has(i.section) &&
       !SIDEBAR_EXCLUDED_SECTIONS.has(i.section) &&
       // Manager Teams moved into Settings (Workspaces / Team / Vendors).
-      !((kind === "manager" || kind === "pro") && i.section === "teams"),
+      !((kind === "manager" || kind === "pro") && i.section === "teams") &&
+      // Manager Move-in has no sidebar row any more (Forms replaced it); the section stays registered only
+      // so a single inspection report keeps its address. Residents assign `move-in` in their own group.
+      !((kind === "manager" || kind === "pro") && i.section === "move-in"),
   );
   if (leftovers.length) groups.push({ id: "more", label: null, items: leftovers });
 

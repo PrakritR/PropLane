@@ -18,10 +18,16 @@ export const proPortal: PortalDefinition = {
       tabs: [{ id: "current", label: "Residents" }],
     },
     {
-      // The one Move-in page: a tab per form the manager has added to a property (grouped by form
-      // name), listing every resident's copy. The tabs come from the manager's forms, so none are
-      // fixed here. There is no Inspections tab or sidebar row; `/portal/inspections` and
-      // `/portal/move-in/inspections` redirect to Move-in.
+      // Every form sent to a resident: Pending (sent) and Completed (submitted), one list. The
+      // tab is the URL's first segment (`/portal/forms/completed`), so none are fixed here.
+      section: "forms",
+      label: "Forms",
+      tabs: [],
+    },
+    {
+      // No sidebar row any more: the bare `/portal/move-in` and any form slug redirect to Forms. The
+      // section stays registered only so a single inspection report's address
+      // (`/portal/move-in/inspections/{move-in|move-out}/<reportId>`) keeps its page.
       section: "move-in",
       label: "Move-in",
       tabs: [],
@@ -111,7 +117,7 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Applications", path: "/portal/applications/pending" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
-  { label: "Move-in forms", path: "/portal/move-in" },
+  { label: "Forms", path: "/portal/forms" },
   { label: "Incoming payments", path: "/portal/payments/incoming/pending" },
   { label: "Outgoing payments", path: "/portal/outgoing/to-pay" },
   { label: "Services", path: "/portal/services/requests" },

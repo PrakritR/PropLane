@@ -24,6 +24,7 @@ export const NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER = [
   "applications",
   "leases",
   "residents",
+  "forms",
   "move-in",
   "payments",
   "services",
@@ -52,6 +53,7 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_ORDER = [
   "services",
   "payments",
   "communication",
+  "forms",
   "move-in",
   "documents",
 ] as const;

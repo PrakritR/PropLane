@@ -3,7 +3,15 @@
  * which tab a form belongs to, the glyph facts a row shows, how late a form is, and the list
  * filters. No React, no I/O, so the row copy is unit-tested without rendering anything.
  */
-import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSummary } from "./types";
+import {
+  MOVE_IN_FORM_BLOCKS_LABELS,
+  resolveMoveInFormBlocks,
+  type MoveInFormAnswer,
+  type MoveInFormBlocks,
+  type MoveInFormKind,
+  type MoveInFormQuestion,
+  type MoveInFormSummary,
+} from "./types";
 
 /** Whether a copy is still owed (`waiting`) or filed (`submitted`). A cancelled copy is neither. */
 export type MoveInFormStatusBucket = "submitted" | "waiting";
@@ -208,6 +216,82 @@ export function filterMoveInForms(forms: MoveInFormSummary[], filters: MoveInFor
     if (filters.formName && moveInFormNameKey(form.formName) !== moveInFormNameKey(filters.formName)) return false;
     if (words.length === 0) return true;
     const haystack = [form.residentName, form.formName, form.propertyLabel, form.roomLabel, ...moveInFormFacts(form, now).map((fact) => fact.text)]
+      .join(" ")
+      .toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  });
+  return sortMoveInFormsForTab(matched, now);
+}
+
+/* ------------------------------------------------------------ the Forms list (sidebar + resident record) */
+
+/** The Forms list's two tabs: Pending is a `sent` copy, Completed a `submitted` one. A cancelled copy is in neither. */
+export type FormsListBucket = "pending" | "completed";
+
+export function formsBucketOf(form: Pick<MoveInFormSummary, "status">): FormsListBucket | null {
+  if (form.status === "sent") return "pending";
+  if (form.status === "submitted") return "completed";
+  return null;
+}
+
+export function formsBucketCounts(forms: readonly Pick<MoveInFormSummary, "status">[]): Record<FormsListBucket, number> {
+  const counts: Record<FormsListBucket, number> = { pending: 0, completed: 0 };
+  for (const form of forms) {
+    const bucket = formsBucketOf(form);
+    if (bucket) counts[bucket] += 1;
+  }
+  return counts;
+}
+
+export const MOVE_IN_FORM_KIND_LABELS: Record<MoveInFormKind, string> = {
+  intake: "Intake",
+  "move-in": "Move-in",
+  "move-out": "Move-out",
+  other: "Other",
+};
+
+/** What a copy holds back, as the row's plain fact: "Blocks Lease signing" / "Blocks nothing". */
+export function formsBlocksFact(form: Pick<MoveInFormSummary, "blocks" | "kind">): string {
+  const blocks = resolveMoveInFormBlocks(form.blocks, form.kind);
+  return blocks === "nothing" ? "Blocks nothing" : `Blocks ${MOVE_IN_FORM_BLOCKS_LABELS[blocks]}`;
+}
+
+/** The row's date fact: "Due Oct 12" (red text once late) for a pending form, "Submitted Oct 2" for a completed one. */
+export function formsDateFact(form: MoveInFormSummary, now: Date = new Date()): { text: string; late: boolean } {
+  if (form.status === "submitted") {
+    const date = formatMoveInDate(form.submittedAt);
+    return { text: date ? `Submitted ${date}` : "Submitted", late: false };
+  }
+  const due = formatMoveInDate(form.dueAt);
+  if (!due) {
+    const sent = formatMoveInDate(form.sentAt);
+    return { text: sent ? `Sent ${sent}` : "Sent", late: false };
+  }
+  const late = moveInFormDaysLate(form, now);
+  return late > 0 ? { text: `Due ${due} · ${lateLabel(late)}`, late: true } : { text: `Due ${due}`, late: false };
+}
+
+export type FormsListFilters = {
+  bucket: FormsListBucket;
+  query?: string;
+  kinds?: readonly MoveInFormKind[];
+  propertyIds?: readonly string[];
+  /** Resident application ids. */
+  residentIds?: readonly string[];
+  blocks?: readonly MoveInFormBlocks[];
+};
+
+/** The Forms list rows for one tab, in tab order (late first, then by due date, then newest submitted). */
+export function filterFormsList(forms: readonly MoveInFormSummary[], filters: FormsListFilters, now: Date = new Date()): MoveInFormSummary[] {
+  const words = (filters.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+  const matched = forms.filter((form) => {
+    if (formsBucketOf(form) !== filters.bucket) return false;
+    if (filters.kinds?.length && !filters.kinds.includes(form.kind)) return false;
+    if (filters.propertyIds?.length && !filters.propertyIds.includes(form.propertyId)) return false;
+    if (filters.residentIds?.length && !filters.residentIds.includes(form.applicationId)) return false;
+    if (filters.blocks?.length && !filters.blocks.includes(resolveMoveInFormBlocks(form.blocks, form.kind))) return false;
+    if (words.length === 0) return true;
+    const haystack = [form.residentName, form.formName, form.propertyLabel, form.roomLabel, formsBlocksFact(form), formsDateFact(form, now).text]
       .join(" ")
       .toLowerCase();
     return words.every((word) => haystack.includes(word));

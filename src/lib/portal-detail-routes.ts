@@ -142,6 +142,7 @@ export const RESIDENT_DETAIL_TABS = [
   "application",
   "background-check",
   "lease",
+  "forms",
   "move-in",
   "payments",
   "services",
@@ -156,6 +157,7 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
   "background-check": "Background check",
   application: "Application",
   lease: "Lease",
+  forms: "Forms",
   "move-in": "Move in",
   tours: "Tours",
   payments: "Payments",
@@ -170,6 +172,7 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
   "background-check": "Screen",
   application: "Apply",
   lease: "Lease",
+  forms: "Forms",
   "move-in": "Move in",
   tours: "Tours",
   payments: "Pay",
@@ -184,7 +187,8 @@ export const RESIDENT_DETAIL_TAB_DESCRIPTIONS: Record<ResidentDetailTabId, strin
   application: "Screen this renter",
   "background-check": "Screening results",
   lease: "Draft, send and e-sign",
-  "move-in": "Move-in forms, details and inspections",
+  forms: "Forms sent to this person",
+  "move-in": "Placement, details, roommates and inspections",
   payments: "Charges and receipts",
   services: "Repairs and requests",
   communication: "Messages with this person",
@@ -312,8 +316,8 @@ export function parseResidentsTab(raw: string | undefined | null): ResidentsTabI
  * their profile, scoped to the viewing manager's portfolio in the panel.
  */
 /**
- * Prospects have no tenancy — Services has nothing to list or add yet. Move-in stays: it lists every
- * form of the person's property, so a form can go out as soon as the application is approved.
+ * Prospects have no tenancy — Services has nothing to list or add yet. Forms and Move in stay: a form
+ * can go out (and block approval) while the application is still in review.
  */
 const RESIDENT_DETAIL_TABS_POTENTIAL = RESIDENT_DETAIL_TABS.filter((tab) => tab !== "services");
 
@@ -327,13 +331,28 @@ export function residentDetailTabsForStage(stage: ResidentsTabId): readonly Resi
   return RESIDENT_DETAIL_TABS_BY_STAGE[stage];
 }
 
-/**
- * Manager Move-in page (the one sidebar row): one tab per form the manager has added to a property,
- * grouped by form name (`moveInFormTabGroups`); the tab id is a slug of the name. The bare `/move-in`
- * lands on the first tab. Inspections is no longer a tab: `/move-in/inspections*` redirects to `/move-in`.
- */
-export function moveInFormListHref(basePath: string, tab?: string): string {
-  return tab ? `${basePath}/move-in/${encodeURIComponent(tab)}` : `${basePath}/move-in`;
+/** Manager Forms page buckets: a sent form waits on the resident (Pending) until it is submitted (Completed). */
+export const FORMS_BUCKETS = ["pending", "completed"] as const;
+export type FormsBucketId = (typeof FORMS_BUCKETS)[number];
+
+export function parseFormsBucket(raw: string | undefined | null): FormsBucketId | null {
+  return raw && (FORMS_BUCKETS as readonly string[]).includes(raw) ? (raw as FormsBucketId) : null;
+}
+
+/** The Forms page (sidebar, TENANCY): bare = Pending, `/completed` = Completed. */
+export function formsListHref(basePath: string, bucket: FormsBucketId = "pending"): string {
+  return bucket === "pending" ? `${basePath}/forms` : `${basePath}/forms/${bucket}`;
+}
+
+/** The resident record's Forms tab (rail, HOME after Lease): the same list scoped to that resident. */
+export function residentFormsHref(
+  basePath: string,
+  residentsTab: ResidentsTabId | string,
+  residentId: string,
+  bucket: FormsBucketId = "pending",
+): string {
+  const base = residentDetailHref(basePath, residentsTab, residentId, "forms");
+  return bucket === "pending" ? base : `${base}/${bucket}`;
 }
 
 /**
@@ -350,9 +369,9 @@ export function isMoveInFormTabSlug(raw: string | undefined | null): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw ?? "") && (raw ?? "").length <= 70;
 }
 
-/** The resident record's Move-in tab. `residentId` is the application id the Residents routes use. */
+/** The resident record's Forms tab. `residentId` is the application id the Residents routes use. */
 export function residentMoveInFormsHref(basePath: string, residentId: string, residentsTab: ResidentsTabId = "current"): string {
-  return residentDetailHref(basePath, residentsTab, residentId, "move-in");
+  return residentFormsHref(basePath, residentsTab, residentId);
 }
 
 export function residentListHref(basePath: string, tab: ResidentsTabId): string {
@@ -1156,13 +1175,13 @@ export function residentTourDetailHref(
 }
 
 /**
- * My home sections, in page order (captain, 2026-10-03, C1-R5 — the resident twin of the manager
- * Move-in hub): the forms to fill out, the placement + move-in checklist, the move-in details
- * (house info, rules, access, amenities), the roommates, and the move-in / move-out inspections.
- * Inspections used to be a sidebar section of its own; `/resident/inspections/*` redirects here.
+ * My home sections, in page order: the placement + move-in checklist, the move-in details (house
+ * info, rules, access, amenities), the roommates, and the move-in / move-out inspections. Forms is
+ * its own resident section (`/resident/forms`) and the manager record's own Forms rail item, not a
+ * My home tab. Inspections used to be a sidebar section of its own; `/resident/inspections/*`
+ * redirects here.
  */
 export const RESIDENT_MOVE_IN_TABS = [
-  "forms",
   "placement",
   "info",
   "housemates",
@@ -1171,7 +1190,6 @@ export const RESIDENT_MOVE_IN_TABS = [
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
 export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = {
-  forms: "Forms",
   placement: "Your placement",
   info: "Move-in details",
   housemates: "Roommates",
@@ -1180,7 +1198,6 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
 
 /** Compact labels for house-details sub-tabs on phone-width layouts. */
 export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, string> = {
-  forms: "Forms",
   placement: "Placement",
   info: "Details",
   housemates: "Roommates",
@@ -1192,6 +1209,11 @@ export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, stri
  * `instructions` (arrival details) and `amenities` both live under Move-in details now.
  */
 const RESIDENT_MOVE_IN_TAB_ALIASES: Record<string, ResidentMoveInTabId> = { instructions: "info", amenities: "info" };
+
+/** A pre-split address: `/move-in/forms` (resident My home, manager record) now lives in the Forms section. */
+export function isRetiredMoveInFormsTab(raw: string | undefined | null): boolean {
+  return raw === "forms";
+}
 
 export function parseResidentMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {
   if (raw && (RESIDENT_MOVE_IN_TABS as readonly string[]).includes(raw)) {
@@ -1208,24 +1230,25 @@ export function residentMoveInHref(
 }
 
 /**
- * The manager resident record's Move in sub-tab. The record opens on Forms (the first tab), unlike
- * the resident's own My home, which opens on Placement.
+ * The manager resident record's Move in sub-tab: Placement · Move-in details · Roommates · Inspections,
+ * opening on Placement. (Forms is the record's own rail item; `/move-in/forms` redirects to it.)
  */
+export const RESIDENT_RECORD_MOVE_IN_TABS = RESIDENT_MOVE_IN_TABS;
 export function parseResidentRecordMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {
-  if (!raw) return "forms";
+  if (!raw) return "placement";
   if ((RESIDENT_MOVE_IN_TABS as readonly string[]).includes(raw)) return raw as ResidentMoveInTabId;
-  return RESIDENT_MOVE_IN_TAB_ALIASES[raw] ?? "forms";
+  return RESIDENT_MOVE_IN_TAB_ALIASES[raw] ?? "placement";
 }
 
-/** One Move in sub-tab of the manager resident record; Forms is the bare `/move-in`. */
+/** One Move in sub-tab of the manager resident record; Placement is the bare `/move-in`. */
 export function residentRecordMoveInHref(
   basePath: string,
   residentsTab: string,
   residentId: string,
-  tab: ResidentMoveInTabId = "forms",
+  tab: ResidentMoveInTabId = "placement",
 ): string {
   const base = residentDetailHref(basePath, residentsTab, residentId, "move-in");
-  return tab === "forms" ? base : `${base}/${tab}`;
+  return tab === "placement" ? base : `${base}/${tab}`;
 }
 
 /**

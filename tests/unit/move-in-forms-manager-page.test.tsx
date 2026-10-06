@@ -1,22 +1,21 @@
 // @vitest-environment jsdom
 /**
- * The manager's Move-in page: a tab per form the manager added (grouped by name, a form with no
- * copies included, a deleted form's copies still listed), no Inspections tab, one empty state when no
- * form exists; and the resident record's Move-in tab: every form of the property, by status.
+ * The manager's Forms page (sidebar, TENANCY): every form sent to a resident, Pending (sent) and
+ * Completed (submitted) tabs with counts, search, a multi-select Filter (Kind, Property, Resident, Blocks),
+ * rows with the ⋯ leaves (Edit · Remind · Cancel request, or View · Download PDF) and no pill; and the resident
+ * record's Forms tab, the same list scoped to one resident.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { FormsList, ManagerFormsPage } from "@/components/portal/move-in-forms/forms-list";
+import type { MoveInFormSummary } from "@/lib/move-in-forms/types";
 
 const getUser = () => import("@testing-library/user-event").then((m) => m.default);
-import { ManagerMoveInFormsPage } from "@/components/portal/move-in-forms/manager-move-in-forms-panel";
-import { ResidentRecordMoveInSection } from "@/components/portal/move-in-forms/resident-record-move-in-section";
-import { newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
-import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 
 const nav = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: nav.push, replace: nav.push, prefetch: vi.fn() }),
-  usePathname: () => "/portal/move-in",
+  usePathname: () => "/portal/forms",
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/hooks/use-portal-session", () => ({
@@ -34,18 +33,7 @@ vi.mock("@/components/providers/app-ui-provider", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/providers/app-ui-provider")>();
   return { ...actual, useAppUi: () => ({ showToast: vi.fn() }), useConfirm: () => vi.fn().mockResolvedValue(true) };
 });
-const stored = vi.hoisted(() => ({ names: [] as string[], templates: [] as unknown[] }));
-vi.mock("@/lib/move-in-forms/manager-forms", () => ({ storedMoveInFormNames: () => stored.names }));
-vi.mock("@/lib/manager-property-save-target", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/manager-property-save-target")>();
-  return { ...actual, resolveManagerListingSubmissionForPropertyId: () => ({ sub: { moveInFormTemplates: stored.templates }, saveTarget: { mode: "listing", saveId: "p1" } }) };
-});
-const rows = vi.hoisted(() => ({ approved: true }));
-vi.mock("@/lib/manager-applications-storage", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/manager-applications-storage")>();
-  return { ...actual, readManagerApplicationRows: () => [{ id: "app-1", bucket: rows.approved ? "approved" : "pending", withdrawnAt: null }] };
-});
-const client = vi.hoisted(() => ({ loadMoveInForms: vi.fn(), sendMoveInForm: vi.fn() }));
+const client = vi.hoisted(() => ({ loadMoveInForms: vi.fn(), remindMoveInForm: vi.fn(), getMoveInForm: vi.fn() }));
 vi.mock("@/lib/move-in-forms/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/move-in-forms/client")>();
   return { ...actual, ...client };
@@ -56,136 +44,117 @@ function copy(patch: Partial<MoveInFormSummary> = {}): MoveInFormSummary {
     id: "c1", applicationId: "app-1", managerUserId: "u1", propertyId: "p1", propertyLabel: "Brooklyn House", roomLabel: "Room 1",
     residentName: "Atlas Bailly", residentEmail: "atlas@example.com", formId: "t-key", formName: "Key receipt", source: "built",
     status: "sent", signedDocumentSha256: null, sentAt: "2026-10-01T17:00:00.000Z", dueAt: "2099-10-20T06:59:59.000Z",
-    submittedAt: null, remindedAt: null, managerViewedAt: null, kind: "other", questionCount: 3, photoCount: 0, signed: false, ...patch,
+    submittedAt: null, remindedAt: null, managerViewedAt: null, kind: "other", blocks: "nothing", questionCount: 3, photoCount: 0, signed: false, ...patch,
   };
 }
 
+const FORMS = [
+  copy({ id: "a", formName: "Resident intake", kind: "intake", blocks: "move_in_details" }),
+  copy({ id: "b", formName: "Pet agreement", blocks: "lease_signing", residentName: "Maya Chen", applicationId: "app-2", propertyId: "p2", propertyLabel: "Alder Row" }),
+  copy({ id: "c", formName: "Move-in checklist", kind: "move-in", status: "submitted", submittedAt: "2026-10-02T20:00:00.000Z" }),
+  copy({ id: "x", formName: "Cancelled thing", status: "cancelled" }),
+];
+
 beforeEach(() => {
-  stored.names = [];
-  stored.templates = [];
-  rows.approved = true;
-  client.loadMoveInForms.mockResolvedValue({ forms: [], unread: 0 });
-  client.sendMoveInForm.mockResolvedValue({});
+  client.loadMoveInForms.mockResolvedValue({ forms: FORMS, unread: 0 });
 });
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
 
-describe("manager Move-in page", () => {
-  it("shows one empty state when no form has been added anywhere, with an Add form button and no tabs", async () => {
-    render(<ManagerMoveInFormsPage />);
-    expect(await screen.findByText("No move-in forms yet")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Add form" }));
-    expect(nav.push).toHaveBeenCalledWith("/portal/properties/all");
-    expect(document.querySelector('[data-attr^="move-in-forms-tab-"]')).toBeNull();
+describe("manager Forms page", () => {
+  it("lists Pending (sent) forms with a count per tab, never a cancelled one, and links each tab", async () => {
+    render(<ManagerFormsPage />);
+    expect(await screen.findByText("Resident intake")).toBeTruthy();
+    expect(screen.getByText("Pet agreement")).toBeTruthy();
+    expect(screen.queryByText("Move-in checklist")).toBeNull();
+    expect(screen.queryByText("Cancelled thing")).toBeNull();
+    const pending = document.querySelector('[data-attr="forms-tab-pending"]')!;
+    const completed = document.querySelector('[data-attr="forms-tab-completed"]')!;
+    expect(pending.textContent).toContain("2");
+    expect(completed.textContent).toContain("1");
+    expect(pending.getAttribute("href")).toBe("/portal/forms");
+    expect(completed.getAttribute("href")).toBe("/portal/forms/completed");
   });
 
-  it("makes a tab per added form, alphabetical, including one nobody has been sent; no Inspections tab", async () => {
-    stored.names = ["Pet agreement", "Intake form", "intake FORM "];
-    client.loadMoveInForms.mockResolvedValue({ forms: [copy({ id: "a", formName: "Pet agreement", formId: "t-pet" })], unread: 0 });
-    render(<ManagerMoveInFormsPage tab="pet-agreement" />);
-    expect(await screen.findByText("Atlas Bailly · Pet agreement")).toBeTruthy();
-    await waitFor(() => expect(document.querySelectorAll('[data-attr^="move-in-forms-tab-"]').length).toBe(2));
-    expect(document.querySelector('[data-attr="move-in-forms-tab-intake-form"]')?.getAttribute("href")).toBe("/portal/move-in/intake-form");
-    expect(document.querySelector('[data-attr="move-in-forms-tab-pet-agreement"]')?.textContent).toContain("Pet agreement");
-    expect(screen.queryByText("Inspections")).toBeNull();
+  it("the Completed tab lists submitted forms with their submitted date", async () => {
+    render(<ManagerFormsPage tab="completed" />);
+    expect(await screen.findByText("Move-in checklist")).toBeTruthy();
+    expect(screen.getByText("Submitted Oct 2")).toBeTruthy();
+    expect(screen.queryByText("Resident intake")).toBeNull();
   });
 
-  it("the bare address, and an unknown slug, show the first tab", async () => {
-    stored.names = ["Key receipt", "Intake form"];
-    client.loadMoveInForms.mockResolvedValue({
-      forms: [copy({ id: "i", formName: "Intake form", formId: "t-in" }), copy({ id: "k", formName: "Key receipt" })],
-      unread: 0,
+  it("a row is tile · form name · resident, property and room · what it blocks · due date, with no pill", async () => {
+    render(<ManagerFormsPage />);
+    const row = (await screen.findByText("Pet agreement")).closest('[data-attr="forms-row"]') as HTMLElement;
+    expect(within(row).getByText(/Maya Chen · Alder Row · Room 1/)).toBeTruthy();
+    expect(within(row).getByText("Blocks Lease signing")).toBeTruthy();
+    expect(within(row).getByText(/Due Oct 19/)).toBeTruthy();
+    expect(within(row).queryByText("Pending")).toBeNull();
+  });
+
+  it("reads what an old intake form blocks from its kind when no value was stored", async () => {
+    client.loadMoveInForms.mockResolvedValue({ forms: [copy({ id: "i", formName: "Intake", kind: "intake", blocks: undefined as never })], unread: 0 });
+    render(<ManagerFormsPage />);
+    const row = (await screen.findByText("Intake")).closest('[data-attr="forms-row"]') as HTMLElement;
+    expect(within(row).getByText("Blocks Move-in details")).toBeTruthy();
+  });
+
+  it("the ⋯ of a pending row offers Edit first, then Remind, with Cancel request last; a completed row View and Download PDF", async () => {
+    const user = await getUser();
+    render(<ManagerFormsPage />);
+    await screen.findByText("Pet agreement");
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "Actions for Pet agreement" }));
     });
-    render(<ManagerMoveInFormsPage />);
-    expect(await screen.findByText("Atlas Bailly · Intake form")).toBeTruthy();
-    expect(screen.queryByText("Atlas Bailly · Key receipt")).toBeNull();
+    const labels = (await screen.findAllByRole("menuitem", {}, { timeout: 3000 })).map((el) => el.textContent?.trim());
+    expect(labels).toEqual(["Edit", "Remind", "Cancel request"]);
     cleanup();
-    render(<ManagerMoveInFormsPage tab="waiting" />);
-    expect(await screen.findByText("Atlas Bailly · Intake form")).toBeTruthy();
-  });
-
-  it("a form with no copies lists nothing on its tab", async () => {
-    stored.names = ["Intake form"];
-    render(<ManagerMoveInFormsPage tab="intake-form" />);
-    expect(await screen.findByText("Nothing sent yet")).toBeTruthy();
-    expect(screen.queryAllByText(/Atlas Bailly/)).toHaveLength(0);
-  });
-
-  it("copies of one name across properties share the tab; a deleted form's copies keep their own", async () => {
-    stored.names = ["Key receipt"];
-    client.loadMoveInForms.mockResolvedValue({
-      forms: [
-        copy({ id: "a", propertyId: "p1", propertyLabel: "Brooklyn House" }),
-        copy({ id: "b", propertyId: "p2", propertyLabel: "Alder House", formName: "key RECEIPT", residentName: "Maya Chen" }),
-        copy({ id: "d", formId: "gone", formName: "Roof access", residentName: "Noor Ali" }),
-        copy({ id: "x", formName: "Key receipt", status: "cancelled" }),
-      ],
-      unread: 0,
+    render(<ManagerFormsPage tab="completed" />);
+    await screen.findByText("Move-in checklist");
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "Actions for Move-in checklist" }));
     });
-    render(<ManagerMoveInFormsPage tab="key-receipt" />);
-    expect(await screen.findByText("Atlas Bailly · Key receipt")).toBeTruthy();
-    expect(screen.getByText("Maya Chen · key RECEIPT")).toBeTruthy();
-    expect(screen.queryByText(/Noor Ali/)).toBeNull();
+    expect((await screen.findAllByRole("menuitem")).map((el) => el.textContent?.trim())).toEqual(["View", "Download PDF"]);
+  });
+
+  it("Edit opens the edit popup for that form", async () => {
+    client.getMoveInForm.mockResolvedValue({ form: { ...copy({ id: "b", formName: "Pet agreement" }), answers: [], snapshot: { questions: [], pdf: null, kind: "other", blocks: "lease_signing" } } });
+    const user = await getUser();
+    render(<ManagerFormsPage />);
+    await screen.findByText("Pet agreement");
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "Actions for Pet agreement" }));
+    });
+    await act(async () => {
+      await user.click(await screen.findByRole("menuitem", { name: "Edit" }, { timeout: 3000 }));
+    });
+    await waitFor(() => expect(client.getMoveInForm).toHaveBeenCalledWith("b"));
+    expect((await screen.findAllByText("Edit Pet agreement")).length).toBeGreaterThan(0);
+  });
+
+  it("a search narrows the rows, and an empty bucket says so", async () => {
+    render(<ManagerFormsPage />);
+    fireEvent.change(await screen.findByPlaceholderText("Search forms"), { target: { value: "maya" } });
+    expect(screen.getByText("Pet agreement")).toBeTruthy();
+    expect(screen.queryByText("Resident intake")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Search forms"), { target: { value: "zzz" } });
+    expect(await screen.findByText(/No forms match/)).toBeTruthy();
     cleanup();
-    render(<ManagerMoveInFormsPage tab="roof-access" />);
-    expect(await screen.findByText("Noor Ali · Roof access")).toBeTruthy();
+    client.loadMoveInForms.mockResolvedValue({ forms: [], unread: 0 });
+    render(<ManagerFormsPage tab="completed" />);
+    expect(await screen.findByText("No completed forms")).toBeTruthy();
   });
 });
 
-describe("resident record › Move-in", () => {
-  const template = (id: string, name: string): MoveInFormTemplate => ({ ...newMoveInFormTemplate("built"), id, name });
-  const section = () => (
-    <ResidentRecordMoveInSection userId="u1" applicationId="app-1" residentName="Atlas Bailly" residentEmail="atlas@example.com" propertyId="p1" />
-  );
-
-  it("lists every form of the property: Not sent, Sent with its due date, Submitted", async () => {
-    stored.templates = [template("t-intake", "Intake form"), template("t-key", "Key receipt"), template("t-pet", "Pet agreement")];
-    client.loadMoveInForms.mockResolvedValue({
-      forms: [
-        copy({ id: "k", formId: "t-key", formName: "Key receipt" }),
-        copy({ id: "p", formId: "t-pet", formName: "Pet agreement", status: "submitted", submittedAt: "2026-10-02T20:00:00.000Z" }),
-      ],
-      unread: 0,
-    });
-    render(section());
-    const rowFor = async (name: string) => (await screen.findAllByText(name)).map((el) => el.closest('[data-attr="resident-move-in-form-row"]')).find(Boolean) as HTMLElement;
-    expect(within(await rowFor("Intake form")).getByText("Not sent")).toBeTruthy();
-    expect(within(await rowFor("Key receipt")).getByText(/Due Oct 19/)).toBeTruthy();
-    expect(within(await rowFor("Pet agreement")).getByText("Submitted Oct 2")).toBeTruthy();
-  });
-
-  it("a Not sent row sends that form for this resident's residency", async () => {
-    stored.templates = [template("t-intake", "Intake form")];
-    render(section());
-    const user = await getUser();
-    await act(async () => {
-      await user.click(await screen.findByRole("button", { name: "Actions for Intake form" }));
-    });
-    await act(async () => {
-      await user.click(await screen.findByRole("menuitem", { name: "Send" }));
-    });
-    await waitFor(() => expect(client.sendMoveInForm).toHaveBeenCalledWith({ applicationId: "app-1", formId: "t-intake" }));
-  });
-
-  it("Send is disabled until the application is approved", async () => {
-    rows.approved = false;
-    stored.templates = [template("t-intake", "Intake form")];
-    render(section());
-    const user = await getUser();
-    await act(async () => {
-      await user.click(await screen.findByRole("button", { name: "Actions for Intake form" }));
-    });
-    const send = await screen.findByRole("menuitem", { name: "Send" });
-    expect(send.getAttribute("aria-disabled") === "true" || send.hasAttribute("data-disabled") || send.hasAttribute("disabled")).toBe(true);
-    expect(client.sendMoveInForm).not.toHaveBeenCalled();
-  });
-
-  it("a property with no forms says so and links to its Forms", async () => {
-    render(section());
-    expect(await screen.findByText("No move-in forms for this property")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open Forms" }));
-    expect(nav.push).toHaveBeenCalledWith("/portal/properties/all/p1/move-in");
+describe("resident record › Forms", () => {
+  it("lists only that resident's forms, with no resident in the place line", async () => {
+    render(<FormsList userId="u1" basePath="/portal" bucket="pending" applicationId="app-1" bucketHref={(b) => `/portal/residents/current/app-1/forms${b === "pending" ? "" : `/${b}`}`} />);
+    expect(await screen.findByText("Resident intake")).toBeTruthy();
+    expect(screen.queryByText("Pet agreement")).toBeNull();
+    expect(client.loadMoveInForms).toHaveBeenCalledWith("u1", "manager", { applicationId: "app-1" }, false);
+    expect(screen.queryByText(/Atlas Bailly ·/)).toBeNull();
+    expect(document.querySelector('[data-attr="forms-tab-completed"]')?.getAttribute("href")).toBe("/portal/residents/current/app-1/forms/completed");
   });
 });

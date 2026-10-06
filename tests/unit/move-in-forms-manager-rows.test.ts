@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterFormsList,
   filterMoveInForms,
+  formsBlocksFact,
+  formsBucketCounts,
+  formsBucketOf,
+  formsDateFact,
   formatMoveInDate,
   groupMoveInAnswers,
   lateFormNeedsLine,
@@ -13,9 +18,8 @@ import {
   moveInFormTabGroups,
   moveInFormTitle,
 } from "@/lib/move-in-forms/manager-rows";
-import { describeMoveInDetails, residentMoveInFormRows } from "@/components/portal/move-in-forms/resident-record-move-in-section";
-import { newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
-import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
+import { describeMoveInDetails } from "@/components/portal/move-in-forms/resident-record-move-in-section";
+import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSummary } from "@/lib/move-in-forms/types";
 
 // Oct 3, 2026, midday Pacific.
 const NOW = new Date("2026-10-03T19:00:00.000Z");
@@ -41,6 +45,7 @@ function form(patch: Partial<MoveInFormSummary> = {}): MoveInFormSummary {
     remindedAt: null,
     managerViewedAt: null,
     kind: "other",
+    blocks: "nothing",
     questionCount: 5,
     photoCount: 0,
     signed: false,
@@ -219,44 +224,53 @@ describe("answers grouped for the viewer", () => {
   });
 });
 
+describe("the Forms list helpers", () => {
+  const sent = (patch: Partial<MoveInFormSummary> = {}) => form({ blocks: "nothing", ...patch });
+  const done = (patch: Partial<MoveInFormSummary> = {}) => sent({ status: "submitted", submittedAt: "2026-09-28T20:00:00.000Z", ...patch });
+
+  it("Pending is a sent copy and Completed a submitted one; a cancelled copy is in neither", () => {
+    expect(formsBucketOf({ status: "sent" })).toBe("pending");
+    expect(formsBucketOf({ status: "submitted" })).toBe("completed");
+    expect(formsBucketOf({ status: "cancelled" })).toBeNull();
+    expect(formsBucketCounts([sent(), sent({ id: "2" }), done({ id: "3" }), sent({ id: "4", status: "cancelled" })])).toEqual({ pending: 2, completed: 1 });
+  });
+
+  it("says what a row blocks as a plain fact, reading an old intake form's default from its kind", () => {
+    expect(formsBlocksFact(sent({ blocks: "lease_signing" }))).toBe("Blocks Lease signing");
+    expect(formsBlocksFact(sent({ blocks: "approval" }))).toBe("Blocks Approval");
+    expect(formsBlocksFact(sent({ blocks: "move_in_details" }))).toBe("Blocks Move-in details");
+    expect(formsBlocksFact(sent({ blocks: "nothing" }))).toBe("Blocks nothing");
+    expect(formsBlocksFact(sent({ kind: "intake", blocks: undefined as never }))).toBe("Blocks Move-in details");
+  });
+
+  it("the date fact is Due (red once late) for a pending form and Submitted for a completed one", () => {
+    expect(formsDateFact(sent({ dueAt: "2026-10-12T06:59:59.000Z" }), NOW)).toEqual({ text: "Due Oct 11", late: false });
+    expect(formsDateFact(sent({ dueAt: "2026-10-01T06:59:59.000Z" }), NOW)).toEqual({ text: "Due Sep 30 · 3 days late", late: true });
+    expect(formsDateFact(sent({ dueAt: null, sentAt: "2026-10-01T17:00:00.000Z" }), NOW)).toEqual({ text: "Sent Oct 1", late: false });
+    expect(formsDateFact(done(), NOW)).toEqual({ text: "Submitted Sep 28", late: false });
+  });
+
+  it("filters by bucket, kind, property, resident, blocks and search, late first", () => {
+    const rows = [
+      sent({ id: "a", formName: "Intake", kind: "intake", blocks: "move_in_details", dueAt: "2026-10-20T06:59:59.000Z" }),
+      sent({ id: "b", formName: "Pet agreement", blocks: "lease_signing", residentName: "Maya Chen", applicationId: "app-2", propertyId: "p2", propertyLabel: "Alder Row", dueAt: "2026-10-01T06:59:59.000Z" }),
+      done({ id: "c", formName: "Checklist", kind: "move-in" }),
+      sent({ id: "x", status: "cancelled" }),
+    ];
+    const ids = (filters: Parameters<typeof filterFormsList>[1]) => filterFormsList(rows, filters, NOW).map((f) => f.id);
+    expect(ids({ bucket: "pending" })).toEqual(["b", "a"]);
+    expect(ids({ bucket: "completed" })).toEqual(["c"]);
+    expect(ids({ bucket: "pending", kinds: ["intake"] })).toEqual(["a"]);
+    expect(ids({ bucket: "pending", propertyIds: ["p2"] })).toEqual(["b"]);
+    expect(ids({ bucket: "pending", residentIds: ["app-1"] })).toEqual(["a"]);
+    expect(ids({ bucket: "pending", blocks: ["lease_signing", "approval"] })).toEqual(["b"]);
+    expect(ids({ bucket: "pending", blocks: ["nothing"] })).toEqual([]);
+    expect(ids({ bucket: "pending", query: "maya alder" })).toEqual(["b"]);
+    expect(ids({ bucket: "pending", query: "blocks lease" })).toEqual(["b"]);
+  });
+});
+
 describe("resident record helpers", () => {
-  const template = (id: string, name: string): MoveInFormTemplate =>
-    ({ ...newMoveInFormTemplate("built"), id, name }) as MoveInFormTemplate;
-
-  it("one row per form of the property, in stored order: Not sent, Sent, Submitted", () => {
-    const rows = residentMoveInFormRows(
-      [template("t1", "Intake form"), template("t2", "Key receipt"), template("t3", "Pet agreement"), template("t4", "")],
-      [
-        form({ id: "k", formId: "t2", formName: "Key receipt" }),
-        form({ id: "p", formId: "t3", formName: "Pet agreement", status: "submitted", submittedAt: "2026-09-28T20:00:00.000Z" }),
-      ],
-    );
-    expect(rows.map((r) => [r.name, r.copy?.status ?? "not-sent"])).toEqual([
-      ["Intake form", "not-sent"], ["Key receipt", "sent"], ["Pet agreement", "submitted"],
-    ]);
-    expect(rows.every((r) => r.template !== null)).toBe(true);
-  });
-
-  it("a waiting copy wins over a submitted one; a cancelled copy is not a copy", () => {
-    const rows = residentMoveInFormRows([template("t1", "Key receipt")], [
-      form({ id: "old", formId: "t1", status: "submitted", submittedAt: "2026-09-20T20:00:00.000Z" }),
-      form({ id: "again", formId: "t1" }),
-      form({ id: "x", formId: "t1", status: "cancelled" }),
-    ]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.copy?.id).toBe("again");
-    expect(residentMoveInFormRows([template("t1", "Key receipt")], [form({ formId: "t1", status: "cancelled" })])[0]!.copy).toBeNull();
-  });
-
-  it("a copy of a deleted form still shows, after the property's forms, under its stored name", () => {
-    const rows = residentMoveInFormRows([template("t1", "Key receipt")], [form({ id: "z", formId: "gone", formName: "Old checklist" })]);
-    expect(rows.map((r) => [r.name, r.template === null, r.copy?.id ?? null])).toEqual([["Key receipt", false, null], ["Old checklist", true, "z"]]);
-  });
-
-  it("a property with no forms and no copies has no rows", () => {
-    expect(residentMoveInFormRows([], [])).toEqual([]);
-  });
-
   it("describes the property's move-in details as facts, with blanks saying so", () => {
     expect(describeMoveInDetails(null, false)).toEqual({ instructions: "None added", photos: "None added", video: "None added" });
     expect(

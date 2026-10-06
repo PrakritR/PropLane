@@ -25,10 +25,10 @@ beforeEach(() => {
 });
 
 describe("move-in form events", () => {
-  it("links a sent form to the Forms tab, the one tab open before a lease is signed", async () => {
+  it("links a sent form to that form, a direct link that works before approval when a form blocks it", async () => {
     await emitMoveInFormEvent(db, { row, event: "sent" });
     const recipients = bus.calls[0]!.recipients as { rendered: { text: string } }[];
-    expect(recipients[0]!.rendered.text).toContain("https://app.example/resident/move-in/forms");
+    expect(recipients[0]!.rendered.text).toContain("https://app.example/resident/forms/r1");
   });
 
   it("sends the submitted notice as the manager, so it lands as an Assistant notice with no email of its own", async () => {

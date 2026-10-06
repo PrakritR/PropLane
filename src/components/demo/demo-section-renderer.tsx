@@ -6,7 +6,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { parseResidentDocumentTab } from "@/lib/resident-documents-tabs";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import { ManagerMoveInFormsPage } from "@/components/portal/move-in-forms/manager-move-in-forms-panel";
+import { ManagerFormsPage } from "@/components/portal/move-in-forms/forms-list";
 import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
@@ -174,8 +174,8 @@ export function DemoSectionRenderer({
         return <ManagerApplications />;
       // The demo never writes: the page renders its empty state (no forms are ever loaded
       // or sent while demo mode is on).
-      case "move-in":
-        return <ManagerMoveInFormsPage tab={tabId} basePath={basePath} />;
+      case "forms":
+        return <ManagerFormsPage tab={tabId} basePath={basePath} />;
       case "residents":
         return <ManagerResidents tabId="current" />;
       case "leases":

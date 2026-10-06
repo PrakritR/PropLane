@@ -60,8 +60,8 @@ export async function loadManagerVendorsPanel() {
   return (await import("@/components/portal/pro-vendors-panel")).ManagerVendorsPanel;
 }
 
-export async function loadManagerMoveInFormsPage() {
-  return (await import("@/components/portal/move-in-forms/manager-move-in-forms-panel")).ManagerMoveInFormsPage;
+export async function loadManagerFormsPage() {
+  return (await import("@/components/portal/move-in-forms/forms-list")).ManagerFormsPage;
 }
 
 export async function loadProAccountLinksPanel() {

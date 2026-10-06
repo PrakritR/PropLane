@@ -3,12 +3,15 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
+  isRetiredMoveInFormsTab,
   parseResidentDetailTab,
   parseResidentRecordMoveInTab,
+  residentFormsHref,
   residentDetailTabsForStage,
   residentRecordMoveInHref,
   RESIDENT_DETAIL_TAB_LABELS,
   RESIDENT_MOVE_IN_TABS,
+  RESIDENT_RECORD_MOVE_IN_TABS,
 } from "@/lib/portal-detail-routes";
 import { recordSections } from "@/lib/portals/record-sections";
 import {
@@ -28,21 +31,29 @@ describe("manager resident record: rail order", () => {
   it("RESIDENT then HOME, Communication last, no Activity and no Inspections", () => {
     expect(sections.groups.map((g) => [g.label, g.items.map((i) => i.id)])).toEqual([
       ["Resident", ["overview", "tours", "application", "background-check"]],
-      ["Home", ["lease", "move-in", "payments", "services", "documents", "communication"]],
+      ["Home", ["lease", "forms", "move-in", "payments", "services", "documents", "communication"]],
     ]);
   });
 
   it("the stage tab list follows the same order; a prospect has no Services", () => {
     expect(residentDetailTabsForStage("current")).toEqual([
-      "overview", "tours", "application", "background-check", "lease", "move-in", "payments", "services", "documents", "communication",
+      "overview", "tours", "application", "background-check", "lease", "forms", "move-in", "payments", "services", "documents", "communication",
     ]);
     expect(residentDetailTabsForStage("potential")).not.toContain("services");
     expect(residentDetailTabsForStage("potential").at(-1)).toBe("communication");
   });
 
-  it('labels Move in "Move in", not "Move-in forms"', () => {
+  it('labels Move in "Move in" and the new tab "Forms", right after Lease', () => {
     expect(RESIDENT_DETAIL_TAB_LABELS["move-in"]).toBe("Move in");
     expect(sections.groups.flatMap((g) => g.items).find((i) => i.id === "move-in")?.label).toBe("Move in");
+    expect(RESIDENT_DETAIL_TAB_LABELS.forms).toBe("Forms");
+    expect(sections.groups.flatMap((g) => g.items).find((i) => i.id === "forms")?.label).toBe("Forms");
+  });
+
+  it("Forms is a rail item with its own addresses: bare is Pending, /completed is Completed", () => {
+    expect(residentFormsHref("/portal", "current", "AXIS-1")).toBe("/portal/residents/current/AXIS-1/forms");
+    expect(residentFormsHref("/portal", "current", "AXIS-1", "completed")).toBe("/portal/residents/current/AXIS-1/forms/completed");
+    expect(parseResidentDetailTab("forms")).toBe("forms");
   });
 });
 
@@ -52,19 +63,29 @@ describe("old /inspections links open Move in → Inspections", () => {
     expect(parseResidentDetailTab("activity")).toBe("overview");
   });
 
-  it("the record keeps the Move in sub-tab in the URL; Forms is the bare address", () => {
+  it("the record keeps the Move in sub-tab in the URL; Placement is the bare address", () => {
     expect(residentRecordMoveInHref("/portal", "current", "AXIS-1", "inspections")).toBe("/portal/residents/current/AXIS-1/move-in/inspections");
-    expect(residentRecordMoveInHref("/portal", "current", "AXIS-1", "forms")).toBe("/portal/residents/current/AXIS-1/move-in");
-    expect(parseResidentRecordMoveInTab(undefined)).toBe("forms");
+    expect(residentRecordMoveInHref("/portal", "current", "AXIS-1", "placement")).toBe("/portal/residents/current/AXIS-1/move-in");
+    expect(parseResidentRecordMoveInTab(undefined)).toBe("placement");
     expect(parseResidentRecordMoveInTab("inspections")).toBe("inspections");
     expect(parseResidentRecordMoveInTab("info")).toBe("info");
-    // A retired slug keeps its destination; anything unrecognised lands on Forms, never silently on Placement.
+    // A retired slug keeps its destination; anything unrecognised (including the old forms sub-tab,
+    // which the server redirects to the Forms rail item) lands on Placement.
     expect(parseResidentRecordMoveInTab("amenities")).toBe("info");
-    expect(parseResidentRecordMoveInTab("zzz")).toBe("forms");
+    expect(parseResidentRecordMoveInTab("zzz")).toBe("placement");
   });
 
-  it("the Move in sub-tabs are the resident's My home tabs, in their order", () => {
-    expect([...RESIDENT_MOVE_IN_TABS]).toEqual(["forms", "placement", "info", "housemates", "inspections"]);
+  it("the Move in sub-tabs are Placement · Move-in details · Roommates · Inspections, the resident's My home tabs", () => {
+    expect([...RESIDENT_MOVE_IN_TABS]).toEqual(["placement", "info", "housemates", "inspections"]);
+    expect([...RESIDENT_RECORD_MOVE_IN_TABS]).toEqual([...RESIDENT_MOVE_IN_TABS]);
+  });
+
+  it("the old /move-in/forms record link redirects to the record's Forms tab", () => {
+    expect(isRetiredMoveInFormsTab("forms")).toBe(true);
+    expect(isRetiredMoveInFormsTab("placement")).toBe(false);
+    const src = read("src/lib/render-portal-section.tsx");
+    expect(src).toContain('isRetiredMoveInFormsTab(residentDetailItemId)');
+    expect(src).toContain("/forms`);");
   });
 
   it("the server redirects /inspections to /move-in/inspections", () => {
@@ -194,7 +215,7 @@ describe("Roommates reads the household from the server", () => {
 
   it("fetches only while the Roommates sub-tab is open, and never counts the household in a tab badge", () => {
     expect(section).toContain('if (activeTab !== "housemates" || !householdHref) return;');
-    expect(section).toContain('count: id === "forms" ? rows.length : undefined');
+    expect(section).not.toContain("count:");
   });
 
   it("only the retry forces a fresh read past the shared-GET cache, and the Button owns its spinner", () => {

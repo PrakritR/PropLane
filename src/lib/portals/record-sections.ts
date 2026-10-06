@@ -291,6 +291,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       ] },
       { label: "Home", ids: [
         { id: "lease", label: "Lease" },
+        { id: "forms", label: "Forms" },
         { id: "move-in", label: "Move in" },
         { id: "payments", label: "Payments" },
         { id: "services", label: "Services" },

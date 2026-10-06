@@ -70,6 +70,8 @@ describe("portal nav groups cover the registry exactly", () => {
           if (kind === "vendor" && s === "tasks") return false;
           // Manager Teams moved into Settings (Workspaces / Team / Vendors).
           if ((kind === "pro" || kind === "manager") && s === "teams") return false;
+          // Manager Move-in is registered but has no row: Forms replaced it in the sidebar.
+          if ((kind === "pro" || kind === "manager") && s === "move-in") return false;
           return !SIDEBAR_EXCLUDED_SECTIONS.has(s);
         })
         .sort();
@@ -127,7 +129,7 @@ describe("groupNavItems", () => {
     const operations = result.find((g) => g.id === "operations");
     expect(operations?.items.map((i) => i.section)).toEqual(["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"]);
     const tenancy = result.find((g) => g.id === "tenancy");
-    expect(tenancy?.items.map((i) => i.section)).toEqual(["residents", "move-in", "payments", "services"]);
+    expect(tenancy?.items.map((i) => i.section)).toEqual(["residents", "forms", "payments", "services"]);
     const finances = result.find((g) => g.id === "finances");
     expect(finances?.items.map((i) => i.section)).toEqual(["financials", "documents"]);
     // profile was filtered out of `items` above (pro's sidebar otherwise surfaces it)
