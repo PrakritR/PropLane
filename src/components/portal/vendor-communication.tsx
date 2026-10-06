@@ -165,7 +165,11 @@ function VendorUnifiedInbox({
         const res = await fetch("/api/vendor/sms-conversations", { credentials: "include", cache: "no-store" });
         if (!res.ok) return;
         const body = await res.json();
-        setSmsMessages(normalizeRoleSmsPayload(body).messages);
+        // A vendor whose texts are linked (verified phone / resolved account) sees them
+        // INSIDE each manager's conversation row; the standalone "Text messages" row is
+        // only for the work-order assistant's own turns when nothing is linked yet.
+        const linked = Array.isArray(body?.conversations) && body.conversations.length > 0;
+        setSmsMessages(linked ? [] : normalizeRoleSmsPayload(body).messages);
       } catch {
         /* keep */
       }
