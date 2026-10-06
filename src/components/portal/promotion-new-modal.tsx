@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { FileText, MessageSquareText, Upload, type LucideIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -32,10 +30,10 @@ import { clearWizardDraft, readWizardDraft, writeWizardDraft } from "@/lib/wizar
 const PROMOTION_DRAFT_KEY = "new-promotion";
 type KeptPromotion = { kind: PromotionAssetKind; stepIdx: number; draft: PromotionDraft };
 
-const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string; icon: LucideIcon }[] = [
-  { id: "flyer", label: "Flyer", icon: FileText },
-  { id: "text", label: "Post or blurb", icon: MessageSquareText },
-  { id: "upload", label: "Upload your own", icon: Upload },
+const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string }[] = [
+  { id: "flyer", label: "Flyer" },
+  { id: "text", label: "Post or blurb" },
+  { id: "upload", label: "Upload your own" },
 ];
 
 type FlyerContentField = Exclude<keyof PromotionDraft, "propertyKey" | "images">;
@@ -303,27 +301,14 @@ export function PromotionNewModal({
       {stepId === "kind" ? (
         <StepColumn>
           <StepHeading title="Kind" />
-          <div role="radiogroup" aria-label="Promotion type" className="grid grid-cols-3 gap-3 max-sm:grid-cols-1">
-            {PROMOTION_KIND_OPTIONS.map((option) => {
-              const Icon = option.icon;
-              const on = kind === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  disabled={flyerBusy || textBusy || uploadBusy}
-                  onClick={() => void requestSwitch(option.id)}
-                  data-attr="promotion-new-kind"
-                  className={cn("flex min-h-24 flex-col items-start justify-between gap-3 rounded-xl border p-3 text-left text-sm font-bold transition max-sm:min-h-20", on ? "border-primary bg-primary/[0.06] text-primary ring-1 ring-primary" : "border-border bg-card text-foreground hover:bg-accent/40")}
-                >
-                  <Icon className="size-5" strokeWidth={1.75} aria-hidden />
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
+          <WizardSelect
+            label="Kind"
+            value={kind}
+            onChange={(next) => void requestSwitch(next as PromotionAssetKind)}
+            options={PROMOTION_KIND_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
+            disabled={flyerBusy || textBusy || uploadBusy}
+            dataAttr="promotion-new-kind"
+          />
           {!hidePropertyPicker ? (
             <WizardSelect
               label="Property"
