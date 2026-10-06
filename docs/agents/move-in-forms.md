@@ -104,8 +104,12 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 - **The editor is the application editor's frame** (`AddWorkspace`: Form, Questions, Who & when;
   red Delete on the left in edit) and its Questions step draws each question
   through `BuilderQuestionCard`, the same row the application editor uses. The right-hand
-  "Resident sees" pane is the application editor's card ("Step n of N · form name"), not a phone
-  frame. Its footer is the shared `AddWorkspace` shell both editors read, not one of its own
+  "Resident sees" pane is the shared `PreviewPager` (`src/components/portal/preview-pager.tsx`),
+  the one the application editor's "Applicant sees" also draws and the owner of that contract:
+  "Step n of N · form name" with ‹ › step icon buttons, a whole section per step (short
+  consecutive sections combined, a section never split), an uploaded form's PDF as step 1 — not a
+  phone frame, and not one question per step. Opening a question in the middle column moves the
+  pane to that question's step. Its footer is the shared `AddWorkspace` shell both editors read, not one of its own
   (`editor-footer-state.ts`; the shape is [`ui-page-structure.md`](ui-page-structure.md) § 4b).
 - **Forms sit under Long-term forms / Short-term forms tabs** (Move-in: Whole house · Rooms · Long-term
   forms · Short-term forms). A form's stay is its "Applies to" (`src/lib/move-in-forms/stays.ts`):
