@@ -7,6 +7,16 @@ import { resolveConversationSendLine } from "@/lib/sms/manager-workspace-role.se
 import { track } from "@/lib/analytics/posthog";
 import { MANUAL_SMS_UNKNOWN_MESSAGE } from "@/lib/sms/manual-send-attempt";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
+import { isVendorCategorySettingsRow, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import {
+  VENDOR_CONVERSATION_PURPOSE,
+  VENDOR_TEXT_ATTESTATION_SOURCE,
+  buildVendorSenderLine,
+  carryVendorConsentToKey,
+  readVendorTextConsent,
+  recordManagerAttestedVendorConsent,
+  recordVendorInboundReplyConsent,
+} from "@/lib/sms/vendor-conversation-consent.server";
 
 type SendResult = { body: Record<string, unknown>; status: number };
 function response(body: Record<string, unknown>, init?: { status: number }): SendResult {
@@ -26,6 +36,13 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   conversationKey?: string | null;
   /** Filled only by the authorized projection detail route. */
   selectedConversation?: ManagerSmsResidentConversation;
+  /**
+   * A roster vendor (manager_vendor_records id). The destination is the row's
+   * own saved phone, read here; a browser phone must equal it. A cold first
+   * text also needs `attestVendorRelationship` (Decide #1, Oct 6).
+   */
+  vendorRecordId?: string | null;
+  attestVendorRelationship?: boolean;
 }): Promise<SendResult> {
   const body = args;
   if (args.scopeManagerIds && !args.scopeManagerIds.length) {
@@ -47,6 +64,10 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
       { error: "Enter a valid US phone number." },
       { status: 400 },
     );
+
+  if (args.vendorRecordId && !args.selectedConversation) {
+    return sendRosterVendorText(db, args, { text, toPhone });
+  }
 
   const conversations = args.selectedConversation ? null : await fetchManagerSmsConversations(
     db,
@@ -128,6 +149,14 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     }
     selectedWorkLineId = line.numberId;
   }
+  if (match?.counterpartyRole === "vendor") {
+    // A vendor who texted before consent was recorded on inbound: their text IS the opt-in.
+    await materializeLegacyVendorInboundConsent(db, {
+      ownerManagerUserId,
+      phone: matchedPhone,
+      vendorUserId: match?.residentUserId ?? null,
+    });
+  }
   const requestedDedupe = args.idempotencyKey?.trim() ?? "";
   const dedupeKey = /^[A-Za-z0-9_-]{16,128}$/.test(requestedDedupe)
     ? `manager:${requestedDedupe}`
@@ -151,7 +180,9 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     recipientEmail: match?.residentEmail ?? null,
     body: text,
     sendClass: "transactional",
-    purpose: "manager_conversation",
+    // A vendor thread carries the vendor consent ledger (the vendor's own text
+    // or the manager's attestation); every other thread keeps the generic purpose.
+    purpose: match?.counterpartyRole === "vendor" ? VENDOR_CONVERSATION_PURPOSE : "manager_conversation",
     conversationKey: (match?.conversationKey ?? replyKey) || null,
     counterpartyRole: match?.counterpartyRole,
     // Never persist a browser-supplied identity on a cold compose. A linked
@@ -160,6 +191,17 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     dedupeKey,
   });
 
+  return finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result);
+}
+
+type EnqueueResult = Awaited<ReturnType<typeof enqueueOwnerSms>>;
+
+async function finishEnqueuedSend(
+  db: SupabaseClient,
+  actorUserId: string,
+  ownerManagerUserId: string,
+  result: EnqueueResult,
+): Promise<SendResult> {
   if (!result.ok) {
     const userMessage =
       result.error === "recipient_opted_out"
@@ -181,7 +223,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
 
   const dispatch = await dispatchOwnerSmsOutbox(
     {
-      workerId: `manager-route-${args.actorUserId}`,
+      workerId: `manager-route-${actorUserId}`,
       outboxId: result.outboxId,
     },
     db,
@@ -219,7 +261,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
       ? "submitted"
       : outboxStatus;
   if (responseStatus === "submitted") {
-    track("message_sent", args.actorUserId, {
+    track("message_sent", actorUserId, {
       channel: "sms",
       owner_id: ownerManagerUserId,
     });
@@ -232,4 +274,293 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     },
     { status: responseStatus === "submitted" ? 200 : 202 },
   );
+}
+
+type Row = Record<string, unknown>;
+
+/** A vendor who texted this work number first has opted in to replies, whether or not their text was ever recorded as consent. */
+async function materializeLegacyVendorInboundConsent(
+  db: SupabaseClient,
+  input: { ownerManagerUserId: string; phone: string; vendorUserId: string | null },
+): Promise<void> {
+  try {
+    const state = await readVendorTextConsent(db, {
+      managerUserId: input.ownerManagerUserId, vendorUserId: input.vendorUserId, phone: input.phone,
+    });
+    if (!state.ok || state.state !== "none") return;
+    const { data } = await db
+      .from("inbound_sms_log")
+      .select("message_sid")
+      .eq("manager_user_id", input.ownerManagerUserId)
+      .eq("from_phone", input.phone)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const sid = String((data as Row[] | null)?.[0]?.message_sid ?? "").trim();
+    if (!sid) return;
+    await recordVendorInboundReplyConsent(db, {
+      managerUserId: input.ownerManagerUserId, vendorUserId: input.vendorUserId, phone: input.phone, messageSid: sid,
+    });
+  } catch {
+    // Best effort: without the grant the dispatcher refuses with the ordinary consent message.
+  }
+}
+
+/** Has a manager text to this vendor already been accepted for delivery? */
+async function hasAcceptedManagerVendorText(
+  db: SupabaseClient,
+  ownerManagerUserId: string,
+  phone: string,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from("sms_outbox")
+    .select("id")
+    .eq("manager_user_id", ownerManagerUserId)
+    .eq("recipient_phone", phone)
+    .eq("purpose", VENDOR_CONVERSATION_PURPOSE)
+    .like("dedupe_key", "manager:%")
+    .in("status", ["queued", "claimed", "deferred", "submitting", "submitted", "sent", "delivered", "unknown"])
+    .limit(1);
+  // An unreadable history is treated as "not sent yet": a repeated STOP footer is harmless, a missing one is not.
+  if (error) return false;
+  return ((data as unknown[] | null) ?? []).length > 0;
+}
+
+/** The thread a roster vendor already has, if any: its line decides where a new text leaves. */
+async function existingVendorThreadLine(
+  db: SupabaseClient,
+  ownerManagerUserId: string,
+  phone: string,
+): Promise<string | null> {
+  try {
+    const { data } = await db
+      .from("sms_projection_conversations")
+      .select("work_line_id")
+      .eq("owner_manager_user_id", ownerManagerUserId)
+      .eq("counterparty_role", "vendor")
+      .eq("counterparty_phone", phone)
+      .is("merged_into_id", null)
+      .order("last_event_at", { ascending: false })
+      .limit(1);
+    return String((data as Row[] | null)?.[0]?.work_line_id ?? "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function senderLineFor(
+  db: SupabaseClient,
+  actorUserId: string,
+  workLineId: string | null,
+): Promise<string> {
+  let workspaceName: string | null = null;
+  let managerFirstName: string | null = null;
+  try {
+    const { data: actor } = await db.from("profiles").select("full_name").eq("id", actorUserId).maybeSingle();
+    managerFirstName = String((actor as Row | null)?.full_name ?? "").trim().split(/\s+/)[0] || null;
+    if (workLineId) {
+      const { data: line } = await db.from("manager_sms_numbers").select("workspace_id").eq("id", workLineId).maybeSingle();
+      const workspaceId = String((line as Row | null)?.workspace_id ?? "").trim();
+      if (workspaceId) {
+        const { data: workspace } = await db.from("portal_workspaces").select("name").eq("id", workspaceId).maybeSingle();
+        workspaceName = String((workspace as Row | null)?.name ?? "").trim() || null;
+      }
+    }
+  } catch {
+    // The line falls back to generic words; it is never omitted.
+  }
+  return buildVendorSenderLine({ managerFirstName, workspaceName });
+}
+
+type RosterVendor = {
+  recordId: string;
+  ownerManagerUserId: string;
+  vendor: ManagerVendorRow;
+  vendorUserId: string | null;
+  /** The vendor row's own saved phone, normalized: the only destination a roster text may use. */
+  rosterPhone: string | null;
+};
+
+/** Load a roster vendor the actor may text; an error result carries the response to return. */
+async function loadRosterVendorForActor(
+  db: SupabaseClient,
+  args: { actorUserId: string; scopeManagerIds?: string[]; vendorRecordId?: string | null },
+): Promise<{ ok: true; value: RosterVendor } | { ok: false; result: SendResult }> {
+  const recordId = String(args.vendorRecordId ?? "").trim();
+  const fail = (body: Record<string, unknown>, status: number) => ({ ok: false as const, result: response(body, { status }) });
+  const { data: record, error } = await db
+    .from("manager_vendor_records")
+    .select("id, manager_user_id, vendor_user_id, row_data")
+    .eq("id", recordId)
+    .maybeSingle();
+  if (error) return fail({ error: "Could not queue SMS." }, 503);
+  const vendor = (record as { row_data?: ManagerVendorRow | null } | null)?.row_data ?? null;
+  if (!record || !vendor || isVendorCategorySettingsRow(vendor) || vendor.active === false) {
+    return fail({ error: "Vendor not found." }, 404);
+  }
+  const ownerManagerUserId = String((record as Row).manager_user_id ?? "").trim();
+  if (!ownerManagerUserId) return fail({ error: "Vendor not found." }, 404);
+  if (args.scopeManagerIds && !args.scopeManagerIds.includes(ownerManagerUserId)) {
+    return fail({ error: "You do not have edit access to this conversation." }, 403);
+  }
+  if (ownerManagerUserId !== args.actorUserId) {
+    const editScope = await resolveSmsScopeManagerIds(db, args.actorUserId, "edit");
+    if (!editScope.includes(ownerManagerUserId)) {
+      return fail({ error: "You do not have edit access to this conversation." }, 403);
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      recordId,
+      ownerManagerUserId,
+      vendor,
+      vendorUserId: String((record as Row).vendor_user_id ?? vendor.vendorUserId ?? "").trim() || null,
+      rosterPhone: normalizeE164(String(vendor.phone ?? "").trim()),
+    },
+  };
+}
+
+/**
+ * What the New message modal needs before it offers the "I work with this
+ * vendor" box: does this vendor still need the manager's attestation, has the
+ * number opted out, and what will the first text's identification line say.
+ */
+export async function readRosterVendorTextStatus(
+  db: SupabaseClient,
+  args: { actorUserId: string; vendorRecordId: string; scopeManagerIds?: string[] },
+): Promise<SendResult> {
+  const loaded = await loadRosterVendorForActor(db, args);
+  if (!loaded.ok) return loaded.result;
+  const { ownerManagerUserId, vendorUserId, rosterPhone } = loaded.value;
+  if (!rosterPhone) return response({ error: "Add a phone number to this vendor before texting them." }, { status: 409 });
+  const consent = await readVendorTextConsent(db, { managerUserId: ownerManagerUserId, vendorUserId, phone: rosterPhone });
+  if (!consent.ok) return response({ error: "Could not read consent." }, { status: 503 });
+  const optedOut = consent.state === "opted_out" || consent.state === "revoked";
+  const awaitingFirst =
+    consent.state === "granted" &&
+    consent.grantSource === VENDOR_TEXT_ATTESTATION_SOURCE &&
+    !(await hasAcceptedManagerVendorText(db, ownerManagerUserId, rosterPhone));
+  const needsAttestation = consent.state === "none";
+  const lineId = needsAttestation || awaitingFirst ? await existingVendorThreadLine(db, ownerManagerUserId, rosterPhone) : null;
+  return response({
+    ok: true,
+    phone: rosterPhone,
+    needsAttestation,
+    optedOut,
+    ...(needsAttestation ? { senderLine: await senderLineFor(db, args.actorUserId, lineId ?? (await onlyWorkLineId(db, ownerManagerUserId))) } : {}),
+  });
+}
+
+async function onlyWorkLineId(db: SupabaseClient, ownerManagerUserId: string): Promise<string | null> {
+  const line = await resolveConversationSendLine(db, ownerManagerUserId, { propertyId: null });
+  return line.ok ? line.numberId : null;
+}
+
+/**
+ * A text to a vendor on the manager's roster (manager_vendor_records), with or
+ * without a thread. The row's own saved phone is the destination. A cold first
+ * text needs the manager's attestation ("I work with this vendor"); it is stored
+ * as `vendor_conversation` consent evidence and the message carries the sender
+ * line + STOP footer. STOP (any rail) always wins.
+ */
+async function sendRosterVendorText(
+  db: SupabaseClient,
+  args: {
+    actorUserId: string;
+    idempotencyKey?: string;
+    scopeManagerIds?: string[];
+    vendorRecordId?: string | null;
+    attestVendorRelationship?: boolean;
+  },
+  input: { text: string; toPhone: string },
+): Promise<SendResult> {
+  const loaded = await loadRosterVendorForActor(db, args);
+  if (!loaded.ok) return loaded.result;
+  const { recordId, ownerManagerUserId, vendor, vendorUserId, rosterPhone } = loaded.value;
+  // The vendor's saved phone is the only destination a roster text may use.
+  if (!rosterPhone) {
+    return response({ error: "Add a phone number to this vendor before texting them." }, { status: 409 });
+  }
+  if (rosterPhone !== input.toPhone) {
+    return response({ error: "The recipient no longer matches this vendor. Refresh and try again." }, { status: 409 });
+  }
+
+  const consent = await readVendorTextConsent(db, { managerUserId: ownerManagerUserId, vendorUserId, phone: rosterPhone });
+  if (!consent.ok) return response({ error: "Could not queue SMS." }, { status: 503 });
+  if (consent.state === "opted_out" || consent.state === "revoked") {
+    return response({ error: "That number has opted out of texts." }, { status: 409 });
+  }
+  const conversationKey = consent.conversationKey;
+
+  let selectedWorkLineId = await existingVendorThreadLine(db, ownerManagerUserId, rosterPhone);
+  if (!selectedWorkLineId) {
+    const line = await resolveConversationSendLine(db, ownerManagerUserId, { propertyId: null });
+    if (!line.ok) {
+      return response(
+        { error: "This workspace has more than one work number. Open the vendor from its workspace and try again." },
+        { status: 409 },
+      );
+    }
+    selectedWorkLineId = line.numberId;
+  }
+
+  let text = input.text;
+  // The identification + STOP line goes on the FIRST text the vendor receives
+  // from this manager: a fresh attestation, or an attestation whose first send
+  // never left (no credit, line not ready) - never on later messages.
+  const attestedAwaitingFirstText =
+    consent.state === "granted" &&
+    consent.grantedUnder === conversationKey &&
+    consent.grantSource === VENDOR_TEXT_ATTESTATION_SOURCE &&
+    !(await hasAcceptedManagerVendorText(db, ownerManagerUserId, rosterPhone));
+  if (attestedAwaitingFirstText) {
+    text = `${input.text} ${await senderLineFor(db, args.actorUserId, selectedWorkLineId)}`;
+    if (text.length > 1600) {
+      return response({ error: "Message is too long (max 1600 characters)." }, { status: 400 });
+    }
+  } else if (consent.state === "none") {
+    if (args.attestVendorRelationship !== true) {
+      return response(
+        { code: "vendor_attestation_required", error: "Confirm you work with this vendor to send the first text." },
+        { status: 409 },
+      );
+    }
+    const senderLine = await senderLineFor(db, args.actorUserId, selectedWorkLineId);
+    text = `${input.text} ${senderLine}`;
+    if (text.length > 1600) {
+      return response({ error: "Message is too long (max 1600 characters)." }, { status: 400 });
+    }
+    const recorded = await recordManagerAttestedVendorConsent(db, {
+      managerUserId: ownerManagerUserId, actorUserId: args.actorUserId, phone: rosterPhone,
+      conversationKey, vendorRecordId: recordId, senderLine,
+    });
+    if (!recorded.ok) return response({ error: "Could not queue SMS." }, { status: 503 });
+  } else if (consent.grantedUnder && consent.grantedUnder !== conversationKey) {
+    const carried = await carryVendorConsentToKey(db, {
+      managerUserId: ownerManagerUserId, phone: rosterPhone, conversationKey, fromKey: consent.grantedUnder,
+    });
+    if (!carried.ok) return response({ error: "Could not queue SMS." }, { status: 503 });
+  }
+
+  const requestedDedupe = args.idempotencyKey?.trim() ?? "";
+  const dedupeKey = /^[A-Za-z0-9_-]{16,128}$/.test(requestedDedupe)
+    ? `manager:${requestedDedupe}`
+    : `manager:${createHash("sha256")
+        .update([args.actorUserId, ownerManagerUserId, rosterPhone, conversationKey, input.text, Math.floor(Date.now() / 30_000)].join("|"))
+        .digest("hex")}`;
+  const result = await enqueueOwnerSms({
+    managerUserId: ownerManagerUserId,
+    selectedWorkLineId,
+    actorUserId: args.actorUserId,
+    recipientPhone: rosterPhone,
+    recipientEmail: String(vendor.email ?? "").trim() || null,
+    body: text,
+    sendClass: "transactional",
+    purpose: VENDOR_CONVERSATION_PURPOSE,
+    conversationKey,
+    counterpartyRole: "vendor",
+    recipientUserId: vendorUserId,
+    dedupeKey,
+  });
+  return finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result);
 }
