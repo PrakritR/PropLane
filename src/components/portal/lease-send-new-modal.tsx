@@ -39,7 +39,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import { renewalLeaseTermOptionsForProperty } from "@/lib/lease-renewal-terms";
 import { listingAdvertisedRentLabelForLease } from "@/lib/lease-renewal-preview";
-import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 import { uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
@@ -62,8 +62,19 @@ function initialTermFor(row: LeasePipelineRow, propertyId: string): string {
   const terms = renewalLeaseTermOptionsForProperty(propertyId);
   const preferred = (row.application?.leaseTerm ?? "").trim();
   if (preferred && terms.includes(preferred)) return preferred;
+  // A retired fixed length ("12-Month") is still on signed leases; today's offer for it is Long-term.
+  if (/^\d+-Month$/.test(preferred) && terms.includes(LONG_TERM_LEASE_TERM)) return LONG_TERM_LEASE_TERM;
   if (row.application?.rentalType === "short_term" && terms.includes(SHORT_TERM_LEASE_TERM)) return SHORT_TERM_LEASE_TERM;
   return terms[0] ?? preferred;
+}
+
+/** The new start plus the current lease's own length: the end a manager usually wants for "the same again". */
+function sameLengthEnd(currentStart: string, currentEnd: string, newStart: string): string {
+  const a = Date.parse(`${currentStart}T00:00:00Z`);
+  const b = Date.parse(`${currentEnd}T00:00:00Z`);
+  const c = Date.parse(`${newStart}T00:00:00Z`);
+  if (![a, b, c].every(Number.isFinite) || b <= a) return "";
+  return new Date(c + (b - a)).toISOString().slice(0, 10);
 }
 
 export function SendNewLeaseModal({
@@ -96,7 +107,10 @@ export function SendNewLeaseModal({
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [term, setTerm] = useState(() => initialTermFor(row, propertyId));
   const [start, setStart] = useState(() => (currentEnd ? dayAfter(currentEnd) : new Date().toISOString().slice(0, 10)));
-  const [customEnd, setCustomEnd] = useState("");
+  const [customEnd, setCustomEnd] = useState(() => {
+    const first = currentEnd ? dayAfter(currentEnd) : "";
+    return first ? sameLengthEnd(row.application?.leaseStart ?? "", currentEnd, first) : "";
+  });
   const [rent, setRent] = useState(() => currentRentLabel.replace(/[^\d.]/g, ""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
