@@ -31,6 +31,9 @@ let APP_ROWS: StoredRecord[];
 let APP_QUERY_ERROR: { message: string } | null;
 let LINKED_PROPERTY_IDS: string[];
 let PROFILE_UPDATE_CALLS: number;
+/** The move-in form rows the stub "stores" (what blocks approval is read from here). */
+let FORMS: Array<Record<string, unknown>> = [];
+let FORMS_ERROR: { code: string; message: string } | null = null;
 const linkedEditScope = vi.fn();
 
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
@@ -102,6 +105,9 @@ function makeServiceClient() {
           return Promise.resolve({ data: matchingRecords(filters)[0] ?? null, error: null });
         },
         then(resolve: (v: { data?: unknown; error: unknown }) => unknown) {
+          if (table === "resident_move_in_forms") {
+            return Promise.resolve(FORMS_ERROR ? { data: null, error: FORMS_ERROR } : { data: FORMS, error: null }).then(resolve);
+          }
           if (table === "manager_application_records") {
             if (APP_QUERY_ERROR) return Promise.resolve({ data: null, error: APP_QUERY_ERROR }).then(resolve);
             return Promise.resolve({ data: matchingRecords(filters), error: null }).then(resolve);
@@ -160,6 +166,8 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
     APP_QUERY_ERROR = null;
     LINKED_PROPERTY_IDS = [];
     PROFILE_UPDATE_CALLS = 0;
+    FORMS = [];
+    FORMS_ERROR = null;
     smsNotify.mockReset();
     smsNotify.mockResolvedValue({ sent: false, accepted: true, error: "queued", outboxStatus: "queued" });
     resolveActorRole.mockImplementation(async (_db: unknown, args: { legacyRole: string }) => args.legacyRole);
@@ -339,5 +347,51 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
     expect(res.status).toBe(403);
     expect((await res.json()).error).toMatch(/portfolio/i);
     expect(PROFILE_UPDATE_CALLS).toBe(0);
+  });
+});
+
+describe("PATCH /api/portal/resident-approval — a form that blocks approval", () => {
+  const blocking = { id: "form-1", form_id: "f1", status: "sent", sent_at: "2026-10-03T00:00:00Z", snapshot: { kind: "other", blocks: "approval" } };
+
+  beforeEach(() => {
+    getUser.mockReset();
+    getUser.mockResolvedValue({ data: { user: { id: "mgr-1" } } });
+    REQUESTOR = { role: "manager", email: "mgr@example.com", sms_from_number: null };
+    APP_ROWS = [{ id: "AXIS-9001", row_data: appRow({}), resident_email: "applicant@example.com", manager_user_id: "mgr-1", property_id: "mgr-demo-pioneer" }];
+    APP_QUERY_ERROR = null;
+    LINKED_PROPERTY_IDS = [];
+    PROFILE_UPDATE_CALLS = 0;
+    FORMS = [];
+    FORMS_ERROR = null;
+    resolveActorRole.mockImplementation(async (_db: unknown, args: { legacyRole: string }) => args.legacyRole);
+    linkedEditScope.mockResolvedValue({ ownerIds: new Set(), propertyIds: new Set() });
+  });
+
+  it("refuses the approval (409) while the form is unsubmitted, and never writes application_approved", async () => {
+    FORMS = [blocking];
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ blocked: "forms" });
+    expect(PROFILE_UPDATE_CALLS).toBe(0);
+  });
+
+  it("goes through once the form is submitted, or when it blocks something else", async () => {
+    FORMS = [];
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    expect((await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }))).status).toBe(200);
+    expect(PROFILE_UPDATE_CALLS).toBe(1);
+  });
+
+  it("fails closed when the forms cannot be read, and never blocks declining or an already-approved application", async () => {
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    FORMS_ERROR = { code: "500", message: "boom" };
+    expect((await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }))).status).toBe(409);
+    expect(PROFILE_UPDATE_CALLS).toBe(0);
+    FORMS = [blocking];
+    FORMS_ERROR = null;
+    expect((await PATCH(patch({ email: "applicant@example.com", approved: false, applicationId: "AXIS-9001" }))).status).toBe(200);
+    APP_ROWS = [{ id: "AXIS-9001", row_data: appRow({ bucket: "approved" }), resident_email: "applicant@example.com", manager_user_id: "mgr-1", property_id: "mgr-demo-pioneer" }];
+    expect((await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }))).status).toBe(200);
   });
 });

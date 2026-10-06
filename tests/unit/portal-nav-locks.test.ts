@@ -28,7 +28,7 @@ describe("portal nav lock kinds", () => {
       });
 
       it(`${kind}: financials and documents are locked on Free`, () => {
-        for (const section of ["financials", "documents", "services", "move-in"]) {
+        for (const section of ["financials", "documents", "services", "move-in", "forms"]) {
           expect(portalNavLockKind({ kind, section, subscriptionTier: "free" })).toBe("upsell");
         }
       });
@@ -45,7 +45,7 @@ describe("portal nav lock kinds", () => {
       });
 
       it(`${kind}: nothing is locked on a paid plan`, () => {
-        for (const section of ["leases", "financials", "documents", "services", "move-in"]) {
+        for (const section of ["leases", "financials", "documents", "services", "move-in", "forms"]) {
           expect(portalNavLockKind({ kind, section, subscriptionTier: "paid" })).toBe("none");
           expect(portalNavLockKind({ kind, section, subscriptionTier: null })).toBe("none");
         }
@@ -82,23 +82,16 @@ describe("portal nav lock kinds", () => {
       }
     });
 
-    it("opens My home at approval so its Forms tab is reachable (the other tabs are held by the route guard)", () => {
-      expect(
-        portalNavLockKind({
-          kind: "resident",
-          section: "move-in",
-          subscriptionTier: "paid",
-          residentNavStage: "post_approval_pre_lease",
-        }),
-      ).toBe("none");
-      expect(
-        portalNavLockKind({
-          kind: "resident",
-          section: "move-in",
-          subscriptionTier: "paid",
-          residentNavStage: "application_submitted",
-        }),
-      ).toBe("inert");
+    it("opens Forms at approval, and My home only once the lease is signed", () => {
+      const lock = (section: string, residentNavStage: "application_submitted" | "application_submitted_forms" | "post_approval_pre_lease" | "post_lease") =>
+        portalNavLockKind({ kind: "resident", section, subscriptionTier: "paid", residentNavStage });
+      expect(lock("forms", "post_approval_pre_lease")).toBe("none");
+      expect(lock("forms", "post_lease")).toBe("none");
+      expect(lock("forms", "application_submitted")).toBe("inert");
+      // A form waiting before approval is reached by its direct link, so the nav row stays locked.
+      expect(lock("forms", "application_submitted_forms")).toBe("inert");
+      expect(lock("move-in", "post_approval_pre_lease")).toBe("inert");
+      expect(lock("move-in", "post_lease")).toBe("none");
     });
 
     it("a free-tier manager plan opens the resident's disabled feature preview", () => {

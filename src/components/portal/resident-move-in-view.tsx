@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Check, Circle } from "lucide-react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
-import { ResidentMoveInForms } from "@/components/portal/move-in-forms/resident-move-in-forms";
+import { ResidentFormsLock } from "@/components/portal/move-in-forms/resident-forms-lock";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { HouseInfoReadSections, ResidentPortalHelpCard } from "@/components/portal/house-info-sections";
 import { houseInfoIsEmpty } from "@/lib/house-info";
@@ -468,8 +468,6 @@ function ResidentMoveInTabContent({
   leaseSigned: boolean;
 }) {
   switch (activeTab) {
-    case "forms":
-      return <ResidentMoveInForms />;
     case "placement":
       return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
     case "housemates":
@@ -489,7 +487,7 @@ function ResidentMoveInTabContent({
   }
 }
 
-/** My home — routed sections (forms, placement, move-in details, roommates, inspections). */
+/** My home — routed sections (placement, move-in details, roommates, inspections). */
 export function ResidentMoveInShell({
   basePath = "/resident",
   resolved,
@@ -498,7 +496,7 @@ export function ResidentMoveInShell({
   activeTab = "placement",
   focusRoomId,
   leaseSigned = false,
-  formsOnly = false,
+  formsLock,
   inspectionsTypeFilter,
 }: {
   activeTab?: string;
@@ -506,8 +504,8 @@ export function ResidentMoveInShell({
   resolved: ResidentMoveInResolved | null;
   email: string;
   locked?: boolean;
-  /** Approved, lease not yet signed: Forms is the only tab, and nothing about the house is shown. */
-  formsOnly?: boolean;
+  /** A form that blocks Move-in details is unsubmitted: that tab is a lock that links to the form. */
+  formsLock?: { formId?: string | null };
   /** A `room` search param naming a structured room id. Ignored unless it matches the viewer's OWN room. */
   focusRoomId?: string;
   /** Feeds the placement tab's move-in checklist (C130) — already resolved by the caller. */
@@ -519,13 +517,13 @@ export function ResidentMoveInShell({
 
   const destinations = useMemo(
     () =>
-      RESIDENT_MOVE_IN_TABS.filter((id) => !formsOnly || id === "forms").map((id) => ({
+      RESIDENT_MOVE_IN_TABS.map((id) => ({
         id,
         label: RESIDENT_MOVE_IN_TAB_LABELS[id],
         href: residentMoveInHref(basePath, id),
         dataAttr: `resident-move-in-tab-${id}`,
       })),
-    [basePath, formsOnly],
+    [basePath],
   );
 
   useEffect(() => {
@@ -541,20 +539,6 @@ export function ResidentMoveInShell({
         <PortalDataTableEmpty message="Unlocks after both signatures are complete." icon="lease" />
       ) : !email ? (
         <PortalDataTableEmpty icon="default" message="Sign in to see your house details." />
-      ) : formsOnly ? (
-        <>
-          <PortalListControlStack
-            className="mb-2 max-lg:mb-1.5"
-            variant="command"
-            stickyDestinations={false}
-            destinations={destinations}
-            activeDestinationId="forms"
-            destinationAriaLabel="My home"
-            destinationItemLayout="equal"
-            destinationDenseEqualRow
-          />
-          <ResidentMoveInForms />
-        </>
       ) : tabId === "inspections" ? (
         // Inspections load their own residencies and reports, so this tab needs no resolved
         // placement; the panel leads with the My home tab row (one control stack, like the
@@ -579,7 +563,11 @@ export function ResidentMoveInShell({
             destinationItemLayout="equal"
             destinationDenseEqualRow
           />
+          {formsLock && tabId === "info" ? (
+            <ResidentFormsLock basePath={basePath} formId={formsLock.formId} />
+          ) : (
           <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} focusRoomId={focusRoomId} basePath={basePath} leaseSigned={leaseSigned} />
+          )}
         </>
       )}
     </div>

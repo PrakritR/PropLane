@@ -57,6 +57,7 @@ describe("portal nav order contracts", () => {
       "lease",
       "payments",
       "communication",
+      "forms",
       "documents",
     ]);
     expect(ordered.at(-1)).toBe("documents");
@@ -73,7 +74,8 @@ describe("portal nav order contracts", () => {
       "services",
       "payments",
       "communication",
-      // Inspections is a tab of My home now (C1-R5) — no row of its own.
+      // Forms is its own section; Inspections is a tab of My home (C1-R5) — no row of its own.
+      "forms",
       "move-in",
       "documents",
     ]);
@@ -85,7 +87,8 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   // Screening nests inside the application record's own rail now
   // (docs/agents/record-page.md) — no separate "background-checks" nav row.
   const leasingBlock = ["properties", "tours", "applications", "leases"];
-  const tenancyBlock = ["residents", "move-in", "payments", "services"];
+  // Move-in stays registered (a single inspection report keeps its address) but has no sidebar row: Forms replaced it.
+  const tenancyBlock = ["residents", "forms", "move-in", "payments", "services"];
   const operationsBlock = ["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"];
   const financesBlock = ["financials", "documents"];
 
@@ -117,13 +120,14 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   it("free operational sections precede the finances block", () => {
     // Inspections is a tab of Move-in, not a sidebar row of its own.
     expect(sections).not.toContain("inspections");
-    expect(sections.slice(0, 16)).toEqual([
+    expect(sections.slice(0, 17)).toEqual([
       "dashboard",
       "properties",
       "tours",
       "applications",
       "leases",
       "residents",
+      "forms",
       "move-in",
       "payments",
       "services",
@@ -152,7 +156,7 @@ describe("resident portal nav grouping", () => {
   it("approved: leads with resident operations before reference sections", () => {
     const sections = sectionIds(RESIDENT_APPROVED_PORTAL_SECTIONS);
     expect(sections.slice(0, 4)).toEqual(["services", "payments", "dashboard", "tour"]);
-    expectContiguousBlock(sections, ["applications", "lease", "move-in"], "communication", "documents");
+    expectContiguousBlock(sections, ["applications", "lease", "forms", "move-in"], "communication", "documents");
   });
 
   it("approved: ends navigation with documents, then the trailing Settings entry", () => {

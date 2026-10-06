@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Resident portal › My home › Forms: the move-in forms a manager sent, as a checklist, and the
+ * Resident portal › Forms: the forms a manager sent (Pending · Completed), and the
  * one-question-per-screen flow that fills one. Phone first; the desktop column is the same flow.
  *
  * Answers autosave as the resident goes (debounced `saveMyMoveInFormDraft`), so closing the app
@@ -10,10 +10,13 @@
  * storage directly, and no file is ever opened inline.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronRight, Download } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, CheckCircle2, Clock, Download, FileText, Lock } from "lucide-react";
 import { MoveInFormQuestionField } from "@/components/move-in-forms/move-in-form-question";
 import { CheckDraw, MoveInProgressBar } from "@/components/move-in-forms/move-in-motion";
-import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { PortalEntryRow } from "@/components/portal/portal-entry-row";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { ResidentLeaseBareDocumentPreview } from "@/components/portal/resident-lease-document-preview";
 import {
@@ -46,26 +49,26 @@ import {
   submitMyMoveInForm,
   uploadMyMoveInFormFile,
 } from "@/lib/move-in-forms/client";
-import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormRecord, MoveInFormSummary } from "@/lib/move-in-forms/types";
+import {
+  MOVE_IN_FORM_BLOCKS_LABELS,
+  resolveMoveInFormBlocks,
+  type MoveInFormAnswer,
+  type MoveInFormQuestion,
+  type MoveInFormRecord,
+  type MoveInFormSummary,
+} from "@/lib/move-in-forms/types";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import {
+  RESIDENT_FORMS_BUCKETS,
+  residentFormHref,
+  residentFormsListHref,
+  type ResidentFormsBucket,
+} from "@/lib/resident-forms-routes";
 import { cn } from "@/lib/utils";
 
 const AUTOSAVE_MS = 800;
 /** Waits before retrying a failed autosave: quick at first, then settling at the last value. */
 const AUTOSAVE_RETRY_MS = [2_000, 5_000, 15_000, 30_000] as const;
-
-function CheckCircle({ done }: { done: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "grid size-7 shrink-0 place-items-center rounded-full border-2 transition-colors duration-(--motion-base)",
-        done ? "border-primary bg-primary text-white" : "border-border bg-card",
-      )}
-    >
-      {done ? <CheckDraw className="size-4" /> : null}
-    </span>
-  );
-}
 
 /* ───────────────────────────── list ───────────────────────────── */
 
@@ -74,21 +77,44 @@ type ListState =
   | { status: "error"; message: string }
   | { status: "ready"; forms: MoveInFormSummary[] };
 
-function sortForms(forms: MoveInFormSummary[]): MoveInFormSummary[] {
-  const rank = (form: MoveInFormSummary) => (form.status === "submitted" ? 1 : 0);
-  return [...forms].sort((a, b) => {
-    if (rank(a) !== rank(b)) return rank(a) - rank(b);
-    const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
-    const bDue = b.dueAt ? new Date(b.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
-    return aDue - bDue;
-  });
+const BUCKET_LABELS: Record<ResidentFormsBucket, string> = { pending: "Pending", completed: "Completed" };
+
+function bucketOf(form: MoveInFormSummary): ResidentFormsBucket {
+  return form.status === "submitted" ? "completed" : "pending";
 }
 
-export function ResidentMoveInForms() {
+/** Pending: due soonest first, no due date last. Completed: newest submitted first. */
+function sortForBucket(forms: MoveInFormSummary[], bucket: ResidentFormsBucket): MoveInFormSummary[] {
+  const time = (value: string | null | undefined, fallback: number) => {
+    const t = value ? new Date(value).getTime() : NaN;
+    return Number.isNaN(t) ? fallback : t;
+  };
+  return [...forms].sort((a, b) =>
+    bucket === "pending" ? time(a.dueAt, Infinity) - time(b.dueAt, Infinity) : time(b.submittedAt, 0) - time(a.submittedAt, 0),
+  );
+}
+
+/**
+ * Resident portal › Forms: the forms a manager sent, Pending · Completed (tabs are routes), and the form
+ * itself at `/forms/<id>`: the one-question-per-screen flow that fills it, or the read-only copy once
+ * submitted. A direct link works before approval too (a form that blocks approval is sent while the
+ * nav row is still locked).
+ */
+export function ResidentFormsSection({
+  basePath = "/resident",
+  bucket = "pending",
+  formId,
+}: {
+  basePath?: string;
+  bucket?: ResidentFormsBucket;
+  /** Open this form (the `/forms/<id>` address). */
+  formId?: string;
+}) {
   const { userId, ready } = usePortalSession();
   const ui = useOptionalAppUi();
+  const router = useRouter();
   const [list, setList] = useState<ListState>({ status: "loading" });
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const load = useCallback(
     async (force = false) => {
@@ -115,93 +141,110 @@ export function ResidentMoveInForms() {
     return () => window.removeEventListener(MOVE_IN_FORMS_CHANGED, refresh);
   }, [ready, load]);
 
-  if (openId) {
+  if (formId) {
     return (
       <ResidentMoveInFormFlow
-        id={openId}
-        onClose={() => {
-          setOpenId(null);
-          void load(true);
-        }}
+        id={formId}
+        onClose={() => router.push(residentFormsListHref(basePath))}
         onSubmitted={() => {
-          setOpenId(null);
-          void load(true);
           ui?.showToast("Submitted. Your manager has it.");
+          router.push(residentFormsListHref(basePath, "completed"));
         }}
       />
     );
   }
 
-  if (list.status === "loading") {
-    return (
-      <div className={PORTAL_LIST_PAGE_BODY} role="status" aria-label="Loading forms">
-        <div className="space-y-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-16 animate-pulse rounded-xl bg-accent/50 motion-reduce:animate-none" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (list.status === "error") {
-    return (
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        <div role="alert" className="rounded-2xl border border-border bg-card p-6 text-center">
-          <p className="mb-3 text-sm text-foreground">{list.message}</p>
-          <Button variant="outline" onClick={() => void load(true)}>
-            Try again
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (list.forms.length === 0) {
-    return (
-      <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-move-in-forms-empty">
-        <PortalDataTableEmpty icon="default" message="No move-in forms" />
-      </div>
-    );
-  }
-
-  const forms = sortForms(list.forms);
-  const done = forms.filter((form) => form.status === "submitted").length;
+  const forms = list.status === "ready" ? list.forms : [];
+  const counts = {
+    pending: forms.filter((form) => bucketOf(form) === "pending").length,
+    completed: forms.filter((form) => bucketOf(form) === "completed").length,
+  };
+  const rows = sortForBucket(
+    forms.filter((form) => bucketOf(form) === bucket),
+    bucket,
+  );
+  const tabs = RESIDENT_FORMS_BUCKETS.map((id) => ({
+    id,
+    label: BUCKET_LABELS[id],
+    count: counts[id],
+    href: residentFormsListHref(basePath, id),
+    dataAttr: `resident-forms-tab-${id}`,
+  }));
+  const selectedForm = selected.size === 1 ? rows.find((form) => selected.has(form.id)) : undefined;
+  const open = (form: MoveInFormSummary) => router.push(residentFormHref(basePath, form.id));
 
   return (
-    <div className={cn(PORTAL_LIST_PAGE_BODY, "motion-just-loaded")} data-attr="resident-move-in-forms">
-      <div className="mb-4 space-y-2">
-        <p className="text-sm font-semibold text-foreground">
-          Before you move in · {done} of {forms.length} done
-        </p>
-        <MoveInProgressBar ratio={forms.length ? done / forms.length : 0} label="Forms done" />
-      </div>
-      <ul className="space-y-2">
-        {forms.map((form) => {
-          const isDone = form.status === "submitted";
+    <div className="min-w-0 space-y-3" data-attr="resident-forms-section" data-forms-bucket={bucket}>
+      <PortalListControlStack
+        variant="command"
+        stickyDestinations
+        destinationAriaLabel="Forms"
+        activeDestinationId={bucket}
+        destinations={tabs}
+      />
+      <PortalRecordListSurface
+        isEmpty={rows.length === 0}
+        loading={list.status === "loading"}
+        loadError={list.status === "error" ? "Couldn't load your forms" : undefined}
+        onRetry={() => void load(true)}
+        emptyCard={{ title: bucket === "pending" ? "No pending forms" : "No completed forms", section: "forms" }}
+        onBulkClear={() => setSelected(new Set())}
+        bulkCount={selected.size}
+        bulkActions={
+          selectedForm ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr={selectedForm.status === "submitted" ? "resident-form-view" : "resident-form-fill"}
+              onClick={() => open(selectedForm)}
+            >
+              {selectedForm.status === "submitted" ? "View" : "Fill out"}
+            </Button>
+          ) : undefined
+        }
+        dataAttr="resident-forms-list"
+      >
+        {rows.map((form) => {
+          const done = form.status === "submitted";
+          const late = !done && isMoveInFormLate(form.dueAt);
           const due = formatDueDate(form.dueAt);
-          const late = !isDone && isMoveInFormLate(form.dueAt);
+          const submitted = formatDueDate(form.submittedAt);
+          const blocking = resolveMoveInFormBlocks(form.blocks, form.kind) !== "nothing";
           return (
-            <li key={form.id}>
-              <button
-                type="button"
-                onClick={() => setOpenId(form.id)}
-                data-attr="resident-move-in-form-row"
-                className="flex min-h-[60px] w-full items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3 text-left shadow-sm transition-[transform,box-shadow,border-color] duration-(--motion-base) ease-(--motion-crossfade) hover:-translate-y-px hover:border-primary/30 hover:shadow-md active:translate-y-0 motion-reduce:transition-none"
-              >
-                <CheckCircle done={isDone} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-semibold text-foreground">{form.formName}</span>
-                  <span className={cn("block text-[13px]", late ? "font-semibold text-red-600" : "text-muted")}>
-                    {isDone ? "Done" : due ? `Due ${due}` : "Not due yet"}
-                  </span>
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
-              </button>
-            </li>
+            <PortalEntryRow
+              key={form.id}
+              tile={{ kind: "glyph", icon: FileText }}
+              title={form.formName}
+              place={[form.propertyLabel, form.roomLabel].map((part) => part.trim()).filter(Boolean).join(" · ")}
+              facts={[
+                ...(done
+                  ? [{ icon: CheckCircle2, label: submitted ? `Submitted ${submitted}` : "Submitted" }]
+                  : [
+                      {
+                        icon: Clock,
+                        label: late ? <span className="font-medium text-[var(--status-overdue-fg)]">{`Due ${due} · Late`}</span> : due ? `Due ${due}` : "Not due yet",
+                      },
+                    ]),
+                ...(blocking && !done ? [{ icon: Lock, label: `Needed for ${MOVE_IN_FORM_BLOCKS_LABELS[resolveMoveInFormBlocks(form.blocks, form.kind)].toLowerCase()}` }] : []),
+              ]}
+              checked={selected.has(form.id)}
+              onSelectedChange={(checked) =>
+                setSelected((current) => {
+                  const next = new Set(current);
+                  if (checked) next.add(form.id);
+                  else next.delete(form.id);
+                  return next;
+                })
+              }
+              onOpen={() => open(form)}
+              omitActionView
+              selectLabel={form.formName}
+              dataAttr="resident-form-row"
+            />
           );
         })}
-      </ul>
+      </PortalRecordListSurface>
     </div>
   );
 }

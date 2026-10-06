@@ -4,6 +4,11 @@ import { track } from "@/lib/analytics/posthog";
 import { notifyApplicantApplicationSms } from "@/lib/application-lifecycle-sms.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import {
+  APPROVAL_BLOCKED_BY_FORM_MESSAGE,
+  loadApplicationBlockingForms,
+  loadResidentBlockingForms,
+} from "@/lib/move-in-forms/blocking";
 import { canManageResidentApproval, setResidentApprovalForManager } from "@/lib/resident-approval.server";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
@@ -241,6 +246,16 @@ export async function PATCH(req: Request) {
           },
           { status: 409 },
         );
+      }
+      // A form sent with "Blocks: Approval" must be submitted first. Keyed on the stored application the
+      // lookup resolved (by id, else the owner's own row by email), never on a body claim; no resolvable
+      // application falls back to the applicant's own sent forms, and a failed read blocks (fail closed).
+      if (lookup.stored?.bucket !== "approved") {
+        const ids = [...idVariants(applicationId), ...(lookup.storedId ? idVariants(lookup.storedId) : [])];
+        const blocking = ids.length > 0 ? await loadApplicationBlockingForms(svc, ids) : await loadResidentBlockingForms(svc, { email });
+        if (blocking.approval) {
+          return NextResponse.json({ error: APPROVAL_BLOCKED_BY_FORM_MESSAGE, blocked: "forms" }, { status: 409 });
+        }
       }
     }
 

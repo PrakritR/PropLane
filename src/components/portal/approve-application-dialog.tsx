@@ -31,6 +31,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useLinkedFormRequests } from "@/hooks/use-linked-form-requests";
+import { useApprovalFormsBlock } from "@/hooks/use-approval-forms-block";
 import { owedNeededBeforeReview, waitingOnFormsFact } from "@/lib/application-linked-form-requests";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -167,6 +168,8 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
   const [owedConfirmed, setOwedConfirmed] = useState(false);
   const owedFact = waitingOnFormsFact(linkedForms);
   const needsOwedConfirm = owedForms.length > 0 && !owedConfirmed;
+  // A move-in form sent with "Blocks: Approval" has to be submitted first; the routes refuse it too (409).
+  const approvalBlock = useApprovalFormsBlock(userId, row.id);
 
   const approve = async () => {
     if (busy) return;
@@ -174,6 +177,7 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
       setError("No bed is open in this room.");
       return;
     }
+    if (approvalBlock.blocked) return;
     if (needsOwedConfirm) {
       setOwedConfirmed(true);
       return;
@@ -318,12 +322,17 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
       primaryAction={{
         label: owedConfirmed && owedForms.length > 0 ? "Approve anyway" : "Approve",
         loading: busy,
-        disabled: busy || (shared && slot == null),
+        disabled: busy || (shared && slot == null) || approvalBlock.blocked,
         dataAttr: "approve-application-confirm",
         onClick: () => void approve(),
       }}
     >
       <div className="space-y-1" data-attr="approve-application-body">
+        {approvalBlock.blocked ? (
+          <p className="pb-2 text-sm font-semibold text-foreground" role="alert" data-attr="approve-application-forms-block">
+            Waiting on {approvalBlock.names.join(", ")} before you can approve
+          </p>
+        ) : null}
         {owedFact ? (
           <p
             className="pb-2 text-sm font-semibold text-foreground"

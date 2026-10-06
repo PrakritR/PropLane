@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * C1-R5 — My home is one page of sections: Forms, Your placement, Move-in details, Roommates and
+ * C1-R5 — My home is one page of sections: Your placement, Move-in details, Roommates and
  * Inspections. These render the real shell with real data shapes. The Roommates assertions are the
  * redaction contract (docs/agents/resident-my-home.md): a field the housemate did not opt into is
  * absent from the browser props, and a missing preference discloses nothing.
@@ -27,7 +27,6 @@ vi.mock("@/lib/household-charges", () => ({
 }));
 vi.mock("@/lib/inspections/client", () => ({ loadInspectionList: vi.fn().mockResolvedValue({ reports: [], residencies: [] }) }));
 vi.mock("@/components/portal/resident-housemate-sharing", () => ({ ResidentHousemateSharing: () => <div data-testid="sharing" /> }));
-vi.mock("@/components/portal/move-in-forms/resident-move-in-forms", () => ({ ResidentMoveInForms: () => <div data-testid="forms" /> }));
 
 const inspectionsPanel = vi.fn((_props: Record<string, unknown>) => <div data-testid="inspections-panel" />);
 vi.mock("@/components/portal/inspections-panel", () => ({
@@ -69,19 +68,19 @@ const shell = (activeTab: string, extra: Record<string, unknown> = {}) =>
   render(<ResidentMoveInShell email="mia@example.com" resolved={resolved} activeTab={activeTab} leaseSigned {...extra} />);
 
 describe("My home sections", () => {
-  it("is Forms, placement, Move-in details, Roommates, Inspections — and never Amenities or an Inspections sidebar twin", () => {
+  it("is placement, Move-in details, Roommates, Inspections — never a Forms tab, Amenities or an Inspections sidebar twin", () => {
     expect(RESIDENT_MOVE_IN_TABS.map((id) => RESIDENT_MOVE_IN_TAB_LABELS[id])).toEqual([
-      "Forms",
       "Your placement",
       "Move-in details",
       "Roommates",
       "Inspections",
     ]);
     shell("placement");
-    for (const label of ["Forms", "Your placement", "Move-in details", "Roommates", "Inspections"]) {
+    for (const label of ["Your placement", "Move-in details", "Roommates", "Inspections"]) {
       expect(screen.getByRole("link", { name: new RegExp(label) })).toBeTruthy();
     }
     expect(screen.queryByRole("link", { name: /Amenities/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^Forms/ })).toBeNull();
   });
 
   it("Move-in details carries the house info, the room instructions and the amenities", () => {
@@ -107,11 +106,6 @@ describe("My home sections", () => {
     expect(screen.getByTestId("sharing")).toBeTruthy();
   });
 
-  it("Forms tab renders the forms list", () => {
-    shell("forms");
-    expect(screen.getByTestId("forms")).toBeTruthy();
-  });
-
   it("Inspections renders the resident's list inside My home, leading with the My home tab row", () => {
     shell("inspections", { inspectionsTypeFilter: "move-out" });
     expect(screen.getByTestId("inspections-panel")).toBeTruthy();
@@ -135,11 +129,31 @@ describe("My home sections", () => {
     expect(screen.getByTestId("inspections-panel")).toBeTruthy();
   });
 
-  it("before the lease is fully signed only Forms is offered", () => {
+  it("a form that blocks Move-in details turns that tab into a lock that links to the form, and shows no house detail", () => {
+    const { container } = shell("info", { formsLock: { formId: "0b2f6a54-9c1d-4e3a-8d2e-7a1f5b6c8d90" } });
+    expect(screen.getByText("Finish your forms first")).toBeTruthy();
+    const open = screen.getByRole("link", { name: "Open form" });
+    expect(open.getAttribute("href")).toBe("/resident/forms/0b2f6a54-9c1d-4e3a-8d2e-7a1f5b6c8d90");
+    expect(screen.queryByText("Key is in the lockbox.")).toBeNull();
+    expect(screen.queryByText("Trash goes out Tuesday night.")).toBeNull();
+    expect(container.querySelector('[data-attr="resident-forms-lock"]')).not.toBeNull();
+  });
+
+  it("the lock is only on Move-in details: placement and Roommates still open, and a lock with no known form goes to the list", () => {
+    shell("placement", { formsLock: { formId: null } });
+    expect(screen.queryByText("Finish your forms first")).toBeNull();
     cleanup();
-    render(<ResidentMoveInShell email="mia@example.com" resolved={null} activeTab="inspections" formsOnly />);
-    expect(screen.queryByTestId("inspections-panel")).toBeNull();
-    expect(screen.queryByRole("link", { name: /Inspections/ })).toBeNull();
-    expect(screen.getByTestId("forms")).toBeTruthy();
+    shell("info", { formsLock: { formId: null } });
+    expect(screen.getByRole("link", { name: "Open form" }).getAttribute("href")).toBe("/resident/forms");
+  });
+
+  it("the server blanks every move-in detail (door code, Wi-Fi, rules, photos) before a locked page is built", async () => {
+    const { redactMoveInDetails } = await import("@/lib/resident-move-in-resolve");
+    const loaded: ResidentMoveInResolved = { ...resolved, wifiPassword: "hunter2", houseRulesText: "No parties", moveInPhotoDataUrls: ["data:a"] };
+    const redacted = redactMoveInDetails(loaded);
+    expect(JSON.stringify(redacted)).not.toMatch(/hunter2|No parties|data:a|Key is in the lockbox|Trash goes out|Backyard/);
+    expect(redacted.propertyLabel).toBe("Brooklyn House");
+    expect(redacted.roomLabel).toBe("Room 1");
+    expect(redacted.housemates).toEqual(resolved.housemates);
   });
 });

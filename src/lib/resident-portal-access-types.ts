@@ -1,5 +1,7 @@
 /** Client-safe resident portal access shape (no server imports). */
 
+import type { BlockingFormsPending } from "@/lib/move-in-forms/blocking";
+
 export type ManagerSubscriptionTier = "free" | "paid" | null;
 
 export type ResidentPortalAccessState = {
@@ -30,6 +32,12 @@ export type ResidentPortalAccessState = {
    * for such a resident; absent reads as false.
    */
   hasMoveInForms?: boolean;
+  /**
+   * What this resident's unsubmitted forms hold back (`blocks` on each sent form): Move-in details locked,
+   * lease signing refused (409), the manager's Approve refused. Computed on the server from the forms
+   * table; absent reads as nothing blocked.
+   */
+  blockingFormsPending?: BlockingFormsPending;
   /** Both manager and resident have signed the active lease. */
   leaseSigned: boolean;
   /** Full workspace (services, payments, move-in) — requires a signed lease. */

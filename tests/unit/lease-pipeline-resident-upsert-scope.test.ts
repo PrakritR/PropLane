@@ -32,6 +32,9 @@ const managerMayFileLeaseUnderProperty = vi.fn(async () => ({ ok: true, allowed:
 /** The resident's charge records, as the signing gate reads them (`portal_household_charge_records`). */
 let CHARGES: Array<{ id: string; status: string; row_data: Record<string, unknown> }> = [];
 let PAYABLE_IN_PROPLANE = true;
+/** The resident's move-in form rows, as the "Finish your forms first" gate reads them. */
+let FORMS: Array<Record<string, unknown>> = [];
+let FORMS_ERROR: { code: string; message: string } | null = null;
 
 let PROFILE: { email: string; role: string | null } | null = null;
 let PROFILE_ROLES: string[] = [];
@@ -126,6 +129,14 @@ function makeDb() {
       return { data: "persisted", error: result.error };
     },
     from(table: string) {
+      if (table === "resident_move_in_forms") {
+        const forms: Record<string, unknown> = {};
+        forms.select = () => forms;
+        forms.eq = () => forms;
+        forms.then = (resolve: (value: unknown) => unknown) =>
+          Promise.resolve(FORMS_ERROR ? { data: null, error: FORMS_ERROR } : { data: FORMS, error: null }).then(resolve);
+        return forms;
+      }
       let orFiltered = false;
       let selected = "";
       let requestedId = "";
@@ -195,6 +206,8 @@ function asResident() {
 beforeEach(() => {
   vi.clearAllMocks();
   CHARGES = [];
+  FORMS = [];
+  FORMS_ERROR = null;
   PAYABLE_IN_PROPLANE = true;
   SELECTS.length = 0;
   VISIBLE_TO_RESIDENT = true;
@@ -1067,6 +1080,32 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
     const res = await sign();
     expect(res.status).toBe(200);
     expect(upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses the signature with 409 while a form that blocks lease signing is unsubmitted, and writes nothing", async () => {
+    FORMS = [{ id: "form-1", form_id: "f1", status: "sent", sent_at: "2026-10-03T00:00:00Z", resident_user_id: RESIDENT_ID, snapshot: { kind: "other", blocks: "lease_signing" } }];
+    const res = await sign();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "FORMS_BLOCK_LEASE_SIGNING", formId: "form-1", error: expect.stringContaining("Finish your forms first") });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("is not blocked by a form that blocks something else, a submitted one, or one tied to another login", async () => {
+    FORMS = [
+      { id: "a", form_id: "f1", status: "sent", resident_user_id: RESIDENT_ID, snapshot: { kind: "other", blocks: "approval" } },
+      { id: "b", form_id: "f2", status: "submitted", resident_user_id: RESIDENT_ID, snapshot: { kind: "other", blocks: "lease_signing" } },
+      { id: "c", form_id: "f3", status: "sent", resident_user_id: "someone-else", snapshot: { kind: "other", blocks: "lease_signing" } },
+    ];
+    expect((await sign()).status).toBe(200);
+  });
+
+  it("fails closed when the forms cannot be read, and lets the signature through once the form is submitted", async () => {
+    FORMS_ERROR = { code: "500", message: "boom" };
+    expect((await sign()).status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
+    FORMS_ERROR = null;
+    FORMS = [{ id: "form-1", form_id: "f1", status: "submitted", resident_user_id: RESIDENT_ID, snapshot: { kind: "other", blocks: "lease_signing" } }];
+    expect((await sign()).status).toBe(200);
   });
 
   it("a waived (cancelled) lease fee does not block", async () => {

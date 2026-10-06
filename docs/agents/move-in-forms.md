@@ -2,7 +2,8 @@
 
 Forms a manager sends a resident to complete before moving in: a checklist with
 photos, a key receipt, a pet or parking agreement, or an uploaded PDF the
-resident reads and signs. Plan: studio lane claude-3, `move-in-forms-1003`.
+resident reads and signs. Plan: studio lane claude-3, `move-in-forms-1003`; the Forms
+section, Blocks and edit-a-pending-form (below) are lane claude-1, `resident-forms-section-1005`.
 
 ## Model
 
@@ -32,7 +33,7 @@ resident reads and signs. Plan: studio lane claude-3, `move-in-forms-1003`.
 One catch-all, `/api/move-in-forms/[[...path]]?portal=manager|resident`, the
 same shape as `/api/inspections`. Manager: `GET ""`, `GET/POST template-pdf`,
 `POST send`, `POST send-existing`, `GET :id`, `GET :id/pdf`, `GET :id/file?path=`,
-`POST :id/remind`, `POST :id/cancel`. Resident: everything under `mine`
+`PATCH :id` (edit a pending form), `POST :id/remind`, `POST :id/cancel`. Resident: everything under `mine`
 (`mine`, `mine/:id`, `PATCH mine/:id`, `mine/:id/files` (POST uploads; `DELETE ?path=` removes an own upload while the form is open),
 `mine/:id/submit`,
 `mine/:id/pdf`, `mine/:id/file?path=`, `mine/:id/template-pdf`).
@@ -40,6 +41,44 @@ same shape as `/api/inspections`. Manager: `GET ""`, `GET/POST template-pdf`,
 Server logic: `server.ts` (scope, send, dispatch, answers, files), `pdf.ts`
 (filled form), `move-in-form-events.server.ts` (sent / reminder / submitted on
 the action-event bus, domain `move_in_form`).
+
+## Forms section, Blocks and editing a pending form (plan `resident-forms-section-1005`)
+
+- **Blocks** (`MoveInFormTemplate.blocks`, copied to `snapshot.blocks` on send): what an UNSUBMITTED copy holds back.
+  `nothing | move_in_details | lease_signing | approval`; absent = the kind's default (`defaultMoveInFormBlocks`: intake blocks
+  Move-in details, every other kind nothing), so every intake form sent before this existed keeps blocking Move-in details.
+  Read it only through `resolveMoveInFormBlocks`. A sent copy keeps what it was sent with: editing the template later never
+  changes it. Only a `sent` copy blocks; submitted and cancelled never do.
+- **`blocking.ts` is the one place the rule lives** (`blockingFormsFromRows`, `loadResidentBlockingForms`,
+  `loadApplicationBlockingForms`). A read that fails blocks (fail closed); a missing table blocks nothing. It is enforced on the server:
+  - Move-in details: `loadResidentPortalAccessState` returns `blockingFormsPending { moveInDetails, leaseSigning, approval, formIds }`;
+    `renderPortalSection` builds My home with `formsLock` and runs `redactMoveInDetails` over the loaded house, so no door code, Wi-Fi,
+    rule, photo or amenity reaches the browser. The tab shows the lock (`ResidentFormsLock`) with a button to the form.
+  - Lease signing: `POST /api/portal-lease-pipeline` answers 409 `FORMS_BLOCK_LEASE_SIGNING` to a resident's NEW signature (or signed
+    PDF return) while a lease-signing form for this resident (and this lease's property) is unsubmitted. The lease page shows
+    "Finish your forms first" linking to the form (`useResidentFormsBlock`, display only).
+  - Approval: `POST /api/manager-applications` (single-row upsert and batch `replace`), `PATCH /api/portal/resident-approval` and the
+    agent's `update_application_bucket` refuse the transition INTO approved with 409 (`blocked: "forms"`) while an approval-blocking
+    form for that application is unsubmitted; an already-approved row stays editable. The Approve popup disables its button and
+    names the waiting form (`useApprovalFormsBlock`, display only).
+- **Editing a pending form**: `PATCH /api/move-in-forms/:id` (manager) edits `dueAt`, `blocks` and `questions` on a `sent` copy only.
+  It re-derives the manager's edit scope from the session (a body id is never trusted; a foreign or resident caller gets 404), writes
+  with a compare-and-swap on `status = 'sent'` and answers 409 once the copy is submitted or cancelled. A draft answer to a question
+  that was removed is dropped. UI: `EditPendingMoveInFormPopup`, the standard popup (Details · Questions, live resident view on the right).
+- **Manager Forms page** `/portal/forms` (TENANCY, after Residents; `forms-list.tsx`): Pending (`sent`) and Completed (`submitted`) tabs
+  carried by the URL (`/portal/forms`, `/portal/forms/completed`), counts, search, a Filter popover (Kind, Property, Resident, Blocks,
+  multi-selects, no chips), the round + (send a form) and per-row ⋯ (Edit, Remind, Cancel request / View, Download PDF). A row is
+  tile · form name · "resident · property · room" · "Blocks …" · due or submitted date, no pill. The Move-in sidebar row and hub
+  are gone: `/portal/move-in` and any old form slug redirect to Forms; `/portal/move-in/inspections/{kind}/{reportId}` keeps its page.
+  The resident record's **Forms** rail item (HOME, right after Lease; `/forms[/completed]`) is the same component scoped to that
+  resident (no Resident or Property filter). Its **Move in** tab is Placement · Move-in details · Roommates · Inspections;
+  `/move-in/forms` redirects to the record's Forms.
+- **Resident Forms section** `/resident/forms` (Pending · Completed, `/resident/forms/<formId>` fills or reads one form): the nav row
+  unlocks with an approved application (`STAGE_UNLOCKED_SECTIONS`; booking and signed stages too). A resident who submitted but is
+  not approved and holds a sent form (stage `application_submitted_forms`) keeps the row locked but can open Forms by its direct link
+  (`isResidentPathAllowedForAccess`), which is how an approval-blocking form sent before approval gets filled. Emails link to
+  `/resident/forms/<id>`. `/resident/move-in/forms` redirects to `/resident/forms`. My home no longer has a Forms tab and is locked
+  until the lease is signed.
 
 ## Dispatch
 
@@ -75,11 +114,9 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 - **"Tell me when a resident submits"**: none; an Assistant notice (the event is sent as the manager,
   which the bus delivers as an Assistant notice with no email); or that plus an email to the manager's
   profile address from the shared sender (`emailManagerOfMoveInFormSubmission`).
-- **Resident access before a lease**: from the first sent form on — a submitted application is enough,
-  approval is not required — My home opens for the Forms tab only
-  (`RESIDENT_PRE_LEASE_MOVE_IN_TABS`; the path guard, server render gate and `STAGE_UNLOCKED_SECTIONS`
-  agree). Placement, housemates, info and amenities stay locked until the lease is signed. The
-  resident's email link goes to `/resident/move-in/forms`.
+- **Resident access before a lease**: Forms is its own resident section (see "Forms section" above), unlocked from approval, and
+  reachable by direct link from the first sent form once the application is submitted. My home (placement, details, roommates,
+  inspections) stays locked until the lease is signed. The resident's email link goes to `/resident/forms/<id>`.
 - **Uploads are not leaked.** A removed photo or redone signature is deleted (`DELETE mine/:id/files`),
   and a submit prunes stored objects the final answers do not reference. Autosave and file calls are
   "quiet": they do not clear the list cache or fire `MOVE_IN_FORMS_CHANGED`. The photo cap is the
@@ -131,26 +168,14 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   as a guest whose address is only typed. The in-portal form is always created, but the "form waiting" notice is sent
   only when a login with a confirmed email owns that address, and goes to that login. Every other trigger follows a
   manager's decision about a known resident and notifies as before.
-- **Move-in page (sidebar).** `/portal/move-in` has **one tab per form the manager has added**, not per kind.
-  The tabs come from the stored forms of every property in the active workspace
-  (`manager-forms.ts`: `storedMoveInFormNames`, same store the send popup reads) merged with the form names on the loaded copies
-  (`moveInFormTabGroups`), grouped by name (trimmed, collapsed spaces, case-insensitive), alphabetical, tab id = a slug of the name
-  (`inspections`, `waiting`, `submitted` are reserved and get a `-form` suffix). A form with no copies still has its tab
-  ("Nothing sent yet"), and a deleted or renamed form's existing copies keep a tab under the name they were sent with. Each tab lists
-  every resident's copy of that name, sent and submitted together (cancelled excluded), ordered late first, then waiting by due date, then
-  submitted newest first (`filterMoveInForms({ formName })` / `sortMoveInFormsForTab`); the tab count is its row count. Filter is Property and
-  Status (Waiting / Submitted). The bare `/portal/move-in`, and a slug that matches no form, show the first tab. With no form anywhere the
-  page is one empty state, "No move-in forms yet", with an Add form button that goes to Properties. **There is no Inspections tab**:
-  `/portal/inspections`, `/portal/move-in/inspections` and `/portal/move-in/inspections/{move-in|move-out}` redirect to `/portal/move-in`
-  (`next.config.ts`). A single report (`.../inspections/{move-in|move-out}/{reportId}`) keeps its page so the resident record's Inspections
-  tab still opens it; inspection data and `/api/inspections` are untouched. Resident side: the first My home tab is labelled "Move-in"
-  (route `/resident/move-in/forms`, unchanged) and holds every form sent to them.
-- **Resident record › Move-in** (every stage, potential included) lists **every form of that resident's property** (its stored list) merged with the
-  copies already sent (`residentMoveInFormRows`): one row per form, **Not sent** (row menu Send, which calls `sendMoveInForm` for that residency;
-  disabled until the application is approved, as the server requires an approved residency with a property and an email), **Sent** with its
-  due date (Remind / Preview form / Cancel request) or **Submitted** (Open / Download PDF / Send again). A waiting copy wins over an older submitted
-  one; a copy of a since-deleted form still shows under its stored name. A property with no forms shows "No move-in forms for this property"
-  with a button to its Forms.
+- **Forms page (sidebar).** Replaced the Move-in page (one tab per form name): see "Forms section" above. Inspections have no list page;
+  `/portal/inspections`, `/portal/move-in/inspections` and `/portal/move-in/inspections/{move-in|move-out}` redirect to `/portal/move-in`,
+  which redirects to `/portal/forms` (`next.config.ts`, `renderPortalSection`). A single report
+  (`.../inspections/{move-in|move-out}/{reportId}`) keeps its page so the resident record's Inspections tab still opens it; inspection data
+  and `/api/inspections` are untouched.
+- **Resident record › Forms** lists only the forms already SENT to that resident (Pending, Completed); a form goes out from the round +
+  (the send popup pointed at that resident, which the server allows only for an approved residency with a property and an email).
+  A property's unsent forms are not rows any more. Move in (Placement · Move-in details · Roommates · Inspections) holds no forms.
 
 ## Kinds, templates, triggers and links (Move-in hub, plan `move-in-hub-1003`)
 
@@ -184,4 +209,4 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   That whole contract — the rules, the owed requests, the share link and its account linking, the fees —
   is owned by [`application-questions.md`](application-questions.md).
 - **Resident access**: a resident who submitted an application and holds a sent form gets nav stage
-  `application_submitted_forms` (`hasMoveInForms` on the access state): My home opens for Forms only.
+  `application_submitted_forms` (`hasMoveInForms` on the access state): the nav stays locked, Forms opens by its direct link.

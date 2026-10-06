@@ -2,6 +2,7 @@ import { cache } from "react";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentHasTourLinks } from "@/lib/tour-resident-link.server";
+import { loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
 import type {
@@ -307,6 +308,10 @@ const loadResidentPortalAccessStateCached = cache(
       !leaseAccessUnlocked &&
       (hasTourLink || hasSubmittedApplication || applicationApproved);
 
+    // What the resident's unsubmitted forms hold back, read from the forms table for this login. A failed
+    // read blocks (fail closed); a table that is not set up blocks nothing.
+    const blockingFormsPending = await loadResidentBlockingForms(db, { email, userId });
+
     // Only a resident who has neither approval nor lease access can be waiting on a pre-approval form.
     const hasMoveInForms = leaseAccessUnlocked || applicationApproved || !hasCompletedApplicationSubmission
       ? false
@@ -317,6 +322,7 @@ const loadResidentPortalAccessStateCached = cache(
       hasSubmittedApplication,
       hasCompletedApplicationSubmission,
       hasMoveInForms,
+      blockingFormsPending,
       isPreApplicationResident: roleOk && !hasSubmittedApplication && !hasTourLink,
       hasTourLink,
       isPreLeaseResident,

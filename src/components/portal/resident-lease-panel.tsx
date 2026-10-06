@@ -15,6 +15,8 @@ import { ResidentLeaseReportIssueModal } from "@/components/portal/resident-leas
 import { ResidentLeaseSigningFeeCard } from "@/components/portal/resident-lease-signing-fee-card";
 import { ResidentSignAndPayMoveIn } from "@/components/portal/resident-sign-and-pay-move-in";
 import { useResidentAtSigning } from "@/hooks/use-resident-at-signing";
+import { useResidentFormsBlock } from "@/hooks/use-resident-forms-block";
+import { residentFormHref } from "@/lib/resident-forms-routes";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { AT_SIGNING_UNPAID_MESSAGE } from "@/lib/lease-at-signing";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
@@ -268,6 +270,11 @@ export function ResidentLeasePanel({
   );
   const atSigning = useResidentAtSigning(awaitingSignature ? pipelineRow : null, email ?? "", portalSession.userId);
   const signBlocked = awaitingSignature && atSigning.blocked;
+  // A form sent with "Blocks: Lease signing" comes first. The route refuses the signature (409) on its
+  // own; this is the step that says so and links to the form.
+  const formsBlock = useResidentFormsBlock(portalSession.userId, awaitingSignature);
+  const formsBlocked = awaitingSignature && formsBlock.blocked;
+  const openBlockingForm = () => portalNavigate(residentFormHref(basePath, formsBlock.formId));
 
   /**
    * Signing fee. The plan's order is form → sign → pay, so a signature is never
@@ -358,6 +365,11 @@ export function ResidentLeasePanel({
     if (!email || leaseFullyExecuted) return;
     if (pipelineRow?.bucket !== "resident") {
       showToast("Signing opens when your manager sends the lease to you for resident signature.");
+      return;
+    }
+    if (formsBlocked) {
+      showToast("Finish your forms first.");
+      openBlockingForm();
       return;
     }
     if (signBlocked) {
@@ -472,9 +484,9 @@ export function ResidentLeasePanel({
                 <PortalIconAction icon={Send} label="Send to manager" onClick={onSendToManager} />
                 <PortalIconAction
                   icon={PenLine}
-                  label={!leaseDocumentLoaded ? "Loading lease…" : signBlocked ? "Pay to sign" : "Sign lease"}
+                  label={!leaseDocumentLoaded ? "Loading lease…" : formsBlocked ? "Finish your forms first" : signBlocked ? "Pay to sign" : "Sign lease"}
                   tone="primary"
-                  disabled={!leaseDocumentLoaded || signBlocked}
+                  disabled={!leaseDocumentLoaded || (signBlocked && !formsBlocked)}
                   data-attr="resident-sign-lease"
                   onClick={() => onSignLease()}
                 />
@@ -803,7 +815,9 @@ export function ResidentLeasePanel({
     overviewNeeds: [
       ...(!residentSigned
         ? [
-            signBlocked
+            formsBlocked
+              ? { id: "finish-forms", title: "Finish your forms first", detail: "Required before you sign", onClick: openBlockingForm }
+              : signBlocked
               ? {
                   id: "pay-to-sign",
                   title: `Pay $${(atSigning.totalCents / 100).toFixed(2)} to sign`,
@@ -922,8 +936,8 @@ export function ResidentLeasePanel({
       {showSigningWorkflowActions && !residentAlreadySigned ? (
         <ResidentLeaseSignStickyBar
           onSign={() => onSignLease()}
-          disabled={!leaseDocumentLoaded || signBlocked}
-          label={!leaseDocumentLoaded ? "Loading lease…" : signBlocked ? "Pay to sign" : "Sign lease"}
+          disabled={!leaseDocumentLoaded || (signBlocked && !formsBlocked)}
+          label={!leaseDocumentLoaded ? "Loading lease…" : formsBlocked ? "Finish your forms first" : signBlocked ? "Pay to sign" : "Sign lease"}
         />
       ) : null}
     </>

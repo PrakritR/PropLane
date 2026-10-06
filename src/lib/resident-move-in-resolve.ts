@@ -3,7 +3,7 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { splitLineList } from "@/data/manager-listing-presets";
 import type { MockProperty } from "@/data/types";
-import { getHouseInfoValue, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { emptyHouseInfo, getHouseInfoValue, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { normalizeManagerListingSubmissionV1, isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 
@@ -365,5 +365,30 @@ export function resolveResidentMoveInFromApplications(
     wifiPassword,
     housemates: [],
     residentSection,
+  };
+}
+
+/**
+ * The house with its Move-in DETAILS taken out: door codes, Wi-Fi, rules, instructions, photos, video
+ * and amenities. What a resident sees (and what reaches their browser) while a form that blocks
+ * "Move-in details" is unsubmitted. The placement and the roommates stay, as they were never the
+ * locked content.
+ */
+export function redactMoveInDetails(resolved: ResidentMoveInResolved): ResidentMoveInResolved {
+  return {
+    ...resolved,
+    instructions: null,
+    moveInPhotoDataUrls: [],
+    moveInVideoDataUrl: null,
+    houseInstructions: null,
+    houseMoveInPhotoDataUrls: [],
+    houseMoveInVideoDataUrl: null,
+    houseInfo: emptyHouseInfo(),
+    generalHouseInfo: null,
+    houseRulesText: null,
+    amenities: [],
+    wifiNetworkName: null,
+    wifiPassword: null,
+    residentSection: null,
   };
 }

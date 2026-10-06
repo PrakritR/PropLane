@@ -38,6 +38,7 @@ import { bestEffortFailed } from "@/lib/observability/best-effort";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, loadApplicationBlockingForms } from "@/lib/move-in-forms/blocking";
 import {
   openResidentSlots,
   type RoomResidentSlotPlacement,
@@ -78,6 +79,22 @@ function idVariants(id: string): string[] {
       [trimmed, trimmed.toUpperCase(), normalized, normalized.toUpperCase()].filter(Boolean),
     ),
   ];
+}
+
+/**
+ * Approval is refused while a form sent with "Blocks: Approval" is unsubmitted. Keyed on the TRANSITION
+ * into `approved` (an already-approved row stays editable) and read from the forms table, never from
+ * the request. A read that fails answers "blocked": fail closed.
+ */
+async function approvalBlockedByForm(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  next: DemoApplicantRow,
+  stored: StoredApplicationRecord | null,
+): Promise<boolean> {
+  const storedRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
+  if (next.bucket !== "approved" || storedRow?.bucket === "approved") return false;
+  const ids = [...idVariants(String(stored?.id ?? "")), ...idVariants(String(next.id ?? ""))];
+  return (await loadApplicationBlockingForms(db, ids)).approval;
 }
 
 function storedResidentSlot(row: DemoApplicantRow): number | undefined {
@@ -989,6 +1006,7 @@ export async function POST(req: Request) {
       }
       let blockedWithdrawnApprovals = 0;
       let blockedResidentSlots = 0;
+      let blockedFormApprovals = 0;
       for (const row of rows) {
         // Attribute each row to its correct owner and enforce edit access on
         // foreign (linked-owner) rows. Admins keep the client-supplied owner.
@@ -1001,6 +1019,10 @@ export async function POST(req: Request) {
         const guarded = anchorServerOwnedWithdrawal(row, stored);
         if (guarded.blockedApproval) {
           blockedWithdrawnApprovals += 1;
+          continue;
+        }
+        if (await approvalBlockedByForm(db, guarded.row, stored ?? null)) {
+          blockedFormApprovals += 1;
           continue;
         }
         let anchored = anchorServerOwnedSmsConsent(
@@ -1037,6 +1059,12 @@ export async function POST(req: Request) {
             error: "This application was withdrawn by the applicant and can no longer be approved.",
             blockedWithdrawnApprovals,
           },
+          { status: 409 },
+        );
+      }
+      if (blockedFormApprovals > 0) {
+        return NextResponse.json(
+          { ok: false, error: APPROVAL_BLOCKED_BY_FORM_MESSAGE, blocked: "forms", blockedFormApprovals },
           { status: 409 },
         );
       }
@@ -1417,6 +1445,9 @@ export async function POST(req: Request) {
           },
           { status: 409 },
         );
+      }
+      if (await approvalBlockedByForm(db, guarded.row, storedLoad.record ?? null)) {
+        return NextResponse.json({ error: APPROVAL_BLOCKED_BY_FORM_MESSAGE, blocked: "forms" }, { status: 409 });
       }
       row = anchorServerOwnedSmsConsent(
         guarded.row,

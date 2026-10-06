@@ -16,6 +16,7 @@ import { orderScreeningForApplication } from "@/lib/screening/order-screening";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { smsAccessAllowsRow } from "@/lib/sms/manager-sms-access";
 import { writeAuditLog, updateAuditResult } from "../audit";
+import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, loadApplicationBlockingForms } from "@/lib/move-in-forms/blocking";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
@@ -218,6 +219,12 @@ export const updateApplicationBucketTool = defineWriteTool({
     const r = rowData as unknown as DemoApplicantRow;
     if (r.bucket === input.bucket) {
       return { reply: `This application is already ${input.bucket}.` };
+    }
+
+    // A form sent with "Blocks: Approval" has to be submitted before the application can be approved.
+    if (input.bucket === "approved") {
+      const ids = [...new Set([rec.id, String(r.id ?? "")].map((id) => id.trim()).filter(Boolean))];
+      if ((await loadApplicationBlockingForms(ctx.db, ids)).approval) throw new Error(APPROVAL_BLOCKED_BY_FORM_MESSAGE);
     }
 
     // One-shot per application+bucket: re-approving after a bounce records anew

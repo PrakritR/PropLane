@@ -422,3 +422,50 @@ describe("resident portal access state", () => {
     expect(isResidentPathAllowedForAccess("/resident/lease", access)).toBe(false);
   });
 });
+
+describe("resident portal access state — blockingFormsPending", () => {
+  const approvedRow = {
+    updated_at: "2026-01-01T00:00:00Z",
+    row_data: { id: "AXIS-A1", email: "resident@example.com", bucket: "approved", stage: "Approved", property: "Test House" },
+  };
+
+  function dbWithForms(forms: Array<Record<string, unknown>> | "error") {
+    const base = makeDbMock({ applicationRows: [approvedRow], profile: { application_approved: true, manager_id: null } });
+    const original = base.from.getMockImplementation()!;
+    base.from.mockImplementation((table: string) => {
+      if (table !== "resident_move_in_forms") return original(table);
+      const query: Record<string, unknown> = {};
+      query.select = () => query;
+      query.eq = () => query;
+      query.neq = () => query;
+      query.limit = () => query;
+      query.then = (resolve: (value: unknown) => unknown) =>
+        Promise.resolve(forms === "error" ? { data: null, error: { code: "500", message: "boom" } } : { data: forms, error: null }).then(resolve);
+      return query;
+    });
+    return base;
+  }
+  const load = () => loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
+  const sent = (id: string, blocks: string, extra: Record<string, unknown> = {}) => ({
+    id, form_id: "f", status: "sent", sent_at: "2026-10-01T00:00:00Z", resident_user_id: "user-1", snapshot: { kind: "other", blocks }, ...extra,
+  });
+
+  it("is computed on the server from the resident's unsubmitted forms, with the form that unlocks each", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      dbWithForms([sent("a", "move_in_details"), sent("b", "lease_signing"), sent("c", "nothing")]) as never,
+    );
+    const access = await load();
+    expect(access.blockingFormsPending).toMatchObject({ moveInDetails: true, leaseSigning: true, approval: false });
+    expect(access.blockingFormsPending?.formIds).toEqual({ moveInDetails: "a", leaseSigning: "b" });
+  });
+
+  it("a resident with nothing owed has nothing blocked, and a submitted form never blocks", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(dbWithForms([sent("a", "move_in_details", { status: "submitted" })]) as never);
+    expect((await load()).blockingFormsPending).toMatchObject({ moveInDetails: false, leaseSigning: false, approval: false });
+  });
+
+  it("fails closed when the forms cannot be read", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(dbWithForms("error") as never);
+    expect((await load()).blockingFormsPending).toMatchObject({ moveInDetails: true, leaseSigning: true });
+  });
+});

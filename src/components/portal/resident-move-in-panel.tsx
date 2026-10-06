@@ -4,6 +4,7 @@ import type { PortalTab } from "@/lib/portal-types";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import type { ResidentInspectionTypeFilter } from "@/lib/resident-inspections-tabs";
 import { loadResidentMoveInForEmail } from "@/lib/resident-move-in-info";
+import { redactMoveInDetails } from "@/lib/resident-move-in-resolve";
 
 export async function ResidentMoveInPanel({
   residentEmail,
@@ -12,7 +13,7 @@ export async function ResidentMoveInPanel({
   tabs: _tabs,
   focusRoomId,
   leaseSigned = false,
-  formsOnly = false,
+  formsLock,
   inspectionsTypeFilter,
 }: {
   residentEmail?: string | null;
@@ -22,14 +23,19 @@ export async function ResidentMoveInPanel({
   focusRoomId?: string;
   /** Already resolved by the caller's access check — free to pass along, no extra query. */
   leaseSigned?: boolean;
-  /** Approved but not yet leased: only the Forms tab, with none of the house's details loaded. */
-  formsOnly?: boolean;
+  /**
+   * A form that blocks "Move-in details" is unsubmitted: the details tab shows the lock instead of the
+   * house, and no door code, Wi-Fi, rule or photo is loaded into the page for any tab.
+   * `formId` is the form that unlocks it, when known.
+   */
+  formsLock?: { formId?: string | null };
   /** Inspections tab only: the list preselected to one type. */
   inspectionsTypeFilter?: ResidentInspectionTypeFilter;
 }) {
   const email = residentEmail?.trim().toLowerCase() || "";
   // The inspections tab loads its own data, so it skips the (heavier) house projection.
-  const resolved = email && !formsOnly && tabId !== "inspections" ? await loadResidentMoveInForEmail(email) : null;
+  const loaded = email && tabId !== "inspections" ? await loadResidentMoveInForEmail(email) : null;
+  const resolved = loaded && formsLock ? redactMoveInDetails(loaded) : loaded;
 
   return (
     <ManagerPortalPageShell title="My home" hideTitleOnMobileNav compactFilterRow>
@@ -40,7 +46,7 @@ export async function ResidentMoveInPanel({
         activeTab={tabId}
         focusRoomId={focusRoomId}
         leaseSigned={leaseSigned}
-        formsOnly={formsOnly}
+        formsLock={formsLock}
         inspectionsTypeFilter={inspectionsTypeFilter}
       />
     </ManagerPortalPageShell>

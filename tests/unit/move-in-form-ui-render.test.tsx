@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MoveInFormQuestionField } from "@/components/move-in-forms/move-in-form-question";
 import { MoveInFormLivePreview } from "@/components/portal/move-in-forms/move-in-form-live-preview";
-import { ResidentMoveInForms } from "@/components/portal/move-in-forms/resident-move-in-forms";
+import { ResidentFormsSection } from "@/components/portal/move-in-forms/resident-move-in-forms";
 import { PropertyMoveInFormsPanel } from "@/components/portal/move-in-forms/property-move-in-forms-panel";
 import { MoveInFormChooser } from "@/components/portal/move-in-forms/move-in-form-chooser";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
@@ -19,8 +19,9 @@ import { createPropertyApplicationTemplate } from "@/lib/property-application-te
 import { defaultMoveInForm, MOVE_IN_FORM_STARTERS, newMoveInFormTemplate } from "@/lib/move-in-forms/templates";
 import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormRecord, MoveInFormSummary } from "@/lib/move-in-forms/types";
 
+const nav = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ refresh: vi.fn(), push: nav.push, prefetch: vi.fn() }),
   usePathname: () => "/portal/properties/p1/move-in",
 }));
 vi.mock("@/hooks/use-portal-session", () => ({
@@ -162,6 +163,7 @@ function summary(patch: Partial<MoveInFormSummary>): MoveInFormSummary {
     applicationId: "app-1",
     managerUserId: "m1",
     propertyId: "p1",
+    propertyLabel: "Brooklyn House",
     roomLabel: "Room 1",
     residentName: "Ada Lovelace",
     residentEmail: "ada@example.com",
@@ -175,6 +177,8 @@ function summary(patch: Partial<MoveInFormSummary>): MoveInFormSummary {
     submittedAt: null,
     remindedAt: null,
     managerViewedAt: null,
+    kind: "other",
+    blocks: "nothing",
     questionCount: 2,
     photoCount: 0,
     signed: false,
@@ -195,38 +199,52 @@ function record(patch: Partial<MoveInFormRecord> = {}): MoveInFormRecord {
   };
 }
 
-describe("resident My home › Forms", () => {
-  it("says so when nothing was sent", async () => {
-    render(<ResidentMoveInForms />);
-    expect(await screen.findByText("No move-in forms")).toBeTruthy();
+describe("resident Forms section", () => {
+  const FORM_ID = "0b2f6a54-9c1d-4e3a-8d2e-7a1f5b6c8d90";
+  it("says so when nothing is pending, and when nothing is completed", async () => {
+    render(<ResidentFormsSection />);
+    expect(await screen.findByText("No pending forms")).toBeTruthy();
+    cleanup();
+    render(<ResidentFormsSection bucket="completed" />);
+    expect(await screen.findByText("No completed forms")).toBeTruthy();
   });
 
-  it("lists forms with a done count, Done on submitted ones and a due date on open ones", async () => {
+  it("Pending lists open forms, soonest due first, with a due date and what they are needed for; tabs carry counts", async () => {
     client.loadMoveInForms.mockResolvedValue({
       forms: [
         summary({ id: "r1", formName: "Key receipt", status: "submitted", submittedAt: "2026-09-25T00:00:00Z" }),
-        summary({ id: "r2", formName: "Pet agreement", dueAt: "2099-10-01T06:59:59Z" }),
+        summary({ id: "r2", formName: "Pet agreement", dueAt: "2099-10-01T06:59:59Z", blocks: "lease_signing" }),
+        summary({ id: "r4", formName: "Parking", dueAt: "2099-09-20T06:59:59Z" }),
         summary({ id: "r3", formName: "Cancelled one", status: "cancelled" }),
       ],
       unread: 0,
     });
-    render(<ResidentMoveInForms />);
-    expect(await screen.findByText("Before you move in · 1 of 2 done")).toBeTruthy();
+    render(<ResidentFormsSection />);
+    expect(await screen.findByText("Pet agreement")).toBeTruthy();
     expect(screen.queryByText("Cancelled one")).toBeNull();
-    const rows = screen.getAllByRole("button").filter((b) => b.getAttribute("data-attr") === "resident-move-in-form-row");
-    expect(rows).toHaveLength(2);
-    // Open forms come first, submitted ones last.
-    expect(within(rows[0]!).getByText("Pet agreement")).toBeTruthy();
-    expect(within(rows[0]!).getByText("Due Sep 30")).toBeTruthy();
-    expect(within(rows[1]!).getByText("Done")).toBeTruthy();
+    expect(screen.queryByText("Key receipt")).toBeNull();
+    const rows = [...document.querySelectorAll('[data-attr="resident-form-row"]')] as HTMLElement[];
+    expect(rows.map((row) => within(row).getByText(/Parking|Pet agreement/).textContent)).toEqual(["Parking", "Pet agreement"]);
+    expect(within(rows[1]!).getByText("Due Sep 30")).toBeTruthy();
+    expect(within(rows[1]!).getByText("Needed for lease signing")).toBeTruthy();
+    expect(document.querySelector('[data-attr="resident-forms-tab-pending"]')?.textContent).toContain("2");
+    expect(document.querySelector('[data-attr="resident-forms-tab-completed"]')?.getAttribute("href")).toBe("/resident/forms/completed");
+  });
+
+  it("Completed lists submitted forms with their submitted date", async () => {
+    client.loadMoveInForms.mockResolvedValue({
+      forms: [summary({ id: "r1", formName: "Key receipt", status: "submitted", submittedAt: "2026-09-25T20:00:00Z" })],
+      unread: 0,
+    });
+    render(<ResidentFormsSection bucket="completed" />);
+    expect(await screen.findByText("Key receipt")).toBeTruthy();
+    expect(screen.getByText("Submitted Sep 25")).toBeTruthy();
   });
 
   it("fills one question per screen, saves as it goes, blocks a required blank, and submits", async () => {
-    client.loadMoveInForms.mockResolvedValue({ forms: [summary({})], unread: 0 });
     client.getMyMoveInForm.mockResolvedValue({ form: record() });
     client.submitMyMoveInForm.mockResolvedValue({ form: record({ status: "submitted" }) });
-    render(<ResidentMoveInForms />);
-    fireEvent.click(await screen.findByText("Move-in checklist"));
+    render(<ResidentFormsSection formId={FORM_ID} />);
 
     expect(await screen.findByText("How many keys?")).toBeTruthy();
     expect(screen.queryByText("Anything else?")).toBeNull();
@@ -240,25 +258,29 @@ describe("resident My home › Forms", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText("Anything else?")).toBeTruthy();
     // Moving on flushes the draft straight away, without waiting for the debounce.
-    await waitFor(() => expect(client.saveMyMoveInFormDraft).toHaveBeenCalledWith("r1", [{ key: "keys", value: "3" }]));
+    await waitFor(() => expect(client.saveMyMoveInFormDraft).toHaveBeenCalledWith(FORM_ID, [{ key: "keys", value: "3" }]));
 
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
-    await waitFor(() => expect(client.submitMyMoveInForm).toHaveBeenCalledWith("r1", [{ key: "keys", value: "3" }]));
+    await waitFor(() => expect(client.submitMyMoveInForm).toHaveBeenCalledWith(FORM_ID, [{ key: "keys", value: "3" }]));
     expect(await screen.findByText("Submitted")).toBeTruthy();
   });
 
+  it("a row opens its form at its own address", async () => {
+    client.loadMoveInForms.mockResolvedValue({ forms: [summary({ id: FORM_ID, formName: "Key receipt" })], unread: 0 });
+    render(<ResidentFormsSection />);
+    fireEvent.click(await screen.findByText("Key receipt"));
+    expect(nav.push).toHaveBeenCalledWith(`/resident/forms/${FORM_ID}`);
+  });
+
   it("reopens on the first unanswered question with the saved answers restored", async () => {
-    client.loadMoveInForms.mockResolvedValue({ forms: [summary({})], unread: 0 });
     client.getMyMoveInForm.mockResolvedValue({ form: record({ answers: [{ key: "keys", value: "3" }] }) });
-    render(<ResidentMoveInForms />);
-    fireEvent.click(await screen.findByText("Move-in checklist"));
+    render(<ResidentFormsSection formId={FORM_ID} />);
     expect(await screen.findByText("Anything else?")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect((await screen.findByRole("textbox")) as HTMLInputElement).toHaveProperty("value", "3");
   });
 
   it("opens an uploaded form on its document, then the signature, labelled Sign and submit", async () => {
-    client.loadMoveInForms.mockResolvedValue({ forms: [summary({ source: "upload", formName: "Pet agreement" })], unread: 0 });
     client.getMyMoveInForm.mockResolvedValue({
       form: record({
         source: "upload",
@@ -269,8 +291,7 @@ describe("resident My home › Forms", () => {
         },
       }),
     });
-    render(<ResidentMoveInForms />);
-    fireEvent.click(await screen.findByText("Pet agreement"));
+    render(<ResidentFormsSection formId={FORM_ID} />);
     expect(await screen.findByRole("button", { name: "Sign and submit" })).toBeTruthy();
     expect(screen.getByText("Signature")).toBeTruthy();
     // The signature pad is there to draw on.
@@ -278,10 +299,8 @@ describe("resident My home › Forms", () => {
   });
 
   it("a submitted form opens read-only with a download", async () => {
-    client.loadMoveInForms.mockResolvedValue({ forms: [summary({ status: "submitted" })], unread: 0 });
     client.getMyMoveInForm.mockResolvedValue({ form: record({ status: "submitted", answers: [{ key: "keys", value: "3" }] }) });
-    render(<ResidentMoveInForms />);
-    fireEvent.click(await screen.findByText("Move-in checklist"));
+    render(<ResidentFormsSection formId={FORM_ID} />);
     expect(await screen.findByRole("button", { name: /download/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
     expect(client.saveMyMoveInFormDraft).not.toHaveBeenCalled();
@@ -699,6 +718,27 @@ describe("builder popup", () => {
       expect(saved.linkedLeaseTemplateIds).toEqual([]);
       // An edit never re-sends to people who already have it.
       expect(options).toEqual({ sendToCurrent: false });
+    });
+
+    it("Blocks offers Nothing, Move-in details, Lease signing and Approval; an intake form shows Move-in details until changed, and the pick is saved", async () => {
+      const { onSave } = await openBuilder(defaultMoveInForm("intake"), "edit", 2);
+      expect(screen.getByText("Blocks")).toBeTruthy();
+      expect(attr("move-in-form-blocks")!.textContent).toContain("Move-in details");
+      fireEvent.click(attr("move-in-form-blocks")!);
+      expect(await optionNames()).toEqual(["Nothing", "Move-in details", "Lease signing", "Approval"]);
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+      await pick("move-in-form-blocks", "Approval");
+      fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(onSave.mock.calls[0]![0].blocks).toBe("approval");
+    });
+
+    it("any other kind starts at Nothing, and a stored value is what the dropdown shows", async () => {
+      await openBuilder({ ...defaultMoveInForm("move-in"), blocks: "lease_signing" }, "edit", 2);
+      expect(attr("move-in-form-blocks")!.textContent).toContain("Lease signing");
+      cleanup();
+      await openBuilder(defaultMoveInForm("move-out"), "edit", 2);
+      expect(attr("move-in-form-blocks")!.textContent).toContain("Nothing");
     });
 
     it("the link rows only render when the property has such templates", async () => {

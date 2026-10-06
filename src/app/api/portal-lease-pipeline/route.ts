@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { FINISH_FORMS_FIRST_MESSAGE, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
@@ -1139,6 +1140,20 @@ export async function POST(req: Request) {
             (!residentReturnedSignedPdfToManager(storedRow) &&
               residentReturnedSignedPdfToManager(normalized as unknown as LeasePipelineRow)))
         ) {
+          // A form sent with "Blocks: Lease signing" has to be submitted first (read from the forms table
+          // for this resident and this lease's property; a failed read blocks). 409 is the same refusal
+          // the page shows as "Finish your forms first".
+          const formsBlocking = await loadResidentBlockingForms(ctx.db, {
+            email: ctx.user.email ?? "",
+            userId: ctx.user.id,
+            propertyId: existingRecord?.property_id ?? null,
+          });
+          if (formsBlocking.leaseSigning) {
+            return NextResponse.json(
+              { error: FINISH_FORMS_FIRST_MESSAGE, code: "FORMS_BLOCK_LEASE_SIGNING", formId: formsBlocking.formIds?.leaseSigning ?? null },
+              { status: 409 },
+            );
+          }
           const gate = await checkResidentAtSigningGate(ctx.db, {
             lease: storedRow,
             residentUserId: ctx.user.id,

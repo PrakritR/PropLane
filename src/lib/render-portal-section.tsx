@@ -30,6 +30,8 @@ import { AdminBugFeedbackClient } from "@/components/portal/admin-bug-feedback-c
 import { ResidentDashboard } from "@/components/portal/resident-dashboard";
 import { ResidentMoveInPanel } from "@/components/portal/resident-move-in-panel";
 import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
+import { ResidentFormsSection } from "@/components/portal/move-in-forms/resident-move-in-forms";
+import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
 import { ResidentCommunication } from "@/components/portal/resident-communication";
 import { VendorCommunication } from "@/components/portal/vendor-communication";
 import { ResidentPaymentsPanel } from "@/components/portal/resident-payments-panel";
@@ -58,7 +60,7 @@ import {
   loadManagerDocumentsPanel,
   loadManagerFinancesPanel,
   loadManagerCommunication,
-  loadManagerMoveInFormsPage,
+  loadManagerFormsPage,
   loadManagerProperties,
   loadManagerResidents,
   loadManagerVendorsPanel,
@@ -75,7 +77,6 @@ import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManage
 import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import {
   isResidentPathAllowedForAccess,
-  RESIDENT_PRE_LEASE_MOVE_IN_TABS,
 } from "@/lib/resident-portal-nav";
 import { findSection, getPortalDefinition } from "@/lib/portals";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -85,7 +86,9 @@ import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
 import {
   legacyManagerPortalSectionPath,
   isMoveInFormTabSlug,
+  isRetiredMoveInFormsTab,
   parseApplicationDetailTab,
+  parseFormsBucket,
   parseResidentMoveInTab,
   residentMoveInInspectionsHref,
 } from "@/lib/portal-detail-routes";
@@ -733,18 +736,29 @@ export async function renderPortalSection(
       }
     }
 
-    // The manager's one Move-in page: a tab per form the manager has added to a property (grouped
-    // by form name; the tab id is a slug of it), each listing every resident's copy, sent and
-    // submitted together. The forms live in the browser's property store, so the page picks the
-    // tab itself: the bare `/move-in` (and a slug that matches no form) shows the first one.
-    // `/move-in/inspections` and `/move-in/inspections/{move-in|move-out}` redirect to `/move-in`;
-    // a single report (`.../inspections/{move-in|move-out}/{reportId}[/{recordTab}]`) keeps its page.
+    // The manager's Forms page (sidebar, TENANCY): every form sent to a resident, Pending (sent) and
+    // Completed (submitted). The bucket is the first segment: bare = Pending, `/completed`.
+    if (section === "forms") {
+      const bucket = tabParts?.[0];
+      if ((tabParts?.length ?? 0) > 1 || (bucket !== undefined && !parseFormsBucket(bucket))) notFound();
+      const ManagerFormsPage = await loadManagerFormsPage();
+      return subscriptionGated(
+        <ManagerFormsPage tab={bucket} basePath={def.basePath} />,
+        kind,
+        "forms",
+        managerOwnerSubscriptionTier,
+      );
+    }
+
+    // Move-in has no page of its own any more: the bare address (and any old form tab slug) goes to
+    // Forms. `/move-in/inspections` and `/move-in/inspections/{move-in|move-out}` do too; a single
+    // report (`.../inspections/{move-in|move-out}/{reportId}[/{recordTab}]`) keeps its page.
     if ((kind === "manager" || kind === "pro") && section === "move-in") {
       const moveInTab = tabParts?.[0];
       if (moveInTab === "inspections") {
         const inspectionKind = tabParts?.[1] ?? "move-in";
         if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || (tabParts?.length ?? 0) > 4) notFound();
-        if (!tabParts?.[2]) redirect(`${def.basePath}/move-in`);
+        if (!tabParts?.[2]) redirect(`${def.basePath}/forms`);
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[2])) notFound();
         return subscriptionGated(
           <ManagerInspectionsPage
@@ -759,13 +773,7 @@ export async function renderPortalSection(
         );
       }
       if ((tabParts?.length ?? 0) > 1 || (moveInTab !== undefined && !isMoveInFormTabSlug(moveInTab))) notFound();
-      const ManagerMoveInFormsPage = await loadManagerMoveInFormsPage();
-      return subscriptionGated(
-        <ManagerMoveInFormsPage tab={moveInTab} basePath={def.basePath} />,
-        kind,
-        "move-in",
-        managerOwnerSubscriptionTier,
-      );
+      redirect(`${def.basePath}/forms`);
     }
 
     if (section === "residents") {
@@ -835,7 +843,14 @@ export async function renderPortalSection(
           residentDetailTab === "payments" ? residentDetailItemId : undefined;
         residentServiceItemId =
           residentDetailTab === "services" ? residentDetailItemId : undefined;
-        residentMoveInSubTab = residentDetailTab === "move-in" ? residentDetailItemId : undefined;
+        // The Forms tab carries its bucket (`/forms/completed`) where Move in carries its sub-tab. Forms
+        // used to be Move in's first sub-tab: that address lives on as the record's own Forms tab.
+        if (residentDetailTab === "move-in" && isRetiredMoveInFormsTab(residentDetailItemId)) {
+          redirect(`${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId!)}/forms`);
+        }
+        residentMoveInSubTab =
+          residentDetailTab === "move-in" || residentDetailTab === "forms" ? residentDetailItemId : undefined;
+        if (residentDetailTab === "forms" && residentDetailItemId !== undefined && !parseFormsBucket(residentDetailItemId)) notFound();
         if (tabParts.length > 4) notFound();
       }
       const ManagerResidents = await loadManagerResidents();
@@ -1604,14 +1619,31 @@ export async function renderPortalSection(
     );
   }
 
+  // Resident Forms: Pending · Completed, and one form at `/forms/<id>`. Unlocked from an approved
+  // application on; a form sent before approval is still reachable by its direct link (the stage guard
+  // above allows exactly that), so only the list is judged here, never the form's own address.
+  if (kind === "resident" && section === "forms") {
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const seg = tabParts?.[0];
+    if (seg !== undefined && !parseResidentFormsBucket(seg) && !isResidentFormId(seg)) notFound();
+    return (
+      <ManagerPortalPageShell title="Forms" hideTitleOnMobileNav compactFilterRow>
+        <ResidentFormsSection
+          basePath={def.basePath}
+          bucket={parseResidentFormsBucket(seg) ?? "pending"}
+          formId={isResidentFormId(seg) ? seg : undefined}
+        />
+      </ManagerPortalPageShell>
+    );
+  }
+
   if (kind === "resident" && section === "move-in") {
     const moveInEmail = residentCtx?.profile?.email ?? residentCtx?.user?.email ?? null;
     const allowedTabs = meta.tabs.map((t) => t.id);
-    // Use the same entitlement as navigation, including attested off-platform tenancies. An approved
-    // application opens the Forms tab alone (the same rule as `isResidentPathAllowedForAccess`).
-    const preLeaseFormsOnly = !residentAccess?.leaseAccessUnlocked &&
-      Boolean(residentAccess?.applicationApproved || residentAccess?.hasMoveInForms);
-    if (!residentAccess?.leaseAccessUnlocked && !preLeaseFormsOnly) {
+    // Forms used to be My home's first tab; that address (and an old emailed link to it) is the Forms section now.
+    if (isRetiredMoveInFormsTab(tabParts?.[0])) redirect(`${def.basePath}/forms`);
+    // My home is the house's details: it opens with a signed lease (or an attested tenancy) and never earlier.
+    if (!residentAccess?.leaseAccessUnlocked) {
       return (
         <ManagerPortalPageShell title="My home" hideTitleOnMobileNav>
           <ResidentMoveInShell
@@ -1624,13 +1656,17 @@ export async function renderPortalSection(
       );
     }
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/move-in/${preLeaseFormsOnly ? "forms" : allowedTabs[0] ?? "placement"}`);
+      redirect(`${def.basePath}/move-in/${allowedTabs[0] ?? "placement"}`);
     }
     const moveInTab = tabParts[0]!;
+    // An unsubmitted form that blocks "Move-in details" is decided here, on the server, from the forms
+    // table: the details tab renders its lock and no house detail is loaded into the page at all.
+    const formsLock = residentAccess?.blockingFormsPending?.moveInDetails
+      ? { formId: residentAccess.blockingFormsPending.formIds?.moveInDetails ?? null }
+      : undefined;
     // My home › Inspections: `/inspections` (all), `/inspections/{move-in|move-out}` (one type) and
     // `/inspections/{move-in|move-out}/{reportId}` (one filed report, on its own page).
     if (moveInTab === "inspections") {
-      if (preLeaseFormsOnly) redirect(`${def.basePath}/move-in/forms`);
       const [, inspectionKind, reportId, ...extra] = tabParts;
       if (inspectionKind !== undefined && inspectionKind !== "move-in" && inspectionKind !== "move-out") notFound();
       if (extra.length > 0) notFound();
@@ -1650,9 +1686,6 @@ export async function renderPortalSection(
       );
     }
     if (tabParts.length > 1) notFound();
-    if (preLeaseFormsOnly && !RESIDENT_PRE_LEASE_MOVE_IN_TABS.includes(moveInTab)) {
-      redirect(`${def.basePath}/move-in/forms`);
-    }
     // A retired sub-tab keeps its URL: the "Move-in" tab's arrival details now render under
     // Info & rules, and a bookmark or an emailed link must land there rather than 404.
     if (!allowedTabs.includes(moveInTab)) {
@@ -1668,7 +1701,7 @@ export async function renderPortalSection(
         tabs={meta.tabs}
         focusRoomId={typeof searchParams?.room === "string" ? searchParams.room : undefined}
         leaseSigned={residentAccess?.leaseSigned ?? false}
-        formsOnly={preLeaseFormsOnly}
+        formsLock={formsLock}
       />
     );
   }

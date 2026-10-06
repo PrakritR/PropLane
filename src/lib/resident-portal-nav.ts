@@ -5,8 +5,9 @@ export type ResidentPortalNavStage =
   | "pre_approval"
   | "application_submitted"
   /**
-   * Submitted, not yet approved, AND a move-in form (the Intake form) has been sent to them. Locked
-   * exactly like `application_submitted` except My home opens for its Forms tab alone.
+   * Submitted, not yet approved, AND a form (the Intake form, or one that blocks approval) has been sent
+   * to them. Locked exactly like `application_submitted` in the nav; the Forms section is reachable by
+   * its direct link only (`isResidentPathAllowedForAccess`), so the form can be filled out.
    */
   | "application_submitted_forms"
   | "booking_residency"
@@ -55,20 +56,12 @@ export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonl
   post_lease: ["services", "payments", "dashboard", "communication"],
 };
 
-/**
- * My home tabs open BEFORE a lease is signed. A form can be sent as early as the application being
- * submitted (the Intake form) and "application approved" forms go out at approval, so Forms must be
- * reachable from the first sent form on; every other My home tab (placement, housemates, info &
- * rules, amenities) discloses the house and stays locked until the lease is signed.
- */
-export const RESIDENT_PRE_LEASE_MOVE_IN_TABS: readonly string[] = ["forms"];
-
 const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]> = {
   pre_approval: ["tour", "applications", "dashboard", "communication", "profile"],
   application_submitted: ["tour", "applications", "dashboard", "communication", "profile"],
-  // Same as application_submitted, plus My home for its Forms tab only (the path guard and the server
-  // render gate hold the other tabs back).
-  application_submitted_forms: ["tour", "applications", "dashboard", "communication", "move-in", "profile"],
+  // Same as application_submitted: Forms is not a nav row until approval, but a form sent before it (the
+  // Intake form, or one that blocks approval) is still fillable by its direct link (the path guard).
+  application_submitted_forms: ["tour", "applications", "dashboard", "communication", "profile"],
   post_approval_pre_lease: [
     "tour",
     "applications",
@@ -77,12 +70,12 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "dashboard",
     "communication",
     "documents",
-    // My home is open for its Forms tab only (RESIDENT_PRE_LEASE_MOVE_IN_TABS); the path guard and
-    // the server render gate hold the other tabs back until the lease is signed.
-    "move-in",
+    // Forms opens with approval; My home (placement, details, roommates, inspections) discloses the
+    // house and stays locked until the lease is signed.
+    "forms",
     "profile",
   ],
-  // Lease/Payments/Documents/Services/My home (forms, details, roommates, inspections) unlock
+  // Lease/Payments/Documents/Forms/Services/My home (details, roommates, inspections) unlock
   // exactly as a signed lease would, without an application or lease row.
   // "applications"/"lease" stay UNLOCKED (never a dead padlocked row) but are
   // hidden from the rendered nav by `residentNavSectionVisibleInNav` below —
@@ -95,6 +88,7 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "dashboard",
     "communication",
     "lease",
+    "forms",
     "move-in",
     "documents",
     "profile",
@@ -107,6 +101,7 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "dashboard",
     "communication",
     "lease",
+    "forms",
     "move-in",
     "documents",
     "profile",
@@ -194,10 +189,13 @@ export function isResidentPathAllowedForAccess(
     return residentSectionUnlockedForStage("applications", stage);
   }
 
-  // Before a signed lease My home opens for Forms alone: from approval, or from the first sent form.
-  if (section === "move-in" && (stage === "post_approval_pre_lease" || stage === "application_submitted_forms")) {
-    const tab = pathname.split("/").filter(Boolean)[2];
-    return !tab || RESIDENT_PRE_LEASE_MOVE_IN_TABS.includes(tab);
+  // Forms used to be My home's first tab: that address (`/move-in/forms`) is redirected to the Forms
+  // section by `renderPortalSection`, so the guard judges it as the Forms section.
+  const isFormsAddress = section === "forms" || (section === "move-in" && pathname.split("/").filter(Boolean)[2] === "forms");
+  if (isFormsAddress) {
+    // A form sent before approval (the Intake form, or one that blocks approval) is fillable by its link.
+    if (stage === "application_submitted_forms") return true;
+    return residentSectionUnlockedForStage("forms", stage);
   }
 
   return residentSectionUnlockedForStage(section, stage);
