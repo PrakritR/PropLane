@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
+import { ResidentLinkedFormsSection } from "@/components/portal/resident-linked-forms-section";
 import { GroupShareCallout } from "@/components/marketing/rental-application-finish-panel";
 import { PublicApplyAccountPrompt } from "@/components/marketing/public-apply-account-prompt";
 import { SignedInResidentAccountPrompt } from "@/components/marketing/signed-in-resident-account-prompt";
@@ -80,7 +81,7 @@ import {
 } from "@/lib/rental-application/public-apply-session";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import { findApplicationFeeCharge, type HouseholdCharge } from "@/lib/household-charges";
-import { ResidentApplicationStatusScreen } from "@/components/portal/resident-application-status-screen";
+import { ResidentApplicationOwedForms, ResidentApplicationStatusScreen } from "@/components/portal/resident-application-status-screen";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   DEMO_APPLICATION_SUBMITTED_EVENT,
@@ -1233,6 +1234,7 @@ export function ResidentApplicationsPanel({
 
     return (
       <>
+        {sessionReady ? <ResidentLinkedFormsSection className="mb-4" /> : null}
         {renderApplicationsBand()}
         <PortalRecordListSurface
           className="mt-0"
@@ -1437,7 +1439,9 @@ export function ResidentApplicationsPanel({
                   recordLabel: applicantDisplayName(detailRow),
                 })
               ) : (
-                renderRecordSection("overview", {
+                <>
+                <ResidentApplicationOwedForms applicationId={detailRow.id} className="mb-4" />
+                {renderRecordSection("overview", {
                   role: "resident",
                   kind: "application",
                   kindLabel: "application",
@@ -1460,7 +1464,8 @@ export function ResidentApplicationsPanel({
                       ],
                     },
                   ],
-                })
+                })}
+                </>
               )}
             </PortalRecordSectionChrome>
           )}

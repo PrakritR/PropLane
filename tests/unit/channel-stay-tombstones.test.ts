@@ -9,11 +9,13 @@ import { fakeSupabaseClient, type Row } from "./helpers/fake-supabase-tables";
  */
 
 const mocks = vi.hoisted(() => ({
-  managerHasCalendarAccessForProperty: vi.fn(async () => true),
+  // Remove / Undo rewrite what the house publishes and blocks, so they need Calendar at EDIT — the
+  // same level as linking, unlinking and syncing, not the read grant.
+  managerCanWriteCalendarForProperty: vi.fn(async () => true),
   upsertResidents: vi.fn(async () => ({ created: 0, updated: 0, skipped: 0 })),
 }));
 vi.mock("@/lib/auth/manager-lease-scope", () => ({
-  managerHasCalendarAccessForProperty: mocks.managerHasCalendarAccessForProperty,
+  managerCanWriteCalendarForProperty: mocks.managerCanWriteCalendarForProperty,
 }));
 vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({
   upsertAirbnbResidentsFromImportedRanges: mocks.upsertResidents,
@@ -78,7 +80,7 @@ function setup(extra: Record<string, Row[]> = {}) {
 }
 
 beforeEach(() => {
-  mocks.managerHasCalendarAccessForProperty.mockReset().mockResolvedValue(true);
+  mocks.managerCanWriteCalendarForProperty.mockReset().mockResolvedValue(true);
   mocks.upsertResidents.mockClear();
   vi.stubGlobal("fetch", vi.fn(async () => new Response(FEED, { status: 200 })));
 });
@@ -160,13 +162,13 @@ describe("Remove stay -> next sync -> Undo", () => {
 });
 
 describe("authorization comes from the session, not the body", () => {
-  it("refuses a manager with no access to the connection's house and writes nothing", async () => {
+  it("refuses a manager without calendar edit on the connection's house and writes nothing", async () => {
     const { tables, db } = setup();
-    mocks.managerHasCalendarAccessForProperty.mockResolvedValue(false);
+    mocks.managerCanWriteCalendarForProperty.mockResolvedValue(false);
     const persist = vi.fn();
     const result = await removeChannelStay(db, OTHER, { connectionId: "conn-1", sourceUid: "uid-marcus" }, persist);
     expect(result).toMatchObject({ ok: false, status: 403 });
-    expect(mocks.managerHasCalendarAccessForProperty).toHaveBeenCalledWith(expect.anything(), OTHER, "prop-1");
+    expect(mocks.managerCanWriteCalendarForProperty).toHaveBeenCalledWith(expect.anything(), OTHER, "prop-1");
     expect(tables.portal_schedule_records).toHaveLength(0);
     expect(persist).not.toHaveBeenCalled();
   });

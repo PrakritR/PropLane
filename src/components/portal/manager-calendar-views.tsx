@@ -11,7 +11,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import {
   CalendarOff,
-  ClipboardCheck,
   Clock,
   DoorOpen,
   ListChecks,
@@ -46,12 +45,18 @@ import {
   type GridWindow,
 } from "@/lib/calendar-grid";
 import { shiftDateStr, weekdayOfDateStr } from "@/lib/calendar-availability-window";
+import {
+  inkOnPersonColor,
+  personAvailabilityStyle,
+  type CalendarPerson,
+  type PersonAvailabilityBlock,
+} from "@/lib/calendar-people";
+import { X } from "lucide-react";
 
 const KIND_ICON: Record<CalendarItemKind, LucideIcon> = {
   tour: DoorOpen,
   service: Wrench,
   task: ListChecks,
-  inspection: ClipboardCheck,
   busy: CalendarOff,
 };
 
@@ -84,6 +89,8 @@ export type CalendarGridItem = {
   place: string;
   /** A tour request still waiting on the manager (drawn dashed, never a pill). */
   requested: boolean;
+  /** Whose item this is on the shared calendar (drives its solid colour); null keeps the kind colour. */
+  person: CalendarPerson | null;
   meeting: DemoMeeting;
 };
 
@@ -101,12 +108,16 @@ function meetingTitle(meeting: DemoMeeting): string {
  * One meeting as the grid's items: a single block, or one block per day it
  * covers (a multi-day Google event paints every day, capped at two weeks).
  */
-export function meetingToGridItems(meeting: DemoMeeting): CalendarGridItem[] {
+export function meetingToGridItems(
+  meeting: DemoMeeting,
+  people?: ReadonlyMap<string, CalendarPerson>,
+): CalendarGridItem[] {
   const base = {
     kind: calendarItemKind(meeting),
     title: meetingTitle(meeting),
     place: meetingPlace(meeting),
     requested: meeting.source === "inquiry",
+    person: (meeting.personUserId ? people?.get(meeting.personUserId) : null) ?? null,
     meeting,
   };
   if (meeting.allDay) {
@@ -206,6 +217,82 @@ export function CalendarBandLegend({ bands, tab }: { bands: readonly GridBand[];
   );
 }
 
+/* ------------------------------------------------------------------ people */
+
+/** A person's initials in their colour (white-ish on a solid block, solid on a pale one). */
+export function PersonChip({
+  person,
+  small = false,
+  onSolid = false,
+}: {
+  person: Pick<CalendarPerson, "initials" | "color">;
+  small?: boolean;
+  onSolid?: boolean;
+}) {
+  return (
+    <span
+      aria-hidden
+      data-attr="calendar-person-chip"
+      className={cn(
+        "inline-grid shrink-0 place-items-center rounded-full font-bold leading-none",
+        small ? "size-4 text-[8.5px]" : "size-[22px] text-[10.5px]",
+      )}
+      style={
+        onSolid
+          ? { background: "rgba(255,255,255,0.3)", color: "inherit" }
+          : { background: person.color, color: inkOnPersonColor(person.color) }
+      }
+    >
+      {person.initials}
+    </span>
+  );
+}
+
+/**
+ * The people row above the grid: who is on this house, their colour, and a toggle for whose time
+ * shows. Hiding is a view filter only; colours never move.
+ */
+export function CalendarPeopleRow({
+  people,
+  hidden,
+  onToggle,
+}: {
+  people: readonly CalendarPerson[];
+  hidden: ReadonlySet<string>;
+  onToggle: (userId: string) => void;
+}) {
+  if (people.length < 2) return null;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 px-3.5 py-2.5"
+      data-attr="calendar-people-row"
+      role="group"
+      aria-label="People on this calendar"
+    >
+      {people.map((person) => {
+        const off = hidden.has(person.userId);
+        return (
+          <button
+            key={person.userId}
+            type="button"
+            aria-pressed={!off}
+            data-attr="calendar-person-toggle"
+            data-person={person.userId}
+            onClick={() => onToggle(person.userId)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border border-border bg-card py-1 pl-1 pr-2.5 text-[13px] font-semibold text-foreground transition",
+              off && "opacity-40",
+            )}
+          >
+            <PersonChip person={person} />
+            <span>{person.isSelf && person.label !== "You" ? `${person.label} (you)` : person.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ time grid */
 
 type DragState = {
@@ -243,6 +330,16 @@ export type CalendarTimeGridProps = {
   emptyStrip?: ReactNode;
   legend?: ReactNode;
   minColumnPx?: number;
+  /**
+   * The viewer on the shared calendar. When present, the hours they painted draw as pale blocks in
+   * their colour (initials, kind, time, and an x to remove) instead of the plain hatch.
+   */
+  selfPerson?: CalendarPerson | null;
+  /** Everyone else's open hours (never editable here) and the people they belong to. */
+  peerAvailability?: readonly PersonAvailabilityBlock[];
+  people?: ReadonlyMap<string, CalendarPerson>;
+  /** The viewer's x on one of their own blocks. */
+  onRemoveBand?: (dateStr: string, band: GridBand) => void;
 };
 
 export function CalendarTimeGrid({
@@ -265,6 +362,10 @@ export function CalendarTimeGrid({
   emptyStrip,
   legend,
   minColumnPx = 128,
+  selfPerson = null,
+  peerAvailability,
+  people,
+  onRemoveBand,
 }: CalendarTimeGridProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -581,15 +682,33 @@ export function CalendarTimeGrid({
                 const weekday = weekdayOfDateStr(dateStr);
                 const isToday = dateStr === todayDs;
                 const dayBands = bandsByDate.get(dateStr) ?? [];
+                // Typed bands are the viewer's own availability blocks when the grid knows who they are.
+                const ownBlocks = selfPerson
+                  ? dayBands
+                      .map((band, bandIndex) => ({ band, bandIndex }))
+                      .filter(({ band }) => band.source === "typed")
+                  : [];
+                const dayPeerBlocks = (peerAvailability ?? []).filter((block) => block.dateStr === dateStr);
                 const placed = layoutDayEvents(
-                  timed.filter((item) => item.dateStr === dateStr).map((item) => ({
-                    id: item.id,
-                    startMin: item.startMin,
-                    durationMin: item.durationMin,
-                  })),
+                  [
+                    ...timed
+                      .filter((item) => item.dateStr === dateStr)
+                      .map((item) => ({ id: item.id, startMin: item.startMin, durationMin: item.durationMin })),
+                    ...ownBlocks.map(({ band, bandIndex }) => ({
+                      id: `own-${dateStr}-${bandIndex}`,
+                      startMin: band.startMin,
+                      durationMin: band.endMin - band.startMin,
+                    })),
+                    ...dayPeerBlocks.map((block) => ({
+                      id: block.id,
+                      startMin: block.startMin,
+                      durationMin: block.endMin - block.startMin,
+                    })),
+                  ],
                   from,
                   to,
                 );
+                const laneOf = new Map(placed.map((slot) => [slot.id, slot]));
                 const byId = new Map(timed.map((item) => [item.id, item]));
                 return (
                   <div
@@ -613,6 +732,7 @@ export function CalendarTimeGrid({
                     }}
                   >
                     {dayBands.map((band, index) => {
+                      if (selfPerson && band.source === "typed") return null;
                       const s = Math.max(band.startMin, from);
                       const e = Math.min(band.endMin, to);
                       if (e <= s) return null;
@@ -672,6 +792,108 @@ export function CalendarTimeGrid({
                       );
                     })}
 
+                    {ownBlocks.map(({ band, bandIndex }) => {
+                      const slot = laneOf.get(`own-${dateStr}-${bandIndex}`);
+                      if (!slot || !selfPerson) return null;
+                      const s0 = Math.max(band.startMin, from);
+                      const e0 = Math.min(band.endMin, to);
+                      if (e0 <= s0) return null;
+                      const kindsLabel = bandKindsLabel(band.kinds, false);
+                      const when = formatClockRange(band.startMin, band.endMin);
+                      const open = () => {
+                        if (!canEditAvailability || Date.now() - suppressRef.current < 500) return;
+                        onBandClick(dateStr, band);
+                      };
+                      return (
+                        <div
+                          key={slot.id}
+                          data-attr="calendar-availability-block"
+                          data-person={selfPerson.userId}
+                          data-own="true"
+                          data-date={dateStr}
+                          data-from={band.startMin}
+                          data-to={band.endMin}
+                          title={`${selfPerson.label} · ${kindsLabel} · ${when}${canEditAvailability ? " · click to edit" : ""}`}
+                          role={canEditAvailability ? "button" : undefined}
+                          tabIndex={canEditAvailability ? 0 : undefined}
+                          onClick={open}
+                          onKeyDown={(event) => {
+                            if (!canEditAvailability) return;
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              open();
+                            }
+                          }}
+                          className={cn(
+                            "group/avail absolute z-[1] box-border flex flex-col gap-px overflow-hidden rounded-lg border px-[6px] py-[3px] text-left text-[11px] font-semibold leading-tight text-foreground",
+                            canEditAvailability ? "cursor-pointer" : "cursor-crosshair",
+                          )}
+                          style={{
+                            ...personAvailabilityStyle(selfPerson.color),
+                            top: ((s0 - from) / 60) * GRID_HOUR_PX,
+                            height: ((e0 - s0) / 60) * GRID_HOUR_PX - 2,
+                            left: `calc(${(slot.lane / slot.lanes) * 100}% + 2px)`,
+                            width: `calc(${100 / slot.lanes}% - 4px)`,
+                          }}
+                        >
+                          <span className="flex min-w-0 items-center gap-1">
+                            <PersonChip person={selfPerson} small />
+                            <span className="truncate">{kindsLabel}</span>
+                          </span>
+                          <span className="truncate text-[10.5px] font-medium text-muted">{when}</span>
+                          {canEditAvailability && onRemoveBand ? (
+                            <button
+                              type="button"
+                              aria-label={`Remove ${kindsLabel} availability ${when}`}
+                              data-attr="calendar-availability-remove"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onRemoveBand(dateStr, band);
+                              }}
+                              className="absolute right-0.5 top-0.5 inline-grid size-4 place-items-center rounded-full border-0 bg-transparent text-muted opacity-0 transition hover:bg-foreground/10 hover:text-foreground focus-visible:opacity-100 group-hover/avail:opacity-100"
+                            >
+                              <X className="size-3" aria-hidden />
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+
+                    {dayPeerBlocks.map((block) => {
+                      const slot = laneOf.get(block.id);
+                      const person = people?.get(block.userId);
+                      if (!slot || !person) return null;
+                      const s0 = Math.max(block.startMin, from);
+                      const e0 = Math.min(block.endMin, to);
+                      if (e0 <= s0) return null;
+                      const kindLabel = block.kind === "tours" ? "Tours" : block.kind === "services" ? "Services" : "Tasks";
+                      const when = formatClockRange(block.startMin, block.endMin);
+                      return (
+                        <div
+                          key={block.id}
+                          data-attr="calendar-availability-block"
+                          data-person={person.userId}
+                          data-own="false"
+                          data-date={dateStr}
+                          title={`${person.label} · ${kindLabel} · ${when}`}
+                          className="absolute z-[1] box-border flex flex-col gap-px overflow-hidden rounded-lg border px-[6px] py-[3px] text-left text-[11px] font-semibold leading-tight text-foreground"
+                          style={{
+                            ...personAvailabilityStyle(person.color),
+                            top: ((s0 - from) / 60) * GRID_HOUR_PX,
+                            height: ((e0 - s0) / 60) * GRID_HOUR_PX - 2,
+                            left: `calc(${(slot.lane / slot.lanes) * 100}% + 2px)`,
+                            width: `calc(${100 / slot.lanes}% - 4px)`,
+                          }}
+                        >
+                          <span className="flex min-w-0 items-center gap-1">
+                            <PersonChip person={person} small />
+                            <span className="truncate">{kindLabel}</span>
+                          </span>
+                          <span className="truncate text-[10.5px] font-medium text-muted">{when}</span>
+                        </div>
+                      );
+                    })}
+
                     {placed.map((slot) => {
                       const item = byId.get(slot.id);
                       if (!item) return null;
@@ -679,6 +901,8 @@ export function CalendarTimeGrid({
                       const top = ((item.startMin - from) / 60) * GRID_HOUR_PX;
                       const height = Math.max((item.durationMin / 60) * GRID_HOUR_PX - 3, GRID_MIN_BLOCK_PX);
                       const when = formatClockRange(item.startMin, item.startMin + (item.durationMin || 30));
+                      const person = item.person;
+                      const ink = person ? inkOnPersonColor(person.color) : null;
                       return (
                         <button
                           key={item.id}
@@ -686,14 +910,19 @@ export function CalendarTimeGrid({
                           data-cal-event=""
                           data-attr="calendar-event-block"
                           data-cal-kind={item.kind}
+                          data-person={person?.userId}
                           title={`${item.title}${item.place ? ` · ${item.place}` : ""} · ${when}`}
                           onClick={(event: MouseEvent<HTMLButtonElement>) => onOpenItem(item, event.currentTarget)}
                           className={cn(
-                            "absolute z-[2] box-border flex flex-col gap-px overflow-hidden rounded-lg border-0 border-l-[3px] border-[color:var(--k)] bg-[color-mix(in_srgb,var(--k)_16%,var(--card))] px-[7px] py-1 text-left text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(15,23,42,0.18)]",
+                            "absolute z-[2] box-border flex flex-col gap-px overflow-hidden rounded-lg border-0 px-[7px] py-1 text-left shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(15,23,42,0.18)]",
+                            person
+                              ? "bg-[color:var(--pc)]"
+                              : "border-l-[3px] border-[color:var(--k)] bg-[color-mix(in_srgb,var(--k)_16%,var(--card))] text-foreground",
                             item.requested && "border-dashed ring-1 ring-inset ring-[color:var(--k)]/40",
                           )}
                           style={{
                             ...kindStyle(item.kind),
+                            ...(person ? { ["--pc" as string]: person.color, color: ink ?? undefined } : null),
                             top,
                             height,
                             left: `calc(${(slot.lane / slot.lanes) * 100}% + 2px)`,
@@ -701,14 +930,27 @@ export function CalendarTimeGrid({
                             maxWidth: isDay ? 460 : undefined,
                           }}
                         >
-                          <span className="flex items-center gap-1 text-[10.5px] font-bold leading-[13px] text-[color-mix(in_srgb,var(--k)_55%,var(--foreground))]">
-                            <Icon className="size-[11px] shrink-0 text-[color:var(--k)]" aria-hidden />
+                          <span
+                            className={cn(
+                              "flex items-center gap-1 text-[10.5px] font-bold leading-[13px]",
+                              !person && "text-[color-mix(in_srgb,var(--k)_55%,var(--foreground))]",
+                            )}
+                          >
+                            {person ? (
+                              <PersonChip person={person} small onSolid />
+                            ) : (
+                              <Icon className="size-[11px] shrink-0 text-[color:var(--k)]" aria-hidden />
+                            )}
                             <span>{formatClock(item.startMin)}</span>
                             {item.requested ? <span className="font-semibold opacity-80">· Requested</span> : null}
                           </span>
                           <span className="truncate text-xs font-semibold leading-[15px]">{item.title}</span>
                           {item.place ? (
-                            <span className="truncate text-[11px] leading-[14px] text-muted">{item.place}</span>
+                            <span
+                              className={cn("truncate text-[11px] leading-[14px]", person ? "opacity-85" : "text-muted")}
+                            >
+                              {item.place}
+                            </span>
                           ) : null}
                         </button>
                       );

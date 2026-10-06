@@ -140,6 +140,7 @@ export function CosignerApplyFlow({
   initialSignerAppId = "",
   initialSignerFullName = "",
   previewConfig,
+  linkedForm,
 }: {
   onBack: () => void;
   /** Called from the success screen when the user finishes (e.g. navigate back to the main application). */
@@ -153,12 +154,34 @@ export function CosignerApplyFlow({
   initialSignerAppId?: string;
   initialSignerFullName?: string;
   previewConfig?: ApplicationConfigSlice;
+  /**
+   * A form owed through a linked-form request. The application, the template and its questions come from the
+   * server for the signed-in person who opened it; nothing is looked up from the public link, no draft is kept
+   * on the device, and the submission names the request so the server finishes it.
+   */
+  linkedForm?: {
+    requestId: string;
+    signerAppId: string;
+    signerFullName: string;
+    templateId?: string;
+    templateVersion?: number;
+    config: ApplicationConfigSlice;
+  };
 }) {
   const [step, setStep] = useState(1);
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [f, setF] = useState<CosignerFields>(() => {
     const base = (() => {
       if (previewMode) return emptyCosigner();
+      if (linkedForm) {
+        return {
+          ...emptyCosigner(),
+          signerAppId: linkedForm.signerAppId,
+          signerFullName: linkedForm.signerFullName,
+          applicationTemplateId: linkedForm.templateId,
+          applicationTemplateVersion: linkedForm.templateVersion,
+        };
+      }
       const draft = loadCosignerDraft<CosignerFields>();
       return draft ? { ...emptyCosigner(), ...draft } : emptyCosigner();
     })();
@@ -169,7 +192,7 @@ export function CosignerApplyFlow({
     };
   });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [applicationConfig, setApplicationConfig] = useState<ApplicationConfigSlice | null>(previewConfig ?? null);
+  const [applicationConfig, setApplicationConfig] = useState<ApplicationConfigSlice | null>(previewConfig ?? linkedForm?.config ?? null);
   useEffect(() => {
     if (previewMode) queueMicrotask(() => setApplicationConfig(previewConfig ?? null));
   }, [previewConfig, previewMode]);
@@ -189,7 +212,7 @@ export function CosignerApplyFlow({
     return errors;
   };
   const [draftReady] = useState(true);
-  const [signerPreviewLoading, setSignerPreviewLoading] = useState(Boolean(initialSignerAppId.trim()));
+  const [signerPreviewLoading, setSignerPreviewLoading] = useState(Boolean(initialSignerAppId.trim()) && !linkedForm);
   const [signerLinkError, setSignerLinkError] = useState<string | null>(null);
   const [postSubmit, setPostSubmit] = useState<{
     linkedAxisId: string;
@@ -200,12 +223,12 @@ export function CosignerApplyFlow({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!draftReady || previewMode) return;
+    if (!draftReady || previewMode || linkedForm) return;
     saveCosignerDraft(f);
-  }, [draftReady, f, previewMode]);
+  }, [draftReady, f, previewMode, linkedForm]);
 
   useEffect(() => {
-    if (previewMode) return;
+    if (previewMode || linkedForm) return;
     const signerAppId = initialSignerAppId.trim() || f.signerAppId.trim();
     if (!signerAppId || signerAppId.length < 4) {
       setSignerPreviewLoading(false);
@@ -239,7 +262,7 @@ export function CosignerApplyFlow({
     return () => {
       cancelled = true;
     };
-  }, [draftReady, f.signerAppId, f.applicationTemplateId, f.applicationTemplateVersion, initialSignerAppId, previewMode]);
+  }, [draftReady, f.signerAppId, f.applicationTemplateId, f.applicationTemplateVersion, initialSignerAppId, previewMode, linkedForm]);
 
   const clearError = (key: string) => {
     setFieldErrors((prev) => {
@@ -361,7 +384,7 @@ export function CosignerApplyFlow({
         return;
       }
       const signerAppId = f.signerAppId.trim();
-      if (!previewMode && signerAppId.length >= 4) {
+      if (!previewMode && !linkedForm && signerAppId.length >= 4) {
         const preview = await fetchCosignerSignerLinkPreview(signerAppId, f.applicationTemplateId, f.applicationTemplateVersion);
         if (!preview.ok) {
           setSignerLinkError(preview.message);
@@ -410,7 +433,7 @@ export function CosignerApplyFlow({
         showToast?.("Preview only — co-signers submit from the shared apply link.");
         return;
       }
-      if (linkedAxisId.length >= 4) {
+      if (linkedAxisId.length >= 4 && !linkedForm) {
         const preview = await fetchCosignerSignerLinkPreview(linkedAxisId, f.applicationTemplateId, f.applicationTemplateVersion);
         if (!preview.ok) {
           setSignerLinkError(preview.message);
@@ -420,7 +443,12 @@ export function CosignerApplyFlow({
       }
       if (submitting) return;
       setSubmitting(true);
-      const submission = { ...f, signerAppId: linkedAxisId, submittedAt: new Date().toISOString() };
+      const submission = {
+        ...f,
+        signerAppId: linkedAxisId,
+        submittedAt: new Date().toISOString(),
+        ...(linkedForm ? { formRequestId: linkedForm.requestId } : {}),
+      };
       const sync = await submitCosignerToServerAwait(submission);
       setSubmitting(false);
       if (!sync.ok) {

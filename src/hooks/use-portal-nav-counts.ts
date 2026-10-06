@@ -1,4 +1,5 @@
 "use client";
+import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RESIDENT_INBOX_THREAD_FALLBACK } from "@/components/portal/resident-inbox-panel";
@@ -314,7 +315,8 @@ export function usePortalNavCounts(
         .filter(
           (r) => !r.residentEmail?.trim() || isLinkedToDirectoryResident(r.residentEmail, directoryEmails),
         );
-      const servicesMaintenance = readManagerWorkOrderRows()
+      // An add-on's vendor job is not a service of its own: the two models keep separate counts.
+      const servicesMaintenance = withoutLinkedVendorJobs(readManagerWorkOrderRows())
         .filter((w) => moduleRowVisibleToPortalUser(w, userId, "services"))
         .filter(
           (w) => !w.residentEmail?.trim() || isLinkedToDirectoryResident(w.residentEmail, directoryEmails),

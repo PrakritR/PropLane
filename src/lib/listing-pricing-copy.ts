@@ -89,6 +89,7 @@ function copyBundlePricingFields(
     moveInFee: source.moveInFee,
     utilitiesPaymentModel: source.utilitiesPaymentModel,
     utilitiesEstimate: source.utilitiesEstimate,
+    monthToMonthSurcharge: source.monthToMonthSurcharge,
     customStartSurcharge: source.customStartSurcharge,
     // A bundle's Lease fee and Application fee ride in its term entries.
     termPricing: source.termPricing ? structuredClone(source.termPricing) : target.termPricing,
@@ -132,6 +133,7 @@ export function copyListingPricingBetweenSubmissions(
   next.parkingMonthly = src.parkingMonthly;
   next.hoaMonthly = src.hoaMonthly;
   next.otherMonthlyFees = src.otherMonthlyFees;
+  next.monthToMonthSurcharge = src.monthToMonthSurcharge;
   next.customLeaseSurcharge = src.customLeaseSurcharge;
   next.customFees = src.customFees?.map((fee) => ({ ...fee }));
   next.removedStandardListingFeeRows = src.removedStandardListingFeeRows
@@ -221,6 +223,7 @@ export function pricingFingerprint(sub: ManagerListingSubmissionV1 | null): stri
   return [
     `app=${sub.applicationFee}`,
     `hold=${sub.holdingDeposit ?? ""}`,
+    `mtm=${sub.monthToMonthSurcharge ?? ""}`,
     `cls=${sub.customLeaseSurcharge ?? ""}`,
     `fees=${sub.customFees?.length ?? 0}`,
     `rooms=[${roomBits}]`,

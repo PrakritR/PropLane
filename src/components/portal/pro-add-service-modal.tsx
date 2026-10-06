@@ -71,8 +71,8 @@ import { createManagerCharge } from "@/lib/household-charges";
 /** Who the assignment message goes to, resolved from the directory the picker used. */
 type AssigneeContact = { name: string; email: string; phone?: string };
 
-type PropertyOption = { propertyId: string; propertyLabel: string };
-type ResidentOption = ManagerServiceResidentOption & { assignedRoomChoice?: string };
+export type PropertyOption = { propertyId: string; propertyLabel: string };
+export type ResidentOption = ManagerServiceResidentOption & { assignedRoomChoice?: string };
 
 function displayPropertyLabel(raw: string): string {
   const trimmed = raw.trim();
@@ -84,7 +84,7 @@ function displayPropertyLabel(raw: string): string {
     .trim();
 }
 
-function buildPropertyOptions(managerUserId: string | null): PropertyOption[] {
+export function buildPropertyOptions(managerUserId: string | null): PropertyOption[] {
   return buildManagerPropertyFilterOptions(managerUserId)
     .map((option) => {
       const propertyLabel = displayPropertyLabel(option.label);
@@ -93,7 +93,7 @@ function buildPropertyOptions(managerUserId: string | null): PropertyOption[] {
     .filter((row): row is PropertyOption => row !== null);
 }
 
-function buildResidentOptions(managerUserId: string | null): ResidentOption[] {
+export function buildResidentOptions(managerUserId: string | null): ResidentOption[] {
   return readManagerApplicationRows()
     .filter(
       (row) =>
@@ -131,7 +131,7 @@ function buildResidentOptions(managerUserId: string | null): ResidentOption[] {
     });
 }
 
-function residentMatchesProperty(resident: ResidentOption, property: PropertyOption): boolean {
+export function residentMatchesProperty(resident: ResidentOption, property: PropertyOption): boolean {
   if (resident.propertyId && resident.propertyId === property.propertyId) return true;
   return resident.propertyLabel.toLowerCase() === property.propertyLabel.toLowerCase();
 }

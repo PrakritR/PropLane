@@ -44,8 +44,11 @@ function listing(
 }
 
 describe("which rows the room pricing popup shows", () => {
-  it("has no month-to-month surcharge row at all", () => {
-    expect(feeVisibilityForTerms(["Long-term", "Month-to-Month"])).not.toHaveProperty("monthToMonthSurcharge");
+  it("shows the month-to-month surcharge only when Month-to-month is offered, and never in Seattle", () => {
+    expect(feeVisibilityForTerms(["Long-term", "Month-to-Month"]).monthToMonthSurcharge).toBe(true);
+    expect(feeVisibilityForTerms(["Long-term", "Custom"]).monthToMonthSurcharge).toBe(false);
+    expect(feeVisibilityForTerms(["Long-term", "Month-to-Month"], { city: "Seattle", state: "WA" }).monthToMonthSurcharge).toBe(false);
+    expect(feeVisibilityForTerms(["Long-term", "Month-to-Month"], { city: "Tacoma", state: "WA" }).monthToMonthSurcharge).toBe(true);
   });
 
   it("shows the custom start surcharge and Partial months only when Custom is offered", () => {
@@ -60,16 +63,18 @@ describe("which rows the room pricing popup shows", () => {
   it("follows the room's own Leases offered when it restricts them, else the listing's", () => {
     const sub = listing();
     expect(roomPricingFeeVisibility(sub, sub.rooms[0])).toEqual({
+      monthToMonthSurcharge: true,
       customStartSurcharge: true,
       partialMonths: true,
     });
     const restricted = listing({ offeredLeaseTerms: ["Long-term", "Month-to-Month"] });
     expect(roomPricingFeeVisibility(restricted, restricted.rooms[0])).toEqual({
+      monthToMonthSurcharge: true,
       customStartSurcharge: false,
       partialMonths: false,
     });
     const customOnly = listing({ offeredLeaseTerms: ["Long-term", "Custom"] });
-    expect(roomPricingFeeVisibility(customOnly, customOnly.rooms[0]).customStartSurcharge).toBe(true);
+    expect(roomPricingFeeVisibility(customOnly, customOnly.rooms[0]).monthToMonthSurcharge).toBe(false);
   });
 
   it("a listing that never offers Custom hides its rows for every room", () => {
@@ -127,17 +132,24 @@ describe("Application fee and Lease fee are bound to their step", () => {
           leaseFee: "100",
           shortTermApplicationFee: "20",
           shortTermLeaseFee: "0",
+          monthToMonthSurcharge: "25",
           customStartSurcharge: "60",
         },
       ],
     });
     const long = resolveRoomTermFees({ sub, room: sub.rooms[0], leaseTerm: "Long-term" });
-    expect(long).toMatchObject({ applicationFee: 50, leaseFee: 100, customStartSurcharge: 60 });
+    expect(long).toMatchObject({ applicationFee: 50, leaseFee: 100, monthToMonthSurcharge: 25, customStartSurcharge: 60 });
     const short = resolveRoomTermFees({ sub, room: sub.rooms[0], leaseTerm: "Short-Term Stay" });
     // A typed 0 is a real answer ("free for stays"), not "fall back to the shared fee".
-    expect(short).toMatchObject({ applicationFee: 20, leaseFee: 0, customStartSurcharge: 0 });
+    expect(short).toMatchObject({ applicationFee: 20, leaseFee: 0, monthToMonthSurcharge: 0, customStartSurcharge: 0 });
     const nothing = resolveRoomTermFees({ sub: listing(), room: listing().rooms[0], leaseTerm: "Long-term" });
-    expect(nothing).toMatchObject({ leaseFee: 0, customStartSurcharge: 0 });
+    expect(nothing).toMatchObject({ leaseFee: 0, monthToMonthSurcharge: 0, customStartSurcharge: 0 });
+    // Absent unless set, and never on a Seattle listing even with a saved amount.
+    const seattle = listing(
+      { occupancyPrices: [{ count: 1, monthToMonthSurcharge: "25" }] },
+      { address: "5259 Brooklyn Ave NE, Seattle, WA 98105", city: "Seattle", zip: "98105" },
+    );
+    expect(resolveRoomTermFees({ sub: seattle, room: seattle.rooms[0], leaseTerm: "Month-to-Month" }).monthToMonthSurcharge).toBe(0);
   });
 });
 
@@ -150,6 +162,7 @@ describe("the receipt and the overlay read the same fees", () => {
         leaseFee: "100",
         shortTermApplicationFee: "20",
         shortTermLeaseFee: "40",
+        monthToMonthSurcharge: "25",
         customStartSurcharge: "60",
       },
     ],
@@ -164,20 +177,24 @@ describe("the receipt and the overlay read the same fees", () => {
     expect(short.signingLines.find((l) => l.key === "arrangement_lease_fee")?.amount).toBe(40);
   });
 
-  it("the receipt adds the custom start surcharge to the monthly rent only for that start", () => {
+  it("the receipt adds the start surcharge to the monthly rent only for that start", () => {
     const std = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1 });
+    const m2m = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1, startKind: "m2m" });
+    expect(m2m.monthlyRent - std.monthlyRent).toBe(25);
     const cst = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1, startKind: "cst" });
     expect(cst.monthlyRent - std.monthlyRent).toBe(60);
   });
 
   it("the overlay hands the room's surcharges and Lease fee to everything that reads the listing", () => {
     const out = submissionWithRoomTermFees(priced, priced.rooms[0], { leaseTerm: "Long-term" });
+    expect(out.monthToMonthSurcharge).toBe("25");
     expect(out.customLeaseSurcharge).toBe("60");
     expect(out.applicationFee).toBe("50");
     const leaseFee = out.customFees?.find((f) => f.id === "room_lease_fee:room-7");
     expect(leaseFee).toMatchObject({ label: "Lease fee", amount: "100", frequency: "one-time" });
     const stay = submissionWithRoomTermFees(priced, priced.rooms[0], { leaseTerm: "Short-Term Stay" });
     // A stay never carries the start surcharges; it carries the short-term fees.
+    expect(stay.monthToMonthSurcharge).toBe(priced.monthToMonthSurcharge);
     expect(stay.applicationFee).toBe("20");
     expect(stay.customFees?.find((f) => f.id === "room_lease_fee:room-7")).toMatchObject({ amount: "40", shortTermAmount: "40" });
   });
@@ -232,6 +249,7 @@ describe("the generated lease carries the room's fees for its term", () => {
         applicationFee: "50",
         leaseFee: "100",
         shortTermLeaseFee: "40",
+        monthToMonthSurcharge: "25",
         customStartSurcharge: "60",
       },
     ],
@@ -243,10 +261,12 @@ describe("the generated lease carries the room's fees for its term", () => {
     expect(html).not.toMatch(/\$40\.00/);
   });
 
-  it("never prints a month-to-month surcharge, even from a stale saved room value", () => {
-    const stale = listing({ occupancyPrices: [{ count: 1, monthToMonthSurcharge: "25" } as never] });
-    const m2m = buildLeaseHtml(leaseContext(stale, { leaseTerm: "Month-to-Month", leaseEnd: "" }), WASHINGTON_LEASE_CONFIG);
-    expect(m2m).not.toMatch(/month-to-month surcharge/i);
+  it("prints the month-to-month surcharge on a month-to-month lease and not on a fixed one", () => {
+    const m2m = buildLeaseHtml(
+      leaseContext(priced, { leaseTerm: "Month-to-Month", leaseEnd: "" }),
+      WASHINGTON_LEASE_CONFIG,
+    );
+    expect(m2m).toMatch(/Month-to-month surcharge:<\/strong> \$25\.00/);
     const fixed = buildLeaseHtml(leaseContext(priced), WASHINGTON_LEASE_CONFIG);
     expect(fixed).not.toMatch(/Month-to-month surcharge:<\/strong>/);
   });
@@ -267,9 +287,9 @@ describe("the generated lease carries the room's fees for its term", () => {
     expect(html).not.toMatch(/Month-to-month surcharge:<\/strong>/);
   });
 
-  it("a Seattle month-to-month lease folds no surcharge into the rent", () => {
+  it("a Seattle month-to-month lease prints no surcharge and folds none into the rent", () => {
     const seattle = listing(
-      { occupancyPrices: [{ count: 1, monthToMonthSurcharge: "25" } as never] },
+      { occupancyPrices: [{ count: 1, monthToMonthSurcharge: "25" }] },
       { address: "5259 Brooklyn Ave NE, Seattle, WA 98105", city: "Seattle", zip: "98105" },
     );
     const ctx = leaseContext(seattle, { leaseTerm: "Month-to-Month", leaseEnd: "" });

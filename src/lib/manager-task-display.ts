@@ -150,9 +150,8 @@ function taskMatchesTypeFilter(task: ManagerTask, filter: Exclude<ManagerTaskLis
   return true;
 }
 
-/** The tasks one tab shows: its stage (Open · Assigned · Scheduled · Completed). Arrivals has none. */
+/** The tasks one tab shows: its stage (Open · Assigned · Scheduled · Completed). */
 export function tasksForListTab(tasks: readonly ManagerTask[], tabId: ManagerTaskListTabId): ManagerTask[] {
-  if (tabId === "arrivals-departures") return [];
   return tasks.filter((task) => managerTaskStage(task) === tabId);
 }
 

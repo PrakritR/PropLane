@@ -3,7 +3,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { resolveWorkOrderAssignee } from "@/lib/manager-service-workflow";
 import { resolveOwnVendorRecords } from "@/lib/vendor-own-record";
-import { isVisitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 import { insertVendorInvoiceRow, type PreparedVendorInvoiceSubmission } from "@/lib/vendor-invoice-submit.server";
 
 async function workOrderInvoiceTotalCents(
@@ -47,13 +46,16 @@ export async function ensureSubmittedVendorInvoiceForMarkedDone(
   if (input.row.selfAssigned || assignee?.kind === "team") return;
   if (!input.vendorUserId) return;
 
-  // The job invoice only: an estimate-visit fee invoice (VISIT-<bid id>) on the same service is a
-  // different bill and must neither satisfy nor break this check.
+  // The job invoice only: an estimate-visit fee invoice on the same service is a different bill
+  // and must neither satisfy nor break this check. `estimate_visit_bid_id` is written only by the
+  // server-side fee flow, so a vendor cannot number an invoice its way out of (or into) this.
   const { data: existingRows } = await db
     .from("vendor_invoices")
-    .select("id, status, invoice_number")
+    .select("id, status, estimate_visit_bid_id")
     .eq("work_order_id", input.workOrderId);
-  const existing = (existingRows ?? []).find((invoice) => !isVisitFeeInvoiceNumber((invoice as { invoice_number?: string | null }).invoice_number));
+  const existing = (existingRows ?? []).find(
+    (invoice) => (invoice as { estimate_visit_bid_id?: string | null }).estimate_visit_bid_id == null,
+  );
   if (existing && existing.status !== "rejected") return;
 
   const totalCents = await workOrderInvoiceTotalCents(db, input.workOrderId, input.row);

@@ -174,6 +174,28 @@ describe("Services tab", () => {
     expect(screen.getAllByRole("button", { name: "Add bid request" }).length).toBeGreaterThan(0);
   });
 
+  it("opens the service when the row is clicked anywhere (title, facts, figure), through the real shared row", async () => {
+    serviceFixtures.workOrders = [wo({ id: "wo-asg", title: "Filter swap", vendorId: "v-1", vendorName: "Pacific Plumbing", vendorCostCents: 14000 })];
+    const onNavigate = vi.fn();
+    render(<AppUiProvider><ManagerVendorDetail row={vendor()} managerUserId="mgr-1" basePath="/portal" onNavigate={onNavigate} tab="services" /></AppUiProvider>);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Assigned/ })[0]!);
+    await waitFor(() => expect(screen.getByText("Filter swap")).toBeTruthy());
+    const body = document.querySelector('[data-attr="vendor-service-row"]') as HTMLElement;
+    const card = body.closest(".portal-property-row") as HTMLElement;
+    fireEvent.click(screen.getByText("Filter swap"));
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenLastCalledWith("/portal/services/work-orders/open/wo-asg");
+    // Dead zones before the fix: the tile, the desktop figure beside the text, and the card's own padding.
+    fireEvent.click(card.querySelector('[data-slot="portal-row-glyph-tile"]')!);
+    expect(onNavigate).toHaveBeenCalledTimes(2);
+    fireEvent.click(card.querySelector("div.md\\:flex span")!);
+    expect(onNavigate).toHaveBeenCalledTimes(3);
+    fireEvent.click(card);
+    expect(onNavigate).toHaveBeenCalledTimes(4);
+    fireEvent.click(body.querySelector('[data-attr="record-row-facts"]')!);
+    expect(onNavigate).toHaveBeenCalledTimes(5);
+  });
+
   it("buckets this vendor's services by the bid cycle and draws each through the shared Services row with their own figure", async () => {
     serviceFixtures.workOrders = [
       wo({ id: "wo-req", title: "Burst pipe" }),

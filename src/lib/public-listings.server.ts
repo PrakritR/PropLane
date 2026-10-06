@@ -168,6 +168,7 @@ const PUBLIC_SUBMISSION_KEYS = [
   "hoaMonthly",
   "otherMonthlyFees",
   "customFees",
+  "monthToMonthSurcharge",
   "customLeaseSurcharge",
   "allowedLeaseTerms",
   "leaseTermsBody",

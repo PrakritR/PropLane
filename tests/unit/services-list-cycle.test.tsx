@@ -170,4 +170,31 @@ describe("embedded Services list (property record)", () => {
     // The embedded list is not the page: no page title shell.
     expect(document.querySelector('[data-svc-page]')).not.toBeNull();
   });
+
+  it("a row reads: the service is the title, property is hidden on a property's own list, the resident and stage are facts, no pill", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    fixtures.workOrders = [
+      wo({ id: "wo-a", title: "Kitchen faucet drip", propertyId: "prop-a", propertyName: "The Pioneer", unit: "Room 8B", residentName: "Liam Foster", createdAtIso: "2026-09-25T18:00:00.000Z", photoDataUrls: ["data:image/png;base64,AAAA"] } as Partial<DemoManagerWorkOrderRow>),
+    ];
+    const { AppUiProvider } = await import("@/components/providers/app-ui-provider");
+    const { ManagerAllServicesPanel } = await import("@/components/portal/pro-all-services-panel");
+    render(
+      <AppUiProvider>
+        <ManagerAllServicesPanel tabId="work-orders" basePath="/portal" lockedPropertyId="prop-a" />
+      </AppUiProvider>,
+    );
+    await waitFor(() => expect(document.querySelectorAll('[data-attr="work-order-list-row"]').length).toBe(1));
+    const row = document.querySelector(".portal-property-row")!;
+    expect(row.querySelector("p")?.textContent).toBe("Kitchen faucet drip");
+    expect(row.textContent).toContain("Room 8B");
+    const facts = row.querySelector('[data-attr="record-row-facts"]')!;
+    expect(facts.textContent).toContain("Liam Foster");
+    expect(facts.textContent).toMatch(/Requested /);
+    // First photo in the tile; the row is flush inside the joined card (no card chrome of its own).
+    expect(row.querySelector('[data-slot="portal-row-photo-tile"] img')?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(row.className).not.toContain("mb-3");
+    // No dev-overlay console errors (duplicate or missing keys, nested buttons, band contract).
+    expect(errors.mock.calls.map((c) => String(c[0]).slice(0, 300))).toEqual([]);
+    errors.mockRestore();
+  });
 });

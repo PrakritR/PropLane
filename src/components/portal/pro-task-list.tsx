@@ -89,7 +89,6 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { ManagerArrivalsDeparturesPanel } from "@/components/portal/manager-arrivals-departures-panel";
 import {
   SERVICE_REQUESTS_EVENT,
   syncServiceRequestsFromServer,
@@ -428,7 +427,7 @@ export function ManagerTaskList({
       id,
       label: MANAGER_TASK_LIST_TAB_LABELS[id],
       href: managerTaskListHref(basePath, id),
-      count: id === "arrivals-departures" ? undefined : counts[id],
+      count: counts[id],
       dataAttr: `manager-task-list-tab-${id}`,
     }));
   }, [assignedServices, basePath, matchesProperty, tasks]);
@@ -841,23 +840,6 @@ export function ManagerTaskList({
           />
         ) : null}
       </>
-    );
-  }
-
-  if (tabId === "arrivals-departures" && !taskIdProp) {
-    return (
-      <ManagerPortalPageShell title="Tasks" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>
-        <PortalListControlStack
-          className="mb-2 max-lg:mb-1.5"
-          variant="command"
-          destinations={tabItems}
-          activeDestinationId={tabId}
-          destinationAriaLabel="Task status"
-        />
-        <div className={PORTAL_LIST_PAGE_BODY}>
-          <ManagerArrivalsDeparturesPanel />
-        </div>
-      </ManagerPortalPageShell>
     );
   }
 

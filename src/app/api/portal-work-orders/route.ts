@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
+import { isLinkedVendorJob } from "@/lib/add-on-vendor-job";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchRowsForManagerWithLinked,
@@ -336,6 +337,9 @@ async function emitCreatedWorkOrder(
   managerUserId: string | null | undefined,
 ): Promise<void> {
   if (actor.admin) return;
+  // The vendor job behind an add-on is the manager's own record: no "new service" notice to the team, and
+  // it has no resident to acknowledge (`add-on-vendor-job.ts`).
+  if (isLinkedVendorJob(row)) return;
   const ownerId = managerUserId?.trim() || row.managerUserId?.trim() || (actor.role === "resident" ? "" : actor.userId);
   if (!ownerId) return;
   const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
@@ -575,6 +579,7 @@ export async function POST(req: Request) {
     // Stamp manager + property from residency for residents; reject if none.
     const stampResidentWorkOrder = async (
       row: DemoManagerWorkOrderRow,
+      existing: ExistingRecord | null,
     ): Promise<DemoManagerWorkOrderRow | null> => {
       if (actor.admin || actor.role !== "resident") return row;
       const scope = await resolveResidentFilingScope(db, {
@@ -583,8 +588,18 @@ export async function POST(req: Request) {
         claimedPropertyId: row.propertyId || row.assignedPropertyId,
       });
       if (!scope) return null;
+      // The link between a service and the add-on request that spawned a vendor job is manager-owned: a resident
+      // who set it could hide their own service from the manager's lists and skip the manager notice. Only a
+      // value the server already stored survives a resident write.
+      const { linkedServiceRequestId: _clientLink, ...withoutClientLink } = row as DemoManagerWorkOrderRow & {
+        linkedWorkOrderId?: string;
+      };
+      void _clientLink;
+      delete (withoutClientLink as { linkedWorkOrderId?: string }).linkedWorkOrderId;
+      const storedLink = existing?.row_data?.linkedServiceRequestId?.trim();
       return {
-        ...row,
+        ...withoutClientLink,
+        ...(storedLink ? { linkedServiceRequestId: storedLink } : {}),
         managerUserId: scope.managerUserId,
         propertyId: scope.propertyId || row.propertyId || "",
         assignedPropertyId: row.assignedPropertyId || scope.propertyId || undefined,
@@ -653,7 +668,7 @@ export async function POST(req: Request) {
         // A brand-new id (no existing row) may be created, subject to the
         // workspace gate a manager actor's create must land inside.
         if (existing ? !(await actorMayWriteRecord(existing)) : !mayCreateInWorkspace(row)) continue;
-        const stamped = await stampResidentWorkOrder(row);
+        const stamped = await stampResidentWorkOrder(row, existing);
         if (!stamped) continue;
         const { row: timedRow, outcome: autoTimeOutcome } = await maybeAutoTimeNewResidentRow(existing, stamped);
         const { vendorUserId, rejected } = await resolveVendorUserId(
@@ -715,7 +730,7 @@ export async function POST(req: Request) {
     } else if (!mayCreateInWorkspace(body.row)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
-    const stamped = await stampResidentWorkOrder(body.row);
+    const stamped = await stampResidentWorkOrder(body.row, existing);
     if (!stamped) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }

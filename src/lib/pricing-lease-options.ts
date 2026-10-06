@@ -13,6 +13,7 @@
  * fields and "What a resident pays" can quote it. Pure.
  */
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { listingOfferedStays } from "@/lib/listing-stays";
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 import { AIRBNB_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
@@ -68,4 +69,26 @@ export function pricingLeaseOptions(
     leases.some((lease) => (lease.applicationLeaseTerms ?? []).includes(MONTH_TO_MONTH_PRICING_TERM));
   if (allowsMonthToMonth) options.push({ id: MONTH_TO_MONTH_PRICING_TERM, label: "Month-to-month", term: MONTH_TO_MONTH_PRICING_TERM });
   return options;
+}
+
+/**
+ * The sections the wizard's Pricing step draws: only TWO exist, Long term and Short term, one per stay the listing
+ * offers ("Stays you offer" on Basics), each holding its OWN rent, deposit, move-in fee, application fee and added
+ * fees, nothing shared between them. There is no Both section on Pricing. A stay the listing does not offer draws
+ * nothing (its stored prices are kept). Month-to-month and a custom lease are long-term and Airbnb is short-term:
+ * none is a section of its own, their prices show inside their stay (the Month-to-month surcharge is a Long term row).
+ */
+export function pricingSectionOptions(sub: Parameters<typeof pricingLeaseOptions>[0]): PricingLeaseOption[] {
+  const offered = listingOfferedStays(sub);
+  const all = pricingLeaseOptions(sub);
+  const out: PricingLeaseOption[] = [];
+  if (offered.long_term) {
+    const long = all.find((option) => option.term === LONG_TERM_LEASE_TERM);
+    if (long) out.push(long);
+  }
+  if (offered.short_term) {
+    const short = all.find((option) => option.term === SHORT_TERM_LEASE_TERM) ?? all.find((option) => option.term === AIRBNB_LEASE_TERM);
+    out.push(short ?? { id: SHORT_TERM_LEASE_TERM, label: "Short-term", term: SHORT_TERM_LEASE_TERM });
+  }
+  return out;
 }

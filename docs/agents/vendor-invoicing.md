@@ -103,6 +103,10 @@ inside the ledger (no Stripe call), then marks the invoice `paid` with
 (`work-order-approve-pay.server.ts`) is unchanged and still writes
 `paid_from: null`/`"stripe"`. Reuses `findBlockingVendorPayout` (the same
 double-pay guard `approve-pay` uses) when the invoice is tied to a work order.
+Every invoice rail (offline, balance, Stripe) runs it first (`assertNoCrossRailPayout`);
+the database is the arbiter (`claim_vendor_invoice_payment` + the
+`vendor_payouts_cross_rail_guard` trigger take a per-work-order lock), and a
+visit-fee invoice is exempt because it is a separate bill.
 Insufficient balance answers 422 with the shortfall; the client falls back to
 the existing card-funded path. No manager-facing "review this invoice" screen
 calls this route yet — none exists in the app today (the decision route itself

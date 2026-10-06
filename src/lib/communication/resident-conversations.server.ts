@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { profilePhoneVariants } from "@/lib/sms-consent";
 import { loadAccountCandidates, resolveSmsConversationRef, workspaceIdForWorkLine } from "@/lib/communication/conversation-key.server";
 import { workspaceKey } from "@/lib/communication/conversation-key";
@@ -34,6 +35,20 @@ type Row = Record<string, unknown>;
 const TURNS_PER_CONVERSATION = 60;
 /** A resident with more than this many text conversations is not a resident; stop reading. */
 const MAX_CONVERSATIONS = 200;
+/** How many distinct addresses one list read will try to name a manager from (one `or` clause each). */
+const MAX_NAMED_EMAILS = 50;
+/**
+ * How many workspaces one link check pass runs at a time. Each costs ~6 reads,
+ * so an unbounded pass is how one list read turns into hundreds of concurrent
+ * requests from a single invocation.
+ */
+const LINK_CHECK_CONCURRENCY = 4;
+/**
+ * A TOTAL ceiling on the checks the legacy email-naming path may spend. Only
+ * that path passes it: a `ws:`-keyed conversation is a real conversation of the
+ * resident's and always gets its manager named, however many they have.
+ */
+const MAX_EMAIL_NAMING_LINK_CHECKS = 24;
 
 function clean(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -143,11 +158,17 @@ export async function loadResidentCounterparties(
  * workspace). A conversation key on a stored row is a claim, never a link: only
  * a workspace named here may have its manager's name and work number stamped on
  * the resident's list. A failed read links nothing.
+ *
+ * Every workspace asked about is checked, `LINK_CHECK_CONCURRENCY` at a time.
+ * `maxChecks` puts a ceiling on that for a caller that is guessing rather than
+ * reading the resident's own conversations; the surviving set is chosen in id
+ * order, so it is the same on every load.
  */
 export async function loadResidentLinkedWorkspaceIds(
   db: Db,
   residentId: string,
   workspaceIds: readonly string[],
+  options: { maxChecks?: number } = {},
 ): Promise<Set<string>> {
   const linked = new Set<string>();
   const ids = [...new Set(workspaceIds.map(clean).filter(Boolean))];
@@ -155,17 +176,34 @@ export async function loadResidentLinkedWorkspaceIds(
   if (!resident || ids.length === 0) return linked;
   try {
     const { data } = await db.from("portal_workspaces").select("id, owner_user_id, is_default").in("id", ids);
-    for (const workspace of (data ?? []) as Row[]) {
-      const workspaceId = clean(workspace.id);
-      const owner = clean(workspace.owner_user_id);
-      if (!workspaceId || !owner) continue;
-      const candidates = await loadAccountCandidates(
-        db,
-        { workspaceId, workspaceOwnerId: owner, isDefault: workspace.is_default === true },
-        owner,
-        { accountId: resident },
+    // Workspaces that really exist, in a stable order: a forged key falls out
+    // at the read above, and a ceiling is applied to what survives it.
+    const checkable = ((data ?? []) as Row[])
+      .flatMap((workspace) => {
+        const workspaceId = clean(workspace.id);
+        const owner = clean(workspace.owner_user_id);
+        return workspaceId && owner ? [{ workspaceId, owner, isDefault: workspace.is_default === true }] : [];
+      })
+      .sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))
+      .slice(0, options.maxChecks ?? Infinity);
+    // A few at a time: a resident's Communication list waits on this before it
+    // can name a single row, and each check is ~6 independent reads.
+    for (let start = 0; start < checkable.length; start += LINK_CHECK_CONCURRENCY) {
+      const batch = await Promise.all(
+        checkable.slice(start, start + LINK_CHECK_CONCURRENCY).map((workspace) =>
+          loadAccountCandidates(
+            db,
+            { workspaceId: workspace.workspaceId, workspaceOwnerId: workspace.owner, isDefault: workspace.isDefault },
+            workspace.owner,
+            { accountId: resident },
+          ).then((candidates) =>
+            candidates.some((candidate) => candidate.id === resident && candidate.linked)
+              ? workspace.workspaceId
+              : null,
+          ),
+        ),
       );
-      if (candidates.some((candidate) => candidate.id === resident && candidate.linked)) linked.add(workspaceId);
+      for (const workspaceId of batch) if (workspaceId) linked.add(workspaceId);
     }
   } catch {
     return new Set();
@@ -174,12 +212,20 @@ export async function loadResidentLinkedWorkspaceIds(
 }
 
 /**
+ * How many of ONE manager's workspaces a resident's list read will probe for a
+ * link before giving up on naming their legacy rows. The answer needs exactly
+ * one linked workspace, and the default is probed first.
+ */
+const MAX_WORKSPACE_PROBES_PER_MANAGER = 3;
+
+/**
  * Older rows (before conversation keys) carry no `ws:` key, only the other party's ACCOUNT email.
- * Those are named from that email, under three conditions that keep this from being a lookup oracle:
- * the email is one the resident's OWN row already carries, its profile holds a manager role
- * (`profile_roles`), and the manager owns a workspace the resident is really linked to. A
- * workspace the resident is not linked to, or an email that is not a manager's, resolves to nothing.
- * The manager's WORK email never appears on these rows, so the contact list cannot match them.
+ * Those are named from that email, under conditions that keep this from being a lookup oracle: the
+ * email is one a SERVER-written row of the resident's already carries (see `needsEmailNaming` -
+ * never a value a browser put in `row_data`), its profile holds a manager role (`profile_roles`),
+ * and the manager owns a workspace the resident is really linked to. A workspace the resident is
+ * not linked to, or an email that is not a manager's, resolves to nothing. The manager's WORK email
+ * never appears on these rows, so the contact list cannot match them.
  */
 export async function loadResidentManagerCounterpartiesByEmail(
   db: Db,
@@ -187,16 +233,28 @@ export async function loadResidentManagerCounterpartiesByEmail(
   emails: readonly string[],
 ): Promise<Map<string, ResidentCounterparty>> {
   const out = new Map<string, ResidentCounterparty>();
-  const wanted = [...new Set(emails.map((email) => clean(email).toLowerCase()).filter((email) => email.includes("@")))];
+  const wanted = [
+    ...new Set(emails.map((email) => clean(email).toLowerCase()).filter((email) => email.includes("@"))),
+  ].slice(0, MAX_NAMED_EMAILS);
   const resident = clean(residentId);
   if (!resident || wanted.length === 0) return out;
   try {
-    const { data: profiles } = await db.from("profiles").select("id, email").in("email", wanted);
+    // `profiles.email` is plain text with no case normalization, so an account
+    // stored as `Maya@x.co` has to match the row's lowercased `maya@x.co`: the
+    // case-insensitive match the scheduled-message resolver also falls back to.
+    // A pattern character would turn `ilike` into a scan, so such an address is
+    // never asked for, and every row that comes back is re-matched exactly.
+    const filter = wanted
+      .filter((email) => !/[%*]/.test(email))
+      .map((email) => `email.ilike.${postgrestFilterValue(email)}`)
+      .join(",");
+    if (!filter) return out;
+    const { data: profiles } = await db.from("profiles").select("id, email").or(filter);
     const idByEmail = new Map<string, string>();
     for (const row of (profiles ?? []) as Row[]) {
       const id = clean(row.id);
       const email = clean(row.email).toLowerCase();
-      if (id && email && id !== resident) idByEmail.set(email, id);
+      if (id && email && id !== resident && wanted.includes(email)) idByEmail.set(email, id);
     }
     if (idByEmail.size === 0) return out;
     const { data: roles } = await db
@@ -210,18 +268,47 @@ export async function loadResidentManagerCounterpartiesByEmail(
       .from("portal_workspaces")
       .select("id, owner_user_id, is_default")
       .in("owner_user_id", [...managerIds]);
-    const workspaceRows = (workspaces ?? []) as Row[];
-    const linked = await loadResidentLinkedWorkspaceIds(
-      db,
-      resident,
-      workspaceRows.map((row) => clean(row.id)),
-    );
-    // One workspace per manager: the default one when the resident is linked to it, else the first linked.
-    const chosen = new Map<string, string>();
-    for (const row of [...workspaceRows].sort((a, b) => Number(b.is_default === true) - Number(a.is_default === true))) {
+    // Each manager's workspaces, in the order they are worth probing: the
+    // default one first, then by id - a STABLE order, so the same row is never
+    // labelled with one workspace's name and work number on one load and
+    // another's on the next (`counterparty.workPhone` is the number the
+    // resident is told to text).
+    const byOwner = new Map<string, string[]>();
+    for (const row of [...((workspaces ?? []) as Row[])].sort(
+      (a, b) =>
+        Number(b.is_default === true) - Number(a.is_default === true) || clean(a.id).localeCompare(clean(b.id)),
+    )) {
       const owner = clean(row.owner_user_id);
       const id = clean(row.id);
-      if (owner && linked.has(id) && !chosen.has(owner)) chosen.set(owner, id);
+      if (!owner || !id) continue;
+      const probes = byOwner.get(owner) ?? [];
+      if (probes.length < MAX_WORKSPACE_PROBES_PER_MANAGER) probes.push(id);
+      byOwner.set(owner, probes);
+    }
+    // One workspace per manager, found in ROUNDS rather than by checking every
+    // workspace of every manager: each round checks one candidate per manager
+    // still unplaced, and a manager drops out as soon as one of theirs is
+    // linked. The ordinary list read is a single round - the default workspace.
+    const chosen = new Map<string, string>();
+    // One budget for the WHOLE path, spent across the rounds. Passing the ceiling to each round
+    // would let a list read with many legacy managers spend it over again every round.
+    let checksLeft = MAX_EMAIL_NAMING_LINK_CHECKS;
+    for (let round = 0; round < MAX_WORKSPACE_PROBES_PER_MANAGER; round += 1) {
+      if (checksLeft <= 0) break;
+      const probe = [...byOwner]
+        .filter(([owner]) => !chosen.has(owner))
+        .map(([, probes]) => probes[round])
+        .filter((id): id is string => Boolean(id))
+        .slice(0, checksLeft);
+      if (probe.length === 0) break;
+      checksLeft -= probe.length;
+      const linked = await loadResidentLinkedWorkspaceIds(db, resident, probe, {
+        maxChecks: probe.length,
+      });
+      for (const [owner, probes] of byOwner) {
+        const id = probes[round];
+        if (id && !chosen.has(owner) && linked.has(id)) chosen.set(owner, id);
+      }
     }
     const identities = await loadResidentCounterparties(db, [...chosen.values()]);
     for (const [email, managerId] of idByEmail) {
@@ -449,6 +536,27 @@ export async function linkVerifiedPhoneHistory(db: Db, residentId: string): Prom
 }
 
 /**
+ * Which stored rows may be named from the email they carry.
+ *
+ * `row_data.email` is free text on a row a BROWSER created, so naming from it
+ * on any row would answer "is this address my manager's?" for a guess the
+ * resident typed. `thread_type` is the server's own column: a client upsert
+ * always writes it null and an existing row keeps the stored value, so a
+ * non-empty type means the SERVER wrote this row - and every server writer
+ * (delivery, the send route, notifications) set `email` to a party it had
+ * already authorized. A client-authored row keeps its 'Property manager'
+ * fallback and nothing is looked up for it.
+ */
+function needsEmailNaming(row: PersistedInboxThread): boolean {
+  return (
+    !isResidentAssistantRow(row) &&
+    !row.counterparty &&
+    !String(row.conversationKey ?? "").startsWith("ws:") &&
+    clean(row.threadType) !== ""
+  );
+}
+
+/**
  * The resident's list, ready to return: every workspace-keyed row names who it
  * is with, and the texts that are theirs are folded into the SAME conversation.
  * The PropLane Assistant thread is passed through untouched - it has no manager
@@ -477,14 +585,14 @@ export async function applyResidentConversationExtras(
   const linkedKeyed = await loadResidentLinkedWorkspaceIds(db, resident.id, keyedWorkspaces);
   const identities = await loadResidentCounterparties(db, [...linkedKeyed, ...sms.map((entry) => entry.workspaceId)]);
   const stampedByKey = stampCounterparties(rows, identities);
-  // Rows with no workspace key are named from their own manager email (see the loader).
-  const unkeyedEmails = stampedByKey
-    .filter((row) => !isResidentAssistantRow(row) && !row.counterparty && !String(row.conversationKey ?? "").startsWith("ws:"))
-    .map((row) => row.email);
+  // Rows with no workspace key are named from their own manager email (see the
+  // loader) - ONE predicate, so the rows that contribute an email and the rows
+  // that are stamped from it can never drift apart.
+  const unkeyedEmails = stampedByKey.filter(needsEmailNaming).map((row) => row.email);
   const byEmail = await loadResidentManagerCounterpartiesByEmail(db, resident.id, unkeyedEmails);
   const stamped = byEmail.size
     ? stampedByKey.map((row) => {
-        if (isResidentAssistantRow(row) || row.counterparty || String(row.conversationKey ?? "").startsWith("ws:")) return row;
+        if (!needsEmailNaming(row)) return row;
         const identity = byEmail.get(clean(row.email).toLowerCase());
         return identity ? { ...row, counterparty: identity } : row;
       })

@@ -8,6 +8,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import {
   shouldBillCustomLeaseSurcharge,
+  shouldBillMonthToMonthSurcharge,
   type LeaseRecurringFeeBillingContext,
 } from "@/lib/custom-lease-billing";
 import {
@@ -61,6 +62,7 @@ export type ListingFeePresetId =
   | "parking_monthly"
   | "hoa_monthly"
   | "other_monthly"
+  | "mtm_surcharge"
   | "custom_lease_surcharge"
   | "short_term_nightly"
   | "short_term_deposit"
@@ -216,6 +218,12 @@ export const LISTING_FEE_PRESETS: readonly ListingFeePresetMeta[] = [
   {
     presetId: "other_monthly",
     defaultLabel: "Other monthly fees",
+    cadence: "monthly",
+    requiredInWizard: false,
+  },
+  {
+    presetId: "mtm_surcharge",
+    defaultLabel: "Month-to-month surcharge",
     cadence: "monthly",
     requiredInWizard: false,
   },
@@ -429,6 +437,7 @@ export function legacyListingAmountsFromFees(fees: ListingFeeRow[]): Pick<
   | "parkingMonthly"
   | "hoaMonthly"
   | "otherMonthlyFees"
+  | "monthToMonthSurcharge"
   | "customLeaseSurcharge"
   | "shortTermDailyCost"
   | "shortTermDeposit"
@@ -444,6 +453,7 @@ export function legacyListingAmountsFromFees(fees: ListingFeeRow[]): Pick<
     parkingMonthly: feeAmountForPreset(fees, "parking_monthly"),
     hoaMonthly: feeAmountForPreset(fees, "hoa_monthly"),
     otherMonthlyFees: feeAmountForPreset(fees, "other_monthly"),
+    monthToMonthSurcharge: feeAmountForPreset(fees, "mtm_surcharge"),
     customLeaseSurcharge: feeAmountForPreset(fees, "custom_lease_surcharge"),
     shortTermDailyCost: feeAmountForPreset(fees, "short_term_nightly"),
     shortTermDeposit: feeAmountForPreset(fees, "short_term_deposit"),
@@ -463,7 +473,8 @@ export function listingFeesFromLegacyScalars(
     | "parkingMonthly"
     | "hoaMonthly"
     | "otherMonthlyFees"
-      | "customLeaseSurcharge"
+    | "monthToMonthSurcharge"
+    | "customLeaseSurcharge"
     | "shortTermDailyCost"
     | "shortTermDeposit"
     | "shortTermMoveInFee"
@@ -497,6 +508,9 @@ export function listingFeesFromLegacyScalars(
         break;
       case "other_monthly":
         row.amount = (sub.otherMonthlyFees ?? "").replace(/^\$/, "").trim();
+        break;
+      case "mtm_surcharge":
+        row.amount = (sub.monthToMonthSurcharge ?? "").replace(/^\$/, "").trim();
         break;
       case "custom_lease_surcharge":
         row.amount = (sub.customLeaseSurcharge ?? "").replace(/^\$/, "").trim();
@@ -537,14 +551,6 @@ export function submissionUsesUnifiedListingFees(customFees: ManagerCustomFeeRow
 }
 
 /** Merge preset rows, custom rows, and legacy scalars into one canonical fee list. */
-/**
- * A stored fee row from a retired preset. Month-to-month carries no surcharge (captain, Oct 4 2026), so
- * a listing saved while that preset existed drops its row here and nothing downstream can bill or print it.
- */
-function notRetiredFeeRow(row: ListingFeeRow): boolean {
-  return (row.presetId as string | undefined) !== "mtm_surcharge";
-}
-
 export function resolveListingFees(
   sub: Pick<
     ManagerListingSubmissionV1,
@@ -555,7 +561,8 @@ export function resolveListingFees(
     | "parkingMonthly"
     | "hoaMonthly"
     | "otherMonthlyFees"
-      | "customLeaseSurcharge"
+    | "monthToMonthSurcharge"
+    | "customLeaseSurcharge"
     | "shortTermDailyCost"
     | "shortTermDeposit"
     | "shortTermMoveInFee"
@@ -571,7 +578,7 @@ export function resolveListingFees(
     return [...fromLegacy, ...customs];
   }
 
-  const normalized = (sub.customFees ?? []).map(normalizeListingFeeRow).filter(notRetiredFeeRow);
+  const normalized = (sub.customFees ?? []).map(normalizeListingFeeRow);
   const byPreset = new Map<ListingFeePresetId, ListingFeeRow>();
   const customs: ListingFeeRow[] = [];
 
@@ -604,7 +611,8 @@ export function listingFeesForWizard(
     | "parkingMonthly"
     | "hoaMonthly"
     | "otherMonthlyFees"
-      | "customLeaseSurcharge"
+    | "monthToMonthSurcharge"
+    | "customLeaseSurcharge"
     | "shortTermDailyCost"
     | "shortTermDeposit"
     | "shortTermMoveInFee"
@@ -800,6 +808,7 @@ export type RemovedStandardListingFeeRowId =
   | "parkingMonthly"
   | "hoaMonthly"
   | "otherMonthlyFees"
+  | "monthToMonthSurcharge"
   | "customLeaseSurcharge";
 
 const REMOVED_STANDARD_FEE_ROW_IDS = new Set<string>([
@@ -811,6 +820,7 @@ const REMOVED_STANDARD_FEE_ROW_IDS = new Set<string>([
   "parkingMonthly",
   "hoaMonthly",
   "otherMonthlyFees",
+  "monthToMonthSurcharge",
   "customLeaseSurcharge",
 ]);
 
@@ -822,6 +832,7 @@ export const DEFAULT_HIDDEN_STANDARD_LISTING_FEE_ROW_IDS: readonly RemovedStanda
   "parkingMonthly",
   "hoaMonthly",
   "otherMonthlyFees",
+  "monthToMonthSurcharge",
   // Application fee is the ONLY row a new listing starts with (PRP-463). Custom lease
   // pricing used to start visible too, which meant a manager who wanted one fee was shown
   // two. It comes straight back on edit the moment an amount is saved — see
@@ -865,6 +876,7 @@ const REMOVED_ROW_EXCLUDED_PRESET_IDS: Partial<Record<RemovedStandardListingFeeR
   parkingMonthly: ["parking_monthly"],
   hoaMonthly: ["hoa_monthly"],
   otherMonthlyFees: ["other_monthly"],
+  monthToMonthSurcharge: ["mtm_surcharge"],
   customLeaseSurcharge: ["custom_lease_surcharge"],
   rent: ["short_term_nightly"],
   applicationFee: [],
@@ -1029,11 +1041,32 @@ function legacyFieldKeyForPreset(presetId: ListingFeePresetId): keyof ManagerLis
       return "hoaMonthly";
     case "other_monthly":
       return "otherMonthlyFees";
+    case "mtm_surcharge":
+      return "monthToMonthSurcharge";
     case "custom_lease_surcharge":
       return "customLeaseSurcharge";
     default:
       return null;
   }
+}
+
+/**
+ * Month-to-month surcharge applies only when Month-to-Month is offered (a rollover tenancy is billed as the lease
+ * it continues, never as a Month-to-Month lease), and NEVER on a Seattle listing
+ * (captain, Oct 4 2026): the row is hidden there and every reader (billing, quote, lease document, ledger)
+ * resolves it to nothing through this one predicate.
+ */
+export function listingOffersMonthToMonthSurcharge(
+  sub: Pick<
+    ManagerListingSubmissionV1,
+    "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
+  > &
+    Partial<Pick<ManagerListingSubmissionV1, "address" | "city" | "state" | "neighborhood" | "zip">>,
+  /** The stored property record: the jurisdiction resolver reads it first, so a Seattle property whose submission never recorded a city is still Seattle. */
+  listingProperty?: RentRuleAddress | null,
+): boolean {
+  if (listingFoldsAllMonthlyFeesIntoRent(sub, listingProperty)) return false;
+  return resolveAllowedLeaseTerms(sub).includes("Month-to-Month");
 }
 
 /** Custom-lease surcharge applies when the listing offers a fixed or custom calendar term. */
@@ -1061,6 +1094,7 @@ function leaseLengthGatesOutPreset(
   sub: ManagerListingSubmissionV1,
   presetId: ListingFeePresetId | undefined,
 ): boolean {
+  if (presetId === "mtm_surcharge") return !listingOffersMonthToMonthSurcharge(sub);
   if (presetId === "custom_lease_surcharge") return !listingOffersCustomLeaseSurcharge(sub);
   return false;
 }
@@ -1255,6 +1289,17 @@ function listingFeeToDisplayRow(
       body: price,
     };
   }
+  if (fee.presetId === "mtm_surcharge") {
+    return {
+      id: "mtm-surcharge",
+      icon: "📅",
+      title,
+      detail: "Month-to-month leases",
+      price,
+      status: "Monthly",
+      body: `${title}: ${price} per month when on month-to-month.`,
+    };
+  }
   if (fee.presetId === "custom_lease_surcharge") {
     return {
       id: "custom-lease-surcharge",
@@ -1403,6 +1448,11 @@ export function leaseDocumentFeeLines(
     // context-free listing preview has no term to test against, so an unscoped preview
     // keeps showing every fee exactly as it did before scope existed.
     if (billingContext && !feeAppliesToLeaseType(fee, billingContext.leaseTerm)) continue;
+    // Never on a Seattle listing (judged on the stored property too, which `listingProperty` carries).
+    if (presetId === "mtm_surcharge" && foldsMonthlyIntoRent) continue;
+    if (billingContext && presetId === "mtm_surcharge" && !shouldBillMonthToMonthSurcharge(billingContext)) {
+      continue;
+    }
     if (
       billingContext &&
       presetId === "custom_lease_surcharge" &&

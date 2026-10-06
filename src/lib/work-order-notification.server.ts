@@ -5,6 +5,7 @@ import { residentSmsLinkOrigin } from "@/lib/claw-resident-links";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import type { NotificationCategory } from "@/lib/notification-preferences";
+import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
 
 export type WorkOrderSmsEvent =
   | "created"
@@ -88,8 +89,11 @@ export async function notifyWorkOrderEvent(
     eventCategory?: NotificationCategory;
     audience?: "manager" | "resident";
     itemKind?: ResidentFiledItemKind;
+    /** The service this notice is about; stamps the thread for the service's own Communication section (`service-record-ref.ts`). */
+    serviceId?: string;
   },
 ): Promise<void> {
+  const recordRef = serviceRecordRefForEvent("work_order", input.serviceId, input.title);
   const smsText = workOrderSmsBody(input.event, {
     title: input.title,
     propertyLabel: input.propertyLabel,
@@ -109,6 +113,7 @@ export async function notifyWorkOrderEvent(
     toUserIds: input.toUserIds,
     eventCategory: input.eventCategory ?? "maintenance",
     smsText,
+    ...(recordRef ? { recordRef } : {}),
   }).catch(() => undefined);
 }
 

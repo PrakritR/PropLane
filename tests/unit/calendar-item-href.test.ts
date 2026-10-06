@@ -78,6 +78,14 @@ describe("meetingRecordHref", () => {
     expect(meetingRecordHref("/portal", meeting({ kind: "task" }), {}, NOW)).toBeNull();
   });
 
+  it("an inspection, a move-in and a room check are all tasks and open the task record", () => {
+    for (const title of ["Move-in inspection · Alder House", "Move-out · Maple Duplex", "Room check"]) {
+      const m = meeting({ kind: "task", sourceTaskId: "k9", title });
+      expect(meetingRecordTarget(m, {}, NOW)).toEqual({ kind: "task", id: "k9", tab: "open" });
+      expect(meetingRecordHref("/portal", m, {}, NOW)).toBe("/portal/tasks/open/k9");
+    }
+  });
+
   it("personal Google busy time has no record", () => {
     expect(meetingRecordTarget(meeting({ googleCalendarPrivate: true, kind: "tour" }), {}, NOW)).toBeNull();
   });

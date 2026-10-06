@@ -11,6 +11,7 @@ vi.mock("@/lib/vendor-own-record", () => ({ resolveOwnVendorRecords }));
 import { ensureVisitFeeInvoice, isGenuineVisitFeeInvoice } from "@/lib/work-order-visit-fee-invoice.server";
 
 let EXISTING: Array<{ id: string; status: string }>;
+let EQ_CALLS: Array<[string, unknown]>;
 let BID: Record<string, unknown> | null;
 
 function db() {
@@ -18,7 +19,7 @@ function db() {
     from(table: string) {
       const builder: Record<string, unknown> = {
         select: () => builder,
-        eq: () => builder,
+        eq: (column: string, value: unknown) => (EQ_CALLS.push([column, value]), builder),
         limit: () => Promise.resolve({ data: EXISTING, error: null }),
         maybeSingle: async () => ({ data: table === "work_order_bids" ? BID : null, error: null }),
       };
@@ -32,6 +33,7 @@ const INPUT = { bidId: "bid-1", workOrderId: "wo-1", managerUserId: "mgr-1", ven
 beforeEach(() => {
   vi.clearAllMocks();
   EXISTING = [];
+  EQ_CALLS = [];
   BID = null;
 });
 
@@ -40,14 +42,26 @@ describe("ensureVisitFeeInvoice", () => {
     const result = await ensureVisitFeeInvoice(db(), INPUT);
     expect(result.created).toBe(true);
     expect(insertVendorInvoiceRow).toHaveBeenCalledTimes(1);
-    const [, prepared, opts] = insertVendorInvoiceRow.mock.calls[0] as unknown as [unknown, { totalCents: number; lineItems: Array<{ description: string }> }, { invoiceNumber: string }];
+    const [, prepared, opts] = insertVendorInvoiceRow.mock.calls[0] as unknown as [unknown, { totalCents: number; lineItems: Array<{ description: string }> }, { invoiceNumber: string; visitFeeBidId: string }];
     expect(opts.invoiceNumber).toBe("VISIT-bid-1");
+    // The server-owned marker: it is what every money guard reads, so this flow must set it.
+    expect(opts.visitFeeBidId).toBe("bid-1");
     expect(prepared.totalCents).toBe(4_000);
     expect(prepared.lineItems[0]!.description).toMatch(/Estimate visit/);
   });
 
   it("is idempotent: an existing live fee invoice means nothing new is filed", async () => {
     EXISTING = [{ id: "inv-0", status: "submitted" }];
+    expect((await ensureVisitFeeInvoice(db(), INPUT)).created).toBe(false);
+    expect(insertVendorInvoiceRow).not.toHaveBeenCalled();
+  });
+
+  it("dedupes on the server-written bid marker, so renaming the invoice cannot make a second fee invoice look new", async () => {
+    EXISTING = [{ id: "inv-0", status: "approved" }];
+    expect((await ensureVisitFeeInvoice(db(), INPUT)).created).toBe(false);
+    expect(EQ_CALLS).toContainEqual(["estimate_visit_bid_id", "bid-1"]);
+    expect(EQ_CALLS.some(([column]) => column === "invoice_number")).toBe(false);
+    // Calling it again after the first filing is a no-op too (idempotent).
     expect((await ensureVisitFeeInvoice(db(), INPUT)).created).toBe(false);
     expect(insertVendorInvoiceRow).not.toHaveBeenCalled();
   });
@@ -64,7 +78,7 @@ describe("ensureVisitFeeInvoice", () => {
 });
 
 describe("isGenuineVisitFeeInvoice", () => {
-  const invoice = { invoice_number: "VISIT-bid-1", work_order_id: "wo-1", vendor_user_id: "v-1", manager_user_id: "mgr-1", total_cents: 4_000 };
+  const invoice = { estimate_visit_bid_id: "bid-1", work_order_id: "wo-1", vendor_user_id: "v-1", manager_user_id: "mgr-1", total_cents: 4_000 };
   const bid = { id: "bid-1", work_order_id: "wo-1", vendor_user_id: "v-1", manager_user_id: "mgr-1", estimate_visit_done_at: "2026-10-05T18:00:00.000Z", estimate_visit_fee_cents: 4_000 };
 
   it("accepts only an invoice that matches a real bid whose visit happened at that fee", async () => {
@@ -77,11 +91,45 @@ describe("isGenuineVisitFeeInvoice", () => {
     expect(await isGenuineVisitFeeInvoice(db(), { ...invoice, total_cents: 9_000 })).toBe(false);
     expect(await isGenuineVisitFeeInvoice(db(), { ...invoice, vendor_user_id: "v-2" })).toBe(false);
     expect(await isGenuineVisitFeeInvoice(db(), { ...invoice, work_order_id: "wo-2" })).toBe(false);
-    expect(await isGenuineVisitFeeInvoice(db(), { ...invoice, invoice_number: "INV-1" })).toBe(false);
     BID = { ...bid, estimate_visit_done_at: null };
     expect(await isGenuineVisitFeeInvoice(db(), invoice)).toBe(false);
     BID = null;
     expect(await isGenuineVisitFeeInvoice(db(), invoice)).toBe(false);
+  });
+
+  // `invoice_number` is whatever the vendor typed; only the server sets `estimate_visit_bid_id`.
+  it("ignores a VISIT- invoice number with no server marker", async () => {
+    BID = bid;
+    expect(
+      await isGenuineVisitFeeInvoice(db(), {
+        ...invoice,
+        estimate_visit_bid_id: null,
+        invoice_number: "VISIT-bid-1",
+      } as never),
+    ).toBe(false);
+  });
+});
+
+describe("vendor_invoice_estimate_visit_marker migration", () => {
+  const sql = readFileSync("supabase/migrations/20261004150000_vendor_invoice_estimate_visit_marker.sql", "utf8");
+  it("adds the server-owned marker column idempotently", () => {
+    expect(sql).toMatch(/add column if not exists estimate_visit_bid_id uuid references public\.work_order_bids/);
+    expect(sql).toMatch(/create index if not exists vendor_invoices_estimate_visit_bid_idx/);
+  });
+  it("backfills only rows that pass the genuineness conditions", () => {
+    for (const condition of [
+      "b.work_order_id = i.work_order_id",
+      "b.vendor_user_id = i.vendor_user_id",
+      "b.manager_user_id = i.manager_user_id",
+      "b.estimate_visit_done_at is not null",
+      "b.estimate_visit_fee_cents = i.total_cents",
+    ]) {
+      expect(sql).toContain(condition);
+    }
+    expect(sql).toMatch(/i\.estimate_visit_bid_id is null/);
+  });
+  it("changes no RLS or grants", () => {
+    expect(sql.replace(/--.*$/gm, "")).not.toMatch(/create policy|alter policy|drop policy|grant |revoke |row level security/i);
   });
 });
 

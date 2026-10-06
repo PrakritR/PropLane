@@ -23,8 +23,9 @@ export type RequestBidsOptions = {
 };
 
 /**
- * "Request bids or assign": one popup for both paths, opened from the UserPlus icon of a service's
- * header, the Vendors round + and the row menus. Who does it: Request bids (your vendors, up to ten,
+ * "Request bids or assign": one popup for both paths. The service record now sends a job to vendors from
+ * Vendors > Available and opens this popup only for the team side (`allowVendors={false}`, titled
+ * "Assign"): a teammate or yourself. Who does it: Request bids (your vendors, up to ten,
  * and optionally PropLane vendors near the property) - A vendor - A teammate - Me. An add-on service
  * stays with the manager team (`assignableKindsFor`), so it passes `allowVendors={false}` and sees only
  * the last two.
@@ -135,7 +136,7 @@ export function ServiceAssignDialog({
         if (!busy) onClose();
       }}
       dismissBlocked={busy}
-      title="Request bids or assign"
+      title={allowVendors ? "Request bids or assign" : "Assign"}
       primaryAction={{ label: primaryLabel, onClick: () => void submit(), disabled: !ready || busy, loading: busy, dataAttr: "service-assign-submit" }}
     >
       <div className="space-y-4" data-attr="service-assign-dialog">

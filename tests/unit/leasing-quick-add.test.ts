@@ -41,8 +41,10 @@ describe("a new property's default setup", () => {
     expect(leaseOf("short-term")).toBe("Short-term lease");
     const cosigner = apps.find((a) => a.listingSeedKey === "cosigner")!;
     expect(leaseIdForApplication(catalog, cosigner.id)).toBeNull();
-    // The main applications use PropLane's Co-signer application as their co-signer form.
-    expect(apps.filter((a) => a.listingSeedKey !== "cosigner").every((a) => a.linkedCosignerApplicationTemplateId === cosigner.id)).toBe(true);
+    // The long-term application uses PropLane's Co-signer application as its co-signer form. Co-signer is long
+    // term only, so the short-term application has none.
+    expect(apps.find((a) => a.listingSeedKey === "primary")!.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
+    expect(apps.find((a) => a.listingSeedKey === "short-term")!.linkedCosignerApplicationTemplateId ?? null).toBeNull();
   });
 
   it("stores a Move-in checklist that goes to every lease type", () => {

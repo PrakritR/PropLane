@@ -59,7 +59,7 @@ function useCommandTabIndicator(activeKey: string, itemCount: number, enabled: b
 }
 
 /** Keep overflow visible without fading the final tab after the user reaches it. */
-function useTabOverflowFade(ref: { current: HTMLElement | null }, itemCount: number) {
+export function useTabOverflowFade(ref: { current: HTMLElement | null }, itemCount: number) {
   const [mask, setMask] = useState<string>();
   useLayoutEffect(() => {
     const row = ref.current;

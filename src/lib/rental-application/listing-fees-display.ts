@@ -6,6 +6,7 @@ import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { leaseDocumentFeeLines, listingPresetFeeAmount } from "@/lib/listing-fees";
 import { isPaymentDueAtSigning, PAYMENT_AT_SIGNING_FEE_KEY_PREFIX, paymentAtSigningKeysFor } from "@/lib/listing-fee-scope";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   formatUtilitiesListingLine,
   resolveRoomUtilitiesPaymentModel,
@@ -44,7 +45,13 @@ export function formatQuoteMoney(amount: number): string {
 /** The listing receipt for the applicant's first-choice room and resident slot. Hidden until a room is chosen. */
 export function applicantListingQuote(
   sub: ListingSigningComputationInput,
-  input: { roomChoice1: string; leaseTerm?: string | null; residentSlot?: number | null },
+  input: {
+    roomChoice1: string;
+    leaseTerm?: string | null;
+    residentSlot?: number | null;
+    /** The stored property record, so the Seattle rent rule resolves the way the lease does. */
+    listingProperty?: RentRuleAddress | null;
+  },
 ): ListingQuote | null {
   if (!sub?.v) return null;
   const roomChoice1 = input.roomChoice1.trim();
@@ -54,10 +61,10 @@ export function applicantListingQuote(
   const leaseTerm = String(input.leaseTerm ?? "").trim() || LONG_TERM_LEASE_TERM;
   const residentSlot = input.residentSlot ?? parsed.residentSlot ?? null;
   if (isEntireHomeListing(n)) {
-    return buildListingQuote(n, { roomId: null, leaseTerm, residentSlot });
+    return buildListingQuote(n, { roomId: null, leaseTerm, residentSlot, listingProperty: input.listingProperty });
   }
   if (!parsed.listingRoomId) return null;
-  return buildListingQuote(n, { roomId: parsed.listingRoomId, leaseTerm, residentSlot });
+  return buildListingQuote(n, { roomId: parsed.listingRoomId, leaseTerm, residentSlot, listingProperty: input.listingProperty });
 }
 
 /**
@@ -66,7 +73,7 @@ export function applicantListingQuote(
 export function applicantFirstChoiceRentLabel(
   sub: ListingSigningComputationInput,
   roomChoice1: string,
-  options: { leaseTerm?: string | null; residentSlot?: number | null } = {},
+  options: { leaseTerm?: string | null; residentSlot?: number | null; listingProperty?: RentRuleAddress | null } = {},
 ): string {
   const quote = applicantListingQuote(sub, { roomChoice1, ...options });
   if (quote) {
@@ -80,7 +87,7 @@ export function applicantFirstChoiceRentLabel(
 
 export function applicantPaymentAtSigningPriceLabel(
   sub: ListingSigningComputationInput,
-  input: { roomChoice1: string; leaseTerm?: string | null; residentSlot?: number | null },
+  input: { roomChoice1: string; leaseTerm?: string | null; residentSlot?: number | null; listingProperty?: RentRuleAddress | null },
 ): string {
   const quote = applicantListingQuote(sub, input);
   if (quote && quote.signingTotal > 0) return `$${quote.signingTotal.toFixed(2)}`;

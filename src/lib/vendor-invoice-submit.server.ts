@@ -15,6 +15,7 @@ import {
   VENDOR_INVOICE_SELECT,
   type VendorInvoiceLineItem,
 } from "@/lib/vendor-invoices";
+import { isVisitFeeInvoiceNumber, VISIT_FEE_INVOICE_PREFIX } from "@/lib/work-order-visit-fee";
 
 export type VendorInvoiceSubmitErrorCode =
   | "no_linked_manager"
@@ -22,7 +23,8 @@ export type VendorInvoiceSubmitErrorCode =
   | "not_linked"
   | "work_order_lookup_failed"
   | "work_order_not_found"
-  | "no_line_items";
+  | "no_line_items"
+  | "reserved_invoice_number";
 
 export class VendorInvoiceSubmitError extends Error {
   constructor(
@@ -42,6 +44,7 @@ export const VENDOR_INVOICE_SUBMIT_ERROR_STATUS: Record<VendorInvoiceSubmitError
   work_order_lookup_failed: 500,
   work_order_not_found: 400,
   no_line_items: 400,
+  reserved_invoice_number: 400,
 };
 
 export type VendorLinkedManagerOption = {
@@ -83,6 +86,7 @@ export async function listVendorLinkedManagers(
 export type VendorInvoiceSubmitInput = {
   managerUserId?: string;
   workOrderId?: string;
+  invoiceNumber?: string;
   lineItems?: unknown;
   taxCents?: number;
 };
@@ -158,6 +162,16 @@ export async function prepareVendorInvoiceSubmission(
     workOrderReference = typeof reference === "string" && reference.trim() ? reference.trim() : null;
   }
 
+  // `VISIT-` is reserved for the estimate-visit fee invoices the server files itself. A vendor
+  // numbering their own bill that way would be read as a visit fee by the double-pay guard and the
+  // job-expense guard, so the prefix is refused here, for the route and the agent tool alike.
+  if (isVisitFeeInvoiceNumber(input.invoiceNumber?.trim())) {
+    throw new VendorInvoiceSubmitError(
+      "reserved_invoice_number",
+      `Invoice numbers cannot start with "${VISIT_FEE_INVOICE_PREFIX}" — that prefix is reserved for estimate-visit fees.`,
+    );
+  }
+
   const lineItems = normalizeLineItems(input.lineItems);
   if (lineItems.length === 0) {
     throw new VendorInvoiceSubmitError("no_line_items", "At least one line item is required.");
@@ -179,8 +193,23 @@ export async function prepareVendorInvoiceSubmission(
 export function insertVendorInvoiceRow(
   db: SupabaseClient,
   prepared: PreparedVendorInvoiceSubmission,
-  opts: { vendorUserId: string; invoiceNumber?: string; memo?: string; now: string },
+  opts: {
+    vendorUserId: string;
+    invoiceNumber?: string;
+    memo?: string;
+    now: string;
+    /**
+     * Set ONLY by the server-side estimate-visit fee flow. It is what marks the row a visit fee
+     * for every guard that has to tell one from the job's own bill, and it is the only way the
+     * reserved `VISIT-` invoice number may be used.
+     */
+    visitFeeBidId?: string;
+  },
 ) {
+  const invoiceNumber = opts.invoiceNumber?.trim() || null;
+  if (!opts.visitFeeBidId && isVisitFeeInvoiceNumber(invoiceNumber)) {
+    throw new Error(`Invoice numbers cannot start with "${VISIT_FEE_INVOICE_PREFIX}".`);
+  }
   return db
     .from("vendor_invoices")
     .insert({
@@ -188,7 +217,8 @@ export function insertVendorInvoiceRow(
       vendor_user_id: opts.vendorUserId,
       vendor_id: prepared.target.id,
       work_order_id: prepared.workOrderId,
-      invoice_number: opts.invoiceNumber?.trim() || null,
+      invoice_number: invoiceNumber,
+      estimate_visit_bid_id: opts.visitFeeBidId ?? null,
       line_items: prepared.lineItems,
       subtotal_cents: prepared.subtotalCents,
       tax_cents: prepared.taxCents,

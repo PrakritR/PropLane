@@ -197,6 +197,8 @@ export async function prepareGuestApplicationUpsert(
     bucket: "pending",
     propertyId,
     managerUserId,
+    // A guest has no session, so a login id on the submitted row is attacker-authored: only a stored binding counts.
+    residentUserId: params.existing?.residentUserId ?? null,
     // Guests cannot escalate manager-controlled fields.
     withdrawnAt: params.existing?.withdrawnAt ?? params.row.withdrawnAt,
     assignedPropertyId: params.existing?.assignedPropertyId ?? params.row.assignedPropertyId,

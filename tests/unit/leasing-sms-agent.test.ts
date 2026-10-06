@@ -468,6 +468,29 @@ describe("pure listing helpers", () => {
     expect(details.listing?.petFriendly).toBeNull();
   });
 
+  it("still quotes the month-to-month surcharge outside Seattle", async () => {
+    (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      catalogListing({
+        address: "10 Test St, Portland, OR",
+        neighborhood: "Pearl",
+        listingSubmission: {
+          ...createDefaultListingSubmission(),
+          allowedLeaseTerms: ["Long-term", "Month-to-Month"],
+          monthToMonthSurcharge: "75",
+          rooms: [{ id: "room-2", name: "Room 2", monthlyRent: 825, availability: "Now" }],
+        },
+      }),
+    ]);
+    const details = await getListingDetailsTool.handler(ctxFor({ crossCatalog: true }), {
+      propertyId: "mgr-seed-4709a-8th-ave-ne",
+      roomQuery: "Room 2",
+    });
+    expect(details.listing?.leaseTerms.termSurcharges).toContainEqual(expect.objectContaining({
+      term: "Month-to-Month",
+      monthlySurcharge: "75",
+    }));
+  });
+
   it("returns only represented lease, deposit, and utility facts for a room (PRP-435, PRP-441, PRP-443)", async () => {
     (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
       catalogListing({
@@ -508,8 +531,16 @@ describe("pure listing helpers", () => {
     });
 
     expect(details.listing?.leaseTerms).toMatchObject({ available: ["12-Month", "Long-term", "Month-to-Month"] });
-    // Month-to-month carries no surcharge, so no lease term lists one.
-    expect(details.listing?.leaseTerms.termSurcharges).toEqual([]);
+    // This property is in Seattle (its stored record says so, though the submission never recorded a city):
+    // Month-to-Month is offered, but the surcharge is never quoted there.
+    expect(details.listing?.leaseTerms.termSurcharges).toContainEqual(expect.objectContaining({
+      term: "Month-to-Month",
+      offered: true,
+      monthlySurcharge: null,
+    }));
+    expect(details.listing?.leaseTerms.termSurcharges).not.toContainEqual(expect.objectContaining({
+      term: "Long-term",
+    }));
     expect(details.listing?.leaseTerms.customCalendarSurcharge).toEqual({
       eligible: true,
       monthlySurcharge: "25",

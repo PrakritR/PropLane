@@ -179,6 +179,13 @@ export function GeneralAssistant() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, loading]);
 
+  // An assistant-free surface closes the assistant rather than hiding it: the
+  // flag lives on the module, so a panel opened on a public page would spring
+  // back open (old conversation and all) on the way out of the resident portal.
+  useEffect(() => {
+    if (open && isAssistantFreePath(pathname)) closeGeneralAssistant();
+  }, [open, pathname]);
+
   useEffect(() => {
     if (!open) return;
     requestAnimationFrame(() => inputRef.current?.focus());

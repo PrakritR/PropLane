@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildListingQuote } from "@/lib/listing-quote";
+import { listingOffersMonthToMonthSurcharge } from "@/lib/listing-fees";
 import {
   createDefaultListingSubmission,
   normalizeManagerListingSubmissionV1,
@@ -176,6 +177,27 @@ describe("buildListingQuote", () => {
     expect(quote.monthlyRent).toBe(1275);
     // Same money either way — the resident is quoted one number instead of two.
     expect(quote.monthlyTotal).toBe(1425);
+  });
+
+  it("reads Seattle off the stored property record when the submission never recorded a city", () => {
+    const noCity = listing({ city: "", state: "", zip: "", address: "" });
+    const seattleProperty = { address: "5 Pine St", city: "Seattle", state: "WA", zip: "98101" };
+    // The submission alone cannot say Seattle, so the parking fee stays its own line...
+    const plain = buildListingQuote(noCity, { roomId: "room-a", leaseTerm: LONG_TERM_LEASE_TERM });
+    expect(plain.monthlyFees).toHaveLength(1);
+    // ...but handed the stored property record, the quote folds it into rent as every Seattle reader does.
+    const quote = buildListingQuote(noCity, { roomId: "room-a", leaseTerm: LONG_TERM_LEASE_TERM, listingProperty: seattleProperty });
+    expect(quote.monthlyFees).toHaveLength(0);
+    expect(quote.foldedIntoRent.map((f) => f.label)).toEqual(["Parking"]);
+    expect(quote.monthlyRent).toBe(1275);
+  });
+
+  it("never offers the month-to-month surcharge on a Seattle property, judged on the stored record too", () => {
+    const noCity = listing({ city: "", state: "", zip: "", address: "" });
+    expect(listingOffersMonthToMonthSurcharge(noCity)).toBe(true);
+    expect(listingOffersMonthToMonthSurcharge(noCity, { city: "Seattle", state: "WA" })).toBe(false);
+    expect(listingOffersMonthToMonthSurcharge(listing({ city: "Seattle", state: "WA", zip: "98177" }))).toBe(false);
+    expect(listingOffersMonthToMonthSurcharge(listing())).toBe(true);
   });
 
   it("never lists the application fee as due at signing", () => {

@@ -16,6 +16,7 @@
  */
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
+import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -38,6 +39,8 @@ export type VendorNotificationParams = {
   topic?: VendorNotificationTopic;
   /** An emergency work order: the vendor's own quiet-hours bypass applies, when they opted in. */
   urgent?: boolean;
+  /** The service the notice is about: stamps the thread for the service's own Communication (`service-record-ref.ts`). */
+  service?: { id: string; title?: string };
 };
 
 export async function sendVendorNotification(
@@ -46,6 +49,7 @@ export async function sendVendorNotification(
   params: VendorNotificationParams,
 ): Promise<{ emailSent: boolean; inboxDelivered: boolean; skippedDemoEmail: boolean }> {
   const vendorEmail = params.vendorEmail.trim().toLowerCase();
+  const serviceRef = params.service ? serviceRecordRefForEvent("work_order", params.service.id, params.service.title) : undefined;
   const skippedDemoEmail = shouldSkipOutboundEmail(vendorEmail);
 
   let vendorUserId = params.vendorUserId ?? null;
@@ -70,6 +74,7 @@ export async function sendVendorNotification(
     eventCategory: "maintenance",
     vendorTopic: params.topic ?? "schedule",
     urgent: params.urgent,
+    ...(serviceRef ? { recordRef: serviceRef } : {}),
   });
 
   if (!delivery.ok) return { emailSent: false, inboxDelivered: false, skippedDemoEmail };

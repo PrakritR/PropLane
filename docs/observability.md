@@ -67,8 +67,10 @@ properties — ids and enums only.
 Browser `before_send` scrubs bearer URLs across every event property, including
 referrers, previous-page URLs, nested auth `next=` redirects, autocaptured hrefs,
 and nested event strings. The sanitizer removes the query/fragment on a
-sensitive URL and masks legacy `/invite/<token>` path tokens. Do not bypass it
-when adding a token-bearing entry route.
+sensitive URL and masks the path tokens of the entry routes that carry their secret in the path:
+legacy `/invite/<token>` and the linked-form share link `/f/<token>`
+(`/f/open/<request id>` is session-scoped, holds no secret and stays readable). Do not bypass it
+when adding a token-bearing entry route — a path token is not removed by a query scrub.
 
 **Verify project settings:** `POSTHOG_PERSONAL_API_KEY=phx_… npm run posthog:verify`
 (checks autocapture, dead clicks, web vitals, replay, and `$identify` volume).

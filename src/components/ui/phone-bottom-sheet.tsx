@@ -154,6 +154,9 @@ export function PhoneBottomSheet({
       data-attr={dataAttr}
       {...rootProps}
       className="pointer-events-auto fixed inset-0 flex items-end justify-center"
+      // The ROOT owns the layer: without it the sheet paints in document order and a popup
+      // (z-[80]) covers it, so the children's z-indexes only order things inside the sheet.
+      style={{ zIndex: PHONE_SHEET_BACKDROP_Z_INDEX }}
     >
       <button
         type="button"

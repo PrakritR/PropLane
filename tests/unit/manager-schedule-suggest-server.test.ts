@@ -40,6 +40,7 @@ function makeQuery(rows: Row[]) {
   const query: PromiseLike<{ data: Row[]; error: null }> & Record<string, unknown> = {
     eq: (column: string, value: unknown) => makeQuery(rows.filter((row) => row[column] === value)),
     neq: (column: string, value: unknown) => makeQuery(rows.filter((row) => row[column] !== value)),
+    in: (column: string, values: unknown[]) => makeQuery(rows.filter((row) => values.includes(row[column]))),
     select: () => query,
     maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
     then: (resolve: (value: { data: Row[]; error: null }) => unknown, reject?: (reason: unknown) => unknown) =>
@@ -100,5 +101,28 @@ describe("suggestManagerTimeForKind", () => {
     });
 
     expect(result?.source).toBe("proplane-pick");
+  });
+
+  it("reads the retired inspections and move-in/out availability as task availability", async () => {
+    const db = makeDb({
+      portal_schedule_records: [
+        {
+          id: managerKindAvailabilityStorageKey(MANAGER, "inspections"),
+          row_data: { payload: [`${TOMORROW}:18`, `${TOMORROW}:19`] },
+        },
+        { id: managerTasksStorageKey(MANAGER), row_data: { tasks: [] } },
+        { id: "axis_admin_planned_events_v1", row_data: { payload: [] } },
+      ],
+      portal_work_order_records: [],
+    });
+
+    const result = await suggestManagerTimeForKind(db as never, MANAGER, {
+      kind: "tasks",
+      seed: "task-1",
+      now: NOW,
+    });
+
+    expect(result?.source).toBe("availability");
+    expect(result?.iso).toBe(pacificIso(TOMORROW, 9 * 60));
   });
 });

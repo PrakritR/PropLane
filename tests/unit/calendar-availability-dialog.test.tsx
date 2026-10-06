@@ -27,7 +27,7 @@ function mockDesktopMatchMedia() {
 }
 
 const initial: AvailabilityDraft = {
-  kinds: ["everything"],
+  kinds: ["tours", "services", "tasks"],
   on: "days",
   weekdays: [0, 1, 2, 3, 4],
   date: "2026-10-05",
@@ -63,16 +63,16 @@ function mount(over: Partial<React.ComponentProps<typeof CalendarAvailabilityDia
 }
 
 describe("CalendarAvailabilityDialog", () => {
-  it("is titled Add availability with a single labelled primary", () => {
+  it("is titled Your availability with a single labelled primary", () => {
     mount();
-    const dialog = screen.getByRole("dialog", { name: "Add availability" });
+    const dialog = screen.getByRole("dialog", { name: "Your availability" });
     expect(within(dialog).getByText("Availability for")).toBeTruthy();
     expect(within(dialog).getAllByText("On").length).toBeGreaterThan(0);
     expect(within(dialog).getByText("Days")).toBeTruthy();
     expect(within(dialog).getByText("Repeats")).toBeTruthy();
     expect(within(dialog).getByText("From")).toBeTruthy();
     expect(within(dialog).getByText("To")).toBeTruthy();
-    expect(within(dialog).getByText("Properties")).toBeTruthy();
+    expect(within(dialog).getAllByText("Tours at").length).toBeGreaterThan(0);
     expect(screen.getByText("Add availability", { selector: "button" })).toBeTruthy();
     // dropdowns, not raw selects
     expect(dialog.querySelectorAll("select")).toHaveLength(0);
@@ -83,9 +83,18 @@ describe("CalendarAvailabilityDialog", () => {
     const preview = document.querySelector('[data-attr="calendar-availability-preview"]')!;
     expect(preview.querySelectorAll('[data-attr="calendar-availability-preview-band"]')).toHaveLength(5);
     expect(preview.querySelector('[data-attr="calendar-availability-preview-caption"]')?.textContent).toBe("Every week");
-    expect(preview.textContent).toContain("Everything");
+    expect(preview.textContent).toContain("Tours, Services, Tasks");
     expect(preview.textContent).toContain("9 am – 5 pm");
     expect(preview.textContent).toContain("All houses");
+  });
+
+  it("offers exactly Tours, Services and Tasks, and asks for houses only for Tours", () => {
+    mount({ initial: { ...initial, kinds: ["services", "tasks"] } });
+    const dialog = screen.getByRole("dialog", { name: "Your availability" });
+    expect(within(dialog).queryByText("Tours at")).toBeNull();
+    expect(within(dialog).queryByText("Everything")).toBeNull();
+    expect(within(dialog).queryByText("Inspections")).toBeNull();
+    expect(within(dialog).queryByText("Move-ins and move-outs")).toBeNull();
   });
 
   it("previews 'This week only' with the week it applies to", () => {
@@ -95,7 +104,7 @@ describe("CalendarAvailabilityDialog", () => {
     expect(preview.querySelector('[data-attr="calendar-availability-preview-caption"]')?.textContent).toBe("Week of 2026-10-05");
   });
 
-  it("a type is drawn with its stripe colour in the preview, Everything is the plain hatch", () => {
+  it("a type is drawn with its stripe colour in the preview, all three kinds are the plain hatch", () => {
     mount({ initial: { ...initial, kinds: ["services"] } });
     const band = document.querySelector('[data-attr="calendar-availability-preview-band"]') as HTMLElement;
     expect(band.style.boxShadow).toContain("#eb6834");
@@ -109,7 +118,7 @@ describe("CalendarAvailabilityDialog", () => {
     const { onSave } = mount();
     fireEvent.click(screen.getByText("Add availability", { selector: "button" }));
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave.mock.calls[0]![0]).toMatchObject({ kinds: ["everything"], startSlot: 18, endSlotExclusive: 34 });
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ kinds: ["tours", "services", "tasks"], startSlot: 18, endSlotExclusive: 34 });
   });
 
   it("an impossible form can't be saved and says why", () => {
@@ -123,7 +132,7 @@ describe("CalendarAvailabilityDialog", () => {
 
   it("editing a band reads Edit availability and offers Save and Delete", () => {
     const { onDelete } = mount({ editing: true, initial: { ...initial, on: "date", date: "2026-10-06", repeat: "week" } });
-    expect(screen.getByRole("dialog", { name: "Edit availability" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Your availability" })).toBeTruthy();
     expect(screen.getByText("Save", { selector: "button" })).toBeTruthy();
     fireEvent.click(screen.getByText("Delete", { selector: "button" }));
     expect(onDelete).toHaveBeenCalledTimes(1);

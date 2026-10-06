@@ -14,7 +14,7 @@ Property management software for listing units, screening applicants, signing le
 
 ### Manager workspace (`/portal`)
 
-Properties, tour scheduling, rental applications, resident & lease management, move-in / move-out inspections, household charges, Stripe Connect payouts, work orders & vendors, inbox, documents & tax reporting, co-managers, and subscription billing (Free / Pro / Business).
+Properties, tour scheduling, rental applications, resident & lease management, move-in / move-out inspections, household charges, Stripe Connect payouts, services & vendors, inbox, documents & tax reporting, co-managers, and subscription billing (Free / Pro / Business).
 
 In **Settings → Workspaces**, adding your first named workspace creates just
 that workspace and marks it **Default**. Use the trash icon beside the pencil

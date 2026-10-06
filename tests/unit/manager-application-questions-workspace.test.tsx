@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { applicationConfigForVariant, resolveListingApplicationFields, STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
+import { applicationConfigForVariant, REQUIRED_IDENTITY_STANDARD_KEYS, resolveListingApplicationFields, STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
 import React from "react";
 import { applicationDraftReviewFingerprint, createPropertyApplicationTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
@@ -336,7 +336,7 @@ describe("built-in controls that match the applicant form", () => {
     expect(within(listbox).getByText("5", { exact: true })).toBeTruthy();
   });
 
-  it("freezes co-signer built-ins except identity labels and date/SSN controls", async () => {
+  it("co-signer built-ins are as editable as any other question, except that name and email always stay", async () => {
     const sub = { ...createDefaultListingSubmission(), cosignerApplicationConfigMode: "custom" as const, cosignerDisabledStandardApplicationKeys: [] };
     renderEditor(sub, "cosigner");
     await waitWorkspace();
@@ -344,23 +344,18 @@ describe("built-in controls that match the applicant form", () => {
     const nameRow = document.querySelector('[data-attr="application-question-edit-std-personal-full-legal-name"]') as HTMLElement;
     fireEvent.click(nameRow);
     expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
+    // The identity floor: the words and position are the manager's; Required, Type and Delete are not.
     expect(document.querySelector('[data-attr="application-question-required"]')).toBeNull();
-    expect(document.querySelector('[data-attr="application-question-required-text"]')).not.toBeNull();
-    expect(screen.queryByRole("button", { name: /^Reorder Full legal name/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Reorder Full legal name/ })).not.toBeNull();
     expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
     fireEvent.click(nameRow);
-    const dobRow = document.querySelector('[data-attr="application-question-edit-std-personal-date-of-birth"]') as HTMLElement;
-    fireEvent.click(dobRow);
-    expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
-    expect(document.querySelector('[data-attr="application-question-required"]')).not.toBeDisabled();
-    expect(document.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
     jumpRail("employment");
     const employerRow = document.querySelector('[data-attr="application-question-edit-std-employment-employer-employer-address"]') as HTMLElement;
     fireEvent.click(employerRow);
-    expect(document.querySelector('[data-attr="application-question-label"]')).toBeNull();
-    expect(document.querySelector('[data-attr="application-question-label-text"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="application-question-required"]')).toBeNull();
-    expect(employerRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="application-question-label-text"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-question-required"]')).not.toBeNull();
+    expect(employerRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
   });
 
   it("omits file and photo types from co-signer authoring while keeping supported types editable", async () => {
@@ -516,11 +511,11 @@ describe("Preview step", () => {
     expect(persistOnServer).not.toHaveBeenCalled();
   });
 
-  it("keeps required identity questions visible after optional fields are disabled", async () => {
+  it("keeps the questions that stay on visible after the others are disabled", async () => {
     const sub: ManagerListingSubmissionV1 = {
       ...createDefaultListingSubmission(),
       applicationConfigMode: "custom",
-      disabledStandardApplicationKeys: STANDARD_APPLICATION_FIELD_CATALOG.map((def) => def.standardKey),
+      disabledStandardApplicationKeys: STANDARD_APPLICATION_FIELD_CATALOG.map((def) => def.standardKey).filter((key) => !REQUIRED_IDENTITY_STANDARD_KEYS.includes(key)),
       customApplicationFields: [],
     };
     renderEditor(sub);
@@ -806,6 +801,57 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.label === "Quick apply");
     expect(saved?.linkedLeaseTemplateId).toBe(leases.find((l) => l.listingSeedKey === "primary")!.id);
     expect(saved?.linkedCosignerApplicationTemplateId).toBe(cosigner.id);
+  });
+  it("a new application asks 'Applies to' first (offered stays + Both); Short term stores the short-term form and its lease", async () => {
+    const persist = vi.fn().mockResolvedValue(true);
+    const seeded = submissionWithDefaultLeasingSetup({
+      ...createDefaultListingSubmission(),
+      shortTermRentalsAllowed: true,
+      allowedLeaseTerms: ["Long-term", "Short-Term Stay"],
+    });
+    const apps = readPropertyApplicationTemplates(seeded);
+    const leases = readPropertyLeaseTemplates(seeded);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } })));
+    render(
+      <ManagerApplicationQuestionsEditorModal
+        open
+        title="Add application"
+        sub={seeded}
+        managerUserId="manager-1"
+        applicationPreviewPropertyId="mgr-house-1"
+        templateEditorMode="add"
+        applicationTemplate={null}
+        templates={apps}
+        signingOrder="application_then_lease"
+        onPersistSubmission={persist}
+        onClose={() => {}}
+        onSaved={() => {}}
+        showToast={() => {}}
+      />,
+    );
+    await waitWorkspace("Add application");
+    const trigger = document.querySelector('[data-attr="application-applies-to"]') as HTMLElement;
+    // It is the first row of the card, and it starts on the first offered stay.
+    const card = document.querySelector('[data-attr="property-application-step-one-card"]') as HTMLElement;
+    expect(card.textContent?.indexOf("Applies to")).toBeLessThan(card.textContent?.indexOf("Form type") ?? Infinity);
+    expect(trigger.textContent).toContain("Long-term residents");
+    fireEvent.click(trigger);
+    const listbox = screen.getByRole("listbox");
+    expect(within(listbox).getAllByRole("option").map((option) => option.textContent)).toEqual(["Long-term residents", "Short-term residents", "Both"]);
+    const short = within(listbox).getByText("Short-term residents");
+    fireEvent.pointerDown(short, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(short, { pointerId: 1, clientX: 10, clientY: 10 });
+    // The lease follows the answer.
+    expect((document.querySelector('[data-attr="application-lease-link"]') as HTMLElement).textContent).toContain("Short-term lease");
+    fireEvent.change(document.querySelector('[data-attr="property-application-name"]') as HTMLInputElement, { target: { value: "Weekend stays" } });
+    jumpRail("sections");
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Create application" }));
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.label === "Weekend stays");
+    expect(saved?.appliesTo).toBe("short_term");
+    expect(saved?.formVariant).toBe("short_term");
+    expect(saved?.linkedLeaseTemplateId).toBe(leases.find((l) => l.listingSeedKey === "short-term")!.id);
   });
 });
 

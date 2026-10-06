@@ -255,11 +255,18 @@ function StickyBar({
   rich,
   roomsLine,
   newTab,
+  slim = false,
 }: {
   property: MockProperty;
   rich: ListingRichContent;
   roomsLine: string | null;
   newTab: boolean;
+  /**
+   * Manager preview on a phone: one slim row (price and availability left,
+   * Apply and Tour right). The contact pills are not drawn — the manager's own
+   * Email lives in the record header menu, and the work number sits under the title.
+   */
+  slim?: boolean;
 }) {
   const from = listingFromPrice(rich);
   const termCtas = listingTermCtas({
@@ -272,6 +279,49 @@ function StickyBar({
   // With both doors the number is the label worth reading; Email folds to its
   // icon so the price keeps room. Alone, Email says so in words.
   const emailIconOnly = Boolean(doors.phone && doors.email);
+  if (slim) {
+    const slimCta = "!min-h-[40px] !w-auto flex-none !px-4 !py-2";
+    return (
+      <div
+        className="sticky bottom-0 z-[40] -mx-4 mt-6 border-t border-border bg-card/95 px-4 py-2 backdrop-blur-md lg:hidden [html[data-native]_&]:pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        data-attr="listing-sticky-bar"
+        data-slim=""
+      >
+        <div className="flex min-w-0 items-center gap-3 [body:has(.axis-assistant-fab)_&]:pr-[3.25rem]">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p>
+            {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {termCtas.map((cta) => (
+              <ProspectListingCta
+                key={cta.id}
+                action="apply"
+                propertyId={property.id}
+                data-attr={cta.dataAttr}
+                className={`${secondaryCtaClass} ${slimCta}`}
+                newTab={newTab}
+                applyParams={cta.rentalType === "short_term" ? { rentalType: "short_term" } : undefined}
+              >
+                <span aria-hidden>{cta.rentalType === "short_term" ? "Short term" : "Apply"}</span>
+                <span className="sr-only">{cta.label}</span>
+              </ProspectListingCta>
+            ))}
+            <ProspectListingCta
+              action="tour"
+              propertyId={property.id}
+              data-attr="listing-web-tour"
+              className={`${primaryCtaClass} ${slimCta}`}
+              newTab={newTab}
+            >
+              <span aria-hidden>Tour</span>
+              <span className="sr-only">Schedule tour</span>
+            </ProspectListingCta>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className="sticky bottom-0 z-[40] -mx-4 mt-6 border-t border-border bg-card/95 px-4 pb-3 pt-2.5 backdrop-blur-md lg:hidden [html[data-native]_&]:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
@@ -626,7 +676,7 @@ export function ListingDetailSections({
                     dataAttrToggle="listing-location-toggle"
                     collapseOnMobile={collapseOnMobile}
                   >
-                    <ListingLocationBlock property={property} embedded />
+                    <ListingLocationBlock property={property} embedded shortOnPhone={managerPreviewChrome} />
                   </ListingDetailCollapsibleSection>
                 </div>
               </div>
@@ -636,7 +686,13 @@ export function ListingDetailSections({
               </aside>
             </div>
 
-            <StickyBar property={property} rich={rich} roomsLine={roomsLine} newTab={embeddedPreview} />
+            <StickyBar
+              property={property}
+              rich={rich}
+              roomsLine={roomsLine}
+              newTab={embeddedPreview}
+              slim={managerPreviewChrome}
+            />
           </div>
         </div>
       </ListingSidebarRenterCtasContext.Provider>

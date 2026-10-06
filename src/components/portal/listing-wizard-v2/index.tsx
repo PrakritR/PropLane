@@ -54,6 +54,7 @@ import {
 import { track } from "@/lib/analytics/track-client";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { submissionWithDefaultLeasingSetup } from "@/lib/leasing-quick-add";
+import { publishedMarksOf, publishPendingApplicationVersions } from "@/lib/publish-application-drafts.client";
 import { applyWorkspaceDefaultsOnPublish } from "@/lib/property-pricing-publish";
 import {
   normalizeWorkspacePricingDefaults,
@@ -229,6 +230,10 @@ export function ListingWizardV2({
         : submission,
     ),
   );
+  // What the server has published for each application form. The inline Application step edits drafts; a
+  // generic save never publishes them (see `publish-application-drafts.client.ts`), so every save of an
+  // existing listing publishes whatever its saved draft is ahead by.
+  const publishedMarksRef = useRef(editListingId?.trim() ? publishedMarksOf(initialSubmission ? normalizeManagerListingSubmissionV1(initialSubmission) : null) : publishedMarksOf(null));
   const stepRef = useRef(listingV2StepIndex(initialStep));
   /** The record the last save wrote — a brand-new wizard has no id until its first save. */
   const savedIdRef = useRef<string | null>(initialDraftId?.trim() || null);
@@ -332,12 +337,15 @@ export function ListingWizardV2({
       }
       savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
       if (result.id?.trim()) savedIdRef.current = result.id.trim();
+      if (editing) {
+        await publishPendingApplicationVersions(result.id?.trim() || editListingId?.trim() || "", prepared.submission, publishedMarksRef.current);
+      }
       setActionError(null);
       setDirty(listingWizardHasUnsavedInput(submissionRef.current, savedFingerprintRef.current));
       onSaved?.(prepared.submission, result.id);
       return true;
     },
-    [editing, onSaved, persistSubmission, publish, saveDraft, showToast],
+    [editing, editListingId, onSaved, persistSubmission, publish, saveDraft, showToast],
   );
 
   useEffect(() => {
@@ -526,6 +534,7 @@ export function ListingWizardV2({
               return false;
             }
             savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
+            await publishPendingApplicationVersions(result.id, prepared.submission, publishedMarksRef.current);
             setActionError(null);
             setDirty(false);
             if (prepared.droppedMediaCount > 0) {

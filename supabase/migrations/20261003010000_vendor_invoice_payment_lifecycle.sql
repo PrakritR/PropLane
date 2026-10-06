@@ -22,7 +22,8 @@ begin
  select * into w from public.portal_work_order_records where id=i.work_order_id and manager_user_id=p_manager;
  if not found or (i.status <> 'paid' and w.vendor_user_id is distinct from i.vendor_user_id) then raise exception 'Service is not assigned to this vendor'; end if;
  if i.total_cents <= 0 or i.bill_id is null then raise exception 'Invoice has no approved bill'; end if;
- -- The work-order payout unique index arbitrates against the older approve-pay rail too.
+ -- Cross-rail arbitration (the older approve-pay rail) is NOT this table's unique index any more -
+ -- 20261004140000 loosened it to (work order, invoice); 20261004160000 restores it under a lock.
  if i.payment_claim is null then
    insert into public.vendor_payouts(manager_user_id,vendor_user_id,work_order_id,invoice_id,amount_cents,status)
    values(p_manager,i.vendor_user_id,i.work_order_id,i.id,i.total_cents,'pending');

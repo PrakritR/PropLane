@@ -15,6 +15,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchChannelCalendarConnections: () => Promise.resolve([]),
   fetchManagerChannelBookings: () => Promise.resolve([]),
+  fetchWritableChannelCalendarPropertyIds: (ids: string[]) => Promise.resolve(ids),
   fetchOccupancySnapshot: () => Promise.resolve({ days: [] }),
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
   saveChannelCalendarConnection: () => Promise.resolve({ id: "c1" }),
@@ -67,7 +68,7 @@ function stubFetch() {
 }
 
 describe("Bookings → Settings", () => {
-  it("Link calendars opens the Connect a channel chooser", async () => {
+  it("Link calendars opens the one-page Connect a channel popup", async () => {
     stubFetch();
     const view = render(
       <AppUiProvider>
@@ -84,7 +85,8 @@ describe("Bookings → Settings", () => {
     await settle();
 
     expect(document.body.textContent ?? "").toContain("Connect a channel");
-    expect(document.body.querySelector('[data-attr="channel-calendar-link-choose-vrbo"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-attr="channel-calendar-link-provider"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-attr="channel-calendar-link-scope"]')).not.toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-block"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-airbnb"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).not.toBeNull();

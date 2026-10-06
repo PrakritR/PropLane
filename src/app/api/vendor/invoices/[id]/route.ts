@@ -47,7 +47,7 @@ async function requireVendor(): Promise<VendorGate> {
 async function loadEditableInvoice(gate: Extract<VendorGate, { ok: true }>, id: string) {
   const { data, error } = await gate.db
     .from("vendor_invoices")
-    .select("id, status, bill_id")
+    .select("id, status, bill_id, invoice_number, estimate_visit_bid_id")
     .eq("id", id)
     .eq("vendor_user_id", gate.userId)
     .maybeSingle();
@@ -67,7 +67,11 @@ async function loadEditableInvoice(gate: Extract<VendorGate, { ok: true }>, id: 
   if (data.bill_id) {
     return { ok: false as const, status: 409, error: "This invoice is already in the manager's bills." };
   }
-  return { ok: true as const };
+  return {
+    ok: true as const,
+    invoiceNumber: (data.invoice_number as string | null) ?? null,
+    isVisitFee: data.estimate_visit_bid_id != null,
+  };
 }
 
 /** Vendor corrects a still-unreviewed invoice. Totals are recomputed here, never trusted. */
@@ -86,6 +90,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       memo?: string | null;
       taxCents?: number;
     };
+
+    // The estimate-visit fee is the server's own bill: its number is how the one-per-bid dedupe and
+    // the manager's list recognise it, so a vendor never renames it, and no invoice may be renamed
+    // INTO the reserved `VISIT-` space (case-insensitive) to pass for one.
+    if (body.invoiceNumber !== undefined) {
+      const nextNumber = body.invoiceNumber?.trim() || null;
+      const changed = nextNumber !== (editable.invoiceNumber?.trim() || null);
+      const intoReservedSpace = nextNumber !== null && nextNumber.toUpperCase().startsWith("VISIT-");
+      if (changed && (editable.isVisitFee || intoReservedSpace)) {
+        return NextResponse.json({ error: "This invoice number cannot be changed." }, { status: 400 });
+      }
+    }
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
 

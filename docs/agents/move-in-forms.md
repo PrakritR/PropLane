@@ -185,5 +185,10 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   non-empty link list. A manual Send ignores links.
 - **Nothing auto-sends unless the manager added the form**: a property that never added one sends nothing on its own, and
   a deleted form is gone (it is never restored).
+- **A question rule is the second way a form becomes owed.** Besides the sends above, an
+  application question can carry a linked-form rule ("when the answer is X, include form Y") naming a
+  move-in form, and a matched rule writes an `application_form_requests` row instead of a sent copy.
+  That whole contract — the rules, the owed requests, the share link and its account linking, the fees —
+  is owned by [`application-questions.md`](application-questions.md).
 - **Resident access**: a resident who submitted an application and holds a sent form gets nav stage
   `application_submitted_forms` (`hasMoveInForms` on the access state): My home opens for Forms only.

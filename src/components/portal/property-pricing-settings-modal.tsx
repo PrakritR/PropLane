@@ -20,7 +20,7 @@ import {
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import {
-  persistManagerListingSubmission,
+  persistManagerListingSubmissionOnServer,
   type ManagerPricingSaveTarget,
 } from "@/lib/manager-property-save-target";
 type WorkspacePaymentPublic = {
@@ -78,9 +78,9 @@ export function PropertyPricingSettingsModal({
     });
   };
 
-  const save = () => {
+  const save = async () => {
     const normalized = normalizeManagerListingSubmissionV1(draft);
-    if (!persistManagerListingSubmission(saveTarget, managerUserId, normalized)) {
+    if (!(await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, normalized))) {
       showToast("Could not save payment settings.");
       return;
     }

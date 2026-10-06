@@ -4,11 +4,17 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { expectedManagerScheduleRecordIds } from "@/lib/portal-schedule-record-scope";
 import {
+  MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
+  legacyTaskAvailabilityStorageKeys,
+  managerKindAvailabilityStorageKey,
+} from "@/lib/manager-availability-kinds";
+import {
   resolveAuthenticatedBusinessAccess,
   resolveTestWorkspaceClassification,
 } from "@/lib/test-workspaces/index.server";
 import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import { readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { calendarPersonLabel } from "@/lib/calendar-people";
 
 export const runtime = "nodejs";
 
@@ -35,16 +41,31 @@ function payloadFromRowData(rowData: unknown): unknown {
   return row.payload ?? row;
 }
 
-function readShareAvailability(rowData: unknown): boolean {
-  const payload = payloadFromRowData(rowData);
-  const obj = asObject(payload);
-  return obj?.shareAvailability === true;
-}
-
 function readAvailabilitySlots(rowData: unknown): string[] {
   const payload = payloadFromRowData(rowData);
   if (Array.isArray(payload)) return payload.filter((item): item is string => typeof item === "string");
   return [];
+}
+
+/**
+ * Services and tasks availability for one peer. Inspections and move-ins/outs
+ * hours saved before those became Tasks are merged into tasks on read.
+ */
+function peerKindSlots(
+  recordsById: Map<string, ScheduleRecordRow>,
+  peerId: string,
+): { services: string[]; tasks: string[] } {
+  const read = (key: string): string[] => {
+    const record = recordsById.get(key);
+    if (!record || record.record_type !== MANAGER_KIND_AVAILABILITY_RECORD_TYPE) return [];
+    if (!scheduleRecordOwnedByPeer(record, peerId)) return [];
+    return readAvailabilitySlots(record.row_data ?? null);
+  };
+  const tasks = new Set<string>(read(managerKindAvailabilityStorageKey(peerId, "tasks")));
+  for (const legacyKey of legacyTaskAvailabilityStorageKeys(peerId)) {
+    for (const slot of read(legacyKey)) tasks.add(slot);
+  }
+  return { services: read(managerKindAvailabilityStorageKey(peerId, "services")), tasks: [...tasks] };
 }
 
 function scheduleRecordOwnedByPeer(record: ScheduleRecordRow | undefined, peerId: string): boolean {
@@ -93,13 +114,26 @@ export async function GET(req: Request) {
       });
     }
 
+    // The workspace's links, not just the viewer's own: two co-managers of the same house are peers
+    // of each other, and neither holds a link row naming the other. The owner's accepted links are
+    // the workspace roster; the viewer's own rows are still read so their own access is decided here.
+    const linkFilters = [`inviter_user_id.eq.${user.id}`, `invitee_user_id.eq.${user.id}`];
+    if (ownerId && ownerId !== user.id) linkFilters.unshift(`inviter_user_id.eq.${ownerId}`);
     let linkQuery = db
       .from("account_link_invites")
       .select(
-        "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope, team_role, status, test_workspace_id",
+        "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope, team_role",
       )
       .eq("status", "accepted")
-      .or(`inviter_user_id.eq.${user.id},invitee_user_id.eq.${user.id}`);
+      // Only links that reach THIS house, narrowed in the database: the owner of a large portfolio
+      // holds one accepted link per teammate per house, and the calendar needs the handful on this
+      // one. `assigned_property_ids` is a jsonb array of ids, kept current for "all" scopes too -
+      // so the containment value is JSON (`cs.["<id>"]`). Handing `contains` a JS array instead
+      // emits a Postgres array literal (`cs.{<id>}`), which jsonb cannot cast, and the whole
+      // calendar falls back to peers with no hours.
+      .contains("assigned_property_ids", JSON.stringify([propertyId]))
+      .or(linkFilters.join(","))
+      .limit(200);
     linkQuery = businessAccess.kind === "test"
       ? linkQuery.eq("test_workspace_id", businessAccess.workspaceId)
       : linkQuery.is("test_workspace_id", null);
@@ -118,8 +152,11 @@ export async function GET(req: Request) {
       const inviterId = textField(row, "inviter_user_id");
       const inviteeId = textField(row, "invitee_user_id");
       const actorIsOwner = ownerId === user.id;
-      const actorIsGrantedInvitee = inviteeId === user.id && inviterId === ownerId;
-      if (!actorIsOwner && !actorIsGrantedInvitee) continue;
+      // A link the owner granted is a workspace row: it describes a peer of everyone else on the
+      // house. Any other row is only read when it is the viewer's own.
+      const isOwnerGrant = Boolean(ownerId) && inviterId === ownerId;
+      const involvesActor = inviterId === user.id || inviteeId === user.id;
+      if (!isOwnerGrant && !involvesActor) continue;
       const permissions = readPropertyPermissionsFromRow({
         assigned_property_ids: assigned,
         property_co_manager_permissions: row.property_co_manager_permissions,
@@ -127,17 +164,24 @@ export async function GET(req: Request) {
         house_scope: row.house_scope as string | null | undefined,
         team_role: row.team_role as string | null | undefined,
       });
-      if (!actorIsOwner && !coManagerModuleAllowed(permissions, propertyId, "calendar", "read")) continue;
+      // A peer is on the shared calendar only while they hold calendar read on this house. Assigning
+      // a property is not a grant, and an empty grant is no access, so an invitee without it is
+      // neither returned nor has their hours read, whoever is asking.
+      const inviteeMayUseCalendar = coManagerModuleAllowed(permissions, propertyId, "calendar", "read");
+      // The viewer still earns their own place the same way: owner, or an invitee the owner granted
+      // calendar read. Everyone else falls out at the membership check below.
+      if (!actorIsOwner && !isOwnerGrant) continue;
+      if (!actorIsOwner && !inviteeMayUseCalendar) continue;
 
       if (inviterId) {
         peers.set(inviterId, {
-          label: inviterId === user.id ? "You" : textField(row, "inviter_display_name") || textField(row, "inviter_axis_id") || inviterId,
+          label: inviterId === user.id ? "You" : textField(row, "inviter_display_name"),
           isSelf: inviterId === user.id,
         });
       }
-      if (inviteeId) {
+      if (inviteeId && inviteeMayUseCalendar) {
         peers.set(inviteeId, {
-          label: inviteeId === user.id ? "You" : textField(row, "invitee_display_name") || textField(row, "invitee_axis_id") || inviteeId,
+          label: inviteeId === user.id ? "You" : textField(row, "invitee_display_name"),
           isSelf: inviteeId === user.id,
         });
       }
@@ -165,9 +209,16 @@ export async function GET(req: Request) {
     if (!peerIds.includes(user.id)) {
       return NextResponse.json({ error: "You do not have calendar access to this property." }, { status: 403 });
     }
+    // Availability is always shared with everyone who passed the access checks above: there is no
+    // opt-in. Old calendar_share_settings records are never read, so they are simply ignored.
     const recordIds = peerIds.flatMap((peerId) => {
-      const { shareKey, availKey } = expectedManagerScheduleRecordIds(peerId, propertyId);
-      return [shareKey, availKey];
+      const { availKey } = expectedManagerScheduleRecordIds(peerId, propertyId);
+      return [
+        availKey,
+        managerKindAvailabilityStorageKey(peerId, "services"),
+        managerKindAvailabilityStorageKey(peerId, "tasks"),
+        ...legacyTaskAvailabilityStorageKeys(peerId),
+      ];
     });
 
     let scheduleQuery = db
@@ -186,28 +237,29 @@ export async function GET(req: Request) {
       if (row.id) recordsById.set(row.id, row);
     }
 
+    // Names for the people row: select-only, and only for peers that already passed every access check above.
+    const profileNames = new Map<string, { name: string; email: string }>();
+    const { data: profileRows } = await db.from("profiles").select("id, full_name, email").in("id", peerIds);
+    for (const raw of (profileRows ?? []) as Array<Record<string, unknown>>) {
+      const profileId = textField(raw, "id");
+      if (profileId) profileNames.set(profileId, { name: textField(raw, "full_name"), email: textField(raw, "email") });
+    }
+
     const result = peerIds.map((peerId) => {
       const meta = peers.get(peerId)!;
-      const { shareKey, availKey } = expectedManagerScheduleRecordIds(peerId, propertyId);
-      const shareRecord = recordsById.get(shareKey);
+      const profile = profileNames.get(peerId);
+      const { availKey } = expectedManagerScheduleRecordIds(peerId, propertyId);
       const availRecord = recordsById.get(availKey);
-      const sharesAvailability =
-        scheduleRecordOwnedByPeer(shareRecord, peerId) &&
-        readShareAvailability(shareRecord?.row_data ?? null);
-
-      let slots: string[] = [];
-      if (meta.isSelf || sharesAvailability) {
-        if (scheduleRecordOwnedByPeer(availRecord, peerId)) {
-          slots = readAvailabilitySlots(availRecord?.row_data ?? null);
-        }
-      }
+      const slots = scheduleRecordOwnedByPeer(availRecord, peerId)
+        ? readAvailabilitySlots(availRecord?.row_data ?? null)
+        : [];
 
       return {
         userId: peerId,
-        label: meta.label,
+        label: calendarPersonLabel({ userId: peerId, label: meta.label, name: profile?.name, email: profile?.email }),
         isSelf: meta.isSelf,
-        sharesAvailability,
         slots,
+        kindSlots: peerKindSlots(recordsById, peerId),
       };
     });
 

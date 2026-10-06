@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
-import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
+import { managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 
 export const runtime = "nodejs";
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     const syncable: string[] = [];
     for (const row of data ?? []) {
       if (!String(row.import_url ?? "").trim()) continue;
-      if (!(await managerHasCalendarAccessForProperty(ctx.db, ctx.userId, String(row.property_id)))) continue;
+      if (!(await managerCanWriteCalendarForProperty(ctx.db, ctx.userId, String(row.property_id)))) continue;
       syncable.push(String(row.id));
     }
 

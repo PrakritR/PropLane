@@ -18,6 +18,7 @@ vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
 }));
 vi.mock("@/lib/work-order-expenses", () => ({
   createExpensesFromWorkOrder: vi.fn().mockResolvedValue(["exp_1"]),
+  readPostedWorkOrderExpenseLines: vi.fn().mockResolvedValue({ ok: true, posted: new Map() }),
   mergeWorkOrderCompletion: vi.fn((row: Record<string, unknown>) => ({ ...row, bucket: "completed" })),
   markWorkOrderPaid: vi.fn((row: Record<string, unknown>, paidAt: string, opts: { channel: string }) => ({
     ...row,
@@ -51,7 +52,7 @@ type Row = Record<string, unknown>;
 /** Same fake query builder as work-order-approve-pay-double-pay-guard.test.ts. */
 class FakeQuery {
   private filters: Array<[string, unknown]> = [];
-  private mode: "select" | "insert" | "upsert" = "select";
+  private mode: "select" | "insert" | "upsert" | "delete" = "select";
   private payload: Row | null = null;
   constructor(
     private rows: Row[],
@@ -65,9 +66,21 @@ class FakeQuery {
     this.filters.push([col, val]);
     return this;
   }
+  in(col: string, vals: unknown[]) {
+    this.filters.push([col, vals]);
+    return this;
+  }
   insert(row: Row) {
     this.mode = "insert";
     this.payload = row;
+    return this;
+  }
+  delete() {
+    this.mode = "delete";
+    return this;
+  }
+  is(col: string, val: unknown) {
+    this.filters.push([col, val]);
     return this;
   }
   upsert(row: Row) {
@@ -78,18 +91,23 @@ class FakeQuery {
   private exec() {
     if (this.mode === "insert") {
       this.log.inserts.push({ table: this.table, row: this.payload! });
-      this.rows.push({ id: `${this.table}_${this.rows.length + 1}`, ...this.payload! });
+      const inserted = { id: `${this.table}_${this.rows.length + 1}`, ...this.payload! };
+      this.rows.push(inserted);
+      return { data: inserted, error: null };
+    }
+    if (this.mode === "delete") {
+      for (const hit of this.rows.filter((r) => this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)))) this.rows.splice(this.rows.indexOf(hit), 1);
       return { data: null, error: null };
     }
     if (this.mode === "upsert") {
       this.log.upserts.push({ table: this.table, row: this.payload! });
       return { data: null, error: null };
     }
-    return { data: this.rows.filter((r) => this.filters.every(([c, v]) => r[c] === v)), error: null };
+    return { data: this.rows.filter((r) => this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v))), error: null };
   }
   maybeSingle() {
     const res = this.exec();
-    return Promise.resolve({ data: Array.isArray(res.data) ? (res.data[0] ?? null) : null, error: null });
+    return Promise.resolve({ data: Array.isArray(res.data) ? (res.data[0] ?? null) : res.data, error: null });
   }
   then<T>(resolve: (v: { data: unknown; error: null }) => T) {
     return Promise.resolve(this.exec()).then(resolve);
@@ -213,11 +231,11 @@ describe("approve-pay — PropLane balance payment source", () => {
     const db = makeDb(baseTables());
     signIn(db);
     flagState.enabled = true;
-    // settleOnly skips starting a real Stripe Checkout session (untouched by
+    // A sub-$1 job skips starting a real Stripe Checkout session (untouched by
     // this build either way) — what this test asserts is narrower and
     // independent of that: the balance ledger is never consulted when the
     // channel isn't explicitly "balance", flag on or not.
-    const res = await POST(postBody({ settleOnly: true }));
+    const res = await POST(postBody({ vendorCostCents: 0 }));
     expect(res.status).toBe(200);
     expect(payVendorFromBalance).not.toHaveBeenCalled();
   });
@@ -238,6 +256,87 @@ describe("approve-pay — PropLane balance payment source", () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string };
     expect(body.code).toBe("existing_payout");
+    expect(payVendorFromBalance).not.toHaveBeenCalled();
+  });
+
+  it("claims the job's payout BEFORE the money moves, and settles that same row afterwards", async () => {
+    const tables = baseTables();
+    const db = makeDb(tables);
+    signIn(db);
+    flagState.enabled = true;
+    let claimedAtMove: Row[] = [];
+    payVendorFromBalance.mockImplementation(async () => {
+      claimedAtMove = tables.vendor_payouts!.map((r) => ({ ...r }));
+      return { ok: true, payerEntryId: "e-out", payeeEntryId: "e-in" };
+    });
+
+    const res = await POST(postBody({ paymentChannel: "balance" }));
+    expect(res.status).toBe(200);
+    expect(claimedAtMove).toHaveLength(1);
+    // The job's OWN payout: invoice-less, so the estimate-visit fee's payout never collides with it.
+    expect(claimedAtMove[0]).toMatchObject({ work_order_id: WORK_ORDER, status: "pending", amount_cents: 12_500, invoice_id: null });
+  });
+
+  it("releases the claim when nothing moved, so the job can still be paid another way", async () => {
+    const tables = baseTables();
+    const db = makeDb(tables);
+    signIn(db);
+    flagState.enabled = true;
+    payVendorFromBalance.mockResolvedValue({
+      ok: false,
+      code: "insufficient_balance",
+      availableCents: 5_000,
+      requestedCents: 12_500,
+      shortfallCents: 7_500,
+    });
+
+    expect((await POST(postBody({ paymentChannel: "balance" }))).status).toBe(422);
+    expect(tables.vendor_payouts).toEqual([]);
+  });
+
+  it("the database is the arbiter: a payout insert it refuses (another rail already paid the job) is a 409 and moves no money", async () => {
+    const inner = makeDb(baseTables());
+    const db = {
+      log: inner.log,
+      from(table: string) {
+        if (table !== "vendor_payouts") return inner.from(table);
+        // The trigger raises on the INSERT, which the claim awaits directly — no `.select()` round
+        // trip, because the claim is identified by (work order, invoice_id null), not by a read id.
+        const vp409 = { code: "VP409", message: "This service already has a payout in progress or paid through another payment method. Paying it again would pay the vendor twice." };
+        let inserting = false;
+        const refused: Record<string, unknown> = {
+          insert: () => ((inserting = true), refused),
+          select: () => refused,
+          update: () => refused,
+          eq: () => refused,
+          is: () => refused,
+          in: () => refused,
+          maybeSingle: async () => ({ data: null, error: inserting ? vp409 : null }),
+          then: (resolve: (v: { data: Row[] | null; error: typeof vp409 | null }) => unknown) =>
+            Promise.resolve(inserting ? { data: null, error: vp409 } : { data: [], error: null }).then(resolve),
+        };
+        return refused;
+      },
+    };
+    signIn(db as never);
+    flagState.enabled = true;
+
+    const res = await POST(postBody({ paymentChannel: "balance" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(/pay the vendor twice/);
+    expect(payVendorFromBalance).not.toHaveBeenCalled();
+    expect(db.log.upserts).toEqual([]);
+  });
+
+  it("invoice paid first, then Approve + pay: the job's own invoice payout refuses with 409 before any ledger call", async () => {
+    const db = makeDb({
+      ...baseTables({ id: "payout_inv", work_order_id: WORK_ORDER, status: "pending", amount_cents: 12_500, invoice_id: "inv-job", created_at: "2026-09-01T17:00:00.000Z" }),
+      vendor_invoices: [{ id: "inv-job", estimate_visit_bid_id: null }],
+    });
+    signIn(db);
+    flagState.enabled = true;
+
+    expect((await POST(postBody({ paymentChannel: "balance" }))).status).toBe(409);
     expect(payVendorFromBalance).not.toHaveBeenCalled();
   });
 });

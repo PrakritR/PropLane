@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
+import { managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import {
   channelStayTombstoneKey,
@@ -78,8 +78,10 @@ async function loadAuthorizedConnection(
   const { data } = await db.from("external_calendar_connections").select("*").eq("id", connectionId).maybeSingle();
   if (!data) return { ok: false, status: 404, error: "Connection not found." };
   const connection = parseConnectionRow(data as Record<string, unknown>);
-  // Ownership comes from the session + the connection's own house, never from a body id.
-  if (!(await managerHasCalendarAccessForProperty(db, userId, connection.property_id))) {
+  // Ownership comes from the session + the connection's own house, never from a body id. Removing
+  // or restoring a stay rewrites what the house publishes and blocks, so it needs Calendar at EDIT —
+  // the same level as linking, unlinking and syncing, not the read grant.
+  if (!(await managerCanWriteCalendarForProperty(db, userId, connection.property_id))) {
     return { ok: false, status: 403, error: "Forbidden." };
   }
   return { ok: true, connection };

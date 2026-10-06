@@ -3,11 +3,13 @@
  * config slice (the stored shape, unchanged) and this reads it as sections and writes each editor
  * change back through the same catalog functions the form always used.
  *
- * Every question can be edited. Two narrow rules come from code that reads an answer by key (see
- * `TYPE_LOCKED_STANDARD_KEYS`): those built-ins keep their type, and the identity / screening ones
- * cannot be deleted. Changing the type or choices of any OTHER built-in retires that built-in and asks
- * a custom question of the new type in its place, so only NEW applications change; a submitted
- * application keeps the answers it already stored.
+ * One floor, nothing else: full legal name and email keep being asked, stay required and keep their type
+ * (`isIdentityFloorStandardKey`); every other question's words, type, Required, choices, order and on/off
+ * can be edited.
+ * Changing the type or choices of a built-in retires that built-in and asks a custom question of the new
+ * type in its place (a new custom key), so only NEW applications change; a submitted application keeps the
+ * answers it already stored. When the system reads that built-in by key (`SYSTEM_READ_ANSWER_STANDARD_KEYS`),
+ * the editor confirms first (`systemRead` on the question) and the readers then find the standard key absent.
  */
 import {
   CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS,
@@ -19,10 +21,11 @@ import {
 import { builtInAnswersAreFixed, canEditBuiltInApplicationField } from "@/lib/application-editor-fields";
 import {
   addListingApplicationField,
-  NEVER_DISABLED_STANDARD_KEY_SET,
+  isIdentityFloorStandardKey,
   patchListingApplicationField,
   reenableListingApplicationField,
   removeListingApplicationField,
+  systemReadFeatureForStandardKey,
   type ApplicationConfigSlice,
   type ApplicationFormVariant,
   type ResolvedApplicationField,
@@ -64,14 +67,12 @@ const sectionOf = (field: Pick<ResolvedApplicationField, "section">): string => 
 /** The sections the application questions step lists (the Review step asks nothing of its own). */
 export const APPLICATION_EDITOR_SECTIONS = RENTAL_APPLICATION_SECTIONS.filter((section) => section.id !== "review");
 
-/** A section holding a question that can never be removed cannot be switched off. */
+/** A section holding a question that is always asked (the identity floor: full legal name, email) cannot be switched off. */
 export function lockedApplicationSectionIds(
   ctx: Pick<ApplicationEditorContext, "fields" | "disabledFields">,
 ): RentalApplicationSectionId[] {
   return APPLICATION_EDITOR_SECTIONS.filter((section) =>
-    [...ctx.fields, ...ctx.disabledFields].some(
-      (field) => sectionOf(field) === section.id && Boolean(field.standardKey) && NEVER_DISABLED_STANDARD_KEY_SET.has(field.standardKey!),
-    ),
+    [...ctx.fields, ...ctx.disabledFields].some((field) => sectionOf(field) === section.id && isIdentityFloorStandardKey(field.standardKey)),
   ).map((section) => section.id);
 }
 
@@ -84,6 +85,7 @@ function toEditorQuestion(
 ): QuestionEditorQuestion {
   const can = (action: Parameters<typeof canEditBuiltInApplicationField>[2]) => canEditBuiltInApplicationField(variant, field, action);
   const canType = can("type");
+  const feature = field.isStandard ? systemReadFeatureForStandardKey(field.standardKey) : null;
   return {
     id: field.id,
     label: field.label,
@@ -92,6 +94,8 @@ function toEditorQuestion(
     options: field.options,
     off,
     showIf: field.showIf,
+    linkedForms: field.linkedForms,
+    systemRead: feature ? { feature } : undefined,
     // A condition only ever depends on another custom question.
     showIfCandidates: field.isStandard
       ? undefined
@@ -117,12 +121,19 @@ export function applicationSectionsForEditor(
 ): QuestionEditorSection[] {
   return APPLICATION_EDITOR_SECTIONS.map((section) => {
     const active = ctx.fields.filter((field) => sectionOf(field) === section.id);
-    const activeLabels = new Set(
-      active.filter((field) => !field.isStandard).map((field) => field.label.trim().toLowerCase()),
+    const activeCustom = active.filter((field) => !field.isStandard);
+    // A built-in whose type was changed was retired for a custom question that points back at it;
+    // do not list both. The pointer (`replacedStandardKey`) survives rewording - the label match
+    // behind it only covers rows detached before that was stamped.
+    const replacedKeys = new Set(
+      activeCustom.map((field) => field.replacedStandardKey?.trim()).filter((key): key is string => Boolean(key)),
     );
-    // A built-in whose type was changed was retired for a custom question of the same words; do not list both.
+    const activeLabels = new Set(activeCustom.map((field) => field.label.trim().toLowerCase()));
     const off = ctx.disabledFields.filter(
-      (field) => sectionOf(field) === section.id && !activeLabels.has(field.label.trim().toLowerCase()),
+      (field) =>
+        sectionOf(field) === section.id &&
+        !(field.standardKey && replacedKeys.has(field.standardKey)) &&
+        !activeLabels.has(field.label.trim().toLowerCase()),
     );
     return {
       id: section.id,
@@ -153,6 +164,9 @@ export function convertBuiltInQuestion(
     type,
     required: patch.required ?? field.required,
     options,
+    linkedForms: patch.linkedForms ?? field.linkedForms,
+    // The built-in this question stands in for: how the editor keeps it hidden after a reword.
+    ...(field.standardKey?.trim() ? { replacedStandardKey: field.standardKey.trim() } : {}),
   };
   const retired = removeListingApplicationField(slice, field);
   const added = addListingApplicationField({ ...slice, ...retired }, replacement);

@@ -142,14 +142,18 @@ describe("add-on request: Vendors renders the cycle UI", () => {
       serviceDetailTab: tab,
     });
 
-  it("shows the add-on cycle as band tabs, the Assign icon (Myself / teammates) and no old empty cards", async () => {
+  it("shows the add-on's vendors as the one pipeline - Available, Sent, Bids, Scheduled, Done - with no team-only band", async () => {
     await renderRequest("vendors");
     await waitFor(() => expect(document.querySelector('[data-attr="service-vendor-cycle"]')).not.toBeNull());
     const tabs = [...document.querySelectorAll('[data-attr^="service-vendor-cycle-tab-"]')].map((b) => (b.textContent ?? "").replace(/\s*\d+$/, "").trim());
-    expect(tabs).toEqual(["Open", "Assigned", "Scheduled", "Completed"]);
-    expect(screen.getByRole("button", { name: "Add assignee" })).toBeTruthy();
-    // Vendors cannot take add-on services: no round + to request vendors.
-    expect(document.querySelector('[data-attr="service-request-more-vendors"]')).toBeNull();
+    expect(tabs).toEqual(["Available", "Sent", "Bids", "Scheduled", "Done"]);
+    // The old team-only band (Open / Assigned ... + Add assignee) is retired; vendors are allowed on an add-on.
+    expect(screen.queryByRole("button", { name: "Add assignee" })).toBeNull();
+    expect(document.querySelector('[data-attr="service-assign-open"]')).toBeNull();
+    // The send-out is the band's round + (a popup): no sticky bar, no sentence about what vendors can see.
+    expect(document.querySelector('[data-attr="service-send-plus"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="service-send-bar"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Vendors see the general area only");
     expect(document.body.textContent).not.toContain("No vendor for this service");
     expect(document.body.textContent).not.toContain("Not scheduled yet");
     expect(document.querySelectorAll('[data-attr="portal-list-empty-card"]')).toHaveLength(1);
@@ -160,16 +164,26 @@ describe("add-on request: Vendors renders the cycle UI", () => {
     expect(deriveAddOnStages("denied").stages.map((s) => s.id)).toEqual(["pending", "declined"]);
   });
 
-  it("the Service tab shows 'Not assigned' as a plain value with no second line, and a Needs-you row with no muted line", async () => {
+  it("the Service tab has one Who's doing it card with two choices, and no Assign-a-vendor prompt or Assignment card", async () => {
     await renderRequest("service");
-    await waitFor(() => expect(document.querySelector('[data-attr="record-overview-needs-assign-vendor"]')).not.toBeNull());
-    const vendorTile = [...document.querySelectorAll("[data-attr^='record-overview-tile']")].find((el) => /Assigned to/.test(el.textContent ?? ""));
-    expect(vendorTile?.textContent).toContain("Not assigned");
-    expect(vendorTile?.innerHTML).not.toMatch(/text-\[var\(--status-overdue-fg\)\]/);
+    await waitFor(() => expect(document.querySelector('[data-attr="record-overview-card-who"]')).not.toBeNull());
+    const who = document.querySelector('[data-attr="record-overview-card-who"]')!;
+    expect(who.textContent).toContain("Who's doing it");
+    expect(who.querySelector('[data-attr="service-who-team"]')?.textContent).toBe("Assign someone on your team");
+    expect(who.querySelector('[data-attr="service-who-vendors"]')?.textContent).toBe("Send to vendors");
+    expect(document.querySelector('[data-attr="record-overview-needs-assign-vendor"]')).toBeNull();
+    expect(document.querySelector('[data-attr="record-overview-card-assignment"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Assign a vendor");
     expect(document.body.textContent).not.toContain("No vendor assigned yet");
-    const needs = document.querySelector('[data-attr="record-overview-needs-assign-vendor"]')!;
-    expect(needs.textContent).toBe("Assign a vendor");
-    expect(needs.querySelector("button")).not.toBeNull();
+  });
+
+  it("Assign someone on your team opens the team-only Assign popup", async () => {
+    await renderRequest("service");
+    await waitFor(() => expect(document.querySelector('[data-attr="service-who-team"]')).not.toBeNull());
+    fireEvent.click(document.querySelector('[data-attr="service-who-team"]') as HTMLElement);
+    expect(await screen.findByRole("heading", { name: "Assign" })).toBeInTheDocument();
+    // No Request bids here: vendors are sent the job from Vendors > Available.
+    expect(document.querySelector('[data-attr="service-assign-mode-bids"]')).toBeNull();
   });
 });
 

@@ -21,6 +21,26 @@ function dayLabel(iso: string): string {
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/**
+ * The Room dropdown's choices. A property whose rooms are not configured falls back to its building's units,
+ * whose values carry no listing room id: each parsed to "" (the "Whole home" value), so React saw several
+ * options keyed "". Only real, distinct room ids are choices; "Whole home" is the one "" option.
+ */
+export function bookingRoomChoices<C>(
+  options: readonly { value: string; label: string }[],
+  conflictsFor: (roomId: string) => C[],
+): { value: string; label: string; id: string; conflicts: C[] }[] {
+  const seen = new Set<string>();
+  const out: { value: string; label: string; id: string; conflicts: C[] }[] = [];
+  for (const option of options) {
+    const id = parseRoomChoiceValue(option.value).listingRoomId ?? "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ ...option, id, conflicts: conflictsFor(id) });
+  }
+  return out.sort((a, b) => Number(Boolean(a.conflicts.length)) - Number(Boolean(b.conflicts.length)));
+}
+
 export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClose, onSave, onSaveStayMeta }: {
   entry: PropertyBookingEntry; entries: readonly PropertyBookingEntry[]; propertyOptions?: readonly ManagerPropertyFilterOption[];
   onClose: () => void; onSave: (draft: BlockDatesDraft) => Promise<unknown>;
@@ -48,7 +68,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   const valid = Boolean(checkIn && (openEnded || (checkOut && checkOut > checkIn)));
   const pool = entries.filter((candidate) => candidate !== entry && (!entry.blockId || candidate.blockId !== entry.blockId));
   const conflictsForRoom = (id: string) => valid ? bookingConflictsFor(pool, { propertyId, roomId: id, start: checkIn, end: openEnded ? "9999-12-30" : lastNightBeforeCheckout(checkOut) }) : [];
-  const rooms = getRoomOptionsForProperty(propertyId, { includeUnavailable: true }).map((option) => ({ ...option, id: parseRoomChoiceValue(option.value).listingRoomId ?? "", conflicts: conflictsForRoom(parseRoomChoiceValue(option.value).listingRoomId ?? "") })).sort((a, b) => Number(Boolean(a.conflicts.length)) - Number(Boolean(b.conflicts.length)));
+  const rooms = bookingRoomChoices(getRoomOptionsForProperty(propertyId, { includeUnavailable: true }), conflictsForRoom);
   const conflicts = conflictsForRoom(roomId);
   const properties = propertyOptions.length ? propertyOptions : [{ id: entry.propertyId, label: entry.propertyLabel }];
   const chooseRoom = (id: string, property = propertyId) => { setRoomId(id); const next = bookingRoomRate(property, id); setRate(String(next.amount ?? "")); setBasis(next.basis); };
@@ -102,8 +122,8 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
       <label htmlFor="booking-edit-status"><span className={MODAL_FIELD_LABEL_CLASS}>Status</span><Select id="booking-edit-status" disabled={locked || busy} value={status} onChange={(event) => setStatus(event.target.value)}><option value="hold">Hold</option><option value="confirmed">Confirmed</option></Select></label>
       <label><span className={MODAL_FIELD_LABEL_CLASS}>Rate / {basis === "daily" ? "day" : basis === "weekly" ? "week" : "month"}</span><Input type="number" min="0" step="0.01" disabled={locked || busy} value={rate} onChange={(event) => setRate(event.target.value)} /></label>
       <label className="sm:col-span-2"><span className={MODAL_FIELD_LABEL_CLASS}>Notes</span><Input disabled={lockedDetails || busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-      <label htmlFor="booking-edit-source"><span className={MODAL_FIELD_LABEL_CLASS}>Source</span><Select id="booking-edit-source" disabled={locked || busy} value={details.source ?? "Direct"} onChange={(event) => setDetails({ ...details, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => <option key={value}>{value}</option>)}</Select></label>
-      {(["linen", "baggage"] as const).map((key) => <label key={key} htmlFor={`booking-edit-${key}`}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select id={`booking-edit-${key}`} disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value}>{value}</option>)}</Select></label>)}
+      <label htmlFor="booking-edit-source"><span className={MODAL_FIELD_LABEL_CLASS}>Source</span><Select id="booking-edit-source" disabled={locked || busy} value={details.source ?? "Direct"} onChange={(event) => setDetails({ ...details, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => <option key={value} value={value}>{value}</option>)}</Select></label>
+      {(["linen", "baggage"] as const).map((key) => <label key={key} htmlFor={`booking-edit-${key}`}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select id={`booking-edit-${key}`} disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value} value={value}>{value}</option>)}</Select></label>)}
       {(["earlyCheckIn", "lateCheckOut"] as const).map((key) => <label key={key}><span className={MODAL_FIELD_LABEL_CLASS}>{key === "earlyCheckIn" ? "Early check-in" : "Late check-out"}</span><Input type="time" disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(event) => setDetails({ ...details, [key]: event.target.value })} /></label>)}
       {conflicts.length && !locked ? <p className="text-sm text-danger sm:col-span-2" role="alert" data-bk-alert>{describeBookingConflict(conflicts[0], conflicts[0].roomLabel)}</p> : null}
       {error ? <p role="alert" className="text-danger sm:col-span-2">{error}</p> : null}

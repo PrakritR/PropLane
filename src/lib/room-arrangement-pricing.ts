@@ -30,6 +30,7 @@ export type RoomOccupancyPrice = {
   leaseFee?: string;
   applicationFee?: string;
   moveInFee?: string;
+  monthToMonthSurcharge?: string;
   customStartSurcharge?: string;
   /**
    * Short-term step's own Lease fee / Application fee (property Pricing popup).
@@ -121,6 +122,7 @@ export function normalizeOccupancyPrices(
       "leaseFee",
       "applicationFee",
       "moveInFee",
+      "monthToMonthSurcharge",
       "customStartSurcharge",
       "shortTermLeaseFee",
       "shortTermApplicationFee",

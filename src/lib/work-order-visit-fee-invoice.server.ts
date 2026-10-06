@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOwnVendorRecords } from "@/lib/vendor-own-record";
 import { insertVendorInvoiceRow, type PreparedVendorInvoiceSubmission } from "@/lib/vendor-invoice-submit.server";
-import { isVisitFeeInvoiceNumber, visitFeeInvoiceNumber, VISIT_FEE_INVOICE_PREFIX } from "@/lib/work-order-visit-fee";
+import { visitFeeInvoiceNumber } from "@/lib/work-order-visit-fee";
 
 /**
  * The estimate-visit fee is the manager's own outgoing payment: it rides the SAME vendor-invoice
@@ -26,13 +26,15 @@ export async function ensureVisitFeeInvoice(
   if (!Number.isSafeInteger(input.feeCents) || input.feeCents <= 0) return { created: false };
   const invoiceNumber = visitFeeInvoiceNumber(input.bidId);
 
+  // Deduped on the server-written marker, never on the invoice number: the number is what a vendor
+  // could once rename, which made a second fee invoice for the same bid look new. One row per bid
+  // is also a unique index (vendor_invoices_estimate_visit_bid_unique), so a racing call collides.
   const { data: existing } = await db
     .from("vendor_invoices")
     .select("id, status")
-    .eq("work_order_id", input.workOrderId)
-    .eq("invoice_number", invoiceNumber)
+    .eq("estimate_visit_bid_id", input.bidId)
     .limit(1);
-  if (existing && existing.length > 0 && (existing[0] as { status?: string }).status !== "rejected") {
+  if (existing && existing.length > 0) {
     return { created: false };
   }
 
@@ -64,6 +66,7 @@ export async function ensureVisitFeeInvoice(
     invoiceNumber,
     memo: description,
     now: new Date().toISOString(),
+    visitFeeBidId: input.bidId,
   });
   if (error) {
     // 23505 = the unique index: a racing call already filed it, which is the outcome we want.
@@ -76,20 +79,23 @@ export async function ensureVisitFeeInvoice(
 /**
  * True only for a visit-fee invoice that matches a real bid: same service, same vendor, same
  * manager, the visit marked done, and the invoice total equal to the fee stored on that bid.
- * A vendor typing "VISIT-..." into a self-filed invoice therefore cannot make it payable.
+ *
+ * The bid comes from `estimate_visit_bid_id`, which only `ensureVisitFeeInvoice` above writes —
+ * never from `invoice_number`, which arrives verbatim in a vendor's own submission body. A vendor
+ * typing "VISIT-..." into a self-filed invoice therefore cannot make it payable (and
+ * `insertVendorInvoiceRow` refuses the prefix outright for anything but this flow).
  */
 export async function isGenuineVisitFeeInvoice(
   db: SupabaseClient,
   invoice: {
-    invoice_number?: string | null;
+    estimate_visit_bid_id?: string | null;
     work_order_id?: string | null;
     vendor_user_id?: string | null;
     manager_user_id?: string | null;
     total_cents?: number | null;
   },
 ): Promise<boolean> {
-  if (!isVisitFeeInvoiceNumber(invoice.invoice_number)) return false;
-  const bidId = String(invoice.invoice_number).slice(VISIT_FEE_INVOICE_PREFIX.length);
+  const bidId = invoice.estimate_visit_bid_id?.trim() ?? "";
   if (!bidId || !invoice.work_order_id) return false;
   const { data: bid } = await db
     .from("work_order_bids")

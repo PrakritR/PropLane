@@ -3,7 +3,7 @@
  *
  * The four lease types (Long-term, Short-term, Custom, Month-to-month): the type the applicant picks decides the
  * lease term and the generated charge schedule, through the one generation path the manager portal runs on
- * approval. Month-to-month carries NO surcharge, even on a listing saved while one existed.
+ * approval. Month-to-month carries an OPTIONAL surcharge, charged only on a month-to-month lease and never on a Seattle listing.
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -198,12 +198,28 @@ describe("charges follow the chosen lease type", () => {
   });
 });
 
-describe("month-to-month carries no surcharge anywhere", () => {
-  it("a listing saved with a $25 surcharge neither lists nor bills it", () => {
-    const property = seedListing();
-    const sub = property.listingSubmission!;
-    expect(resolveListingFees(sub).some((fee) => fee.presetId === ("mtm_surcharge" as never))).toBe(false);
-    expect(recurringMonthlyFeesForLease(sub, [{ id: "preset:mtm_surcharge", label: "Month-to-month surcharge", amount: 25 }], { leaseTerm: "Month-to-Month" })).toEqual([]);
+describe("the month-to-month surcharge is optional, month-to-month only, and never in Seattle", () => {
+  const tacoma = () => ({ ...seedListing().listingSubmission!, city: "Tacoma", state: "WA", zip: "98402", address: "1 Pacific Ave, Tacoma, WA 98402" });
+  const seattle = () => ({ ...seedListing().listingSubmission!, city: "Seattle", state: "WA", zip: "98101", address: "1500 Pike St, Seattle, WA 98101" });
+
+  it("outside Seattle a saved $25 lists and bills on a month-to-month lease only", () => {
+    const sub = tacoma();
+    expect(resolveListingFees(sub).some((fee) => fee.presetId === "mtm_surcharge")).toBe(true);
+    expect(recurringMonthlyFeesForLease(sub, [], { leaseTerm: "Month-to-Month" })).toEqual([
+      { id: "preset:mtm_surcharge", label: "Month-to-month surcharge", amount: 25 },
+    ]);
+    expect(recurringMonthlyFeesForLease(sub, [], { leaseTerm: "Long-term" })).toEqual([]);
+    expect(recurringMonthlyFeesForLease(sub, [], { leaseTerm: "Month-to-Month", rentalType: "short_term" })).toEqual([]);
+  });
+
+  it("absent unless the manager set it: a blank amount bills nothing", () => {
+    const sub = { ...tacoma(), monthToMonthSurcharge: "", customFees: [] };
+    expect(recurringMonthlyFeesForLease(normalizeManagerListingSubmissionV1(sub), [], { leaseTerm: "Month-to-Month" })).toEqual([]);
+  });
+
+  it("a Seattle listing never bills it, even with a stale amount saved", () => {
+    const sub = seattle();
+    expect(recurringMonthlyFeesForLease(sub, [], { leaseTerm: "Month-to-Month" })).toEqual([]);
   });
 });
 

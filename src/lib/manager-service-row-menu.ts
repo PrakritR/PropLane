@@ -59,7 +59,7 @@ export function managerServiceRequestRowMenuItems(req: ServiceRequest): ManagerS
   const items: ManagerServiceRowMenuItem[] = [];
   if (req.status === "pending") {
     items.push({ id: "approve", label: "Approve" });
-    items.push({ id: "deny", label: "Deny" });
+    items.push({ id: "deny", label: "Decline request" });
   }
   items.push({ id: "edit", label: "Edit" });
   items.push({ id: "message", label: "Message" });

@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * The manager's "Mark as paid" on a vendor work order that ALREADY has a
- * PropLane payout: the server is the guard. Without the acknowledgement the
- * POST is refused with a 409 naming the payout; with it, the acknowledgement
- * is written to audit_log before any bookkeeping write.
+ * PropLane payout: the server is the guard, and there is no override. The POST
+ * is refused with a 409 naming the payout and the rail that holds it, and
+ * nothing — no audit row, no bookkeeping write — is written.
  */
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/stripe-vendor-payout", () => ({
@@ -16,6 +16,7 @@ vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
 }));
 vi.mock("@/lib/work-order-expenses", () => ({
   createExpensesFromWorkOrder: vi.fn().mockResolvedValue(["exp_1"]),
+  readPostedWorkOrderExpenseLines: vi.fn().mockResolvedValue({ ok: true, posted: new Map() }),
   mergeWorkOrderCompletion: vi.fn((row: Record<string, unknown>) => ({ ...row, bucket: "completed" })),
   markWorkOrderPaid: vi.fn((row: Record<string, unknown>, paidAt: string, opts: { channel: string }) => ({
     ...row,
@@ -52,6 +53,14 @@ class FakeQuery {
     this.filters.push([col, val]);
     return this;
   }
+  in(col: string, vals: unknown[]) {
+    this.filters.push([col, vals]);
+    return this;
+  }
+  is(col: string, val: unknown) {
+    this.filters.push([col, val]);
+    return this;
+  }
   insert(row: Row) {
     this.mode = "insert";
     this.payload = row;
@@ -72,7 +81,12 @@ class FakeQuery {
       this.log.upserts.push({ table: this.table, row: this.payload! });
       return { data: null, error: null };
     }
-    return { data: this.rows.filter((r) => this.filters.every(([c, v]) => r[c] === v)), error: null };
+    return {
+      data: this.rows.filter((r) =>
+        this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : (r[c] ?? null) === v)),
+      ),
+      error: null,
+    };
   }
   maybeSingle() {
     const res = this.exec();
@@ -148,20 +162,56 @@ describe("approve-pay double-pay guard", () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string; code: string; existingPayout: Row };
     expect(body.code).toBe("existing_payout");
-    expect(body.existingPayout).toMatchObject({ id: "payout_1", status: "paid", amountCents: 12_500, stripeTransferId: "tr_abc" });
+    expect(body.existingPayout).toMatchObject({
+      id: "payout_1",
+      status: "paid",
+      amountCents: 12_500,
+      stripeTransferId: "tr_abc",
+      rail: "approve_pay",
+    });
     expect(body.error).toContain("payout_1");
     expect(body.error).toContain("tr_abc");
+    expect(body.error).toContain("Approve + pay");
     // Nothing was written: no audit row, no work-order upsert.
     expect(db.log.inserts).toEqual([]);
     expect(db.log.upserts).toEqual([]);
   });
 
-  it("treats a truthy-but-not-true acknowledgement as absent", async () => {
+  it("there is no acknowledgement override: the refusal stands however the client asks", async () => {
+    for (const ack of [true, "yes", 1]) {
+      const db = makeDb(baseTables(paidPayout));
+      signIn(db);
+      const res = await POST(postBody({ acknowledgeExistingPayout: ack }));
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("existing_payout");
+      // No `vendor_double_pay_acknowledged` audit row for a payment that can never happen.
+      expect(db.log.inserts).toEqual([]);
+      expect(db.log.upserts).toEqual([]);
+    }
+  });
+
+  it("settleOnly is not a client-reachable escape hatch: the route strips it and the guard still refuses", async () => {
+    // `settleOnly` skips the guard because it records a payment the Stripe webhook already took.
+    // The route builds the core's input from an allowlist, so the body can never set it.
     const db = makeDb(baseTables(paidPayout));
     signIn(db);
-    const res = await POST(postBody({ acknowledgeExistingPayout: "yes" }));
+    const res = await POST(postBody({ settleOnly: true }));
     expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("existing_payout");
     expect(db.log.inserts).toEqual([]);
+    expect(db.log.upserts).toEqual([]);
+  });
+
+  it("names the vendor's invoice as the rail when the blocking payout belongs to one", async () => {
+    const tables = baseTables({ ...paidPayout, invoice_id: "inv_1" });
+    tables.vendor_invoices = [{ id: "inv_1", estimate_visit_bid_id: null }];
+    const db = makeDb(tables);
+    signIn(db);
+    const res = await POST(postBody());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; existingPayout: Row };
+    expect(body.existingPayout).toMatchObject({ rail: "invoice" });
+    expect(body.error).toContain("invoice");
   });
 
   it("also blocks on a pending (in-flight) payout", async () => {
@@ -170,25 +220,6 @@ describe("approve-pay double-pay guard", () => {
     const res = await POST(postBody());
     expect(res.status).toBe(409);
     expect(((await res.json()) as { existingPayout: Row }).existingPayout).toMatchObject({ status: "pending" });
-  });
-
-  it("proceeds with the acknowledgement and writes the audit event first, naming actor, work order and payout", async () => {
-    const db = makeDb(baseTables(paidPayout));
-    signIn(db);
-    const res = await POST(postBody({ acknowledgeExistingPayout: true }));
-    expect(res.status).toBe(200);
-    const audit = db.log.inserts.filter((i) => i.table === "audit_log");
-    expect(audit).toHaveLength(1);
-    expect(audit[0]!.row).toMatchObject({
-      action: "vendor_double_pay_acknowledged",
-      actor_user_id: MANAGER,
-      landlord_id: MANAGER,
-      input_summary: { workOrderId: WORK_ORDER, payoutId: "payout_1", payoutStatus: "paid", paymentChannel: "ach" },
-    });
-    // The acknowledgement was on record before the bookkeeping write landed.
-    const upsert = db.log.upserts.find((u) => u.table === "portal_work_order_records");
-    expect(upsert).toBeDefined();
-    expect((upsert!.row.row_data as Row).automationStatus).toBe("paid");
   });
 
   it("does not block, and writes no acknowledgement, when the only payout failed or was skipped", async () => {
@@ -214,7 +245,7 @@ describe("approve-pay double-pay guard", () => {
     signIn(db);
     const ok = await GET(new Request(`http://localhost/api/portal/work-orders/approve-pay?workOrderId=${WORK_ORDER}`));
     expect(ok.status).toBe(200);
-    expect(((await ok.json()) as { existingPayout: Row }).existingPayout).toMatchObject({ id: "payout_1", status: "paid" });
+    expect(((await ok.json()) as { existingPayout: Row }).existingPayout).toMatchObject({ id: "payout_1", status: "paid", rail: "approve_pay" });
 
     authState.ctx = { role: "manager", userId: "manager_b", email: "b@axis.test", db };
     const forbidden = await GET(new Request(`http://localhost/api/portal/work-orders/approve-pay?workOrderId=${WORK_ORDER}`));

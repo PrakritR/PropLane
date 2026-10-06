@@ -4,6 +4,7 @@ import { mapManagerBillRow, MANAGER_BILL_SELECT } from "@/lib/manager-bills";
 import { postGlBillApproved, postGlBillPaid } from "@/lib/reports/gl-posting";
 import { smsTestProvenanceColumns } from "@/lib/sms/sms-test-provenance.server";
 import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/lib/workspaces/row-scope.server";
+import { VendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
 
 export type CreateManagerBillInput = {
   managerUserId: string;
@@ -27,7 +28,7 @@ export type CreateManagerBillInput = {
 };
 
 export async function createManagerBill(db: SupabaseClient, input: CreateManagerBillInput): Promise<ManagerBill> {
-  if (input.amountCents <= 0) throw new Error("Bill amount must be positive.");
+  if (input.amountCents <= 0) throw new VendorInvoicePaymentRefusal("Bill amount must be positive.");
 
   // A bill tied to a house must land in the manager's active workspace —
   // never let an API caller write into a house outside it just because the
@@ -39,7 +40,7 @@ export async function createManagerBill(db: SupabaseClient, input: CreateManager
   if (input.propertyId) {
     const scope = await resolveActiveWorkspaceRowScope(db, input.viewerUserId ?? input.managerUserId);
     if (scope.propertyIds !== null && !scope.propertyIds.includes(input.propertyId)) {
-      throw new Error("This property is outside your active workspace.");
+      throw new VendorInvoicePaymentRefusal("This property is outside your active workspace.");
     }
   }
 
@@ -226,11 +227,11 @@ export async function createBillFromVendorInvoice(
     .eq("manager_user_id", managerUserId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!invoice) throw new Error("Vendor invoice not found");
-  if (invoice.status !== "approved") throw new Error("Vendor invoice must be approved before bill creation");
+  if (!invoice) throw new VendorInvoicePaymentRefusal("Vendor invoice not found");
+  if (invoice.status !== "approved") throw new VendorInvoicePaymentRefusal("Vendor invoice must be approved before bill creation");
 
   let bill = invoice.bill_id ? await loadBill(db, managerUserId, String(invoice.bill_id)) : null;
-  if (invoice.bill_id && !bill) throw new Error("Linked manager bill not found");
+  if (invoice.bill_id && !bill) throw new VendorInvoicePaymentRefusal("Linked manager bill not found");
 
   if (!bill) {
     const loadExistingBill = async () => {

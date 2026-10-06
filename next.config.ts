@@ -186,6 +186,10 @@ const nextConfig: NextConfig = {
       { source: "/portal/move-in/inspections/:kind(move-in|move-out)", destination: "/portal/move-in", permanent: false },
       { source: "/portal/work-orders", destination: "/portal/services/work-orders", permanent: false },
       { source: "/portal/work-orders/:path*", destination: "/portal/services/work-orders", permanent: false },
+      // Tasks lost its Arrivals & departures tab (move-ins and move-outs live on Move-in and Calendar). This
+      // outranks the app router, so the old address lands on the task list instead of a missing tab.
+      { source: "/portal/tasks/arrivals-departures", destination: "/portal/tasks", permanent: false },
+      { source: "/portal/tasks/arrivals-departures/:path*", destination: "/portal/tasks", permanent: false },
     ];
   },
 };

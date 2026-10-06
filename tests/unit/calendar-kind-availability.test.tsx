@@ -12,6 +12,10 @@ import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
 
 const TOURS_KEY = "axis_mgr_avail_slots_v2_test_tours";
 const SERVICES_KEY = "axis_mgr_avail_slots_v2_test_kind_services";
+const TASKS_KEY = "axis_mgr_avail_slots_v2_test_kind_tasks";
+// Inspections and move-in/out hours saved before they became Tasks.
+const LEGACY_INSPECTIONS_KEY = "axis_mgr_avail_slots_v2_test_kind_inspections";
+const LEGACY_MOVES_KEY = "axis_mgr_avail_slots_v2_test_kind_moves";
 
 let SLOTS_BY_KEY: Record<string, Set<string>> = {};
 const writeAvailability = vi.fn(async () => true);
@@ -116,5 +120,46 @@ describe("kind-scoped availability (PLAN-0914-1710 §2)", () => {
     const writtenKeys = writeAvailability.mock.calls.map((call) => call[1]);
     expect(writtenKeys).toContain(SERVICES_KEY);
     expect(writtenKeys).not.toContain(TOURS_KEY);
+  });
+
+  it("reads retired inspections and move hours as Tasks, and a Tasks write folds them in", async () => {
+    SLOTS_BY_KEY = {
+      [TOURS_KEY]: new Set(),
+      [TASKS_KEY]: new Set([mondaySlotKey(28)]), // 2:00-2:30
+      [LEGACY_INSPECTIONS_KEY]: new Set([mondaySlotKey(24), mondaySlotKey(25)]), // 12:00-1:00
+      [LEGACY_MOVES_KEY]: new Set([mondaySlotKey(30)]), // 3:00-3:30
+    };
+    const { container } = render(
+      <PortalCalendarPanels
+        storageKey={null}
+        availabilityKeysByKind={{ tours: [TOURS_KEY], tasks: [TASKS_KEY] }}
+        editKind="tasks"
+        compactAvailability
+        bareSurface
+        availabilityHeading="Calendar"
+        defaultTourAvailability={resolveDefaultTourAvailabilityConfig({ enabled: false })}
+        anchorDate={startOfWeekMonday(new Date())}
+      />,
+    );
+    const monday = toLocalDateStr(startOfWeekMonday(new Date()));
+    // The legacy 12 pm run paints although only the Tasks key was handed in.
+    const legacyCells = container.querySelectorAll(`[aria-label="Open details for 12 pm on ${monday}"]`);
+    expect(legacyCells.length).toBeGreaterThanOrEqual(1);
+    const wrap = legacyCells[0]?.closest(".group\\/slot") ?? legacyCells[0]?.parentElement;
+    const remove = wrap?.querySelector('[data-attr="calendar-remove-availability-slot"]') as HTMLButtonElement | null;
+    expect(remove).toBeTruthy();
+    fireEvent.click(remove!);
+    await waitFor(() => expect(writeAvailability).toHaveBeenCalled());
+    const calls = writeAvailability.mock.calls as unknown as Array<[Set<string>, string]>;
+    const tasksWrite = calls.find((call) => call[1] === TASKS_KEY)!;
+    expect(tasksWrite).toBeTruthy();
+    // Nothing is written as inspections or moves except the empty set that retires them.
+    for (const call of calls.filter((c) => c[1] === LEGACY_INSPECTIONS_KEY || c[1] === LEGACY_MOVES_KEY)) {
+      expect(call[0].size).toBe(0);
+    }
+    // The removed 12 pm slot is gone, the 2 pm and 3 pm hours survive in the Tasks record.
+    expect(tasksWrite[0].has(mondaySlotKey(24))).toBe(false);
+    expect(tasksWrite[0].has(mondaySlotKey(28))).toBe(true);
+    expect(tasksWrite[0].has(mondaySlotKey(30))).toBe(true);
   });
 });

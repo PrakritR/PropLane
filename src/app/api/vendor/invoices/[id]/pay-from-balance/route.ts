@@ -1,9 +1,10 @@
 import { claimInvoicePayment, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
+import { releaseInvoicePaymentClaim } from "@/lib/vendor-invoice-claim.server";
 import { NextResponse } from "next/server";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
 import { proplaneBalanceEnabled } from "@/lib/proplane-balance/flag";
 import { payVendorFromBalance } from "@/lib/proplane-balance/ledger.server";
-import { canTransitionVendorInvoice, mapVendorInvoiceRow, VENDOR_INVOICE_SELECT, type VendorInvoiceStatus } from "@/lib/vendor-invoices";
+import { canTransitionVendorInvoice, isVendorInvoicePaymentRefusal, mapVendorInvoiceRow, VENDOR_INVOICE_SELECT, type VendorInvoiceStatus } from "@/lib/vendor-invoices";
 import { track } from "@/lib/analytics/posthog";
 
 export const runtime = "nodejs";
@@ -12,9 +13,11 @@ export const runtime = "nodejs";
  * "Pay from PropLane balance" — moves the invoice total from the manager's
  * workspace balance to the vendor's balance instantly, inside the ledger, and
  * marks the invoice paid (`paid_from: "balance"`). No Stripe call. Reuses the
- * SAME double-pay guard `approve-pay` uses (`findBlockingVendorPayout`) when
- * the invoice is tied to a work order that already has a `vendor_payouts`
- * row — a manager cannot pay the same job twice through two different rails.
+ * SAME double-pay guard `approve-pay` uses: `claimInvoicePayment` first runs
+ * `findBlockingVendorPayout` (friendly refusal) and then `claim_vendor_invoice_payment`,
+ * which arbitrates in the database under a per-work-order lock — a manager cannot pay the same
+ * job twice through two different rails. An estimate-visit-fee invoice is a separate bill and
+ * is exempt.
  * Insufficient balance answers 422 with the shortfall; the client falls back
  * to the existing card-funded Approve + Pay path.
  */
@@ -49,18 +52,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const vendorUserId = String(existing.vendor_user_id ?? "").trim();
     if (!vendorUserId) return NextResponse.json({ error: "Invoice has no vendor." }, { status: 400 });
 
-    await claimInvoicePayment(auth.db, auth.userId, id, "balance");
+    // Only a deliberate refusal is a 409: the job is already paid through another rail, the
+    // invoice is in the wrong state, or it is not this manager's. The same call also reads the
+    // invoice, resolves the workspace scope and creates the bill, and a database fault in any of
+    // those must stay a 500 — "this invoice cannot be paid" would tell the manager it is already
+    // handled and stop them retrying a payment that never happened.
+    try {
+      await claimInvoicePayment(auth.db, auth.userId, id, "balance");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "This invoice cannot be paid from the balance.";
+      if (isVendorInvoicePaymentRefusal(e)) return NextResponse.json({ error: message }, { status: 409 });
+      console.error("[pay-from-balance] could not claim the invoice; nothing was paid", {
+        invoiceId: id,
+        managerUserId: auth.userId,
+        error: message,
+      });
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
 
     // The move is ONE transaction, so `ok: false` means the database said no and
     // nothing moved: the claim is released there, because a claim left behind
     // with no money moved made `claim_vendor_invoice_payment` reject every other
     // rail and the invoice could no longer be paid, scheduled or deleted at all.
     // Only an unpaid invoice still claimed by "balance" is released (C2-MN3).
-    const releaseClaim = async () => {
-      await auth.db.from("vendor_payouts").delete().eq("invoice_id", id).eq("manager_user_id", auth.userId).eq("status", "pending");
-      await auth.db.from("vendor_invoices").update({ payment_claim: null, updated_at: new Date().toISOString() })
-        .eq("id", id).eq("manager_user_id", auth.userId).eq("payment_claim", "balance").neq("status", "paid");
-    };
+    const releaseClaim = () => releaseInvoicePaymentClaim(auth.db, auth.userId, id, "balance");
 
     let move: Awaited<ReturnType<typeof payVendorFromBalance>>;
     try {

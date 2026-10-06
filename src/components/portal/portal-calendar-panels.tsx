@@ -19,8 +19,16 @@ import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
+  buildCalendarPeople,
+  openTourSlotKeys,
+  peerAvailabilityBlocks,
+  type OpenTourHost,
+} from "@/lib/calendar-people";
+import {
   AVAILABILITY_KINDS,
   AVAILABILITY_KIND_LABELS,
+  legacyTaskKeysForStorageKey,
+  readKeysForKindStorageKeys,
   type AvailabilityKind,
 } from "@/lib/manager-availability-kinds";
 import { mergeOpenRuns, formatOpenRunKindsLabel, type OpenRun } from "@/lib/calendar-open-runs";
@@ -83,6 +91,7 @@ import { mondayBasedDayIndex, resolveBlockBaseDates } from "@/lib/portal/availab
 import {
   CalendarAgendaView,
   CalendarBandLegend,
+  CalendarPeopleRow,
   CalendarDayPanel,
   CalendarEmptyStrip,
   CalendarMonthView,
@@ -119,6 +128,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   type CoManagerAvailabilityOverlay,
+  type CoManagerCalendarPeerDto,
   type ScheduledTourFilter,
 } from "@/lib/co-manager-calendar";
 import { buildScheduledTourMeetings } from "@/lib/manager-calendar-tour-meetings";
@@ -446,14 +456,6 @@ const CALENDAR_OPEN_RUN_TINTS: Record<AvailabilityKind, { fill: string; border: 
     fill: "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)] hover:brightness-95",
     border: "border-[var(--status-pending-fg)]/25",
   },
-  inspections: {
-    fill: "bg-slate-100 text-slate-700 hover:brightness-95 [html[data-theme=dark]_&]:bg-slate-500/15 [html[data-theme=dark]_&]:text-slate-200",
-    border: "border-slate-300",
-  },
-  moves: {
-    fill: "bg-violet-50 text-violet-700 hover:brightness-95 [html[data-theme=dark]_&]:bg-violet-500/15 [html[data-theme=dark]_&]:text-violet-200",
-    border: "border-violet-300",
-  },
 };
 /**
  * Default-open run styling — the dashed, lower-contrast cousin of painted
@@ -572,7 +574,8 @@ function unionAvailabilityByKind(
   for (const kind of AVAILABILITY_KINDS) {
     const keys = map[kind];
     if (!keys?.length) continue;
-    out[kind] = unionAvailabilityForStorageKeys(keys);
+    // Tasks also reads the legacy inspections/moves records (merged on read).
+    out[kind] = unionAvailabilityForStorageKeys(kind === "tasks" ? readKeysForKindStorageKeys(keys) : keys);
   }
   return out;
 }
@@ -653,6 +656,8 @@ export type DemoMeeting = {
    */
   allDay?: boolean;
   hostLabel?: string;
+  /** The person this item is for (host, assignee, or the viewer's own work): picks its colour on the shared grid. */
+  personUserId?: string;
   isPeerTour?: boolean;
   /**
    * Personal Google Calendar busy time. `title` is the event's own summary and
@@ -998,6 +1003,7 @@ export function PortalCalendarPanels({
   scheduledTourFilter,
   scheduledMeetingFilter,
   coManagerAvailabilityOverlays,
+  coManagerPeers,
   scheduleOwnerLabel,
   availabilityHeading = "Availability",
   externalMeetings,
@@ -1136,6 +1142,11 @@ export function PortalCalendarPanels({
    */
   scheduledMeetingFilter?: (meeting: DemoMeeting) => boolean;
   coManagerAvailabilityOverlays?: CoManagerAvailabilityOverlay[];
+  /**
+   * Everyone on the selected house as the calendar route returned them (you included). Availability
+   * is always shared, so each peer's open hours draw next to yours, in their colour.
+   */
+  coManagerPeers?: CoManagerCalendarPeerDto[];
   scheduleOwnerLabel?: string | null;
   availabilityHeading?: string;
   /** Pre-built calendar events from a caller-owned data source (e.g. vendor visits) merged
@@ -1552,10 +1563,26 @@ export function PortalCalendarPanels({
       if (isVendorViewer || keys.length === 0) return;
       setSaveStatus("saving");
       void Promise.all(
-        keys.map((key) => {
+        keys.map(async (key) => {
+          // A Tasks write starts from tasks + any legacy inspections/moves hours
+          // and clears the legacy records afterwards, so nothing is written under
+          // the retired kinds and a removed slot cannot come back from them.
+          const legacyKeys = legacyTaskKeysForStorageKey(key).filter(
+            (legacy) => readAvailabilityDateSetForStorageKey(legacy).size > 0,
+          );
           const current = new Set(readAvailabilityDateSetForStorageKey(key));
+          for (const legacy of legacyKeys) {
+            for (const slot of readAvailabilityDateSetForStorageKey(legacy)) current.add(slot);
+          }
           const next = mutate(current, key);
-          return writeAvailabilityDateSetForStorageKeyToServer(next, key, { adminLabel: scheduleOwnerLabel });
+          const ok = await writeAvailabilityDateSetForStorageKeyToServer(next, key, { adminLabel: scheduleOwnerLabel });
+          if (!ok) return false;
+          for (const legacy of legacyKeys) {
+            await writeAvailabilityDateSetForStorageKeyToServer(new Set<string>(), legacy, {
+              adminLabel: scheduleOwnerLabel,
+            });
+          }
+          return true;
         }),
       )
         .then(async (results) => {
@@ -2197,6 +2224,67 @@ export function PortalCalendarPanels({
     return keys;
   }, [meetings]);
 
+
+  /* ---- Who's doing what: one colour per person, shared availability, and the "N open" union */
+  const peerListForPeople = useMemo(() => {
+    const list = (coManagerPeers ?? []).map((peer) => ({
+      userId: peer.userId,
+      label: peer.label,
+      isSelf: peer.isSelf || peer.userId === userId,
+    }));
+    if (userId && !list.some((peer) => peer.userId === userId)) list.push({ userId, label: "You", isSelf: true });
+    return list;
+  }, [coManagerPeers, userId]);
+  const calendarPeople = useMemo(() => buildCalendarPeople(peerListForPeople), [peerListForPeople]);
+  const calendarPeopleById = useMemo(
+    () => new Map(calendarPeople.map((person) => [person.userId, person])),
+    [calendarPeople],
+  );
+  const selfPerson = userId ? (calendarPeopleById.get(userId) ?? null) : null;
+  const [hiddenPeople, setHiddenPeople] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleHiddenPerson = useCallback((personId: string) => {
+    setHiddenPeople((prev) => {
+      const next = new Set(prev);
+      if (next.has(personId)) next.delete(personId);
+      else next.add(personId);
+      return next;
+    });
+  }, []);
+
+  /** The half hours each person is busy in; a meeting nobody owns is the viewer's. */
+  const takenSlotKeysByPerson = useMemo(() => {
+    const byPerson = new Map<string, Set<string>>();
+    for (const meeting of meetings) {
+      if (!meetingConsumesTourSlot(meeting)) continue;
+      const owner = meeting.personUserId?.trim() || userId || "";
+      const set = byPerson.get(owner) ?? new Set<string>();
+      for (const key of meetingOccupiedSlotKeys(meeting)) set.add(key);
+      byPerson.set(owner, set);
+    }
+    return byPerson;
+  }, [meetings, userId]);
+
+  /** Open tour slots across every available person at the house (listOpenTourSlots semantics). */
+  const openTourSlots = useMemo(() => {
+    const hosts: OpenTourHost[] = [
+      { userId: userId ?? "", offered: offeredSlots, busy: takenSlotKeysByPerson.get(userId ?? "") ?? EMPTY_STRING_SET },
+    ];
+    for (const peer of coManagerPeers ?? []) {
+      if (peer.isSelf || peer.userId === userId) continue;
+      hosts.push({
+        userId: peer.userId,
+        // The same bookable rule as your own offered slots: nothing in the past.
+        offered: new Set(
+          partitionTourAvailabilityStoredKeys(peer.slots).publishedSlots.filter((slot) =>
+            slotIsBookable(slot, offeringNow),
+          ),
+        ),
+        busy: takenSlotKeysByPerson.get(peer.userId) ?? EMPTY_STRING_SET,
+      });
+    }
+    return openTourSlotKeys(hosts);
+  }, [coManagerPeers, offeredSlots, offeringNow, takenSlotKeysByPerson, userId]);
+
   /**
    * "N open" for a day header — painted availability MINUS the slots a booked
    * meeting already occupies.
@@ -2211,10 +2299,9 @@ export function PortalCalendarPanels({
     (dateStr: string) =>
       visibleSlotIndices.reduce((total, slot) => {
         const key = dateSlotKey(dateStr, slot);
-        if (!offeredSlots.has(key)) return total;
-        return takenSlotKeys.has(key) ? total : total + 1;
+        return openTourSlots.has(key) ? total + 1 : total;
       }, 0),
-    [offeredSlots, takenSlotKeys, visibleSlotIndices],
+    [openTourSlots, visibleSlotIndices],
   );
 
   /**
@@ -2248,11 +2335,11 @@ export function PortalCalendarPanels({
     for (const ds of activeBlockDateStrs) {
       for (const slot of slotRowIndices) {
         const key = dateSlotKey(ds, slot);
-        if (offeredSlots.has(key) && !takenSlotKeys.has(key)) n += 1;
+        if (openTourSlots.has(key)) n += 1;
       }
     }
     return n;
-  }, [activeBlockDateStrs, offeredSlots, takenSlotKeys]);
+  }, [activeBlockDateStrs, openTourSlots]);
 
   const coManagerOverlayBySlotKey = useMemo(() => {
     const map = new Map<string, CoManagerAvailabilityOverlay>();
@@ -2330,8 +2417,18 @@ export function PortalCalendarPanels({
   }, [anchorDateStr, fullWeekDateStrs, monthLastStr, monthStartStr, viewMode]);
 
   /** Everything the grid draws (Google busy time included) and the lists show (real items only). */
-  const gridItems = useMemo(() => gridPaintedMeetings.flatMap(meetingToGridItems), [gridPaintedMeetings]);
-  const listItems = useMemo(() => scheduledMeetings.flatMap(meetingToGridItems), [scheduledMeetings]);
+  const itemIsShown = useCallback(
+    (item: CalendarGridItem) => !item.person || !hiddenPeople.has(item.person.userId),
+    [hiddenPeople],
+  );
+  const gridItems = useMemo(
+    () => gridPaintedMeetings.flatMap((meeting) => meetingToGridItems(meeting, calendarPeopleById)).filter(itemIsShown),
+    [gridPaintedMeetings, calendarPeopleById, itemIsShown],
+  );
+  const listItems = useMemo(
+    () => scheduledMeetings.flatMap((meeting) => meetingToGridItems(meeting, calendarPeopleById)).filter(itemIsShown),
+    [scheduledMeetings, calendarPeopleById, itemIsShown],
+  );
   const rangeGridItems = useMemo(() => {
     const dates = new Set(rangeDates);
     return gridItems.filter((item) => dates.has(item.dateStr));
@@ -2350,9 +2447,29 @@ export function PortalCalendarPanels({
   );
   const bandsByDate = useMemo(() => {
     const map = new Map<string, ReturnType<typeof bandsForTab>>();
-    for (const ds of rangeDates) map.set(ds, bandsForTab(openRunsByDate.get(ds) ?? [], calendarTab));
+    const selfHidden = Boolean(selfPerson && hiddenPeople.has(selfPerson.userId));
+    for (const ds of rangeDates) {
+      const bands = bandsForTab(openRunsByDate.get(ds) ?? [], calendarTab);
+      map.set(ds, selfHidden ? bands.filter((band) => band.source !== "typed") : bands);
+    }
     return map;
-  }, [calendarTab, openRunsByDate, rangeDates]);
+  }, [calendarTab, hiddenPeople, openRunsByDate, rangeDates, selfPerson]);
+  /** Everyone else's open hours for the range, for the tab's kinds. */
+  const peerAvailabilityForRange = useMemo(
+    () =>
+      (coManagerPeers ?? [])
+        .filter((peer) => !peer.isSelf && peer.userId !== userId && !hiddenPeople.has(peer.userId))
+        .flatMap((peer) =>
+          peerAvailabilityBlocks({
+            userId: peer.userId,
+            toursSlots: peer.slots,
+            kindSlots: peer.kindSlots,
+            dateStrs: rangeDates,
+          }),
+        )
+        .filter((block) => calendarTab === "all" || block.kind === calendarTab),
+    [calendarTab, coManagerPeers, hiddenPeople, rangeDates, userId],
+  );
   const rangeBands = useMemo(() => [...bandsByDate.values()].flat(), [bandsByDate]);
 
   /** Tour starts (minutes) the manager is open for on a date — published tour windows plus the default band. */
@@ -2360,15 +2477,24 @@ export function PortalCalendarPanels({
     () => new Set(partitionTourAvailabilityStoredKeys([...toursActiveSlots]).publishedSlots),
     [toursActiveSlots],
   );
+  /** The tour windows everyone else on the house has published (availability is always shared). */
+  const peerToursPublishedSlots = useMemo(() => {
+    const out = new Set<string>();
+    for (const peer of coManagerPeers ?? []) {
+      if (peer.isSelf || peer.userId === userId) continue;
+      for (const key of partitionTourAvailabilityStoredKeys(peer.slots).publishedSlots) out.add(key);
+    }
+    return out;
+  }, [coManagerPeers, userId]);
   const tourOpenStartsFor = useCallback(
     (ds: string): number[] =>
       slotRowIndices
         .filter((slot) => {
           const key = dateSlotKey(ds, slot);
-          return toursPublishedSlots.has(key) || defaultOnlySlots.has(key);
+          return toursPublishedSlots.has(key) || defaultOnlySlots.has(key) || peerToursPublishedSlots.has(key);
         })
         .map((slot) => slot * SLOT_DURATION_MINUTES),
-    [defaultOnlySlots, toursPublishedSlots],
+    [defaultOnlySlots, peerToursPublishedSlots, toursPublishedSlots],
   );
   /** The starts a guest could still book: offered by the tour rules and not held by a meeting. */
   const tourChipStartsFor = useCallback(
@@ -2376,10 +2502,10 @@ export function PortalCalendarPanels({
       slotRowIndices
         .filter((slot) => {
           const key = dateSlotKey(ds, slot);
-          return offeredSlots.has(key) && !takenSlotKeys.has(key);
+          return openTourSlots.has(key);
         })
         .map((slot) => slot * SLOT_DURATION_MINUTES),
-    [offeredSlots, takenSlotKeys],
+    [openTourSlots],
   );
   const openHalfHoursForTab = useCallback(
     (ds: string): number => {
@@ -2392,11 +2518,11 @@ export function PortalCalendarPanels({
       let count = 0;
       for (const slot of slotRowIndices) {
         const key = dateSlotKey(ds, slot);
-        if (kindSlots ? kindSlots.has(key) : offeredSlots.has(key) && !takenSlotKeys.has(key)) count += 1;
+        if (kindSlots ? kindSlots.has(key) : openTourSlots.has(key)) count += 1;
       }
       return count;
     },
-    [activeSlotsByKind.services, activeSlotsByKind.tasks, calendarTab, offeredSlots, takenSlotKeys],
+    [activeSlotsByKind.services, activeSlotsByKind.tasks, calendarTab, openTourSlots],
   );
 
   const toDateAtNoon = (ds: string) => new Date(`${ds}T12:00:00`);
@@ -2407,27 +2533,29 @@ export function PortalCalendarPanels({
     },
     [setAnchorDate, setViewMode],
   );
+  /**
+   * A booked tour, service or task opens its record straight from the grid, the month, the Day panel
+   * and the Agenda. Only an item with no record behind it (a Google event, a service whose row is
+   * gone) falls back to the quick-look dialog.
+   */
   const openGridItem = useCallback(
     (item: CalendarGridItem, target: HTMLElement | null) => {
+      const href = onOpenRecord ? recordHrefFor?.(item.meeting) : null;
+      if (href && onOpenRecord) {
+        onOpenRecord(href);
+        return;
+      }
       openSlotDetails(item.meeting.dateStr, item.meeting.startSlot, target ?? document.body, item.meeting);
     },
-    [openSlotDetails],
+    [onOpenRecord, openSlotDetails, recordHrefFor],
   );
-  /** Agenda: a row (and its ⋯ Open) goes to the record; with no record behind it, the quick-look dialog. */
-  const openAgendaItem = useCallback(
-    (item: CalendarGridItem, target: HTMLElement | null) => {
-      const href = onOpenRecord ? recordHrefFor?.(item.meeting) : null;
-      if (href && onOpenRecord) onOpenRecord(href);
-      else openGridItem(item, target);
-    },
-    [onOpenRecord, openGridItem, recordHrefFor],
-  );
+  const openAgendaItem = openGridItem;
 
   /* ---- Add availability: the clock menu, the Day panel, a drag and a band all open the one popup */
   const portfolioHouses = useMemo(() => scheduleTourPropertyOptions ?? [], [scheduleTourPropertyOptions]);
   const defaultAvailabilityDraft = useCallback(
     (seed: Partial<AvailabilityDraft> = {}): AvailabilityDraft => ({
-      kinds: ["everything"],
+      kinds: [editKind],
       on: "days",
       weekdays: [0, 1, 2, 3, 4],
       date: anchorDateStr,
@@ -2438,7 +2566,7 @@ export function PortalCalendarPanels({
       weekMonday: mondayOfDateStr(anchorDateStr),
       ...seed,
     }),
-    [anchorDateStr, filteredPropertyId],
+    [anchorDateStr, editKind, filteredPropertyId],
   );
   const openAddAvailability = useCallback(
     (dateStr?: string) => {
@@ -2460,7 +2588,7 @@ export function PortalCalendarPanels({
       setAvailDialog({
         origin: null,
         initial: defaultAvailabilityDraft({
-          kinds: ["everything"],
+          kinds: [editKind],
           weekdays: [weekdayOfDateStr(dateStr)],
           date: dateStr,
           repeat: "week",
@@ -4057,6 +4185,17 @@ export function PortalCalendarPanels({
           onOpenItem={openGridItem}
           onOpenDay={openDay}
           onBandClick={(ds, band) => editBand(ds, band)}
+          onRemoveBand={(ds, band) =>
+            removeOpenRun(
+              ds,
+              Math.floor(band.startMin / SLOT_DURATION_MINUTES),
+              Math.ceil(band.endMin / SLOT_DURATION_MINUTES),
+              band.kinds,
+            )
+          }
+          selfPerson={selfPerson}
+          peerAvailability={peerAvailabilityForRange}
+          people={calendarPeopleById}
           onDragAdd={dragAddAvailability}
           emptyStrip={emptyStrip}
           legend={<CalendarBandLegend bands={rangeBands} tab={calendarTab} />}
@@ -4111,6 +4250,11 @@ export function PortalCalendarPanels({
               {calendarNavControls}
             </div>
           )}
+          {calendarPeople.length > 1 ? (
+            <div className="rounded-[14px] border border-border bg-card">
+              <CalendarPeopleRow people={calendarPeople} hidden={hiddenPeople} onToggle={toggleHiddenPerson} />
+            </div>
+          ) : null}
           {body}
         </div>
         {hostedNav && navControlsHost ? createPortal(calendarNavControls, navControlsHost) : null}

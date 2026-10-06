@@ -13,7 +13,12 @@
 import { track } from "@/lib/analytics/posthog";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
-import { createExpensesFromWorkOrder, markWorkOrderPaid, mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
+import {
+  createExpensesFromWorkOrder,
+  markWorkOrderPaid,
+  mergeWorkOrderCompletion,
+  readPostedWorkOrderExpenseLines,
+} from "@/lib/work-order-expenses";
 import { payoutVendorForWorkOrder, recordVendorPayoutSettled, type VendorPayoutOutcome } from "@/lib/stripe-vendor-payout";
 import { createAxisAchCheckoutSession, VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
 import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
@@ -22,7 +27,6 @@ import { getStripe } from "@/lib/stripe";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import {
   existingVendorPayoutWarning,
-  VENDOR_DOUBLE_PAY_ACK_ACTION,
   VENDOR_DOUBLE_PAY_CONFLICT_CODE,
   vendorPayoutBlocksMarkPaid,
   type ExistingVendorPayoutSummary,
@@ -59,12 +63,12 @@ export type ApprovePayInput = {
    */
   paymentChannel?: "ach" | "balance";
   /**
-   * The manager saw the double-pay warning naming the existing PropLane payout
-   * and still wants to mark this paid. Without it, a work order that already has
-   * a `pending` / `paid` `vendor_payouts` row is refused with a 409.
+   * Webhook settle — skip starting another Checkout session, and skip the
+   * double-pay guard: this call moves no money at all (every payout write
+   * below is gated on `!settleOnly`), it only records the payment the open
+   * Checkout session already made, whose own `pending` payout row is exactly
+   * what the guard would refuse on.
    */
-  acknowledgeExistingPayout?: boolean;
-  /** Webhook settle — skip starting another Checkout session. */
   settleOnly?: boolean;
 };
 
@@ -103,21 +107,66 @@ export type ApprovePaySuccess = {
  * `skipped`). A read failure counts as a blocking payout: this is the only
  * check between the manager and paying twice, so it refuses rather than
  * proceeding on an unread table.
+ *
+ * A service can carry several payout rows, because the estimate-visit fee is a
+ * SECOND invoice on the same `work_order_id`. Paying that $50 fee is not paying
+ * the job, so its payout is not a double-pay warning — and the read must not
+ * assume one row either, or the fee's existence alone made every later
+ * Approve + pay refuse.
+ *
+ * Only the server-written `estimate_visit_bid_id` marks a visit fee. The invoice
+ * NUMBER cannot: it arrives verbatim in the vendor's own submission body, so
+ * reading the exemption off a `VISIT-` prefix let the assigned vendor number
+ * their own job bill that way and have this guard wave the second payout
+ * through. An invoice id that does not come back is not exempt either.
+ *
+ * This is the FRIENDLY pre-check, not the arbiter: it is read-then-write. The database arbitrates
+ * (`vendor_payouts_cross_rail_guard` trigger + `claim_vendor_invoice_payment`, migration
+ * 20261004160000) so two racing writers can never both insert. Every rail that pays a job calls it
+ * first — Approve + pay, offline/balance (`claimInvoicePayment`) and Stripe invoice pay.
+ * `excludeInvoiceId` is the invoice being paid, so its own claim row never blocks a retry.
  */
 export async function findBlockingVendorPayout(
   db: Db,
   workOrderId: string,
+  opts: { excludeInvoiceId?: string | null } = {},
 ): Promise<{ ok: true; payout: ExistingVendorPayoutSummary | null } | { ok: false; error: string }> {
   const { data, error } = await db
     .from("vendor_payouts")
-    .select("id, status, amount_cents, stripe_transfer_id, created_at")
-    .eq("work_order_id", workOrderId)
-    .maybeSingle();
+    .select("id, status, amount_cents, stripe_transfer_id, created_at, invoice_id")
+    .eq("work_order_id", workOrderId);
   if (error) return { ok: false, error: `Could not check for an existing payout: ${error.message}` };
-  const row = data as
-    | { id: string; status: string; amount_cents: number | null; stripe_transfer_id: string | null; created_at: string | null }
-    | null;
-  if (!row || !vendorPayoutBlocksMarkPaid(row.status)) return { ok: true, payout: null };
+  const rows = (data ?? []) as Array<{
+    id: string;
+    status: string;
+    amount_cents: number | null;
+    stripe_transfer_id: string | null;
+    created_at: string | null;
+    invoice_id: string | null;
+  }>;
+  const candidates = rows
+    .filter((row) => vendorPayoutBlocksMarkPaid(row.status))
+    // The invoice rail asks "is there ANOTHER payout?": its own claim row is not a duplicate.
+    .filter((row) => !opts.excludeInvoiceId || row.invoice_id !== opts.excludeInvoiceId)
+    .sort((left, right) => String(left.created_at ?? "").localeCompare(String(right.created_at ?? "")));
+  if (candidates.length === 0) return { ok: true, payout: null };
+  const invoiceIds = [...new Set(candidates.map((row) => row.invoice_id ?? "").filter(Boolean))];
+  const visitFeeInvoiceIds = new Set<string>();
+  if (invoiceIds.length > 0) {
+    const { data: invoices, error: invoiceError } = await db
+      .from("vendor_invoices")
+      .select("id, estimate_visit_bid_id")
+      .in("id", invoiceIds);
+    if (invoiceError) {
+      return { ok: false, error: `Could not check for an existing payout: ${invoiceError.message}` };
+    }
+    for (const invoice of (invoices ?? []) as Array<{ id?: unknown; estimate_visit_bid_id?: unknown }>) {
+      const id = invoice.id == null ? "" : String(invoice.id);
+      if (id && invoice.estimate_visit_bid_id != null) visitFeeInvoiceIds.add(id);
+    }
+  }
+  const row = candidates.find((candidate) => !candidate.invoice_id || !visitFeeInvoiceIds.has(candidate.invoice_id));
+  if (!row) return { ok: true, payout: null };
   return {
     ok: true,
     payout: {
@@ -126,6 +175,7 @@ export async function findBlockingVendorPayout(
       amountCents: Number(row.amount_cents) || 0,
       stripeTransferId: row.stripe_transfer_id ?? null,
       createdAt: row.created_at ?? null,
+      rail: row.invoice_id ? "invoice" : "approve_pay",
     },
   };
 }
@@ -136,9 +186,9 @@ export async function findBlockingVendorPayout(
  * Notifies the resident and vendor.
  *
  * Double-pay guard: when the work order already has a `pending` / `paid`
- * `vendor_payouts` row, the write is refused (409, naming the payout) unless
- * `acknowledgeExistingPayout` is set, and the acknowledgement is recorded in
- * `audit_log` BEFORE any bookkeeping write — see `vendor-payout-guard.ts`. */
+ * `vendor_payouts` row, the write is refused (409, naming the payout and the
+ * rail that already covers it). There is no override — see
+ * `vendor-payout-guard.ts`. */
 export async function approveAndPayWorkOrder(
   db: Db,
   actor: ApprovePayActor,
@@ -170,39 +220,16 @@ export async function approveAndPayWorkOrder(
 
   const paymentChannel: "ach" | "balance" = input.paymentChannel === "balance" ? "balance" : "ach";
 
-  const blocking = await findBlockingVendorPayout(db, workOrder.id);
-  if (!blocking.ok) return { ok: false, status: 500, error: blocking.error };
-  if (blocking.payout) {
-    if (input.acknowledgeExistingPayout !== true) {
+  if (!input.settleOnly) {
+    const blocking = await findBlockingVendorPayout(db, workOrder.id);
+    if (!blocking.ok) return { ok: false, status: 500, error: blocking.error };
+    if (blocking.payout) {
       return {
         ok: false,
         status: 409,
         code: VENDOR_DOUBLE_PAY_CONFLICT_CODE,
         error: existingVendorPayoutWarning(blocking.payout),
         existingPayout: blocking.payout,
-      };
-    }
-    // Intent first: the acknowledgement is on record even if a later write fails.
-    const { error: auditError } = await db.from("audit_log").insert({
-      actor_user_id: actor.userId,
-      landlord_id: ownerManagerUserId,
-      action: VENDOR_DOUBLE_PAY_ACK_ACTION,
-      tool_name: "approve_pay",
-      input_summary: {
-        workOrderId: workOrder.id,
-        payoutId: blocking.payout.id,
-        payoutStatus: blocking.payout.status,
-        payoutAmountCents: blocking.payout.amountCents,
-        stripeTransferId: blocking.payout.stripeTransferId,
-        paymentChannel,
-      },
-      created_at: new Date().toISOString(),
-    });
-    if (auditError) {
-      return {
-        ok: false,
-        status: 500,
-        error: `Could not record the acknowledgement; nothing was marked paid. ${auditError.message}`,
       };
     }
   }
@@ -232,6 +259,19 @@ export async function approveAndPayWorkOrder(
   const vendorUserId = String(existing.vendor_user_id ?? "").trim();
   const invoiceCents = Math.round(acceptedVendorCostCents ?? 0);
 
+  // What this job has already expensed, read BEFORE any money moves. The posting below refuses to
+  // double-post off this answer, so a read that fails has to refuse the whole request here rather
+  // than after the balance debit — paying the vendor and then failing to record it is the one
+  // half-done state this function is built to avoid.
+  const postedLines = await readPostedWorkOrderExpenseLines(db, ownerManagerUserId, workOrder.id);
+  if (!postedLines.ok) {
+    return {
+      ok: false,
+      status: 500,
+      error: `Could not check what this job has already expensed; nothing was paid. ${postedLines.error}`,
+    };
+  }
+
   // night/vendor-pay: pay the vendor instantly out of the manager's PropLane
   // balance instead of starting a Stripe Checkout session. Runs BEFORE any
   // completion/expense-logging write, so an insufficient balance (or the flag
@@ -244,6 +284,16 @@ export async function approveAndPayWorkOrder(
     if (!vendorUserId || invoiceCents < 100) {
       return { ok: false, status: 400, error: "Balance payment needs a vendor and a cost of at least $1.00." };
     }
+    // Claim the job's payout BEFORE any money moves. The database refuses the claim when the job's
+    // own invoice (or another Approve + pay) already has a pending/paid payout, so the read-then-
+    // write pre-check above is not the only thing between the manager and paying twice.
+    const claim = await claimWorkOrderPayout(db, {
+      workOrderId: workOrder.id,
+      managerUserId: ownerManagerUserId,
+      vendorUserId,
+      amountCents: invoiceCents,
+    });
+    if (!claim.ok) return claim;
     const move = await payVendorFromBalance(db, {
       managerUserId: ownerManagerUserId,
       vendorUserId,
@@ -254,6 +304,8 @@ export async function approveAndPayWorkOrder(
       idempotencyRoot: `work-order:${workOrder.id}`,
     });
     if (!move.ok) {
+      // Nothing moved: release the claim so the job can still be paid another way.
+      await claim.release().catch(() => undefined);
       if (move.code === "insufficient_balance") {
         return {
           ok: false,
@@ -303,7 +355,7 @@ export async function approveAndPayWorkOrder(
     workDoneSummary: input.workDoneSummary,
     propertyId: workOrder.propertyId || workOrder.assignedPropertyId,
     vendorId: acceptedVendorId,
-  });
+  }, postedLines.posted);
 
   const completed = mergeWorkOrderCompletion(
     { ...existingRow, ...workOrder },
@@ -415,6 +467,105 @@ export async function approveAndPayWorkOrder(
   return { ok: true, workOrder: paid, expenseEntryIds };
 }
 
+/** The database refused a payout insert because another rail already covers this job (SQLSTATE VP409). */
+function isCrossRailPayoutRefusal(error: { code?: string; message?: string } | null | undefined): boolean {
+  return error?.code === "VP409";
+}
+
+/** The (work order, invoice) unique index refused the insert: a payout row for this job already exists. */
+function isDuplicatePayoutRow(error: { code?: string } | null | undefined): boolean {
+  return error?.code === "23505";
+}
+
+function crossRailPayoutFailure(message: string): WorkOrderActionFailure {
+  return { ok: false, status: 409, error: message };
+}
+
+/**
+ * Inserts the job's own (invoice-less) `pending` payout so the money move that follows is owned. The
+ * insert is the atomic arbiter: `vendor_payouts_cross_rail_guard` (migration 20261004160000) refuses
+ * it when the job's own invoice already has a pending/paid payout, and the (work order, invoice)
+ * unique index refuses a second invoice-less row. A `failed`/`skipped` row from an earlier attempt
+ * moved no money and is re-claimed by compare-and-swap.
+ */
+async function claimWorkOrderPayout(
+  db: Db,
+  input: { workOrderId: string; managerUserId: string; vendorUserId: string; amountCents: number },
+): Promise<{ ok: true; release: () => Promise<void> } | WorkOrderActionFailure> {
+  const nowIso = new Date().toISOString();
+  const { error } = await db
+    .from("vendor_payouts")
+    .insert({
+      manager_user_id: input.managerUserId,
+      vendor_user_id: input.vendorUserId,
+      work_order_id: input.workOrderId,
+      // The job's OWN payout is the invoice-less one. Written explicitly because it is what both
+      // the unique index and every reclaim/release below key on, not an incidental omission.
+      invoice_id: null,
+      amount_cents: input.amountCents,
+      status: "pending",
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+  if (!error) {
+    return {
+      ok: true,
+      // Keyed on what makes the claim unique rather than on an id read back from the insert: the
+      // index allows exactly one invoice-less pending row per job, so this is the row just written.
+      release: async () => {
+        await db
+          .from("vendor_payouts")
+          .delete()
+          .eq("work_order_id", input.workOrderId)
+          .is("invoice_id", null)
+          .eq("status", "pending");
+      },
+    };
+  }
+  if (isCrossRailPayoutRefusal(error)) return crossRailPayoutFailure(error.message);
+  // Anything other than "a row is already there" is a real fault, not a double-pay refusal: reporting
+  // a dropped connection or an RLS error as "already paid" hides it and tells the manager a lie.
+  if (!isDuplicatePayoutRow(error)) {
+    console.error("[approve-pay] could not claim the vendor payout", {
+      workOrderId: input.workOrderId,
+      code: error.code,
+      message: error.message,
+    });
+    return { ok: false, status: 500, error: `Could not claim the payout for this service; nothing was paid. ${error.message}` };
+  }
+  const { data: reclaimed, error: reclaimError } = await db
+    .from("vendor_payouts")
+    .update({ status: "pending", amount_cents: input.amountCents, failure_reason: null, updated_at: nowIso })
+    .eq("work_order_id", input.workOrderId)
+    .is("invoice_id", null)
+    .in("status", ["failed", "skipped"])
+    .select("id, status")
+    .maybeSingle();
+  if (reclaimError && isCrossRailPayoutRefusal(reclaimError)) return crossRailPayoutFailure(reclaimError.message);
+  if (reclaimError && !isDuplicatePayoutRow(reclaimError)) {
+    console.error("[approve-pay] could not re-claim the failed vendor payout", {
+      workOrderId: input.workOrderId,
+      code: reclaimError.code,
+      message: reclaimError.message,
+    });
+    return { ok: false, status: 500, error: `Could not claim the payout for this service; nothing was paid. ${reclaimError.message}` };
+  }
+  if (reclaimed?.id) {
+    const id = String(reclaimed.id);
+    return {
+      ok: true,
+      release: async () => {
+        await db.from("vendor_payouts").update({ status: "failed", updated_at: new Date().toISOString() }).eq("id", id).eq("status", "pending");
+      },
+    };
+  }
+  return {
+    ok: false,
+    status: 409,
+    error: "This service already has a payout in progress or paid through Approve + pay. Paying it again would pay the vendor twice.",
+  };
+}
+
 type PendingVendorPay = {
   sessionId: string;
   category: WorkOrderCategory;
@@ -446,19 +597,21 @@ async function startVendorPayCheckout(
 > {
   const stripe = getStripe();
   const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, input.vendorUserId);
-  const nowIso = new Date().toISOString();
-  const { error: payoutInsertError } = await db.from("vendor_payouts").insert({
-    manager_user_id: input.ownerManagerUserId,
-    vendor_user_id: input.vendorUserId,
-    work_order_id: input.workOrderId,
-    amount_cents: input.invoiceCents,
-    status: "pending",
-    created_at: nowIso,
-    updated_at: nowIso,
+  // Same claim as the balance rail, so a `failed`/`skipped` row from an earlier attempt is
+  // re-claimed rather than deadlocking the job, and so every failure return below can hand the
+  // claim back. A `pending` row left behind by a checkout that never started made the job
+  // unpayable by EITHER rail once the cross-rail trigger started reading it as a live claim.
+  const claim = await claimWorkOrderPayout(db, {
+    workOrderId: input.workOrderId,
+    managerUserId: input.ownerManagerUserId,
+    vendorUserId: input.vendorUserId,
+    amountCents: input.invoiceCents,
   });
-  if (payoutInsertError) {
-    return { ok: false, status: 500, error: payoutInsertError.message };
-  }
+  if (!claim.ok) return claim;
+  const releaseAndFail = async (failure: ApprovePayFailure): Promise<ApprovePayFailure> => {
+    await claim.release().catch(() => undefined);
+    return failure;
+  };
   const origin = resolveShareableAppOrigin();
   // VENDOR_BANKING_ENABLED: PropLane's 3% take on top of Stripe's own
   // processing cost, which the manager still pays exactly as before — the
@@ -487,10 +640,14 @@ async function startVendorPayCheckout(
     cancelUrl: `${origin}/portal/services?vendor_pay=cancel`,
   });
   if (result.mode !== "hosted" || !result.url) {
-    return { ok: false, status: 500, error: "Could not start vendor checkout." };
+    return releaseAndFail({ ok: false, status: 500, error: "Could not start vendor checkout." });
   }
   if (result.totalCents !== input.invoiceCents + result.processingFeeCents) {
-    return { ok: false, status: 500, error: "Vendor checkout total does not equal invoice plus Stripe’s cost." };
+    return releaseAndFail({
+      ok: false,
+      status: 500,
+      error: "Vendor checkout total does not equal invoice plus Stripe’s cost.",
+    });
   }
   const pending: PendingVendorPay = {
     sessionId: result.sessionId,
@@ -507,7 +664,7 @@ async function startVendorPayCheckout(
       updated_at: new Date().toISOString(),
     })
     .eq("id", input.workOrderId);
-  if (error) return { ok: false, status: 500, error: error.message };
+  if (error) return releaseAndFail({ ok: false, status: 500, error: error.message });
   return { ok: true, url: result.url, sessionId: result.sessionId };
 }
 
@@ -548,7 +705,6 @@ export async function completeVendorPayFromStripeSession(
       materialsMemo: pending?.materialsMemo,
       workDoneSummary: pending?.workDoneSummary,
       paymentChannel: "ach",
-      acknowledgeExistingPayout: true,
       settleOnly: true,
     },
   );

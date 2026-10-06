@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { ManagerPayments } from "../../../src/components/portal/pro-payments";
 import { ResidentPaymentsPanel } from "../../../src/components/portal/resident-payments-panel";
 import { WorkspaceProvider } from "../../../src/components/portal/workspace-provider";
+import { useFixtureRoute } from "./stubs";
 import { readChargesForResident, readHouseholdCharges } from "../../../src/lib/household-charges";
 import { residentCanSeeCharge, residentVisibleCharges } from "../../../src/lib/household-charge-visibility";
 
@@ -18,7 +19,7 @@ import { residentCanSeeCharge, residentVisibleCharges } from "../../../src/lib/h
  */
 const params = new URLSearchParams(location.search);
 const surface = params.get("surface") === "resident" ? "resident" : "manager";
-const route = params.get("route") ?? (surface === "resident" ? "/resident/payments/pending" : "/portal/payments/incoming/pending");
+const defaultRoute = surface === "resident" ? "/resident/payments/pending" : "/portal/payments/incoming/pending";
 
 (window as unknown as { __session: unknown }).__session =
   surface === "resident"
@@ -26,6 +27,9 @@ const route = params.get("route") ?? (surface === "resident" ? "/resident/paymen
     : { userId: "mgr-fixture", email: "manager@example.com", ready: true };
 
 function ManagerSurface() {
+  // Same source the router stub writes, so a stub navigation re-renders this
+  // surface on the new route WITHOUT remounting the panel (what Next does).
+  const route = useFixtureRoute(defaultRoute);
   const parts = route.replace(/^\/portal\/payments\/?/, "").split("/").filter(Boolean);
   const direction = (parts[0] === "outgoing" ? "outgoing" : "incoming") as "incoming" | "outgoing";
   const bucket = (["pending", "overdue", "paid"].includes(parts[1] ?? "") ? parts[1] : "pending") as "pending" | "overdue" | "paid";
@@ -39,6 +43,7 @@ function ManagerSurface() {
 }
 
 function ResidentSurface() {
+  const route = useFixtureRoute(defaultRoute);
   const parts = route.replace(/^\/resident\/payments\/?/, "").split("/").filter(Boolean);
   const bucket = (["pending", "overdue", "paid"].includes(parts[0] ?? "") ? parts[0] : "pending") as "pending" | "overdue" | "paid";
   const chargeId = parts[1] ? decodeURIComponent(parts[1]) : undefined;

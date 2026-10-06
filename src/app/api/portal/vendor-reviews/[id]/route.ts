@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getReportsAuthContext } from "@/lib/reports/auth";
-import { canEditVendorReview, normalizeVendorReviewStars, normalizeVendorReviewBody } from "@/lib/vendor-reviews";
+import {
+  canEditVendorReview,
+  normalizeVendorReviewStars,
+  normalizeVendorReviewBody,
+  vendorReviewEditWindowFloorIso,
+} from "@/lib/vendor-reviews";
 
 export const runtime = "nodejs";
 
@@ -33,7 +38,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const stars = normalizeVendorReviewStars(body.stars);
     if (stars === null) return NextResponse.json({ error: "Choose one to five stars." }, { status: 400 });
     const { error } = await auth.db.from("vendor_reviews").update({ stars, body: normalizeVendorReviewBody(body.body), updated_at: new Date().toISOString() })
-      .eq("id", id).eq("reviewer_user_id", auth.userId).gt("created_at", new Date(Date.now() - 14 * 86400000).toISOString());
+      .eq("id", id).eq("reviewer_user_id", auth.userId).gt("created_at", vendorReviewEditWindowFloorIso());
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   } catch (e) {

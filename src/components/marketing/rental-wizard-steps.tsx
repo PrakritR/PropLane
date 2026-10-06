@@ -80,6 +80,7 @@ import {
   activeApplicationWizardSteps,
   applicationFieldCatalogDef,
   builtInAnswerLabel,
+  BUILT_IN_ANSWER_VALUES,
   isWizardFormFieldEnabled,
   resolveListingApplicationFields,
   type ApplicationConfigSlice,
@@ -582,6 +583,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             roomChoice1: form.roomChoice1,
             leaseTerm: form.leaseTerm,
             residentSlot: form.residentSlot,
+            listingProperty: selectedProperty,
           })
         : null;
     // Whole-unit listings (leased as one place, not room-by-room) don't ask for
@@ -1843,11 +1845,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </div>
         </WizardFieldGate>
       );
-      if (fieldKey === "occupancyCount") return gate(<><Label htmlFor="occupancyCount" required={field.required}>{field.label}</Label><Select id="occupancyCount" value={form.occupancyCount} onChange={(e) => patch({ occupancyCount: e.target.value })} className={errors.occupancyCount ? "border-red-400 ring-2 ring-red-100" : ""}><option value="">Select</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={String(n)}>{n}</option>)}</Select>{Number(form.occupancyCount) > 1 ? <p className="rounded-lg border px-3 py-2 text-xs leading-relaxed portal-banner-pending"><span className="font-semibold">Note:</span> More than 1 occupant may increase the total cost. Each additional occupant must submit their own application. Set up a group in step 1 and share your invite link so all applications stay linked.</p> : null}<FieldError msg={errors.occupancyCount} /></>);
+      if (fieldKey === "occupancyCount") return gate(<><Label htmlFor="occupancyCount" required={field.required}>{field.label}</Label><Select id="occupancyCount" value={form.occupancyCount} onChange={(e) => patch({ occupancyCount: e.target.value })} className={errors.occupancyCount ? "border-red-400 ring-2 ring-red-100" : ""}><option value="">Select</option>{BUILT_IN_ANSWER_VALUES[field.standardKey ?? ""]?.map((value, index) => <option key={value} value={value}>{field.options[index]?.trim() || value}</option>) ?? [1, 2, 3, 4, 5].map((n) => <option key={n} value={String(n)}>{n}</option>)}</Select>{Number(form.occupancyCount) > 1 ? <p className="rounded-lg border px-3 py-2 text-xs leading-relaxed portal-banner-pending"><span className="font-semibold">Note:</span> More than 1 occupant may increase the total cost. Each additional occupant must submit their own application. Set up a group in step 1 and share your invite link so all applications stay linked.</p> : null}<FieldError msg={errors.occupancyCount} /></>);
       if (fieldKey === "pets") return gate(<><Label htmlFor="pets" optional={!field.required}>{field.label}</Label><Textarea id="pets" value={form.pets} onChange={(e) => patch({ pets: e.target.value })} placeholder="Type, breed, weight, or write “None”" rows={2} /></>);
       const history = fieldKey === "evictionHistory" ? { value: form.evictionHistory, details: form.evictionDetails, detailsKey: "evictionDetails", title: field.label, error: errors.evictionHistory } : fieldKey === "bankruptcyHistory" ? { value: form.bankruptcyHistory, details: form.bankruptcyDetails, detailsKey: "bankruptcyDetails", title: field.label, error: errors.bankruptcyHistory } : fieldKey === "criminalHistory" ? { value: form.criminalHistory, details: form.criminalDetails, detailsKey: "criminalDetails", title: field.label, error: errors.criminalHistory } : null;
       if (!history) return null;
-      return gate(<><Label required={field.required}>{history.title}</Label><YesNoPills value={history.value} error={history.error} name={history.title} fieldKey={fieldKey} onChange={(value) => patch(fieldKey === "evictionHistory" ? { evictionHistory: value, evictionDetails: value === "no" ? "" : form.evictionDetails } : fieldKey === "bankruptcyHistory" ? { bankruptcyHistory: value, bankruptcyDetails: value === "no" ? "" : form.bankruptcyDetails } : { criminalHistory: value, criminalDetails: value === "no" ? "" : form.criminalDetails })} />{history.value === "yes" ? <div className="space-y-2"><Label htmlFor={history.detailsKey}>Brief details</Label><Textarea id={history.detailsKey} value={history.details} onChange={(e) => patch(fieldKey === "evictionHistory" ? { evictionDetails: e.target.value } : fieldKey === "bankruptcyHistory" ? { bankruptcyDetails: e.target.value } : { criminalDetails: e.target.value })} rows={3} className={errors[history.detailsKey] ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors[history.detailsKey]} /></div> : null}</>);
+      return gate(<><Label required={field.required}>{history.title}</Label><YesNoPills value={history.value} error={history.error} name={history.title} labels={{ yes: builtInAnswerLabel(field, "yes", "Yes"), no: builtInAnswerLabel(field, "no", "No") }} fieldKey={fieldKey} onChange={(value) => patch(fieldKey === "evictionHistory" ? { evictionHistory: value, evictionDetails: value === "no" ? "" : form.evictionDetails } : fieldKey === "bankruptcyHistory" ? { bankruptcyHistory: value, bankruptcyDetails: value === "no" ? "" : form.bankruptcyDetails } : { criminalHistory: value, criminalDetails: value === "no" ? "" : form.criminalDetails })} />{history.value === "yes" ? <div className="space-y-2"><Label htmlFor={history.detailsKey}>Brief details</Label><Textarea id={history.detailsKey} value={history.details} onChange={(e) => patch(fieldKey === "evictionHistory" ? { evictionDetails: e.target.value } : fieldKey === "bankruptcyHistory" ? { bankruptcyDetails: e.target.value } : { criminalDetails: e.target.value })} rows={3} className={errors[history.detailsKey] ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors[history.detailsKey]} /></div> : null}</>);
     };
     return (
       <div className="space-y-8">
@@ -2020,6 +2022,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                   roomChoice1: form.roomChoice1,
                   leaseTerm: form.leaseTerm,
                   residentSlot: form.residentSlot,
+                  listingProperty: prop,
                 });
                 if (!reviewQuote) {
                   return (
@@ -2202,6 +2205,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             roomChoice1: form.roomChoice1,
             leaseTerm: form.leaseTerm,
             residentSlot: form.residentSlot,
+            listingProperty: prop,
           })
         : null;
     return (

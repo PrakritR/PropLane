@@ -63,7 +63,8 @@ import {
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
 import { RENTAL_APPLICATION_SECTIONS, type RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
-import { builtInAnswersAreFixed, canEditBuiltInApplicationField, orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { builtInAnswersAreFixed, canEditBuiltInApplicationField, editorFieldsWithLinkedForms, orderedEditorApplicationFields } from "@/lib/application-editor-fields";
+import { linkedFormOptionsFromListing } from "@/lib/application-linked-form-options";
 import { changedSectionEntries, diffImportSections } from "@/lib/import-staging/section-diff";
 import { applicationFieldsToImportSections } from "@/lib/import-staging/application-sections";
 import {
@@ -80,11 +81,20 @@ import {
   type MappingSigningOrder,
 } from "@/lib/application-lease-mapping";
 import {
+  applicationAppliesTo,
   applicationDraftReviewFingerprint,
   applicationFormVariantForTemplate,
+  effectiveDefaultApplicationForStay,
+  staysOfAppliesTo,
+  withoutShortTermCosignerLinks,
+  withApplicationAppliesTo,
+  withApplicationDefaultForStay,
+  withoutApplicationDefaultForStay,
   applicationTemplateQuestionPublishGate,
   applicationTemplateQuestionConfigFromSlice,
   createPropertyApplicationTemplate,
+  type ApplicationAppliesTo,
+  type ApplicationStay,
   draftQuestionConfigForTemplate,
   makePropertyApplicationTemplateId,
   withPropertyApplicationTemplatesExplicit,
@@ -94,9 +104,11 @@ import {
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import { FormPromoCodesRow } from "@/components/portal/form-promo-codes";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { centsToMoneyText, moneyTextToCents } from "@/lib/form-template-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
-import { defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
+import { applicationForAppliesTo, defaultLeaseIdForApplication } from "@/lib/leasing-quick-add";
+import { listingOfferedStays } from "@/lib/listing-stays";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 import {
@@ -288,6 +300,15 @@ export function ManagerApplicationQuestionsEditorModal({
   const [localSub, setLocalSub] = useState(sub);
   const [variant, setVariant] = useState<ApplicationFormVariant>("standard");
   const [templateLabel, setTemplateLabel] = useState("");
+  // "Applies to" is the first question of a NEW application: who it is for. It picks the form's stay and the
+  // lease it links to by default (see `applicationForAppliesTo`).
+  const [appliesTo, setAppliesTo] = useState<ApplicationAppliesTo>("long_term");
+  // "Default for long term" / "Default for short term": the stays this application is the default form of. A form
+  // that applies to both stays can be the default of either or both; a co-signer form is never a default.
+  const [defaultStays, setDefaultStays] = useState<ApplicationStay[]>([]);
+  // The stays whose default switch the manager touched: only those are written, so a save that left them alone
+  // never turns a displayed (derived) default into a stored one.
+  const touchedDefaultStaysRef = useRef<Set<ApplicationStay>>(new Set());
   const [templateLabelError, setTemplateLabelError] = useState<string | null>(null);
   // P003: this application's OWN fee/promo — null = "use the account
   // default". Local, dirty-tracked state saved through the normal
@@ -416,9 +437,24 @@ export function ManagerApplicationQuestionsEditorModal({
     // A NEW application starts from the PropLane defaults: the default lease of its type (Standard ->
     // Long-term lease) and PropLane's Co-signer application. The saved links above stay what Save compares to,
     // so a new application always writes them.
+    const startAppliesTo: ApplicationAppliesTo = listingOfferedStays(sub).long_term ? "long_term" : "short_term";
+    const openAppliesTo: ApplicationAppliesTo = applicationTemplate
+      ? applicationAppliesTo(applicationTemplate, leaseCatalog)
+      : startAppliesTo;
+    setAppliesTo(openAppliesTo);
+    const openDefaults: ApplicationStay[] = applicationTemplate
+      ? staysOfAppliesTo(openAppliesTo).filter(
+          (stay) => effectiveDefaultApplicationForStay(templates ?? [], stay, leaseCatalog)?.id === applicationTemplate.id,
+        )
+      : [];
+    setDefaultStays(openDefaults);
+    touchedDefaultStaysRef.current = new Set();
     const startLease = applicationTemplate
       ? initialLease
-      : defaultLeaseIdForApplication({ kind: "long-term", listingSeedKey: undefined, formVariant: "standard" }, leaseCatalog);
+      : defaultLeaseIdForApplication(
+          { kind: startAppliesTo === "short_term" ? "short-term" : "long-term", listingSeedKey: undefined, formVariant: startAppliesTo === "short_term" ? "short_term" : "standard", appliesTo: startAppliesTo },
+          leaseCatalog,
+        );
     const startCosigner = applicationTemplate
       ? initialCosigner
       : (templates ?? []).find((template) => isCosignerApplicationTemplate(template))?.id ?? null;
@@ -454,12 +490,19 @@ export function ManagerApplicationQuestionsEditorModal({
   const cosignerFormOptions = (templates ?? [])
     .filter((template) => template.id !== applicationTemplate?.id && (isCosignerApplicationTemplate(template) || template.id === linkedCosignerId))
     .map((template) => ({ value: template.id, label: template.label }));
+  const offeredStaysNow = listingOfferedStays(sub);
+  const appliesToOptions = [
+    offeredStaysNow.long_term ? { value: "long_term", label: "Long-term residents" } : null,
+    offeredStaysNow.short_term ? { value: "short_term", label: "Short-term residents" } : null,
+    { value: "both", label: "Both" },
+  ].filter((option): option is { value: string; label: string } => Boolean(option));
   const linkRowsAvailable = isTemplateEditor && !isBulkSave && variant !== "cosigner";
   const showLeaseRow =
     linkRowsAvailable &&
     signingOrder === "application_then_lease" &&
     (leaseRowOptions.length > 0 || linkedLeaseId !== null);
-  const showCosignerRow = linkRowsAvailable && (cosignerFormOptions.length > 0 || linkedCosignerId !== null);
+  // Co-signer is long term only: a short-term application has no co-signer field.
+  const showCosignerRow = linkRowsAvailable && appliesTo !== "short_term" && (cosignerFormOptions.length > 0 || linkedCosignerId !== null);
 
   // The real Applications tab (`pro-property-application-questions-panel.tsx`)
   // always opens this modal with a `templateEditorMode` — every row is a
@@ -590,7 +633,14 @@ export function ManagerApplicationQuestionsEditorModal({
   // an in-progress row with an empty label or no options yet — it must stay
   // visible IN PLACE while the manager is still filling it in, not vanish on
   // every re-render before Save.
-  const applicationFields = useMemo(() => orderedEditorApplicationFields(configSlice), [configSlice]);
+  const applicationFields = useMemo(
+    () => editorFieldsWithLinkedForms(orderedEditorApplicationFields(configSlice), variant === "cosigner" || appliesTo === "short_term" ? null : linkedCosignerId),
+    [configSlice, linkedCosignerId, variant, appliesTo],
+  );
+  const linkedFormOptions = useMemo(
+    () => linkedFormOptionsFromListing(sub, { excludeApplicationId: applicationTemplate?.id }),
+    [sub, applicationTemplate?.id],
+  );
   const disabledFields = useMemo(
     () => editorVisibleDisabledApplicationFields(variant, configSlice),
     [configSlice, variant],
@@ -815,9 +865,7 @@ export function ManagerApplicationQuestionsEditorModal({
         routingApplicationTemplates.length > 0 ? routingApplicationTemplates : templates;
       let nextTemplates: PropertyApplicationTemplate[];
       if (templateEditorMode === "add") {
-        nextTemplates = [
-          ...catalogApplications,
-          {
+        const created: PropertyApplicationTemplate = {
             ...createPropertyApplicationTemplate({ kind: "long-term", label: trimmed }),
             // F004/F007: reuse the SAME id a staged import was parsed
             // against (and a Setup "Default" pick already wrote to this
@@ -839,8 +887,20 @@ export function ManagerApplicationQuestionsEditorModal({
               questionDisplayOrder: applicationFields.map((field) => field.id),
               disabledSectionIds: [...disabledSectionIds],
             },
-          },
+        };
+        // Who it is for: the section it lands in, its stay's form and kind, and the default lease and co-signer
+        // links. The first step's own lease / co-signer picks (below) are applied after this and win.
+        nextTemplates = [
+          ...catalogApplications,
+          variant === "cosigner"
+            ? created
+            : applicationForAppliesTo(created, appliesTo, { applications: catalogApplications, leases: routingLeaseTemplates.length > 0 ? routingLeaseTemplates : leaseCatalog }),
         ];
+        if (variant !== "cosigner") {
+          for (const stay of staysOfAppliesTo(appliesTo)) {
+            if (defaultStays.includes(stay)) nextTemplates = withApplicationDefaultForStay(nextTemplates, created.id, stay);
+          }
+        }
       } else {
         const templateVariant = applicationFormVariantForTemplate(applicationTemplate!);
         nextTemplates = updatePropertyApplicationTemplate(catalogApplications, applicationTemplate!.id, {
@@ -858,6 +918,19 @@ export function ManagerApplicationQuestionsEditorModal({
             disabledSectionIds: [...disabledSectionIds],
           },
         });
+        // Who it is for and whether it is its section's default ride with the form itself.
+        if (variant !== "cosigner") {
+          const savedId = applicationTemplate!.id;
+          const before = applicationAppliesTo(applicationTemplate!, routingLeaseTemplates.length > 0 ? routingLeaseTemplates : leaseCatalog);
+          if (appliesTo !== before) nextTemplates = withApplicationAppliesTo(nextTemplates, savedId, appliesTo);
+          const covered = staysOfAppliesTo(appliesTo);
+          for (const stay of covered) {
+            if (!touchedDefaultStaysRef.current.has(stay)) continue;
+            nextTemplates = defaultStays.includes(stay)
+              ? withApplicationDefaultForStay(nextTemplates, savedId, stay)
+              : withoutApplicationDefaultForStay(nextTemplates, savedId, stay);
+          }
+        }
       }
       // The first step's links ride with the template (also a brand-new one): the same
       // `setMappingTarget` path Settings used, so an application still carries ONE lease.
@@ -909,6 +982,8 @@ export function ManagerApplicationQuestionsEditorModal({
           }
         }
       }
+      // Co-signer is long term only: a short-term application is saved with no co-signer form.
+      nextTemplates = withoutShortTermCosignerLinks(nextTemplates, routingLeaseTemplates.length > 0 ? routingLeaseTemplates : leaseCatalog);
       const merged = withPropertyApplicationTemplatesExplicit(sub, nextTemplates);
       const withLeases = syncLegacyLeaseFieldsFromTemplates(merged, routingLeaseTemplates);
       const okSaved = await onPersistSubmission(withLeases, {
@@ -1326,6 +1401,22 @@ export function ManagerApplicationQuestionsEditorModal({
     ? duplicateApplicationNameError(templateLabel, templates, applicationTemplate?.id)
     : null;
   const nameStepError = templateLabelError || duplicateTemplateNameError;
+  // The name leads the first card of a template editor (and stands alone everywhere else).
+  const nameField = (
+    <FloatingLabelField
+      id="application-template-name"
+      label="Application name"
+      placeholder="Application name"
+      value={templateLabel}
+      error={nameStepError}
+      dataAttr="property-application-name"
+      onChange={(next) => {
+        setTemplateLabel(next);
+        setTemplateLabelError(null);
+        setDirty(true);
+      }}
+    />
+  );
 
   const renderSection = (sectionId: RentalApplicationSectionId) => {
     const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
@@ -1604,6 +1695,102 @@ export function ManagerApplicationQuestionsEditorModal({
             <StepHeading title="Application" />
             {isTemplateEditor && !isBulkSave ? (
               <PropertyFormWizardCard dataAttr="property-application-step-one-card">
+                <div className="border-b border-border/80 py-3">
+                  {nameField}
+                </div>
+                {variant !== "cosigner" ? (
+                  <PropertyFormWizardRow label="Applies to">
+                    <FieldSingleSelect
+                      hideLabel
+                      label="Applies to"
+                      labelClassName={WIZARD_LABEL_CLASS}
+                      variant="cell"
+                      className="min-w-[200px] max-w-[280px]"
+                      value={appliesTo}
+                      dataAttr="application-applies-to"
+                      options={appliesToOptions}
+                      onChange={(next) => {
+                        const target = next as ApplicationAppliesTo;
+                        setAppliesTo(target);
+                        // A default for a stay the form no longer applies to goes with it, and a short-term form
+                        // has no co-signer form (co-signer is long term only).
+                        const covered = staysOfAppliesTo(target);
+                        setDefaultStays((current) => current.filter((stay) => covered.includes(stay)));
+                        if (target === "short_term") setLinkedCosignerId(null);
+                        // The lease follows who a NEW application is for (Both links to none of its own); a saved
+                        // form keeps its lease link, which has its own row.
+                        if (templateEditorMode === "add") {
+                          setLinkedLeaseId(
+                            defaultLeaseIdForApplication(
+                              { kind: target === "short_term" ? "short-term" : "long-term", listingSeedKey: undefined, formVariant: target === "short_term" ? "short_term" : "standard", appliesTo: target },
+                              leaseCatalog,
+                            ),
+                          );
+                        }
+                        setDirty(true);
+                      }}
+                    />
+                  </PropertyFormWizardRow>
+                ) : null}
+                {variant !== "cosigner"
+                  ? staysOfAppliesTo(appliesTo).map((stay) => (
+                      <PropertyFormWizardRow key={stay} label={`Default for ${stay === "long_term" ? "long term" : "short term"}`}>
+                        <PortalSettingsToggle
+                          checked={defaultStays.includes(stay)}
+                          label={`Default for ${stay === "long_term" ? "long term" : "short term"}`}
+                          dataAttr={`application-default-for-${stay === "long_term" ? "long-term" : "short-term"}`}
+                          onChange={(on) => {
+                            touchedDefaultStaysRef.current.add(stay);
+                            setDefaultStays((current) => (on ? [...current.filter((entry) => entry !== stay), stay] : current.filter((entry) => entry !== stay)));
+                            setDirty(true);
+                          }}
+                        />
+                      </PropertyFormWizardRow>
+                    ))
+                  : null}
+                {showLeaseRow ? (
+                  <PropertyFormWizardRow label="Lease">
+                    <FieldSingleSelect
+                      hideLabel
+                      label="Lease"
+                      labelClassName={WIZARD_LABEL_CLASS}
+                      variant="cell"
+                      className="min-w-[200px] max-w-[280px]"
+                      value={linkedLeaseId ?? NO_LINK}
+                      dataAttr="application-lease-link"
+                      options={[{ value: NO_LINK, label: "Not mapped" }, ...leaseRowOptions]}
+                      onChange={(next) => {
+                        const target = next === NO_LINK ? null : next;
+                        const problem = mappingTargetError("application_then_lease", { applications: templates ?? [], leases: leaseCatalog }, target);
+                        if (problem) {
+                          setSaveError(problem);
+                          return;
+                        }
+                        setSaveError(null);
+                        setLinkedLeaseId(target);
+                        setDirty(true);
+                      }}
+                    />
+                  </PropertyFormWizardRow>
+                ) : null}
+                {showCosignerRow ? (
+                  <PropertyFormWizardRow label="Co-signer form">
+                    <FieldSingleSelect
+                      hideLabel
+                      label="Co-signer form"
+                      labelClassName={WIZARD_LABEL_CLASS}
+                      variant="cell"
+                      className="min-w-[200px] max-w-[280px]"
+                      value={linkedCosignerId ?? NO_LINK}
+                      dataAttr="application-cosigner-form-link"
+                      options={[{ value: NO_LINK, label: "Property default" }, ...cosignerFormOptions]}
+                      onChange={(next) => {
+                        setLinkedCosignerId(next === NO_LINK ? null : next);
+                        setDirty(true);
+                      }}
+                    />
+                  </PropertyFormWizardRow>
+                ) : null}
                 {templateEditorMode === "edit" ? (
                   <PropertyFormWizardRow label="Form type">
                     <span className="text-sm font-semibold text-foreground" data-attr="application-form-type-fact">
@@ -1671,49 +1858,6 @@ export function ManagerApplicationQuestionsEditorModal({
                       options={copyApplicationOptions}
                       placeholder="Choose an application"
                       onChange={(next) => setCopyFromApplicationId(next || null)}
-                    />
-                  </PropertyFormWizardRow>
-                ) : null}
-                {showLeaseRow ? (
-                  <PropertyFormWizardRow label="Lease">
-                    <FieldSingleSelect
-                      hideLabel
-                      label="Lease"
-                      labelClassName={WIZARD_LABEL_CLASS}
-                      variant="cell"
-                      className="min-w-[200px] max-w-[280px]"
-                      value={linkedLeaseId ?? NO_LINK}
-                      dataAttr="application-lease-link"
-                      options={[{ value: NO_LINK, label: "Not mapped" }, ...leaseRowOptions]}
-                      onChange={(next) => {
-                        const target = next === NO_LINK ? null : next;
-                        const problem = mappingTargetError("application_then_lease", { applications: templates ?? [], leases: leaseCatalog }, target);
-                        if (problem) {
-                          setSaveError(problem);
-                          return;
-                        }
-                        setSaveError(null);
-                        setLinkedLeaseId(target);
-                        setDirty(true);
-                      }}
-                    />
-                  </PropertyFormWizardRow>
-                ) : null}
-                {showCosignerRow ? (
-                  <PropertyFormWizardRow label="Co-signer form">
-                    <FieldSingleSelect
-                      hideLabel
-                      label="Co-signer form"
-                      labelClassName={WIZARD_LABEL_CLASS}
-                      variant="cell"
-                      className="min-w-[200px] max-w-[280px]"
-                      value={linkedCosignerId ?? NO_LINK}
-                      dataAttr="application-cosigner-form-link"
-                      options={[{ value: NO_LINK, label: "Property default" }, ...cosignerFormOptions]}
-                      onChange={(next) => {
-                        setLinkedCosignerId(next === NO_LINK ? null : next);
-                        setDirty(true);
-                      }}
                     />
                   </PropertyFormWizardRow>
                 ) : null}
@@ -1798,21 +1942,7 @@ export function ManagerApplicationQuestionsEditorModal({
                 ) : null}
               </div>
             ) : null}
-            <div className="mt-4">
-              <FloatingLabelField
-                id="application-template-name"
-                label="Application name"
-                placeholder="Application name"
-                value={templateLabel}
-                error={nameStepError}
-                dataAttr="property-application-name"
-                onChange={(next) => {
-                  setTemplateLabel(next);
-                  setTemplateLabelError(null);
-                  setDirty(true);
-                }}
-              />
-            </div>
+            {isTemplateEditor && !isBulkSave ? null : <div className="mt-4">{nameField}</div>}
             {isTemplateEditor && !isBulkSave ? (
               <PropertyFormWizardCard dataAttr="property-application-fee-card">
                 <PropertyFormWizardRow label="Application fee">
@@ -1939,6 +2069,7 @@ export function ManagerApplicationQuestionsEditorModal({
               fields={applicationFields}
               disabledFields={disabledFields}
               fieldErrors={fieldErrors}
+              linkedFormOptions={linkedFormOptions}
               onState={(next) => {
                 applyEditedSlice(next.slice);
                 setDisabledSectionIds(next.disabledSectionIds);

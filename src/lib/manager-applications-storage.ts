@@ -5,6 +5,7 @@ import { replacePublicRoomOccupancy, replacePublicRoomOccupancyForProperty } fro
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import type { IssuedLinkedFormView } from "@/lib/application-linked-form-requests";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import {
   computeLeaseEndDate,
@@ -734,6 +735,8 @@ export async function upsertApplicationRowToServerAwait(
   leaseId?: string;
   mailtoHref?: string;
   row?: DemoApplicantRow;
+  /** Forms the template's rules owe after this submit; carries each share token once. */
+  linkedForms?: IssuedLinkedFormView[];
 }> {
   if (typeof window === "undefined") return { ok: false, error: "Not in browser." };
   if (isDemoModeActive()) return { ok: true };
@@ -755,6 +758,7 @@ export async function upsertApplicationRowToServerAwait(
       setupToken?: string;
       mailtoHref?: string;
       row?: DemoApplicantRow;
+      linkedForms?: IssuedLinkedFormView[];
       existingResidentOnboarding?: {
         welcomeEmailSent?: boolean;
         leaseId?: string;
@@ -790,6 +794,7 @@ export async function upsertApplicationRowToServerAwait(
       welcomeEmailSent: onboarding?.welcomeEmailSent,
       leaseId: onboarding?.leaseId,
       row: body?.row,
+      linkedForms: Array.isArray(body?.linkedForms) ? body.linkedForms : undefined,
     };
   } catch {
     return { ok: false, error: "Could not save application." };

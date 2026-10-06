@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Camera, Check, Circle, ChevronDown, ChevronRight, Eye, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Camera, Check, Circle, ChevronRight, Eye, RotateCcw, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
@@ -32,7 +32,8 @@ import { LEASE_TYPES, leaseTypeIdsFromStored, leaseTypeLabel } from "@/lib/renta
 import { WizardFieldError } from "@/components/portal/add-workspace/validation";
 import { WorkspaceUploadTarget } from "@/components/portal/add-workspace/upload-action";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { PhoneSectionPicker, PhoneSheetGlyph } from "@/components/ui/phone-bottom-sheet";
+import { useTabOverflowFade } from "@/components/ui/destination-nav";
+import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 
 /* ─────────────────────────── shell ─────────────────────────── */
 
@@ -231,7 +232,7 @@ export function ListingWorkspace({
       <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "lg:grid-cols-[220px_minmax(0,1fr)_300px] xl:grid-cols-[220px_minmax(0,1fr)_380px]")}>
         <nav
           aria-label="Listing sections"
-          className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
+          className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-0 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
         >
           {railHeader ? <div className="hidden lg:block">{railHeader}</div> : null}
           {rail}
@@ -314,6 +315,8 @@ export function SideBelow({ children }: { children: ReactNode }) {
 export type StepRailItem = {
   id: string;
   disabled?: boolean;
+  /** Why a locked step is locked ("Verify your phone first"): tapping it on the phone tabs hands this to `onLockedTap`. */
+  lockedReason?: string;
   label: string;
   /** Off the short path — Continue skips it; the manager opens it when they want to. */
   offPath?: boolean;
@@ -351,22 +354,26 @@ export function StepRail({
   current,
   onJump,
   visited,
+  onLockedTap,
   numbered = false,
   todoCount,
 }: {
   steps: readonly StepRailItem[];
   current: number;
   onJump: (index: number) => void;
-  /** The "N to finish" count in the phone step list. Defaults to the number of steps that need something. */
+  /** Kept for callers; the phone step tabs mark each step that needs something with a dot instead of counting. */
   todoCount?: number;
   /** Steps the manager has already opened. Kept for callers; the rail no longer draws it. */
   visited?: ReadonlySet<string>;
+  /** A locked step's `lockedReason`, when the phone tabs' locked tab is tapped. */
+  onLockedTap?: (reason: string) => void;
   /**
    * Legacy compatibility prop. POP5 uses the same dot/accent rail for all editors.
    */
   numbered?: boolean;
 }) {
   void numbered;
+  void todoCount;
   // Keep the active desktop section in view when navigation comes from the footer.
   const currentRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
@@ -375,8 +382,8 @@ export function StepRail({
   }, [current]);
   return (
     <>
-      <div className="px-1 lg:hidden">
-        <WizardStepSheet steps={steps} current={current} onJump={onJump} visited={visited} todoCount={todoCount} />
+      <div className="lg:hidden">
+        <WizardStepTabs steps={steps} current={current} onJump={onJump} visited={visited} onLockedTap={onLockedTap} />
       </div>
       <ol className="hidden gap-0.5 lg:flex lg:flex-col">
       {steps.map((step, i) => {
@@ -428,76 +435,90 @@ export function StepRail({
 }
 
 /**
- * The phone step picker: tap the step name and the shared bottom sheet lists every step.
+ * The phone step tabs: one text tab per step across the top of the popup, in the same low-chrome
+ * "command" look as `DestinationNav` (text, active underline, 44px tap height).
  *
- * A check marks a finished step, a red dot one that still needs something, a ring the one
- * you are on (which also carries the blue bar and bold label). The "N to finish" count lives
- * only in the sheet header. Desktop never renders it — the left rail is the list there.
- * The sheet itself is `PhoneSectionPicker` (ui/phone-bottom-sheet.tsx), the same surface the
- * record-page and Settings section pickers and every phone select use.
+ * A check before the label marks a finished step, a small red dot after it one that still needs
+ * something. A locked step is greyed and `aria-disabled`: tapping it does nothing, so it can never
+ * be jumped to early (when the step has a `lockedReason` it is handed to `onLockedTap`, which the caller shows as a toast). Any other step is reachable from any step, exactly like the desktop rail.
+ * The row scrolls sideways and keeps the active tab in view on every step change. Desktop never
+ * renders it; the left rail is the list there. The "Step N of M" count lives in the popup footer.
  */
-export function WizardStepSheet({
+export function WizardStepTabs({
   steps,
   current,
   onJump,
   visited,
-  todoCount,
+  onLockedTap,
 }: {
   steps: readonly StepRailItem[];
   current: number;
   onJump: (index: number) => void;
   visited?: ReadonlySet<string>;
-  todoCount?: number;
+  /** Called with a locked step's `lockedReason` when it is tapped (the caller shows it as a toast). */
+  onLockedTap?: (reason: string) => void;
 }) {
-  const todo = todoCount ?? steps.filter((step) => (step.attention ?? 0) > 0).length;
-  const active = steps[current];
-  // A one-step dialog has nowhere to jump: no picker, no "Step 1 of 1".
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const activeRef = useRef<HTMLButtonElement | null>(null);
+  const overflowStyle = useTabOverflowFade(rowRef, steps.length);
+  useEffect(() => {
+    // jsdom has no scrollIntoView; a test that jumps steps must not blow up on it.
+    activeRef.current?.scrollIntoView?.({ block: "nearest", inline: "center", behavior: "smooth" });
+  }, [current]);
+  // A one-step dialog has nowhere to jump: no tabs, no "Step 1 of 1".
   if (steps.length <= 1) return null;
   return (
-    <PhoneSectionPicker
-      title="Steps"
-      triggerLabel="Jump to step"
-      triggerDataAttr="workspace-step-picker"
-      rootProps={{ "data-wizard-step-sheet": "" }}
-      controlsLabel="Jump to step"
-      meta={
-        todo > 0 ? (
-          <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-bold text-foreground" data-wizard-step-todo="">
-            <span className="size-[7px] rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
-            {todo} to finish
-          </span>
-        ) : null
-      }
-      trigger={
-        <>
-          {todo > 0 ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : null}
-          <span className="min-w-0 flex-1 truncate text-[15px] font-bold text-foreground">{active?.label ?? ""}</span>
-          <span className="inline-flex shrink-0 items-center gap-1 text-[13px] font-semibold text-muted">
-            Step {current + 1} of {steps.length}
-            <ChevronDown className="size-4" aria-hidden />
-          </span>
-        </>
-      }
-      groups={[
-        {
-          items: steps.map((step, index) => {
-            const on = index === current;
-            const warn = (step.attention ?? 0) > 0;
-            const done = !on && !warn && (step.done ?? Boolean(visited?.has(step.id)));
-            return {
-              id: step.id,
-              label: step.label,
-              current: on,
-              disabled: step.disabled,
-              dataAttr: `workspace-step-${step.id}`,
-              srHint: warn ? "Needs something" : undefined,
-              glyph: <PhoneSheetGlyph kind={warn ? "attention" : done ? "done" : on ? "current" : "todo"} />,
-              onSelect: () => onJump(index),
-            };
-          }),
-        },
-      ]}
-    />
+    <div
+      ref={rowRef}
+      role="tablist"
+      aria-label="Steps"
+      data-attr="workspace-step-picker"
+      data-wizard-step-tabs=""
+      {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
+      style={overflowStyle}
+      className={cn("flex w-full gap-1 px-1", PORTAL_HORIZONTAL_SCROLL_ROW_CLASS, "snap-x snap-mandatory scroll-px-2")}
+    >
+      {steps.map((step, index) => {
+        const on = index === current;
+        const warn = (step.attention ?? 0) > 0;
+        const done = !on && !warn && (step.done ?? Boolean(visited?.has(step.id)));
+        const locked = Boolean(step.disabled);
+        return (
+          <button
+            key={step.id}
+            ref={on ? activeRef : undefined}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            aria-current={on ? "step" : undefined}
+            aria-disabled={locked || undefined}
+            data-attr={`workspace-step-${step.id}`}
+            onClick={() => {
+              if (locked) {
+                if (step.lockedReason) onLockedTap?.(step.lockedReason);
+                return;
+              }
+              onJump(index);
+            }}
+            className={cn(
+              "portal-pressable -mb-px inline-flex min-h-11 shrink-0 snap-start items-center justify-center gap-1.5 whitespace-nowrap rounded-none border-b-2 px-3 py-2 text-sm font-semibold transition-[color,border-color] duration-100",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              on ? "border-primary text-primary" : "border-transparent text-muted hover:text-foreground",
+              locked && "cursor-not-allowed opacity-45 hover:text-muted",
+            )}
+          >
+            {done ? <Check className="size-3.5 shrink-0 text-primary" aria-hidden data-step-done="" /> : null}
+            {step.label}
+            {warn ? (
+              <>
+                <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden data-step-attention="" />
+                <span className="sr-only">Needs something</span>
+              </>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -830,6 +851,48 @@ export function ChoiceCard({
           selected ? "border-[5.5px] border-primary" : "border-border",
         )}
       />
+      <b className="min-w-0 text-[13.5px] font-bold text-foreground">{title}</b>
+    </button>
+  );
+}
+
+/** The same card as `ChoiceCard`, for a pick of several: a square check instead of a radio dot. */
+export function CheckCard({
+  checked,
+  title,
+  onToggle,
+  dataAttr,
+}: {
+  checked: boolean;
+  title: string;
+  onToggle: () => void;
+  dataAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      onClick={onToggle}
+      aria-checked={checked}
+      data-attr={dataAttr}
+      className={cn(
+        "mb-2.5 flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-colors",
+        checked ? "border-primary bg-primary/5 ring-[3px] ring-primary/10" : "border-border bg-card hover:bg-accent/30",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "grid h-[18px] w-[18px] shrink-0 place-items-center rounded-[5px] border-2 text-white",
+          checked ? "border-primary bg-primary" : "border-border bg-card",
+        )}
+      >
+        {checked ? (
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2.5 6.5l2.2 2.2L9.5 3.6" />
+          </svg>
+        ) : null}
+      </span>
       <b className="min-w-0 text-[13.5px] font-bold text-foreground">{title}</b>
     </button>
   );

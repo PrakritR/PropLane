@@ -40,6 +40,7 @@ import {
   markApplicationDepositPaidFromStripeSession,
   markApplicationFeePaidFromStripeSession,
 } from "@/lib/stripe-application-fee";
+import { LINKED_FORM_FEE_PURPOSE, markLinkedFormFeePaidFromStripeSession } from "@/lib/linked-form-fee.server";
 import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import {
   householdChargeCheckoutProcessing,
@@ -57,6 +58,7 @@ import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay
 import { VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
 import {
   completeVendorInvoicePaymentFromStripeSession,
+  releaseVendorInvoiceDirectPayClaim,
   VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
 } from "@/lib/vendor-invoice-pay.server";
 import { creditProplaneBalanceFromHouseholdChargeSession } from "@/lib/proplane-balance/household-charge-credit.server";
@@ -99,6 +101,12 @@ async function checkoutOwner(
   if (purpose === "rental_application_fee") {
     const propertyId = session.metadata?.property_id?.trim() ?? "";
     const { data, error } = await db.from("manager_property_records").select("manager_user_id").eq("id", propertyId).maybeSingle();
+    if (error) throw new Error("Could not resolve checkout ownership.");
+    owner = String(data?.manager_user_id ?? "").trim();
+  } else if (purpose === LINKED_FORM_FEE_PURPOSE) {
+    // Owned by the manager the stored request belongs to; a session claiming any other manager is refused below.
+    const requestId = session.metadata?.linked_form_request_id?.trim() ?? "";
+    const { data, error } = await db.from("application_form_requests").select("manager_user_id").eq("id", requestId).maybeSingle();
     if (error) throw new Error("Could not resolve checkout ownership.");
     owner = String(data?.manager_user_id ?? "").trim();
   } else if (purpose === "household_charge") {
@@ -146,7 +154,7 @@ function logCheckoutCompleted(session: Stripe.Checkout.Session) {
 
 async function enrichCheckoutLedgerFees(stripe: Stripe, session: Stripe.Checkout.Session): Promise<void> {
   const purpose = session.metadata?.purpose;
-  if (purpose !== "household_charge" && purpose !== "rental_application_fee") return;
+  if (purpose !== "household_charge" && purpose !== "rental_application_fee" && purpose !== LINKED_FORM_FEE_PURPOSE) return;
   const db = createSupabaseServiceRoleClient();
   await enrichLedgerFromCheckoutSession(db, stripe, session).catch((e) => {
     console.error("[stripe webhook] ledger fee enrichment", e);
@@ -307,6 +315,18 @@ export async function POST(req: Request) {
         } catch (e) {
           console.error("[stripe webhook] rental_application_fee checkout", e);
         }
+      } else if (session.metadata?.purpose === LINKED_FORM_FEE_PURPOSE) {
+        // A payer who closes the tab before returning is still recorded: bound to the checkout's own metadata
+        // (request, payer, manager), paid-sticky and idempotent on the session. A throw returns 500 so Stripe
+        // retries, since money was taken and the booking must land.
+        const settled = await markLinkedFormFeePaidFromStripeSession(db, session);
+        if (settled.ok) {
+          await enrichCheckoutLedgerFees(stripe, session);
+          await creditHoldFromPaidSession(db, session).catch((e) => {
+            console.error("[stripe webhook] linked form fee platform hold", e);
+          });
+          track("linked_form_fee_paid", session.client_reference_id ?? session.id, { session_id: session.id });
+        }
       } else if (session.metadata?.purpose === SCREENING_CHECKOUT_PURPOSE) {
         // No catch: an unexpected throw returns 500 so Stripe retries; the
         // order placement is idempotent on the session id.
@@ -387,6 +407,14 @@ export async function POST(req: Request) {
       await revertHouseholdChargeProcessingFromStripeSession(db, session).catch((e) => {
         console.error("[stripe webhook] async_payment_failed household_charge", e);
       });
+      // No money moved, so the invoice must not stay claimed by a payment that never happened.
+      // Deliberately NOT swallowed: a half-released claim leaves the invoice unpayable by every
+      // rail, and nothing but a redelivery of this event will ever finish the job.
+      await releaseVendorInvoiceDirectPayClaim(db, session);
+    }
+
+    if (event.type === "checkout.session.expired") {
+      await releaseVendorInvoiceDirectPayClaim(db, event.data.object as Stripe.Checkout.Session);
     }
 
     if (event.type === "checkout.session.expired" && isHouseholdChargeCheckoutSession(event.data.object as Stripe.Checkout.Session)) {

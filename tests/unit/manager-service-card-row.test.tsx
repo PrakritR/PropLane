@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 //
 // The manager Services row is the Payments row (`PortalApplicantRecordRow`):
-// initials tile, the requester as the title, "service · property · room" as the
-// place line, one dated glyph fact, the price as the figure, and one rounded
-// card per service. The two service models stay separate; only the row's look
+// service glyph (or first photo) tile, the SERVICE as the title, "property · room"
+// as the place line, glyph facts (resident, stage by tab, money state), the price
+// as the figure, and one rounded card per service. The two service models stay separate; only the row's look
 // is shared.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ManagerServiceCardRow, ResidentServiceCardRow, VendorServiceCardRow } from "@/components/portal/pro-service-card-row";
-import { managerServiceCardParts, managerServiceRequestCardFigure } from "@/lib/manager-service-list-row";
+import { managerServiceCardParts, managerServiceRequestCardFigure, managerServiceRowFacts } from "@/lib/manager-service-list-row";
 import { formatPortalRowDate } from "@/lib/portal-display-dates";
 
 const NOW = new Date("2026-10-03T12:00:00Z").getTime();
@@ -38,10 +38,11 @@ describe("formatPortalRowDate", () => {
 });
 
 describe("managerServiceCardParts", () => {
-  it("titles the row by the requester and leads the place line with the service", () => {
+  it("titles the row by the service and puts property · room on the place line", () => {
     const parts = managerServiceCardParts(base, { nowMs: NOW });
-    expect(parts.name).toBe("Maya Chen");
-    expect(parts.placeLine).toBe("Storage locker · Emerald Court · Unit 3");
+    expect(parts.name).toBe("Storage locker");
+    expect(parts.person).toBe("Maya Chen");
+    expect(parts.placeLine).toBe("Emerald Court · Unit 3");
     expect(parts.dateFact?.text).toBe("Requested Oct 3");
   });
 
@@ -50,7 +51,7 @@ describe("managerServiceCardParts", () => {
     expect(parts.dateFact?.text).toBe("Scheduled Oct 9");
   });
 
-  it("falls back to the service as the title when nobody requested it", () => {
+  it("still titles by the service when nobody requested it", () => {
     const parts = managerServiceCardParts({ ...base, residentName: "", residentEmail: "" }, { nowMs: NOW });
     expect(parts.hasPerson).toBe(false);
     expect(parts.name).toBe("Storage locker");
@@ -58,7 +59,24 @@ describe("managerServiceCardParts", () => {
   });
 
   it("omits the property when the page already names it", () => {
-    expect(managerServiceCardParts(base, { omitProperty: true, nowMs: NOW }).placeLine).toBe("Storage locker · Unit 3");
+    expect(managerServiceCardParts(base, { omitProperty: true, nowMs: NOW }).placeLine).toBe("Unit 3");
+  });
+});
+
+describe("managerServiceRowFacts", () => {
+  it("says where the service stands, by tab", () => {
+    expect(managerServiceRowFacts({ state: "open", createdIso: "2026-09-25T18:00:00Z", nowMs: NOW }).stage.text).toBe("Requested Sep 25");
+    expect(managerServiceRowFacts({ state: "assigned", assigneeName: "Rapid Pipes", nowMs: NOW }).stage.text).toBe("Assigned to Rapid Pipes");
+    expect(managerServiceRowFacts({ state: "assigned", nowMs: NOW }).stage.text).toBe("Assigned");
+    expect(managerServiceRowFacts({ state: "scheduled", scheduledIso: "2026-10-08T16:00:00.000Z", nowMs: NOW }).stage.text).toBe("Thu, Oct 8 · 9am");
+    expect(managerServiceRowFacts({ state: "completed", completedIso: "2026-09-27T18:00:00Z", nowMs: NOW }).stage.text).toBe("Completed Sep 27");
+    expect(managerServiceRowFacts({ state: "declined", completedIso: "2026-09-27T18:00:00Z", nowMs: NOW }).stage.text).toBe("Declined Sep 27");
+  });
+
+  it("states the money as a plain fact, and nothing when there is no bill", () => {
+    expect(managerServiceRowFacts({ state: "completed", bill: { amount: "$152", paid: false }, nowMs: NOW }).money?.text).toBe("Bill $152 unpaid");
+    expect(managerServiceRowFacts({ state: "completed", bill: { amount: "$152", paid: true }, nowMs: NOW }).money?.text).toBe("Paid");
+    expect(managerServiceRowFacts({ state: "open", nowMs: NOW }).money).toBeNull();
   });
 });
 
@@ -72,23 +90,35 @@ describe("managerServiceRequestCardFigure", () => {
 });
 
 describe("ManagerServiceCardRow", () => {
-  it("renders the Payments row: initials tile, name title, fact line, figure slot, own card", () => {
+  it("renders the service as the title with place line, resident / stage / money facts, figure and own card", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     render(
       <>
-        <ManagerServiceCardRow row={base} figure="$25" menu={<button type="button" aria-label="Actions for Storage locker">⋯</button>} onOpen={() => {}} dataAttr="service-request-list-row" />
+        <ManagerServiceCardRow
+          row={{ ...base, title: "Kitchen faucet drip", residentName: "Liam Foster", propertyLabel: "The Pioneer", unitLabel: "Room 8B" }}
+          figure="$152"
+          facts={managerServiceRowFacts({ state: "completed", completedIso: "2026-09-27T18:00:00Z", bill: { amount: "$152", paid: false }, nowMs: NOW })}
+          menu={<button type="button" aria-label="Actions for Kitchen faucet drip">⋯</button>}
+          onOpen={() => {}}
+          dataAttr="work-order-list-row"
+        />
         <ManagerServiceCardRow row={{ ...base, residentName: "Luis Ortega", title: "Parking spot" }} onOpen={() => {}} />
       </>,
     );
     vi.useRealTimers();
-    expect(screen.getByText("MC")).toBeTruthy();
-    expect(screen.getByText("Maya Chen")).toBeTruthy();
-    expect(screen.getByText("Storage locker · Emerald Court · Unit 3")).toBeTruthy();
-    expect(screen.getAllByText("Requested Oct 3").length).toBe(2);
-    expect(screen.getByRole("button", { name: "Actions for Storage locker" })).toBeTruthy();
-    // The price is the bold figure; a service with none draws nothing there.
-    expect(screen.getAllByText("$25").length).toBeGreaterThan(0);
+    // Title is the service, never the resident; the resident is a fact.
+    expect(screen.getByText("Kitchen faucet drip")).toBeTruthy();
+    expect(screen.queryByText("MC")).toBeNull();
+    expect(screen.getByText("The Pioneer · Room 8B")).toBeTruthy();
+    const facts = document.querySelector('[data-attr="record-row-facts"]');
+    expect(facts?.textContent).toContain("Liam Foster");
+    expect(facts?.textContent).toContain("Completed Sep 27");
+    expect(facts?.textContent).toContain("Bill $152 unpaid");
+    expect(screen.getByRole("button", { name: "Actions for Kitchen faucet drip" })).toBeTruthy();
+    expect(screen.getAllByText("$152").length).toBeGreaterThan(0);
+    // Without a stage the requested date stands in.
+    expect(screen.getByText("Requested Oct 3")).toBeTruthy();
     const cards = document.querySelectorAll(".portal-property-row");
     expect(cards.length).toBe(2);
     for (const card of Array.from(cards)) {
@@ -99,9 +129,38 @@ describe("ManagerServiceCardRow", () => {
     expect(document.querySelector('[class*="rounded-full"][class*="bg-"]')).toBeNull();
   });
 
-  it("uses the property glyph tile when there is no requester", () => {
-    render(<ManagerServiceCardRow row={{ ...base, residentName: "", residentEmail: "" }} onOpen={() => {}} />);
+  it("puts the service glyph in the tile, never the resident's initials", () => {
+    render(<ManagerServiceCardRow row={base} onOpen={() => {}} />);
     expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
+    expect(document.querySelector('[data-slot="portal-row-photo-tile"]')).toBeNull();
+    expect(screen.queryByText("MC")).toBeNull();
+  });
+
+  it("shows the first photo in the tile when the service has one", () => {
+    render(<ManagerServiceCardRow row={base} photoUrl="data:image/png;base64,AAAA" onOpen={() => {}} />);
+    const tile = document.querySelector('[data-slot="portal-row-photo-tile"]');
+    expect(tile?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeNull();
+  });
+
+  // A stored photo URL is untrusted input (it reaches the row from local storage),
+  // so anything that is not an http(s) link or an inline image falls through to the
+  // glyph tile rather than reaching the `src` attribute.
+  it("refuses a photo URL that is not an http(s) link or an inline image", () => {
+    for (const unsafe of ['" onerror="alert(1)', "javascript:alert(1)", "data:text/html;base64,AAAA"]) {
+      const { unmount } = render(<ManagerServiceCardRow row={base} photoUrl={unsafe} onOpen={() => {}} />);
+      expect(document.querySelector('[data-slot="portal-row-photo-tile"]')).toBeNull();
+      expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("keeps the resident as a fact when there is one and draws none when there is not", () => {
+    const { unmount } = render(<ManagerServiceCardRow row={base} onOpen={() => {}} />);
+    expect(document.querySelector('[data-attr="record-row-facts"]')?.textContent).toContain("Maya Chen");
+    unmount();
+    render(<ManagerServiceCardRow row={{ ...base, residentName: "", residentEmail: "" }} onOpen={() => {}} />);
+    expect(document.querySelector('[data-attr="record-row-facts"]')?.textContent ?? "").not.toContain("Maya");
   });
 });
 

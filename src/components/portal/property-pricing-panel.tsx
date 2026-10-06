@@ -18,7 +18,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { persistManagerListingSubmission, type ManagerPricingSaveTarget } from "@/lib/manager-property-save-target";
+import { persistManagerListingSubmissionOnServer, type ManagerPricingSaveTarget } from "@/lib/manager-property-save-target";
 import {
   propertyPricingBundleSummary,
   propertyPricingBundleTitle,
@@ -33,6 +33,7 @@ import {
   normalizeWorkspacePricingDefaults,
   type WorkspacePricingDefaults,
 } from "@/lib/workspace-pricing-defaults";
+import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,6 +57,8 @@ type Props = {
   onUpdated: () => void;
   showToast: (message: string) => void;
   workspacePricingDefaults?: WorkspacePricingDefaults;
+  /** The stored property record's address — see {@link PropertyRoomPricingWorkspace}. */
+  listingProperty?: RentRuleAddress | null;
 };
 
 /** The square icon tile every pricing row carries: rooms, bundles and the whole house look alike. */
@@ -75,6 +78,7 @@ export function PropertyPricingPanel({
   onUpdated,
   showToast,
   workspacePricingDefaults: workspacePricingDefaultsProp,
+  listingProperty = null,
 }: Props) {
   const [workspacePricingDefaults, setWorkspacePricingDefaults] = useState<WorkspacePricingDefaults>(
     () => normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp ?? {}),
@@ -122,9 +126,11 @@ export function PropertyPricingPanel({
   const filteredBundles = bundles.filter((b) => match(b.label?.trim() || "bundle") || match(propertyPricingBundleSummary(b, sub)));
   const showWholeTab = !entireHome || sub.entireHomeOffered || (sub.entireHomeMonthlyRent ?? 0) > 0;
 
-  const persist = (next: ManagerListingSubmissionV1) => {
+  // Server-confirmed: "Pricing saved" is only said once the record is stored, never on a background mirror that
+  // can still be refused (a refused mirror put the old prices back on the next reload).
+  const persist = async (next: ManagerListingSubmissionV1) => {
     const normalized = normalizeManagerListingSubmissionV1(next);
-    if (!persistManagerListingSubmission(saveTarget, managerUserId, normalized)) {
+    if (!(await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, normalized))) {
       showToast("Could not save pricing.");
       return false;
     }
@@ -137,11 +143,11 @@ export function PropertyPricingPanel({
     setWorkspaceOpen(true);
   };
 
-  const addForTab = () => {
+  const addForTab = async () => {
     if (tab === "bundles") {
       const next = emptyBundleRow();
       const draft = normalizeManagerListingSubmissionV1({ ...sub, bundles: [...bundles, next] });
-      if (!persist(draft)) return;
+      if (!(await persist(draft))) return;
       openSubject({ kind: "bundle", bundleId: next.id });
       return;
     }
@@ -263,8 +269,9 @@ export function PropertyPricingPanel({
                           showToast("No workspace default for this room.");
                           return;
                         }
-                        persist(next);
-                        showToast("Room reset to workspace default.");
+                        void persist(next).then((ok) => {
+                          if (ok) showToast("Room reset to workspace default.");
+                        });
                       } : undefined}
                     />
                   }
@@ -318,8 +325,9 @@ export function PropertyPricingPanel({
                     showToast("No workspace default for the whole house.");
                     return;
                   }
-                  persist(next);
-                  showToast("Whole house reset to workspace default.");
+                  void persist(next).then((ok) => {
+                    if (ok) showToast("Whole house reset to workspace default.");
+                  });
                 } : undefined}
               />
             }
@@ -354,6 +362,7 @@ export function PropertyPricingPanel({
           onSaved={onUpdated}
           showToast={showToast}
           workspacePricingDefaults={workspacePricingDefaults}
+          listingProperty={listingProperty}
         />
       ) : null}
     </div>

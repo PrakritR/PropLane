@@ -11,7 +11,8 @@ type RpcHandler = (params: Record<string, unknown>) => { data: unknown; error: n
 
 class FakeQuery {
   private filters: Array<[string, unknown]> = [];
-  private mode: "select" | "insert" | "update" | "upsert" = "select";
+  private negatedFilters: Array<[string, unknown]> = [];
+  private mode: "select" | "insert" | "update" | "upsert" | "delete" = "select";
   private upsertConflictCol: string | null = null;
   private payload: Row | null = null;
   private cols: string | null = null;
@@ -30,6 +31,14 @@ class FakeQuery {
   }
   in(col: string, values: unknown[]) {
     this.filters.push([col, values]);
+    return this;
+  }
+  neq(col: string, val: unknown) {
+    this.negatedFilters.push([col, val]);
+    return this;
+  }
+  delete() {
+    this.mode = "delete";
     return this;
   }
   lt(_col: string, _val: unknown) {
@@ -61,8 +70,10 @@ class FakeQuery {
     return this;
   }
   private matched(): Row[] {
-    return this.rows.filter((r) =>
-      this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)),
+    return this.rows.filter(
+      (r) =>
+        this.filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)) &&
+        this.negatedFilters.every(([c, v]) => (r[c] ?? null) !== v),
     );
   }
   private exec(): { data: unknown; error: null } {
@@ -75,6 +86,12 @@ class FakeQuery {
     if (this.mode === "update") {
       const matched = this.matched();
       for (const r of matched) Object.assign(r, this.payload);
+      // PostgREST returns the updated rows when the caller chains `.select()`, and callers rely on
+      // that to tell a compare-and-swap that matched from one that did not.
+      return { data: matched, error: null };
+    }
+    if (this.mode === "delete") {
+      for (const hit of this.matched()) this.rows.splice(this.rows.indexOf(hit), 1);
       return { data: null, error: null };
     }
     if (this.mode === "upsert") {

@@ -25,20 +25,42 @@ export const useAppUi = () => ({
 });
 export const useConfirm = () => () => Promise.resolve(true);
 
-/** Router stub: a push/replace becomes a full navigation to `?route=<href>` so the fixture re-mounts on the new route. */
+/**
+ * Router stub. A push/replace moves `?route=<href>` in the address bar and
+ * re-renders the subscribed surfaces — a CLIENT navigation, the way Next's
+ * router behaves: the panel stays mounted across a tab switch. It used to
+ * `location.assign`, which remounted the whole tree on every click and so hid
+ * any once-per-visit state the panel keeps (e.g. the resident landing tab).
+ */
+const ROUTE_EVENT = "payments-fixture:route";
+function routeFromLocation(fallback: string) {
+  return new URLSearchParams(location.search).get("route") ?? fallback;
+}
 function go(href: string) {
   const w = window as unknown as { __navigations: string[] };
   w.__navigations ??= [];
   w.__navigations.push(href);
   const url = new URL(location.href);
   url.searchParams.set("route", href);
-  location.assign(url.toString());
+  history.pushState({}, "", url.toString());
+  window.dispatchEvent(new Event(ROUTE_EVENT));
+}
+/** The current `?route=` value, re-read whenever the stub router navigates. */
+export function useFixtureRoute(fallback: string) {
+  const [route, setRoute] = React.useState(() => routeFromLocation(fallback));
+  React.useEffect(() => {
+    const on = () => setRoute(routeFromLocation(fallback));
+    window.addEventListener(ROUTE_EVENT, on);
+    window.addEventListener("popstate", on);
+    return () => {
+      window.removeEventListener(ROUTE_EVENT, on);
+      window.removeEventListener("popstate", on);
+    };
+  }, [fallback]);
+  return route;
 }
 export const useRouter = () => ({ push: go, replace: go, refresh: () => {}, prefetch: () => {}, back: () => history.back() });
-export const usePathname = () => {
-  const route = new URLSearchParams(location.search).get("route");
-  return route ?? "/portal/payments/incoming/pending";
-};
+export const usePathname = () => useFixtureRoute("/portal/payments/incoming/pending");
 export const useSearchParams = () => new URLSearchParams();
 export const useParams = () => ({});
 /** `next/link` → plain anchor routed through the same stub. */
