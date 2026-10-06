@@ -16,6 +16,7 @@ import {
   SCREENSHOT_SETS,
   validateCopy,
 } from "../../scripts/ios-app-store-release.mjs";
+import { GALLERY, headlineLineCount } from "../../scripts/ios-app-store-screenshots.mjs";
 
 describe("app-store/ product page", () => {
   it("carries copy within Apple's limits", () => {
@@ -41,4 +42,14 @@ describe("app-store/ product page", () => {
       expect(() => readLocalScreenshots(set)).not.toThrow();
     });
   }
+
+  it("frames every gallery slot with a headline of at most two lines and no 'work order'", () => {
+    expect(GALLERY.length).toBeLessThanOrEqual(MAX_SCREENSHOTS_PER_SET);
+    for (const entry of GALLERY) {
+      expect(headlineLineCount(entry.headline), entry.file).toBeLessThanOrEqual(2);
+      expect(entry.headline.toLowerCase(), entry.file).not.toContain("work order");
+      // No subtext: the frame carries a headline and nothing under it.
+      expect(entry, entry.file).not.toHaveProperty("sub");
+    }
+  });
 });
