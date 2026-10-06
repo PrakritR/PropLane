@@ -222,6 +222,7 @@ export function PortalComposeScheduledMessagesSection({
             smsAvailable={smsAvailable}
             channelEditable={editing.editable}
             source={editing.source}
+            deliveryStatus={editing.deliveryStatus}
             editable={editing.editable}
             busy={busyId === editing.id}
             presentation="detail"

@@ -2257,6 +2257,12 @@ export type InboxScheduledCardProps = {
   deliverViaEmail?: boolean;
   deliverViaSms?: boolean;
   source: "manual" | "automation";
+  /**
+   * Where this send is in its life. A `sending` row is already with the
+   * dispatcher, so nothing on the card may act on it — the surfaces each used to
+   * fold that into `busy` themselves and two of them forgot.
+   */
+  deliveryStatus?: "scheduled" | "sending";
   emailAvailable?: boolean;
   smsAvailable?: boolean;
   smsDisabledReason?: string;
@@ -2345,6 +2351,7 @@ export function InboxScheduledCard({
   deliverViaEmail,
   deliverViaSms,
   source: _source,
+  deliveryStatus,
   emailAvailable = true,
   smsAvailable = false,
   smsDisabledReason,
@@ -2462,7 +2469,8 @@ export function InboxScheduledCard({
   };
 
   const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
-  const actionBusy = busy || saving;
+  const midSend = deliveryStatus === "sending";
+  const actionBusy = busy || saving || midSend;
   const canSave = Boolean(draftBody.trim() && draftChannelsOk);
   const cancelEnabled = showSendActions && scheduled;
   const sendNowEnabled = showSendActions && scheduled && Boolean(onSendNow);

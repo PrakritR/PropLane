@@ -81,6 +81,13 @@ describe("scheduled conversation bar", () => {
       expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
     });
 
+    it("locks Cancel send, Send now and Save while the message is mid-send", () => {
+      open({ onSendNow: vi.fn(), deliveryStatus: "sending" });
+      expect(screen.getByRole("button", { name: "Cancel send" })).toHaveProperty("disabled", true);
+      expect(screen.getByRole("button", { name: "Send now" })).toHaveProperty("disabled", true);
+      expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", true);
+    });
+
     it("Send now runs the send path and closes the pop-up", async () => {
       const send = vi.fn().mockResolvedValue(undefined);
       open({ onSendNow: send });

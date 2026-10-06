@@ -2571,8 +2571,9 @@ export const ManagerInbox = forwardRef<
             smsAvailable={activeSmsAvailable}
             channelEditable={item.editable}
             source={item.source}
+            deliveryStatus={item.deliveryStatus}
             editable={item.editable}
-            busy={scheduledBusyId === item.id || item.deliveryStatus === "sending"}
+            busy={scheduledBusyId === item.id}
             recipient={activeThread.email}
             sendAt={item.sendAt}
             onCancel={() => cancelScheduledItem(item)}

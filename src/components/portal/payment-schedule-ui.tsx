@@ -351,7 +351,11 @@ export function ChargeRemindersModal({
     if (!open) setEditingMessage(null);
   }, [open]);
 
-  const toggleCancelled = async (message: ScheduledPaymentMessage, cancelled: boolean) => {
+  const toggleCancelled = async (
+    message: ScheduledPaymentMessage,
+    cancelled: boolean,
+    options?: { rethrow?: boolean },
+  ) => {
     setManageable((prev) =>
       prev.map((row) =>
         row.id === message.id ? { ...row, status: cancelled ? "cancelled" : "scheduled" } : row,
@@ -360,9 +364,10 @@ export function ChargeRemindersModal({
     try {
       await onToggleCancel(message, cancelled);
       onMessageSaved?.();
-    } catch {
+    } catch (e) {
       setManageable(manageableFromProps);
       showToast("Could not update reminder.");
+      if (options?.rethrow) throw e;
     }
   };
 
@@ -532,7 +537,7 @@ export function ChargeRemindersModal({
           recipient={editingMessage.residentEmail}
           sendAt={editingMessage.sendAt}
           onCancel={async () => {
-            await toggleCancelled(editingMessage, true);
+            await toggleCancelled(editingMessage, true, { rethrow: true });
             setEditingMessage(null);
           }}
           onSendNow={

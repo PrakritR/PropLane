@@ -165,8 +165,9 @@ export function useThreadScheduledCards({
             smsAvailable={smsAvailable}
             channelEditable={item.editable}
             source={item.source}
+            deliveryStatus={item.deliveryStatus}
             editable={item.editable}
-            busy={busyId === item.id || item.deliveryStatus === "sending"}
+            busy={busyId === item.id}
             recipient={recipientEmail}
             sendAt={item.sendAt}
             onCancel={() => cancel(item)}

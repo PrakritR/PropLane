@@ -286,6 +286,10 @@ test("under /demo a thread's scheduled sends act locally and ask the API for not
   await rows.first().click();
   const cancel = page.getByRole("button", { name: /^cancel send$|^cancel$/i }).last();
   await cancel.click();
+  // Cancel send is a destructive confirm, so the pop-up's button only opens the dialog.
+  const confirmRow = page.locator('[data-attr="confirm-tap-row"]');
+  await expect(confirmRow).toBeVisible();
+  await confirmRow.getByRole("button", { name: /^cancel send$/i }).click();
   await expect(bar.locator('[data-attr="inbox-scheduled-bar-row"]')).toHaveCount(rowCount - 1);
   await page.screenshot({ path: path.join(SHOTS, "14-demo-cancel-applied-locally.png") });
 
