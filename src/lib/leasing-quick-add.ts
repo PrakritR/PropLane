@@ -35,6 +35,7 @@ import {
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import {
+  SHORT_STAY_SEED_KEYS,
   addLeaseTemplateFromSeed,
   availableLeaseTemplateSeeds,
   buildLeaseTemplateSeeds,
@@ -301,4 +302,24 @@ export function submissionWithDefaultLeasingSetup(sub: ManagerListingSubmissionV
   // "All" lease types is the absence of a lease-type restriction (`MoveInFormTemplate.leaseType`).
   const checklist = newMoveInFormTemplate("built", "move-in-checklist");
   return { ...next, moveInFormTemplates: [checklist] };
+}
+
+/**
+ * The short-stay defaults a property gains the moment "Short term" is ticked in "Stays you offer": the
+ * Short-term application and the Short-term lease (and the Airbnb ones when Airbnb is allowed), linked as in
+ * a new property's setup. A hidden untouched default (`stayHidden`) is switched back on by the sync; one the
+ * property already carries is left as it is. A property that has stored no leasing setup at all is returned
+ * untouched - its defaults still come from the listing when it is first saved. Call it on the submission AFTER
+ * the stays patch is applied.
+ */
+export function submissionWithShortStayDefaults(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+  const hasStored = readPropertyApplicationTemplates(sub).length > 0 || readPropertyLeaseTemplates(sub).length > 0;
+  if (!hasStored) return sub;
+  let next = syncPropertyLeaseTemplatesFromListing(syncPropertyApplicationTemplatesFromListing(sub));
+  for (const seed of buildLeaseTemplateSeeds(next)) {
+    if (!SHORT_STAY_SEED_KEYS.has(seed.seedKey)) continue;
+    next = submissionWithApplicationDefault(next, seed.seedKey);
+    next = submissionWithLeaseDefault(next, seed.seedKey);
+  }
+  return next;
 }

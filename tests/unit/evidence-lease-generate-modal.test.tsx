@@ -80,7 +80,10 @@ ${body}</body></html>`,
 describe("evidence · generate-lease picker follows the property's real formats", () => {
   it("lists the formats the property holds", () => {
     SUBMISSION = addLeaseTemplateFromSeed(
-      addLeaseTemplateFromSeed(createDefaultListingSubmission(), "primary"),
+      addLeaseTemplateFromSeed(
+        { ...createDefaultListingSubmission(), allowedLeaseTerms: ["Long-term", "Short-Term Stay"], shortTermRentalsAllowed: true },
+        "primary",
+      ),
       "short-term",
     );
     render(

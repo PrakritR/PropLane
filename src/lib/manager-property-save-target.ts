@@ -14,6 +14,7 @@ import { parseMonthlyRent } from "@/lib/listings-search";
 import {
   legacyAdminFieldsToSubmission,
   normalizeManagerListingSubmissionV1,
+  withOfferedLeaseTermsFilled,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import {
@@ -121,8 +122,11 @@ export function persistManagerListingSubmission(
 export async function persistManagerListingSubmissionOnServer(
   saveTarget: ManagerPricingSaveTarget,
   managerUserId: string,
-  next: ManagerListingSubmissionV1,
+  submission: ManagerListingSubmissionV1,
 ): Promise<boolean> {
+  // The leasing panels save the submission they DISPLAY; for a property that never stored one that carries an
+  // empty lease-term list, which the server refuses. Write the terms the screens already showed instead.
+  const next = withOfferedLeaseTermsFilled(submission);
   if (saveTarget.mode === "pending") {
     return updatePendingManagerPropertyOnServer(saveTarget.saveId, next, managerUserId);
   }

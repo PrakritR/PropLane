@@ -1,15 +1,15 @@
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { ApplicationFormVariant } from "@/lib/rental-application/application-field-catalog";
 import {
   createPropertyApplicationTemplate,
   readPropertyApplicationTemplates,
+  seededApplicationTemplateId,
   syncLegacyApplicationFieldsFromTemplates,
   withPropertyApplicationTemplatesExplicit,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import type { PropertyLeaseListingSeedKey, PropertyLeaseTemplateKind } from "@/lib/property-lease-templates";
-import { buildLeaseTemplateSeeds } from "@/lib/property-lease-template-sync";
+import { SHORT_STAY_SEED_KEYS, buildLeaseTemplateSeeds } from "@/lib/property-lease-template-sync";
 
 const COSIGNER_SEED_KEY: PropertyLeaseListingSeedKey = "cosigner";
 /** Retired — one co-signer application covers every stay type; kept for legacy rows. */
@@ -146,6 +146,7 @@ export function addApplicationTemplateFromSeed(
   // equally valid matches for the same lease term.
   if (existing.some((t) => t.listingSeedKey === seedKey)) return sub;
   const created = createPropertyApplicationTemplate({
+    id: seededApplicationTemplateId(seed.seedKey),
     kind: seed.kind,
     label: defaultLabelForSeed(seed),
     listingSeedKey: seed.seedKey,
@@ -174,6 +175,13 @@ function applicationTemplateHasManagerEdits(template: PropertyApplicationTemplat
     applicationLeaseTerms: template.applicationLeaseTerms ?? [],
   });
   return !shipped.includes(label);
+}
+
+/** The row as a live default again: the stay it was hidden for is allowed, so it is offered. */
+function withoutStayHidden(template: PropertyApplicationTemplate): PropertyApplicationTemplate {
+  if (!template.stayHidden) return template;
+  const { stayHidden: _hidden, ...rest } = template;
+  return { ...rest, offered: true };
 }
 
 function adoptLegacyDefaultTemplate(
@@ -233,7 +241,7 @@ export function syncPropertyApplicationTemplatesFromListing(
           ? trimmedPrevLabel
           : defaultLabel;
       nextSeeded.push({
-        ...prev,
+        ...withoutStayHidden(prev),
         kind: seed.kind,
         formVariant: seed.formVariant,
         listingSeedKey: seed.seedKey,
@@ -243,6 +251,7 @@ export function syncPropertyApplicationTemplatesFromListing(
       });
     } else if (autoSeed) {
       const created = createPropertyApplicationTemplate({
+        id: seededApplicationTemplateId(seed.seedKey),
         kind: seed.kind,
         label: defaultLabelForSeed(seed),
         listingSeedKey: seed.seedKey,
@@ -264,8 +273,21 @@ export function syncPropertyApplicationTemplatesFromListing(
       !consumedIds.has(t.id) &&
       applicationTemplateHasManagerEdits(t),
   );
-  const merged = [...nextSeeded, ...manual, ...preservedSeeded];
-  // The seeded short-term form always exists (it is a default, not a choice), so its presence says nothing
+  // A short-stay default the property does not offer (it only allows long term): an untouched one is KEPT,
+  // switched off and marked `stayHidden`, so nothing is deleted and it does not hold a Short term tab open.
+  // One the manager renamed was already preserved above, as it is.
+  const preservedIds = new Set(preservedSeeded.map((t) => t.id));
+  const stayHidden = existing
+    .filter(
+      (t) =>
+        Boolean(t.listingSeedKey) &&
+        SHORT_STAY_SEED_KEYS.has(t.listingSeedKey!) &&
+        !consumedIds.has(t.id) &&
+        !preservedIds.has(t.id),
+    )
+    .map((t) => ({ ...t, offered: false, stayHidden: true }));
+  const merged = [...nextSeeded, ...manual, ...preservedSeeded, ...stayHidden];
+  // A short-term form now exists only on a property that allows that stay, and its presence still says nothing
   // about the stays on offer: leave `shortTermRentalsAllowed` to the listing ("Stays you offer"). Forcing it on
   // here flipped a long-term-only listing to short-term the moment any application was saved.
   return syncLegacyApplicationFieldsFromTemplates(sub, merged);
@@ -275,20 +297,13 @@ export function submissionAfterRemovingApplicationTemplate(
   sub: ManagerListingSubmissionV1,
   templates: PropertyApplicationTemplate[],
 ): ManagerListingSubmissionV1 {
-  const hasShortTerm = templates.some((t) => t.formVariant === "short_term");
-  let next = syncLegacyApplicationFieldsFromTemplates(
+  // Deleting an application never changes which stays the property offers ("Stays you offer" owns that). It used
+  // to switch short stays off when the last short-term application went, which now would also remove the Short
+  // term tab and the Quick add that brings the default back.
+  return syncLegacyApplicationFieldsFromTemplates(
     { ...sub, propertyApplicationTemplatesExplicit: true },
     templates,
   );
-  if (!hasShortTerm && next.shortTermRentalsAllowed) {
-    const allowed = (next.allowedLeaseTerms ?? []).filter((t) => t !== SHORT_TERM_LEASE_TERM);
-    next = {
-      ...next,
-      shortTermRentalsAllowed: false,
-      allowedLeaseTerms: allowed,
-    };
-  }
-  return next;
 }
 
 /** Prospect-facing read: honors a manager-cleared list; otherwise auto-seeds defaults. */

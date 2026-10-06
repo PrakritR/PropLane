@@ -63,7 +63,10 @@ vendor and every other kind keep their Activity. Guard: `tests/unit/property-red
 Applications, Leases, Move-in forms, Services and AI info draw **Long term / Short term** tabs from one helper,
 `src/lib/property-stay-tabs.ts`: a stay's tab exists when the property allows the stay (Airbnb counts as short
 term), a row for both stays shows in both tabs as one record, and a stay the property does not allow still keeps
-its tab when it holds rows (never hide data). Promotion stays one list. Guard: `tests/unit/property-stay-tabs.test.ts`.
+its tab when it holds rows of the manager's own (never hide data); an untouched PropLane short-stay default on a
+long-term-only property is `offered: false` / `stayHidden` and holds no tab. A stay's default is a row inside its
+list (a star **Default** fact + **Set as default for <stay>** in the other rows' menus), not a tab. Promotion stays
+one list. Guard: `tests/unit/property-stay-tabs.test.ts`.
 
 ## What wave 1 (area 1a of this plan) actually landed
 
