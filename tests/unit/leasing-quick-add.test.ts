@@ -113,6 +113,25 @@ describe("Quick add: which PropLane defaults are missing", () => {
     expect(missingLeaseDefaults(back)).toEqual([]);
   });
 
+  it("Quick add adds to the tab you are on: a stay only offers the defaults that tab would then list", () => {
+    const airbnbSub = withPropertyApplicationTemplatesExplicit(
+      { ...createDefaultListingSubmission(), airbnbRentalsAllowed: true },
+      [],
+    );
+    // The Airbnb starter is a short-stay lease, so it belongs to the Short term tab, never Long term.
+    expect(labels(missingLeaseDefaults(airbnbSub, "long_term"))).toEqual(["Long-term lease"]);
+    expect(labels(missingLeaseDefaults(airbnbSub, "short_term"))).toEqual(["Short-term lease", "Airbnb stay agreement"]);
+    // Co-signer applications live under Long term only.
+    expect(labels(missingApplicationDefaults(airbnbSub, "long_term"))).toEqual([
+      "Long-term application",
+      "Co-signer application",
+    ]);
+    expect(labels(missingApplicationDefaults(airbnbSub, "short_term"))).toEqual([
+      "Short-term application",
+      "Short-term application",
+    ]);
+  });
+
   it("a move-in starter is added as the manager's own form that sends only by hand", () => {
     const added = readMoveInFormTemplates(submissionWithMoveInStarter(fresh(), "key-receipt"));
     expect(added).toHaveLength(1);

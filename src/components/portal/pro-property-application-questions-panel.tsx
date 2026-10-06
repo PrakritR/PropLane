@@ -59,7 +59,7 @@ import {
 } from "@/lib/property-application-template-sync";
 import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
 import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
-import { submissionWithApplicationDefault } from "@/lib/leasing-quick-add";
+import { missingApplicationDefaults, submissionWithApplicationDefault } from "@/lib/leasing-quick-add";
 import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
   PortalListAddRow,
@@ -330,6 +330,15 @@ export function ManagerPropertyApplicationQuestionsPanel({
    * auto-seeding — so without this list a removed default is unrecoverable.
    */
   const availableSeeds = useMemo(() => availableApplicationTemplateSeeds(syncedSub), [syncedSub]);
+  /**
+   * Quick add adds to the tab you are on: only the defaults the open stay's tab would then list are offered,
+   * derived from the seed by the same rule the created application is read back with (`applicationAppliesTo`),
+   * so a co-signer form never shows under Short term and a short-term form never under Long term.
+   */
+  const quickAddEntries = useMemo(
+    () => missingApplicationDefaults(sub, embedInModal ? undefined : (activeStay ?? undefined)),
+    [activeStay, embedInModal, sub],
+  );
 
   const addSeedTemplate = useCallback(
     async (seedKey: string) => {
@@ -703,7 +712,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
 
       {embedInModal || activeStay ? (
         <LeasingQuickAddRow
-          entries={availableSeeds.map((seed) => ({ key: seed.seedKey, label: seed.label }))}
+          entries={quickAddEntries}
           noun="application"
           dataAttr="property-application-quick-add"
           onAdd={(key) => void addSeedTemplate(key)}

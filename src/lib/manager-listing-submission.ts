@@ -694,8 +694,14 @@ export type ManagerSharedSpaceSubmission = {
 };
 
 export const AI_COMMUNICATION_INFO_SECTIONS = ["tours", "rules", "pricing", "neighborhood"] as const;
-/** Narrows a stored "applies to" to a real value; anything else is absent (= both). */
-function readAppliesTo(raw: unknown): StayAppliesTo | undefined {
+
+/**
+ * The ONE narrowing of a stored "applies to" (AI info custom rows, services offered, ...): a real stay or
+ * "both", and anything else is absent - which every reader treats as both. Lives here, with the rest of the
+ * stored-submission normalization, so `property-stay-tabs.ts` can keep importing this file's types without a
+ * cycle back the other way.
+ */
+export function readStayAppliesTo(raw: unknown): StayAppliesTo | undefined {
   return raw === "long_term" || raw === "short_term" || raw === "both" ? raw : undefined;
 }
 
@@ -761,7 +767,7 @@ export function normalizeAiCommunicationCustom(raw: unknown): AiCommunicationCus
       groupRaw === "home" || groupRaw === "leasing" || groupRaw === "rules" || groupRaw === "area"
         ? groupRaw
         : "custom";
-    const appliesTo = readAppliesTo(row.appliesTo);
+    const appliesTo = readStayAppliesTo(row.appliesTo);
     out.push({ id, title, text, group, ...(appliesTo ? { appliesTo } : {}) });
   }
   return out.length ? out : undefined;
@@ -2733,7 +2739,7 @@ function normalizeManagerListingSubmissionV1Base(
             item.billingCadence === "per_request" || item.billingCadence === "monthly" || item.billingCadence === "one_time"
               ? item.billingCadence
               : undefined;
-          const appliesTo = readAppliesTo(item.appliesTo);
+          const appliesTo = readStayAppliesTo(item.appliesTo);
           return {
             id: idRaw || `offer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             name: typeof item.name === "string" ? item.name.trim() : "",

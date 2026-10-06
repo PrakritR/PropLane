@@ -187,13 +187,13 @@ export function ManagerPropertyLeasePanel({
   // One row per lease type the listing offers (a type with no lease yet still
   // draws its "No lease yet" row), plus any lease outside those types — the
   // header count is exactly the rows the list shows.
-  // Quick add offers only the starters for the open tab's stay (a long-term tab never offers a short-term lease).
-  const missingDefaults = useMemo(() => {
-    const entries = missingLeaseDefaults(syncedSub);
-    if (embedInModal || !activeStay) return entries;
-    const isShortSeed = (key: string) => key === "short-term" || key === "bundle-short-term" || key === "cosigner-short-term";
-    return entries.filter((entry) => (activeStay === "short_term") === isShortSeed(entry.key));
-  }, [activeStay, embedInModal, syncedSub]);
+  // Quick add offers only the starters for the open tab's stay (a long-term tab never offers a short-term lease,
+  // and the Airbnb starter is short term). `missingLeaseDefaults` derives each starter's stay from the seed
+  // itself, so a new seed can never land in the wrong tab.
+  const missingDefaults = useMemo(
+    () => missingLeaseDefaults(syncedSub, embedInModal ? undefined : (activeStay ?? undefined)),
+    [activeStay, embedInModal, syncedSub],
+  );
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = useMemo(

@@ -18,7 +18,7 @@ import { isAddendumLeaseTemplate, isCosignerApplicationTemplate, leaseLinkFields
 import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import { moveInFormLeaseTypeForStay, moveInFormsInStay } from "@/lib/move-in-forms/stays";
 import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
-import type { PropertyStay } from "@/lib/property-stay-tabs";
+import { inStay, type PropertyStay, type StayAppliesTo } from "@/lib/property-stay-tabs";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   addApplicationTemplateFromSeed,
@@ -27,6 +27,7 @@ import {
 } from "@/lib/property-application-template-sync";
 import {
   applicationAllowsCosigner,
+  applicationAppliesTo,
   applicationFormVariantForTemplate,
   readPropertyApplicationTemplates,
   withPropertyApplicationTemplatesExplicit,
@@ -40,6 +41,7 @@ import {
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
 import {
+  leaseTemplateStay,
   readPropertyLeaseTemplates,
   type PropertyLeaseListingSeedKey,
   type PropertyLeaseTemplate,
@@ -47,23 +49,44 @@ import {
 
 export type QuickAddKind = "application" | "lease" | "movein";
 
-/** One PropLane default the property does not carry: `key` is a listing seed key or a move-in starter key. */
-export type QuickAddEntry = { key: string; label: string };
+/**
+ * One PropLane default the property does not carry: `key` is a listing seed key or a move-in starter key.
+ * `appliesTo` is the stay the default would land in, derived from the seed by the same rule the created row
+ * is read back with - so Quick add only ever offers what the open tab would then show.
+ */
+export type QuickAddEntry = { key: string; label: string; appliesTo?: StayAppliesTo };
 
-/** The PropLane default applications this property does not currently carry ("Long-term application" ...). */
-export function missingApplicationDefaults(sub: ManagerListingSubmissionV1): QuickAddEntry[] {
-  return availableApplicationTemplateSeeds(syncPropertyApplicationTemplatesFromListing(sub)).map((seed) => ({
-    key: seed.seedKey,
-    label: seed.label,
-  }));
+/**
+ * The PropLane default applications this property does not currently carry ("Long-term application" ...).
+ * With a `stay` (the open Long term / Short term tab) only the defaults that tab would list are offered.
+ */
+export function missingApplicationDefaults(sub: ManagerListingSubmissionV1, stay?: PropertyStay): QuickAddEntry[] {
+  return availableApplicationTemplateSeeds(syncPropertyApplicationTemplatesFromListing(sub))
+    .map((seed) => ({
+      key: seed.seedKey,
+      label: seed.label,
+      appliesTo: applicationAppliesTo({
+        kind: seed.kind,
+        listingSeedKey: seed.seedKey,
+        formVariant: seed.formVariant,
+      }) as StayAppliesTo,
+    }))
+    .filter((entry) => !stay || inStay(entry.appliesTo, stay));
 }
 
-/** The PropLane default leases this property does not currently carry ("Long-term lease", "Short-term lease"). */
-export function missingLeaseDefaults(sub: ManagerListingSubmissionV1): QuickAddEntry[] {
-  return availableLeaseTemplateSeeds(syncPropertyLeaseTemplatesFromListing(sub)).map((seed) => ({
-    key: seed.seedKey,
-    label: seed.label,
-  }));
+/**
+ * The PropLane default leases this property does not currently carry ("Long-term lease", "Short-term lease",
+ * "Airbnb stay agreement"). With a `stay`, only the defaults that tab would list are offered - the stay comes
+ * from `leaseTemplateStay`, so an Airbnb seed is short term exactly as its created lease is.
+ */
+export function missingLeaseDefaults(sub: ManagerListingSubmissionV1, stay?: PropertyStay): QuickAddEntry[] {
+  return availableLeaseTemplateSeeds(syncPropertyLeaseTemplatesFromListing(sub))
+    .map((seed) => ({
+      key: seed.seedKey,
+      label: seed.label,
+      appliesTo: leaseTemplateStay({ kind: seed.kind, applicationLeaseTerms: seed.applicationLeaseTerms }) as StayAppliesTo,
+    }))
+    .filter((entry) => !stay || inStay(entry.appliesTo, stay));
 }
 
 /**
@@ -91,11 +114,15 @@ function stayLeases(sub: ManagerListingSubmissionV1 | { moveInFormTemplates?: un
   return readPropertyLeaseTemplates(sub as ManagerListingSubmissionV1).map((lease) => ({ id: lease.id, kind: lease.kind }));
 }
 
-/** "Quick add" entries for one list, in the order the list shows them. */
-export function missingDefaultsFor(kind: QuickAddKind, sub: ManagerListingSubmissionV1): QuickAddEntry[] {
-  if (kind === "application") return missingApplicationDefaults(sub);
-  if (kind === "lease") return missingLeaseDefaults(sub);
-  return missingMoveInStarters(sub);
+/** "Quick add" entries for one list, in the order the list shows them; scoped to the open tab's `stay`. */
+export function missingDefaultsFor(
+  kind: QuickAddKind,
+  sub: ManagerListingSubmissionV1,
+  stay?: PropertyStay,
+): QuickAddEntry[] {
+  if (kind === "application") return missingApplicationDefaults(sub, stay);
+  if (kind === "lease") return missingLeaseDefaults(sub, stay);
+  return missingMoveInStarters(sub, stay);
 }
 
 /* ───────────────────────────── adding one default ───────────────────────────── */

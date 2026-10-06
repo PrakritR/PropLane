@@ -16,7 +16,10 @@ import {
 } from "@/lib/listing-stays";
 
 export type PropertyStay = StayKey;
-/** What a row applies to: one stay or both. Absent on a stored row reads as "both" unless the section derives it. */
+/**
+ * What a row applies to: one stay or both. Absent on a stored row reads as "both" unless the section derives
+ * it; `readStayAppliesTo` (manager-listing-submission.ts) is the one narrowing of the stored value.
+ */
 export type StayAppliesTo = PropertyStay | "both";
 
 export const PROPERTY_STAYS: readonly PropertyStay[] = ["long_term", "short_term"];
@@ -46,20 +49,10 @@ export function stayTabsFor(
   return PROPERTY_STAYS.filter((stay) => allowed.has(stay) || held.has(stay));
 }
 
-/** True when the stay is one the property does not allow but still has a tab (it holds rows). */
-export function isDisallowedStay(sub: StaySub, stay: PropertyStay): boolean {
-  return !allowedStays(sub).includes(stay);
-}
-
 /** True when a row that applies to `appliesTo` belongs in the `stay` tab ("both" matches both). */
 export function inStay(appliesTo: StayAppliesTo | null | undefined, stay: PropertyStay): boolean {
   const value = appliesTo ?? "both";
   return value === "both" || value === stay;
-}
-
-/** The stays a row covers, for counting where it shows. */
-export function staysCoveredBy(appliesTo: StayAppliesTo | null | undefined): PropertyStay[] {
-  return PROPERTY_STAYS.filter((stay) => inStay(appliesTo, stay));
 }
 
 /** Rows that show in `stay`'s tab. */
@@ -89,11 +82,6 @@ export function stayLabel(stay: PropertyStay): string {
 /** The "Applies to" value for a row created from the open tab. */
 export function appliesToForTab(stay: PropertyStay): StayAppliesTo {
   return stay;
-}
-
-/** Narrows a stored value to a real "applies to" or undefined (absent = both). */
-export function readStayAppliesTo(raw: unknown): StayAppliesTo | undefined {
-  return raw === "long_term" || raw === "short_term" || raw === "both" ? raw : undefined;
 }
 
 export type PropertyStayTab<Id extends string = string> = { id: Id; label: string; count?: number };

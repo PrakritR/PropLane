@@ -10,7 +10,7 @@ import {
   type ManagerListingServiceOption,
   type ServiceBillingCadence,
 } from "@/lib/manager-listing-submission";
-import { type PropertyStay, type StayAppliesTo } from "@/lib/property-stay-tabs";
+import { rowsInStay, type PropertyStay, type StayAppliesTo } from "@/lib/property-stay-tabs";
 
 /** Quick add presets on the property Services page. `both`: the service is natural for either stay. */
 export const PROPERTY_SERVICE_QUICK_ADDS: ReadonlyArray<{
@@ -28,11 +28,17 @@ export const PROPERTY_SERVICE_QUICK_ADDS: ReadonlyArray<{
   { key: "furnishing", label: "Furnishing", billingCadence: "one_time", both: true },
 ];
 
-/** The presets this property does not already offer (matched on name, any case). */
+/**
+ * The presets this property does not already offer (matched on name, any case). With a `stay` (the open
+ * Long term / Short term tab) only the services that tab lists count as offered - Quick add adds to the tab
+ * you are on, so a long-term-only service never hides the preset from the Short term tab.
+ */
 export function missingServiceQuickAdds(
   offers: readonly ManagerListingServiceOption[],
+  stay?: PropertyStay,
 ): { key: string; label: string }[] {
-  const have = new Set(offers.map((offer) => offer.name.trim().toLowerCase()));
+  const inTab = stay ? rowsInStay(offers, stay, serviceAppliesTo) : offers;
+  const have = new Set(inTab.map((offer) => offer.name.trim().toLowerCase()));
   return PROPERTY_SERVICE_QUICK_ADDS.filter((preset) => !have.has(preset.label.toLowerCase())).map(({ key, label }) => ({
     key,
     label,

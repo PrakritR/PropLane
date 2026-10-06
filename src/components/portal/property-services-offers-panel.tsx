@@ -98,7 +98,9 @@ export function PropertyServicesOffersPanel({
     [offers, stay, q],
   );
 
-  const quickAdds = missingServiceQuickAdds(offers);
+  // Quick add offers the presets the OPEN tab does not already list, so a long-term-only "Linen change"
+  // never hides the preset from the Short term tab.
+  const quickAdds = missingServiceQuickAdds(offers, stay);
   const quickAdd = (key: string) => {
     const row = serviceFromQuickAdd(key, stay);
     if (!row) return;

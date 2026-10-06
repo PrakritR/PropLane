@@ -70,6 +70,17 @@ describe("service appliesTo", () => {
       "Furnishing",
     ]);
   });
+
+  it("Quick add matches the presets against the OPEN tab's services only", () => {
+    const longOnlyLinen = { ...createManagerListingServiceOption("Linen change"), appliesTo: "long_term" as const };
+    const bothCleaning = { ...createManagerListingServiceOption("Cleaning"), appliesTo: "both" as const };
+    const offers = [longOnlyLinen, bothCleaning];
+    expect(missingServiceQuickAdds(offers, "long_term").map((q) => q.label)).not.toContain("Linen change");
+    // The Short term tab lists no linen service, so its preset is still offered there.
+    expect(missingServiceQuickAdds(offers, "short_term").map((q) => q.label)).toContain("Linen change");
+    // A both-stays service is listed in both tabs, so its preset is offered in neither.
+    expect(missingServiceQuickAdds(offers, "short_term").map((q) => q.label)).not.toContain("Cleaning");
+  });
 });
 
 describe("aiCommunicationInfoShortTerm normalization", () => {
