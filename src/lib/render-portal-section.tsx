@@ -1160,11 +1160,11 @@ export async function renderPortalSection(
 
     if (section === "leases") {
       if (!tabParts?.length) {
-        redirect(`${def.basePath}/leases/manager`);
+        redirect(`${def.basePath}/leases/resident`);
       }
       if (tabParts.length > 3) notFound();
       const tabRaw = tabParts[0]!;
-      // Draft · Sent · Signed are the words on the list; they resolve to the route ids behind them.
+      // Resident signature · Manager signature · Signed are the words on the list; they resolve to the route ids behind them.
       const { parseLeasePipelineTab } = await import("@/lib/portal-detail-routes");
       const leaseTab = parseLeasePipelineTab(tabRaw);
       if (tabRaw !== leaseTab) {

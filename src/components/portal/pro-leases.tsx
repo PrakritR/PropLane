@@ -30,20 +30,19 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
 
 /**
- * Three stages, the replica's: Draft, Sent, Signed. "Sent" holds every lease out
- * for signature — waiting on the resident and waiting on the manager's
- * countersignature — so a lease never sits in a stage of its own just because
- * of whose turn it is. The route ids are unchanged (`manager`, `resident`,
- * `completed`); a legacy `/leases/signed` link lands on Sent.
+ * Three stages, in this order: Resident signature, Manager signature, Signed. A lease sits in
+ * the stage of whose turn it is — a draft in review and the manager's countersignature are both
+ * Manager signature. The route ids are unchanged (`resident`, `manager`, `completed`); a legacy
+ * `/leases/signed` link lands on Manager signature, and the first tab is the default.
  */
 const LEASE_LABELS: { id: "manager" | "resident" | "completed"; label: string; dataAttr: string }[] = [
-  { id: "manager", label: "Draft", dataAttr: "leases-tab-manager" },
-  { id: "resident", label: "Sent", dataAttr: "leases-tab-resident" },
+  { id: "resident", label: "Resident signature", dataAttr: "leases-tab-resident" },
+  { id: "manager", label: "Manager signature", dataAttr: "leases-tab-manager" },
   { id: "completed", label: "Signed", dataAttr: "leases-tab-completed" },
 ];
 
 export function ManagerLeases({
-  tab: tabProp = "manager",
+  tab: tabProp = "resident",
   basePath = "/portal",
   leaseId: leaseIdProp,
   leaseDetailTab,
@@ -56,7 +55,7 @@ export function ManagerLeases({
 }) {
   const navigate = usePortalNavigate();
   const { userId, ready: authReady } = useManagerUserId();
-  const listTabProp: ManagerLeaseTab = tabProp === "signed" ? "resident" : tabProp;
+  const listTabProp: ManagerLeaseTab = tabProp === "signed" ? "manager" : tabProp;
   const [tab, setTab] = useState<ManagerLeaseTab>(listTabProp);
   const [prevTabProp, setPrevTabProp] = useState(listTabProp);
   if (listTabProp !== prevTabProp) {
@@ -290,10 +289,10 @@ export function ManagerLeases({
                     tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: leaseListHref(basePath, t.id) })),
                     tab,
                   ),
-                  // A lease waits on the resident or on your signature — adding one there
-                  // would land in Manager review, so only the tabs a new lease reaches offer the pill.
+                  // A lease waiting on the resident is already out — a new one starts in Manager
+                  // signature, so only the tabs a new lease reaches offer the pill.
                   actions:
-                    tab === "resident" || tab === "signed"
+                    tab === "resident"
                       ? []
                       : [{ label: "Send lease", onClick: () => setAddLeaseOpen(true), dataAttr: "leases-list-add" }],
                 }

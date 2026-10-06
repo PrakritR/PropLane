@@ -71,15 +71,15 @@ export function residentApplicationStatusBucket(row: DemoApplicantRow): Resident
 }
 
 
-/** Resident detail Lease tab — same three stages as the Leases hub: Draft · Sent · Signed. */
+/** Resident detail Lease tab — same three stages as the Leases hub: Resident signature · Manager signature · Signed. */
 export const RESIDENT_DETAIL_LEASE_PIPELINE_TABS: {
   id: LeaseListTabId;
   label: string;
   shortLabel: string;
   dataAttr: string;
 }[] = [
-  { id: "manager", label: "Draft", shortLabel: "Draft", dataAttr: "resident-lease-tab-manager" },
-  { id: "resident", label: "Sent", shortLabel: "Sent", dataAttr: "resident-lease-tab-resident" },
+  { id: "resident", label: "Resident signature", shortLabel: "Resident", dataAttr: "resident-lease-tab-resident" },
+  { id: "manager", label: "Manager signature", shortLabel: "Manager", dataAttr: "resident-lease-tab-manager" },
   { id: "completed", label: "Signed", shortLabel: "Signed", dataAttr: "resident-lease-tab-completed" },
 ];
 

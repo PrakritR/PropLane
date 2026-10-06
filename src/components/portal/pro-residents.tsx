@@ -671,7 +671,7 @@ export function ManagerResidents({
   const [residentDocumentTab, setResidentDocumentTab] = useState<ManagerResidentDocTabId>("application");
   const [residentApplicationBucket, setResidentApplicationBucket] =
     useState<ResidentRecordStatusBucketId>("pending");
-  const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<LeaseListTabId>("manager");
+  const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<LeaseListTabId>("resident");
   const [residentDetailSettingsOpen, setResidentDetailSettingsOpen] = useState(false);
   const [residentDetailSettingsTab, setResidentDetailSettingsTab] =
     useState<ManagerPortalSettingsTab>("applications");

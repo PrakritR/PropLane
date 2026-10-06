@@ -1596,24 +1596,24 @@ export function leaseRowMatchesManagerTab(row: LeasePipelineRow, tab: ManagerLea
 }
 
 /**
- * The Leases list has three stages — Draft, Sent, Signed — not four. "Sent" is
- * every lease out for signature: waiting on the resident (`resident`) and
- * waiting on the manager's countersignature (`signed`, not yet Fully Signed).
- * The route ids stay `manager` / `resident` / `completed`; a legacy
- * `/leases/signed` link lands on Sent.
+ * The Leases list has three stages — Resident signature, Manager signature, Signed — in that
+ * order. "Resident signature" is every lease out waiting on the resident (`resident`).
+ * "Manager signature" is the manager's turn: a draft in review (`manager`) and the
+ * countersignature (`signed`, not yet Fully Signed). The route ids stay `resident` / `manager` /
+ * `completed`; a legacy `/leases/signed` link lands on Manager signature.
  */
 export type LeaseListTabId = "manager" | "resident" | "completed";
 
 export function leaseRowMatchesListTab(row: LeasePipelineRow, tab: ManagerLeaseTab): boolean {
-  if (tab === "resident" || tab === "signed") {
-    return leaseRowMatchesManagerTab(row, "resident") || leaseRowMatchesManagerTab(row, "signed");
+  if (tab === "manager" || tab === "signed") {
+    return leaseRowMatchesManagerTab(row, "manager") || leaseRowMatchesManagerTab(row, "signed");
   }
   return leaseRowMatchesManagerTab(row, tab);
 }
 
 export function countLeaseListTabs(rows: LeasePipelineRow[]): Record<LeaseListTabId, number> {
   const counts = countManagerLeaseTabs(rows);
-  return { manager: counts.manager, resident: counts.resident + counts.signed, completed: counts.completed };
+  return { resident: counts.resident, manager: counts.manager + counts.signed, completed: counts.completed };
 }
 
 export function countManagerLeaseTabs(rows: LeasePipelineRow[]): Record<ManagerLeaseTab, number> {

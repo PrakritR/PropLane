@@ -1269,10 +1269,15 @@ export function residentMoveInInspectionsHref(
 export const LEASE_PIPELINE_TABS = ["manager", "resident", "signed", "completed"] as const;
 export type LeasePipelineTabId = (typeof LEASE_PIPELINE_TABS)[number];
 
-/** The Leases list reads Draft · Sent · Signed; these words land on the route ids behind them. */
+/**
+ * The Leases list reads Resident signature · Manager signature · Signed; these words (and the
+ * retired Draft / Sent) land on the route ids behind them.
+ */
 const LEASE_PIPELINE_TAB_ALIASES: Record<string, LeasePipelineTabId> = {
   draft: "manager",
   sent: "resident",
+  "resident-signature": "resident",
+  "manager-signature": "manager",
   executed: "completed",
 };
 
@@ -1280,7 +1285,7 @@ export function parseLeasePipelineTab(raw: string | undefined | null): LeasePipe
   if (raw && (LEASE_PIPELINE_TABS as readonly string[]).includes(raw)) {
     return raw as LeasePipelineTabId;
   }
-  return (raw && LEASE_PIPELINE_TAB_ALIASES[raw]) || "manager";
+  return (raw && LEASE_PIPELINE_TAB_ALIASES[raw]) || "resident";
 }
 
 export function leaseListHref(basePath: string, tab: LeasePipelineTabId): string {

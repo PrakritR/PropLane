@@ -150,7 +150,7 @@ describe("portal-detail-routes", () => {
     expect(parseApplicationBucket("approved")).toBe("approved");
     expect(parseApplicationBucket("bogus")).toBe("pending");
     expect(parseLeasePipelineTab("signed")).toBe("signed");
-    expect(parseLeasePipelineTab(undefined)).toBe("manager");
+    expect(parseLeasePipelineTab(undefined)).toBe("resident");
     expect(parsePaymentDirection("outgoing")).toBe("outgoing");
     expect(parsePaymentBucket("paid")).toBe("paid");
     expect(parseServiceRequestBucket("denied")).toBe("denied");

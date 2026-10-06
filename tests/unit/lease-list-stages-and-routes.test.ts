@@ -1,6 +1,8 @@
-// Leases read Draft · Sent · Signed; Applications read Pending · Approved · Declined.
+// Leases read Resident signature · Manager signature · Signed; Applications read Pending · Approved · Declined.
 // Incomplete and Withdrawn are facts on a Pending row, and the words people type land on the real route ids.
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { RESIDENT_DETAIL_LEASE_PIPELINE_TABS } from "@/lib/resident-detail-subsection-tabs";
 import {
   APPLICATION_BUCKETS,
   LEASE_PIPELINE_TABS,
@@ -23,23 +25,38 @@ describe("lease list stages", () => {
   const done = row({ id: "s", bucket: "signed", status: "Fully Signed" });
   const rows = [draft, waitingOnResident, waitingOnYou, done];
 
-  it("Sent holds every lease out for signature, whoever's turn it is", () => {
-    expect(rows.filter((r) => leaseRowMatchesListTab(r, "resident")).map((r) => r.id)).toEqual(["r", "m"]);
-    expect(rows.filter((r) => leaseRowMatchesListTab(r, "manager")).map((r) => r.id)).toEqual(["d"]);
+  it("a lease sits in the stage of whose turn it is: the resident's, the manager's (draft or countersign), done", () => {
+    expect(rows.filter((r) => leaseRowMatchesListTab(r, "resident")).map((r) => r.id)).toEqual(["r"]);
+    expect(rows.filter((r) => leaseRowMatchesListTab(r, "manager")).map((r) => r.id)).toEqual(["d", "m"]);
     expect(rows.filter((r) => leaseRowMatchesListTab(r, "completed")).map((r) => r.id)).toEqual(["s"]);
   });
 
-  it("an old /leases/signed link reads as Sent", () => {
-    expect(rows.filter((r) => leaseRowMatchesListTab(r, "signed")).map((r) => r.id)).toEqual(["r", "m"]);
+  it("an old /leases/signed link reads as Manager signature", () => {
+    expect(rows.filter((r) => leaseRowMatchesListTab(r, "signed")).map((r) => r.id)).toEqual(["d", "m"]);
   });
 
   it("counts match the three tabs", () => {
-    expect(countLeaseListTabs(rows)).toEqual({ manager: 1, resident: 2, completed: 1 });
+    expect(countLeaseListTabs(rows)).toEqual({ resident: 1, manager: 2, completed: 1 });
+  });
+
+  it("the tabs read Resident signature · Manager signature · Signed on the Leases page and the resident record", () => {
+    const page = readFileSync("src/components/portal/pro-leases.tsx", "utf8");
+    expect(page.indexOf('label: "Resident signature"')).toBeLessThan(page.indexOf('label: "Manager signature"'));
+    expect(page.indexOf('label: "Manager signature"')).toBeLessThan(page.indexOf('label: "Signed"'));
+    expect(RESIDENT_DETAIL_LEASE_PIPELINE_TABS.map((t) => [t.id, t.label])).toEqual([
+      ["resident", "Resident signature"],
+      ["manager", "Manager signature"],
+      ["completed", "Signed"],
+    ]);
+    expect(page).not.toMatch(/label: "(Draft|Sent)"/);
   });
 });
 
 describe("route words", () => {
-  it("Draft, Sent and Executed land on the lease route ids", () => {
+  it("the stage names (and the retired Draft and Sent) land on the lease route ids; the first tab is the default", () => {
+    expect(parseLeasePipelineTab(undefined)).toBe("resident");
+    expect(parseLeasePipelineTab("resident-signature")).toBe("resident");
+    expect(parseLeasePipelineTab("manager-signature")).toBe("manager");
     expect(parseLeasePipelineTab("draft")).toBe("manager");
     expect(parseLeasePipelineTab("sent")).toBe("resident");
     expect(parseLeasePipelineTab("executed")).toBe("completed");
