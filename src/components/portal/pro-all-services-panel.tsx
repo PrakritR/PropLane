@@ -141,6 +141,8 @@ import { ServiceAssignDialog } from "@/components/portal/service-assign-dialog";
 import { ServiceDetailsSection } from "@/components/portal/service-details-section";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
+import { Modal } from "@/components/ui/modal";
+import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { addOnActivityEvents } from "@/lib/service-activity";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { SERVICE_TAB_URL_SEGMENT, serviceTabFromSegment } from "@/lib/unified-service-rows";
@@ -1159,6 +1161,20 @@ export function ManagerAllServicesPanel({
             initialMemo={detailRequest.offerName}
           />
         ) : null}
+        <Modal
+          open={addOnJob.payCheckoutSecret !== null}
+          onClose={addOnJob.closePayCheckout}
+          title="Approve & pay"
+          description={`${resolveRequestPropertyLabel(detailRequest)} · ${detailRequest.offerName}`}
+        >
+          {addOnJob.payCheckoutSecret ? (
+            <StripeEmbeddedCheckout
+              key={addOnJob.payCheckoutSecret}
+              clientSecret={addOnJob.payCheckoutSecret}
+              onComplete={addOnJob.completePayCheckout}
+            />
+          ) : null}
+        </Modal>
         <ServiceEditPopup
           open={editRequestOpen}
           target={{ kind: "add-on", request: detailRequest }}

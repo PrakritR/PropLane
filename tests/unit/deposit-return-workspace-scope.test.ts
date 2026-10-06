@@ -12,7 +12,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const getUser = vi.fn();
 const refundsCreate = vi.fn();
 const resolveManagerWorkspaceRowScope = vi.fn();
-const rows = { charge: null as unknown, payment: null as unknown };
+const rows = { charge: null as unknown, payment: null as unknown,
+  holds: [] as Array<Record<string, unknown>> };
 const upserted: Record<string, unknown>[] = [];
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -32,6 +33,9 @@ vi.mock("@/lib/supabase/service", () => ({
       select: () => ({
         eq: () => ({
           eq: () => ({ maybeSingle: async () => ({ data: rows.payment }) }),
+          // `platform_payment_holds` decides the refund rail: empty means a legacy
+          // destination charge, one row means a central platform capture.
+          limit: async () => ({ data: rows.holds, error: null }),
           maybeSingle: async () => ({
             data: table === "ledger_entries" ? rows.payment : rows.charge,
           }),
@@ -66,6 +70,7 @@ beforeEach(() => {
     row_data: { kind: "security_deposit", paidCents: 75_000, residentEmail: "r@example.com" },
   };
   rows.payment = { stripe_charge_id: "ch_1", amount_cents: 75_000 };
+  rows.holds = [];
 });
 
 describe("the active workspace narrows even the caller's own deposit", () => {

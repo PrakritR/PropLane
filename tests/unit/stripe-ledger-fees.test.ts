@@ -10,26 +10,39 @@ import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
 // destination transfer, or the ledger tells them they paid a fee that never
 // left their money.
 
-function captureDb() {
+type Hold = {
+  source_fee_payer: string | null;
+  source_verified_at: string | null;
+  source_components: Array<{ source_id: string; principal_cents: number; recipient_net_cents: number }> | null;
+};
+
+function captureDb(holds: Hold[] = []) {
   const patches: Record<string, unknown>[] = [];
   const eqs: [string, unknown][] = [];
-  const query = {
-    update(patch: Record<string, unknown>) {
-      patches.push(patch);
-      return query;
-    },
-    eq(column: string, value: unknown) {
-      eqs.push([column, value]);
-      return query;
-    },
-    select() {
-      return query;
-    },
-    limit() {
-      return Promise.resolve({ data: [{ id: "ledger-1" }], error: null });
-    },
+  const makeQuery = (table: string) => {
+    let reading = false;
+    const query = {
+      update(patch: Record<string, unknown>) {
+        patches.push(patch);
+        return query;
+      },
+      eq(column: string, value: unknown) {
+        if (!reading) eqs.push([column, value]);
+        return query;
+      },
+      select() {
+        return query;
+      },
+      limit() {
+        return Promise.resolve(reading
+          ? { data: holds, error: null }
+          : { data: [{ id: "ledger-1" }], error: null });
+      },
+    };
+    reading = table === "platform_payment_holds";
+    return query;
   };
-  const db = { from: () => query } as unknown as SupabaseClient;
+  const db = { from: (table: string) => makeQuery(table) } as unknown as SupabaseClient;
   return { db, patches, eqs };
 }
 
@@ -99,46 +112,102 @@ describe("ledger fee attribution — PropLane bears Stripe's processing cost", (
   });
 });
 
-describe("platform capture (marked household payments): Stripe's real fee/net, or unknown", () => {
+/**
+ * A platform capture is created on PropLane's own account, so Stripe's fee is
+ * PropLane's cost. The manager's row carries the capture's FROZEN per-charge
+ * recipient net and only the fee the manager bears under the frozen fee payer —
+ * never Stripe's balance-transaction net, which is the platform's figure.
+ */
+describe("platform capture (marked household payments): the frozen recipient terms, or unknown", () => {
   const platform = { destination: false };
+  const verified = "2026-10-04T00:00:00Z";
 
-  it("records the balance transaction's fee and net, and the charge id", async () => {
-    const { db, patches } = captureDb();
+  it("records the frozen recipient net and no manager fee when the resident paid it", async () => {
+    const { db, patches } = captureDb([{
+      source_fee_payer: "resident", source_verified_at: verified,
+      source_components: [{ source_id: "chg-1", principal_cents: 100_000, recipient_net_cents: 100_000 }],
+    }]);
+    // Gross $1,029.50; Stripe nets PropLane $999.34. The manager is paid the
+    // full $1,000.00 principal, so that — not $999.34 — is their net.
     await enrichLedgerFromCheckoutSession(db,
-      stripeWith({ amount: 544, balance_transaction: { id: "txn_1", fee: 44, net: 500 } }, null, platform), session);
-    expect(patches[0]).toMatchObject({ stripe_charge_id: "ch_test", stripe_fee_cents: 44, net_cents: 500 });
+      stripeWith({ amount: 102_950, balance_transaction: { id: "txn_1", fee: 3_016, net: 99_934 } }, null, platform),
+      session);
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toMatchObject({ stripe_charge_id: "ch_test", net_cents: 100_000, stripe_fee_cents: 0 });
   });
 
-  it("reads a balance transaction that arrives as an id", async () => {
-    const { db, patches } = captureDb();
-    const retrieve = async () => ({ id: "txn_2", fee: 31, net: 469 });
+  it("charges the manager only the processing fee they bear under a manager fee payer", async () => {
+    const { db, patches } = captureDb([{
+      source_fee_payer: "manager", source_verified_at: verified,
+      source_components: [{ source_id: "chg-1", principal_cents: 100_000, recipient_net_cents: 97_050 }],
+    }]);
     await enrichLedgerFromCheckoutSession(db,
-      stripeWith({ amount: 500, balance_transaction: "txn_2" }, null, { destination: false, balanceTransactions: { retrieve } }), session);
-    expect(patches[0]).toMatchObject({ stripe_fee_cents: 31, net_cents: 469 });
+      stripeWith({ amount: 100_000, balance_transaction: { id: "txn_1", fee: 3_200, net: 96_800 } }, null, platform),
+      session);
+
+    expect(patches[0]).toMatchObject({ net_cents: 97_050, stripe_fee_cents: 2_950 });
   });
 
-  it("leaves fee and net UNKNOWN (not 0, not gross) while Stripe has posted no balance transaction", async () => {
-    for (const balance_transaction of [null, undefined]) {
-      const { db, patches } = captureDb();
-      await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 544, balance_transaction }, null, platform), session);
+  it("writes each charge of a whole-cart capture from its own component", async () => {
+    const { db, patches, eqs } = captureDb([{
+      source_fee_payer: "manager", source_verified_at: verified,
+      source_components: [
+        { source_id: "chg-a", principal_cents: 100_000, recipient_net_cents: 97_050 },
+        { source_id: "chg-b", principal_cents: 20_000, recipient_net_cents: 19_410 },
+      ],
+    }]);
+    await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 120_000 }, null, platform), session);
+
+    expect(patches).toHaveLength(2);
+    expect(patches[0]).toMatchObject({ net_cents: 97_050, stripe_fee_cents: 2_950 });
+    expect(patches[1]).toMatchObject({ net_cents: 19_410, stripe_fee_cents: 590 });
+    expect(eqs).toContainEqual(["source_charge_id", "chg-a"]);
+    expect(eqs).toContainEqual(["source_charge_id", "chg-b"]);
+  });
+
+  it("leaves fee and net UNKNOWN (not 0, not gross) while the capture has no verified frozen terms", async () => {
+    for (const hold of [[], [{ source_fee_payer: "manager", source_verified_at: null,
+      source_components: [{ source_id: "chg-1", principal_cents: 100_000, recipient_net_cents: 97_050 }] }]]) {
+      const { db, patches } = captureDb(hold as Hold[]);
+      await enrichLedgerFromCheckoutSession(db,
+        stripeWith({ amount: 544, balance_transaction: { id: "txn_1", fee: 44, net: 500 } }, null, platform), session);
+
       expect(patches[0]).toMatchObject({ stripe_charge_id: "ch_test" });
       expect(patches[0]).not.toHaveProperty("stripe_fee_cents");
       expect(patches[0]).not.toHaveProperty("net_cents");
     }
   });
 
-  it("leaves fee and net unknown when the balance transaction cannot be read, and still records the charge", async () => {
+  it("never records the platform's own balance-transaction net on the manager's book", async () => {
     const { db, patches } = captureDb();
-    await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 544, balance_transaction: "txn_missing" }, null, platform), session);
+    await enrichLedgerFromCheckoutSession(db,
+      stripeWith({ amount: 544, balance_transaction: { id: "txn_1", fee: 44, net: 500 } }, null, platform), session);
+
+    expect(patches[0]!.net_cents).toBeUndefined();
+    expect(patches.some((patch) => patch.net_cents === 500 || patch.stripe_fee_cents === 44)).toBe(false);
+  });
+
+  it("leaves a malformed component unknown rather than recording a figure it does not support", async () => {
+    const { db, patches } = captureDb([{
+      source_fee_payer: "manager", source_verified_at: verified,
+      source_components: [{ source_id: "chg-1", principal_cents: 100_000, recipient_net_cents: 100_001 }],
+    }]);
+    await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 100_000 }, null, platform), session);
+
     expect(patches[0]).toMatchObject({ stripe_charge_id: "ch_test" });
-    expect(patches[0]).not.toHaveProperty("stripe_fee_cents");
     expect(patches[0]).not.toHaveProperty("net_cents");
   });
 
-  it("never reads a malformed balance transaction as zero", async () => {
-    const { db, patches } = captureDb();
-    await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 544, balance_transaction: { id: "txn_x", fee: null, net: "500" } }, null, platform), session);
-    expect(patches[0]).not.toHaveProperty("stripe_fee_cents");
+  it("refuses to guess when the charge has ambiguous allocations", async () => {
+    const twice: Hold[] = [1, 2].map(() => ({
+      source_fee_payer: "manager", source_verified_at: verified,
+      source_components: [{ source_id: "chg-1", principal_cents: 100_000, recipient_net_cents: 97_050 }],
+    }));
+    const { db, patches } = captureDb(twice);
+    await enrichLedgerFromCheckoutSession(db, stripeWith({ amount: 100_000 }, null, platform), session);
+
+    expect(patches[0]).toMatchObject({ stripe_charge_id: "ch_test" });
     expect(patches[0]).not.toHaveProperty("net_cents");
   });
 });

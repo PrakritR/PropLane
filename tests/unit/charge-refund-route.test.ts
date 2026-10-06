@@ -10,13 +10,18 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const getUser = vi.fn();
 const refundsCreate = vi.fn();
 const coManagerAccess = vi.fn();
-const rows = { charge: null as unknown, payment: null as unknown };
+const runReservedRefund = vi.fn();
+const rows = { charge: null as unknown, payment: null as unknown,
+  holds: [] as Array<Record<string, unknown>> };
 const upserted: Record<string, unknown>[] = [];
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));
 vi.mock("@/lib/stripe", () => ({ getStripe: () => ({ refunds: { create: refundsCreate } }) }));
+vi.mock("@/lib/platform-money-refund.server", () => ({
+  runReservedPlatformMoneyRefund: (...args: unknown[]) => runReservedRefund(...args),
+}));
 vi.mock("@/lib/auth/manager-stripe-payout-access.server", () => ({
   coManagerHasOwnerBankAccountAccess: (...args: unknown[]) => coManagerAccess(...args),
 }));
@@ -26,6 +31,9 @@ vi.mock("@/lib/supabase/service", () => ({
       select: () => ({
         eq: () => ({
           eq: () => ({ maybeSingle: async () => ({ data: rows.payment }) }),
+          // `platform_payment_holds` decides the refund rail: empty means a legacy
+          // destination charge, one row means a central platform capture.
+          limit: async () => ({ data: rows.holds, error: null }),
           maybeSingle: async () => ({
             data: table === "ledger_entries" ? rows.payment : rows.charge,
           }),
@@ -63,6 +71,9 @@ beforeEach(() => {
     row_data: { kind: "rent", amountLabel: "$900.00", residentEmail: "r@example.com" },
   };
   rows.payment = { stripe_charge_id: "ch_1", amount_cents: 90_000 };
+  rows.holds = [];
+  runReservedRefund.mockResolvedValue({ status: "succeeded", refundId: "re_central",
+    recipientNetDebitCents: 90_000, vendorFeeShareCents: 0 });
 });
 
 describe("who may issue it (C100: owner or Bank & payouts)", () => {
@@ -131,6 +142,52 @@ describe("how the money moves", () => {
     const saved = upserted[0]?.row_data as Record<string, unknown>;
     expect(saved.refundedCents).toBe(90_000);
     expect(saved.refundAttempts).toBe(1);
+  });
+
+  /**
+   * A central platform capture (`source_arbitration_v=1`) has no
+   * `transfer_data.destination`, so Stripe rejects `reverse_transfer` on it and a
+   * refund created outside the reservation strands the owner's hold behind
+   * unresolved refund evidence.
+   */
+  it("refunds a central platform capture through its reservation, never with reverse_transfer", async () => {
+    rows.holds = [{
+      id: "6a65b330-d052-4970-86b1-ce3c98d44bd1",
+      owner_user_id: "mgr-1",
+      owner_role: "manager",
+      stripe_charge_id: "ch_1",
+      source_components: [{ source_id: "chg-1", principal_cents: 90_000 }],
+    }];
+
+    const res = await post({ chargeId: "chg-1" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, refundId: "re_central", amountCents: 90_000 });
+    expect(refundsCreate).not.toHaveBeenCalled();
+    expect(runReservedRefund).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({
+      ownerUserId: "mgr-1",
+      holdId: "6a65b330-d052-4970-86b1-ce3c98d44bd1",
+      principalCents: 90_000,
+      components: [{ sourceId: "chg-1", principalCents: 90_000 }],
+    }));
+    expect((upserted[0]?.row_data as Record<string, unknown>).refundedCents).toBe(90_000);
+  });
+
+  it("records no refunded amount when the reserved central refund fails", async () => {
+    rows.holds = [{
+      id: "6a65b330-d052-4970-86b1-ce3c98d44bd1",
+      owner_user_id: "mgr-1",
+      owner_role: "manager",
+      stripe_charge_id: "ch_1",
+      source_components: [{ source_id: "chg-1", principal_cents: 90_000 }],
+    }];
+    runReservedRefund.mockResolvedValue({ status: "failed", refundId: "",
+      recipientNetDebitCents: 0, vendorFeeShareCents: 0 });
+
+    const res = await post({ chargeId: "chg-1" });
+
+    expect(res.status).toBe(500);
+    expect(upserted).toHaveLength(0);
   });
 
   it("writes no ledger entry, leaving that to the refund webhook", async () => {

@@ -11,10 +11,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *    never the manager's, so the manager's row carries `stripe_fee_cents = 0` and a net equal to
  *    the destination transfer (charge minus the retained application fee).
  *  - PLATFORM capture (every marked `source_arbitration_v` household payment: no destination, the
- *    central source allocator credits the owner): the fee and net are whatever Stripe's balance
- *    transaction for the charge says. They are written only when that transaction is readable.
- *    Until then they stay NULL ("unknown"): a captured card payment is never recorded as a
- *    0 fee with net equal to gross on the strength of nothing.
+ *    central source allocator credits the owner): the money is captured on PropLane's platform, so
+ *    Stripe's own fee is PropLane's cost and never belongs on the manager's book. The row carries
+ *    the FROZEN per-charge `recipient_net_cents` the owner is actually paid, and a fee of only what
+ *    the owner bears under the frozen fee payer — the processing fee when it is `manager`, zero when
+ *    the resident or PropLane absorbs it. Until those frozen terms exist the fee and net stay NULL
+ *    ("unknown"): a captured card payment is never recorded as a 0 fee with net equal to gross on
+ *    the strength of nothing, and never as the platform's net either.
  *
  * `stripe_charge_id` is recorded in both models whenever the charge is known.
  */
@@ -29,23 +32,18 @@ export async function enrichLedgerPaymentFromStripeCharge(
     destinationCharge?: boolean;
   },
 ): Promise<boolean> {
-  const charge = await stripe.charges.retrieve(opts.stripeChargeId, { expand: ["balance_transaction"] });
+  if (opts.destinationCharge === false) {
+    return enrichPlatformCaptureLedger(db, opts.stripeChargeId, opts.stripeCheckoutSessionId ?? null);
+  }
+  const charge = await stripe.charges.retrieve(opts.stripeChargeId);
   const patch: Record<string, unknown> = {
     stripe_charge_id: opts.stripeChargeId,
     updated_at: new Date().toISOString(),
   };
-  if (opts.destinationCharge === false) {
-    const balance = await readBalanceTransaction(stripe, charge);
-    if (balance) {
-      patch.stripe_fee_cents = balance.fee;
-      patch.net_cents = balance.net;
-    }
-  } else {
-    const applicationFeeCents = typeof opts.applicationFeeCents === "number" ? opts.applicationFeeCents : 0;
-    patch.stripe_fee_cents = 0;
-    if (typeof charge.amount === "number") patch.net_cents = Math.max(0, charge.amount - applicationFeeCents);
-    if (typeof opts.applicationFeeCents === "number") patch.axis_fee_cents = opts.applicationFeeCents;
-  }
+  const applicationFeeCents = typeof opts.applicationFeeCents === "number" ? opts.applicationFeeCents : 0;
+  patch.stripe_fee_cents = 0;
+  if (typeof charge.amount === "number") patch.net_cents = Math.max(0, charge.amount - applicationFeeCents);
+  if (typeof opts.applicationFeeCents === "number") patch.axis_fee_cents = opts.applicationFeeCents;
 
   let query = db.from("ledger_entries").update(patch).eq("entry_type", "payment");
   if (opts.stripeCheckoutSessionId) {
@@ -59,19 +57,79 @@ export async function enrichLedgerPaymentFromStripeCharge(
   return (data?.length ?? 0) > 0;
 }
 
-/** The fee and net of the charge's own balance transaction, or null while Stripe has not posted one. */
-async function readBalanceTransaction(
-  stripe: Stripe,
-  charge: Stripe.Charge,
-): Promise<{ fee: number; net: number } | null> {
-  try {
-    const ref = charge.balance_transaction;
-    const transaction = typeof ref === "string" ? await stripe.balanceTransactions.retrieve(ref) : ref;
-    if (!transaction || !Number.isSafeInteger(transaction.fee) || !Number.isSafeInteger(transaction.net)) return null;
-    return { fee: transaction.fee, net: transaction.net };
-  } catch {
-    return null;
+type CapturedRecipientTerms = {
+  source_fee_payer: string | null;
+  source_verified_at: string | null;
+  source_components: Array<{
+    source_id: string; principal_cents: number; recipient_net_cents: number;
+  }> | null;
+};
+
+/**
+ * A platform capture's manager rows, written per charge from the hold's own frozen components —
+ * the capture can cover a whole cart, and each charge's recipient net is its own fact.
+ *
+ * With no verified frozen terms yet, only `stripe_charge_id` is recorded and fee/net stay NULL.
+ */
+async function enrichPlatformCaptureLedger(
+  db: SupabaseClient,
+  stripeChargeId: string,
+  stripeCheckoutSessionId: string | null,
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  const { data: holds, error } = await db
+    .from("platform_payment_holds")
+    .select("source_fee_payer,source_verified_at,source_components")
+    .eq("stripe_charge_id", stripeChargeId)
+    .limit(2);
+  if (error) throw new Error(error.message);
+  const hold = (holds ?? []).length === 1 ? ((holds ?? [])[0] as CapturedRecipientTerms) : null;
+  const feePayer = hold?.source_verified_at ? hold.source_fee_payer : null;
+  const components = Array.isArray(hold?.source_components) ? hold!.source_components! : [];
+
+  if (feePayer && components.length) {
+    let patched = 0;
+    for (const component of components) {
+      if (!component.source_id?.trim() ||
+          !Number.isSafeInteger(component.principal_cents) ||
+          !Number.isSafeInteger(component.recipient_net_cents) ||
+          component.recipient_net_cents <= 0 ||
+          component.recipient_net_cents > component.principal_cents) {
+        // Leave this row unknown rather than record a figure the capture does not support.
+        continue;
+      }
+      const { data, error: updateError } = await db
+        .from("ledger_entries")
+        .update({
+          stripe_charge_id: stripeChargeId,
+          net_cents: component.recipient_net_cents,
+          // Only what the owner bears. A resident- or PropLane-paid processing fee is a
+          // known zero on the owner's book, not an unknown.
+          stripe_fee_cents: feePayer === "manager"
+            ? component.principal_cents - component.recipient_net_cents
+            : 0,
+          updated_at: now,
+        })
+        .eq("entry_type", "payment")
+        .eq("source_charge_id", component.source_id)
+        .select("id")
+        .limit(5);
+      if (updateError) throw new Error(updateError.message);
+      patched += data?.length ?? 0;
+    }
+    if (patched > 0) return true;
   }
+
+  let query = db
+    .from("ledger_entries")
+    .update({ stripe_charge_id: stripeChargeId, updated_at: now })
+    .eq("entry_type", "payment");
+  query = stripeCheckoutSessionId
+    ? query.eq("stripe_checkout_session_id", stripeCheckoutSessionId)
+    : query.eq("stripe_charge_id", stripeChargeId);
+  const { data, error: fallbackError } = await query.select("id").limit(5);
+  if (fallbackError) throw new Error(fallbackError.message);
+  return (data?.length ?? 0) > 0;
 }
 
 export async function stripeChargeIdFromCheckoutSession(

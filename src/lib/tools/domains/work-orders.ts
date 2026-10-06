@@ -13,7 +13,6 @@ import { loadVendorInsuranceExpiryStatus } from "@/lib/vendor-business-profile.s
 import { acceptWorkOrderBid, vendorNamesById, type WorkOrderActor } from "@/lib/work-order-bids.server";
 import { sendWorkOrderVendorOffers, vendorDirectoryRowsById } from "@/lib/work-order-offers.server";
 import { emitVendorAssigned } from "@/lib/work-order-vendor-messages.server";
-import { approveAndPayWorkOrder } from "@/lib/work-order-approve-pay.server";
 import { mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
 import { syncWorkOrderToGoogleCalendar } from "@/lib/google-calendar/sync.server";
@@ -1126,15 +1125,22 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       { label: "Expense category", value: laborCategory },
     ];
     if (!owned.vendorUserId) {
-      lines.push({ label: "Note", value: "Vendor has no linked Axis account — recorded as paid, no transfer occurs." });
+      throw new Error(
+        `${owned.row.vendorName || "This vendor"} has no linked Axis account, so this service cannot be paid in the app. Ask them to finish payout setup in their vendor portal, then approve and pay again.`,
+      );
+    }
+    if (laborCents < 100) {
+      throw new Error(
+        "This service has no accepted labor cost of at least $1.00, so it cannot be paid in the app. Accept a vendor quote or record the labor cost first.",
+      );
     }
     return {
       kind: "approve_and_pay_work_order",
       title: "Approve and pay work order",
-      summary: `Approve "${owned.row.title || owned.id}" and pay ${owned.row.vendorName || "the vendor"} ${laborCents > 0 ? centsLabel(laborCents) : "no recorded labor cost"} via ${channel.toUpperCase()}.`,
+      summary: `Open payment review for "${owned.row.title || owned.id}" to pay ${owned.row.vendorName || "the vendor"} ${centsLabel(laborCents)} via ${channel.toUpperCase()}.`,
       fields: lines,
-      confirmLabel: "Approve and pay",
-      warnings: ["Moves real money: labor cost is transferred to the vendor's bank account. Materials are your own expense and are not transferred."],
+      confirmLabel: "Open payment review",
+      warnings: ["Confirming opens the in-app payment review; the card is only charged once you complete it there. Materials are your own expense and are not transferred."],
     };
   },
   handler: async (ctx, input) => {
@@ -1148,6 +1154,20 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     const bid = await findAcceptedBid(ctx, owned.id);
     const laborCents = bid?.amountCents ?? owned.row.vendorCostCents ?? 0;
     const channel = "card" as const;
+
+    // In-app payment needs a linked vendor account and a payable labor cost.
+    // `approveAndPayWorkOrder` refuses both cases, so refuse here before any
+    // audit intent is recorded rather than letting the confirm throw.
+    if (!owned.vendorUserId) {
+      throw new Error(
+        `${owned.row.vendorName || "This vendor"} has no linked Axis account, so this service cannot be paid in the app. Nothing was approved or paid.`,
+      );
+    }
+    if (laborCents < 100) {
+      throw new Error(
+        "This service has no accepted labor cost of at least $1.00, so it cannot be paid in the app. Nothing was approved or paid.",
+      );
+    }
 
     // One-shot dedupe: vendor_payouts is one row per work order, so a retry can
     // never double-transfer — but the audit intent is still recorded first.
@@ -1171,47 +1191,12 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
 
     // Embedded Checkout must be mounted in the manager's browser. Starting a
     // session in a tool would strand its client secret and pending payout.
-    if (owned.vendorUserId && laborCents >= 100) {
-      const paymentUrl = `/portal/services/work-orders/completed/${encodeURIComponent(owned.id)}?approve_pay=1`;
-      await updateAuditResult(ctx, dedupeKey, { laborCents, paymentChannel: channel, paymentUrl });
-      return {
-        reply: `Open ${paymentUrl} to review and complete payment for "${owned.row.title || owned.id}". No payment has been submitted yet.`,
-        resultSummary: { workOrderId: owned.id, laborCents, paymentChannel: channel, paymentUrl },
-      };
-    }
-
-    // The same completion + markWorkOrderPaid + best-effort Stripe payout +
-    // notification pipeline as the manager UI's Approve + Pay. The server-loaded
-    // row is passed as the work order — client/model-supplied objects never are.
-    const result = await approveAndPayWorkOrder(
-      ctx.db,
-      { userId: ctx.landlordId, email: ctx.email, isAdmin: false },
-      {
-        workOrder: { ...owned.row, id: owned.id },
-        category: input.category as WorkOrderCategory,
-        vendorCostCents: owned.row.vendorCostCents,
-        materialsCostCents: owned.row.materialsCostCents,
-        materialsMemo: owned.row.materialsMemo,
-        workDoneSummary: owned.row.workDoneSummary || owned.row.vendorMarkedDoneNote || owned.row.title,
-        paymentChannel: channel,
-      },
-    );
-    if (!result.ok) {
-      await updateAuditResult(ctx, dedupeKey, { error: "approve_pay_failed" }, { clearDedupeKey: true });
-      throw new Error(result.error);
-    }
-    await updateAuditResult(ctx, dedupeKey, {
-      laborCents,
-      paymentChannel: channel,
-      expenseEntryCount: result.expenseEntryIds.length,
-    });
-    const payoutPart =
-      laborCents > 0 && owned.vendorUserId
-        ? ` A ${centsLabel(laborCents)} transfer to ${owned.row.vendorName || "the vendor"} was initiated (the vendor sees the payout status in their portal).`
-        : laborCents > 0
-          ? ` Recorded ${centsLabel(laborCents)} labor as paid (the vendor has not linked a bank, so no transfer was sent).`
-          : "";
-    return { reply: `Approved and paid "${owned.row.title || owned.id}".${payoutPart}`, resultSummary: { workOrderId: owned.id, laborCents, paymentChannel: channel } };
+    const paymentUrl = `/portal/services/work-orders/completed/${encodeURIComponent(owned.id)}?approve_pay=1`;
+    await updateAuditResult(ctx, dedupeKey, { laborCents, paymentChannel: channel, paymentUrl });
+    return {
+      reply: `Open ${paymentUrl} to review and complete payment for "${owned.row.title || owned.id}". No payment has been submitted yet.`,
+      resultSummary: { workOrderId: owned.id, laborCents, paymentChannel: channel, paymentUrl },
+    };
   },
 });
 

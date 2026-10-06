@@ -97,6 +97,19 @@ receipt can retry an interrupted ledger write. Processing and partially paid
 charges are refused by this full-receipt path. The client applies the returned
 charge only after success, without sending a replacement snapshot.
 
+**One refund rail decision, made by the payment.** Every entrypoint that sends a paid
+household charge back — Refund charge, Return deposit, the uncountersigned-lease
+auto-refund — goes through `refundPaidHouseholdCharge`
+(`src/lib/household-charge-refund-rail.server.ts`), never `stripe.refunds.create`
+directly. A **central platform capture** (a `platform_payment_holds` row exists for the
+charge) is refunded through `runReservedPlatformMoneyRefund`: no `reverse_transfer`
+(Stripe rejects it on a charge with no transfer), the exact component reserved, the
+recipient's money debited or reversed exactly once, and the `platform_refund_attempt`
+metadata the webhook settles on. A **legacy destination charge** (no hold row) keeps
+`reverse_transfer: true`, or the refund comes out of PropLane's balance while the manager
+keeps money they no longer hold. A refund created outside that reservation wedges the
+owner's hold behind unresolved refund evidence — do not add a fourth path.
+
 **Deleting a charge deletes its ledger line — and only that line.**
 `deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
 `ledger_entries` row with that `source_charge_id`, never its `payment` / `refund`
@@ -141,7 +154,7 @@ Balance Sheet reads the same owner, property, and as-of GL totals as Trial Balan
 
 **Schema** — `supabase/migrations/20260712100000_stripe_payouts_disputes.sql`: `stripe_payouts` (Connect bank payouts), `stripe_disputes`, plus `profiles.stripe_connect_charges_enabled` / `stripe_connect_payouts_enabled` cache.
 
-**Ledger fee capture** — `src/lib/stripe-ledger-fees.ts` populates `stripe_fee_cents`, `net_cents`, `axis_fee_cents`, `stripe_charge_id` on payment ledger rows after checkout. On a legacy destination charge the manager's row carries `stripe_fee_cents = 0` and `net_cents = charge.amount − application_fee` (the destination transfer) — Stripe's fee is PropLane's, not the manager's. On a **platform capture** (every marked `source_arbitration_v` household payment) `stripe_charge_id` is always the PaymentIntent's latest charge (card and manual ACH alike, stamped by the central source credit) and `stripe_fee_cents` / `net_cents` are Stripe's balance-transaction figures when readable, otherwise NULL (unknown) — never 0 or gross by assumption. When Connect + bank is not ready, the same charge sits on the platform as a `platform_payment_holds` row and is transferred once identity + bank is ready (`account.updated`). See [`resident-payments.md`](resident-payments.md).
+**Ledger fee capture** — `src/lib/stripe-ledger-fees.ts` populates `stripe_fee_cents`, `net_cents`, `axis_fee_cents`, `stripe_charge_id` on payment ledger rows after checkout. On a legacy destination charge the manager's row carries `stripe_fee_cents = 0` and `net_cents = charge.amount − application_fee` (the destination transfer) — Stripe's fee is PropLane's, not the manager's. On a **platform capture** (every marked `source_arbitration_v` household payment) `stripe_charge_id` is always the PaymentIntent's latest charge (card and manual ACH alike, stamped by the central source credit). The money is captured on PropLane's platform, so Stripe's own fee is PropLane's cost and **never** lands on the manager's book: each payment row carries the capture's FROZEN per-charge `recipient_net_cents` as `net_cents` (matching what `releaseVerifiedPlatformHoldsForOwner` pays the owner) and `stripe_fee_cents` = only the fee the owner bears under the frozen `source_fee_payer` — the processing fee when it is `manager`, a known 0 when the resident or PropLane absorbs it. A capture covering a whole cart writes each charge's own component, keyed on `source_charge_id`. Until those frozen terms are verified both stay NULL (unknown) — never 0, never gross, and never the platform's net. When Connect + bank is not ready, the same charge sits on the platform as a `platform_payment_holds` row and is transferred once identity + bank is ready (`account.updated`). See [`resident-payments.md`](resident-payments.md).
 
 **Webhook handlers** — `src/lib/stripe-webhook-financials.ts` + extended `src/app/api/stripe/webhook/route.ts`:
 - `account.updated` → Connect readiness on profiles + drain leftover `platform_payment_holds` when `connectAccountReadyForAchPayouts`

@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
+import { ensureManualPayoutPolicy } from "@/lib/manual-payout-policy.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { connectAccountReadyForAchPayouts, connectAccountTransfersActive } from "@/lib/stripe-connect";
 import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
@@ -60,6 +61,10 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
   const claimedId = account.metadata?.axis_user_id?.trim();
   if (claimedId && claimedId !== targetId) throw new Error("Stripe account ownership mismatch.");
   if (await refuseClassifiedFinancialMutation(db, targetId, "connect_account_updated")) return;
+  if (account.settings?.payouts?.schedule?.interval &&
+      account.settings.payouts.schedule.interval !== "manual") {
+    await ensureManualPayoutPolicy(getStripe(), account.id);
+  }
   const { error: profileError } = await db
     .from("profiles")
     .update({

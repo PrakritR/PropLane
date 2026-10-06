@@ -162,23 +162,23 @@ export async function selectVendorWithdrawalParts(
     .eq("status", "available").order("created_at", { ascending: true }).limit(501);
   if (error) throw new Error("Could not read classified vendor earnings.");
   if ((credits ?? []).length > 500) throw new Error("Classified vendor earnings exceed the bounded selection window.");
+  const { data: withdrawals, error: withdrawalsError } = await db.from("proplane_balance_entries")
+    .select("source_spend_breakdown,stripe_object_id")
+    .eq("account_id", accountId).eq("kind", "withdrawal")
+    .not("withdrawal_destination_account_id", "is", null);
+  if (withdrawalsError) throw new Error("Could not verify classified vendor earning source.");
   const candidates: Array<{ id: string; free: number }> = [];
   for (const credit of credits ?? []) {
     if (!credit.related_entry_id) continue;
-    const [{ data: parent, error: parentError }, { data: legs, error: legsError },
-      { data: withdrawals, error: withdrawalsError }] = await Promise.all([
+    const [{ data: parent, error: parentError }, { data: legs, error: legsError }] = await Promise.all([
       db.from("proplane_balance_entries")
         .select("id,amount_cents,kind,status,related_entry_id,source_spend_breakdown,source_income_debit_cents")
         .eq("id", credit.related_entry_id).maybeSingle(),
       db.from("platform_source_consumption_legs")
         .select("id,source_net_cents,status,beneficiary_user_id,kind")
         .eq("wallet_credit_entry_id", credit.id),
-      db.from("proplane_balance_entries")
-        .select("source_spend_breakdown,stripe_object_id")
-        .eq("account_id", accountId).eq("kind", "withdrawal")
-        .not("withdrawal_destination_account_id", "is", null),
     ]);
-    if (parentError || legsError || withdrawalsError) {
+    if (parentError || legsError) {
       throw new Error("Could not verify classified vendor earning source.");
     }
     const credited = exactCents(credit.amount_cents);

@@ -693,16 +693,56 @@ describe("approve_and_pay_work_order", () => {
     expect(res.ok).toBe(false);
   });
 
-  it("preview states the bid-anchored amount and the money-moving warning", async () => {
+  it("preview states the bid-anchored amount and that confirming only opens payment review", async () => {
     const res = await previewWrite(approveAndPayWorkOrderTool, makeCtx(baseTables()), { workOrderId: "wo1", category: "plumbing" });
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.preview.warnings?.[0]).toBe(
-        "Moves real money: labor cost is transferred to the vendor's bank account. Materials are your own expense and are not transferred.",
+        "Confirming opens the in-app payment review; the card is only charged once you complete it there. Materials are your own expense and are not transferred.",
       );
       expect(res.preview.fields.find((l) => l.label === "Labor payout")!.value).toContain("$400.00");
       expect(res.preview.fields.find((l) => l.label === "Labor payout")!.value).toContain("accepted quote");
     }
+  });
+
+  /**
+   * `approveAndPayWorkOrder` refuses an unlinked vendor or labor under $1.00 with a
+   * 400, so the tool must say so in the PREVIEW rather than promise a bookkeeping-only
+   * payment the manager confirms and then watch throw.
+   */
+  it("preview refuses an unlinked vendor instead of promising a recorded-as-paid payment", async () => {
+    const tables = baseTables();
+    tables.portal_work_order_records![0]!.vendor_user_id = null;
+
+    const res = await previewWrite(approveAndPayWorkOrderTool, makeCtx(tables), { workOrderId: "wo1", category: "plumbing" });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/cannot be paid in the app/i);
+  });
+
+  it("preview refuses labor under $1.00", async () => {
+    const tables = baseTables();
+    tables.work_order_bids = [];
+    (tables.portal_work_order_records![0]!.row_data as Row).vendorCostCents = 50;
+
+    const res = await previewWrite(approveAndPayWorkOrderTool, makeCtx(tables), { workOrderId: "wo1", category: "plumbing" });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/at least \$1\.00/i);
+  });
+
+  it("execute refuses an unlinked vendor before recording any audit intent", async () => {
+    const tables = baseTables();
+    tables.portal_work_order_records![0]!.vendor_user_id = null;
+
+    const res = await executeWrite(approveAndPayWorkOrderTool, makeCtx(tables), { workOrderId: "wo1", category: "plumbing" });
+
+    expect(res.ok).toBe(false);
+    expect(auditRows(tables).length).toBe(0);
+    expect(tables.vendor_payouts ?? []).toHaveLength(0);
+    expect(vi.mocked(payoutVendorForWorkOrder)).not.toHaveBeenCalled();
+    const row = tables.portal_work_order_records![0]!.row_data as Row;
+    expect(row.automationStatus).not.toBe("paid");
   });
 
   it("execute sends the manager to payment review without starting Checkout or a payout", async () => {

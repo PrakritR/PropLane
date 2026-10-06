@@ -62,6 +62,49 @@ beforeEach(() => {
   });
 });
 
+/**
+ * `reconcileReservedPlatformHoldTransfers` and `reconcileClassifiedBalanceWithdrawals`
+ * are the only paths that finish money left in an unknown provider state, so an
+ * earlier stage's transient list-read failure must not skip them.
+ */
+describe("one failing stage does not skip the rest", () => {
+  it("still runs every later stage and reports the failure", async () => {
+    mocks.reconcileReservedPlatformOwnerRecovery.mockRejectedValue(
+      new Error("Could not load reserved owner recovery sources."));
+
+    const res = await GET(request("cron-secret"));
+
+    expect(res.status).toBe(500);
+    expect(mocks.reconcileUnhydratedCentralSourceMirrors).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileReservedPlatformHoldTransfers).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileClassifiedBalanceWithdrawals).toHaveBeenCalledTimes(1);
+    const body = await res.json();
+    expect(body.ownerRecovery).toBeNull();
+    expect(body.stageErrors).toEqual([
+      { stage: "ownerRecovery", message: "Could not load reserved owner recovery sources." },
+    ]);
+    // The first reconciler's own per-row report is not clobbered by the stage report.
+    expect(body.errors).toEqual([]);
+    expect(body.holdTransfers).toMatchObject({ transferred: 1 });
+  });
+
+  it("reports every failed stage and keeps the successful ones", async () => {
+    mocks.reconcilePlatformLedgerCharges.mockRejectedValue(new Error("ledger read failed"));
+    mocks.reconcileClassifiedBalanceWithdrawals.mockRejectedValue(new Error("withdrawal read failed"));
+
+    const res = await GET(request("cron-secret"));
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.stageErrors).toEqual([
+      { stage: "ledgerCharges", message: "ledger read failed" },
+      { stage: "withdrawals", message: "withdrawal read failed" },
+    ]);
+    expect(body.holdTransfers).toMatchObject({ transferred: 1 });
+    expect(body.withdrawals).toBeNull();
+  });
+});
+
 describe("authorization", () => {
   it("401s without the secret when one is configured", async () => {
     const res = await GET(request());

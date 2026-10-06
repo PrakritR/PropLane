@@ -10,6 +10,7 @@ import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
+import { refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
@@ -113,19 +114,17 @@ export async function POST(req: Request) {
 
     const attempt = Number(charge.refundAttempts ?? 0) + 1;
     const stripe = getStripe();
-    const refund = await stripe.refunds.create(
-      {
-        charge: decision.stripeChargeId,
-        amount: decision.amountCents,
-        // Collected as a destination charge into the manager's connected account, so the
-        // transfer must be reversed too, or the refund comes out of PropLane's platform balance
-        // while the manager silently keeps money they no longer hold.
-        reverse_transfer: true,
-        metadata: { proplane_charge_id: chargeId, kind: "charge_refund" },
-      },
+    // One rail decision, made by the payment: a central platform capture is
+    // refunded through its reservation, a legacy destination charge reverses
+    // its transfer. See `household-charge-refund-rail.server.ts`.
+    const refund = await refundPaidHouseholdCharge(stripe, db, {
+      chargeId,
+      stripeChargeId: decision.stripeChargeId,
+      amountCents: decision.amountCents,
       // Two clicks, or a retry after a timeout that actually succeeded, must not send it twice.
-      { idempotencyKey: chargeRefundIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }) },
-    );
+      idempotencyKey: chargeRefundIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }),
+      metadata: { proplane_charge_id: chargeId, kind: "charge_refund" },
+    });
 
     const now = new Date().toISOString();
     await db.from("portal_household_charge_records").upsert(
@@ -147,7 +146,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      refundId: refund.id,
+      refundId: refund.refundId,
       amountCents: decision.amountCents,
       remainingCents: decision.remainingAfterCents,
     });
