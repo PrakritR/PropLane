@@ -77,16 +77,15 @@ describe("the daily scan narrows in the database", () => {
 });
 
 /**
- * The cron voids the lease and reports it refunded. If a move-in charge is still
- * holding the resident's money, voiding says the opposite of what happened — so a
- * refusal that needs review fails the lease closed, exactly as a throw used to,
- * while the refunds that did succeed stay recorded.
+ * Plan then act: the whole lease is classified before any money moves, so a charge this
+ * job cannot return means it returns nothing at all. A half-refunded lease is the one
+ * outcome to avoid — its rent is gone but it is still countersignable, and neither the
+ * attention digest nor the countersign route checks for that.
  *
- * A skip is NOT a refusal: `decideChargeRefund` skips a `security_deposit` (Return
- * deposit owns it) and an already-refunded charge, and no money is outstanding for
- * either. Treating those as "still held" would stall every lease forever.
+ * A held `security_deposit` is NOT such a charge: Return deposit owns deposits, so it is
+ * skipped and reported via `depositHeldCents` rather than blocking the void.
  */
-describe("a move-in charge that still holds money blocks the void", () => {
+describe("the uncountersigned-lease refund plans the whole lease first", () => {
   type ChargeRow = { id: string; status: string; row_data: Record<string, unknown> };
 
   const lease = {
@@ -107,6 +106,7 @@ describe("a move-in charge that still holds money blocks the void", () => {
 
   function harness(charges: ChargeRow[]) {
     const voided: string[] = [];
+    const voidReasons: string[] = [];
     const refundedIds: string[] = [];
     const db = {
       from: (table: string) => {
@@ -122,6 +122,9 @@ describe("a move-in charge that still holds money blocks the void", () => {
           filter: () => q,
           order: () => q,
           range: () => q,
+          // No `platform_payment_holds` row: the legacy destination rail, which the
+          // rail resolver accepts. A needs-review case is driven by spying instead.
+          limit: async () => ({ data: [], error: null }),
           maybeSingle: async () => ({
             data: table === "ledger_entries"
               ? { stripe_charge_id: `ch_${wantedId}`, amount_cents: 100_000 }
@@ -134,7 +137,9 @@ describe("a move-in charge that still holds money blocks the void", () => {
           upsert: async (row: Record<string, unknown>) => {
             if (table === "portal_household_charge_records") refundedIds.push(String(row.id));
             if (table === "portal_lease_pipeline_records") {
-              voided.push(String((row.row_data as { status?: string })?.status ?? ""));
+              const data = row.row_data as { status?: string; thread?: Array<{ text?: string }> };
+              voided.push(String(data?.status ?? ""));
+              voidReasons.push(String(data?.thread?.at(-1)?.text ?? ""));
             }
             return { error: null };
           },
@@ -147,39 +152,24 @@ describe("a move-in charge that still holds money blocks the void", () => {
         return q;
       },
     };
-    return { db: db as never, voided, refundedIds };
+    return { db: db as never, voided, voidReasons, refundedIds };
   }
 
   const now = new Date("2026-10-03T00:00:00.000Z");
 
-  async function railSpy() {
-    const rail = await import("@/lib/household-charge-refund-rail.server");
-    return { rail, spy: vi.spyOn(rail, "refundPaidHouseholdCharge") };
+  async function rail() {
+    return import("@/lib/household-charge-refund-rail.server");
   }
 
-  it("leaves the lease untouched and counts it failed when a charge needs review", async () => {
-    const { rail, spy } = await railSpy();
-    spy.mockRejectedValue(
-      new rail.HouseholdChargeRefundReviewError(rail.PRE_ARBITRATION_REFUND_REVIEW_MESSAGE));
-
-    const { db, voided } = harness([paidCharge("chg-rent", "prorated_first_month_rent")]);
-    const result = await refundUncountersignedMoveInCharges({} as never, db, now);
-
-    expect(result.failed).toBe(1);
-    expect(result.refundedLeases).toBe(0);
-    expect(result.refundedCharges).toBe(0);
-    expect(voided).toHaveLength(0);
-    expect(result.errors[0]).toContain(rail.PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
-    spy.mockRestore();
-  });
-
-  it("keeps the refunds that succeeded while still blocking the void", async () => {
-    const { rail, spy } = await railSpy();
-    spy.mockImplementation(async (_stripe, _db, input: { chargeId: string }) => {
+  it("refunds nothing and leaves the lease untouched when one charge needs review", async () => {
+    const mod = await rail();
+    const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
+    const resolve = vi.spyOn(mod, "resolveHouseholdChargeRefundRail");
+    resolve.mockImplementation(async (_db, input: { chargeId: string }) => {
       if (input.chargeId === "chg-old") {
-        throw new rail.HouseholdChargeRefundReviewError(rail.PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
+        throw new mod.HouseholdChargeRefundReviewError(mod.PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
       }
-      return { refundId: "re_1", rail: "central" as const };
+      return { rail: "destination" as const };
     });
 
     const { db, voided, refundedIds } = harness([
@@ -188,83 +178,92 @@ describe("a move-in charge that still holds money blocks the void", () => {
     ]);
     const result = await refundUncountersignedMoveInCharges({} as never, db, now);
 
-    expect(result.refundedCharges).toBe(1);
-    expect(refundedIds).toEqual(["chg-rent"]);
+    // The refundable rent is NOT sent back: one unrefundable charge stops the lease.
+    expect(refund).not.toHaveBeenCalled();
+    expect(refundedIds).toEqual([]);
+    expect(result.refundedCharges).toBe(0);
     expect(result.failed).toBe(1);
     expect(result.refundedLeases).toBe(0);
     expect(voided).toHaveLength(0);
-    spy.mockRestore();
+    expect(result.errors[0]).toContain(mod.PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
+    refund.mockRestore();
+    resolve.mockRestore();
   });
 
-  /**
-   * `decideChargeRefund` refuses a `security_deposit` with `is_a_deposit` because Return
-   * deposit owns it — but a PAID deposit is still the resident's money sitting with the
-   * manager. Voiding the lease would record that the move-in charges were refunded while
-   * the deposit was never sent back.
-   */
-  it("blocks the void when a paid security deposit is still held", async () => {
-    const { spy } = await railSpy();
-    spy.mockResolvedValue({ refundId: "re_1", rail: "central" });
+  it("refunds the rent, voids the lease, and reports the deposit still held", async () => {
+    const mod = await rail();
+    const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
+    refund.mockResolvedValue({ refundId: "re_1", rail: "destination" });
 
-    const { db, voided, refundedIds } = harness([
+    const { db, voided, voidReasons, refundedIds } = harness([
       paidCharge("chg-rent", "prorated_first_month_rent"),
       paidCharge("chg-dep", "security_deposit"),
     ]);
     const result = await refundUncountersignedMoveInCharges({} as never, db, now);
 
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(refund).toHaveBeenCalledTimes(1);
     expect(refundedIds).toEqual(["chg-rent"]);
     expect(result.refundedCharges).toBe(1);
-    expect(result.failed).toBe(1);
-    expect(result.refundedLeases).toBe(0);
-    expect(voided).toHaveLength(0);
-    expect(result.errors.join(" ")).toContain("Return deposit");
-    spy.mockRestore();
+    expect(result.failed).toBe(0);
+    expect(result.refundedLeases).toBe(1);
+    expect(voided).toEqual(["Voided"]);
+    expect(result.depositHeldCents).toBe(100_000);
+    expect(voidReasons[0]).toContain("Return deposit");
+    refund.mockRestore();
   });
 
-  it("voids once that deposit has actually been returned", async () => {
-    const { spy } = await railSpy();
-    spy.mockResolvedValue({ refundId: "re_1", rail: "central" });
+  it("reports no held deposit once Return deposit has settled it", async () => {
+    const mod = await rail();
+    const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
+    refund.mockResolvedValue({ refundId: "re_1", rail: "destination" });
 
     const returned = paidCharge("chg-dep", "security_deposit");
     // Return deposit records its own tracker, not `refundedCents`.
     returned.row_data.depositReturnedCents = 100_000;
-    const { db, voided } = harness([paidCharge("chg-rent", "prorated_first_month_rent"), returned]);
+    const { db, voided, voidReasons } = harness([
+      paidCharge("chg-rent", "prorated_first_month_rent"), returned,
+    ]);
     const result = await refundUncountersignedMoveInCharges({} as never, db, now);
 
-    expect(result.failed).toBe(0);
+    expect(result.depositHeldCents).toBe(0);
     expect(result.refundedLeases).toBe(1);
     expect(voided).toEqual(["Voided"]);
-    spy.mockRestore();
+    expect(voidReasons[0]).not.toContain("Return deposit");
+    refund.mockRestore();
   });
 
-  it("blocks the void while a move-in payment is still clearing", async () => {
-    const { spy } = await railSpy();
+  it("refunds nothing while a move-in payment is still clearing", async () => {
+    const mod = await rail();
+    const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
     const clearing = paidCharge("chg-ach", "prorated_first_month_rent");
     clearing.row_data.stripePaymentStatus = "processing";
 
-    const { db, voided } = harness([clearing]);
+    const { db, voided } = harness([paidCharge("chg-rent", "prorated_first_month_rent"), clearing]);
     const result = await refundUncountersignedMoveInCharges({} as never, db, now);
 
-    expect(spy).not.toHaveBeenCalled();
+    expect(refund).not.toHaveBeenCalled();
+    expect(result.refundedCharges).toBe(0);
     expect(result.failed).toBe(1);
     expect(voided).toHaveLength(0);
-    spy.mockRestore();
+    refund.mockRestore();
   });
 
   it("skips an unpaid move-in charge without blocking the void", async () => {
-    const { spy } = await railSpy();
+    const mod = await rail();
+    const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
+    refund.mockResolvedValue({ refundId: "re_1", rail: "destination" });
     const unpaid = paidCharge("chg-unpaid", "move_in_fee");
     unpaid.status = "pending";
     unpaid.row_data.status = "pending";
-    spy.mockResolvedValue({ refundId: "re_1", rail: "central" });
 
     const { db, voided } = harness([paidCharge("chg-rent", "prorated_first_month_rent"), unpaid]);
     const result = await refundUncountersignedMoveInCharges({} as never, db, now);
 
+    expect(refund).toHaveBeenCalledTimes(1);
     expect(result.failed).toBe(0);
     expect(result.refundedLeases).toBe(1);
     expect(voided).toEqual(["Voided"]);
-    spy.mockRestore();
+    expect(result.depositHeldCents).toBe(0);
+    refund.mockRestore();
   });
 });

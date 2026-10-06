@@ -8,8 +8,8 @@ import {
   decideChargeRefund,
   type ChargeRefundContext,
 } from "@/lib/charge-refund";
-import { HouseholdChargeRefundReviewError,
-  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { HouseholdChargeRefundReviewError, refundPaidHouseholdCharge,
+  resolveHouseholdChargeRefundRail } from "@/lib/household-charge-refund-rail.server";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 
@@ -92,22 +92,34 @@ export async function listUncountersignedLeasesPastDeadline(
 }
 
 /**
- * Three distinct answers, because "no refund happened" is not one thing. What
- * separates them is whether the resident's money is still with the manager:
+ * A move-in charge classified WITHOUT touching Stripe, so the whole lease can be
+ * decided before any money moves. A half-refunded lease is the one outcome this
+ * flow must never produce: the charges it returned are gone, but the lease is still
+ * countersignable, and nothing downstream checks for that.
  *
- * - `refunded` — money went back.
- * - `skipped` — nothing is outstanding: the charge was never paid, or everything paid
- *   has already been refunded or returned. The lease may be voided.
- * - `needs_review` — money this flow collected is still held and it cannot send it
- *   back here: a paid `security_deposit` (Return deposit owns it), a payment still
- *   clearing, one taken outside PropLane, or a refusal from the refund rail. The lease
- *   must NOT be voided — doing so would record that the move-in charges were refunded
- *   over a resident who was never made whole.
+ * - `refundable` — paid, refundable here, and its rail resolved.
+ * - `skipped` — this job sends nothing back. Either nothing is outstanding (never
+ *   paid, or already refunded/returned), or it is a `security_deposit`: deposits are
+ *   returned by the manager through Return deposit, not by this job, so a held one
+ *   does not block the void. `depositHeldCents` carries it so it stays visible.
+ * - `needs_review` — paid and outstanding, but this job cannot return it: a payment
+ *   still clearing, one taken outside PropLane, or a rail refusal such as a
+ *   pre-arbitration hold. One of these refunds NOTHING on the lease.
  */
-type ChargeRefundOutcome =
-  | { kind: "refunded" }
-  | { kind: "skipped" }
-  | { kind: "needs_review"; error: string };
+type MoveInChargePlan =
+  | {
+      kind: "refundable";
+      chargeId: string;
+      managerUserId: unknown;
+      status: unknown;
+      charge: Record<string, unknown>;
+      stripeChargeId: string;
+      amountCents: number;
+      alreadyRefundedCents: number;
+      attempt: number;
+    }
+  | { kind: "skipped"; depositHeldCents: number }
+  | { kind: "needs_review"; chargeId: string; error: string };
 
 /**
  * What the manager still holds of this charge. A security deposit tracks its returns in
@@ -122,17 +134,16 @@ function outstandingHeldCents(charge: Record<string, unknown>, paidCents: number
   return Math.max(0, Math.round(paidCents) - sentBack);
 }
 
-async function refundChargeIfPaid(
-  stripe: Stripe,
+async function planMoveInChargeRefund(
   db: SupabaseClient,
   chargeId: string,
-): Promise<ChargeRefundOutcome> {
+): Promise<MoveInChargePlan> {
   const { data: row } = await db
     .from("portal_household_charge_records")
     .select("id, manager_user_id, status, row_data")
     .eq("id", chargeId)
     .maybeSingle();
-  if (!row) return { kind: "skipped" };
+  if (!row) return { kind: "skipped", depositHeldCents: 0 };
   const charge = (row.row_data ?? {}) as Record<string, unknown>;
   const { data: payment } = await db
     .from("ledger_entries")
@@ -151,42 +162,70 @@ async function refundChargeIfPaid(
   };
   const decision = decideChargeRefund(ctx);
   if (!decision.ok) {
-    // `not_paid` and `nothing_left` mean nothing is outstanding. Every other refusal
-    // is money still held that this flow cannot return, so it fails closed.
-    const settled = decision.reason === "not_paid" || decision.reason === "nothing_left" ||
-      outstandingHeldCents(charge, ctx.paidCents) <= 0;
-    return settled ? { kind: "skipped" } : { kind: "needs_review", error: decision.message };
+    const outstanding = outstandingHeldCents(charge, ctx.paidCents);
+    if (decision.reason === "not_paid" || decision.reason === "nothing_left" || outstanding <= 0) {
+      return { kind: "skipped", depositHeldCents: 0 };
+    }
+    if (decision.reason === "is_a_deposit") {
+      return { kind: "skipped", depositHeldCents: outstanding };
+    }
+    return { kind: "needs_review", chargeId, error: decision.message };
   }
 
-  const attempt = Number(charge.refundAttempts ?? 0) + 1;
-  // One rail decision, made by the payment: a central platform capture is
-  // refunded through its reservation, a legacy destination charge reverses its
-  // transfer. See `household-charge-refund-rail.server.ts`.
   try {
-    await refundPaidHouseholdCharge(stripe, db, {
+    await resolveHouseholdChargeRefundRail(db, {
       chargeId,
       stripeChargeId: decision.stripeChargeId,
       amountCents: decision.amountCents,
-      idempotencyKey: chargeRefundIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }),
-      metadata: { proplane_charge_id: chargeId, kind: "uncountersigned_lease_refund" },
     });
   } catch (error) {
     if (error instanceof HouseholdChargeRefundReviewError) {
-      return { kind: "needs_review", error: error.message };
+      return { kind: "needs_review", chargeId, error: error.message };
     }
     throw error;
   }
+
+  return {
+    kind: "refundable",
+    chargeId,
+    managerUserId: row.manager_user_id,
+    status: row.status,
+    charge,
+    stripeChargeId: decision.stripeChargeId,
+    amountCents: decision.amountCents,
+    alreadyRefundedCents: ctx.alreadyRefundedCents,
+    attempt: Number(charge.refundAttempts ?? 0) + 1,
+  };
+}
+
+async function executeMoveInChargeRefund(
+  stripe: Stripe,
+  db: SupabaseClient,
+  plan: Extract<MoveInChargePlan, { kind: "refundable" }>,
+): Promise<void> {
+  // One rail decision, made by the payment: a central platform capture is refunded
+  // through its reservation, a legacy destination charge reverses its transfer. See
+  // `household-charge-refund-rail.server.ts`.
+  await refundPaidHouseholdCharge(stripe, db, {
+    chargeId: plan.chargeId,
+    stripeChargeId: plan.stripeChargeId,
+    amountCents: plan.amountCents,
+    idempotencyKey: chargeRefundIdempotencyKey({
+      chargeId: plan.chargeId, amountCents: plan.amountCents, attempt: plan.attempt,
+    }),
+    metadata: { proplane_charge_id: plan.chargeId, kind: "uncountersigned_lease_refund" },
+  });
   const now = new Date().toISOString();
   await db.from("portal_household_charge_records").upsert(
     {
-      id: chargeId,
-      manager_user_id: row.manager_user_id,
-      resident_email: String(charge.residentEmail ?? "").trim().toLowerCase(),
-      status: row.status,
+      id: plan.chargeId,
+      manager_user_id: plan.managerUserId,
+      resident_email: String(plan.charge.residentEmail ?? "").trim().toLowerCase(),
+      status: plan.status,
       row_data: {
-        ...charge,
-        refundedCents: ctx.alreadyRefundedCents + decision.amountCents,
-        refundAttempts: attempt,
+        ...plan.charge,
+        refundedCents: plan.alreadyRefundedCents + plan.amountCents,
+        refundAttempts: plan.attempt,
         lastRefundedAt: now,
         uncountersignedRefundAt: now,
       },
@@ -194,7 +233,6 @@ async function refundChargeIfPaid(
     },
     { onConflict: "id" },
   );
-  return { kind: "refunded" };
 }
 
 async function voidLeaseRow(db: SupabaseClient, leaseId: string, reason: string): Promise<void> {
@@ -237,6 +275,8 @@ export type UncountersignedRefundResult = {
   refundedLeases: number;
   refundedCharges: number;
   failed: number;
+  /** Security deposits left with the manager on voided leases, for Return deposit to settle. */
+  depositHeldCents: number;
   errors: string[];
 };
 
@@ -255,6 +295,7 @@ export async function refundUncountersignedMoveInCharges(
     refundedLeases: 0,
     refundedCharges: 0,
     failed: 0,
+    depositHeldCents: 0,
     errors: [],
   };
 
@@ -270,34 +311,45 @@ export async function refundUncountersignedMoveInCharges(
         chargeQuery = chargeQuery.filter("row_data->>applicationId", "eq", lease.applicationId);
       }
       const { data: charges } = await chargeQuery;
-      let refundedAny = false;
-      let needsReview = false;
-      for (const row of charges ?? []) {
-        const kind = String((row.row_data as { kind?: string })?.kind ?? "");
-        if (!MOVE_IN_CHARGE_KINDS.has(kind)) continue;
-        const outcome = await refundChargeIfPaid(stripe, db, String(row.id));
-        if (outcome.kind === "needs_review") {
-          needsReview = true;
-          result.errors.push(`${lease.leaseId}/${row.id}: ${outcome.error}`);
-          continue;
-        }
-        if (outcome.kind === "refunded") {
-          refundedAny = true;
-          result.refundedCharges += 1;
-        }
+      const moveInRows = (charges ?? []).filter((row) =>
+        MOVE_IN_CHARGE_KINDS.has(String((row.row_data as { kind?: string })?.kind ?? "")));
+
+      // Plan the whole lease before any money moves. A charge this job cannot return
+      // means it returns NOTHING here: a lease whose rent was refunded but whose void
+      // was blocked stays countersignable, and nothing downstream notices.
+      const plans: MoveInChargePlan[] = [];
+      for (const row of moveInRows) {
+        plans.push(await planMoveInChargeRefund(db, String(row.id)));
       }
-      // Money still held on any move-in charge means the lease stays as it is — voiding it
-      // would report a full refund over a resident who was never made whole. The refunds
-      // that did succeed stay recorded; the lease is counted failed, as a throw used to.
-      if (needsReview) {
+      const review = plans.filter((plan): plan is Extract<MoveInChargePlan, { kind: "needs_review" }> =>
+        plan.kind === "needs_review");
+      if (review.length > 0) {
         result.failed += 1;
+        for (const plan of review) {
+          result.errors.push(`${lease.leaseId}/${plan.chargeId}: ${plan.error}`);
+        }
         continue;
       }
-      if (refundedAny || !(charges ?? []).some((c) => MOVE_IN_CHARGE_KINDS.has(String((c.row_data as { kind?: string })?.kind ?? "")))) {
+
+      const depositHeldCents = plans.reduce(
+        (sum, plan) => sum + (plan.kind === "skipped" ? plan.depositHeldCents : 0), 0);
+      let refundedAny = false;
+      for (const plan of plans) {
+        if (plan.kind !== "refundable") continue;
+        await executeMoveInChargeRefund(stripe, db, plan);
+        refundedAny = true;
+        result.refundedCharges += 1;
+      }
+      result.depositHeldCents += depositHeldCents;
+
+      if (refundedAny || moveInRows.length === 0) {
+        const held = depositHeldCents > 0
+          ? " The security deposit is not included and is still held for Return deposit."
+          : "";
         await voidLeaseRow(
           db,
           lease.leaseId,
-          `Move-in charges were refunded automatically after ${UNCOUNTER_SIGN_REFUND_AFTER_DAYS} days without a manager countersignature.`,
+          `Move-in charges were refunded automatically after ${UNCOUNTER_SIGN_REFUND_AFTER_DAYS} days without a manager countersignature.${held}`,
         );
         result.refundedLeases += 1;
       }

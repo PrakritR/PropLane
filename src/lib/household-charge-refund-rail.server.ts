@@ -61,18 +61,23 @@ export type HouseholdChargeRefundResult = {
   rail: "central" | "destination";
 };
 
-export async function refundPaidHouseholdCharge(
-  stripe: Stripe,
+/** Which rail this payment refunds on, and the reservation it needs if central. */
+export type HouseholdChargeRefundRail =
+  | { rail: "destination" }
+  | { rail: "central"; holdId: string; ownerUserId: string };
+
+/**
+ * The rail decision on its own — reads only, no provider call, so a caller that must
+ * commit to refunding several charges together can find out whether EVERY one of them
+ * is refundable before it sends the first one. `refundPaidHouseholdCharge` re-resolves
+ * at the moment it acts, so this is a pre-flight answer, never an authorization.
+ *
+ * Throws `HouseholdChargeRefundReviewError` for every terminal refusal.
+ */
+export async function resolveHouseholdChargeRefundRail(
   db: SupabaseClient,
-  input: {
-    chargeId: string;
-    stripeChargeId: string;
-    amountCents: number;
-    idempotencyKey: string;
-    metadata: Record<string, string>;
-    reason?: Stripe.RefundCreateParams.Reason;
-  },
-): Promise<HouseholdChargeRefundResult> {
+  input: { chargeId: string; stripeChargeId: string; amountCents: number },
+): Promise<HouseholdChargeRefundRail> {
   if (!input.stripeChargeId.trim() || !Number.isSafeInteger(input.amountCents) || input.amountCents <= 0) {
     throw new Error("A refund needs its exact source charge and a positive amount.");
   }
@@ -89,19 +94,7 @@ export async function refundPaidHouseholdCharge(
   }
   const hold = (holds?.[0] ?? null) as CapturedHold | null;
 
-  if (!hold || hold.source_allocation_mode === "destination") {
-    const refund = await stripe.refunds.create(
-      {
-        charge: input.stripeChargeId,
-        amount: input.amountCents,
-        reverse_transfer: true,
-        ...(input.reason ? { reason: input.reason } : {}),
-        metadata: input.metadata,
-      },
-      { idempotencyKey: input.idempotencyKey },
-    );
-    return { refundId: refund.id, rail: "destination" };
-  }
+  if (!hold || hold.source_allocation_mode === "destination") return { rail: "destination" };
 
   if (hold.source_allocation_mode !== "hold" || !hold.source_verified_at ||
       !Array.isArray(hold.source_components)) {
@@ -120,10 +113,44 @@ export async function refundPaidHouseholdCharge(
     throw new HouseholdChargeRefundReviewError(
       "A refund cannot exceed the charge's captured principal.");
   }
+  return { rail: "central", holdId: hold.id, ownerUserId: hold.owner_user_id };
+}
+
+export async function refundPaidHouseholdCharge(
+  stripe: Stripe,
+  db: SupabaseClient,
+  input: {
+    chargeId: string;
+    stripeChargeId: string;
+    amountCents: number;
+    idempotencyKey: string;
+    metadata: Record<string, string>;
+    reason?: Stripe.RefundCreateParams.Reason;
+  },
+): Promise<HouseholdChargeRefundResult> {
+  const resolved = await resolveHouseholdChargeRefundRail(db, {
+    chargeId: input.chargeId,
+    stripeChargeId: input.stripeChargeId,
+    amountCents: input.amountCents,
+  });
+
+  if (resolved.rail === "destination") {
+    const refund = await stripe.refunds.create(
+      {
+        charge: input.stripeChargeId,
+        amount: input.amountCents,
+        reverse_transfer: true,
+        ...(input.reason ? { reason: input.reason } : {}),
+        metadata: input.metadata,
+      },
+      { idempotencyKey: input.idempotencyKey },
+    );
+    return { refundId: refund.id, rail: "destination" };
+  }
 
   const result = await runReservedPlatformMoneyRefund(stripe, db, {
-    ownerUserId: hold.owner_user_id,
-    holdId: hold.id,
+    ownerUserId: resolved.ownerUserId,
+    holdId: resolved.holdId,
     principalCents: input.amountCents,
     attemptKey: input.idempotencyKey,
     components: [{ sourceId: input.chargeId, principalCents: input.amountCents }],
