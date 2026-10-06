@@ -1345,17 +1345,27 @@ export function ManagerUnifiedInbox({
     }
   }, [listSegment, routeThreadId]);
 
+  // Decided from THIS render's committed values — `selectedKey` included — and
+  // never from inside a `setSelectedKey` updater. An updater runs in the render
+  // phase, where React may replay or re-base it (a discrete click's sync update
+  // can skip this effect's pending update and then process it later from the
+  // older base state). Replaying the clear below wrote `explicitlyOpened = null`
+  // out from under the row the manager had just clicked, so reading that row
+  // dropped the pane it was opened in. `listRows` is a fresh array every render,
+  // so this effect already ran on every render — reading the state directly
+  // changes nothing but the consistency of what it reads.
   useEffect(() => {
     if (!initialListReady) return;
-    setSelectedKey((cur) => {
-      const retained = explicitlyOpened.current;
-      const canRetain =
-        listSegment === "unread" &&
-        cur !== null &&
-        retained?.key === cur &&
-        retained.context === selectionContext &&
-        selectedRow !== null &&
-        !selectedRow.unread;
+    const cur = selectedKey;
+    const retained = explicitlyOpened.current;
+    const canRetain =
+      listSegment === "unread" &&
+      cur !== null &&
+      retained?.key === cur &&
+      retained.context === selectionContext &&
+      selectedRow !== null &&
+      !selectedRow.unread;
+    const next = ((): string | null => {
       if (routeThreadId) {
         const routed = listRows.find((r) => r.threadId === routeThreadId || r.aliasThreadIds?.includes(routeThreadId));
         if (routed) return routed.key;
@@ -1372,7 +1382,6 @@ export function ManagerUnifiedInbox({
         }
         const current = cur ? parseUnifiedInboxKey(cur) : null;
         if (canRetain && current?.threadId === routeThreadId) return cur;
-        explicitlyOpened.current = null;
         return null;
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;
@@ -1380,11 +1389,15 @@ export function ManagerUnifiedInbox({
       // Studio (C2-CM1): a first visit opens no conversation. The thread side is the "Select a
       // conversation" card until a row is clicked or the URL names a thread — nothing is opened
       // (and marked read) on the manager's behalf.
-      explicitlyOpened.current = null;
       return null;
-    });
+    })();
+    // Only a selection that is actually being closed drops its retention. With
+    // nothing selected there is nothing to forget, and a retained key is only
+    // ever honoured while it equals the selected one.
+    if (next === null && cur !== null) explicitlyOpened.current = null;
+    if (next !== cur) setSelectedKey(next);
     if (listRows.length === 0 && !routeThreadId) setMobileThreadOpen(false);
-  }, [initialListReady, listRows, listSegment, routeThreadId, selectedRow, selectionContext]);
+  }, [initialListReady, listRows, listSegment, routeThreadId, selectedKey, selectedRow, selectionContext]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">

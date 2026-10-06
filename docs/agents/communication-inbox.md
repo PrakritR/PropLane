@@ -221,6 +221,13 @@ conversations) plus the archive toggle. Invariants:
   conversation" / "select a message", while the routed or clicked thread is still
   resolving. Composer stays pinned (`shrink-0`, pane `scrollTop` — never
   `scrollIntoView`) including on archived SMS threads.
+- **A conversation clicked on Unread keeps its pane after it is read.** The row
+  leaves the list, the thread stays open. That retention lives in
+  `explicitlyOpened` and is decided in the selection effect's own body from the
+  committed `selectedKey` — never inside a `setSelectedKey` updater, which React
+  runs in the render phase and may re-base from an older base state, dropping
+  the retention of the row just clicked. Coverage:
+  `tests/unit/unified-conversation-inbox.test.tsx`.
 - **Initial Communication membership reveals only after every enabled source succeeds.**
   Manager readiness requires inbox threads, applications/contact-directory rows,
   and SMS when its UI is enabled. Resident readiness requires inbox threads and
