@@ -385,7 +385,7 @@ export function ManagerOutgoingInvoicesPanel({
     : { title: nothingToThisVendor ? `No payments to ${vendorName?.trim() || "this vendor"} yet` : EMPTY_TITLE[currentTab], section: "payments" };
   const filterCount = portalFilterActiveCount([vendorFilter, propertyFilter]);
   return <div data-attr="manager-outgoing-invoices">
-    <PortalListControlStack variant="command" stickyDestinations={false}
+    <PortalListControlStack className="mb-2 max-lg:mb-1.5 sm:mt-2" variant="command" stickyDestinations={false}
       {...(scoped
         ? {
             destinationRow: (

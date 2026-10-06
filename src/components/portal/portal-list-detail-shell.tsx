@@ -140,7 +140,7 @@ export function PortalDetailHeader({
             <span className={hideBackText ? "sr-only" : "max-md:sr-only"}>{backLabel}</span>
           </button>
         ) : null}
-        <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1", iconTitleActions && hasActions && (titleSingleLine ? "md:max-w-[15rem]" : "max-w-[9rem] md:max-w-[15rem]"))}>
+        <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1", iconTitleActions && hasActions && (titleSingleLine ? "md:max-w-[15rem] lg:max-w-[26rem]" : "max-w-[9rem] md:max-w-[15rem] lg:max-w-[26rem]"))}>
           {leading ? <span className="shrink-0">{leading}</span> : null}
           {!leading && avatarName ? (
             <InboxAvatar name={avatarName} className="h-9 w-9 text-[11px] md:h-10 md:w-10 md:text-[12px]" />

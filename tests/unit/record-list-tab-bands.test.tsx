@@ -227,7 +227,7 @@ describe("one band component, no second implementation", () => {
   });
 
   it("the vendor record's Outgoing payments (To pay · Scheduled · Paid) and Reviews tabs use the same control stack", () => {
-    expect(read("src/components/portal/manager-outgoing-invoices-panel.tsx")).toContain('<PortalListControlStack variant="command"');
+    expect(read("src/components/portal/manager-outgoing-invoices-panel.tsx")).toMatch(/<PortalListControlStack [^>]*variant="command"/);
     expect(read("src/components/portal/pro-vendor-detail.tsx")).toContain("PortalListControlStack");
   });
 
