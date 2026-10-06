@@ -226,7 +226,6 @@ function PendingFormEditor({ record, onClose }: { record: MoveInFormRecord; onCl
           questions={questions}
           pdfUrl={null}
           index={previewIndex}
-          onIndexChange={setPreviewIndex}
           answers={previewAnswers}
           onAnswersChange={setPreviewAnswers}
         />

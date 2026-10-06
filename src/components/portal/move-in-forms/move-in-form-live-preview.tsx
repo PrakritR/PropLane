@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * The builder's right-hand pane: the form exactly as a resident gets it, one question at a
- * time, in the same card the application editor draws for "Applicant sees" ("Step n of N · form name"). It draws through the same question renderer as the resident
- * flow, so editing a question and watching it change here is the whole feedback loop.
- * Nothing typed here is saved or sent anywhere.
+ * The builder's right-hand pane: the form exactly as a resident gets it, in the same plain card the
+ * application editor draws for "Applicant sees" ("Step n of N · form name" and the live fields; no
+ * phone frame, no Back / Next). The editor owns which step shows: opening a question there brings it
+ * here. It draws through the same question renderer as the resident flow, so editing a question and
+ * watching it change here is the whole feedback loop. Nothing typed here is saved or sent anywhere.
  */
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { MoveInFormQuestionField } from "@/components/move-in-forms/move-in-form-question";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import {
   visibleMoveInQuestions,
   type MoveInAnswerMap,
@@ -37,7 +36,6 @@ export function MoveInFormLivePreview({
   questions,
   pdfUrl,
   index,
-  onIndexChange,
   answers,
   onAnswersChange,
 }: {
@@ -46,8 +44,8 @@ export function MoveInFormLivePreview({
   questions: readonly MoveInFormQuestion[];
   /** A blob URL of the PDF just picked, or the saved PDF's route. Null before any upload. */
   pdfUrl: string | null;
+  /** The step to show (the editor sets it to the question being edited). */
   index: number;
-  onIndexChange: (next: number) => void;
   answers: MoveInAnswerMap;
   onAnswersChange: (next: MoveInAnswerMap) => void;
 }) {
@@ -66,7 +64,7 @@ export function MoveInFormLivePreview({
     <section aria-label="What the resident sees" data-attr="move-in-form-live-preview">
       <WorkspacePreviewTitle>Resident sees</WorkspacePreviewTitle>
       <div className="space-y-4 rounded-2xl border border-border bg-card p-3.5">
-        <div className="flex items-center justify-between gap-2">
+        <div>
           {screens.length === 0 ? (
             <h4 className="min-w-0 truncate text-sm font-bold text-foreground">{formName}</h4>
           ) : (
@@ -74,12 +72,6 @@ export function MoveInFormLivePreview({
               {previewStepLabel(at, screens.length, formName)}
             </p>
           )}
-          {screens.length > 1 ? (
-            <div className="flex shrink-0 items-center gap-0.5">
-              <PortalIconAction icon={ChevronLeft} label="Previous question" disabled={at === 0} onClick={() => onIndexChange(at - 1)} />
-              <PortalIconAction icon={ChevronRight} label="Next question" disabled={at >= screens.length - 1} onClick={() => onIndexChange(at + 1)} />
-            </div>
-          ) : null}
         </div>
         {screens.length === 0 ? (
           <p className="text-sm text-muted" data-attr="move-in-form-preview-empty">

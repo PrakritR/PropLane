@@ -66,5 +66,7 @@ describe("both editors use the one footer", () => {
     expect(preview).toContain("rounded-2xl border border-border bg-card p-3.5");
     expect(preview).toContain("Resident sees");
     expect(preview).not.toContain("border-[7px]");
+    expect(preview).not.toContain("Next question");
+    expect(preview).not.toContain("Previous question");
   });
 });

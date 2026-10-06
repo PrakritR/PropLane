@@ -629,7 +629,6 @@ export function MoveInFormEditorModal({
           questions={draft.questions}
           pdfUrl={pdfUrl}
           index={previewIndex}
-          onIndexChange={setPreviewIndex}
           answers={previewAnswers}
           onAnswersChange={setPreviewAnswers}
         />

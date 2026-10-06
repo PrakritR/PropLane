@@ -131,18 +131,21 @@ describe("shared question renderer", () => {
 });
 
 describe("builder live preview", () => {
-  it("walks the questions one at a time and starts uploaded forms on the document", () => {
-    const onIndex = vi.fn();
+  it("is the plain Resident sees card: the step label and the live field, no Back or Next, uploaded forms start on the document", () => {
     const questions = [q("a"), q("b")];
     const { rerender } = render(
-      <MoveInFormLivePreview name="Keys" source="built" questions={questions} pdfUrl={null} index={0} onIndexChange={onIndex} answers={{}} onAnswersChange={() => {}} />,
+      <MoveInFormLivePreview name="Keys" source="built" questions={questions} pdfUrl={null} index={0} answers={{}} onAnswersChange={() => {}} />,
     );
     expect(screen.getByText("Label a")).toBeTruthy();
     expect(screen.getByText("Step 1 of 2 · Keys")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
-    expect(onIndex).toHaveBeenCalledWith(1);
+    expect(screen.queryByRole("button", { name: /Next question|Previous question|Back|Next/ })).toBeNull();
     rerender(
-      <MoveInFormLivePreview name="Pets" source="upload" questions={questions} pdfUrl={null} index={0} onIndexChange={onIndex} answers={{}} onAnswersChange={() => {}} />,
+      <MoveInFormLivePreview name="Keys" source="built" questions={questions} pdfUrl={null} index={1} answers={{}} onAnswersChange={() => {}} />,
+    );
+    expect(screen.getByText("Label b")).toBeTruthy();
+    expect(screen.getByText("Step 2 of 2 · Keys")).toBeTruthy();
+    rerender(
+      <MoveInFormLivePreview name="Pets" source="upload" questions={questions} pdfUrl={null} index={0} answers={{}} onAnswersChange={() => {}} />,
     );
     expect(screen.getByText("Step 1 of 3 · Pets")).toBeTruthy();
     expect(screen.getByText("The PDF shows here")).toBeTruthy();
@@ -150,7 +153,7 @@ describe("builder live preview", () => {
 
   it("shows a placeholder for a question still being typed", () => {
     render(
-      <MoveInFormLivePreview name="" source="built" questions={[q("a", { label: "" })]} pdfUrl={null} index={0} onIndexChange={() => {}} answers={{}} onAnswersChange={() => {}} />,
+      <MoveInFormLivePreview name="" source="built" questions={[q("a", { label: "" })]} pdfUrl={null} index={0} answers={{}} onAnswersChange={() => {}} />,
     );
     expect(screen.getByText("Step 1 of 1 · Untitled form")).toBeTruthy();
     expect(screen.getByText("Your question")).toBeTruthy();
