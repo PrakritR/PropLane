@@ -30,6 +30,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
 import { RecordFactRow } from "@/components/portal/portal-record-overview-kit";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { formatLeaseDateLabel } from "@/lib/rental-application/lease-dates";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { MockProperty } from "@/data/types";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
@@ -246,7 +247,7 @@ export function ResidentRecordMoveInSection({
           {resolved?.addressLine ? <RecordFactRow label="Address" value={resolved.addressLine} /> : null}
           <RecordFactRow label="Room" value={placementRoom || "Not assigned yet"} />
           <RecordFactRow label="Move-in date" value={placementMoveIn || "Not set yet"} />
-          {placement?.moveOutDate?.trim() ? <RecordFactRow label="Move-out date" value={placement.moveOutDate.trim()} /> : null}
+          {placement?.moveOutDate?.trim() ? <RecordFactRow label="Move-out date" value={formatLeaseDateLabel(placement.moveOutDate) || placement.moveOutDate.trim()} /> : null}
         </Card>
       ) : null}
 

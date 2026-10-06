@@ -366,7 +366,7 @@ export function ResidentOverviewPanel({
 
   return (
     <div className="flex flex-col gap-6 pb-6" data-rt-overview data-rt-stage-id={lifecycle.stage}>
-      <div className="overflow-hidden rounded-2xl border border-border/80 bg-card px-7 pb-5 pt-6 shadow-sm" data-rt-card>
+      <div className="overflow-hidden rounded-2xl border border-border/80 bg-card px-7 pb-5 pt-6 shadow-sm max-sm:px-4" data-rt-card>
         {lifecycle.headerFact ? (
           <p className="mb-4 hidden text-center text-[13px] text-muted sm:block" data-rt-pfact>
             {residentHeaderStageLine(lifecycle)}
@@ -412,7 +412,7 @@ export function ResidentOverviewPanel({
                 </div>
                 <span
                   className={cn(
-                    "mt-2 block px-1 text-[13px] font-medium leading-tight text-muted",
+                    "mt-2 block px-1 text-[13px] font-medium leading-tight text-muted max-sm:px-0 max-sm:text-[11px]",
                     step.state === "current" && "font-bold text-primary",
                     step.state === "done" && "text-muted",
                   )}
@@ -420,7 +420,7 @@ export function ResidentOverviewPanel({
                 >
                   {step.label}
                 </span>
-                <span className="mt-1 block h-4 text-xs leading-4 text-muted/80" aria-hidden={step.date ? undefined : true}>
+                <span className="mt-1 block h-4 text-xs leading-4 text-muted/80 max-sm:text-[11px]" aria-hidden={step.date ? undefined : true}>
                   {step.date ?? ""}
                 </span>
               </li>
