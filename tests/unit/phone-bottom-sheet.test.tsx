@@ -210,6 +210,7 @@ describe("the shared phone bottom sheet", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(document.querySelector(".field-dropdown-menu")).toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("a desktop pointer keeps the popover menu for a select", () => {
