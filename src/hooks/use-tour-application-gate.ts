@@ -12,7 +12,7 @@ export type TourApplicationGate =
   | { status: "denied" };
 
 /**
- * "Application before a tour" (Settings -> Applications & leases). Only a property whose public
+ * "Application before a tour" (Settings -> Automations). Only a property whose public
  * payload carries `applicationBeforeTour` is checked at all. For those, the server answers from
  * the caller's own session whether they already have a submitted application for the property
  * (`GET /api/public/tour-application-gate`); the booking route enforces the same rule regardless,

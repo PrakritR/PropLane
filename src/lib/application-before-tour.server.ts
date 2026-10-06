@@ -1,5 +1,5 @@
 /**
- * "Application before a tour" (Settings -> Workspace -> Applications & leases).
+ * "Application before a tour" (Settings -> Workspace -> Automations).
  *
  * When the property's workspace says Required, a prospect may not file a tour request for that
  * property until their application for it is APPROVED (submitted is not enough), and a DENIED

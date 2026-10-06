@@ -2,7 +2,7 @@
 //
 // F-editor a/c + C2-CP8: the property Add/Edit application editor's Sections-step
 // default-sections checklist, the footer-only commit contract, and the absence of
-// a Settings step (workspace choices live in Settings -> Applications & leases).
+// a Settings step (workspace choices live in Settings -> Automations).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";

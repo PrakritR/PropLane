@@ -82,7 +82,7 @@ export type PropertyApplicationTemplate = {
   /**
    * When a prospect applies with this form relative to a tour: "before_tour" (apply, then book the
    * tour), "after_tour" (tour first, then apply) or "workspace" / absent = follow the workspace
-   * setting (Settings -> Workspace -> Applications & leases, "Application before a tour").
+   * setting (Settings -> Workspace -> Automations, "Application before a tour").
    * Enforced SERVER-SIDE with the workspace setting in `application-before-tour.server.ts`.
    */
   tourOrder?: ApplicationTourOrder;

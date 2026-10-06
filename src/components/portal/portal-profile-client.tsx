@@ -1,6 +1,5 @@
 "use client";
 
-import { LeasingFormsPanel } from "@/components/portal/leasing-forms-panel";
 import { WorkspaceApplicationsLeasesSettings } from "@/components/portal/workspace-applications-leases-settings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -21,7 +20,6 @@ import {
   UserRound,
   Wallet,
   ClipboardList,
-  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -185,7 +183,6 @@ export type SettingsGroupId =
   | "payments"
   | "payouts"
   | "applicationsLeases"
-  | "leasingForms"
   | "spreadsheets";
 
 type SettingsGroup = {
@@ -530,10 +527,8 @@ export function PortalProfileClient({
     if (variant === "manager") {
       list.push(
         { id: "payments", label: "Balance & payouts", description: "PropLane balance, bank accounts, and withdrawals.", icon: Wallet, group: "Workspace" },
-        // Captain, Oct 3: the workspace's signing order and lease defaults are their own section.
-        { id: "applicationsLeases", label: "Applications & leases", description: "Signing order and lease defaults for this workspace.", icon: ClipboardList, group: "Workspace" },
-        // Captain, Oct 3 (D1): application and lease forms are defined once here; each property picks which apply.
-        { id: "leasingForms", label: "Forms", description: "Application and lease forms, defined once for this workspace.", icon: FileText, group: "Workspace" },
+        // Captain, Oct 6: Automations (Applications + Leases). The old Forms item left Settings; its URL lands here.
+        { id: "applicationsLeases", label: "Automations", description: "Application and lease automations for this workspace.", icon: ClipboardList, group: "Workspace" },
         { id: "spreadsheets", label: "Integrations", description: "Messages, bookings, posting, and Google.", icon: Table2, group: "Workspace" },
       );
     }
@@ -545,7 +540,9 @@ export function PortalProfileClient({
   // `/portal/profile?checkout=…`. Re-run whenever search/hash changes so
   // Workspaces → View plans opens Billing even when Profile is already mounted.
   const [billingOverride, setBillingOverride] = useState(false);
-  const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
+  // Captain, Oct 6: the workspace Forms item left Settings; its old URL opens Automations.
+  const rawTabParam = searchParams.get(SETTINGS_TAB_PARAM);
+  const rawTab = rawTabParam === "leasingForms" ? "applicationsLeases" : rawTabParam;
   useEffect(() => {
     if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search);
@@ -560,6 +557,7 @@ export function PortalProfileClient({
     if (rawTab === "team") router.replace("/portal/profile?tab=workspaces");
     if (rawTab === "communication") router.replace("/portal/profile?tab=messaging");
     if (rawTab === "payouts") router.replace("/portal/profile?tab=payments");
+    if (rawTabParam === "leasingForms") router.replace("/portal/profile?tab=applicationsLeases");
     // Settings simplification (S019, captain 2026-09-27): Applications, Lease
     // documents/clauses, Forms, Tours, Residents, Services, Tasks, Reminders,
     // Notifications, and every old alias that pointed at one of them left
@@ -568,7 +566,7 @@ export function PortalProfileClient({
     // A bookmark or stale link to any of them must not 404 or render blank,
     // so it lands on Profile rather than a pane that no longer exists.
     if (REMOVED_SETTINGS_TAB_IDS.has(rawTab ?? "")) router.replace("/portal/profile?tab=profile");
-  }, [rawTab, router]);
+  }, [rawTab, rawTabParam, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
   const settingsHome = (searchParams.get("settingsHome") === "1" || (!rawTab && searchParams.get("profileHome") !== "1" && !billingOverride)) && variant === "manager";
   const profileHome = searchParams.get("profileHome") === "1" && variant === "manager";
@@ -778,8 +776,6 @@ export function PortalProfileClient({
         return variant === "manager" && !demo ? <ManagerIntegrationsPanel onOpenCommunication={() => openGroup("messaging")} /> : null;
       case "applicationsLeases":
         return variant === "manager" ? <WorkspaceApplicationsLeasesSettings /> : null;
-      case "leasingForms":
-        return variant === "manager" ? <LeasingFormsPanel /> : null;
       case "applicationForm":
         // Kept per the S014 correction (captain, 06:47): the Applications
         // list-page gear was removed by another worker on the assumption
@@ -798,11 +794,11 @@ export function PortalProfileClient({
   // Settings row, and this nav carries both groups. PROFILE is the account
   // (never workspace-dependent); WORKSPACE follows the workspace selected in the
   // sidebar switcher, whose name is shown read-only above its rows.
-  const WORKSPACE_GROUP_ORDER: SettingsGroupId[] = ["workspaces", "payments", "applicationsLeases", "leasingForms", "messaging", "spreadsheets"];
+  const WORKSPACE_GROUP_ORDER: SettingsGroupId[] = ["workspaces", "payments", "applicationsLeases", "messaging", "spreadsheets"];
   const profileGroups = groups.filter((g) => g.group === "Profile");
   const workspaceGroups = WORKSPACE_GROUP_ORDER.flatMap((id) => groups.filter((g) => g.id === id));
   const limitedWorkspace = variant === "manager" && Boolean(workspaces?.active && !workspaces.active.owned && !workspaces.active.canManageMembers);
-  const locked = (id: string) => limitedWorkspace && ["messaging", "payments", "applicationsLeases", "leasingForms", "spreadsheets"].includes(id);
+  const locked = (id: string) => limitedWorkspace && ["messaging", "payments", "applicationsLeases", "spreadsheets"].includes(id);
   // Panes whose content is the selected workspace's: remount when the sidebar switches it.
   const followsWorkspace = (id: string) => [...WORKSPACE_GROUP_ORDER, "billing"].includes(id);
   const paneTitle = paneGroup.id === "workspaces" ? "Workspace settings" : paneGroup.label;

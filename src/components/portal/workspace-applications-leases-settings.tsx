@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Settings -> Workspace -> "Applications & leases" (C2-CP7, C2-CP8, C2-CP9).
+ * Settings -> Workspace -> "Automations" (route id `applicationsLeases`) (C2-CP7, C2-CP8, C2-CP9).
  *
  * MOUNT: render `<WorkspaceApplicationsLeasesSettings />` inside the Workspace settings page
  * (the settings shell's "Workspace" section, next to the other workspace sections). It is
@@ -13,7 +13,7 @@
  *   record (`manager_automation_settings.row_data.leasingPipeline`, `leasing-pipeline-preferences.ts`).
  *   One value for every property. There is no signing-order setting: every workspace is
  *   application first, then lease, then the move-in form (captain, Oct 3 2026).
- * - Auto-send the lease: the workspace application automation (`autoSendLease`).
+ * - Auto-approve applications, Auto-send the lease: the workspace application automation (`autoApproveApplications`, `autoSendLease`).
  * - Deposit accounting: the workspace lease automation (`lease-automation-settings.ts`).
  * - The application <-> lease mapping and the co-signer links are NOT here: each template's popup
  *   (Add/Edit application, Add/Edit lease) carries its own row on the first step
@@ -53,6 +53,11 @@ import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-c
 const APPLICATION_BEFORE_TOUR_OPTIONS = [
   { value: "not_needed", label: "Not needed" },
   { value: "required", label: "Required" },
+];
+
+const ON_OFF_OPTIONS = [
+  { value: "off", label: "Off" },
+  { value: "on", label: "On" },
 ];
 
 const SHARED_ROOM_OPTIONS = [
@@ -155,9 +160,9 @@ export function WorkspaceApplicationsLeasesSettings() {
     }, "Could not save.");
   };
 
-  const saveAutoSend = (autoSendLease: boolean) => {
+  const saveAutomationStep = (step: "autoApproveApplications" | "autoSendLease", value: boolean) => {
     const previous = automation;
-    const next = { ...automation, autoSendLease };
+    const next = { ...automation, [step]: value };
     setAutomation(next);
     if (demo) return;
     void withSaveStatus(async () => {
@@ -197,7 +202,7 @@ export function WorkspaceApplicationsLeasesSettings() {
 
   return (
     <div className="space-y-6" data-attr="workspace-applications-leases-settings">
-      <PortalSettingsSection title="Applications & leases">
+      <PortalSettingsSection title="Applications">
         <PortalSettingsGroup>
           <PortalSettingsRow label="Application before a tour">
             <FieldSingleSelect
@@ -212,6 +217,23 @@ export function WorkspaceApplicationsLeasesSettings() {
               onChange={(next) => savePipeline({ applicationBeforeTour: next as ApplicationBeforeTour })}
             />
           </PortalSettingsRow>
+          <PortalSettingsRow label="Auto-approve applications">
+            <FieldSingleSelect
+              hideLabel
+              label="Auto-approve applications"
+              variant="cell"
+              wrapperClassName="w-64"
+              options={ON_OFF_OPTIONS}
+              value={automation.autoApproveApplications ? "on" : "off"}
+              disabled={disabled}
+              dataAttr="workspace-auto-approve-applications"
+              onChange={(next) => saveAutomationStep("autoApproveApplications", next === "on")}
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Leases">
+        <PortalSettingsGroup>
           <PortalSettingsRow label="Roommates in a shared room sign">
             <FieldSingleSelect
               hideLabel
@@ -244,14 +266,11 @@ export function WorkspaceApplicationsLeasesSettings() {
               label="Auto-send the lease to the resident"
               variant="cell"
               wrapperClassName="w-64"
-              options={[
-                { value: "off", label: "Off" },
-                { value: "on", label: "On" },
-              ]}
+              options={ON_OFF_OPTIONS}
               value={automation.autoSendLease ? "on" : "off"}
               disabled={disabled}
               dataAttr="workspace-auto-send-lease"
-              onChange={(next) => saveAutoSend(next === "on")}
+              onChange={(next) => saveAutomationStep("autoSendLease", next === "on")}
             />
           </PortalSettingsRow>
         </PortalSettingsGroup>
