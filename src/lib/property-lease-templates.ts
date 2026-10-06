@@ -347,37 +347,6 @@ export function withLeaseDefaultForStay<T extends Pick<PropertyLeaseTemplate, "i
   });
 }
 
-/**
- * The property's single "Default lease" for a picker that has one row for the whole property (the Lease
- * settings gear): the explicit per-stay default - long term first - else the stored fallback id. Reading the
- * explicit store first is what keeps that picker, the row star and routing from disagreeing.
- */
-export function propertyDefaultLeaseId<T extends DefaultableLease>(
-  templates: readonly T[],
-  fallbackDefaultLeaseId?: string | null,
-): string | null {
-  for (const stay of ["long_term", "short_term"] as const) {
-    const explicit = explicitDefaultLeaseForStay(templates, stay);
-    if (explicit) return explicit.id;
-  }
-  const fallbackId = fallbackDefaultLeaseId?.trim();
-  return fallbackId && templates.some((row) => row.id === fallbackId) ? fallbackId : null;
-}
-
-/**
- * Setting the property's single default lease: the chosen lease becomes the explicit default of the stay it
- * serves (`leaseTemplateStay`), so the row star and routing follow it. `null` clears every explicit default,
- * putting the property back on its stored fallback.
- */
-export function withPropertyDefaultLease<T extends Pick<PropertyLeaseTemplate, "id" | "kind" | "applicationLeaseTerms" | "defaultFor">>(
-  templates: readonly T[],
-  id: string | null,
-): T[] {
-  const chosen = id ? templates.find((row) => row.id === id) : undefined;
-  if (!chosen) return templates.map((row) => ({ ...row, defaultFor: undefined }));
-  return withLeaseDefaultForStay(templates, chosen.id, leaseTemplateStay(chosen));
-}
-
 /** Migrate legacy single lease fields into a template list when needed. */
 export function readPropertyLeaseTemplates(
   sub: Pick<

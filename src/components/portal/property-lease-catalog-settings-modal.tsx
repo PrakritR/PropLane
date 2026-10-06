@@ -6,17 +6,11 @@ import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
-import {
-  propertyDefaultLeaseId,
-  updatePropertyLeaseTemplate,
-  withPropertyDefaultLease,
-  type PropertyLeaseTemplate,
-} from "@/lib/property-lease-templates";
+import { updatePropertyLeaseTemplate, type PropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { CUSTOM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 const MONTH_TO_MONTH_TERM = "Month-to-Month";
-const NO_DEFAULT_LEASE = "__none__";
 
 /**
  * The Lease tab's settings gear. Property-scoped switches only (C2-CP8): which leases this
@@ -52,15 +46,12 @@ export function PropertyLeaseCatalogSettingsModal({
   const [allowM2m, setAllowM2m] = useState(false);
   const [allowCustomStart, setAllowCustomStart] = useState(false);
   const termsEditable = Boolean(sub);
-  /** Untouched until the manager picks: the row then shows the stored default (one store, read one way). */
-  const [pickedDefaultLeaseId, setPickedDefaultLeaseId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setLocalTemplates(templates);
     setAllowM2m(savedTerms.includes(MONTH_TO_MONTH_TERM));
     setAllowCustomStart(savedTerms.includes(CUSTOM_LEASE_TERM));
-    setPickedDefaultLeaseId(null);
   }, [open, templates, savedTerms]);
 
   const patchOffered = (id: string, offered: boolean) => {
@@ -85,31 +76,13 @@ export function PropertyLeaseCatalogSettingsModal({
           };
         }
       }
-      // The default lease has ONE store: the chosen lease's own `defaultFor` (what the row star and
-      // application routing read), with `defaultLeaseTemplateId` kept as the fallback so the two can never
-      // name different leases. Both move in this save, or neither does.
-      const nextTemplates =
-        pickedDefaultLeaseId === null
-          ? localTemplates
-          : withPropertyDefaultLease(localTemplates, pickedDefaultLeaseId === NO_DEFAULT_LEASE ? null : pickedDefaultLeaseId);
-      if (!(await onSaveTemplates(nextTemplates, extra))) return;
-      if (pickedDefaultLeaseId !== null) {
-        await formSetup.patch({
-          leasingPipeline: {
-            ...formSetup.leasingPipeline,
-            defaultLeaseTemplateId: pickedDefaultLeaseId === NO_DEFAULT_LEASE ? null : pickedDefaultLeaseId,
-          },
-        });
-      }
-      onClose();
+      if (await onSaveTemplates(localTemplates, extra)) onClose();
     } finally {
       setSaving(false);
     }
   };
 
-  const storedDefaultLeaseId =
-    propertyDefaultLeaseId(localTemplates, formSetup.leasingPipeline.defaultLeaseTemplateId) ?? NO_DEFAULT_LEASE;
-  const defaultLeaseId = pickedDefaultLeaseId ?? storedDefaultLeaseId;
+  const defaultLeaseId = formSetup.leasingPipeline.defaultLeaseTemplateId ?? "__none__";
 
   return (
     <Modal
@@ -182,10 +155,17 @@ export function PropertyLeaseCatalogSettingsModal({
                   value={defaultLeaseId}
                   dataAttr="property-lease-settings-default"
                   options={[
-                    { value: NO_DEFAULT_LEASE, label: "None" },
+                    { value: "__none__", label: "None" },
                     ...localTemplates.map((lease) => ({ value: lease.id, label: lease.label })),
                   ]}
-                  onChange={setPickedDefaultLeaseId}
+                  onChange={(next) =>
+                    void formSetup.patch({
+                      leasingPipeline: {
+                        ...formSetup.leasingPipeline,
+                        defaultLeaseTemplateId: next === "__none__" ? null : next,
+                      },
+                    })
+                  }
                 />
               </PortalSettingsRow>
               <PortalSettingsRow label="Lease required">

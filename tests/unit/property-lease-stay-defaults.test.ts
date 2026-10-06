@@ -5,10 +5,8 @@ import {
   effectiveDefaultLeaseForStay,
   explicitDefaultLeaseForStay,
   leaseTemplateStay,
-  propertyDefaultLeaseId,
   readPropertyLeaseTemplates,
   withLeaseDefaultForStay,
-  withPropertyDefaultLease,
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
 import { resolvePropertyLeaseTemplateForApplication } from "@/lib/property-lease-template-sync";
@@ -75,38 +73,13 @@ describe("lease defaultFor", () => {
   it("withLeaseDefaultForStay moves the default and keeps the other stay's", () => {
     const a = make("long-term", "A", { defaultFor: ["long_term"] });
     const b = make("long-term", "B");
-    const next = withLeaseDefaultForStay([a, b], b.id, "long_term");
+    const s = make("short-term", "S", { defaultFor: ["short_term"] });
+    const next = withLeaseDefaultForStay([a, b, s], b.id, "long_term");
     expect(next.find((row) => row.id === a.id)!.defaultFor).toBeUndefined();
     expect(next.find((row) => row.id === b.id)!.defaultFor).toEqual(["long_term"]);
-  });
-});
-
-describe("the property's one Default lease (Lease settings gear)", () => {
-  const long = make("long-term", "Long");
-  const longB = make("long-term", "Long B");
-  const short = make("short-term", "Short");
-
-  it("reads the explicit per-stay default first, so the picker can never name a different lease than the star", () => {
-    expect(propertyDefaultLeaseId([long, longB, short], null)).toBeNull();
-    expect(propertyDefaultLeaseId([long, longB, short], longB.id)).toBe(longB.id);
-    // A stay default set from the Leases row menu outranks the stored fallback - what routing reads too.
-    const pinned = withLeaseDefaultForStay([long, longB, short], long.id, "long_term");
-    expect(propertyDefaultLeaseId(pinned, longB.id)).toBe(long.id);
-    // A fallback id that is not a lease of this property is no default at all.
-    expect(propertyDefaultLeaseId([long, longB, short], "gone")).toBeNull();
-  });
-
-  it("picking one writes the SAME per-stay defaultFor the row star and routing read; None clears it", () => {
-    const picked = withPropertyDefaultLease([long, longB, short], longB.id);
-    expect(explicitDefaultLeaseForStay(picked, "long_term")!.id).toBe(longB.id);
-    expect(explicitDefaultLeaseForStay(picked, "short_term")).toBeNull();
-    // A short-term lease becomes the SHORT term default, never the long-term one.
-    const shortPicked = withPropertyDefaultLease([long, longB, short], short.id);
-    expect(explicitDefaultLeaseForStay(shortPicked, "short_term")!.id).toBe(short.id);
-    expect(explicitDefaultLeaseForStay(shortPicked, "long_term")).toBeNull();
-    const cleared = withPropertyDefaultLease(picked, null);
-    expect(cleared.every((row) => row.defaultFor === undefined)).toBe(true);
-    expect(propertyDefaultLeaseId(cleared, null)).toBeNull();
+    // Setting one stay's default is the ONE write, and it never reaches past that stay.
+    expect(next.find((row) => row.id === s.id)!.defaultFor).toEqual(["short_term"]);
+    expect(explicitDefaultLeaseForStay(next, "short_term")!.id).toBe(s.id);
   });
 });
 

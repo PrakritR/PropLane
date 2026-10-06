@@ -17,9 +17,9 @@ import {
 } from "@/lib/leasing-quick-add";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { MOVE_IN_FORM_STARTERS, normalizeMoveInFormTemplates, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
-import { removePropertyApplicationTemplate, readPropertyApplicationTemplates, withPropertyApplicationTemplatesExplicit } from "@/lib/property-application-templates";
+import { createPropertyApplicationTemplate, removePropertyApplicationTemplate, readPropertyApplicationTemplates, withPropertyApplicationTemplatesExplicit } from "@/lib/property-application-templates";
 import { removePropertyLeaseTemplate, readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
-import { submissionAfterRemovingApplicationTemplate } from "@/lib/property-application-template-sync";
+import { submissionAfterRemovingApplicationTemplate, syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import { syncLegacyLeaseFieldsFromTemplates } from "@/lib/property-lease-templates";
 import { pricingLeaseOptions } from "@/lib/pricing-lease-options";
 
@@ -126,10 +126,28 @@ describe("Quick add: which PropLane defaults are missing", () => {
       "Long-term application",
       "Co-signer application",
     ]);
+    // The two short-stay application seeds add different forms, so they carry different names (which is
+    // also the Quick add button's aria-label).
     expect(labels(missingApplicationDefaults(airbnbSub, "short_term"))).toEqual([
       "Short-term application",
-      "Short-term application",
+      "Airbnb application",
     ]);
+  });
+
+  it("an Airbnb application still carrying its old shipped name is renamed; a manager's own name is kept", () => {
+    const airbnb = createPropertyApplicationTemplate({
+      kind: "short-term",
+      label: "Short-term application",
+      listingSeedKey: "airbnb",
+      formVariant: "short_term",
+    });
+    const sub = { ...createDefaultListingSubmission(), airbnbRentalsAllowed: true, propertyApplicationTemplates: [airbnb] };
+    const synced = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(sub));
+    expect(synced.find((a) => a.listingSeedKey === "airbnb")!.label).toBe("Airbnb application");
+    expect(synced.find((a) => a.listingSeedKey === "short-term")!.label).toBe("Short-term application");
+    const renamed = { ...sub, propertyApplicationTemplates: [{ ...airbnb, label: "Nightly guests" }] };
+    const keptName = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(renamed));
+    expect(keptName.find((a) => a.listingSeedKey === "airbnb")!.label).toBe("Nightly guests");
   });
 
   it("a move-in starter is added as the manager's own form that sends only by hand", () => {
