@@ -25,7 +25,7 @@ Covers:
   title and each payouts section once, and does **not** carry a second
   Show/Hide control for the same saved field (removed in 2858fde19) — flipping
   it back to Show in the Filter sheet restores the rows;
-- the payment record page carries the C2-PAY header actions (Take payment, Mark
+- the payment record page carries the C2-PAY header actions (Payment settings, Mark
   paid offline, Send reminder, Edit, Download, Delete); **Mark paid offline** is
   server-confirmed (`recordOfflinePayment`, the fixture applies it and echoes the
   charge back); **Delete** removes it;

@@ -40,7 +40,7 @@ import {
   RecordStatTiles,
   StatTile,
 } from "@/components/portal/portal-record-overview-kit";
-import { Ban, Bell, BadgeCheck, CalendarDays, HandCoins, RotateCcw, Trash2, Pencil, Download, ArrowUpRight } from "lucide-react";
+import { Ban, Bell, BadgeCheck, CalendarDays, RotateCcw, Settings, Trash2, Pencil, Download, ArrowUpRight } from "lucide-react";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   leaseIdForLeaseFeeCharge,
@@ -1312,7 +1312,7 @@ export function ManagerPaymentsLedgerPanel({
       }
       if (!paid) {
         if (row.householdChargeId) {
-          actions.push({ id: "take-payment", label: "Take payment", icon: HandCoins });
+          actions.push({ id: "payment-settings", label: "Payment settings", icon: Settings });
         }
         if (isMarkableAsPaid(row)) {
           actions.push({ id: "mark-paid", label: "Mark paid offline", icon: BadgeCheck });
@@ -1790,6 +1790,33 @@ export function ManagerPaymentsLedgerPanel({
         menuItem: (
           <DropdownMenuItem data-attr="payments-mark-selected-paid" onSelect={markSelectedAsPaid}>
             Mark as paid
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    // Take payment (card) lives on the Payments list: the record header's primary is now
+    // "Payment settings" (Settings > Balance & payouts), so a single unpaid charge keeps the way in here.
+    if (singleSelectedRow?.householdChargeId && !isPaidRow(singleSelectedRow)) {
+      const row = singleSelectedRow;
+      actions.push({
+        id: "take-payment",
+        keepPriority: 5,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={PAYMENTS_BULK_BAR_BTN}
+            data-attr="payments-take-payment"
+            data-record-action-id="take-payment"
+            onClick={() => setTakePaymentRow(row)}
+          >
+            Take payment
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="payments-take-payment" onSelect={() => setTakePaymentRow(row)}>
+            Take payment
           </DropdownMenuItem>
         ),
       });
@@ -2400,7 +2427,7 @@ export function ManagerPaymentsLedgerPanel({
             }
             if (actionId === "waive-lease-fee") { setWaiveReason(""); setWaiveRow({ row: detailRow, restore: false }); return; }
             if (actionId === "restore-lease-fee") { setWaiveRow({ row: detailRow, restore: true }); return; }
-            if (actionId === "take-payment") { setTakePaymentRow(detailRow); return; }
+            if (actionId === "payment-settings") { navigate(`${listBasePath ?? "/portal"}/profile?tab=payments`); return; }
             if (actionId === "mark-paid") { setOfflineRows([]); setOfflineRow(detailRow); return; }
             if (actionId === "edit") { startEdit(detailRow); return; }
             if (actionId === "move-pending") { void moveToPending(detailRow); return; }
