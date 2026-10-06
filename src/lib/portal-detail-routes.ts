@@ -17,7 +17,6 @@ export const PROPERTY_DETAIL_TABS = [
   // here; see `src/lib/portals/record-sections.ts`.
   "communication",
   "documents",
-  "activity",
 ] as const;
 
 export type PropertyDetailTabId = (typeof PROPERTY_DETAIL_TABS)[number];
@@ -36,7 +35,6 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   "ai-info": "AI info",
   communication: "Communication",
   documents: "Documents",
-  activity: "Activity",
 };
 
 /** Property detail tabs that appear before application/lease in the manager UI. */
@@ -62,7 +60,6 @@ export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   "ai-info": "AI info",
   communication: "Communication",
   documents: "Documents",
-  activity: "Activity",
 } as const;
 
 /** In-content scope chips under the Preview top tab (listing gallery vs house vs move-in). */
@@ -97,7 +94,6 @@ export const PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS: Record<PropertyDetailTopTabId
   "ai-info": "What the assistant says about this home",
   communication: "Messages about this home",
   documents: "Files about this home",
-  activity: "What changed and when",
 };
 
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
@@ -123,7 +119,6 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
   if (tab === "ai-info") return "ai-info";
   if (tab === "communication") return "communication";
   if (tab === "documents") return "documents";
-  if (tab === "activity") return "activity";
   if ((PROPERTY_DETAIL_SECTION_TABS as readonly string[]).includes(tab)) return "preview";
   return "preview";
 }
@@ -208,6 +203,10 @@ export function parseResidentApplicantSidebarTab(raw: string | undefined | null)
   return "application";
 }
 
+/**
+ * A property has no Activity page (it left the rail): an old `…/activity` link, or any unknown value,
+ * opens Preview.
+ */
 export function parsePropertyDetailTab(raw: string | undefined | null): PropertyDetailTabId {
   if (raw === "tour-calendar" || raw === "calendar" || raw === "booking-calendars") return "tours";
   if (raw && (PROPERTY_DETAIL_TABS as readonly string[]).includes(raw)) {

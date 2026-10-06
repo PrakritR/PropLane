@@ -48,6 +48,20 @@ its own shell.
     for a kind is the whole tab list — adding one is a decision, not a
     default.
 
+## A property has no Activity
+
+A property record does not carry Activity (`hasActivity: false` on the manager/property registry entry): it is not
+in the rail, the phone picker, `PROPERTY_DETAIL_TABS` or the Activity band of `pro-house-properties-panel.tsx`.
+An old `/portal/properties/<stage>/<id>/activity` URL parses to Preview (`parsePropertyDetailTab`). Resident,
+vendor and every other kind keep their Activity. Guard: `tests/unit/property-redesign-round2.test.tsx`.
+
+## Property sections split by stay
+
+Applications, Leases, Move-in forms, Services and AI info draw **Long term / Short term** tabs from one helper,
+`src/lib/property-stay-tabs.ts`: a stay's tab exists when the property allows the stay (Airbnb counts as short
+term), a row for both stays shows in both tabs as one record, and a stay the property does not allow still keeps
+its tab when it holds rows (never hide data). Promotion stays one list. Guard: `tests/unit/property-stay-tabs.test.ts`.
+
 ## What wave 1 (area 1a of this plan) actually landed
 
 Points 1–6 above are live. `pro-resident-overview-panel.tsx` is the reference

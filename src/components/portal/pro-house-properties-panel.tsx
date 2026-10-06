@@ -74,9 +74,6 @@ import { cn } from "@/lib/utils";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { renderRecordSection, type RecordSectionActivityEvent } from "@/components/portal/record-section-renderers";
-import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
-import { importedActivity } from "@/lib/portfolio-import/activity";
 import {
   propertyDetailHref,
   propertyListHref,
@@ -333,43 +330,6 @@ export function managerStageFromParam(raw: string | null): ManagerStageKey {
 }
 
 export { MANAGER_STAGES };
-
-/**
- * Property Activity's Filter (S015, Activity: filter only). `RecordSectionActivityEvent`
- * carries no category of its own, so a category is inferred from the event's label — a
- * keyword an unrecognized label never matches, so an event that does not match any
- * category is always shown rather than silently hidden by a heuristic false negative.
- */
-const PROPERTY_ACTIVITY_CATEGORY_OPTIONS = [
-  { value: "leasing", label: "Leasing" },
-  { value: "money", label: "Money" },
-  { value: "services", label: "Services" },
-  { value: "messages", label: "Messages" },
-] as const;
-
-function propertyActivityEventCategory(label: string): string | null {
-  const text = label.toLowerCase();
-  if (/(rent|charge|payment|invoice|deposit|fee)/.test(text)) return "money";
-  // "work order" here matches legacy activity titles stamped before the
-  // services rename (tests/unit/services-vocabulary.test.ts's
-  // STORED_TITLE_READERS carve-out) so an old event still buckets into
-  // Services; it never renders that phrase to a person.
-  if (/(service|maintenance|work order|repair)/.test(text)) return "services";
-  if (/(message|email|sms|reply)/.test(text)) return "messages";
-  if (/(lease|application|tour|listing|import|photo)/.test(text)) return "leasing";
-  return null;
-}
-
-function filterPropertyActivity(
-  events: RecordSectionActivityEvent[],
-  categories: string[],
-): RecordSectionActivityEvent[] {
-  if (categories.length >= PROPERTY_ACTIVITY_CATEGORY_OPTIONS.length) return events;
-  return events.filter((event) => {
-    const category = propertyActivityEventCategory(event.label);
-    return category === null || categories.includes(category);
-  });
-}
 
 function ManagerPropertyInlineDetails({
   bucket,
@@ -827,19 +787,19 @@ function ManagerPropertyInlineDetails({
   // Memoized so `propertySections` below has a stable dependency.
   // C229/C230 (captain, BUILD-WAVE2 §4): a property's own Communication and
   // Documents sections are removed — conversations and files live only on the
-  // portal-wide Communication/Documents pages now. Activity stays available at
-  // every stage.
+  // portal-wide Communication/Documents pages now. Activity left the rail too
+  // (an old `/activity` URL parses to Preview).
   const availableTabs = useMemo<PropertyDetailTabId[]>(
     () =>
       bucket === 5
         ? // A draft prices its rooms here, before it publishes: Publish needs a rent and
           // the wizard has no rent field (docs/agents/property-drafts.md).
-          ["preview", "pricing", "activity"]
+          ["preview", "pricing"]
         : bucket === 3
-          ? ["preview", "activity"]
+          ? ["preview"]
           : bucket === 2 && listingId
-            ? ["preview", "house-details", "move-in", "application", "lease", "pricing", "requests", "promotion", "ai-info", "activity"]
-            : ["preview", "house-details", "move-in", "application", "lease", "pricing", "activity"],
+            ? ["preview", "house-details", "move-in", "application", "lease", "pricing", "requests", "promotion", "ai-info"]
+            : ["preview", "house-details", "move-in", "application", "lease", "pricing"],
     [bucket, listingId],
   );
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
@@ -865,9 +825,6 @@ function ManagerPropertyInlineDetails({
 
   const activeTopNavId = propertyDetailTopNavId(activeDetailTab);
   const isListingPreview = activeDetailTab === "preview";
-  const [activityCategoryFilter, setActivityCategoryFilter] = useState<string[]>(
-    PROPERTY_ACTIVITY_CATEGORY_OPTIONS.map((option) => option.value),
-  );
 
   // Phone = below `md`, the breakpoint the detail header already splits on.
   const mdUp = useMdUp();
@@ -1209,12 +1166,6 @@ function ManagerPropertyInlineDetails({
   // render" on. It gates rendering only.
   if (!row || !mock || !managerSubmission) return null;
 
-  // The Activity tab's events, filtered by the band's Category filter; its count is the band's "Activity n" tab.
-  const activityEvents =
-    activeDetailTab === "activity"
-      ? filterPropertyActivity(importedActivity(row?.importFile, row?.importedAt), activityCategoryFilter)
-      : importedActivity(row?.importFile, row?.importedAt);
-
   // Wires the phone sticky action (and its ⋯ overflow) from
   // PortalRecordSectionChrome to the SAME handlers the desktop icon row
   // above already calls — real functionality per bucket, "Coming soon" for a
@@ -1514,31 +1465,6 @@ function ManagerPropertyInlineDetails({
           showToast={showToast}
         />
       ) : null}
-
-      {/* The shared trio (PLAN-0920-1058, area 1a) — same renderers every
-          record kind uses; see src/components/portal/record-section-renderers.tsx. */}
-      {activeDetailTab === "activity" ? (
-        <PortalPropertySectionToolbar
-          tab={{ id: "activity", label: "Activity", count: activityEvents.length }}
-          filter={{
-            label: "Category",
-            options: [...PROPERTY_ACTIVITY_CATEGORY_OPTIONS],
-            selected: activityCategoryFilter,
-            onChange: setActivityCategoryFilter,
-            dataAttr: "property-activity-filter",
-          }}
-        />
-      ) : null}
-      {activeDetailTab === "communication" || activeDetailTab === "documents" || activeDetailTab === "activity"
-        ? renderRecordSection(activeDetailTab, {
-            role: "manager",
-            kind: "property",
-            kindLabel: "home",
-            recordId: propertyRouteKey,
-            recordLabel: propertyShareLabel,
-            activity: activityEvents,
-          })
-        : null}
 
       </PortalPageScrollBody>
 

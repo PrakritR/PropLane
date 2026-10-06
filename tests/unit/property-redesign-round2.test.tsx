@@ -6,7 +6,8 @@ import { ListingDetailSections } from "@/components/marketing/listing-detail-sec
 import { PropertyPricingPanel } from "@/components/portal/property-pricing-panel";
 import { MoveInFormChooser } from "@/components/portal/move-in-forms/move-in-form-chooser";
 import { PropertyMoveInFormsPanel } from "@/components/portal/move-in-forms/property-move-in-forms-panel";
-import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
+import { recordSections } from "@/lib/portals/record-sections";
+import { PROPERTY_DETAIL_TABS, PROPERTY_DETAIL_TOP_TAB_LABELS, parsePropertyDetailTab } from "@/lib/portal-detail-routes";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { PropertyAiInfoEditorModal } from "@/components/portal/property-ai-info-editor-modal";
 import { displayPropertyTitle } from "@/lib/property-title";
@@ -260,25 +261,23 @@ describe("the 'Add to what the assistant knows' popup", () => {
   });
 });
 
-/* 9 ─ Activity tab band */
-describe("the Activity band leads with its text tab", () => {
-  it("shows 'Activity <count>' beside the filter", () => {
-    const { container } = render(
-      <PortalPropertySectionToolbar
-        tab={{ id: "activity", label: "Activity", count: 3 }}
-        filter={{
-          label: "Category",
-          options: [{ value: "a", label: "A" }],
-          selected: ["a"],
-          onChange: () => {},
-          dataAttr: "property-activity-filter",
-        }}
-      />,
-    );
-    const nav = container.querySelector('[data-slot="local-destination-nav"]')!;
-    expect(nav).toBeTruthy();
-    expect(nav.textContent).toContain("Activity");
-    expect(nav.textContent).toContain("3");
+/* 9 ─ Activity left the property rail */
+describe("a property has no Activity page", () => {
+  it("the property rail has no Activity item", () => {
+    const sections = recordSections("manager", "property", { basePath: "/portal" });
+    const ids = sections.groups.flatMap((group) => group.items.map((item) => item.id));
+    expect(ids).not.toContain("activity");
+  });
+
+  it("no property tab list names Activity", () => {
+    expect((PROPERTY_DETAIL_TABS as readonly string[]).includes("activity")).toBe(false);
+    expect(Object.keys(PROPERTY_DETAIL_TOP_TAB_LABELS)).not.toContain("activity");
+  });
+
+  it("an old .../activity URL opens Preview", () => {
+    expect(parsePropertyDetailTab("activity")).toBe("preview");
+    expect(parsePropertyDetailTab("not-a-tab")).toBe("preview");
+    expect(parsePropertyDetailTab("lease")).toBe("lease");
   });
 });
 
