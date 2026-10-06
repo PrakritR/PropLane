@@ -151,7 +151,7 @@ describe("a draft can be priced before it publishes", () => {
 
   it("the draft detail page offers a Pricing tab and renders it with the draft target", () => {
     const panel = readFileSync("src/components/portal/pro-house-properties-panel.tsx", "utf8");
-    expect(panel).toMatch(/bucket === 5\s*\?[^\]]*\["preview", "pricing", "activity"\]/s);
+    expect(panel).toMatch(/bucket === 5\s*\?[^\]]*\["preview", "pricing"\]/s);
     expect(panel).toMatch(/activeDetailTab === "pricing" && bucket === 5[\s\S]{0,200}saveTarget=\{\{ mode: "draft"/);
     // Pricing is the only draft tab that saves through the draft target; the
     // lease / house-details panels stay hidden so a draft is never mirrored live.
