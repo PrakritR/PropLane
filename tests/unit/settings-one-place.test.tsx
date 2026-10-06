@@ -83,7 +83,6 @@ describe("Settings is one place", () => {
       "settings-nav-workspaces",
       "settings-nav-payments",
       "settings-nav-applicationsLeases",
-      "settings-nav-leasingForms",
       "settings-nav-messaging",
       "settings-nav-spreadsheets",
     ]);
@@ -92,20 +91,30 @@ describe("Settings is one place", () => {
     expect(labels("settings-group-workspace")).toBe("Workspace");
     expect(labels("settings-nav-payments")).toBe("Balance & payouts");
     expect(labels("settings-nav-billing")).toBe("Billing & plan");
+    expect(labels("settings-nav-applicationsLeases")).toBe("Automations");
+    expect(labels("settings-nav-spreadsheets")).toBe("Integrations");
+    expect(nav.textContent).not.toContain("Forms");
+    expect(nav.textContent).not.toContain("Applications & leases");
   });
 
-  it("loads Settings -> Forms by its URL: the Forms rail row opens the library page, Applications first", async () => {
+  it("the old Settings -> Forms URL opens Automations: no Forms row, Automations is current", () => {
     window.history.replaceState(null, "", "/portal/profile?tab=leasingForms");
     const view = renderSettings();
     const nav = view.container.querySelector('nav[aria-label="Settings sections"]')!;
-    expect(nav.querySelector('[data-attr="settings-nav-leasingForms"]')?.textContent).toBe("Forms");
-    expect(nav.querySelector('[data-attr="settings-nav-leasingForms"]')?.getAttribute("aria-current")).toBe("page");
-    expect(view.container.querySelector('[data-attr="settings-layout"] h1')?.textContent).toBe("Forms");
-    expect(view.container.querySelector('[data-attr="leasing-forms-panel"]')).not.toBeNull();
-    expect(view.container.querySelector('[data-attr="leasing-forms-tab-applications"]')).not.toBeNull();
-    expect(view.container.querySelector('[data-attr="leasing-forms-tab-leases"]')).not.toBeNull();
-    // Move-in forms are their own page, never a tab here.
-    expect(view.container.querySelector('[data-attr="leasing-forms-tab-move-in"]')).toBeNull();
+    expect(nav.querySelector('[data-attr="settings-nav-leasingForms"]')).toBeNull();
+    expect(nav.querySelector('[data-attr="settings-nav-applicationsLeases"]')?.getAttribute("aria-current")).toBe("page");
+    expect(view.container.querySelector('[data-attr="settings-layout"] h1')?.textContent).toBe("Automations");
+    expect(view.container.querySelector('[data-attr="workspace-applications-leases-settings"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-attr="leasing-forms-panel"]')).toBeNull();
+  });
+
+  it("the phone Settings list says Automations and has no Forms row", () => {
+    window.history.replaceState(null, "", "/portal/profile?tab=profile&settingsHome=1");
+    const view = renderSettings();
+    const home = view.container.querySelector('[data-attr="settings-home"]')!;
+    expect(home.querySelector('[data-attr="settings-open-applicationsLeases"]')?.textContent).toContain("Automations");
+    expect(home.querySelector('[data-attr="settings-open-leasingForms"]')).toBeNull();
+    expect(home.textContent).not.toContain("Forms");
   });
 
   it("shows the sidebar's workspace read-only: a name, not a switcher", () => {

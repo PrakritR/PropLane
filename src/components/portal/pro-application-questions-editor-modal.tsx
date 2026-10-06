@@ -282,7 +282,7 @@ export function ManagerApplicationQuestionsEditorModal({
   applicationTemplate?: PropertyApplicationTemplate | null;
   templates?: PropertyApplicationTemplate[];
   /**
-   * The workspace signing order (Settings -> Applications & leases). Application first puts a
+   * The workspace signing order (Settings -> Automations). Application first puts a
    * "Lease" row on the first step (one application, one lease). Absent
    * (not loaded yet) = no mapping row.
    */
@@ -741,7 +741,7 @@ export function ManagerApplicationQuestionsEditorModal({
     if (isTemplateEditor) {
       // P002: the property Add/Edit application editor — Name -> Questions. The
       // Settings step is gone (C2-CP8): workspace choices live in Settings ->
-      // Applications & leases, property switches on the Application tab's gear. Matches the studio
+      // Automations, property switches on the Application tab's gear. Matches the studio
       // After (proto/property-forms.js ED_STEPS); the listing-wide editor
       // below (opened outside a property record) keeps its own separate
       // per-section step rail, out of scope for this collapse.

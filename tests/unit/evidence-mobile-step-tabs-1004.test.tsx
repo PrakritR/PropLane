@@ -257,13 +257,13 @@ describe("4. Finances cash flow is one running-total chart", () => {
   });
 });
 
-describe("5. Settings › Integrations is one page", () => {
+describe("5. Settings › Integrations is one page of stacked sections", () => {
   it("offers Messages · Bookings · Posting · Google, and Facebook Marketplace as Copy post only", async () => {
     desktopViewport();
     window.history.replaceState(null, "", "/portal/profile?tab=spreadsheets");
     render(<ManagerIntegrationsPanel initialTab="posting" />);
     for (const label of ["Messages", "Bookings", "Posting", "Google"]) {
-      expect(screen.getByRole("tab", { name: label })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: label })).toBeTruthy();
     }
     await waitFor(() => expect(screen.getByText(/Facebook Marketplace/i)).toBeTruthy());
     capture("integrations-one-page-posting", "Manager · Settings › Integrations — one page with Messages · Bookings · Posting · Google. Posting holds Zillow syndication and Facebook Marketplace, which is “Copy post” only.");
