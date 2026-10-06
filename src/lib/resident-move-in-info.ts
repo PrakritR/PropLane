@@ -171,6 +171,51 @@ async function loadHousematesForProperty(
   }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
 
+/**
+ * The household peers of ONE stored application record, redacted exactly as the
+ * resident's own My home shows them (`sharedHousemateDetails` + each peer's own
+ * sharing preferences). The manager resident record reads this through its own
+ * authorized route.
+ *
+ * Everything that decides the answer — the property, the room, the email — comes
+ * from the stored row, never from a caller-supplied id, and the caller must have
+ * authorized the record before calling. A peer's details are still gated on that
+ * peer's sharing preferences, so a manager surface discloses nothing the resident
+ * cannot already see.
+ */
+export async function loadHousematesForApplicationRow(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  row: DemoApplicantRow,
+  options: { selfEmail: string; managerUserId?: string | null },
+): Promise<ResidentMoveInHousemate[]> {
+  const selfEmail = options.selfEmail.trim().toLowerCase();
+  const propertyId = propertyIdFromAppRow(row);
+  if (!selfEmail || !propertyId) return [];
+  // Only a current residency has a household, the same gate the resident path applies.
+  if (!isCurrentResidentApplicationRow(row) || row.withdrawnAt) return [];
+
+  const { data: propertyRecord } = await db
+    .from("manager_property_records")
+    .select("id, property_data, row_data, manager_user_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  // The peer read is scoped to the manager who owns the household's records: the
+  // property's owner, falling back to the record's (frozen) stamp.
+  const managerUserId =
+    String(propertyRecord?.manager_user_id ?? "").trim() ||
+    String(options.managerUserId ?? "").trim() ||
+    null;
+  const roomNames = listingRoomNames(propertyRecord as { property_data?: unknown; row_data?: unknown } | null);
+  return loadHousematesForProperty(
+    db,
+    selfEmail,
+    propertyId,
+    managerUserId,
+    { roomId: canonicalRoomIdFromAppRow(row), roomLabel: roomLabelFromAppRow(row, roomNames) },
+    roomNames,
+  );
+}
+
 export async function loadResidentMoveInForEmail(email: string, options?: { db?: ReturnType<typeof createSupabaseServiceRoleClient>; managerUserId?: string }): Promise<ResidentMoveInResolved | null> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return null;

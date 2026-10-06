@@ -96,7 +96,7 @@ describe("resident detail tab chrome", () => {
     // buttons are drawn (they are icon buttons with a label from md up).
     expect(chrome).toContain('"resident-detail-filter"');
     expect(chrome).toContain('"resident-detail-edit"');
-    expect(chrome).toContain("Status filters live in the pills above");
+    expect(chrome).toContain("Status filters are the tabs in this card");
     // Settings' data-attr moved out of a literal in this component and into the
     // shared settings-entry-points registry, so the source grep above can no
     // longer see its value. Grepping for the import name instead would only

@@ -80,7 +80,7 @@ export function ResidentDetailCommandToolbar({
           label="Filter"
           dataAttr="resident-detail-filter"
           disabled
-          title="Status filters live in the pills above"
+          title="Status filters are the tabs in this card"
         />
       )}
       <ChromeAction

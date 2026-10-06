@@ -71,7 +71,13 @@ last wins). A tab's own actions are icons in its section header card — `Manage
 with a `title` (the section's name), the tabs as `destinationRow`, icon actions, the blue + last.
 Application and Background check share Incomplete · Pending · Approved · Rejected
 (`residentApplicationStatusBucket`, `residentBackgroundCheckStatusBucket`); Move in's sub-tabs are
-the resident's My home tabs in the same order.
+the resident's My home tabs in the same order. Placement and Move-in details resolve from the
+record's OWN application row, never every row sharing the email, or an approved tenancy at another
+property describes this one. Roommates is a server read —
+`GET /api/manager-applications/<id>/housemates` authorizes the caller against the record with
+`managerCanAccessApplicationRecord`, then answers through the resident loader, so each peer is
+redacted by that peer's own sharing preferences and the manager sees no more than the resident does.
+An unrecognised Move in sub-tab slug lands on Forms (`parseResidentRecordMoveInTab`).
 
 ## Header actions are per (role, kind, section)
 

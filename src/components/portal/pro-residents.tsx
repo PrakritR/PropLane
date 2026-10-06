@@ -1,7 +1,6 @@
 "use client";
 
 import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
-import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
@@ -103,7 +102,6 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { ResidentInviteClaimsPanel } from "@/components/portal/resident-invite-claims-panel";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { appendManagerResidentActivityLog } from "@/lib/manager-resident-activity-log";
 import { ManagerResidentApplicationFactCards } from "@/components/portal/manager-resident-application-fact-cards";
 import { ManagerResidentBackgroundCheckPanel } from "@/components/portal/manager-resident-background-check-panel";
 import { uploadManagerDocumentForResident } from "@/lib/manager-resident-document-upload";
@@ -159,7 +157,6 @@ import {
   PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
-import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
@@ -254,8 +251,6 @@ import {
   managerSignLease,
   leasePipelineRowsForManagerResident,
   LEASE_PIPELINE_EVENT,
-  confirmUploadedLeaseParseOnServer,
-  UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE,
   ensureManagerReviewLeaseForApplication,
   executedLeaseIdentities,
   readLeasePipeline,
@@ -269,9 +264,6 @@ import {
   leaseRowMatchesListTab,
   type LeaseListTabId,
   type LeasePipelineRow,} from "@/lib/lease-pipeline-storage";
-import { retryUploadedLeaseParse } from "@/lib/uploaded-lease-parse.client";
-import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
-import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
 import {
   MANAGER_WORK_ORDERS_EVENT,
   deleteManagerWorkOrdersForResident,
@@ -599,10 +591,8 @@ export function ManagerResidents({
   );
   const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
-  const [importReviewLeaseId, setImportReviewLeaseId] = useState<string | null>(null);
   const [editResidentLeaseId, setEditResidentLeaseId] = useState<string | null>(null);
   const [activeResidentLeaseId, setActiveResidentLeaseId] = useState<string | null>(null);
-  const [regenerateConfirmLeaseId, setRegenerateConfirmLeaseId] = useState<string | null>(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [residentUploadOpen, setResidentUploadOpen] = useState(false);
   const [residentUploadKindPreset, setResidentUploadKindPreset] = useState<ResidentUploadDocKind>("other");
@@ -653,7 +643,6 @@ export function ManagerResidents({
   );
   const [applicationEditOpen, setApplicationEditOpen] = useState(false);
   const [applicationEditInitialStep, setApplicationEditInitialStep] = useState<number | undefined>(undefined);
-  const [, setActivityLogTick] = useState(0);
   const [messageReminderForPayment, setMessageReminderForPayment] = useState(false);
   const [residentApplicationBucket, setResidentApplicationBucket] =
     useState<ResidentRecordStatusBucketId>("pending");
@@ -1246,15 +1235,6 @@ export function ManagerResidents({
     [residentDirectoryRows, activeResidentId],
   );
 
-  const logResidentActivity = useCallback(
-    (label: string) => {
-      if (!selected?.id) return;
-      appendManagerResidentActivityLog(selected.id, label);
-      setActivityLogTick((n) => n + 1);
-    },
-    [selected],
-  );
-
   if (activeResidentId !== prevSelectedId) {
     setPrevSelectedId(activeResidentId);
     if (activeResidentId) {
@@ -1269,12 +1249,6 @@ export function ManagerResidents({
     if (!selected?.email) return [];
     return readChargesForManagerResident(selected.email, userId ?? null);
   }, [selected, hcTick, userId]);
-
-  const importReviewLease = useMemo<LeasePipelineRow | null>(() => {
-    void leaseTick;
-    if (!importReviewLeaseId) return null;
-    return readLeasePipeline(userId).find((row) => row.id === importReviewLeaseId) ?? null;
-  }, [importReviewLeaseId, leaseTick, userId]);
 
   const residentLeaseRows = useMemo<LeasePipelineRow[]>(() => {
     void leaseTick;
@@ -1418,10 +1392,10 @@ export function ManagerResidents({
     ? residentApplicationStatusBucket(selectedApplicationRow)
     : null;
   useEffect(() => {
-    if (selectedApplicationBucket) setResidentApplicationBucket(selectedApplicationBucket);
+    setResidentApplicationBucket(selectedApplicationBucket ?? "pending");
   }, [selectedApplicationBucket, selectedApplicationRow?.id]);
   useEffect(() => {
-    if (selectedApplicationRow) setResidentBackgroundCheckBucket(selectedBackgroundCheckBucket);
+    setResidentBackgroundCheckBucket(selectedBackgroundCheckBucket);
   }, [selectedBackgroundCheckBucket, selectedApplicationRow?.id]);
 
   const openResidentDetailSettings = useCallback((tab: ManagerPortalSettingsTab) => {
@@ -1677,7 +1651,6 @@ export function ManagerResidents({
               : "Message sent via inbox and email.",
       );
       if (messageReminderForPayment) {
-        logResidentActivity("Payment reminder sent");
         setMessageReminderForPayment(false);
       }
     } finally {
@@ -1894,7 +1867,6 @@ export function ManagerResidents({
 
       appendLeaseThreadMessage(leaseId, "manager", "Sent lease-signing reminder to resident.", userId);
       setLeaseTick((n) => n + 1);
-      logResidentActivity("Lease signing reminder sent");
       if (data.skipped) {
         showToast("Reminder sent to PropLane inbox (demo email, no external email sent).");
       } else {
@@ -2039,7 +2011,6 @@ export function ManagerResidents({
     setApplicationReminderBusyId(row.id);
     try {
       if (isDemoModeActive()) {
-        logResidentActivity("Application reminder sent");
         showToast("Application reminder sent to the applicant.");
         return;
       }
@@ -2057,7 +2028,6 @@ export function ManagerResidents({
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; mailtoHref?: string };
       if (res.ok && data.ok) {
-        logResidentActivity("Application reminder sent");
         showToast("Application reminder sent to the applicant.");
         return;
       }
@@ -2774,10 +2744,6 @@ export function ManagerResidents({
     const linked = describeResidentDeleteCounts(result.removed);
     showToast(linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`);
   }
-
-  const generateLeaseRow = regenerateConfirmLeaseId
-    ? readLeasePipeline(userId).find((r) => r.id === regenerateConfirmLeaseId) ?? null
-    : null;
 
   function signLeaseAsManager(row: LeasePipelineRow) {
     if (!leaseAwaitingManagerCountersign(row)) {
@@ -3551,7 +3517,7 @@ export function ManagerResidents({
                                   />
                                 }
                               />
-                              {residentBackgroundCheckBucket !== selectedBackgroundCheckBucket ? (
+                              {selectedApplicationRow && residentBackgroundCheckBucket !== selectedBackgroundCheckBucket ? (
                                 <p className="text-sm text-muted">
                                   No {residentBackgroundCheckBucket} background check.
                                 </p>
@@ -3628,7 +3594,7 @@ export function ManagerResidents({
                                   </DropdownMenu>
                                 }
                               />
-                              {residentApplicationBucket !== selectedApplicationBucket ? (
+                              {selectedApplicationBucket && residentApplicationBucket !== selectedApplicationBucket ? (
                                 <p className="text-sm text-muted">
                                   No {residentApplicationBucket} application.
                                 </p>
@@ -4020,20 +3986,6 @@ export function ManagerResidents({
 
   return (
     <>
-      <LeaseGenerateModal
-        open={generateLeaseRow !== null}
-        row={generateLeaseRow}
-        managerUserId={userId}
-        busy={false}
-        replacesManagerEdits={Boolean(
-          generateLeaseRow?.generatedHtml || generateLeaseRow?.managerUploadedPdf?.dataUrl,
-        )}
-        onClose={() => setRegenerateConfirmLeaseId(null)}
-        onGenerated={() => {
-          setLeaseTick((n) => n + 1);
-          setRegenerateConfirmLeaseId(null);
-        }}
-      />
       {signingLease ? (
         <LeaseSigningModal
           row={signingLease}
@@ -4068,46 +4020,6 @@ export function ManagerResidents({
               : undefined
           }
           />
-      ) : null}
-      {importReviewLease?.uploadedLeaseParse ? (
-        <UploadedLeaseReviewModal
-          open
-          row={importReviewLease}
-          parse={importReviewLease.uploadedLeaseParse}
-          onClose={() => setImportReviewLeaseId(null)}
-          onConfirm={async ({ overrides, note, useConverted, convertedHtml, convertedHtmlSha256, resolvedSourceIssueCodes }) => {
-            const result = await confirmUploadedLeaseParseOnServer(importReviewLease.id, {
-              managerUserId: userId,
-              overrides: overrides as Partial<Record<UploadedLeaseFieldKey, string>>,
-              note,
-              useConverted,
-              convertedHtml,
-              convertedHtmlSha256,
-              resolvedSourceIssueCodes,
-            });
-            if (!result.ok) {
-              showToast(result.error ?? "Could not confirm the imported lease.");
-              return;
-            }
-            track("lease_import_reviewed", { lease_id: importReviewLease.id, import_kind: "uploaded_pdf", artifact_mode: useConverted ? "converted" : "original_pdf" });
-            setLeaseTick((n) => n + 1);
-            setImportReviewLeaseId(null);
-            showToast(`Imported lease confirmed. ${useConverted ? "The converted version" : "The original PDF"} can now be sent for signature.`);
-          }}
-          onRetryRead={async () => {
-            const result = await retryUploadedLeaseParse(importReviewLease.id, userId);
-            setLeaseTick((n) => n + 1);
-            if (!result.ok) {
-              showToast(result.error ?? "Could not read that lease PDF.");
-              return;
-            }
-            showToast(
-              result.parse?.status === "parsed"
-                ? `Lease imported into PropLane format (${result.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
-                : `PropLane still could not read this PDF. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
-            );
-          }}
-        />
       ) : null}
       {residentIdProp && selected ? (
         <PortalRecordDetailPage

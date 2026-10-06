@@ -12,11 +12,13 @@
  *  - Placement: the property, room and dates this resident is placed at.
  *  - Move-in details: what the resident received (instructions, photos, video) plus the house
  *    info, rules, Wi-Fi, instructions and amenities their own Move-in details tab shows.
- *  - Roommates: the other residents of the house, as the resident sees them.
+ *  - Roommates: the other residents of the house, as the resident sees them — loaded from the
+ *    server, which re-derives this manager's access to the record and redacts each peer by that
+ *    peer's own sharing preferences.
  *  - Inspections: this resident's move-in / move-out inspections (`InspectionsPanel`).
  * Only facts that exist are shown; there is no "Opened" row because nothing records it.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download, FileText, Pencil, Send } from "lucide-react";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
@@ -61,7 +63,11 @@ import {
   RESIDENT_MOVE_IN_TAB_LABELS,
   type ResidentMoveInTabId,
 } from "@/lib/portal-detail-routes";
-import { resolveResidentMoveInFromApplications } from "@/lib/resident-move-in-resolve";
+import {
+  resolveResidentMoveInFromApplications,
+  type ResidentMoveInHousemate,
+} from "@/lib/resident-move-in-resolve";
+import { sharedGet } from "@/lib/shared-get-cache";
 
 /** One form of the resident's property: its latest live copy, or none yet. */
 export type ResidentMoveInFormRow = {
@@ -232,22 +238,45 @@ export function ResidentRecordMoveInSection({
   const rowFacts = (row: ResidentMoveInFormRow): PortalEntryRowFact[] =>
     row.copy ? moveInFormEntryFacts(row.copy, now) : [{ icon: Send, label: "Not sent" }];
 
-  // What this resident's own Move-in tabs would resolve to: the property's move-in copy, house
-  // info and the other approved residents of the house (every application row is read so the
-  // roommates can be found).
+  // What this resident's own Move-in tabs would resolve to: the property's move-in copy and house
+  // info. Resolved from THIS record's own application row — passing every row for the email let
+  // the resolver pick an approved tenancy at another property and describe that one instead.
   const { resolved, entireHome } = useMemo(() => {
     const hit = propertyId ? resolveManagerListingSubmissionForPropertyId(userId, propertyId) : null;
-    const all = readManagerApplicationRows();
-    const row: DemoApplicantRow | undefined = all.find((r) => r.id === applicationId);
+    const row: DemoApplicantRow | undefined = readManagerApplicationRows().find((r) => r.id === applicationId);
     const property = hit
       ? ({ id: propertyId, title: "", buildingName: "", listingSubmission: hit.sub } as unknown as MockProperty)
       : undefined;
     const found =
       row && residentEmail && property
-        ? resolveResidentMoveInFromApplications(residentEmail, all, { [propertyId]: property })
+        ? resolveResidentMoveInFromApplications(residentEmail, [row], { [propertyId]: property })
         : null;
     return { resolved: found, entireHome: hit ? isEntireHomeListing(hit.sub) : false };
   }, [userId, applicationId, propertyId, residentEmail]);
+
+  // Roommates come from the server: the household is the manager's whole set of current residents
+  // at this property, which the browser's own copy of the application rows cannot be trusted to
+  // scope or redact. The route authorizes this manager against the record itself.
+  // Stamped with the record it was loaded for, so moving to another resident never shows the
+  // previous one's household while the new read is in flight.
+  const [loadedHousemates, setLoadedHousemates] = useState<{ applicationId: string; list: ResidentMoveInHousemate[] } | null>(null);
+  const housemates = useMemo<ResidentMoveInHousemate[]>(
+    () => (loadedHousemates?.applicationId === applicationId ? loadedHousemates.list : []),
+    [loadedHousemates, applicationId],
+  );
+  useEffect(() => {
+    if (!applicationId || demo) return;
+    let cancelled = false;
+    void sharedGet(`/api/manager-applications/${encodeURIComponent(applicationId)}/housemates`).then((result) => {
+      if (cancelled) return;
+      const list = result.ok ? (result.data as { housemates?: unknown } | null)?.housemates : null;
+      setLoadedHousemates({ applicationId, list: Array.isArray(list) ? (list as ResidentMoveInHousemate[]) : [] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, demo]);
+  const household = useMemo(() => (resolved ? { ...resolved, housemates } : null), [resolved, housemates]);
   const details = useMemo(() => describeMoveInDetails(resolved, entireHome), [resolved, entireHome]);
 
   const open = (form: MoveInFormSummary) => {
@@ -262,7 +291,7 @@ export function ResidentRecordMoveInSection({
   const tabItems = RESIDENT_MOVE_IN_TABS.map((id) => ({
     id,
     label: id === "placement" ? "Placement" : RESIDENT_MOVE_IN_TAB_LABELS[id],
-    count: id === "forms" ? rows.length : id === "housemates" ? resolved?.housemates.length : undefined,
+    count: id === "forms" ? rows.length : id === "housemates" ? housemates.length : undefined,
     dataAttr: `resident-move-in-tab-${id}`,
   }));
   const openPropertyMoveIn = () => navigate(propertyDetailHref(basePath, "all", propertyId, "move-in"));
@@ -407,8 +436,8 @@ export function ResidentRecordMoveInSection({
 
       {activeTab === "housemates" ? (
         <div data-attr="resident-record-move-in-roommates">
-          {resolved ? (
-            <HousematesTabContent resolved={resolved} emptyMessage="No other residents are listed for this household yet." />
+          {household ? (
+            <HousematesTabContent resolved={household} emptyMessage="No other residents are listed for this household yet." />
           ) : (
             <PortalDataTableEmpty icon="residents" message="No other residents are listed for this household yet." />
           )}

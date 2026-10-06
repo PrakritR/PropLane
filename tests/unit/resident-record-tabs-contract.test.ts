@@ -58,6 +58,9 @@ describe("old /inspections links open Move in → Inspections", () => {
     expect(parseResidentRecordMoveInTab(undefined)).toBe("forms");
     expect(parseResidentRecordMoveInTab("inspections")).toBe("inspections");
     expect(parseResidentRecordMoveInTab("info")).toBe("info");
+    // A retired slug keeps its destination; anything unrecognised lands on Forms, never silently on Placement.
+    expect(parseResidentRecordMoveInTab("amenities")).toBe("info");
+    expect(parseResidentRecordMoveInTab("zzz")).toBe("forms");
   });
 
   it("the Move in sub-tabs are the resident's My home tabs, in their order", () => {

@@ -1212,7 +1212,9 @@ export function residentMoveInHref(
  * the resident's own My home, which opens on Placement.
  */
 export function parseResidentRecordMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {
-  return raw ? parseResidentMoveInTab(raw) : "forms";
+  if (!raw) return "forms";
+  if ((RESIDENT_MOVE_IN_TABS as readonly string[]).includes(raw)) return raw as ResidentMoveInTabId;
+  return RESIDENT_MOVE_IN_TAB_ALIASES[raw] ?? "forms";
 }
 
 /** One Move in sub-tab of the manager resident record; Forms is the bare `/move-in`. */
