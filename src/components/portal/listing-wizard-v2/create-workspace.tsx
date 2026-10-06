@@ -20,6 +20,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Building2 } from "lucide-react";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import {
   IMPORT_FILE_ACCEPT,
@@ -149,6 +151,13 @@ export function CreateWorkspace({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   /** blank: the editor on a listing typed by hand; import: the Found list; edit: one imported property open. */
   const [phase, setPhase] = useState<"blank" | "import" | "edit">("blank");
+  const router = useRouter();
+  // The Properties list has no Import icon of its own: a whole rent roll (several properties and their
+  // residents) is one more door in this pop-up's Upload menu.
+  const portfolioImportItems = useMemo(
+    () => [{ label: "Import a portfolio", icon: Building2, onSelect: () => router.push("/portal/properties/import"), dataAttr: "listing-v2-header-import-portfolio" }],
+    [router],
+  );
   const [editStep, setEditStep] = useState<ListingV2StepId>("basics");
   const [busy, setBusy] = useState(false);
   const confirm = useConfirm();
@@ -473,7 +482,7 @@ export function CreateWorkspace({
         onDirtyChange={(dirty) => {
           blankDirtyRef.current = dirty;
         }}
-        headerUpload={{ accept: IMPORT_FILE_ACCEPT, onPick: onPickFileFromBasics, disabled: busy }}
+        headerUpload={{ accept: IMPORT_FILE_ACCEPT, onPick: onPickFileFromBasics, disabled: busy, extraItems: portfolioImportItems }}
         onDiscarded={() => {
           blankDraftIdRef.current = null;
           blankDirtyRef.current = false;
@@ -570,7 +579,7 @@ export function CreateWorkspace({
       <WorkspaceHeaderUploadPresent.Provider value>
       <ListingWorkspace
         title="New listing"
-        headerAside={<WorkspaceUploadAction accept={IMPORT_FILE_ACCEPT} onPick={onPickFile} disabled={busy} dataAttr="listing-v2-header-upload" inputDataAttr="import-upload-file-input" label="Upload" />}
+        headerAside={<WorkspaceUploadAction accept={IMPORT_FILE_ACCEPT} onPick={onPickFile} disabled={busy} dataAttr="listing-v2-header-upload" inputDataAttr="import-upload-file-input" label="Upload" extraItems={portfolioImportItems} />}
         subtitle={fileName ?? undefined}
         saveState={importSaveState(entries)}
         onClose={onClose}

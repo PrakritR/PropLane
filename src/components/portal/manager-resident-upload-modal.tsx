@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Upload } from "lucide-react";
+import { FileUp, Upload } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -27,12 +28,15 @@ export function ManagerResidentUploadModal({
   defaultKind = "other",
   onClose,
   onUploaded,
+  onReadForResident,
 }: {
   open: boolean;
   residentName: string;
   defaultKind?: ResidentUploadDocKind;
   onClose: () => void;
   onUploaded: (files: File[], kinds: ResidentUploadDocKind[]) => Promise<void>;
+  /** The pop-up's header Upload icon: close this and read a filled application or lease PDF into the record instead. */
+  onReadForResident?: () => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [kind, setKind] = useState<ResidentUploadDocKind>(defaultKind);
@@ -62,6 +66,22 @@ export function ManagerResidentUploadModal({
         onClose();
       }}
       dataAttr="resident-upload-modal"
+      status={
+        onReadForResident ? (
+          <PortalIconAction
+            ring
+            icon={FileUp}
+            label="Upload for resident"
+            data-attr="resident-upload-for-resident"
+            disabled={busy}
+            onClick={() => {
+              reset();
+              onClose();
+              onReadForResident();
+            }}
+          />
+        ) : undefined
+      }
       contextPanel={null}
       preview={null}
       footer={

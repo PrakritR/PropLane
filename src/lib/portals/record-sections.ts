@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   CreditCard,
   FileText,
-  FileUp,
   MessageSquare,
   Wallet,
   Download,
@@ -333,8 +332,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       ],
       services: [{ id: "add-service", label: "Add service", icon: Plus, tone: "primary" }],
       tours: [{ id: "add-tour", label: "Add tour", icon: Plus, tone: "primary" }],
+      // One header action: the + (Add document). "Upload for resident" (read a filled application or
+      // lease PDF into this record) is the Upload icon in that pop-up's header.
       documents: [
-        { id: "upload-for-resident", label: "Upload for resident", icon: FileUp },
         { id: "upload", label: "Add document", icon: Upload, tone: "primary" },
       ],
     },

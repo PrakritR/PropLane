@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useRef, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
 import { Camera, ScanLine, Upload } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -17,20 +17,29 @@ export const WorkspaceUploadTarget = createContext<HTMLElement | null>(null);
  */
 export const WorkspaceHeaderUploadPresent = createContext(false);
 
+/** One more door in the Upload icon's menu — another way to bring a file in (e.g. a whole-portfolio import). */
+export type WorkspaceUploadExtraItem = {
+  label: string;
+  icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  onSelect: () => void;
+  dataAttr?: string;
+};
+
 export type WorkspaceHeaderUploadProps = {
   accept: string;
   onPick: (file: File) => void;
   disabled?: boolean;
   dataAttr?: string;
   label?: string;
+  extraItems?: WorkspaceUploadExtraItem[];
 };
 
 /** The pop-up's single header Upload icon: Upload file · Take photo · Scan, on every step. */
-export function WorkspaceHeaderUpload({ accept, onPick, disabled, dataAttr = "workspace-header-upload", label = "Upload" }: WorkspaceHeaderUploadProps) {
-  return <WorkspaceUploadAction accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} inputDataAttr={`${dataAttr}-input`} label={label} />;
+export function WorkspaceHeaderUpload({ accept, onPick, disabled, dataAttr = "workspace-header-upload", label = "Upload", extraItems }: WorkspaceHeaderUploadProps) {
+  return <WorkspaceUploadAction accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} inputDataAttr={`${dataAttr}-input`} label={label} extraItems={extraItems} />;
 }
 
-export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inputDataAttr, label = "Start from a file", inline = false }: {
+export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inputDataAttr, label = "Start from a file", inline = false, extraItems }: {
   accept: string;
   onPick: (file: File) => void;
   disabled?: boolean;
@@ -39,6 +48,7 @@ export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inpu
   label?: string;
   /** Render in place (e.g. at a step heading's right) instead of portalling into `WorkspaceUploadTarget`. */
   inline?: boolean;
+  extraItems?: WorkspaceUploadExtraItem[];
 }) {
   const target = useContext(WorkspaceUploadTarget);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -78,6 +88,10 @@ export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inpu
         <DropdownMenuItem onSelect={() => fileRef.current?.click()}> <Upload className="size-4" aria-hidden /> Upload file</DropdownMenuItem>
         {acceptsImages || acceptsPdf ? <DropdownMenuItem onSelect={() => cameraRef.current?.click()}><Camera className="size-4" aria-hidden /> Take photo</DropdownMenuItem> : null}
         {acceptsImages || acceptsPdf ? <DropdownMenuItem onSelect={() => scanRef.current?.click()}><ScanLine className="size-4" aria-hidden /> Scan</DropdownMenuItem> : null}
+        {extraItems?.map((item) => {
+          const ItemIcon = item.icon;
+          return <DropdownMenuItem key={item.label} data-attr={item.dataAttr} onSelect={item.onSelect}>{ItemIcon ? <ItemIcon className="size-4" aria-hidden /> : null} {item.label}</DropdownMenuItem>;
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   </div>;

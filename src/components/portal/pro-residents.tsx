@@ -4678,6 +4678,7 @@ export function ManagerResidents({
         residentName={selected?.name || "Resident"}
         defaultKind={residentUploadKindPreset}
         onClose={() => setResidentUploadOpen(false)}
+        onReadForResident={() => setUploadForResidentOpen(true)}
         onUploaded={handleResidentUploadComplete}
       />
 

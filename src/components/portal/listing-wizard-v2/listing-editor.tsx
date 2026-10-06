@@ -3142,7 +3142,7 @@ export function ListingEditorV2({
    * Picking a file jumps to Basics first, where the "Start from a file" strip shows the reading or the
    * "Replace what you typed?" confirm, then hands the file to `onPick`. Absent on an edit.
    */
-  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled">;
+  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems">;
   /**
    * Footer Delete on a NEW property: the host forgets the draft (after the confirm drawn here) and closes.
    * Without it, or on an edit, the footer has no Delete.
@@ -3460,6 +3460,7 @@ export function ListingEditorV2({
               dataAttr="listing-v2-header-upload"
               inputDataAttr="import-upload-file-input"
               label="Upload"
+              extraItems={headerUpload.extraItems}
               onPick={(file) => {
                 goTo(0);
                 headerUpload.onPick(file);

@@ -1552,15 +1552,6 @@ export function ManagerApplications({
     />
   );
 
-  const applicationsUploadButton = (
-    <PortalIconAction
-      icon={Upload}
-      label="Upload for resident"
-      data-attr="applications-upload-for-resident"
-      onClick={() => setUploadForResidentFor("")}
-    />
-  );
-
   /** Add application — the same AddWorkspace rail as Add resident / Schedule tour. */
   const [addApplicationOpen, setAddApplicationOpen] = useState(false);
   /** Send lease: the application id the one Send lease screen opens for, or null when closed. */
@@ -1577,7 +1568,6 @@ export function ManagerApplications({
     <>
       {applicationsFilterSort}
       {applicationsAddButton}
-      {applicationsUploadButton}
       {applicationsManualAddButton}
     </>
   );

@@ -211,8 +211,8 @@ describe("header icons are tab-independent", () => {
     expect(residents).toContain('{ id: "send-application", label: "Add application"');
     // Lease keeps download only — no bell, no upload, no +.
     expect(section("lease")).toEqual(["download"]);
-    // Upload for resident sits with Documents' own +.
-    expect(section("documents")).toEqual(["upload-for-resident", "upload"]);
+    // Documents has its own + only; Upload for resident is the Upload icon inside that pop-up.
+    expect(section("documents")).toEqual(["upload"]);
   });
 
   it("Documents draws its kinds as the header card's tabs, not a second control row", () => {

@@ -247,13 +247,21 @@ describe("Upload for resident: parsed values fill the normal form and create for
     expect(row.application).toMatchObject({ dateOfBirth: "1998-04-12", employer: "Acme", monthlyIncome: "4200" });
   });
 
-  it("is reachable from the Applications list, the Leases list and the resident record header", () => {
+  it("is reachable from an application row, the Add pop-ups' header Upload icons and the resident Add document pop-up, never a header icon beside the +", () => {
     const read = (file: string) => readFileSync(path.join(process.cwd(), file), "utf8");
-    expect(read("src/components/portal/pro-applications.tsx")).toContain('label="Upload for resident"');
-    expect(read("src/components/portal/pro-leases.tsx")).toContain('label="Upload for resident"');
+    // No list header draws an Upload icon next to the round +: the row menu, the Add pop-ups and Add document carry it.
+    expect(read("src/components/portal/pro-applications.tsx")).toContain('label: "Upload for resident"');
+    expect(read("src/components/portal/pro-applications.tsx")).not.toContain('data-attr="applications-upload-for-resident"');
+    expect(read("src/components/portal/pro-leases.tsx")).not.toContain('Upload for resident');
+    expect(read("src/components/portal/pro-leases.tsx")).not.toContain("icon={Upload}");
+    expect(read("src/components/portal/pro-properties.tsx")).not.toContain("icon={Upload}");
+    expect(read("src/components/portal/lease-send-sheet.tsx")).toContain('data-attr="lease-send-header-upload"');
+    expect(read("src/components/portal/listing-wizard-v2/create-workspace.tsx")).toContain("/portal/properties/import");
+    expect(read("src/components/portal/manager-resident-upload-modal.tsx")).toContain('label="Upload for resident"');
     // The resident record header is only Edit and Delete; each action sits in the tab it belongs to.
     const residents = read("src/components/portal/pro-residents.tsx");
-    expect(read("src/lib/portals/record-sections.ts")).toContain('id: "upload-for-resident"');
+    expect(read("src/lib/portals/record-sections.ts")).not.toContain('id: "upload-for-resident"');
+    expect(residents).toContain("onReadForResident");
     expect(residents).toContain('id: "send-application"');
     expect(residents).toContain('actionId === "send-lease"');
   });

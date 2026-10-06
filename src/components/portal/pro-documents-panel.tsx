@@ -11,7 +11,7 @@ import {
   PORTAL_COMMAND_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { FileBarChart, Upload } from "lucide-react";
+import { FileBarChart } from "lucide-react";
 import {
   PORTAL_DATA_TABLE,
   PORTAL_DATA_TABLE_WRAP,
@@ -533,7 +533,6 @@ export function ManagerDocumentsPanel({
     />
   ) : isLeasingDocumentsTab || isOtherDocumentsTab ? (
     <PortalPrimaryIconAction
-      icon={Upload}
       label={portalListAddPrimaryLabel("document")}
       onClick={openDocumentUpload}
       data-attr="documents-upload-top"

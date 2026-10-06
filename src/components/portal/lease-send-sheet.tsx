@@ -22,7 +22,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileUp, Pencil } from "lucide-react";
+import { FileUp, Pencil, Upload } from "lucide-react";
 import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
 import { ImportedLeasePlacementReviewModal } from "@/components/portal/imported-lease-placement-review-modal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
@@ -712,9 +712,26 @@ function LeaseSendSheetBody({
     onClick: () => void send(),
   };
 
+  /* The pop-up's one Upload icon (the Leases list has no Upload of its own): reads the lease PDF you pick in place of the PropLane lease. */
+  const headerUpload = (
+    <PortalIconAction
+      ring
+      icon={Upload}
+      label="Upload lease PDF"
+      data-attr="lease-send-header-upload"
+      disabled={busy || !(lease && app && terms)}
+      onClick={() => {
+        setSource("pdf");
+        setConfirmed(false);
+        setError(null);
+        uploadRef.current?.click();
+      }}
+    />
+  );
+
   return (
     <>
-      <PortalDialog open title={title} onClose={() => !busy && onClose()} dismissBlocked={busy} size="wizard" dataAttr="lease-send-sheet" primaryAction={primary} className="lease-send-sheet">
+      <PortalDialog open title={title} onClose={() => !busy && onClose()} dismissBlocked={busy} size="wizard" dataAttr="lease-send-sheet" primaryAction={primary} className="lease-send-sheet" headerAction={headerUpload}>
         <div className="space-y-5" data-attr="lease-send-body">
           {showPicker ? (
             <FieldSingleSelect

@@ -17,7 +17,7 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Share2, Upload } from "lucide-react";
+import { Share2 } from "lucide-react";
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
@@ -521,13 +521,7 @@ export function ManagerProperties({
                   data-attr="manager-properties-share-open"
                   onClick={() => openShareListing()}
                 />
-                {/* Import sits with the utilities; the round + stays right-most. */}
-                <PortalIconAction
-                  icon={Upload}
-                  label="Import your portfolio"
-                  data-attr="manager-properties-add-import"
-                  onClick={() => router.push("/portal/properties/import")}
-                />
+                {/* No Import icon: a portfolio import is a door in the New property pop-up's Upload menu. */}
               </>
             }
             primary={
