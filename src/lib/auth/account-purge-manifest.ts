@@ -247,6 +247,19 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Per-listing, per-channel posting state (listing sites). Also the post queue.
+    table: "listing_channel_posts",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    // The workspace's encrypted Meta page token. Deleted with the login so a re-registered email
+    // never inherits a Facebook connection.
+    table: "listing_channel_connections",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "cosigner_submission_records",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
