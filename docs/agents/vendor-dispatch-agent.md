@@ -93,3 +93,14 @@ vendor i18n (M8) — see `/Users/akhilvemuri/.claude/plans/i-want-to-work-sorted
 Work-number inbound resolution additionally scopes sessions by `landlord_id` from
 the destination number. SMS turns reserve AI credit before running; completion
 metadata and a stable outbox dedupe key make delivery retries safe.
+
+**The manager's conversation wins over the assistant (Oct 6).** When the manager
+texted this vendor within the last 7 days (a manual send - `sms_outbox.dedupe_key`
+starts `manager:`; the assistant's own texts never count), an inbound text from the
+vendor lands in the manager's thread, records the reply-unlocking consent and gets
+**no assistant reply**. After 7 days of manager silence the assistant answers as
+above. The decision is `handleVendorSessionInbound`
+(`src/lib/sms/vendor-inbound-session.server.ts`, `tests/unit/vendor-texting-inbound.test.ts`).
+Vendors no longer have a number of their own, so "unknown numbers silently dropped"
+above now means: not on the owner's Vendors list, not a linked account's verified
+phone, and not texted by the owner in the last 90 days.

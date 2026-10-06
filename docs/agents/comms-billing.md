@@ -337,3 +337,9 @@ covered by a dedicated Postgres integration suite the way the legacy wallet is
 — that is the natural next addition once the flag is closer to shipping; until
 then, verify a schema or function change with a rolled-back transaction against
 a real database, the same way this migration itself was checked before landing.
+
+**Vendor texting (Oct 6) is billed like every other manager text.** A manager's text
+to a roster vendor reserves workspace credit per segment on the workspace that owns
+the line it leaves on, and a vendor's reply is metered as inbound; no credit means the
+send is refused with the ordinary message and nothing leaves. The sender line and STOP
+footer on a first text count toward its segments. Vendors have no wallet and no number.
