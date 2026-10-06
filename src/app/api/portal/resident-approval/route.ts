@@ -252,7 +252,7 @@ export async function PATCH(req: Request) {
       // lookup resolved (by id, else the owner's own row by email), never on a body claim; no resolvable
       // application falls back to the applicant's own sent forms, and a failed read blocks (fail closed).
       if (lookup.stored?.bucket !== "approved") {
-        const ids = [...idVariants(applicationId), ...(lookup.storedId ? idVariants(lookup.storedId) : [])];
+        const ids = lookup.storedId ? [...idVariants(applicationId), ...idVariants(lookup.storedId)] : [];
         const blocking = ids.length > 0 ? await loadApplicationBlockingForms(svc, ids) : await loadResidentBlockingForms(svc, { email });
         // A read that failed refuses too, but as a retryable 503 that names no form: there may be none.
         if (blocking.readFailed) {

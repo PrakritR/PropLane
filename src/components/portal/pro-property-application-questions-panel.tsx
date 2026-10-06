@@ -752,7 +752,18 @@ export function ManagerPropertyApplicationQuestionsPanel({
         ) : null
       }
     />
-  ) : null;
+  ) : (
+    // Embedded in a pop-up (Settings › Applications › Form): no tabs, no search, no filter — but the
+    // blue + in the header is the one create action, so the pane keeps a band that carries just it.
+    <PropertyFormAutomationCommandBar
+      pane="form"
+      onPaneChange={() => {}}
+      panes={[{ id: "form", label: "Form" }]}
+      onAdd={openAdd}
+      addLabel="Add application"
+      addDataAttr="property-application-add"
+    />
+  );
 
   const previewTemplate = previewTemplateId ? templates.find((t) => t.id === previewTemplateId) ?? null : null;
 

@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { InboxScheduledCard, InboxScheduledThreadList } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import { sendAutomationScheduledMessageNow, sendManualScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
+import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { automationChannelDefaultsFromSettings, scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
@@ -33,7 +34,9 @@ export function useThreadScheduledCards({
 }): { scheduledCards: ReactNode; reloadScheduled: () => void } {
   const [manual, setManual] = useState<ScheduledInboxMessageRecord[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const { messages: automation, settings, reload: reloadAutomation } = useScheduledPaymentMessages({ includeHidden: false });
+  const [failure, setFailure] = useState<string | null>(null);
+  const showToast = useOptionalAppUi()?.showToast;
+  const { messages: automation, settings, reload: reloadAutomation } = useScheduledPaymentMessages({ includeHidden: false, enabled });
 
   const reloadManual = useCallback(async () => {
     try {
@@ -60,9 +63,24 @@ export function useThreadScheduledCards({
     [automation, enabled, manual, recipientEmail, settings],
   );
 
+  /**
+   * Cancel and Send now are fire-and-forget from the card, so a rejection has nowhere to land on its
+   * own: without this the card simply re-enabled and the send stayed scheduled. The message is both
+   * toasted and kept above the list, so it survives the toast.
+   */
+  const report = useCallback(
+    (error: unknown, fallback: string) => {
+      const message = error instanceof Error && error.message.trim() ? error.message : fallback;
+      setFailure(message);
+      showToast?.(message);
+    },
+    [showToast],
+  );
+
   const cancel = useCallback(
     async (item: ScheduledRef) => {
       setBusyId(item.id);
+      setFailure(null);
       try {
         if (item.source === "manual") {
           const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
@@ -86,6 +104,7 @@ export function useThreadScheduledCards({
   const sendNow = useCallback(
     async (item: ScheduledRef) => {
       setBusyId(item.id);
+      setFailure(null);
       try {
         if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
         else await sendAutomationScheduledMessageNow(item.id);
@@ -133,8 +152,18 @@ export function useThreadScheduledCards({
     [reloadScheduled],
   );
 
+  // The bar reads its children's props as scheduled rows, so the refusal sits above it, never inside.
+  const failureNote = failure ? (
+    <p role="alert" className="mx-1 mb-2 rounded-xl border border-border p-3 text-sm" data-attr="thread-scheduled-error">
+      {failure}
+    </p>
+  ) : null;
+
   const scheduledCards =
-    items.length > 0 ? (
+    items.length > 0 || failureNote ? (
+      <>
+      {failureNote}
+      {items.length > 0 ? (
       <InboxScheduledThreadList placement="bar" count={items.length} nextSendLabel={items[0]?.sendLabel}>
         {items.map((item) => (
           <InboxScheduledCard
@@ -156,15 +185,21 @@ export function useThreadScheduledCards({
             recipient={recipientEmail}
             sendAt={item.sendAt}
             onCancel={() => {
-              if (item.deliveryStatus !== "sending") void cancel(item);
+              if (item.deliveryStatus !== "sending") {
+                void cancel(item).catch((error) => report(error, "Could not cancel send."));
+              }
             }}
             onSendNow={() => {
-              if (item.deliveryStatus !== "sending") void sendNow(item);
+              if (item.deliveryStatus !== "sending") {
+                void sendNow(item).catch((error) => report(error, "Could not send that message."));
+              }
             }}
             onSaveEdit={item.editable ? (next) => saveEdit(item, next) : undefined}
           />
         ))}
       </InboxScheduledThreadList>
+      ) : null}
+      </>
     ) : null;
 
   return { scheduledCards, reloadScheduled };

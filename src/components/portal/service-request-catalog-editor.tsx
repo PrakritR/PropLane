@@ -8,6 +8,8 @@ import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { ServiceRequestCatalogSuggestions } from "@/components/portal/service-request-catalog-suggestions";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -164,6 +166,19 @@ export function ServiceRequestCatalogEditor({
 
   return (
     <>
+      {/* The editor only ever renders inside a pop-up, which has no command bar of its own, so it
+          carries its own band: the blue + is the one create action for a custom service type. */}
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        primary={
+          <PortalPrimaryIconAction
+            label="Add service type"
+            data-attr="service-request-add-custom"
+            onClick={openAddCustom}
+          />
+        }
+      />
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={onBulkActionsChange ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!onBulkActionsChange && selectedOfferId ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">

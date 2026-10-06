@@ -1546,8 +1546,11 @@ export function ReminderSettingsModal({
   );
 }
 
-export function useScheduledPaymentMessages(opts?: { includeHidden?: boolean }) {
+export function useScheduledPaymentMessages(opts?: { includeHidden?: boolean; enabled?: boolean }) {
   const applyVisibilityFilter = !(opts?.includeHidden ?? false);
+  // A surface that never reads these (a resident or vendor record pane) must not issue the
+  // manager-only request at all — AGENTS.md § Performance & egress.
+  const enabled = opts?.enabled ?? true;
   const query = "?includeHidden=1";
   const [settings, setSettings] = useState<ManagerAutomationSettings | null>(null);
   const [rawMessages, setRawMessages] = useState<ScheduledPaymentMessage[]>([]);
@@ -1556,6 +1559,10 @@ export function useScheduledPaymentMessages(opts?: { includeHidden?: boolean }) 
   const [settingsRevision, setSettingsRevision] = useState(0);
 
   const reload = useCallback(async () => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     if (isDemoModeActive()) {
       const settings = DEFAULT_MANAGER_AUTOMATION_SETTINGS;
       const charges = readHouseholdCharges().filter((c) => c.status !== "paid");
@@ -1580,7 +1587,7 @@ export function useScheduledPaymentMessages(opts?: { includeHidden?: boolean }) 
     } finally {
       setLoading(false);
     }
-  }, [query]);
+  }, [enabled, query]);
 
   useEffect(() => {
     const onChargesChanged = () => setChargeRevision((n) => n + 1);

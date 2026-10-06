@@ -103,7 +103,7 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
   return (
     <div
       data-attr={dataAttr}
-      data-state="blank"
+      data-state={fileName ? "filled" : "blank"}
       onDragOver={(event) => { event.preventDefault(); if (!off) setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(event) => {

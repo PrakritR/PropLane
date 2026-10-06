@@ -12,9 +12,7 @@ its own shell.
    a record's sections, because the action you want changes with them.
 2. Desktop keeps the left section card: the kind's own sections first, then
    the shared trio (Communication · Documents · Activity). The trio's group is
-   unlabeled by default — it reads as universal record chrome, not a category —
-   unless the kind names it with `trioLabel` (the resident rail closes with
-   **Records**).
+   always unlabeled — it reads as universal record chrome, not a category.
 3. Overview = four `StatTile`s · a `RecordNeedsYou` list (hidden when empty) ·
    `RecordFactCard`s in two columns, each with a "Section →" link. A fact is a
    label/value row (`RecordFactRow`). Status is a value, never a pill. A card

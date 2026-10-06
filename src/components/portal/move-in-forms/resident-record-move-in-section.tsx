@@ -14,7 +14,7 @@
  * Only facts that exist are shown; there is no "Opened" row because nothing records it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
@@ -129,6 +129,9 @@ export function ResidentRecordMoveInSection({
   placement?: { propertyLabel?: string; roomLabel?: string; moveInDate?: string; moveOutDate?: string };
 }) {
   const [localTab, setLocalTab] = useState<ResidentMoveInTabId>("placement");
+  // The Inspections sub-tab's blue + is the manager's one way to start an inspection: the embedded
+  // `InspectionsPanel` owns the create flow, and bumping this counter is how the band asks for one.
+  const [addInspectionRequest, setAddInspectionRequest] = useState(0);
   const activeTab = subTab ?? localTab;
   const changeTab = onSubTabChange ?? setLocalTab;
   const navigate = usePortalNavigate();
@@ -226,8 +229,14 @@ export function ResidentRecordMoveInSection({
   return (
     <div className="min-w-0" data-attr="resident-record-move-in" data-move-in-tab={activeTab}>
       <ManagerResidentSectionToolbar
-        actions={[]}
-        onAction={() => {}}
+        actions={
+          activeTab === "inspections"
+            ? [{ id: "add-inspection", label: "Add inspection", icon: Plus, tone: "primary" as const }]
+            : []
+        }
+        onAction={(actionId) => {
+          if (actionId === "add-inspection") setAddInspectionRequest((n) => n + 1);
+        }}
         overflowMenu={headerExtras}
         destinationRow={
           <LocalDestinationNav
@@ -299,6 +308,7 @@ export function ResidentRecordMoveInSection({
           role="manager"
           applicationId={applicationId}
           embeddedInResident
+          embeddedAddRequest={addInspectionRequest}
           embeddedToolbar={(nav) => (
             <div className="mb-2 rounded-xl border border-border bg-card px-1 shadow-sm" data-attr="resident-move-in-inspections-tabs">
               {nav}

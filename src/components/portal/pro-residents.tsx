@@ -575,9 +575,6 @@ export function ManagerResidents({
   const [hcTick, setHcTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [leaseTick, setLeaseTick] = useState(0);
-  // Move-in → Forms owns the "Add inspection" control; the embedded InspectionsPanel owns the
-  // create flow. Bumping this counter is how the band asks it for one.
-  const [addInspectionRequest, setAddInspectionRequest] = useState(0);
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [srTick, setSrTick] = useState(0);
   const [inboxTick, setInboxTick] = useState(0);
