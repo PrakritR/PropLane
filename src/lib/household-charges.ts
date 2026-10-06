@@ -720,26 +720,30 @@ function currentRentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
+/**
+ * Strip leading/trailing `_` with a scan instead of `/^_+|_+$/`: the anchored
+ * `_+$` alternative backtracks quadratically on a long run of underscores.
+ */
+function trimUnderscores(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === "_") start += 1;
+  while (end > start && value[end - 1] === "_") end -= 1;
+  return value.slice(start, end);
+}
+
 function chargeKeyPart(raw: string): string {
   const trimmed = raw.trim();
   const upper = trimmed.toUpperCase();
   if (upper.startsWith("AXIS-")) {
-    const suffix = upper
-      .slice(5)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
+    const suffix = trimUnderscores(upper.slice(5).toLowerCase().replace(/[^a-z0-9]+/g, "_"));
     return suffix ? `pl_${suffix}` : "unknown";
   }
   if (upper.startsWith("PROPLANE-")) {
-    const suffix = upper
-      .slice(9)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
+    const suffix = trimUnderscores(upper.slice(9).toLowerCase().replace(/[^a-z0-9]+/g, "_"));
     return suffix ? `pl_${suffix}` : "unknown";
   }
-  const cleaned = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const cleaned = trimUnderscores(trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_"));
   return cleaned || "unknown";
 }
 
@@ -761,7 +765,7 @@ function approvedChargeIdAliases(applicationId: string, kind: HouseholdChargeKin
   const trimmed = applicationId.trim();
   const upper = trimmed.toUpperCase();
   if (upper.startsWith("PROPLANE-") || upper.startsWith("AXIS-")) {
-    const legacySlug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const legacySlug = trimUnderscores(trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_"));
     variants.add(`hc_app_${legacySlug}_${kind}`);
   }
   return [...variants];
