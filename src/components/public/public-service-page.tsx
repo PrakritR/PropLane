@@ -12,6 +12,9 @@ import {
   type VendorJobChoiceId,
 } from "@/lib/vendor-job-choice";
 
+/** Bid now leads, as in the Find work row's menu. */
+const PUBLIC_CHOICE_ORDER: readonly VendorJobChoiceId[] = ["bid", "estimate", "message"];
+
 /** The cookie carries the link through sign-up / sign-in (email or Google); the vendor portal redeems it. */
 function rememberPendingLink(token: string, choice: VendorJobChoiceId) {
   try {
@@ -123,7 +126,7 @@ export function PublicServicePage() {
             </p>
           ) : (
             <div className="flex flex-wrap gap-2" data-attr="public-service-actions">
-              {VENDOR_JOB_CHOICES.map((option) => (
+              {PUBLIC_CHOICE_ORDER.map((id) => VENDOR_JOB_CHOICES.find((c) => c.id === id)!).map((option) => (
                 <Button
                   key={option.id}
                   type="button"
