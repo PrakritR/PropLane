@@ -4,6 +4,8 @@ export type ManagerComposePrefill = {
   subject: string;
   body: string;
   recipientEmail?: string;
+  /** Open to this roster vendor (manager_vendor_records id), by text. */
+  vendorRecordId?: string;
 };
 
 const STORAGE_KEY = "manager-compose-prefill-v1";
@@ -24,6 +26,8 @@ export function consumeManagerComposePrefill(): ManagerComposePrefill | null {
     if (!raw) return null;
     sessionStorage.removeItem(STORAGE_KEY);
     const parsed = JSON.parse(raw) as ManagerComposePrefill;
+    // A vendor "Text" stages a recipient only; every other prefill carries a drafted message.
+    if (parsed?.vendorRecordId?.trim()) return { subject: "", body: "", vendorRecordId: parsed.vendorRecordId.trim() };
     if (!parsed?.subject?.trim() || !parsed?.body?.trim()) return null;
     return parsed;
   } catch {

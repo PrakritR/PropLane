@@ -103,13 +103,15 @@ or lease"), not a header icon of its own.
 
 **A tab header shows only what applies to its open sub-tab, and there is no ⋯ in it (2026-10-06).** An action
 that does not apply is absent, never disabled. Application: Incomplete = Remind · Edit · Send application;
-Pending = Reject · Edit · Download · Approve; Approved = Download · Send lease; Rejected = Download. Lease:
+Pending = Reject · Edit · Download · Approve; Approved = Download · Send lease; Rejected = Download · Move to
+pending · Delete application (a rejection can be taken back, and the delete confirms first). Lease:
 Draft = Edit · Send lease; Resident signature = Remind; Manager signature = Sign; Signed = Download. Payments:
 Pending / Overdue = Remind · +; Paid = Download. Background check = Run check / Run new check. Tours: the + on
 Scheduled and Upcoming, nothing on Past, and the Settings gear (the one way into tour rules). Forms: the + on Pending only. "Upload completed application" is the
 "Start from a file" card inside the Send application pop-up (`ShareLeadLinkModal`'s
 `onUploadCompletedApplication`), not a menu item. The sets live in `residentSectionHeaderActions`
-(`pro-residents.tsx`).
+(`src/lib/resident-record-section-actions.ts`, pure; `pro-residents.tsx` only handles the ids it
+returns). Guard: `tests/unit/resident-record-section-actions.test.ts`.
 
 A tab's own actions are icons in its section header card: `ManagerResidentSectionToolbar` carries
 **no section name** (the rail already says which section is open) — only the tabs as

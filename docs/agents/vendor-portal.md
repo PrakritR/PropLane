@@ -446,3 +446,22 @@ vendor's own quiet hours (default 8pm–7am; an emergency texts through only if 
 text me anytime" on), and the in-app message is never gated by any of it. Vendor texts go through
 `enqueueOwnerSms` with `purpose: "vendor_conversation"` (the same ledger as the vendor assistant),
 not the resident path that used to refuse them with `managed_sender_scope_required`.
+
+
+## Vendors text through the manager's number (Oct 6)
+
+A vendor has **no PropLane number** (the work-number claim, candidate search and
+Communication card are retired; the sponsored work email stays). Managers text the
+vendor's own saved phone from their workspace work number (`sms-system.md` § Vendor
+texting). What the vendor does:
+
+- **Verify the phone** with a 6-digit code (the user-generic `/api/manager/phone`,
+  shown by `PortalTextNotificationsBlock`): Settings > Messaging, the onboarding
+  page, and the portal-wide notice (`VendorMessagingSetupBanner`, cleared by
+  `profiles.phone_verified_at`, never by a typed phone).
+- Verifying links the history: every conversation a manager had with that number
+  appears in their Communication, one per manager workspace, earlier texts included
+  (`communication-inbox.md` § A vendor's texts are in their conversation). A number a
+  second account also verified links to neither.
+- They answer by text to that manager's work number or in the app; the manager sees
+  one conversation either way. STOP stops every text from that manager's workspace.

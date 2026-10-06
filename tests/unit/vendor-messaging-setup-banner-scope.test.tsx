@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 //
-// VD06/VD07 (studio VD60/VD61): the shared vendor "Phone number not set up"
-// banner shows on EVERY vendor page, not just Communication/Settings, and it
-// tracks the real, free, PropLane-provisioned work number
-// (/api/vendor/work-identity) rather than the vendor's own free-text
-// profiles.phone — claiming a number is what clears it everywhere.
+// The shared vendor notice shows on EVERY vendor page, not just
+// Communication/Settings. Vendors never own a PropLane number (retired Oct 6),
+// so it asks them to VERIFY THEIR PHONE: managers text the vendor's own phone
+// from their work number, and those conversations (earlier ones included) link
+// once the phone is verified with a code. It tracks `profiles.phone_verified_at`
+// (/api/manager/phone), never a typed phone.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, waitFor } from "@testing-library/react";
 
@@ -15,17 +16,16 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 
 import { VendorMessagingSetupBanner } from "@/components/portal/vendor-messaging-setup-banner";
 
-function mockWorkIdentityFetch(smsValue: string | null) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ identity: { sms: { value: smsValue }, email: { value: null } } }),
-    })),
-  );
+function mockPhoneFetch(phoneVerifiedAt: string | null) {
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ phone: "+14255550199", phoneVerifiedAt }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
-describe("VendorMessagingSetupBanner — every tab, real work-identity state", () => {
+describe("VendorMessagingSetupBanner - every tab, real phone-verification state", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -36,46 +36,43 @@ describe("VendorMessagingSetupBanner — every tab, real work-identity state", (
     }
   });
 
-  it("shows when no sponsored work number has been claimed yet", async () => {
-    mockWorkIdentityFetch(null);
+  it("shows while the vendor's phone is not verified", async () => {
+    mockPhoneFetch(null);
     render(<VendorMessagingSetupBanner />);
     await waitFor(() => {
       expect(document.querySelector('[data-attr="vendor-messaging-setup-banner"]')).toBeTruthy();
     });
+    expect(document.body.textContent).toContain("Verify your phone");
   });
 
-  it("disappears once the sponsored work number is claimed, even if a free-text profile phone was never set", async () => {
-    mockWorkIdentityFetch("+12065550142");
+  it("disappears once the phone is verified, even if a free-text business phone was never set", async () => {
+    mockPhoneFetch("2026-10-06T10:00:00Z");
     render(<VendorMessagingSetupBanner />);
     await waitFor(() => {
       expect(document.querySelector('[data-attr="vendor-messaging-setup-banner"]')).toBeNull();
     });
   });
 
-  it("links Set up messaging directly to the merged Work number & email tab", async () => {
-    mockWorkIdentityFetch(null);
+  it("reads the verification the same route the Settings block verifies through", async () => {
+    const fetchMock = mockPhoneFetch(null);
+    render(<VendorMessagingSetupBanner />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect((fetchMock.mock.calls as unknown as [string][])[0]![0]).toBe("/api/manager/phone");
+  });
+
+  it("links Verify phone directly to Settings > Messaging", async () => {
+    mockPhoneFetch(null);
     render(<VendorMessagingSetupBanner />);
     await waitFor(() => {
       const link = document.querySelector('[data-attr="vendor-messaging-setup-banner-link"]') as HTMLAnchorElement | null;
-      expect(link?.getAttribute("href")).toBe("/vendor/profile?tab=work");
+      expect(link?.getAttribute("href")).toBe("/vendor/profile?tab=messaging");
     });
   });
 
-  it("stays dismissed after the dismiss button is clicked, independent of route", async () => {
-    mockWorkIdentityFetch(null);
-    const { unmount } = render(<VendorMessagingSetupBanner />);
-    await waitFor(() => {
-      expect(document.querySelector('[data-attr="vendor-messaging-setup-banner"]')).toBeTruthy();
-    });
-    const dismiss = document.querySelector('[data-attr="vendor-messaging-setup-banner-dismiss"]') as HTMLButtonElement;
-    dismiss.click();
-    await waitFor(() => {
-      expect(document.querySelector('[data-attr="vendor-messaging-setup-banner"]')).toBeNull();
-    });
-    unmount();
-    render(<VendorMessagingSetupBanner />);
-    await waitFor(() => {
-      expect(document.querySelector('[data-attr="vendor-messaging-setup-banner"]')).toBeNull();
-    });
+  it("stays dismissed once dismissed", async () => {
+    mockPhoneFetch(null);
+    const { findByLabelText, container } = render(<VendorMessagingSetupBanner />);
+    (await findByLabelText("Dismiss")).click();
+    await waitFor(() => expect(container.querySelector('[data-attr="vendor-messaging-setup-banner"]')).toBeNull());
   });
 });

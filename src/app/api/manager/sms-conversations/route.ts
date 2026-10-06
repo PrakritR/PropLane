@@ -201,6 +201,10 @@ export async function POST(req: Request) {
     projectionId?: string | null;
     /** "This is a vendor": add a number nobody has on the list to Vendors with this text. */
     isVendor?: boolean;
+    /** A roster vendor (Vendors list / vendor record): its saved phone is the destination. */
+    vendorRecordId?: string | null;
+    /** "I work with this vendor": the manager's attestation, needed only on the first text to a vendor with no consent yet. */
+    attestVendorRelationship?: boolean;
   };
   let selectedConversation: ManagerSmsResidentConversation | undefined;
   if (body.projectionId) {
@@ -220,6 +224,8 @@ export async function POST(req: Request) {
     residentUserId: body.residentUserId,
     conversationKey: body.conversationKey,
     selectedConversation,
+    vendorRecordId: typeof body.vendorRecordId === "string" ? body.vendorRecordId : null,
+    attestVendorRelationship: body.attestVendorRelationship === true,
     idempotencyKey: req.headers.get("idempotency-key") ?? undefined,
   });
   if (result.status < 200 || result.status >= 300) {

@@ -130,7 +130,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoreHorizontal } from "lucide-react";
-import { escapeCsv } from "@/lib/csv";
+import { downloadCsv, toSafeCsv } from "@/lib/csv";
 import { residentSectionHeaderActions as residentSectionActionsFor } from "@/lib/resident-record-section-actions";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
@@ -3092,16 +3092,6 @@ export function ManagerResidents({
       case "upload-for-resident":
         setUploadForResidentOpen(true);
         return;
-      case "share":
-        void navigator.clipboard?.writeText(window.location.href);
-        showToast("Link copied");
-        return;
-      case "archive":
-        showToast("Archive is not available for this resident yet.");
-        return;
-      case "setup":
-        openResidentEmailSetup(selected);
-        return;
       case "add-charge":
         setAddResidentPaymentOpen(true);
         return;
@@ -3128,22 +3118,28 @@ export function ManagerResidents({
           void declineApplicationRow(selectedApplicationRow);
         }
         return;
+      case "move-pending":
+        if (selectedApplicationRow?.bucket === "rejected") void setApplicationBucket(selectedApplicationRow.id, "pending");
+        return;
+      case "delete-application":
+        if (selectedApplicationRow?.bucket === "rejected") void deleteApplicationForRow(selectedApplicationRow);
+        return;
       case "download":
         if (resolvedDetailTab === "application" && selectedApplicationRow) {
           runApplicationPdfDownload(selectedApplicationRow, showToast);
         } else if (resolvedDetailTab === "lease" && residentLease) {
           runLeaseDownload(residentLease, showToast);
         } else if (resolvedDetailTab === "payments") {
-          // The paid list as a spreadsheet, the same columns the one-payment download writes.
+          // The paid list as a spreadsheet, the same columns and the same writer the one-payment
+          // download uses (`src/lib/csv.ts`).
           const paid = residentLedgerRows.filter((r) => r.bucket === "paid");
-          const lines = [["Resident", "Charge", "Amount", "Status", "Due date"], ...paid.map((r) => [r.residentName, r.chargeTitle, r.lineAmount, r.statusLabel, r.dueDate])];
-          const csv = lines.map((line) => line.map((v) => escapeCsv(/^[\s]*[=+@-]/.test(v) ? `'${v}` : v)).join(",")).join("\n");
-          const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-          const anchor = document.createElement("a");
-          anchor.href = url;
-          anchor.download = "paid-payments.csv";
-          anchor.click();
-          URL.revokeObjectURL(url);
+          downloadCsv(
+            "paid-payments.csv",
+            toSafeCsv([
+              ["Resident", "Charge", "Amount", "Status", "Due date"],
+              ...paid.map((r) => [r.residentName, r.chargeTitle, r.lineAmount, r.statusLabel, r.dueDate]),
+            ]),
+          );
         } else {
           showToast("Download will be available from the document preview.");
         }

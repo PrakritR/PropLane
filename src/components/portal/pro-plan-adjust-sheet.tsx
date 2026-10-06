@@ -123,7 +123,7 @@ export function PlanAdjustSheet({
     selected != null ? planAdjustTransitionFact(currentTier, currentBilling, selected, billing, renewalLabel, trialActivation) : null;
 
   return (
-    <Modal open={open} title="Change plan" onClose={close}>
+    <Modal open={open} title="Change plan" onClose={close} footer={<ModalFooter><Button disabled={busy || !planAdjustCanConfirm(currentTier, currentBilling, selected, billing, trialActivation)} onClick={() => selected ? onConfirm(selected, billing) : undefined} data-attr="plan-adjust-confirm">{busy ? "Processing…" : trialActivation && selected !== "free" ? `Start paid ${tierLabel(selected ?? currentTier)}` : selected === currentTier ? "Change billing period" : `Switch to ${selected ? tierLabel(selected) : "a plan"}`}</Button></ModalFooter>}>
       <div className="space-y-3" role="radiogroup" aria-label="Plan">
         <div className="flex rounded-lg bg-accent/40 p-1" role="group" aria-label="Billing period">
           {(["monthly", "annual"] as const).map((interval) => <button key={interval} type="button" aria-pressed={billing === interval} onClick={() => setBilling(interval)} className={`flex-1 rounded-md py-2 text-sm ${billing === interval ? "bg-card shadow-sm" : "text-muted"}`}>
@@ -151,7 +151,6 @@ export function PlanAdjustSheet({
         </tbody></table>
       </details>
       {fact ? <p className="text-sm text-muted" data-attr="plan-adjust-fact">{fact}</p> : null}
-      <ModalFooter><Button disabled={busy || !planAdjustCanConfirm(currentTier, currentBilling, selected, billing, trialActivation)} onClick={() => selected ? onConfirm(selected, billing) : undefined} data-attr="plan-adjust-confirm">{busy ? "Processing…" : trialActivation && selected !== "free" ? `Start paid ${tierLabel(selected ?? currentTier)}` : selected === currentTier ? "Change billing period" : `Switch to ${selected ? tierLabel(selected) : "a plan"}`}</Button></ModalFooter>
     </Modal>
   );
 }

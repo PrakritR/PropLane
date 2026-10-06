@@ -94,12 +94,14 @@ export function activeWorkspacePropertyIds(): string[] | null {
 /**
  * `activeWorkspacePropertyIds()` minus drafts — the houses Bookings lists. A
  * draft has no rooms to book and no name yet; scoping keeps using the full list.
+ * "Non-draft" is not "live": a pending or unlisted house is bookable and is here,
+ * while `livePropertyCount` counts only the houses whose status is live.
  */
-export function activeWorkspaceLivePropertyIds(): string[] | null {
+export function activeWorkspaceNonDraftPropertyIds(): string[] | null {
   const active = activeWorkspace();
   if (!active) return null;
-  const live = active.livePropertyIds ? new Set(active.livePropertyIds.map((id) => id.trim())) : null;
-  return active.propertyIds.map((id) => id.trim()).filter((id) => id && (!live || live.has(id)));
+  const bookable = active.nonDraftPropertyIds ? new Set(active.nonDraftPropertyIds.map((id) => id.trim())) : null;
+  return active.propertyIds.map((id) => id.trim()).filter((id) => id && (!bookable || bookable.has(id)));
 }
 
 export type WorkspacePropertySource = {

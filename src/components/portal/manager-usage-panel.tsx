@@ -658,11 +658,6 @@ export function ManagerExtraUsagePanel({
             {error}
           </p>
         ) : null}
-        {clientSecret ? (
-          <Button variant="outline" className="mt-4" onClick={closeBuy}>
-            Done · check balance
-          </Button>
-        ) : null}
       </Modal>
     </PortalSettingsSection>
   );

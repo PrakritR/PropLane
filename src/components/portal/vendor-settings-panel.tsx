@@ -21,7 +21,6 @@ import {
   VendorBusinessProfilePane,
   VendorNotificationsPane,
   VendorWorkIdentitySection,
-  VendorWorkNumberStatusNote,
   worstSaveState,
 } from "@/components/portal/vendor-business-settings";
 import { cn } from "@/lib/utils";
@@ -367,8 +366,8 @@ export function VendorSettingsPanel() {
       },
       {
         id: "work",
-        label: "Work number & email",
-        description: "Your business phone/email, plus a free PropLane-provided work number and email.",
+        label: "Work contact & email",
+        description: "Your business phone and email, plus a free PropLane-provided work email.",
         icon: Phone,
         group: "Business",
       },
@@ -673,8 +672,7 @@ export function VendorSettingsPanel() {
       case "messaging":
         return (
           <>
-            <VendorWorkNumberStatusNote />
-            <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} />
+            <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} title="Verify your phone" />
           </>
         );
       case "preferences":

@@ -22,6 +22,8 @@ vi.mock("@/lib/portal-inbox-thread-scope", () => ({
   ADMIN_INBOX_SCOPE: "axis_portal_inbox_admin_v1",
   MANAGER_INBOX_SCOPE: "axis_portal_inbox_manager_v1",
   RESIDENT_INBOX_SCOPE: "axis_portal_inbox_resident_v1",
+  VENDOR_INBOX_SCOPE: "axis_portal_inbox_vendor_v1",
+  callerMayWriteInboxScope: async () => true,
   resolveInboxScopeUser: async () => ({ user: { id: "viewer-1", role: "manager" }, db }),
   applyPortalInboxThreadScope: (query: unknown) => query,
 }));

@@ -11,6 +11,14 @@ export type InboxScopedContact = {
   name: string;
   email: string;
   role: InboxContactRole;
+  /** A vendor's saved phone (their roster row); the number a Text goes to. Vendor role only. */
+  phone?: string;
+  /**
+   * A roster vendor with a phone but no email: reachable by Text only. It never
+   * receives an email or in-app message and is never offered by the server's
+   * eligible-contacts list (which keeps its own in-app rule).
+   */
+  textOnly?: boolean;
   /** Resident listing label for grouped compose / schedule pickers. */
   propertyLabel?: string;
   propertyId?: string;

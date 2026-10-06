@@ -84,6 +84,16 @@ label is `portalMessageConfirmSendLabel` (Send email / Send SMS / Send
 message / Schedule). SMS stays gated on a live work number. Email is a
 **channel on this page**, not an invite-method tab.
 
+**New message can text a roster vendor (Oct 6).** A vendor is picked under Vendor and
+texts the vendor row's OWN saved phone (a phone with no email is enough:
+`textOnlyVendors` contacts, New message only). The "I work with this vendor" box is
+shown only when `GET /api/manager/vendor-text-consent` says the first text still needs
+it, with the exact "Sent as" line; the Send is refused without it, an opted-out vendor
+is refused before the request, and a vendor text never schedules. The Vendors row menu
+and the vendor record header open this modal on that vendor by text (a staged
+`vendorRecordId` prefill). Hidden with the rest of the SMS compose when
+`SMS_COMM_UI_ENABLED` is off.
+
 ## Tests
 
 A new send surface fails if it does not import the shared compose fields, or

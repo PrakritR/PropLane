@@ -56,7 +56,8 @@ describe("vendor portal matches manager chrome", () => {
     expect(comm).toContain("PortalPrimaryIconAction");
     expect(comm).toContain("VendorWorkNumberCard");
     const cards = read("src/components/portal/vendor-work-number-card.tsx");
-    expect(cards).toContain("Set up work number");
+    // The PropLane work NUMBER card is retired (vendors never own a number); the email card stays.
+    expect(cards).not.toContain("Set up work number");
     expect(cards).toContain("Set up work email");
   });
 

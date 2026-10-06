@@ -169,7 +169,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     const livePropertyCount = properties.filter(
       (p) => p.workspace_id === w.id && (p as { status?: string }).status === "live",
     ).length;
-    const livePropertyIds = [
+    const nonDraftPropertyIds = [
       ...new Set(
         properties
           .filter((p) => p.workspace_id === w.id && (p as { status?: string }).status !== "draft")
@@ -239,7 +239,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       ownerName: ownedHere ? undefined : ownerNames.get(w.owner_user_id),
       owned: ownedHere, isDefault: w.is_default,
       propertyIds,
-      livePropertyIds,
+      nonDraftPropertyIds,
       livePropertyCount,
       propertyLabels: Object.fromEntries(
         properties.filter((p) => p.workspace_id === w.id).map((p) => [p.id, labelFor(p as { id: string; row_data?: unknown })]),

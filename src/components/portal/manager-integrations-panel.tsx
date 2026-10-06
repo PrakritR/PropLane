@@ -42,19 +42,25 @@ export function ManagerIntegrationsPanel({
       initialTab ??
       (typeof window === "undefined" ? null : parseIntegrationsTab(new URLSearchParams(window.location.search).get(INTEGRATIONS_TAB_PARAM)));
     if (!target) return;
-    // The section rows load after first paint and grow the page, so the target
-    // is re-aimed a few times until the person scrolls on their own.
-    const go = () => document.querySelector(`[data-attr="settings-integrations-section-${target}"]`)?.scrollIntoView?.({ block: "start" });
+    // The section rows load after first paint and grow the page, so the target is re-aimed a few
+    // times until the person moves the page themselves. Only an intent to move ends it — a wheel or
+    // trackpad gesture, a touch drag, a key, or a tap. A `scroll` listener cannot be one of those:
+    // `html` scrolls smoothly (globals.css), so our own jump keeps emitting scroll events and would
+    // cancel the very re-aiming this exists for.
+    const go = () =>
+      document.querySelector(`[data-attr="settings-integrations-section-${target}"]`)?.scrollIntoView?.({ block: "start" });
     const timers = [0, 400, 1200, 2500].map((ms) => window.setTimeout(go, ms));
     const stop = () => timers.forEach((t) => window.clearTimeout(t));
     window.addEventListener("wheel", stop, { once: true, passive: true });
     window.addEventListener("touchmove", stop, { once: true, passive: true });
     window.addEventListener("keydown", stop, { once: true });
+    window.addEventListener("pointerdown", stop, { once: true, passive: true });
     return () => {
       stop();
       window.removeEventListener("wheel", stop);
       window.removeEventListener("touchmove", stop);
       window.removeEventListener("keydown", stop);
+      window.removeEventListener("pointerdown", stop);
     };
   }, [initialTab]);
 

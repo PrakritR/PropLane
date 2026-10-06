@@ -12,10 +12,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/ui/modal", () => ({
   ModalFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  Modal: ({ open, children, title }: { open: boolean; children: ReactNode; title: string }) =>
+  Modal: ({ open, children, title, footer }: { open: boolean; children: ReactNode; title: string; footer?: ReactNode }) =>
     open ? (
       <div role="dialog" aria-label={title}>
         {children}
+        {footer}
       </div>
     ) : null,
 }));

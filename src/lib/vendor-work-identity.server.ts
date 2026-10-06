@@ -1,11 +1,9 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { withInboundRetryPolicy } from "@/lib/twilio-provisioning";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
-import { isProvisioningEnabled } from "@/lib/sms/number-registration-policy";
 import type {
   VendorWorkIdentityResponse,
   VendorWorkIdentityState,
@@ -50,18 +48,6 @@ export type VendorWorkIdentityProvider = {
     phoneNumber: string;
     phoneSid: string;
   } | null>;
-  /** Read-only search — never purchases. Used to offer a vendor a short pick list by area code. */
-  searchSmsCandidates(input: { areaCode: string; count: number }): Promise<{ phoneNumber: string }[]>;
-  purchaseSms(input: {
-    operationId: string;
-    webhookUrl: string;
-    statusCallbackUrl: string;
-    /** An exact candidate the vendor picked (from `searchSmsCandidates`). Falls back to the first available number when absent. */
-    phoneNumber?: string;
-  }): Promise<{
-    phoneNumber: string;
-    phoneSid: string;
-  }>;
   attachSms(input: { phoneSid: string; messagingServiceSid: string }): Promise<{
     attached: boolean;
     carrierReady: boolean;
@@ -150,41 +136,6 @@ export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
       const rows = await client.incomingPhoneNumbers.list({ friendlyName: `proplane-vendor-${operationId}`, limit: 1 });
       const row = rows[0];
       return row?.sid && row.phoneNumber ? { phoneSid: row.sid, phoneNumber: row.phoneNumber } : null;
-    },
-    async searchSmsCandidates({ areaCode, count }) {
-      const client = createTwilioRestClient();
-      if (!client) throw new Error("SMS provider is not configured");
-      const digits = areaCode.replace(/\D/g, "").slice(0, 3);
-      if (!/^[2-9]\d{2}$/.test(digits)) return [];
-      const available = await client.availablePhoneNumbers("US").local.list({
-        areaCode: Number(digits),
-        smsEnabled: true,
-        limit: Math.max(1, Math.min(count, 10)),
-      });
-      return available.map((n) => ({ phoneNumber: String(n.phoneNumber) })).filter((n) => n.phoneNumber);
-    },
-    async purchaseSms({ operationId, webhookUrl, statusCallbackUrl, phoneNumber }) {
-      const client = createTwilioRestClient();
-      if (!client) throw new Error("SMS provider is not configured");
-      let candidate = phoneNumber;
-      if (!candidate) {
-        const available = await client.availablePhoneNumbers("US").local.list({ smsEnabled: true, limit: 1 });
-        candidate = available[0]?.phoneNumber;
-      }
-      if (!candidate) throw new Error("no SMS-capable number is available");
-      // This call can succeed remotely while a response is lost.  The caller
-      // transitions to reconciling on an ambiguous failure and will never buy a
-      // second number until an operator/provider reconciliation resolves it.
-      const number = await client.incomingPhoneNumbers.create({
-        phoneNumber: candidate,
-        friendlyName: `proplane-vendor-${operationId}`,
-        smsUrl: withInboundRetryPolicy(webhookUrl),
-        statusCallback: statusCallbackUrl,
-      });
-      return {
-        phoneNumber: number.phoneNumber,
-        phoneSid: number.sid,
-      };
     },
     async attachSms({ phoneSid, messagingServiceSid }) {
       const client = createTwilioRestClient();
@@ -285,21 +236,6 @@ export function responseFor(input: { identity: IdentityRow | null; runtime: Runt
   };
 }
 
-/**
- * Read-only "which numbers could I claim in this area code" lookup — no
- * database writes, no idempotency claim, because nothing is purchased. Gated
- * the same way a real purchase would be so a disabled/unconfigured provider
- * never leaks a live Twilio search to an unauthenticated flow.
- */
-export async function searchVendorWorkNumberCandidates(
-  areaCode: string,
-  provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider(),
-): Promise<string[]> {
-  if (!provider.smsConfigured() || !isProvisioningEnabled(process.env)) return [];
-  const candidates = await provider.searchSmsCandidates({ areaCode, count: 3 });
-  return candidates.map((c) => c.phoneNumber);
-}
-
 export async function getVendorWorkIdentity(db: SupabaseClient, vendorUserId: string, provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider()): Promise<VendorWorkIdentityResponse> {
   const [runtime, identity] = await Promise.all([loadRuntime(db), loadIdentity(db, vendorUserId)]);
   let outboundUsed = 0;
@@ -325,106 +261,60 @@ async function setReconcileState(db: SupabaseClient, identityId: string, operati
 }
 
 /**
- * Performs the provider-bound setup transition.  Callers must supply an
+ * Performs the provider-bound EMAIL setup transition.  Callers must supply an
  * idempotency key; a claimed/reconciling operation is observed, never replayed.
+ *
+ * Vendors no longer get a text number (retired Oct 6): texting runs on the
+ * manager's work number and reaches the vendor through their verified phone.
+ * Stored `vendor_work_identities` SMS rows are left untouched (and
+ * `reconcileVendorWorkIdentity` / release still read them); nothing here buys one.
  */
 export async function setupVendorWorkIdentity(
   db: SupabaseClient,
   vendorUserId: string,
   idempotencyKey: string = randomUUID(),
-  channel: "email" | "sms" = "email",
   provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider(),
-  /** An exact number the vendor picked from `searchVendorWorkNumberCandidates`. SMS only. */
-  selectedPhoneNumber?: string,
 ): Promise<VendorWorkIdentityResponse> {
   const runtime = await loadRuntime(db);
-  if (!runtime?.enabled || (channel === "email" ? !provider.emailConfigured() : !provider.smsConfigured())) return getVendorWorkIdentity(db, vendorUserId, provider);
-  // Sponsored numbers are still real provider purchases. The platform-wide
-  // provisioning kill switch governs them just as it governs manager lines.
-  if (channel === "sms" && !isProvisioningEnabled(process.env)) return getVendorWorkIdentity(db, vendorUserId, provider);
-  // Never a second real purchase. `claim_vendor_work_identity_operation`'s
-  // idempotency guard only protects against REPLAYING the same key — a
-  // fresh idempotency key with channel "sms" would otherwise sail straight
-  // through it and buy another number for a vendor who already has one (or
-  // has one mid-flight). Reconciling a stuck/ambiguous purchase is the one
-  // job of reconcileVendorWorkIdentity, which never buys a replacement
-  // either — this function only ever buys from a genuinely fresh identity.
-  if (channel === "sms") {
-    const current = await loadIdentity(db, vendorUserId);
-    if (current && (current.phone_number || current.sms_state !== "not_started")) {
-      return getVendorWorkIdentity(db, vendorUserId, provider);
-    }
-  }
-  const domain = channel === "email" ? configuredDomain() : null;
-  if (channel === "email" && !domain) return getVendorWorkIdentity(db, vendorUserId, provider);
+  if (!runtime?.enabled || !provider.emailConfigured()) return getVendorWorkIdentity(db, vendorUserId, provider);
+  const domain = configuredDomain();
+  if (!domain) return getVendorWorkIdentity(db, vendorUserId, provider);
   const { data: ensured, error: ensureError } = await db.rpc("ensure_vendor_work_identity", {
     p_vendor_user_id: vendorUserId,
-    p_email_address: domain ? generatedEmail(vendorUserId, domain) : null,
+    p_email_address: generatedEmail(vendorUserId, domain),
   });
   if (ensureError) throw new Error(ensureError.message);
   if (typeof ensured !== "string") {
     const current = await getVendorWorkIdentity(db, vendorUserId, provider);
-    const channelCurrent = channel === "email" ? current.email : current.sms;
-    const next = { ...channelCurrent, canSetup: false, blockedReason: runtime.enabled ? "platform_capacity_reached" as const : "provider_disabled" as const };
-    return channel === "email" ? { ...current, email: next } : { ...current, sms: next };
+    const next = { ...current.email, canSetup: false, blockedReason: runtime.enabled ? "platform_capacity_reached" as const : "provider_disabled" as const };
+    return { ...current, email: next };
   }
   const { data: claimedData, error: claimError } = await db.rpc("claim_vendor_work_identity_operation", {
-    p_vendor_user_id: vendorUserId, p_identity_id: ensured, p_operation_kind: channel === "email" ? "setup_email" : "setup_sms", p_idempotency_key: idempotencyKey,
+    p_vendor_user_id: vendorUserId, p_identity_id: ensured, p_operation_kind: "setup_email", p_idempotency_key: idempotencyKey,
   });
   if (claimError) throw new Error(claimError.message);
   const claim = Array.isArray(claimedData) ? claimedData[0] as ClaimRow | undefined : claimedData as ClaimRow | null;
   if (!claim?.claimed) return getVendorWorkIdentity(db, vendorUserId, provider);
 
-  const { error: provisioningError } = await db.from("vendor_work_identities").update(channel === "email" ? { email_state: "provisioning", updated_at: new Date().toISOString() } : { sms_state: "provisioning", attachment_state: "provisioning", updated_at: new Date().toISOString() }).eq("id", ensured);
+  const { error: provisioningError } = await db.from("vendor_work_identities").update({ email_state: "provisioning", updated_at: new Date().toISOString() }).eq("id", ensured);
   if (provisioningError) throw new Error(provisioningError.message);
   const { error: operationCallingError } = await db.from("vendor_work_identity_operations").update({ state: "calling_provider", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
   if (operationCallingError) throw new Error(operationCallingError.message);
   try {
-    if (channel === "email") {
-      const email = await provider.emailDomainReadiness(domain!);
-      if ((!email.sendReady && !email.receiveReady) || !email.domainId) {
-        const { error: emailBlockedError } = await db.from("vendor_work_identities").update({ email_state: "blocked", email_provider_id: email.domainId, email_domain_verified: false, email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, last_error: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", ensured);
-        if (emailBlockedError) throw new Error(emailBlockedError.message);
-        const { error: emailOperationError } = await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
-        if (emailOperationError) throw new Error(emailOperationError.message);
-        return getVendorWorkIdentity(db, vendorUserId, provider);
-      }
-      const { error: emailReadyError } = await db.from("vendor_work_identities").update({ email_state: "ready", email_provider_id: email.domainId, email_domain_verified: true, email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, updated_at: new Date().toISOString() }).eq("id", ensured);
-      if (emailReadyError) throw new Error(emailReadyError.message);
-      const { error: emailOperationReadyError } = await db.from("vendor_work_identity_operations").update({ state: "succeeded", provider_reference: email.domainId, updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
-      if (emailOperationReadyError) throw new Error(emailOperationReadyError.message);
+    const email = await provider.emailDomainReadiness(domain);
+    if ((!email.sendReady && !email.receiveReady) || !email.domainId) {
+      const { error: emailBlockedError } = await db.from("vendor_work_identities").update({ email_state: "blocked", email_provider_id: email.domainId, email_domain_verified: false, email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, last_error: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", ensured);
+      if (emailBlockedError) throw new Error(emailBlockedError.message);
+      const { error: emailOperationError } = await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
+      if (emailOperationError) throw new Error(emailOperationError.message);
       return getVendorWorkIdentity(db, vendorUserId, provider);
     }
-    const webhookUrl = smsWebhookUrl();
-    const callbackUrl = smsStatusCallbackUrl();
-    if (!webhookUrl || !callbackUrl) throw new Error("SMS webhook configuration is unavailable");
-    // Recover an interrupted purchase by its durable friendlyName before any
-    // purchase attempt.  A missing result is the only case allowed to buy.
-    const prior = await provider.findSmsByOperation(claim.operation_id);
-    const purchased = prior ?? await provider.purchaseSms({ operationId: claim.operation_id, webhookUrl, statusCallbackUrl: callbackUrl, phoneNumber: selectedPhoneNumber });
-    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID!.trim();
-    // Persist the externally allocated SID before attempting attachment.  An
-    // attachment timeout can then be inspected/reconciled without another buy.
-    const { error: identityPersistError } = await db.from("vendor_work_identities").update({
-      phone_number: purchased.phoneNumber, phone_number_sid: purchased.phoneSid, messaging_service_sid: messagingServiceSid,
-      sms_state: "reconciling", attachment_state: "reconciling", updated_at: new Date().toISOString(),
-    }).eq("id", ensured);
-    if (identityPersistError) throw new ProviderAmbiguousError("purchased vendor number persistence failed");
-    const { error: operationPersistError } = await db.from("vendor_work_identity_operations").update({ state: "reconciling", provider_reference: purchased.phoneSid, updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
-    if (operationPersistError) throw new ProviderAmbiguousError("vendor provider operation persistence failed");
-    const attachment = await provider.attachSms({ phoneSid: purchased.phoneSid, messagingServiceSid });
-    const ready = attachment.attached;
-    const sendReady = attachment.attached && attachment.carrierReady;
-    const { error: readyError } = await db.from("vendor_work_identities").update({
-      sms_state: ready ? "ready" : "reconciling", carrier_ready: attachment.carrierReady, sms_registration_state: sendReady ? "registered" : "pending", sms_send_ready: sendReady, sms_receive_ready: ready,
-      attachment_state: attachment.attached ? "attached" : "reconciling", quarantined_at: ready ? null : new Date().toISOString(),
-      quarantine_reason: ready ? null : "sms_attachment_unready", updated_at: new Date().toISOString(),
-    }).eq("id", ensured);
-    if (readyError) throw new ProviderAmbiguousError("vendor SMS readiness persistence failed");
-    const { error: operationReadyError } = await db.from("vendor_work_identity_operations").update({ state: ready ? "succeeded" : "reconciling", error_code: ready ? null : "sms_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
-    if (operationReadyError) throw new ProviderAmbiguousError("vendor SMS operation readiness persistence failed");
+    const { error: emailReadyError } = await db.from("vendor_work_identities").update({ email_state: "ready", email_provider_id: email.domainId, email_domain_verified: true, email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, updated_at: new Date().toISOString() }).eq("id", ensured);
+    if (emailReadyError) throw new Error(emailReadyError.message);
+    const { error: emailOperationReadyError } = await db.from("vendor_work_identity_operations").update({ state: "succeeded", provider_reference: email.domainId, updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
+    if (emailOperationReadyError) throw new Error(emailOperationReadyError.message);
   } catch (error) {
-    await setReconcileState(db, ensured, claim.operation_id, channel, error);
+    await setReconcileState(db, ensured, claim.operation_id, "email", error);
   }
   return getVendorWorkIdentity(db, vendorUserId, provider);
 }

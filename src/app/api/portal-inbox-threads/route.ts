@@ -21,6 +21,7 @@ import {
 } from "@/lib/communication/shared-thread-merge";
 import { threadHouseIds } from "@/lib/communication/conversation-house-filter";
 import { applyResidentConversationExtras } from "@/lib/communication/resident-conversations.server";
+import { applyVendorConversationExtras } from "@/lib/communication/vendor-conversations.server";
 import {
   ADMIN_INBOX_SCOPE,
   applyPortalInboxThreadScope,
@@ -374,6 +375,27 @@ export async function GET(request: Request) {
         return NextResponse.json({ rows: extras.rows, residentPhone: extras.phone });
       } catch (e) {
         console.error("resident conversation extras failed", e instanceof Error ? e.message : "unknown");
+      }
+    }
+
+    // A vendor's list is the same: each workspace-keyed row names the manager and
+    // the texts linked to the vendor (verified phone / resolved account) fold in.
+    // Not behind SMS_COMM_UI_ENABLED - that flag hides the manager's text compose,
+    // never a vendor's own earlier conversation. Best-effort, like the resident's.
+    if (scopeParam === VENDOR_INBOX_SCOPE) {
+      try {
+        const extras = await applyVendorConversationExtras(
+          ctx.db,
+          {
+            id: ctx.user.id,
+            name: ctx.user.name,
+            mayReadVendorTexts: await callerMayWriteInboxScope(ctx.db, ctx.user, VENDOR_INBOX_SCOPE),
+          },
+          collapsed,
+        );
+        return NextResponse.json({ rows: extras.rows, vendorPhone: extras.phone });
+      } catch (e) {
+        console.error("vendor conversation extras failed", e instanceof Error ? e.message : "unknown");
       }
     }
 

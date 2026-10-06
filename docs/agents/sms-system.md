@@ -426,7 +426,14 @@ classified by `routeUnrecognizedInboundText`
 `inbound-text-classification.ts`). It reads only the workspace owner's own rows:
 
 - a number already on the owner's **Vendors** list lands on that vendor's thread
-  (role `vendor`) and is never leased to or added to Potential residents;
+  (role `vendor`) and is never leased to or added to Potential residents. A linked
+  vendor account that **verified** the number counts too, even when the roster row
+  lists another phone (one verifier only; a self-typed phone and a number two
+  accounts verified identify nobody). The text records a reply-unlocking
+  `vendor_conversation` consent (see "Vendor texting");
+- an unknown number the owner **texted as a vendor in the last 90 days**
+  (`sms_outbox`, `manager:` dedupe key, `counterparty_role = 'vendor'`) routes to
+  that vendor thread, not Potential resident;
 - an unknown number whose text names a trade (plumber, electrician, handyman,
   "I'm a vendor", quote) is added to Vendors, trade guessed from the words;
 - any other unknown number becomes **one** Potential resident: a
@@ -1268,6 +1275,56 @@ actions to `leasing`, application review to `applications`, work-order tasks to
 `maintenance`, and rent collection to `payment_reminders`, so the topic-level
 phone choices remain effective. A resident-signature transition also produces
 an immediate leasing reminder for the manager to countersign.
+
+## Vendor texting (Oct 6): managers text vendors, vendors never own a number
+
+Only managers have work numbers. The vendor work identity's **number side is
+retired** (no candidate search, claim token, purchase, Communication card or
+Settings claim, and no `/api/twilio/inbound` branch routing by a vendor-owned
+line; stored `vendor_work_identities` rows and the sponsored work **email**
+identity are untouched).
+
+**Outbound.** `POST /api/manager/sms-conversations` with `vendorRecordId`
+(a `manager_vendor_records` id) goes through `sendManagerConversationSms` ->
+`sendRosterVendorText`. The destination is the roster row's own saved phone,
+read server-side (a browser phone must equal it; the actor needs edit scope on
+the row's owner). The send leaves on the vendor thread's existing work line, else
+the owner's only line (two lines and no placement is a refusal). Purpose is
+`vendor_conversation`, role `vendor`; credit and the dispatcher gates are
+unchanged (no credit -> refused, nothing sent).
+
+**Consent for the first text** (`sms/vendor-conversation-consent.server.ts`):
+`readVendorTextConsent` reads STOP/suppression first (final), then the
+`vendor_conversation` ledger under the vendor's keys (`owner:vendor:<account>` and
+`owner:vendor:<phone>`; a grant under either counts and is carried to the current
+key). `none` needs the manager's attestation ("I work with this vendor",
+`attestVendorRelationship: true`); without it the send is a 409
+`vendor_attestation_required`. The attestation is stored as a `granted` event,
+source `manager_attested_vendor_relationship`, wording `vendor-text-attestation-v1`,
+evidence `{attestation, attestedBy, vendorRecordId, senderLine, stopFooter}`, and
+the first text carries `— <manager first name> at <workspace name> via PropLane.
+Reply STOP to opt out.` (also on the retry when that first text never left: the
+footer rule is "no manager text accepted for delivery yet", not "just attested").
+A revoked scope is never re-attested. `GET /api/manager/vendor-text-consent`
+tells the New message modal whether to show the box and the exact line.
+
+**Inbound.** A vendor-known text (`routeUnrecognizedInboundText`) or one the owner
+texted in the last 90 days calls `recordVendorInboundReplyConsent`: a `granted`
+event, source `recipient_initiated_inbound`, in the exact thread's key; never over
+STOP or a revoke. A manager reply into an older vendor thread whose consent was
+never recorded is unlocked by the vendor's own text in `inbound_sms_log`
+(`materializeLegacyVendorInboundConsent`).
+
+**The manager's conversation wins (7 days).** For a vendor with a job session,
+`handleVendorSessionInbound` (`sms/vendor-inbound-session.server.ts`) checks
+`managerTextedPhoneWithin(7 days)`: if this manager texted the vendor (manual
+sends only - the `manager:` dedupe key; the job assistant's own texts never count)
+the text lands in the manager's thread, the reply is unlocked and **no job
+assistant reply is sent**; otherwise the assistant answers exactly as before.
+
+**Linked history.** See `communication-inbox.md` § A vendor's texts are in their
+conversation. Tests: `vendor-texting-send`, `vendor-texting-inbound`,
+`vendor-conversation`, `vendor-work-identity-retired`, `vendor-texting-compose`.
 
 ## Approval SMS and durable conversation projection (PRP-446)
 

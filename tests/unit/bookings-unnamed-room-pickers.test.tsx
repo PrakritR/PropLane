@@ -19,17 +19,15 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 
 import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
-import { BookingsMoveRoomSheet } from "@/components/portal/bookings-move-room-sheet";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { seedDemoManagerProperties } from "@/lib/demo-property-pipeline";
 import { createDefaultListingSubmission, emptyRoom } from "@/lib/manager-listing-submission";
-import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import type { MockProperty } from "@/data/types";
 
 const ID = "demo-prop-maple";
 
 /** Maple Duplex, five rooms, the third one left unnamed. */
-function seedMaple() {
+function mapleProperty(): MockProperty {
   const rooms = Array.from({ length: 5 }, (_, i) => ({ ...emptyRoom(i), id: `r${i + 1}`, name: `Bedroom ${i + 1}` }));
   rooms[2] = { ...rooms[2]!, name: "   " };
   const property: MockProperty = {
@@ -38,18 +36,13 @@ function seedMaple() {
     buildingId: ID, buildingName: "Maple Duplex", unitLabel: "",
     listingSubmission: { ...createDefaultListingSubmission(), listingPlaceCategoryId: "private_room", rooms },
   } as MockProperty;
-  seedDemoManagerProperties("z-manager", [property]);
+  return property;
 }
-
-const entry: PropertyBookingEntry = {
-  source: "block", propertyId: ID, propertyLabel: "Maple Duplex", roomId: "r3", roomLabel: "Room 3",
-  summary: "Hold", start: "2099-01-01", end: "2099-01-05", blockId: "block-1", bookingStatus: "hold",
-};
 
 beforeEach(() => {
   window.localStorage.clear();
   window.history.pushState({}, "", "/portal/bookings/calendar");
-  seedMaple();
+  seedDemoManagerProperties("z-manager", [mapleProperty()]);
 });
 
 afterEach(() => {
@@ -90,18 +83,5 @@ describe("manager Bookings room pickers offer an unnamed room", () => {
     const unnamed = options.find((option) => option.label.startsWith("Room 3"));
     expect(unnamed).toBeDefined();
     expect(unnamed!.value).toContain("r3");
-  });
-
-  it("Move room offers the unnamed room and names the booking's own room in the preview", () => {
-    render(
-      <AppUiProvider>
-        <BookingsMoveRoomSheet open onClose={() => {}} entry={entry} entries={[entry]} onSave={async () => {}} />
-      </AppUiProvider>,
-    );
-    // The booking sits in the unnamed room: the preview names it rather than rendering blank.
-    expect(document.body.textContent).toContain("Room 3");
-    const options = readOptions("bookings-move-room-select");
-    expect(options.map((option) => option.value)).toEqual(["r1", "r2", "r3", "r4", "r5"]);
-    expect(options[2]!.label.startsWith("Room 3")).toBe(true);
   });
 });

@@ -1,25 +1,23 @@
 import { NextResponse } from "next/server";
+import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { fetchVendorSmsConversation } from "@/lib/manager-sms-messages.server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
+/** The vendor's texts with each manager workspace (linked by account or verified phone), one conversation per workspace. */
 export async function GET() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-
-  const db = createSupabaseServiceRoleClient();
-  const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (String(profile?.role ?? "").trim().toLowerCase() !== "vendor") {
-    return NextResponse.json({ error: "Vendor access required." }, { status: 403 });
+  // Role comes from profile_roles (multi-role accounts), never the legacy profiles.role.
+  const access = await requireVendorApiAccess();
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: access.status === 401 ? "Unauthorized." : "Vendor access required." },
+      { status: access.status },
+    );
   }
 
   try {
-    const payload = await fetchVendorSmsConversation(db, user.id);
+    const payload = await fetchVendorSmsConversation(createSupabaseServiceRoleClient(), access.actor.userId);
     return NextResponse.json(payload, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load SMS.";
