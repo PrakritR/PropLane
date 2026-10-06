@@ -2334,7 +2334,13 @@ An accepted lease transition and its action-event delivery intents are persisted
   when the property allows that stay (`allowedStays` in `src/lib/property-stay-tabs.ts`, Airbnb counts as
   short term). **Never hide data:** a disallowed stay that still holds a row of its own keeps its tab. An
   application for both stays is the same record in both tabs; the co-signer application is Long term only.
-  The + creates a row pre-set to the open tab's stay.
+  The + creates a row pre-set to the open tab's stay, and **Quick add offers only the PropLane defaults that
+  tab would then list** - `missingApplicationDefaults` / `missingLeaseDefaults` (`leasing-quick-add.ts`) take
+  the open stay and derive each seed's stay the same way the created row is read back (`applicationAppliesTo`
+  / `leaseTemplateStay`), so a co-signer never shows under Short term and a new seed cannot land in the wrong
+  tab. The Airbnb seed's default application is named **"Airbnb application"**; a stored `airbnb` row still
+  reading "Short-term application" is an untouched default and takes the current name (the one seed whose
+  retired default labels are recognized - every other row keeps the name the manager chose).
 - **A lease's stay is derived, never stored:** `leaseTemplateStay` (`property-lease-templates.ts`). Kind
   `short-term` is short term, `long-term` is long term; a time-based or custom lease reads its routed
   `applicationLeaseTerms` (only Short-Term Stay / Airbnb terms means short term).

@@ -1039,6 +1039,9 @@ capacity. A base room price is not a price for every offered
 term. Custom-calendar surcharges apply only when the selected standard-lease
 dates satisfy the canonical billing predicate; standard deposits say nothing
 about short-term deposits. A room's explicit zero deposit overrides the listing.
+It takes an optional `stay`, and the one "About this home" it returns plus its assistant-only AI info
+sections are scoped to that stay - the rule is
+[`services-system.md`](services-system.md) § The property Services page is services offered, by stay.
 Missing or malformed facts stay unknown. Mixed-question replies answer the
 known parts before escalating only the missing information.
 

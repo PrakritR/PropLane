@@ -105,8 +105,8 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
   red Delete on the left in edit) and its Questions step draws each question
   through `BuilderQuestionCard`, the same row the application editor uses. The right-hand
   "Resident sees" pane is the application editor's card ("Step n of N · form name"), not a phone
-  frame. The footer is the one shared shell: Back (never on step 1) then Next, and on the last
-  step Save (edit) / Create (add) (`editor-footer-state.ts`, read by both editors).
+  frame. Its footer is the shared `AddWorkspace` shell both editors read, not one of its own
+  (`editor-footer-state.ts`; the shape is [`ui-page-structure.md`](ui-page-structure.md) § 4b).
 - **Forms sit under Long-term forms / Short-term forms tabs** (Move-in: Whole house · Rooms · Long-term
   forms · Short-term forms). A form's stay is its "Applies to" (`src/lib/move-in-forms/stays.ts`):
   All (`leaseType` absent/`all`) shows in BOTH tabs as the same record; Long-term / Short-term residents

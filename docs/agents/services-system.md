@@ -40,10 +40,11 @@ unknown stay gets both, labelled. `get_listing_details` takes an optional `stay`
 
 ## One vocabulary (services-vendors-1004)
 
-Every service list - the manager Services page, a property's Services tab, a vendor record's
-Services tab, the resident list, the vendor portal and the task list - uses ONE set of words, owned by
+Every service-REQUEST list - the manager Services page, a vendor record's Services tab, the resident
+list, the vendor portal and the task list - uses ONE set of words, owned by
 `src/lib/service-lifecycle.ts` (ids and legacy-id parsing in `src/lib/service-stage-ids.ts`). Import
-from it; never re-declare a stage label or tab set.
+from it; never re-declare a stage label or tab set. A property's Services tab is not one of those lists:
+it carries the services OFFERED there, under Long term / Short term tabs (see above).
 
 - **Stages (the tabs):** Open - Assigned - Scheduled - Completed (`SERVICE_STAGE_TABS`). Open =
   nobody is doing it yet (new, or out for bids); Assigned = someone is, with no visit time; Scheduled
