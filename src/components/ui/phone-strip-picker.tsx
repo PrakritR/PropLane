@@ -62,12 +62,18 @@ export function PhoneStripPicker({
   currentLabel,
   dataAttr,
   className,
+  variant = "field",
 }: {
   title: string;
   items: PhonePickerItem[];
   currentLabel: ReactNode;
   dataAttr?: string;
   className?: string;
+  /**
+   * `field` is the record page's own full-width dropdown. `inline` sits in a header card beside its
+   * icon actions: the current section as the active blue tab, with a chevron.
+   */
+  variant?: "field" | "inline";
 }) {
   return (
     <div className={className ?? "sm:hidden"} data-attr={dataAttr ?? "phone-strip-picker"}>
@@ -77,11 +83,15 @@ export function PhoneStripPicker({
         ariaCurrent="page"
         triggerDataAttr="phone-strip-picker-toggle"
         closeDataAttr="phone-strip-picker-close"
-        className="justify-between px-4 text-[14.5px] font-semibold text-foreground"
+        className={
+          variant === "inline"
+            ? "w-auto justify-start gap-1.5 rounded-none border-0 border-b-2 border-primary bg-transparent px-2.5 text-sm font-semibold text-primary"
+            : "justify-between px-4 text-[14.5px] font-semibold text-foreground"
+        }
         trigger={
           <>
-            <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
-            <ChevronDown className="size-4 shrink-0 text-muted" aria-hidden />
+            <span className={variant === "inline" ? "min-w-0 truncate" : "min-w-0 flex-1 truncate"}>{currentLabel}</span>
+            <ChevronDown className={variant === "inline" ? "size-4 shrink-0" : "size-4 shrink-0 text-muted"} aria-hidden />
           </>
         }
         groups={[{ items }]}

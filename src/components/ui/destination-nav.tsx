@@ -576,6 +576,7 @@ export function LocalDestinationNav(props: ComponentProps<typeof LocalDestinatio
       strip={strip}
       picker={
         <PhoneStripPicker
+          variant="inline"
           title={ariaLabel}
           currentLabel={active ? pickerLabel(active) : ariaLabel}
           items={items.map((item) => ({
