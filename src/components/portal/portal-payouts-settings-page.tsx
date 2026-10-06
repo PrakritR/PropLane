@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUpFromLine, CreditCard, Landmark, Plus } from "lucide-react";
+import { ArrowUpFromLine, Calendar, CreditCard, Landmark, Plus } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,25 @@ const PORTAL_CONNECT_BASE: Record<PortalPayoutsPortalKind, string> = {
 };
 
 type BankAccountRow = PayoutDestinationSummary;
+
+/**
+ * One Payouts history row carries ONE title and one plain dated fact beside its
+ * figure - never the movement said twice (the old row printed the server's
+ * `serviceLabel` and the state derived from `status` as two unseparated spans,
+ * reading "Moved from PropLane to StripeMoved to Stripe"). The state lives in
+ * the title; the right cell stays date + amount (AGENTS.md § No subtext).
+ */
+function payoutHistoryTitle(row: PortalPayoutHistoryRow): string {
+  if (row.kind === "source_movement") {
+    return row.status === "paid" ? "Moved to Stripe" : row.status === "canceled" ? "Refunded" : "Captured";
+  }
+  const state = row.status.replaceAll("_", " ");
+  return [
+    `${row.method === "instant" ? "Instant" : "Standard"} payout`,
+    row.destinationLast4 ? `····${row.destinationLast4}` : null,
+    state.charAt(0).toUpperCase() + state.slice(1),
+  ].filter(Boolean).join(" · ");
+}
 
 /** A per-row ⋯ that owns its own scope — mirrors `PayoutRowMenu` in `portal-payouts-panel.tsx`. */
 function BankRowMenu({ rowId, label, children }: { rowId: string; label: string; children: ReactNode }) {
@@ -406,16 +425,17 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
       {/* History */}
       {portal === "manager" ? <PortalSettingsSection title="Payouts"><PortalSettingsGroup>
           {hasBank ? <PortalSettingsRow label="Withdraw to"><FieldSingleSelect label="Withdraw to" hideLabel variant="cell" value={withdrawToSelectedId} disabled={effectiveBankRows.length < 2} onChange={id => setWithdrawToId(id)} options={effectiveBankRows.map(row => ({ value: row.id, label: `${row.label} ····${row.last4}`, disabled: !row.payable }))} /></PortalSettingsRow> : null}
-        {balance.history.length ? balance.history.map(row => <PortalSettingsRow key={row.id} label={formatMoney(row.amountCents, balance.currency)}>
-          <span className="text-sm text-muted">{row.kind === "source_movement"
-            ? row.serviceLabel ?? "Held on PropLane"
-            : `${row.method === "instant" ? "Instant" : "Standard"}${row.destinationLast4 ? ` · ····${row.destinationLast4}` : ""}`}</span>
-          <span className="text-sm">{row.kind === "source_movement"
-            ? row.status === "paid" ? "Moved to Stripe" : row.status === "canceled" ? "Refunded" : "Captured"
-            : row.status.replaceAll("_", " ")} · {formatDate(row.createdAt)}</span>
-          {row.kind !== "source_movement" && row.status === "failed" && !balance.payoutReconciliationPending ? <BankRowMenu rowId={row.id} label="Payout">
-            <Button variant="outline" onClick={() => { setRetryRow(row); setWithdrawOpen(true); }}>Retry</Button>
-          </BankRowMenu> : null}
+        {balance.history.length ? balance.history.map(row => <PortalSettingsRow key={row.id} label={payoutHistoryTitle(row)}>
+          <div className="flex items-center justify-end gap-3">
+            <span className="inline-flex items-center gap-1 whitespace-nowrap text-sm text-muted">
+              <Calendar aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
+              {formatDate(row.createdAt)}
+            </span>
+            <span className="text-sm">{formatMoney(row.amountCents, balance.currency)}</span>
+            {row.kind !== "source_movement" && row.status === "failed" && !balance.payoutReconciliationPending ? <BankRowMenu rowId={row.id} label="Payout">
+              <Button variant="outline" onClick={() => { setRetryRow(row); setWithdrawOpen(true); }}>Retry</Button>
+            </BankRowMenu> : null}
+          </div>
         </PortalSettingsRow>) : <PortalSettingsRow label="No payouts yet" />}
       </PortalSettingsGroup></PortalSettingsSection> : <HistorySection
         rows={balance.history}

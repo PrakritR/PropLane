@@ -232,8 +232,12 @@ describe("PortalPayoutsSettingsPage — not-ready state", () => {
       arrivalDate: null, initiatedInApp: false, failureMessage: null, serviceLabel: "Held payment released",
     }] });
     render(<PortalPayoutsSettingsPage portal="manager" />);
-    const source = await screen.findByText("Held payment released");
-    expect(source.closest("[data-attr]" )?.parentElement).toHaveTextContent("Moved to Stripe");
+    // One title, one dated fact, one figure - the movement is never said twice.
+    const source = await screen.findByText("Moved to Stripe");
+    const row = source.closest("div")?.parentElement;
+    expect(row).toHaveTextContent("$100.00");
+    expect(row?.textContent).not.toMatch(/Moved to Stripe.*Moved/);
+    expect(screen.queryByText("Held payment released")).not.toBeInTheDocument();
     expect(screen.queryByText(/Standard ·/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Receipt" })).not.toBeInTheDocument();
   });
