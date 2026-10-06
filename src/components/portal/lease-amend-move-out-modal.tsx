@@ -43,7 +43,7 @@ function addMonthsToIsoDate(isoDate: string, months: number): string {
 }
 
 /** Day after an ISO date (renewals default to starting when the current lease ends). */
-function dayAfter(isoDate: string): string {
+export function dayAfter(isoDate: string): string {
   const d = new Date(isoDate + "T00:00:00");
   if (Number.isNaN(d.getTime())) return "";
   d.setDate(d.getDate() + 1);
@@ -64,7 +64,7 @@ type AvailabilityResult =
   | { status: "unavailable"; direction: "extend"; reason: string; nextAvailableDate?: string | null }
   | { status: "error"; message: string };
 
-function LeaseRenewalFormFields({
+export function LeaseRenewalFormFields({
   leaseTerm,
   leaseStart,
   customEnd,
@@ -182,7 +182,7 @@ function LeaseRenewalFormFields({
  * later. The numbers come from the same proration helpers the ledger and the
  * lease document use, so this cannot quote a figure nothing goes on to bill.
  */
-function RenewalPaymentPreviewCard({
+export function RenewalPaymentPreviewCard({
   leaseTerm,
   leaseStart,
   leaseEnd,
@@ -253,6 +253,67 @@ function RenewalPaymentPreviewCard({
       {preview.note ? <p className="mt-2 text-sm text-foreground">{preview.note}</p> : null}
     </div>
   );
+}
+
+/** The end date a renewal term implies: none for Month-to-Month, the typed one for short-term / custom, else computed from the start. */
+export function resolveRenewalLeaseEnd(leaseTerm: string, leaseStart: string, customEnd: string): string {
+  const rentalType = renewalRentalTypeForTerm(leaseTerm);
+  const isShortTerm = rentalType === "short_term";
+  const isMonthToMonth = !isShortTerm && leaseTerm === "Month-to-Month";
+  const isCustom = !isShortTerm && leaseTerm === CUSTOM_LEASE_TERM;
+  if (isMonthToMonth) return "";
+  if (isShortTerm || isCustom) return customEnd;
+  return shouldAutoComputeLeaseEnd(leaseTerm, rentalType) ? computeLeaseEndDate(leaseStart, leaseTerm) : customEnd;
+}
+
+/** Whether a renewal's term, dates and rent are complete enough to submit. */
+export function renewalTermsReady(input: { leaseTerm: string; leaseStart: string; leaseEnd: string; rent: string }): boolean {
+  const rentalType = renewalRentalTypeForTerm(input.leaseTerm);
+  const isMonthToMonth = rentalType !== "short_term" && input.leaseTerm === "Month-to-Month";
+  const rentAmount = input.rent.trim() ? Number(input.rent.replace(/[^\d.]/g, "")) : null;
+  return (
+    Boolean(input.leaseTerm) &&
+    Boolean(input.leaseStart) &&
+    (isMonthToMonth || Boolean(input.leaseEnd)) &&
+    (!input.leaseEnd || input.leaseEnd >= input.leaseStart) &&
+    (rentAmount == null || (Number.isFinite(rentAmount) && rentAmount > 0))
+  );
+}
+
+/**
+ * The one renewal / new-terms write: POST the term, dates and rent to the amend route (`mode: "renew"`).
+ * The server resets the lease to Manager Review with a regenerated document and stashes the terms as
+ * `pendingRenewal`; payments change only once the new lease is signed by both parties.
+ */
+export async function postLeaseRenewal(input: {
+  renewUrl: string;
+  leaseId: string;
+  leaseTerm: string;
+  leaseStart: string;
+  leaseEnd: string;
+  rent: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const rentalType = renewalRentalTypeForTerm(input.leaseTerm);
+  const rentAmount = input.rent.trim() ? Number(input.rent.replace(/[^\d.]/g, "")) : null;
+  try {
+    const res = await fetch(input.renewUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...(input.renewUrl.includes("/manager/") ? { leaseId: input.leaseId, mode: "renew" } : {}),
+        leaseTerm: input.leaseTerm,
+        leaseStart: input.leaseStart,
+        leaseEnd: input.leaseEnd,
+        monthlyRent: rentAmount,
+        rentalType,
+      }),
+    });
+    const json = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Could not create the renewal." };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Network error. Please try again." };
+  }
 }
 
 function useLeaseRenewalSubmit({

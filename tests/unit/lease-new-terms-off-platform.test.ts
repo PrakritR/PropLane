@@ -9,6 +9,7 @@ const header = readFileSync(
 );
 const panel = readFileSync(join(process.cwd(), "src/components/portal/pro-leases-pipeline-panel.tsx"), "utf8");
 const modal = readFileSync(join(process.cwd(), "src/components/portal/lease-amend-move-out-modal.tsx"), "utf8");
+const sendNew = readFileSync(join(process.cwd(), "src/components/portal/lease-send-new-modal.tsx"), "utf8");
 
 function signedOffPlatformRow(): LeasePipelineRow {
   return {
@@ -31,8 +32,9 @@ describe("New terms on off-platform signed leases", () => {
     expect(hasBothLeaseSignatures(signedOffPlatformRow())).toBe(true);
   });
 
-  it("shows one New terms icon, not Renew + Extend", () => {
-    expect(header).toContain('label="New terms"');
+  it("shows one Send new lease icon, not Renew + Extend", () => {
+    expect(header).toContain('label="Send new lease"');
+    expect(header).not.toContain('label="New terms"');
     expect(header).toContain('dataAttr="lease-new-terms"');
     expect(header).toContain("showNewTerms");
     expect(header).not.toContain('label="Extend move-out"');
@@ -40,11 +42,19 @@ describe("New terms on off-platform signed leases", () => {
     expect(header).not.toContain('label="Renew"');
   });
 
-  it("manager panel opens New terms for signed rows including off-platform", () => {
+  it("manager panel opens Send new lease for signed rows including off-platform", () => {
     expect(panel).toContain("onNewTerms");
-    expect(panel).toContain('variant="new-terms"');
-    // New terms is on the record header (the row ⋯ is View · Send · Download · Mark as signed · Delete).
+    expect(panel).toContain("<SendNewLeaseModal");
+    expect(panel).not.toContain("<LeaseAmendMoveOutModal");
+    // Send new lease is on the record header (the row ⋯ is View · Send · Download · Mark as signed · Delete).
     expect(panel).toContain("onNewTerms={() => setAmendLeaseRow(row)}");
+    // The pop-up keeps every server write: the amend route, the uploaded-lease reader, the send gate and the send.
+    expect(sendNew).toContain("postLeaseRenewal");
+    expect(sendNew).toContain('"/api/manager/amend-lease"');
+    expect(sendNew).toContain("uploadAndParseLeasePdf");
+    expect(sendNew).toContain("leaseSendGateBlocker");
+    expect(sendNew).toContain("sendLeaseToResident");
+    expect(sendNew).toContain("headerUpload=");
     expect(modal).toContain('variant === "new-terms"');
     expect(modal).toContain("Create and send");
     expect(modal).toContain('hideRentHint ? "Starts"');

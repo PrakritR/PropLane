@@ -43,9 +43,8 @@ import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
-import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
+import { SendNewLeaseModal } from "@/components/portal/lease-send-new-modal";
 import { applySignedLeaseRenewal } from "@/lib/lease-renewal-payments";
-import { listingAdvertisedRentLabelForLease } from "@/lib/lease-renewal-preview";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -188,6 +187,7 @@ export function ManagerLeasesPipelinePanel({
   const [reminderBusyForRow, setReminderBusyForRow] = useState<string | null>(null);
   /** The one Send lease screen; opened for a lease from the row ⋯, the record header and the Overview. */
   const [sendSheetLeaseId, setSendSheetLeaseId] = useState<string | null>(null);
+  const [sendSheetSource, setSendSheetSource] = useState<"lease" | "pdf">("lease");
   const [leaseReminderPreview, setLeaseReminderPreview] = useState<{
     row: LeasePipelineRow;
     recipient: string;
@@ -206,8 +206,7 @@ export function ManagerLeasesPipelinePanel({
 
   const handleAmendLeaseSuccess = useCallback(async () => {
     await syncLeasePipelineFromServer(managerUserId, { force: true });
-    setAmendLeaseRow(null);
-  }, [managerUserId, setAmendLeaseRow]);
+  }, [managerUserId]);
 
   function leaseReminderBody(row: LeasePipelineRow): string {
     const unit = row.unit.trim() || "your unit";
@@ -800,6 +799,7 @@ export function ManagerLeasesPipelinePanel({
       <LeaseSendSheet
         open={sendSheetLeaseId !== null}
         leaseId={sendSheetLeaseId}
+        initialSource={sendSheetSource}
         managerUserId={managerUserId ?? null}
         onClose={() => setSendSheetLeaseId(null)}
         onSent={() => {
@@ -858,29 +858,16 @@ export function ManagerLeasesPipelinePanel({
       />
 
       {amendLeaseRow ? (
-        <LeaseAmendMoveOutModal
-          open
-          variant="new-terms"
+        // Send new lease: the standard pop-up (Lease · Terms · Review & send) over the existing amend write.
+        <SendNewLeaseModal
+          row={amendLeaseRow}
+          managerUserId={managerUserId ?? null}
           onClose={() => setAmendLeaseRow(null)}
-          currentEnd={amendLeaseRow.application?.leaseEnd ?? ""}
-          leaseStart={amendLeaseRow.application?.leaseStart ?? ""}
-          propertyId={amendLeaseRow.propertyId ?? amendLeaseRow.application?.propertyId ?? ""}
-          checkUrl="/api/manager/amend-lease"
-          amendUrl="/api/manager/amend-lease"
-          amendBody={{ leaseId: amendLeaseRow.id }}
-          canWaiveEarlyMoveOutFee
-          renew={{
-            leaseId: amendLeaseRow.id,
-            currentTerm: amendLeaseRow.application?.leaseTerm ?? "",
-            currentRentLabel: amendLeaseRow.signedRentLabel ?? amendLeaseRow.application?.managerRentOverride ?? "",
-            currentRentalType: amendLeaseRow.application?.rentalType,
-            renewUrl: "/api/manager/amend-lease",
-            listingRentLabel: listingAdvertisedRentLabelForLease(
-              amendLeaseRow.propertyId ?? amendLeaseRow.application?.propertyId ?? "",
-              amendLeaseRow.roomChoice ?? amendLeaseRow.application?.roomChoice1 ?? "",
-            ),
+          onCreated={() => void handleAmendLeaseSuccess()}
+          onNeedsSendScreen={(leaseId, source) => {
+            setSendSheetSource(source);
+            setSendSheetLeaseId(leaseId);
           }}
-          onSuccess={() => void handleAmendLeaseSuccess()}
         />
       ) : null}
 

@@ -10,7 +10,7 @@ import {
   FilePlus,
   Pencil,
   PenLine,
-  RefreshCw,
+  FilePlus2,
   Send,
   Trash2,
   Undo2,
@@ -85,7 +85,7 @@ type LeasePrimaryHeaderActionsProps = {
   deleteDataAttr?: string;
   sendToResidentDataAttr?: string;
   moveToManagerReviewDataAttr?: string;
-  /** Opens New terms for a fully signed lease (e-sign or off-platform). */
+  /** Opens Send new lease for a fully signed lease (e-sign or off-platform). */
   onNewTerms?: () => void;
   /** @deprecated Use onNewTerms. */
   onRenewLease?: () => void;
@@ -261,7 +261,7 @@ export function LeasePrimaryHeaderActions({
       actions.push({
         id: "new-terms",
         node: (
-          <LeaseHeaderIcon icon={RefreshCw} label="New terms" dataAttr="lease-new-terms" onClick={openNewTerms} />
+          <LeaseHeaderIcon icon={FilePlus2} label="Send new lease" dataAttr="lease-new-terms" onClick={openNewTerms} />
         ),
       });
     }
