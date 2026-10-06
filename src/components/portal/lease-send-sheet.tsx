@@ -717,6 +717,21 @@ function LeaseSendSheetBody({
     <>
       <PortalDialog open title={title} onClose={() => !busy && onClose()} dismissBlocked={busy} size="wizard" dataAttr="lease-send-sheet" primaryAction={primary} className="lease-send-sheet">
         <div className="space-y-5" data-attr="lease-send-body">
+          {/* The pop-up's one upload entry: the Start from a file card (the Leases list has no Upload of its own). Reads the lease PDF you pick in place of the PropLane lease. */}
+          {!lease?.managerUploadedPdf ? (
+            <WorkspaceFileCard
+              accept="application/pdf,.pdf"
+              chips={[".pdf", "up to 3.5 MB"]}
+              dataAttr="lease-send-header-upload"
+              disabled={busy || !(lease && app && terms)}
+              onPick={(file) => {
+                setSource("pdf");
+                setConfirmed(false);
+                setError(null);
+                void onPickPdf(file);
+              }}
+            />
+          ) : null}
           {showPicker ? (
             <FieldSingleSelect
               label="Resident"
@@ -739,21 +754,6 @@ function LeaseSendSheetBody({
 
           {lease && app && terms ? (
             <>
-              {/* The pop-up's one upload entry: the Start from a file card (the Leases list has no Upload of its own). Reads the lease PDF you pick in place of the PropLane lease. */}
-              {!lease.managerUploadedPdf ? (
-                <WorkspaceFileCard
-                  accept="application/pdf,.pdf"
-                  chips={[".pdf", "up to 3.5 MB"]}
-                  dataAttr="lease-send-header-upload"
-                  disabled={busy}
-                  onPick={(file) => {
-                    setSource("pdf");
-                    setConfirmed(false);
-                    setError(null);
-                    void onPickPdf(file);
-                  }}
-                />
-              ) : null}
               <SegmentedTwo<Source>
                 value={source}
                 onChange={(next) => {
