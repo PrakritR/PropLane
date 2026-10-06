@@ -73,7 +73,10 @@ export function ManagerResidentToursPanel({
    * The section's header card (title · icon actions). The panel hands it the Scheduled · Upcoming ·
    * Past tabs as `destinationRow`, so the tabs sit inside that one card.
    */
-  sectionToolbar?: (destinationRow: ReactNode) => ReactNode;
+  sectionToolbar?: (
+    destinationRow: ReactNode,
+    search: { value: string; onChange: (next: string) => void; placeholder: string; dataAttr: string },
+  ) => ReactNode;
 }) {
   const navigate = usePortalNavigate();
   const normalizedEmail = residentEmail.trim().toLowerCase();
@@ -142,18 +145,24 @@ export function ManagerResidentToursPanel({
             className="w-full"
           />
         );
-        return sectionToolbar ? sectionToolbar(statusTabs) : statusTabs;
-      })()}
-      <PortalListControlStack
-        variant="command"
-        className="plp-header-card mb-0"
-        search={{
+        // The search sits inline in the header bar after the tabs (like Leases / Residents), never as its own card.
+        const searchProps = {
           value: search,
           onChange: setSearch,
           placeholder: "Search tours",
           dataAttr: "resident-tours-search",
-        }}
-      />
+        };
+        return sectionToolbar ? (
+          sectionToolbar(statusTabs, searchProps)
+        ) : (
+          <PortalListControlStack
+            variant="command"
+            className="plp-header-card mb-0"
+            destinationRow={statusTabs}
+            search={searchProps}
+          />
+        );
+      })()}
       <PortalRecordListSurface isEmpty={rows.length === 0} className="mt-0">
         {rows.length === 0 ? (
           <p className="px-4 py-6 text-sm text-muted">No tours.</p>

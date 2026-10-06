@@ -3587,11 +3587,12 @@ export function ManagerResidents({
                                 bucket={tourBucketProp}
                                 tourId={tourIdProp}
                                 propertyIds={managerPortfolioPropertyIds}
-                                sectionToolbar={(destinationRow) => (
+                                sectionToolbar={(destinationRow, toursSearch) => (
                                   <ManagerResidentSectionToolbar
                                     actions={residentSectionHeaderActions}
                                     onAction={onResidentSectionHeaderAction}
                                     destinationRow={destinationRow}
+                                    search={toursSearch}
                                     overflowMenu={
                                       <ResidentDetailCommandToolbar
                                         onSettings={() => openResidentDetailSettings("tours")}
