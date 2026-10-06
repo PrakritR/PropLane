@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, Clock, MapPin, Receipt, Scale, Star, Wrench } from "lucide-react";
+import { CalendarDays, Clock, Hourglass, Link2, MapPin, Receipt, Scale, Star, Store, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { RecordBandFilter, RecordListBand } from "@/components/portal/record-list-band";
@@ -15,10 +15,12 @@ import { formatServiceWhen, vendorRequestFact } from "@/lib/service-lifecycle";
 import {
   PIPELINE_TABS,
   PIPELINE_TAB_LABEL,
+  VENDOR_ORIGIN_FACT,
   defaultPipelineTab,
   pipelineJobFact,
   type PipelineCandidate,
   type PipelineJobRow,
+  type PipelineRequestRow,
   type PipelineTabId,
   type ServicePipeline,
 } from "@/lib/service-pipeline";
@@ -222,7 +224,7 @@ export function ServiceVendorPipeline({
     />
   );
 
-  const requestRow = (row: VendorRequestRow, group: "sent" | "bids") => {
+  const requestRow = (row: PipelineRequestRow, group: "sent" | "bids") => {
     const total = row.bidTotalCents;
     const approving = approvingBidId === row.bidId;
     const declined = row.state === "declined";
@@ -232,9 +234,15 @@ export function ServiceVendorPipeline({
         name={`${row.vendorName}${group === "bids" && lowestKeys.has(row.key) && pipeline.bids.length > 1 ? " · Lowest" : ""}`}
         tileLabel={row.vendorName}
         facts={
-          <PortalRowFact icon={row.state === "visit_booked" || row.state === "visit_done" ? CalendarDays : group === "bids" ? Receipt : Clock}>
-            {group === "bids" ? bidFact(row) : vendorRequestFact(row)}
-          </PortalRowFact>
+          <>
+            <PortalRowFact icon={row.state === "visit_booked" || row.state === "visit_done" ? CalendarDays : group === "bids" ? Receipt : Clock}>
+              {group === "bids" ? bidFact(row) : vendorRequestFact(row)}
+            </PortalRowFact>
+            {row.originFact ? (
+              <PortalRowFact icon={row.originFact === VENDOR_ORIGIN_FACT.service_link ? Link2 : Store}>{row.originFact}</PortalRowFact>
+            ) : null}
+            {row.contactFact ? <PortalRowFact icon={Hourglass}>{row.contactFact}</PortalRowFact> : null}
+          </>
         }
         amount={group === "bids" && total != null ? formatServiceMoney(total) : undefined}
         amountSubLabel={group === "bids" && total != null ? "bid" : undefined}
