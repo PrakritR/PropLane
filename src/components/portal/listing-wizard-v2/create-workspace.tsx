@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import {
+  IMPORT_FILE_ACCEPT,
   ImportFileStrip,
   ImportUploadSidePanel,
   ImportUploadStep,
@@ -32,7 +33,17 @@ import {
 } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { ImportPropertySwitcher } from "@/components/portal/listing-wizard-v2/import-property-switcher";
 import { LISTING_V2_STEPS, listingRailChrome, listingV2PathStepIds, type ListingV2StepId } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { ListingWorkspace, RailCover, RailNotice, RailStatus, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import {
+  ListingWorkspace,
+  RailCover,
+  RailNotice,
+  RailStatus,
+  StepRail,
+  WizardFooterActions,
+  WizardStepProgress,
+} from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { WorkspaceUploadAction, WorkspaceHeaderUploadPresent } from "@/components/portal/add-workspace/upload-action";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { deleteManagerPropertyDraft, saveManagerPropertyDraftToServer } from "@/lib/demo-admin-property-inventory";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -109,8 +120,14 @@ export function CreateWorkspace({
   initialSubmission = null,
   initialDraftId = null,
   onOpenPricing,
+  onDiscarded,
 }: {
   onClose: () => void;
+  /**
+   * Footer Delete discarded the draft(s): the host forgets any "open the draft I just saved" memory before
+   * `onClose` runs, so closing does not navigate to a row that no longer exists.
+   */
+  onDiscarded?: () => void;
   /** The blank listing was saved (X or autosave) — before any file is involved. */
   onSaved?: (sub: ManagerListingSubmissionV1, savedId?: string) => void;
   /** Drafts were written, changed or removed — the Properties list should re-read. */
@@ -134,6 +151,9 @@ export function CreateWorkspace({
   const [phase, setPhase] = useState<"blank" | "import" | "edit">("blank");
   const [editStep, setEditStep] = useState<ListingV2StepId>("basics");
   const [busy, setBusy] = useState(false);
+  const confirm = useConfirm();
+  /** Which read produced the open entries — a new read remounts the editor even when a property keeps its key. */
+  const [batch, setBatch] = useState(0);
   /** A file picked while Basics already held typed work — waits for Replace / Keep. */
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const lastFileRef = useRef<File | null>(null);
@@ -227,9 +247,15 @@ export function CreateWorkspace({
       // dropped, in PropLane's own words, and leave Basics as it was. Moving
       // to an empty Found list would strand the manager on a step with nothing
       // on it and Continue off.
-      if (res.understanding.properties.length === 0 && phase === "blank") {
+      if (res.understanding.properties.length === 0 && phase !== "import") {
         const why = res.understanding.summary[0] ?? "No addresses, rents or units were found in it.";
-        setRead({ kind: "error", fileName: file.name, message: why });
+        if (phase === "blank") {
+          setRead({ kind: "error", fileName: file.name, message: why });
+        } else {
+          // An open imported property has no strip to say so: keep it as it was and tell the manager here.
+          setRead(previous);
+          showToast?.(why);
+        }
         return;
       }
       // A re-read replaces the previous batch: drop drafts the old read made.
@@ -246,6 +272,7 @@ export function CreateWorkspace({
       }
       setRead({ kind: "found", understanding: res.understanding });
       track("property_import_opened", { propertyCount: res.understanding.properties.length });
+      setBatch((b) => b + 1);
       await adoptUnderstanding(res.understanding.properties);
       // One property fills this listing in place; several become the Found list.
       const [only] = res.understanding.properties;
@@ -354,6 +381,49 @@ export function CreateWorkspace({
   const needLook = entries.filter((e) => e.property.needsLook.length > 0).length;
   const fileName = read.kind === "found" ? read.understanding.fileName : read.kind === "reading" ? read.fileName : null;
 
+  /** The header Upload icon on an open imported property: a file replaces the batch only when the manager says so. */
+  const onPickFileOverEntries = useCallback(
+    (file: File) => {
+      void confirm({
+        title: `Replace what you typed with ${file.name}?`,
+        description: "The properties already read from your earlier file, and your edits to them, are replaced by this file.",
+        confirmLabel: "Replace",
+        note: null,
+        guard: "tap",
+        dataAttr: "create-replace-confirm",
+      }).then((ok) => {
+        if (ok) void runRead(file, null);
+      });
+    },
+    [confirm, runRead],
+  );
+
+  /** Import step Delete: every draft the file made goes, after the confirm. */
+  const discardAll = useCallback(async () => {
+    const ok = await confirm({
+      title: "Delete these properties?",
+      description: "The drafts made from this file are deleted. This can't be undone.",
+      confirmLabel: "Delete",
+      note: null,
+      tone: "danger",
+      guard: "tap",
+      dataAttr: "import-delete-confirm",
+    });
+    if (!ok) return;
+    if (userId) {
+      const results = await Promise.all(entriesRef.current.filter((e) => e.draftId).map((e) => deleteManagerPropertyDraft(e.draftId!, userId).catch(() => false)));
+      if (results.some((r) => !r)) {
+        showToast?.("Could not delete every draft. Check your connection and try again.");
+        onDraftsChanged?.();
+        return;
+      }
+    }
+    setEntries([]);
+    onDraftsChanged?.();
+    onDiscarded?.();
+    onClose();
+  }, [confirm, onClose, onDiscarded, onDraftsChanged, showToast, userId]);
+
   const switcherEntries = useMemo(
     () =>
       entries.map((e) => {
@@ -403,6 +473,14 @@ export function CreateWorkspace({
         onDirtyChange={(dirty) => {
           blankDirtyRef.current = dirty;
         }}
+        headerUpload={{ accept: IMPORT_FILE_ACCEPT, onPick: onPickFileFromBasics, disabled: busy }}
+        onDiscarded={() => {
+          blankDraftIdRef.current = null;
+          blankDirtyRef.current = false;
+          onDraftsChanged?.();
+          onDiscarded?.();
+          onClose();
+        }}
         basicsLead={
           <ImportFileStrip
             state={stripState}
@@ -420,7 +498,7 @@ export function CreateWorkspace({
   if (phase === "edit" && selected) {
     return (
       <ListingWizardV2
-        key={selected.key}
+        key={`${batch}:${selected.key}`}
         onClose={onClose}
         onSaved={(sub, savedId) => {
           setEntries((prev) => prev.map((e) => (e.key === selected.key ? { ...e, submission: sub, draftId: savedId ?? e.draftId } : e)));
@@ -453,6 +531,19 @@ export function CreateWorkspace({
         }
         flushRef={flushRef}
         initialStep={editStep}
+        headerUpload={{ accept: IMPORT_FILE_ACCEPT, onPick: onPickFileOverEntries, disabled: busy }}
+        onDiscarded={() => {
+          const remaining = entriesRef.current.filter((e) => e.key !== selected.key);
+          setEntries(remaining);
+          onDraftsChanged?.();
+          if (remaining.length === 0) {
+            onDiscarded?.();
+            onClose();
+            return;
+          }
+          setSelectedKey(remaining[0]!.key);
+          setPhase("import");
+        }}
       />
     );
   }
@@ -476,8 +567,10 @@ export function CreateWorkspace({
 
   return (
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
+      <WorkspaceHeaderUploadPresent.Provider value>
       <ListingWorkspace
         title="New listing"
+        headerAside={<WorkspaceUploadAction accept={IMPORT_FILE_ACCEPT} onPick={onPickFile} disabled={busy} dataAttr="listing-v2-header-upload" inputDataAttr="import-upload-file-input" label="Upload" />}
         subtitle={fileName ?? undefined}
         saveState={importSaveState(entries)}
         onClose={onClose}
@@ -521,25 +614,23 @@ export function CreateWorkspace({
         sidePanel={sidePanel}
         previewInEye
         footer={
-          <>
-            <div className="flex items-center gap-2.5">
-              <button type="button" hidden disabled className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45">
-                Back
-              </button>
-            </div>
-            <span className="min-w-0 flex-1 truncate text-center text-[12.5px] text-muted">Step 1 of {pathIds.length + 1}</span>
-            <button
-              type="button"
-              disabled={!canContinue}
-              onClick={() => selected && void openEntry(selected.key, "basics")}
-              data-attr="import-upload-continue"
-              className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
-            >
-              Continue
-            </button>
-          </>
+          <WizardFooterActions
+            hasPrev={false}
+            hasNext
+            lastLabel="Create property"
+            busy={!canContinue}
+            dataAttrPrefix="import-upload"
+            nextDataAttr="import-upload-continue"
+            nextAriaLabel="Next: Basics"
+            onBack={() => {}}
+            onNext={() => selected && void openEntry(selected.key, "basics")}
+            onFinish={() => {}}
+            onDelete={entries.length > 0 ? () => void discardAll() : undefined}
+            deleteDataAttr="import-upload-delete"
+          />
         }
       >
+        <WizardStepProgress steps={railSteps} current={0} />
         <ImportUploadStep
           state={read}
           entries={entries}
@@ -551,6 +642,7 @@ export function CreateWorkspace({
           busy={busy}
         />
       </ListingWorkspace>
+      </WorkspaceHeaderUploadPresent.Provider>
     </PortalAssistantConfigProvider>
   );
 }

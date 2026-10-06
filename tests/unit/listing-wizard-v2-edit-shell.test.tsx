@@ -4,7 +4,7 @@
 // (each section says what it currently holds), a listing with gaps carries a
 // "things to finish" card, and the status block says the home is live.
 //
-// The footer is Back + Continue until Review, where it is Back + Publish.
+// The footer is Delete (new only) . Back . Next until Review, where Next is Create property (new) or Save (a live listing).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -77,24 +77,25 @@ describe("the rail on an edit", () => {
 });
 
 describe("the footer on an edit", () => {
-  it("offers Continue (not Save or Publish) on an earlier section", () => {
+  it("offers Next (not Save or Create property) on an earlier section", () => {
     mount(subWith({}), true);
-    expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Next: Rooms$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create property" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
   });
 
-  it("review on a live listing is Publish only", () => {
+  it("review on a live listing is Save (it publishes in place), with no Delete", () => {
     mount(subWith({}), true);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
-    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create property" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
   it("keeps the linear flow for a NEW listing", () => {
     mount(subWith({}), false);
-    expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Next: Rooms$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();

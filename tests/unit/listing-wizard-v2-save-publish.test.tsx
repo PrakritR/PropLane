@@ -62,7 +62,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("V2 editor action availability", () => {
-	it("renders Continue on earlier steps and Publish only on Review", () => {
+	it("renders Next on earlier steps and Create property only on Review", () => {
 		const onClose = vi.fn();
 		const onPublish = vi.fn(async () => true);
 		render(
@@ -79,14 +79,14 @@ describe("V2 editor action availability", () => {
 			fireEvent.click(rail(step.id));
 			expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 			if (step.id === "review") {
-				expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
-				expect(screen.queryByRole("button", { name: /^Continue to/ })).toBeNull();
+				expect(screen.getByRole("button", { name: "Create property" })).toBeTruthy();
+				expect(screen.queryByRole("button", { name: /^Next: / })).toBeNull();
 			} else {
-				expect(screen.getByRole("button", { name: /^Continue to/ })).toBeTruthy();
-				expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+				expect(screen.getByRole("button", { name: /^Next: / })).toBeTruthy();
+				expect(screen.queryByRole("button", { name: "Create property" })).toBeNull();
 			}
 		}
-		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+		fireEvent.click(screen.getByRole("button", { name: "Create property" }));
 		expect(onPublish).toHaveBeenCalled();
 		expect(onClose).not.toHaveBeenCalled();
 	});
@@ -106,7 +106,7 @@ describe("V2 publish gate and recovery", () => {
 			/>,
 		);
 		fireEvent.click(rail("review"));
-		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+		fireEvent.click(screen.getByRole("button", { name: "Create property" }));
 		await waitFor(() => expect(onPublished).toHaveBeenCalledWith("listing-1"));
 		expect(showToast).not.toHaveBeenCalled();
 	});
@@ -123,12 +123,12 @@ describe("V2 publish gate and recovery", () => {
 			/>,
 		);
 		fireEvent.click(rail("review"));
-		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+		fireEvent.click(screen.getByRole("button", { name: "Create property" }));
 		await waitFor(() => expect(document.querySelector('[data-attr="listing-v2-rail-basics"]')).toHaveAttribute("aria-current", "step"));
 		const address = document.querySelector<HTMLInputElement>('input[autocomplete="street-address"]')!;
 		await waitFor(() => expect(address).toHaveFocus());
 		fireEvent.click(rail("review"));
-		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+		fireEvent.click(screen.getByRole("button", { name: "Create property" }));
 		await waitFor(() => {
 			const again = document.querySelector<HTMLInputElement>('input[autocomplete="street-address"]')!;
 			expect(again).toHaveFocus();

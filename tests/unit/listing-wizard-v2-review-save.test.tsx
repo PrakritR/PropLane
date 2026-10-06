@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The footer is Back + Continue on every step except Review, where it is
+// The footer is Back + Next on every step except Review, where it is
 // Back + Publish. Closing the editor still writes the draft.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
@@ -63,32 +63,33 @@ describe("the Review step footer (editor shell)", () => {
     return { onSave, onPublish };
   }
 
-  it("Review is Back + Publish only", () => {
+  it("Review is Back + Create property only", () => {
     mount(false);
     goToReview();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Continue to/ })).toBeNull();
-  });
-
-  it("a live listing Review is still Publish, never Save", () => {
-    mount(true);
-    goToReview();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-  });
-
-  it("earlier steps carry Continue and not Save or Publish", () => {
-    mount(true);
-    expect(screen.getByRole("button", { name: /^Continue to/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create property" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Next: / })).toBeNull();
+  });
+
+  it("a live listing Review is Save (it publishes in place), never Create property", () => {
+    mount(true);
+    goToReview();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create property" })).toBeNull();
+  });
+
+  it("earlier steps carry Next and not Save or Create property", () => {
+    mount(true);
+    expect(screen.getByRole("button", { name: /^Next: / })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create property" })).toBeNull();
   });
 
   it("while a write is in flight Publish is disabled", () => {
     mount(true, true);
     goToReview();
-    const publish = screen.getByRole("button", { name: "Publish" }) as HTMLButtonElement;
+    const publish = document.querySelector<HTMLButtonElement>('[data-attr="listing-v2-publish"]')!;
     expect(publish.disabled).toBe(true);
   });
 });

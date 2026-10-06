@@ -42,7 +42,7 @@ function mount(submission: ManagerListingSubmissionV1) {
 
 function publish() {
   fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
-  fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create property" }));
 }
 
 describe("V2 publish pricing readiness", () => {
