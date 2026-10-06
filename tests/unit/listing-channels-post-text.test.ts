@@ -60,6 +60,7 @@ describe("listing post text", () => {
     expect(build(projected(), "facebook_marketplace", { phone: null, email: "work@proplane.test" })).toEqual({ ok: false, reason: "no_work_number" });
     expect(build(projected(), "facebook_marketplace", { phone: "  ", email: null })).toEqual({ ok: false, reason: "no_work_number" });
     expect(listingHoldFact(["no_work_number"])).toBe("Set up work number");
+    expect(listingHoldFact(["no_photo", "no_work_number"])).toBe("Held: no photo · Set up work number");
   });
 
   it("an email-less workspace still posts with the number alone", () => {

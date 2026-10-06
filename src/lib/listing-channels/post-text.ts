@@ -31,7 +31,8 @@ const HOLD_REASON_COPY: Record<ListingHoldReason, string> = {
 export function listingHoldFact(reasons: readonly ListingHoldReason[]): string {
   if (reasons.includes("no_work_number") && reasons.length === 1) return "Set up work number";
   const parts = reasons.filter((r) => r !== "no_work_number").map((r) => HOLD_REASON_COPY[r]);
-  return `Held: ${parts.join(" and ")}`;
+  const held = `Held: ${parts.join(" and ")}`;
+  return reasons.includes("no_work_number") ? `${held} · Set up work number` : held;
 }
 
 /**
