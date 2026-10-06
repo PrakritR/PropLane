@@ -530,4 +530,73 @@ describe("PATCH /api/portal/resident-approval — a form that blocks approval", 
       expect(PROFILE_UPDATE_CALLS).toBe(0);
     });
   });
+
+  /**
+   * EVIDENCE HARNESS for the manager-facing Approve button when the applicant has no resolvable
+   * application row, so the gate falls back to their email: a reviewer reads the status + body the
+   * route ANSWERED, and that another landlord's form is neither honoured nor named. Writes the
+   * transcript when `EVIDENCE_DIR` asks for it; the assertions run either way.
+   */
+  it("transcript: PATCH /api/portal/resident-approval, the email fallback scoped to the caller", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const out: string[] = [];
+    const say = (text = "") => out.push(text);
+    const form = (over: Record<string, unknown> = {}) => ({ ...blocking, manager_user_id: "mgr-1", property_id: "mgr-demo-pioneer", ...over });
+    const attempt = async (label: string) => {
+      PROFILE_UPDATE_CALLS = 0;
+      const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+      const res = await PATCH(patch({ email: "applicant@example.com", approved: true }));
+      const body = await res.json();
+      say(label);
+      say('    PATCH { email: "applicant@example.com", approved: true }   (no applicationId to resolve)');
+      say(`    <- ${res.status} ${JSON.stringify(body)}`);
+      say(`       profiles.application_approved writes: ${PROFILE_UPDATE_CALLS}`);
+      say();
+      return { status: res.status, body };
+    };
+
+    say("=".repeat(96));
+    say('manager presses Approve — the "Blocks: Approval" gate, real route, caller-scoped forms read');
+    say("=".repeat(96));
+    say();
+    say("mgr-1 owns property mgr-demo-pioneer. There is no application row to resolve, so the gate");
+    say("falls back to the applicant's email — and may only count forms mgr-1 actually holds.");
+    say();
+
+    APP_ROWS = [];
+    OWNED_PROPERTIES = { "mgr-demo-pioneer": "mgr-1" };
+
+    FORMS = [form({})];
+    const own = await attempt("  [1] the caller's OWN Approval-blocking form is unsubmitted");
+    expect(own.status).toBe(409);
+
+    FORMS = [form({ manager_user_id: "previous-owner" })];
+    const stale = await attempt("  [2] the form's stamped manager is stale, but the property is the caller's");
+    expect(stale.status).toBe(409);
+
+    FORMS = [form({ manager_user_id: "mgr-2", property_id: "other-landlord-house" })];
+    const foreign = await attempt("  [3] ANOTHER landlord's form for the same applicant");
+    expect(foreign.status).toBe(403);
+    expect(foreign.body.blocked).toBeUndefined();
+    expect(JSON.stringify(foreign.body)).not.toContain("form-1");
+    say("       (403 is the portfolio check this fixture always hits — not the form; and nothing");
+    say("        about the other landlord's form appears in the body)");
+    say();
+
+    FORMS = [];
+    FORMS_ERROR = { code: "500", message: "boom" };
+    const down = await attempt("  [4] the forms read failed — fail closed, retryable");
+    FORMS_ERROR = null;
+    expect(down.status).toBe(503);
+    say("=".repeat(96));
+
+    const dir = process.env.EVIDENCE_DIR;
+    if (dir) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "resident-approval-route-forms-fallback-transcript.txt"), `${out.join("\n")}\n`, "utf8");
+    }
+    console.log(out.join("\n"));
+  });
+
 });

@@ -1153,6 +1153,73 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
     CHARGES = [];
     expect((await sign()).status).toBe(200);
   });
+
+  /**
+   * EVIDENCE HARNESS. The resident's refusal when a form blocks lease signing has no screen of its
+   * own beyond "Finish your forms first", so a reviewer reads the status + body the route ANSWERED.
+   * Writes the transcript when `EVIDENCE_DIR` asks for it; the assertions run either way.
+   */
+  it("transcript: what POST /api/portal-lease-pipeline answers the resident's signature", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const lines: string[] = [];
+    const say = (text = "") => lines.push(text);
+    const attempt = async (label: string) => {
+      upsert.mockClear();
+      const res = await sign();
+      const body = await res.json();
+      say(label);
+      say(`    POST { action: "upsert", row: { residentSignature: ... } }`);
+      say(`    <- ${res.status} ${JSON.stringify(body)}`);
+      // Only the lease row itself: this fake's `upsert` also catches unrelated background records.
+      const leaseWrites = (upsert.mock.calls as unknown as Array<[{ id?: string } | undefined]>).filter(
+        (call) => call[0]?.id === LEASE_ID,
+      );
+      say(`       lease row persisted: ${leaseWrites.length > 0}`);
+      say();
+      return { status: res.status, body };
+    };
+
+    say("=".repeat(96));
+    say("resident signs the lease — the \"Blocks: Lease signing\" forms gate, real route");
+    say("=".repeat(96));
+    say();
+
+    STORED.row_data = { ...awaitingResident, axisId: "AXIS-77" };
+    FORMS = [{ id: "tied", form_id: "f1", status: "sent", sent_at: "2026-10-03T00:00:00Z", resident_user_id: RESIDENT_ID, property_id: "some-other-property", application_id: "axis-77", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    const tied = await attempt("  [1] the form is THIS lease's application (AXIS-77) but carries a different property id");
+    expect(tied.status).toBe(409);
+    expect(tied.body).toMatchObject({ code: "FORMS_BLOCK_LEASE_SIGNING", formId: "tied" });
+
+    FORMS = [{ id: "elsewhere", form_id: "f1", status: "sent", resident_user_id: RESIDENT_ID, property_id: "some-other-property", application_id: "AXIS-99", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    const elsewhere = await attempt("  [2] another house AND another application — not this lease's business");
+    expect(elsewhere.status).toBe(200);
+
+    STORED.row_data = { ...awaitingResident, axisId: undefined };
+    FORMS = [{ id: "stale", form_id: "f1", status: "sent", resident_user_id: RESIDENT_ID, property_id: "some-other-property", application_id: "AXIS-99", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    const stale = await attempt("  [3] the lease names no application, so its stored property id narrows nothing");
+    expect(stale.status).toBe(409);
+
+    STORED.row_data = { ...awaitingResident, axisId: "AXIS-77" };
+    FORMS = [];
+    FORMS_ERROR = { code: "500", message: "boom" };
+    const down = await attempt("  [4] the forms read itself failed — fail closed, retryable, names no form");
+    FORMS_ERROR = null;
+    expect(down.status).toBe(503);
+
+    FORMS = [{ id: "done", form_id: "f1", status: "submitted", resident_user_id: RESIDENT_ID, property_id: "prop-1", application_id: "AXIS-77", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    const ok = await attempt("  [5] control: the form is submitted — the signature lands");
+    expect(ok.status).toBe(200);
+    say("=".repeat(96));
+
+    const dir = process.env.EVIDENCE_DIR;
+    if (dir) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "lease-signing-forms-gate-transcript.txt"), `${lines.join("\n")}\n`, "utf8");
+    }
+    console.log(lines.join("\n"));
+  });
+
 });
 
 /**

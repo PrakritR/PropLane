@@ -248,3 +248,52 @@ test("the resident lock holds, and fails closed naming no form when the forms re
   await page.screenshot({ path: path.join(SHOTS, "11-resident-forms-lock-and-fail-closed.png") });
   expect(errors).toEqual([]);
 });
+
+/**
+ * `/demo` never reads or writes real rows through a thread's scheduled sends: the reads are skipped,
+ * Cancel takes effect in the sandbox, and Send now — which has no local equivalent — refuses out loud
+ * instead of going quiet. The real pathname (`/demo`) is what turns demo mode on here.
+ */
+test("under /demo a thread's scheduled sends act locally, ask the API for nothing, and say so on Send now", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const errors: string[] = [];
+  const scheduledApiCalls: string[] = [];
+  page.on("pageerror", (e) => errors.push(`${e.message}\n${e.stack ?? ""}`));
+  page.on("request", (req) => {
+    const pathname = new URL(req.url()).pathname;
+    if (pathname.includes("scheduled-messages") || pathname.includes("scheduled-inbox-messages")) {
+      scheduledApiCalls.push(`${req.method()} ${pathname}`);
+    }
+  });
+
+  await page.goto("http://lane-1006.test/demo?surface=communication-demo");
+  await page.waitForLoadState("networkidle");
+
+  // The sandbox's own projected reminders, drawn from its local charge — no read of real rows.
+  const bar = page.locator('[data-attr="inbox-scheduled-bar"]');
+  await expect(bar).toBeVisible();
+  await bar.locator('[data-attr="inbox-scheduled-bar-summary"]').click();
+  const rows = bar.locator('[data-attr="inbox-scheduled-bar-row"]');
+  const rowCount = await rows.count();
+  expect(rowCount).toBeGreaterThan(0);
+  await page.screenshot({ path: path.join(SHOTS, "12-demo-thread-scheduled-sends.png") });
+
+  // Send now has no local equivalent, so the sandbox refuses out loud rather than doing nothing.
+  await bar.locator('[data-attr="inbox-scheduled-bar-send"]').first().click();
+  const refusal = page.locator('[data-attr="thread-scheduled-error"]');
+  await expect(refusal).toHaveText("Not available in the demo.");
+  await page.screenshot({ path: path.join(SHOTS, "13-demo-send-now-refusal.png") });
+
+  // Cancel is applied locally instead: the reminder leaves the bar, with no request behind it.
+  await rows.first().click();
+  const cancel = page.getByRole("button", { name: /^cancel send$|^cancel$/i }).last();
+  await cancel.click();
+  await expect(bar.locator('[data-attr="inbox-scheduled-bar-row"]')).toHaveCount(rowCount - 1);
+  await page.screenshot({ path: path.join(SHOTS, "14-demo-cancel-applied-locally.png") });
+
+  // Nothing in the whole flow asked the scheduled-messages API for anything.
+  expect(scheduledApiCalls).toEqual([]);
+  expect(errors).toEqual([]);
+});

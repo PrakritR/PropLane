@@ -155,3 +155,72 @@ describe("loadMoveInDetailsLock (the SMS test harness, the one builder with no a
   });
 });
 
+
+/**
+ * EVIDENCE HARNESS. The resident assistant's answer IS the end-user surface here, so a reviewer should
+ * be able to read what the agent was handed in each state rather than infer it from assertions above.
+ * Writes the transcript when `EVIDENCE_DIR` asks for it; the assertions run either way.
+ */
+describe("resident assistant transcript — asking the agent for the move-in details", () => {
+  it("prints what get_move_in_info returns while the form blocks it, after a failed read, and once it is open", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const lines: string[] = [];
+    const say = (text = "") => lines.push(text);
+    const show = async (label: string, overrides: Record<string, unknown>) => {
+      const { ctx } = makeResidentToolCtx(houseTables(), overrides as never);
+      const res = (await getMoveInInfoTool.handler(ctx, {})) as Record<string, unknown>;
+      say(label);
+      say(`    tool: get_move_in_info   (ctx: ${JSON.stringify(overrides)})`);
+      say(
+        JSON.stringify(res, null, 2)
+          .split("\n")
+          .map((l) => `    <- ${l}`)
+          .join("\n"),
+      );
+      const leaked = SECRETS.filter((secret) => JSON.stringify(res).includes(secret));
+      say(`    secrets present in the answer: ${leaked.length === 0 ? "none" : leaked.join(", ")}`);
+      say();
+      return { res, leaked };
+    };
+
+    say("=".repeat(96));
+    say("resident assistant — get_move_in_info, real handler, real redactMoveInDetails");
+    say("=".repeat(96));
+    say();
+    say("The house carries: door code DOORCODE-7788, Wi-Fi NET-OPEN-SESAME / WIFIPASS-9911,");
+    say("house rules RULES-QUIET-HOURS, general info GENERAL-GATE-CODE-4455, instructions INSTRUCTIONS-LOCKBOX-1234.");
+    say('A form named "Move-in checklist" was sent to this resident and is still unsubmitted.');
+    say();
+
+    say('  resident: "what\'s the wifi password and the door code?"');
+    const locked = await show("  [1] a form that blocks Move-in details is unsubmitted", {
+      moveInDetailsLocked: true,
+      moveInDetailsLockFormId: "FORM-1",
+    });
+    expect(locked.leaked).toEqual([]);
+
+    const failed = await show("  [2] the forms read itself failed (fail closed, names no form)", {
+      moveInDetailsLocked: true,
+      moveInDetailsLockFormId: null,
+      moveInDetailsLockReadFailed: true,
+    });
+    expect(failed.leaked).toEqual([]);
+
+    const absent = await show("  [3] a context built without the flag at all", { moveInDetailsLocked: undefined });
+    expect(absent.leaked).toEqual([]);
+
+    const open = await show("  [4] control: the form is submitted, the lock is open", { moveInDetailsLocked: false });
+    expect(open.leaked).toContain("DOORCODE-7788");
+    expect(open.leaked).toContain("WIFIPASS-9911");
+    expect(open.leaked).toContain("RULES-QUIET-HOURS");
+    say("=".repeat(96));
+
+    const dir = process.env.EVIDENCE_DIR;
+    if (dir) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "resident-assistant-move-in-lock-transcript.txt"), `${lines.join("\n")}\n`, "utf8");
+    }
+    console.log(lines.join("\n"));
+  });
+});

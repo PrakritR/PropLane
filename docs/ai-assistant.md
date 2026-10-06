@@ -513,6 +513,11 @@ the partial `portal_chat` archive index, and `agent_user_preferences`).
 
 Resident **My home** sharing tools (`get_housemates`, `get_housemate_sharing`, `update_housemate_sharing`) use server-redacted, current-residency-scoped data and the existing write-confirm gate. See [resident My home](agents/resident-my-home.md).
 
+Move-in **forms Blocks** reach the agent too: `get_move_in_info` redacts through the portal's own
+`redactMoveInDetails` while a move-in-details-blocking form is unsubmitted (`ResidentAgentContext.moveInDetailsLocked`
+is required, so a context builder that forgets it withholds), and `set_resident_approval` honours the approval gate like
+every other approve path. Contract: [move-in forms](agents/move-in-forms.md) § Forms section, Blocks.
+
 ### Actual utility bills, move-out deposit review and bank matching
 
 Manager reads: `preview_utility_allocation`, `review_inspection_deposit`, and

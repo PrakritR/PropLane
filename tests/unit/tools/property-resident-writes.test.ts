@@ -1266,3 +1266,96 @@ describe("assistant transcript at the plan's listing cap", () => {
     console.log(lines.join("\n"));
   });
 });
+
+/**
+ * EVIDENCE HARNESS for the approval gate on the ASSISTANT path (`set_resident_approval`), which has no
+ * screen of its own: a reviewer reads the manager-visible refusal and the row that did not move, rather
+ * than a green tick. Writes the transcript when `EVIDENCE_DIR` asks for it; assertions run either way.
+ */
+describe("assistant transcript — approving a resident while a form blocks approval", () => {
+  it("refuses in preview and at execute, writes nothing, and ignores another landlord's form", async () => {
+    const lines: string[] = [];
+    const say = (text = "") => lines.push(text);
+    const form = (over: Record<string, unknown> = {}) => ({
+      id: "form_1", application_id: "app_1", manager_user_id: "manager_a", property_id: "p1", resident_email: "t@x.com",
+      resident_user_id: null, form_id: "f1", status: "sent", sent_at: "2026-10-01T00:00:00Z",
+      snapshot: { kind: "other", blocks: "approval" }, ...over,
+    });
+    const approvedFlag = (tables: Record<string, Row[]>) =>
+      tables.profiles!.find((p) => p.id === "u1")!.application_approved;
+
+    say("=".repeat(96));
+    say('assistant write tool — set_resident_approval, real handler, real "Blocks: Approval" gate');
+    say("=".repeat(96));
+    say();
+    say('Applicant "Ten Ant" <t@x.com> applied to manager_a\'s p1. profiles.application_approved = false.');
+    say();
+
+    const blocked = makeWriteCtx({ ...residentSeed(), resident_move_in_forms: [form()] });
+    say('  manager: "approve t@x.com"   (their own Approval-blocking form is still unsubmitted)');
+    const preview = await previewWrite(setResidentApprovalTool, blocked.ctx, { residentEmail: "t@x.com", approved: true });
+    say(`    preview -> ${preview.ok ? "would confirm" : `refused: ${preview.error}`}`);
+    const executed = await executeWrite(setResidentApprovalTool, blocked.ctx, { residentEmail: "t@x.com", approved: true });
+    say(`    execute -> ${executed.ok ? `ok: ${executed.reply}` : `refused: ${executed.error}`}`);
+    say(`    profiles.application_approved: ${approvedFlag(blocked.tables)}`);
+    say(`    profiles updates written: ${blocked.log.updates.filter((u) => u.table === "profiles").length}   audit rows: ${auditRows(blocked.tables).length}`);
+    say();
+    expect(preview.ok).toBe(false);
+    expect(executed.ok).toBe(false);
+    expect(approvedFlag(blocked.tables)).toBe(false);
+
+    const down = makeWriteCtx(residentSeed());
+    const realFrom = down.ctx.db.from.bind(down.ctx.db);
+    (down.ctx.db as { from: (t: string) => unknown }).from = (table: string) => {
+      if (table === "resident_move_in_forms") throw new Error("down");
+      return realFrom(table);
+    };
+    const failed = await executeWrite(setResidentApprovalTool, down.ctx, { residentEmail: "t@x.com", approved: true });
+    say("  the same ask while the forms read is DOWN (fail closed, retryable, names no form):");
+    say(`    execute -> ${failed.ok ? "ok" : `refused: ${failed.error}`}`);
+    say(`    profiles.application_approved: ${approvedFlag(down.tables)}`);
+    say();
+    expect(failed.ok).toBe(false);
+    expect(approvedFlag(down.tables)).toBe(false);
+
+    const foreign = makeWriteCtx({
+      ...residentSeed(),
+      resident_move_in_forms: [form({ id: "form_x", application_id: "app_other", manager_user_id: "manager_b", property_id: "p_other" })],
+    });
+    const foreignRes = await executeWrite(setResidentApprovalTool, foreign.ctx, { residentEmail: "t@x.com", approved: true });
+    say("  ANOTHER landlord's Approval-blocking form for the same applicant neither blocks nor is named:");
+    say(`    execute -> ${foreignRes.ok ? `ok: ${foreignRes.reply}` : `refused: ${foreignRes.error}`}`);
+    say(`    profiles.application_approved: ${approvedFlag(foreign.tables)}`);
+    say(`    "form_x" anywhere in the answer: ${JSON.stringify(foreignRes).includes("form_x")}`);
+    say();
+    expect(foreignRes.ok).toBe(true);
+    expect(JSON.stringify(foreignRes)).not.toContain("form_x");
+
+    const submitted = makeWriteCtx({ ...residentSeed(), resident_move_in_forms: [form({ status: "submitted" })] });
+    const okRes = await executeWrite(setResidentApprovalTool, submitted.ctx, { residentEmail: "t@x.com", approved: true });
+    say("  control: once their own form is submitted, the same ask goes through:");
+    say(`    execute -> ${okRes.ok ? `ok: ${okRes.reply}` : `refused: ${okRes.error}`}`);
+    say(`    profiles.application_approved: ${approvedFlag(submitted.tables)}`);
+    say();
+    expect(okRes.ok).toBe(true);
+    expect(approvedFlag(submitted.tables)).toBe(true);
+
+    const suspend = makeWriteCtx({
+      ...residentSeed(),
+      profiles: [{ id: "u1", role: "resident", email: "t@x.com", full_name: "Ten Ant", application_approved: true }],
+      resident_move_in_forms: [form()],
+    });
+    const suspendRes = await executeWrite(setResidentApprovalTool, suspend.ctx, { residentEmail: "t@x.com", approved: false });
+    say("  and SUSPENDING access is never gated by a form:");
+    say(`    execute -> ${suspendRes.ok ? `ok: ${suspendRes.reply}` : `refused: ${suspendRes.error}`}`);
+    say("=".repeat(96));
+    expect(suspendRes.ok).toBe(true);
+
+    const dir = process.env.EVIDENCE_DIR;
+    if (dir) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, "manager-assistant-approval-gate-transcript.txt"), `${lines.join("\n")}\n`, "utf8");
+    }
+    console.log(lines.join("\n"));
+  });
+});

@@ -50,22 +50,40 @@ the action-event bus, domain `move_in_form`).
   Read it only through `resolveMoveInFormBlocks`. A sent copy keeps what it was sent with: editing the template later never
   changes it. Only a `sent` copy blocks; submitted and cancelled never do.
 - **`blocking.ts` is the one place the rule lives** (`blockingFormsFromRows`, `loadResidentBlockingForms`,
-  `loadApplicationBlockingForms`). A read that fails blocks (fail closed); a missing table blocks nothing. It is enforced on the server:
+  `loadApplicationBlockingForms`, `leaseApplicationIds`). A read that fails blocks (fail closed); a missing table blocks nothing.
+  `loadResidentBlockingForms` narrows by `propertyId` and/or `applicationIds`: given both, a form counts when it matches EITHER, so a
+  stale or mismatched property id on a row can never open the gate for a form that is plainly this resident's. A MANAGER asking about
+  someone else's resident passes `callerHolds`, so only forms the caller may judge count — another landlord's form for the same
+  applicant neither blocks them nor reveals itself — and a predicate that throws fails closed like a failed read.
+  It is enforced on the server:
   - Move-in details: `loadResidentPortalAccessState` returns `blockingFormsPending { moveInDetails, leaseSigning, approval, formIds }`;
     `renderPortalSection` builds My home with `formsLock` and runs `redactMoveInDetails` over the loaded house, so no door code, Wi-Fi,
-    rule, photo or amenity reaches the browser. The tab shows the lock (`ResidentFormsLock`) with a button to the form.
+    rule, photo or amenity reaches the browser. The tab shows the lock (`ResidentFormsLock`) with a button to the form. The resident
+    AGENT withholds exactly the same content through the same `redactMoveInDetails`: every resident context builder threads the
+    REQUIRED `ResidentAgentContext.moveInDetailsLocked` (`moveInDetailsLockFromBlocking` reuses the access state's single forms read;
+    `loadMoveInDetailsLock` is for the one builder with no access state), and `get_move_in_info` redacts and returns a `lockedNotice`
+    naming the form. Anything but an explicit `false` locks, so a builder that forgets the flag — or a failed read — withholds.
   - Lease signing: `POST /api/portal-lease-pipeline` answers 409 `FORMS_BLOCK_LEASE_SIGNING` to a resident's NEW signature (or signed
-    PDF return) while a lease-signing form for this resident (and this lease's property) is unsubmitted. The lease page shows
-    "Finish your forms first" linking to the form (`useResidentFormsBlock`, display only).
+    PDF return) while a lease-signing form for this resident is unsubmitted. Which forms count is matched by the lease's APPLICATION
+    ids (`leaseApplicationIds`: its own `axisId` plus every joint member's) OR this lease's property — never the stored property id
+    alone; a lease naming no application at all is not narrowed by property, so every sent form of that resident blocks. The lease
+    page shows "Finish your forms first" linking to the form (`useResidentFormsBlock`, display only).
   - Approval: `POST /api/manager-applications` (single-row upsert and batch `replace`), `PATCH /api/portal/resident-approval` and the
-    agent's `update_application_bucket` refuse the transition INTO approved with 409 (`blocked: "forms"`) while an approval-blocking
-    form for that application is unsubmitted; an already-approved row stays editable. A forms read that FAILED refuses too, but as a
+    agent's `update_application_bucket` and `set_resident_approval` refuse the transition INTO approved with 409 (`blocked: "forms"`)
+    while an approval-blocking form for that application is unsubmitted; an already-approved row stays editable. Where no single
+    application is named, the fallback is CALLER-SCOPED (`loadCallerScopedResidentBlockingForms` and, for the agent tool,
+    `loadResidentApprovalBlocking`, both in `resident-approval.server.ts`): only the applications and forms this caller holds count —
+    they sent it, own the property, or co-manage it with permission; admins see every form — and the ownership tests share one
+    request-scoped `ApplicationAccessMemo` (`manager-application-access.ts`) so the scope reads cost once per distinct property rather
+    than once per row. A forms read that FAILED refuses too, but as a
     distinct retryable **503** (`blocked: "forms-check"`, `APPROVAL_FORMS_CHECK_FAILED_MESSAGE`) that names no form — nothing is known,
-    so nothing is named (the agent tool throws that same message). The Approve popup disables its button and names the waiting form
+    so nothing is named (both agent tools throw that same message). The Approve popup disables its button and names the waiting form
     (`useApprovalFormsBlock`, display only).
 - **Editing a pending form**: `PATCH /api/move-in-forms/:id` (manager) edits `dueAt`, `blocks` and `questions` on a `sent` copy only.
   It re-derives the manager's edit scope from the session (a body id is never trusted; a foreign or resident caller gets 404), writes
-  with a compare-and-swap on `status = 'sent'` and answers 409 once the copy is submitted or cancelled. A draft answer to a question
+  with a compare-and-swap on `status = 'sent'` AND the `updated_at` it read, then re-reads the status to name what actually happened:
+  submitted (locked), cancelled, or still `sent` — which means the resident just saved a draft, so reopen and retry. All three are 409;
+  an edit computed from the older row must lose rather than overwrite the resident's save. A draft answer to a question
   that was removed is dropped. UI: `EditPendingMoveInFormPopup`, the standard popup (Details · Questions, live resident view on the right).
 - **Manager Forms page** `/portal/forms` (TENANCY, after Residents; `forms-list.tsx`): Pending (`sent`) and Completed (`submitted`) tabs
   carried by the URL (`/portal/forms`, `/portal/forms/completed`), counts, search, a Filter popover (Kind, Property, Resident, Blocks,

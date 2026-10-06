@@ -1166,6 +1166,76 @@ describe("manager edit of a pending form (PATCH /api/move-in-forms/:id)", () => 
     forms = [formRow({ source: "upload" })];
     await expect(editMoveInForm(manager(), ID, { questions: [q("name", "text")] })).rejects.toMatchObject({ status: 400 });
   });
+
+  /**
+   * EVIDENCE HARNESS for the compare-and-swap on `updated_at`. The manager sees a refusal sentence and
+   * the resident's own save survives untouched — that pair is the whole point, so a reviewer should read
+   * it. Writes the transcript when `EVIDENCE_DIR` asks for it; the assertions run either way.
+   */
+  it("transcript: the manager's edit loses a race with the resident's save", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const out: string[] = [];
+    const say = (text = "") => out.push(text);
+    const { writeAuditLog } = await import("@/lib/tools/audit");
+
+    say("=".repeat(96));
+    say("manager edits a pending form while the resident is filling it in — real editMoveInForm");
+    say("=".repeat(96));
+    say();
+    forms = [formRow({ updated_at: "2026-10-02T00:00:00.000Z", answers: [{ key: "name", value: "A" }] })];
+    say(`  the row the manager read:  updated_at=${forms[0]!.updated_at}  answers=${JSON.stringify(forms[0]!.answers)}`);
+    // The resident's draft save lands between the manager's read and the manager's write.
+    vi.mocked(writeAuditLog).mockImplementationOnce(async () => {
+      forms[0]!.updated_at = "2026-10-02T00:00:05.000Z";
+      forms[0]!.answers = [{ key: "name", value: "A" }, { key: "pet", value: "no" }];
+      return { recorded: true } as never;
+    });
+    say('  ...the resident saves a draft:  updated_at=2026-10-02T00:00:05.000Z  answers+=[{"key":"pet","value":"no"}]');
+    say();
+    say('  manager: PATCH /api/move-in-forms/:id { questions: [name, sig] }   (drops "pet")');
+    let refusal: { status?: number; message?: string } = {};
+    try {
+      await editMoveInForm(manager(), ID, { questions: [q("name", "text", { required: true }), q("sig", "signature", { required: true })] });
+    } catch (error) {
+      refusal = error as { status?: number; message?: string };
+    }
+    say(`    <- ${refusal.status} "${refusal.message}"`);
+    say(`       the resident's save is intact: answers=${JSON.stringify(forms[0]!.answers)} updated_at=${forms[0]!.updated_at}`);
+    say();
+    expect(refusal).toMatchObject({ status: 409, message: "The resident just saved; reopen and try again" });
+    expect(forms[0]!.answers).toEqual([{ key: "name", value: "A" }, { key: "pet", value: "no" }]);
+
+    say("  manager reopens and edits the fresh row:");
+    const { form } = await editMoveInForm(manager(), ID, { blocks: "approval" });
+    say(`    <- 200 snapshot.blocks=${form.snapshot.blocks}`);
+    say();
+    expect(form.snapshot.blocks).toBe("approval");
+
+    forms = [formRow({ updated_at: "2026-10-02T00:00:00.000Z" })];
+    vi.mocked(writeAuditLog).mockImplementationOnce(async () => {
+      forms[0]!.status = "cancelled";
+      return { recorded: true } as never;
+    });
+    let cancelled: { status?: number; message?: string } = {};
+    try {
+      await editMoveInForm(manager(), ID, { blocks: "approval" });
+    } catch (error) {
+      cancelled = error as { status?: number; message?: string };
+    }
+    say("  and when the race was lost to a CANCEL, the sentence says cancelled, not submitted:");
+    say(`    <- ${cancelled.status} "${cancelled.message}"`);
+    say("=".repeat(96));
+    expect(cancelled).toMatchObject({ status: 409, message: "This form was cancelled, so it can no longer be edited." });
+
+    const dir = process.env.EVIDENCE_DIR;
+    if (dir) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "move-in-form-edit-race-transcript.txt"), `${out.join("\n")}\n`, "utf8");
+    }
+    console.log(out.join("\n"));
+  });
+
 });
 
 describe("a sent copy carries what its template blocks", () => {

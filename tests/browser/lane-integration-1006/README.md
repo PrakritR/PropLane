@@ -21,5 +21,10 @@ with terms prefilled from the current lease, a record Communication section that
 fills the page and offers Schedule for later, and the resident-side forms lock in
 both its blocked and its fail-closed states.
 
+They also cover `/demo`'s own half of the scheduled-sends gating: on the `/demo`
+pathname a thread's reminders are the sandbox's local projection, Send now
+refuses out loud ("Not available in the demo."), Cancel is applied locally, and
+the whole flow asks the scheduled-messages API for nothing.
+
 The server half of the same work has no screen; its transcript comes from
 `tests/unit/evidence-claude1-forms-gate-1006.test.ts`.
