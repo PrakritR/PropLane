@@ -16,8 +16,6 @@ import {
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
 import { ApplicationQuestionsEditor } from "@/components/portal/question-editor/application-questions-editor";
-import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
-import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
   PORTAL_EDIT_ROW_ICON_BUTTON_CLASS,
@@ -1592,52 +1590,14 @@ export function ManagerApplicationQuestionsEditorModal({
               src={`/api/portal/application-template-import?propertyId=${encodeURIComponent(applicationPreviewPropertyId)}&templateId=${encodeURIComponent(applicationTemplate.id)}&path=${encodeURIComponent(originalPdfPath)}`}
             />
             <div className={`${compareView === "form" ? "block" : "hidden md:block"} h-[34rem] overflow-y-auto rounded-xl border border-border bg-card p-3`}>
-              {variant === "cosigner" ? <CosignerApplyFlow
-                onBack={() => {}}
-                previewMode
-                embedded
-                showToast={showToast}
-                applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
-                previewConfig={configSlice}
-              /> : <RentalApplicationWizard
-                showToast={showToast}
-                mode="manager"
-                layout="embedded"
-                linkedPropertyId={applicationPreviewPropertyId}
-                linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
-                templatePreviewVariant={variant}
-                templatePreview
-                templatePreviewSubmission={{
-                  ...localSub,
-                  ...mergeApplicationConfigForVariant(variant, configSlice),
-                }}
-              />}
+              <ApplicationSectionPreviewPane
+                section={previewSection}
+                fields={previewFields}
+                applicationPreviewPropertyId={applicationPreviewPropertyId}
+                stepPosition={previewStepPosition}
+              />
             </div>
           </div>
-        </div>
-      ) : null}
-      {applicationPreviewPropertyId && !originalPdfPath ? (
-        <div className="rounded-2xl border border-border bg-card p-3" data-attr="application-full-wizard-preview">
-          {variant === "cosigner" ? <CosignerApplyFlow
-            onBack={() => {}}
-            previewMode
-            embedded
-            showToast={showToast}
-            applicationKind={applicationTemplate?.kind === "short-term" ? "short-term" : "long-term"}
-            previewConfig={configSlice}
-          /> : <RentalApplicationWizard
-            showToast={showToast}
-            mode="manager"
-            layout="embedded"
-            linkedPropertyId={applicationPreviewPropertyId}
-            linkedRentalType={variant === "short_term" ? "short_term" : "standard"}
-            templatePreviewVariant={variant}
-            templatePreview
-            templatePreviewSubmission={{
-              ...localSub,
-              ...mergeApplicationConfigForVariant(variant, configSlice),
-            }}
-          />}
         </div>
       ) : null}
     </>
