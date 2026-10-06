@@ -91,7 +91,7 @@ describe("ManagerPropertyLeasePanel", () => {
     expect(link.textContent).toMatch(/Long-term leases\s*0/);
     const row = document.querySelector('[data-attr="property-lease-quick-add"]')!;
     expect(row.textContent).toContain("Quick add");
-    expect(Array.from(row.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Long-term lease", "Short-term lease"]);
+    expect(Array.from(row.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Long-term lease"]); // the open tab's stay only
   });
 
   it("leaseListRowCount: exactly the leases the property has", () => {
