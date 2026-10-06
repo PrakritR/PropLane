@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
-import { createPropertyLeaseTemplate, type PropertyLeaseTemplate } from "@/lib/property-lease-templates";
+import { createPropertyLeaseTemplate, PROPERTY_LEASE_TYPE_OPTIONS, type PropertyLeaseTemplate } from "@/lib/property-lease-templates";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), back: vi.fn() }),
@@ -179,6 +179,48 @@ describe("F013: lease Sections step duplicate-name validation", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
+describe("a new lease opens with a unique default name and no duplicate error", () => {
+  const defaultLabel = PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel;
+  const existing = (label: string): PropertyLeaseTemplate => ({
+    ...createPropertyLeaseTemplate({ kind: "long-term", label, source: { kind: "proplane_default" } as never }),
+  });
+  const open = (templates: PropertyLeaseTemplate[]) =>
+    render(
+      <PropertyLeaseFormModal
+        open
+        mode="add"
+        sub={createDefaultListingSubmission()}
+        templates={templates}
+        propertyId="mgr-house-1"
+        onClose={() => {}}
+        onSave={async () => true}
+        showToast={() => {}}
+      />,
+    );
+  const nameInput = () => document.querySelector('[data-attr="property-lease-name"]') as HTMLInputElement;
+
+  it("appends 2, then 3, when the default name is already taken, and shows no error on open", async () => {
+    open([existing(defaultLabel), existing(`${defaultLabel} 2`)]);
+    await screen.findByRole("dialog", { name: "New lease" });
+    expect(nameInput().value).toBe(`${defaultLabel} 3`);
+    expect(screen.queryByText(/already exists on this property/)).toBeNull();
+  });
+
+  it("keeps the plain default when nothing uses it", async () => {
+    open([]);
+    await screen.findByRole("dialog", { name: "New lease" });
+    expect(nameInput().value).toBe(defaultLabel);
+  });
+
+  it("shows the duplicate error only after the manager types a name another lease uses", async () => {
+    open([existing(defaultLabel)]);
+    await screen.findByRole("dialog", { name: "New lease" });
+    expect(screen.queryByText(/already exists on this property/)).toBeNull();
+    fireEvent.change(nameInput(), { target: { value: defaultLabel } });
+    expect(await screen.findByText(`A lease named "${defaultLabel}" already exists on this property.`)).toBeTruthy();
   });
 });
 

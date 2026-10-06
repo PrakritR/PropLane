@@ -25,7 +25,7 @@ import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox
 import { FormPromoCodesRow } from "@/components/portal/form-promo-codes";
 import { centsToMoneyText, moneyTextToCents } from "@/lib/form-template-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
-import { applicationsOfLease, setApplicationsOfLease } from "@/lib/listing-inline-forms";
+import { applicationsOfLease, setApplicationsOfLease, uniqueFormLabel } from "@/lib/listing-inline-forms";
 import { mappableApplicationTemplates } from "@/lib/application-lease-mapping";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 import { isAddendumLeaseTemplate } from "@/lib/application-lease-mapping";
@@ -284,7 +284,10 @@ export function PropertyLeaseFormModal({
 
   // F013: inline duplicate-name validation — another lease already saved on
   // this property with the same (trimmed, case-insensitive) name.
-  const duplicateLeaseNameError = useMemo(() => {
+  // The name a lease opens with is made unique, so the error shows only once the manager has typed a
+  // name (or tried to save one) that another lease already uses.
+  const [nameEdited, setNameEdited] = useState(false);
+  const duplicateLeaseNameClash = useMemo(() => {
     const trimmed = label.trim().toLowerCase();
     if (!trimmed || !templates) return null;
     const clashes = templates.some(
@@ -292,6 +295,7 @@ export function PropertyLeaseFormModal({
     );
     return clashes ? `A lease named "${label.trim()}" already exists on this property.` : null;
   }, [label, templates, template?.id]);
+  const duplicateLeaseNameError = nameEdited ? duplicateLeaseNameClash : null;
 
   const source = leaseSourceFromDraft(draft);
   const typeMeta = useMemo(
@@ -363,6 +367,7 @@ export function PropertyLeaseFormModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setNameEdited(false);
     setStepIdx(0);
     setRoutingLeaseTemplates(
       (templates ?? []).map((row) =>
@@ -414,7 +419,9 @@ export function PropertyLeaseFormModal({
     const addKind = initialStay === "short_term" ? "short-term" : "long-term";
     const addMode = initialStay === "short_term" ? "proplane_short_term" : "proplane_long_term";
     setLeaseAddType(addKind);
-    setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === addKind)!.defaultLabel);
+    // A default name another lease already uses opens as "<name> 2", so the duplicate error never greets a new lease.
+    setNameEdited(false);
+    setLabel(uniqueFormLabel((templates ?? []).map((row) => row.label), PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === addKind)!.defaultLabel));
     setLinkedApplicationTemplateId(null);
     setOffered(true);
     setLeaseFeeText("");
@@ -439,13 +446,18 @@ export function PropertyLeaseFormModal({
     setKind(deriveLeaseKindFromStayTerms(row.applicationLeaseTerms ?? []));
   }, [open, mode, routingLeaseTemplates, template?.id]);
 
+  const templatesRef = useRef(templates);
+  useEffect(() => {
+    templatesRef.current = templates;
+  }, [templates]);
+
   useEffect(() => {
     if (!open || mode === "edit") return;
     const defaultLabel =
       documentMode === "proplane_short_term"
         ? PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "short-term")?.defaultLabel
         : PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")?.defaultLabel;
-    if (defaultLabel) setLabel(defaultLabel);
+    if (defaultLabel) setLabel(uniqueFormLabel((templatesRef.current ?? []).map((row) => row.label), defaultLabel));
   }, [documentMode, open, mode]);
 
   const handleDocumentModeChange = (next: PropertyLeaseDocumentMode) => {
@@ -503,7 +515,7 @@ export function PropertyLeaseFormModal({
     const srcDraft = draftFromTemplate(src);
     const srcSource = leaseSourceFromDraft(srcDraft);
     const srcKind = normalizeLeaseTemplateKind(src.kind);
-    setLabel(`${src.label.trim()} copy`);
+    setLabel(uniqueFormLabel((templates ?? []).map((row) => row.label), `${src.label.trim()} copy`));
     setKind(srcKind);
     // A copy never inherits "Allow custom dates" / "Allow month-to-month": a term routes to one lease.
     setApplicationLeaseTerms([]);
@@ -579,7 +591,7 @@ export function PropertyLeaseFormModal({
     setStartFrom("upload");
     setSectionsUploadFileName(file.name);
     if (documentMode !== "upload") handleDocumentModeChange("upload");
-    if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
+    if (!label.trim()) setLabel(uniqueFormLabel((templates ?? []).map((row) => row.label), deriveFormNameFromFileName(file.name)));
     onPickLeaseTemplateDoc(file);
   };
 
@@ -662,8 +674,9 @@ export function PropertyLeaseFormModal({
   };
 
   const commitSave = async () => {
-    if (duplicateLeaseNameError) {
-      setError(duplicateLeaseNameError);
+    if (duplicateLeaseNameClash) {
+      setNameEdited(true);
+      setError(duplicateLeaseNameClash);
       return;
     }
     const validationError = validateLeaseDraft(draft, documentMode);
@@ -1018,7 +1031,10 @@ export function PropertyLeaseFormModal({
           setError("Enter a name for this lease.");
           return false;
         }
-        if (stepId === "name" && duplicateLeaseNameError) return false;
+        if (stepId === "name" && duplicateLeaseNameClash) {
+          setNameEdited(true);
+          return false;
+        }
         if (stepId === "name" && mode === "edit" && applicationLeaseTerms.length === 0) {
           setError("A lease must apply to at least one lease type.");
           return false;
@@ -1181,7 +1197,7 @@ export function PropertyLeaseFormModal({
                 onPickFile={(file) => {
                   setSectionsUploadFileName(file.name);
                   if (documentMode !== "upload") handleDocumentModeChange("upload");
-                  if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
+                  if (!label.trim()) setLabel(uniqueFormLabel((templates ?? []).map((row) => row.label), deriveFormNameFromFileName(file.name)));
                   onPickLeaseTemplateDoc(file);
                 }}
                 onReread={() => {}}
@@ -1198,6 +1214,7 @@ export function PropertyLeaseFormModal({
             dataAttr="property-lease-name"
             onChange={(next) => {
               setError(null);
+              setNameEdited(true);
               setLabel(next);
             }}
           />
