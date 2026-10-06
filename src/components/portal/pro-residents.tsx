@@ -4,7 +4,7 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Bell, CheckCircle2, Download, XCircle, RefreshCw, Settings as SettingsIcon, Pencil, PenLine, Plus, Send } from "lucide-react";
+import { Settings as SettingsIcon } from "lucide-react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -131,6 +131,7 @@ import {
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoreHorizontal } from "lucide-react";
 import { escapeCsv } from "@/lib/csv";
+import { residentSectionHeaderActions as residentSectionActionsFor } from "@/lib/resident-record-section-actions";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
@@ -2953,87 +2954,30 @@ export function ManagerResidents({
       { basePath: portalBase, residentsTab },
       resolvedDetailTab,
     );
-    let actions = sections.headerActions;
+    const row = selectedApplicationRow;
     // A tab header carries only what applies to the sub-tab that is open, and an action that does
     // not apply is absent, never disabled (captain, 2026-10-06). There is no ⋯ overflow in a header.
-    if (resolvedDetailTab === "application") {
-      const row = selectedApplicationRow;
-      // The actions are the one application's, so they show only under the sub-tab it sits in.
-      if (!row || selectedApplicationBucket !== residentApplicationBucket) return [];
-      const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
-      const download: RecordHeaderAction = { id: "download", label: "Download PDF", icon: Download };
-      const edit: RecordHeaderAction = { id: "edit", label: "Edit", icon: Pencil };
-      if (residentApplicationBucket === "incomplete") {
-        const next: RecordHeaderAction[] = [];
-        if (shouldOfferApplicationCompletionReminder(row)) {
-          next.push({ id: "remind-application", label: "Send reminder", icon: Bell });
-        }
-        if (row.application) next.push(edit);
-        next.push({ id: "send-application", label: "Send application", icon: Send, tone: "primary" });
-        return next;
-      }
-      if (residentApplicationBucket === "pending") {
-        const next: RecordHeaderAction[] = [];
-        if (!undecidable) {
-          next.push({ id: "decline", label: "Reject", icon: XCircle, tone: "danger" });
-        }
-        if (row.application) next.push(edit);
-        next.push(download);
-        if (!undecidable) next.push({ id: "approve", label: "Approve", icon: CheckCircle2, tone: "primary" });
-        return next;
-      }
-      if (residentApplicationBucket === "approved") {
-        return [download, { id: "send-lease", label: "Send lease", icon: Send, tone: "primary" }];
-      }
-      return [download];
-    }
-    if (resolvedDetailTab === "lease") {
-      // One lease is shown at a time; what can be done to it follows the stage it is in.
-      if (!residentLease) return [];
-      if (residentLeasePipelineTab === "draft") {
-        return [
-          { id: "edit-lease", label: "Edit", icon: Pencil },
-          { id: "send-lease", label: "Send lease", icon: Send, tone: "primary" },
-        ];
-      }
-      if (residentLeasePipelineTab === "resident") {
-        return [{ id: "remind-sign", label: "Send reminder", icon: Bell }];
-      }
-      if (residentLeasePipelineTab === "manager") {
-        return [{ id: "sign-lease", label: "Sign", icon: PenLine, tone: "primary" }];
-      }
-      return [{ id: "download", label: "Download", icon: Download }];
-    }
-    if (resolvedDetailTab === "background-check") {
-      if (selectedApplicationRow?.screening) {
-        actions = actions.filter((a) => a.id !== "run-check");
-      }
-      // No check yet: the Run check icon. Pending: nothing to run. Complete (or cancelled): the
-      // same icon becomes "Run new check".
-      const check = selectedApplicationRow?.backgroundCheck;
-      if (check?.status === "pending") {
-        actions = actions.filter((a) => a.id !== "run-check");
-      } else if (check) {
-        actions = actions.map((a) =>
-          a.id === "run-check" ? { id: "run-check", label: "Run new check", icon: RefreshCw } : a,
-        );
-      }
-    }
-    if (resolvedDetailTab === "payments") {
-      const inBucket = residentLedgerRows.filter((r) => r.bucket === chargeBucket);
-      if (chargeBucket === "paid") {
-        return inBucket.length > 0 ? [{ id: "download", label: "Download", icon: Download }] : [];
-      }
-      return [
-        ...(inBucket.length > 0 ? [{ id: "remind-payment", label: "Payment reminder", icon: Bell }] : []),
-        { id: "add-charge", label: "Add charge", icon: Plus, tone: "primary" as const },
-      ];
-    }
-    if (resolvedDetailTab === "tours") {
-      // Nothing is added to a tour that has already happened.
-      return tourBucketProp === "past" ? [] : actions;
-    }
-    return actions;
+    return residentSectionActionsFor({
+      tab: resolvedDetailTab,
+      registry: sections.headerActions,
+      application: {
+        present: Boolean(row),
+        rowBucket: selectedApplicationBucket,
+        subTab: residentApplicationBucket,
+        hasForm: Boolean(row?.application),
+        undecidable: row ? isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row) : false,
+        remindable: row ? shouldOfferApplicationCompletionReminder(row) : false,
+        screening: Boolean(row?.screening),
+        checkStatus: row?.backgroundCheck?.status,
+        hasCheck: Boolean(row?.backgroundCheck),
+      },
+      lease: { present: Boolean(residentLease), subTab: residentLeasePipelineTab },
+      payments: {
+        bucket: chargeBucket,
+        rowsInBucket: residentLedgerRows.filter((r) => r.bucket === chargeBucket).length,
+      },
+      tourBucket: tourBucketProp,
+    });
   }, [
     portalBase,
     residentsTab,

@@ -210,7 +210,7 @@ describe("header icons are tab-independent", () => {
     expect(residents).not.toContain('data-attr="resident-overview-setup"');
     expect(read("src/lib/manager-resident-lifecycle.ts")).toContain('{ label: "Send invite", actionId: "send-setup" }');
     // Send application is the Application tab's blue +.
-    expect(residents).toContain('{ id: "send-application", label: "Send application"');
+    expect(read("src/lib/resident-record-section-actions.ts")).toContain('{ id: "send-application", label: "Send application"');
     // ...and the completed-application upload is a Start-from-a-file card inside that pop-up, not a ⋯ item.
     expect(residents).toContain("onUploadCompletedApplication=");
     expect(residents).not.toContain('data-attr="resident-application-more"');
