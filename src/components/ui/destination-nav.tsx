@@ -506,11 +506,11 @@ function LocalDestinationNavStrip({
 
 /**
  * The tab label as it reads on a phone (`shortLabel` is what a phone shows). The live count is
- * deliberately NOT part of it: `estimatePhoneStripWidth` reserves the count pill for every tab, so
- * the tabs-or-picker answer cannot change when the counts load.
+ * deliberately NOT part of it: these tabs are `countable`, so the pill's room is reserved whether
+ * or not the count has loaded and the tabs-or-picker answer cannot change when it does.
  */
 function phoneTab(item: { label: string; shortLabel?: string }) {
-  return { label: item.shortLabel ?? item.label };
+  return { label: item.shortLabel ?? item.label, countable: true };
 }
 
 function pickerLabel(item: { label: string; count?: number }) {

@@ -29,6 +29,9 @@ const TOUR_TABS = [
   { id: "past", label: "Past", count: 2 },
 ];
 
+/** Four short labels that fit as plain tabs but not once each reserves a count pill. */
+const BOUNDARY_LABELS = ["Open", "Pending", "Paid", "Late"];
+
 describe("what fits one phone screen", () => {
   it("measures the strips the audit found overflowing at 390px, and the ones that fit", () => {
     expect(phoneStripFits(APPLICATION_TABS)).toBe(false);
@@ -39,11 +42,30 @@ describe("what fits one phone screen", () => {
     ).toBe(false);
   });
 
-  it("gives the same answer before and after the counts load, so a tab row never becomes the picker", () => {
-    const loaded = TOUR_TABS.map((tab) => ({ label: tab.label, count: tab.count }));
-    const empty = TOUR_TABS.map((tab) => ({ label: tab.label }));
-    expect(estimatePhoneStripWidth(loaded)).toBe(estimatePhoneStripWidth(empty));
-    expect(phoneStripFits(loaded)).toBe(phoneStripFits(empty));
+  it("charges the count pill to a countable strip only, and to every one of its tabs", () => {
+    const labels = BOUNDARY_LABELS.map((label) => ({ label }));
+    const countable = BOUNDARY_LABELS.map((label) => ({ label, countable: true }));
+    expect(phoneStripFits(labels)).toBe(true);
+    expect(phoneStripFits(countable)).toBe(false);
+    expect(estimatePhoneStripWidth(countable) - estimatePhoneStripWidth(labels)).toBe(23 * BOUNDARY_LABELS.length);
+  });
+});
+
+describe("a strip whose tabs can carry counts", () => {
+  const items = BOUNDARY_LABELS.map((label) => ({ id: label.toLowerCase(), label }));
+  const render4 = (tabs: { id: string; label: string; count?: number }[]) =>
+    render(
+      <PhoneStripPickerScope>
+        <LocalDestinationNav items={tabs} activeId={tabs[0]!.id} onChange={() => {}} ariaLabel="Charge status" appearance="command" />
+      </PhoneStripPickerScope>,
+    );
+
+  it("gives the same answer before and after the counts load", () => {
+    render4(items);
+    expect(document.querySelector('[data-attr="phone-strip-picker"]')).not.toBeNull();
+    cleanup();
+    render4(items.map((item, index) => ({ ...item, count: index })));
+    expect(document.querySelector('[data-attr="phone-strip-picker"]')).not.toBeNull();
   });
 });
 
@@ -100,6 +122,13 @@ describe("the pop-up's step tabs", () => {
   it("stay tabs when there are only a few", () => {
     render(<WizardStepTabs steps={steps.slice(0, 3)} current={0} onJump={() => {}} />);
     expect(document.querySelector('[data-attr="phone-strip-picker"]')).toBeNull();
+  });
+
+  it("stay tabs at four steps: a step never draws a count pill, so none is reserved", () => {
+    const four = ["Basics", "Rooms", "Bathrooms", "Lease"].map((label) => ({ id: label.toLowerCase(), label }));
+    render(<WizardStepTabs steps={four} current={0} onJump={() => {}} />);
+    expect(document.querySelector('[data-attr="phone-strip-picker"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: /Basics/, expanded: false })).toBeNull();
   });
 
   it("tells a locked step's reason instead of jumping", () => {

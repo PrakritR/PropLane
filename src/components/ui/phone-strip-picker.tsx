@@ -30,21 +30,29 @@ export type PhoneStripTab = {
   label: string;
   /** Extra glyph width (a check or an attention dot). */
   glyphs?: number;
+  /**
+   * This strip's tabs can carry a count pill — so the pill's room is reserved whether or not the
+   * count has loaded yet. A count arrives with the first data load, and charging for it only once
+   * it is there is how a rendered tab row turns into the picker mid-session. A strip that never
+   * shows counts (wizard steps, lease types) leaves this off and is measured on its labels alone.
+   */
+  countable?: boolean;
 };
 
-/**
- * What one tab takes beside its label: padding, gap, and the count pill.
- *
- * The pill is reserved whether or not the tab has a count, because a count arrives with the first
- * data load — charging for it only once it is there is how a rendered tab row turns into the picker
- * mid-session. The answer has to be the one the server and the first paint already gave.
- */
-const PHONE_STRIP_TAB_CHROME_PX = 55;
+/** One tab's own room beside its label: padding and gap. */
+const PHONE_STRIP_TAB_PADDING_PX = 32;
+/** What a count pill adds to a tab that can carry one. */
+const PHONE_STRIP_COUNT_PILL_PX = 23;
 
 /** Width a command strip needs: 14px semibold text, plus each tab's padding, gap and count pill. */
 export function estimatePhoneStripWidth(tabs: readonly PhoneStripTab[]): number {
   return tabs.reduce(
-    (total, tab) => total + tab.label.length * 7 + PHONE_STRIP_TAB_CHROME_PX + (tab.glyphs ?? 0) * 18,
+    (total, tab) =>
+      total +
+      tab.label.length * 7 +
+      PHONE_STRIP_TAB_PADDING_PX +
+      (tab.countable ? PHONE_STRIP_COUNT_PILL_PX : 0) +
+      (tab.glyphs ?? 0) * 18,
     0,
   );
 }

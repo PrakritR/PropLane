@@ -43,14 +43,18 @@ export function toSafeCsv(rows: readonly (readonly unknown[])[]): string {
 }
 
 /**
- * Hand a CSV to the browser as a download: one blob, one anchor, and the object URL revoked as
- * soon as the click is dispatched. Every export used to retype these five lines.
+ * Hand a CSV to the browser as a download. The anchor is in the document when it is clicked and the
+ * object URL outlives the click's own task — a detached anchor or a URL revoked in the same task is
+ * how a browser abandons the download. Every export used to retype these lines.
  */
 export function downloadCsv(filename: string, csv: string): void {
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
