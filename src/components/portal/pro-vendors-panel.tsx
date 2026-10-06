@@ -619,15 +619,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         open={pendingDirectoryAdd !== null}
         onClose={() => setPendingDirectoryAdd(null)}
         title="Add to your vendors"
-      >
-        <div className="space-y-4 p-1">
-          <p className="text-sm leading-relaxed text-foreground">
-            {pendingDirectoryAdd?.name ?? "This vendor"} will be added to your roster and will be able to see
-            this workspace&apos;s service requests so they can bid and get assigned jobs.
-          </p>
-          <ModalFooter>
-            
+        footer={
+          <ModalFooter className="justify-end">
             <Button
+              variant="primary"
+              className="rounded-full"
               type="button"
               data-attr="vendor-directory-add-confirm"
               disabled={addingDirectoryId === pendingDirectoryAdd?.directoryVendorUserId}
@@ -636,6 +632,13 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               Add to your vendors
             </Button>
           </ModalFooter>
+        }
+      >
+        <div className="space-y-4 p-1">
+          <p className="text-sm leading-relaxed text-foreground">
+            {pendingDirectoryAdd?.name ?? "This vendor"} will be added to your roster and will be able to see
+            this workspace&apos;s service requests so they can bid and get assigned jobs.
+          </p>
         </div>
       </Modal>
       <ManagerVendorFormModal

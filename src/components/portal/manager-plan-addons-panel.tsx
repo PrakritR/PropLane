@@ -273,15 +273,17 @@ export function ManagerPlanAddonsPanel() {
         title="Confirm payment"
         onClose={() => setConfirmOpen(false)}
         assistantStrip={false}
+        footer={
+          <ModalFooter className="justify-end">
+            <Button variant="primary" className="rounded-full" onClick={save} loading={saving} data-attr="plan-addons-confirm">
+              Confirm
+            </Button>
+          </ModalFooter>
+        }
       >
         <p className="text-sm text-foreground" data-attr="plan-addons-confirm-delta">
           {formatSignedAddonPrice(deltaCents)}/mo on your next billing cycle.
         </p>
-        <ModalFooter className="mt-6">
-          <Button variant="outline" onClick={save} loading={saving} data-attr="plan-addons-confirm">
-            Confirm
-          </Button>
-        </ModalFooter>
       </Modal>
     </PortalSettingsSection>
   );
