@@ -1077,6 +1077,16 @@ describe("manager edit of a pending form (PATCH /api/move-in-forms/:id)", () => 
     expect(forms[0]!.status).toBe("sent");
   });
 
+  it("drops the stored photo and signature of a question it removed, so nothing is orphaned in the bucket", async () => {
+    stored();
+    forms = [formRow({ answers: [photoAnswer(), sigAnswer()] })];
+    await editMoveInForm(manager(), ID, { questions: [q("sig", "signature", { required: true })] });
+    expect(forms[0]!.answers).toEqual([sigAnswer()]);
+    expect(objects["move-in-form-files"]!.has(`${ID}/room_photos/${UUID}.jpg`)).toBe(false);
+    // The surviving question's own file is untouched.
+    expect(objects["move-in-form-files"]!.has(`${ID}/sig/${UUID}.png`)).toBe(true);
+  });
+
   it("re-derives ownership from the signed-in manager: another manager, and a resident, get a 404 and nothing changes", async () => {
     await expect(editMoveInForm(manager("other-owner"), ID, { blocks: "approval" })).rejects.toMatchObject({ status: 404 });
     await expect(editMoveInForm(resident(), ID, { blocks: "approval" })).rejects.toMatchObject({ status: 404 });

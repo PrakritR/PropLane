@@ -166,7 +166,11 @@ export type MoveInFormRecord = {
   formId: string;
   formName: string;
   source: MoveInFormSource;
-  /** Immutable once sent: the questions (and PDF fingerprint) this resident was asked. */
+  /**
+   * The questions this resident was asked, and the PDF fingerprint behind them. The fingerprint is
+   * immutable once sent; the questions are editable by their own manager (`editMoveInForm`) only while
+   * the copy is still `sent`, and immutable once it is submitted.
+   */
   snapshot: { questions: MoveInFormQuestion[]; pdf: MoveInFormTemplate["pdf"]; kind?: MoveInFormKind; blocks?: MoveInFormBlocks };
   status: MoveInFormStatus;
   answers: MoveInFormAnswer[];

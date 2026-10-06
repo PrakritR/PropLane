@@ -6,6 +6,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import {
   APPROVAL_BLOCKED_BY_FORM_MESSAGE,
+  APPROVAL_FORMS_CHECK_FAILED_MESSAGE,
   loadApplicationBlockingForms,
   loadResidentBlockingForms,
 } from "@/lib/move-in-forms/blocking";
@@ -253,6 +254,10 @@ export async function PATCH(req: Request) {
       if (lookup.stored?.bucket !== "approved") {
         const ids = [...idVariants(applicationId), ...(lookup.storedId ? idVariants(lookup.storedId) : [])];
         const blocking = ids.length > 0 ? await loadApplicationBlockingForms(svc, ids) : await loadResidentBlockingForms(svc, { email });
+        // A read that failed refuses too, but as a retryable 503 that names no form: there may be none.
+        if (blocking.readFailed) {
+          return NextResponse.json({ error: APPROVAL_FORMS_CHECK_FAILED_MESSAGE, blocked: "forms-check" }, { status: 503 });
+        }
         if (blocking.approval) {
           return NextResponse.json({ error: APPROVAL_BLOCKED_BY_FORM_MESSAGE, blocked: "forms" }, { status: 409 });
         }

@@ -383,10 +383,12 @@ describe("PATCH /api/portal/resident-approval — a form that blocks approval", 
     expect(PROFILE_UPDATE_CALLS).toBe(1);
   });
 
-  it("fails closed when the forms cannot be read, and never blocks declining or an already-approved application", async () => {
+  it("fails closed when the forms cannot be read (503, not the form-block refusal), and never blocks declining or an already-approved application", async () => {
     const { PATCH } = await import("@/app/api/portal/resident-approval/route");
     FORMS_ERROR = { code: "500", message: "boom" };
-    expect((await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }))).status).toBe(409);
+    const failed = await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }));
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toMatchObject({ blocked: "forms-check", error: expect.stringContaining("try again") });
     expect(PROFILE_UPDATE_CALLS).toBe(0);
     FORMS = [blocking];
     FORMS_ERROR = null;

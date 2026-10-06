@@ -3,6 +3,8 @@
  * unsubmitted makes the server refuse the transition INTO `approved` (409, `blocked: "forms"`) on both
  * write paths the manager UI uses (the single-row upsert and the batch mirror) and on the resident-approval
  * route; once the resident submits, the same request goes through. An already-approved row stays editable.
+ * A forms read that FAILS still refuses, but as a retryable 503 (`blocked: "forms-check"`) that names no
+ * form — there may not be one, and the manager has nothing to chase.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -128,11 +130,15 @@ describe.each(["upsert", "replace"] as const)("POST /api/manager-applications %s
     expect(UPSERTS).toHaveLength(1);
   });
 
-  it("fails closed when the forms cannot be read", async () => {
+  it("fails closed when the forms cannot be read, as a retryable 503 that names no form", async () => {
     const pending = applicationRow("AXIS-GRACE");
     STORED_ROWS = [{ id: pending.id, row_data: pending, manager_user_id: OWNER, resident_email: pending.email }];
     FORMS_ERROR = { code: "500", message: "boom" };
-    expect((await call(action, { ...pending, bucket: "approved" })).status).toBe(409);
+    const res = await call(action, { ...pending, bucket: "approved" });
+    expect(res.status, JSON.stringify(res.body)).toBe(503);
+    // Never the form-block copy: there may be no form at all, so the manager is told to try again.
+    expect(res.body).toMatchObject({ blocked: "forms-check", error: expect.stringContaining("try again") });
+    expect(res.body.error).not.toContain("has to be submitted");
     expect(UPSERTS).toHaveLength(0);
   });
 

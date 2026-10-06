@@ -24,8 +24,3 @@ export function managerPropertyMoveInForms(userId: string): Array<{ propertyId: 
   }
   return out;
 }
-
-/** The names of those forms (duplicates across properties are grouped later by `moveInFormTabGroups`). */
-export function storedMoveInFormNames(userId: string): string[] {
-  return managerPropertyMoveInForms(userId).map(({ template }) => template.name);
-}

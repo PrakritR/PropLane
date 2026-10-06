@@ -176,14 +176,16 @@ const nextConfig: NextConfig = {
       { source: "/resident/support/:path*", destination: "/resident/dashboard", permanent: false },
       { source: "/portal/services/work-done", destination: "/portal/financials/expenses", permanent: false },
       { source: "/portal/services/work-done/:path*", destination: "/portal/financials/expenses", permanent: false },
-      // The Move-in page has no Inspections tab. Every inspections LIST address lands on Move-in; a
-      // single report (`.../{move-in|move-out}/<reportId>`) keeps its page so the resident record's
-      // Inspections tab and old notification links still open it.
-      { source: "/portal/inspections", destination: "/portal/move-in", permanent: false },
-      { source: "/portal/inspections/:kind(move-in|move-out)", destination: "/portal/move-in", permanent: false },
+      // There is no manager inspections list any more: inspections live on a resident's own record
+      // (Move in › Inspections), so every inspections LIST address lands on the Residents list in ONE
+      // hop — never on Forms, which has nothing to do with an inspection. A single report
+      // (`.../{move-in|move-out}/<reportId>`) keeps its page so the resident record's Inspections tab
+      // and old notification links still open it.
+      { source: "/portal/inspections", destination: "/portal/residents/current", permanent: false },
+      { source: "/portal/inspections/:kind(move-in|move-out)", destination: "/portal/residents/current", permanent: false },
       { source: "/portal/inspections/:kind(move-in|move-out)/:path+", destination: "/portal/move-in/inspections/:kind/:path+", permanent: false },
-      { source: "/portal/move-in/inspections", destination: "/portal/move-in", permanent: false },
-      { source: "/portal/move-in/inspections/:kind(move-in|move-out)", destination: "/portal/move-in", permanent: false },
+      { source: "/portal/move-in/inspections", destination: "/portal/residents/current", permanent: false },
+      { source: "/portal/move-in/inspections/:kind(move-in|move-out)", destination: "/portal/residents/current", permanent: false },
       { source: "/portal/work-orders", destination: "/portal/services/work-orders", permanent: false },
       { source: "/portal/work-orders/:path*", destination: "/portal/services/work-orders", permanent: false },
       // Tasks lost its Arrivals & departures tab (move-ins and move-outs live on Move-in and Calendar). This

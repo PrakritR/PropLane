@@ -1099,9 +1099,11 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
     expect((await sign()).status).toBe(200);
   });
 
-  it("fails closed when the forms cannot be read, and lets the signature through once the form is submitted", async () => {
+  it("fails closed when the forms cannot be read — a retryable 503, not the finish-your-forms refusal", async () => {
     FORMS_ERROR = { code: "500", message: "boom" };
-    expect((await sign()).status).toBe(409);
+    const failed = await sign();
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toMatchObject({ code: "FORMS_CHECK_FAILED", error: expect.stringContaining("try again") });
     expect(upsert).not.toHaveBeenCalled();
     FORMS_ERROR = null;
     FORMS = [{ id: "form-1", form_id: "f1", status: "submitted", resident_user_id: RESIDENT_ID, snapshot: { kind: "other", blocks: "lease_signing" } }];

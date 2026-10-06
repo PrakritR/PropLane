@@ -181,9 +181,10 @@ For each section: **load URL → heading visible → no error toast → primary 
 - [ ] No erroneous "Previous" tab
 - [ ] Links to application / lease / communication work
 
-### 1.6b Inspections (`/portal/move-in/inspections`)
+### 1.6b Inspections (resident record › Move in › Inspections; there is no manager inspections list)
 
-- [ ] Move-in / Move-out tabs list reports; ADD creates one for the resident's assigned room
+- [ ] `/portal/inspections` and `/portal/move-in/inspections` land on `/portal/residents/current` in one hop
+- [ ] A resident record's Move in › Inspections lists that residency's reports; a report address still opens directly
 - [ ] Report detail: photo upload, notes autosave, document preview, request confirmation / request changes / approve
 - [ ] A completed report is read-only everywhere
 

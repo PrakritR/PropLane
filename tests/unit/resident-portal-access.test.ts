@@ -468,4 +468,13 @@ describe("resident portal access state — blockingFormsPending", () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(dbWithForms("error") as never);
     expect((await load()).blockingFormsPending).toMatchObject({ moveInDetails: true, leaseSigning: true });
   });
+
+  // This load runs on every resident page, so both forms facts come from ONE select of the
+  // non-cancelled copies (AGENTS.md § Performance & egress).
+  it("reads the forms table exactly once for both blockingFormsPending and hasMoveInForms", async () => {
+    const db = dbWithForms([sent("a", "move_in_details")]);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    await load();
+    expect(db.from.mock.calls.filter(([table]) => table === "resident_move_in_forms")).toHaveLength(1);
+  });
 });

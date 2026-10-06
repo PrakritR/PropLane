@@ -2,7 +2,7 @@
 
 The same inspection record appears in three places:
 
-- Manager: there is no Inspections sidebar row or Move-in tab any more. The inspections list addresses (`/portal/inspections`, `/portal/move-in/inspections[/{move-in|move-out}]`) redirect to `/portal/move-in` (`next.config.ts`). A single report keeps its address, `/portal/move-in/inspections/{move-in|move-out}/{id}`, and old `/portal/inspections/{move-in|move-out}/{id}` links redirect to it; the resident record's Inspections tab opens reports there. Inspection data and `/api/inspections` are unchanged.
+- Manager: there is no Inspections sidebar row, Move-in tab or list page any more — inspections live on a resident's own record. The inspections list addresses (`/portal/inspections`, `/portal/move-in/inspections[/{move-in|move-out}]`) redirect in ONE hop to `/portal/residents/current` (`next.config.ts`), never to Forms. A single report keeps its address, `/portal/move-in/inspections/{move-in|move-out}/{id}`, and old `/portal/inspections/{move-in|move-out}/{id}` links redirect to it; the resident record's Inspections tab opens reports there. Inspection data and `/api/inspections` are unchanged.
 - Manager resident detail: `/portal/residents/current/{applicationId}/inspections` (also under `past`).
 - Resident My home: the dedicated `/resident/move-in/inspections` tab is the only workspace. My home no longer has a separate "Move-in" tab — it read as a second inspection beside this one — so the arrival details it held (keys, parking, access codes) render under Info & rules, and `/resident/move-in/instructions` resolves there rather than dropping a resident on Placement.
 

@@ -38,7 +38,7 @@ import { bestEffortFailed } from "@/lib/observability/best-effort";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
-import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, loadApplicationBlockingForms } from "@/lib/move-in-forms/blocking";
+import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, APPROVAL_FORMS_CHECK_FAILED_MESSAGE, loadApplicationBlockingForms } from "@/lib/move-in-forms/blocking";
 import {
   openResidentSlots,
   type RoomResidentSlotPlacement,
@@ -84,17 +84,20 @@ function idVariants(id: string): string[] {
 /**
  * Approval is refused while a form sent with "Blocks: Approval" is unsubmitted. Keyed on the TRANSITION
  * into `approved` (an already-approved row stays editable) and read from the forms table, never from
- * the request. A read that fails answers "blocked": fail closed.
+ * the request. A read that fails refuses too (fail closed) but answers `"unchecked"`, so the caller can
+ * say "could not check" instead of naming a form that may not exist.
  */
 async function approvalBlockedByForm(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   next: DemoApplicantRow,
   stored: StoredApplicationRecord | null,
-): Promise<boolean> {
+): Promise<"no" | "blocked" | "unchecked"> {
   const storedRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
-  if (next.bucket !== "approved" || storedRow?.bucket === "approved") return false;
+  if (next.bucket !== "approved" || storedRow?.bucket === "approved") return "no";
   const ids = [...idVariants(String(stored?.id ?? "")), ...idVariants(String(next.id ?? ""))];
-  return (await loadApplicationBlockingForms(db, ids)).approval;
+  const blocking = await loadApplicationBlockingForms(db, ids);
+  if (blocking.readFailed) return "unchecked";
+  return blocking.approval ? "blocked" : "no";
 }
 
 function storedResidentSlot(row: DemoApplicantRow): number | undefined {
@@ -1007,6 +1010,7 @@ export async function POST(req: Request) {
       let blockedWithdrawnApprovals = 0;
       let blockedResidentSlots = 0;
       let blockedFormApprovals = 0;
+      let uncheckedFormApprovals = 0;
       for (const row of rows) {
         // Attribute each row to its correct owner and enforce edit access on
         // foreign (linked-owner) rows. Admins keep the client-supplied owner.
@@ -1021,7 +1025,12 @@ export async function POST(req: Request) {
           blockedWithdrawnApprovals += 1;
           continue;
         }
-        if (await approvalBlockedByForm(db, guarded.row, stored ?? null)) {
+        const formGate = await approvalBlockedByForm(db, guarded.row, stored ?? null);
+        if (formGate === "unchecked") {
+          uncheckedFormApprovals += 1;
+          continue;
+        }
+        if (formGate === "blocked") {
           blockedFormApprovals += 1;
           continue;
         }
@@ -1060,6 +1069,12 @@ export async function POST(req: Request) {
             blockedWithdrawnApprovals,
           },
           { status: 409 },
+        );
+      }
+      if (uncheckedFormApprovals > 0) {
+        return NextResponse.json(
+          { ok: false, error: APPROVAL_FORMS_CHECK_FAILED_MESSAGE, blocked: "forms-check", uncheckedFormApprovals },
+          { status: 503 },
         );
       }
       if (blockedFormApprovals > 0) {
@@ -1446,7 +1461,11 @@ export async function POST(req: Request) {
           { status: 409 },
         );
       }
-      if (await approvalBlockedByForm(db, guarded.row, storedLoad.record ?? null)) {
+      const formGate = await approvalBlockedByForm(db, guarded.row, storedLoad.record ?? null);
+      if (formGate === "unchecked") {
+        return NextResponse.json({ error: APPROVAL_FORMS_CHECK_FAILED_MESSAGE, blocked: "forms-check" }, { status: 503 });
+      }
+      if (formGate === "blocked") {
         return NextResponse.json({ error: APPROVAL_BLOCKED_BY_FORM_MESSAGE, blocked: "forms" }, { status: 409 });
       }
       row = anchorServerOwnedSmsConsent(

@@ -4,6 +4,7 @@ import {
   BLOCKING_FORMS_FAIL_CLOSED,
   loadApplicationBlockingForms,
   loadResidentBlockingForms,
+  loadResidentFormsFacts,
   NO_BLOCKING_FORMS,
 } from "@/lib/move-in-forms/blocking";
 import { defaultMoveInFormBlocks, resolveMoveInFormBlocks } from "@/lib/move-in-forms/types";
@@ -79,6 +80,7 @@ function fakeDb(result: { data?: unknown[]; error?: { code?: string; message?: s
   const chain = (name: string) => (column: string, value: unknown) => { calls.push([name, column, value]); return query; };
   query.select = () => query;
   query.eq = chain("eq");
+  query.neq = chain("neq");
   query.in = chain("in");
   query.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
     (result === "throw" ? Promise.reject(new Error("down")) : Promise.resolve({ data: result.data ?? null, error: result.error ?? null })).then(resolve, reject);
@@ -111,5 +113,54 @@ describe("loading what a resident or an application is blocked on", () => {
   it("has nothing to look up without an email or an id", async () => {
     expect(await loadResidentBlockingForms(fakeDb({ data: [] }).db, { email: "  " })).toEqual(NO_BLOCKING_FORMS);
     expect(await loadApplicationBlockingForms(fakeDb({ data: [] }).db, [])).toEqual(NO_BLOCKING_FORMS);
+  });
+
+  it("marks a failed read as such, so a refusal can say 'could not check' instead of naming a form", async () => {
+    expect((await loadResidentBlockingForms(fakeDb({ error: { code: "500", message: "boom" } }).db, { email: "a@example.test" })).readFailed).toBe(true);
+    expect((await loadApplicationBlockingForms(fakeDb("throw").db, "AXIS-1")).readFailed).toBe(true);
+    // A real block is not a failed read, and neither is a table that is not set up.
+    expect((await loadApplicationBlockingForms(fakeDb({ data: [row({ snapshot: { blocks: "approval" } })] }).db, "AXIS-1")).readFailed).toBeUndefined();
+    expect((await loadResidentBlockingForms(fakeDb({ error: { code: "42P01", message: 'relation "x" does not exist' } }).db, { email: "a@example.test" })).readFailed).toBeUndefined();
+  });
+});
+
+/**
+ * The resident portal's access state reads this table on EVERY page, so both facts it needs come from one
+ * select of the non-cancelled copies (AGENTS.md § Performance & egress).
+ */
+describe("one read answers both resident forms facts", () => {
+  it("asks once, excluding cancelled copies, and derives hasForms and the blocks together", async () => {
+    const { db, calls } = fakeDb({ data: [
+      row({ id: "mine", resident_user_id: "u1", snapshot: { blocks: "approval" } }),
+      row({ id: "done", resident_user_id: "u1", status: "submitted", snapshot: { blocks: "lease_signing" } }),
+    ] });
+    const facts = await loadResidentFormsFacts(db, { email: " A@Example.TEST ", userId: "u1" });
+    expect(facts.hasForms).toBe(true);
+    expect(facts.blocking).toMatchObject({ approval: true, leaseSigning: false, moveInDetails: false });
+    expect(calls).toEqual([["eq", "resident_email", "a@example.test"], ["neq", "status", "cancelled"]]);
+  });
+
+  it("a copy tied to another login is neither a form of theirs nor a block", async () => {
+    const { db } = fakeDb({ data: [row({ id: "theirs", resident_user_id: "u2", snapshot: { blocks: "approval" } })] });
+    const facts = await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
+    expect(facts.hasForms).toBe(false);
+    expect(facts.blocking).toMatchObject({ moveInDetails: false, leaseSigning: false, approval: false });
+  });
+
+  it("a submitted-only resident has forms but nothing blocked", async () => {
+    const { db } = fakeDb({ data: [row({ id: "done", status: "submitted", snapshot: { kind: "intake" } })] });
+    const facts = await loadResidentFormsFacts(db, { email: "a@example.test" });
+    expect(facts.hasForms).toBe(true);
+    expect(facts.blocking).toMatchObject({ moveInDetails: false });
+  });
+
+  it("fails closed on a read error without claiming a form exists; a missing table blocks nothing", async () => {
+    expect(await loadResidentFormsFacts(fakeDb({ error: { code: "500", message: "boom" } }).db, { email: "a@example.test" }))
+      .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
+    expect(await loadResidentFormsFacts(fakeDb("throw").db, { email: "a@example.test" }))
+      .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
+    expect(await loadResidentFormsFacts(fakeDb({ error: { code: "42P01", message: 'relation "x" does not exist' } }).db, { email: "a@example.test" }))
+      .toEqual({ hasForms: false, blocking: NO_BLOCKING_FORMS });
+    expect(await loadResidentFormsFacts(fakeDb({ data: [] }).db, { email: " " })).toEqual({ hasForms: false, blocking: NO_BLOCKING_FORMS });
   });
 });

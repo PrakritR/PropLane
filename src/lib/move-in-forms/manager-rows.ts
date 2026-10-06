@@ -1,7 +1,7 @@
 /**
- * Pure helpers behind the manager's Move-in forms list and the resident record's Move-in tab:
- * which tab a form belongs to, the glyph facts a row shows, how late a form is, and the list
- * filters. No React, no I/O, so the row copy is unit-tested without rendering anything.
+ * Pure helpers behind the manager's Forms list and the resident record's Forms tab: the glyph facts a
+ * row shows, how late a form is, and the list's one filter/count pair (`filterFormsList` /
+ * `formsBucketCounts`). No React, no I/O, so the row copy is unit-tested without rendering anything.
  */
 import {
   MOVE_IN_FORM_BLOCKS_LABELS,
@@ -12,80 +12,6 @@ import {
   type MoveInFormQuestion,
   type MoveInFormSummary,
 } from "./types";
-
-/** Whether a copy is still owed (`waiting`) or filed (`submitted`). A cancelled copy is neither. */
-export type MoveInFormStatusBucket = "submitted" | "waiting";
-
-/** A cancelled request is in neither bucket: the manager withdrew it, so nothing is owed or filed. */
-export function moveInFormTab(form: Pick<MoveInFormSummary, "status">): MoveInFormStatusBucket | null {
-  if (form.status === "submitted") return "submitted";
-  if (form.status === "sent") return "waiting";
-  return null;
-}
-
-/** A form name compared the way tabs group it: trimmed, inner spaces collapsed, case-insensitive. */
-export function moveInFormNameKey(name: string | null | undefined): string {
-  return (name ?? "").trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-/** One tab of the manager's Move-in page: every form with this (normalized) name, across properties. */
-export type MoveInFormTabGroup = {
-  /** The tab id and URL segment: a slug of the name. */
-  id: string;
-  /** Normalized name; copies and stored forms match on it. */
-  key: string;
-  /** How the name reads on the tab (the first spelling in code order, so a capitalised one wins). */
-  label: string;
-};
-
-/** Slugs the router itself owns under `/move-in/`; a form with such a name gets a `-form` suffix. */
-const RESERVED_TAB_SLUGS: readonly string[] = ["inspections", "waiting", "submitted"];
-
-function slugOf(label: string): string {
-  const slug = label
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60)
-    .replace(/-+$/g, "");
-  return slug || "form";
-}
-
-/**
- * The page's tabs: one per distinct form name among `storedNames` (the forms the manager has added to
- * their properties) and the names of the loaded copies, so a renamed or deleted form's copies still
- * show under the name they were sent with. A cancelled copy alone never makes a tab. Alphabetical by
- * name; the id is a slug of it, suffixed when two names would collide.
- */
-export function moveInFormTabGroups(storedNames: readonly string[], forms: readonly MoveInFormSummary[]): MoveInFormTabGroup[] {
-  const spellings = new Map<string, string[]>();
-  const add = (name: string | null | undefined) => {
-    const key = moveInFormNameKey(name);
-    if (!key) return;
-    const trimmed = (name ?? "").trim().replace(/\s+/g, " ");
-    const list = spellings.get(key);
-    if (list) list.push(trimmed);
-    else spellings.set(key, [trimmed]);
-  };
-  for (const name of storedNames) add(name);
-  for (const form of forms) if (moveInFormTab(form)) add(form.formName);
-  const sorted = [...spellings].map(([key, names]) => ({
-    key,
-    label: [...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0]!,
-  }));
-  sorted.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }) || a.key.localeCompare(b.key));
-  const taken = new Set<string>();
-  return sorted.map(({ key, label }) => {
-    let base = slugOf(label);
-    if (RESERVED_TAB_SLUGS.includes(base)) base = `${base}-form`;
-    let id = base;
-    for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
-    taken.add(id);
-    return { id, key, label };
-  });
-}
 
 const PACIFIC_DAY = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Los_Angeles",
@@ -131,38 +57,6 @@ export function lateLabel(daysLate: number): string {
   return `${daysLate} ${daysLate === 1 ? "day" : "days"} late`;
 }
 
-export type MoveInFormFact = {
-  id: "submitted" | "signed" | "photos" | "sent" | "due";
-  text: string;
-  /** Plain red text, never a chip. */
-  late?: boolean;
-};
-
-/**
- * The glyph facts under a row's place line.
- * Submitted: `Submitted Sep 27` · `Signed` · `4 photos`.
- * Waiting:   `Sent Sep 28` · `Due Oct 1`, or `Due Oct 1 · 2 days late` once past due.
- */
-export function moveInFormFacts(form: MoveInFormSummary, now: Date = new Date()): MoveInFormFact[] {
-  if (form.status === "submitted") {
-    const facts: MoveInFormFact[] = [];
-    const date = formatMoveInDate(form.submittedAt);
-    facts.push({ id: "submitted", text: date ? `Submitted ${date}` : "Submitted" });
-    if (form.signed) facts.push({ id: "signed", text: "Signed" });
-    if (form.photoCount > 0) facts.push({ id: "photos", text: `${form.photoCount} ${form.photoCount === 1 ? "photo" : "photos"}` });
-    return facts;
-  }
-  const facts: MoveInFormFact[] = [];
-  const sent = formatMoveInDate(form.sentAt);
-  facts.push({ id: "sent", text: sent ? `Sent ${sent}` : "Sent" });
-  const due = formatMoveInDate(form.dueAt);
-  if (due) {
-    const late = moveInFormDaysLate(form, now);
-    facts.push(late > 0 ? { id: "due", text: `Due ${due} · ${lateLabel(late)}`, late: true } : { id: "due", text: `Due ${due}` });
-  }
-  return facts;
-}
-
 /** The row title: who and which form. */
 export function moveInFormTitle(form: Pick<MoveInFormSummary, "residentName" | "formName">): string {
   const who = form.residentName.trim() || "Resident";
@@ -173,15 +67,6 @@ export function moveInFormTitle(form: Pick<MoveInFormSummary, "residentName" | "
 export function moveInFormPlaceLine(form: Pick<MoveInFormSummary, "propertyLabel" | "roomLabel">): string {
   return [form.propertyLabel, form.roomLabel].map((part) => part.trim()).filter(Boolean).join(" · ");
 }
-
-export type MoveInFormFilters = {
-  propertyId?: string;
-  /** Narrow to copies still owed or already filed. */
-  status?: MoveInFormStatusBucket;
-  /** Only copies of this form (matched like a tab: trimmed, case-insensitive). */
-  formName?: string;
-  query?: string;
-};
 
 /**
  * One tab's order: late first (most days late first), then the rest of the waiting copies by due
@@ -200,27 +85,6 @@ export function sortMoveInFormsForTab(forms: MoveInFormSummary[], now: Date = ne
     if (rank(a) === 1) return time(a.dueAt, Infinity) - time(b.dueAt, Infinity) || time(b.sentAt, 0) - time(a.sentAt, 0);
     return time(b.submittedAt, 0) - time(a.submittedAt, 0);
   });
-}
-
-/**
- * Every word typed must appear somewhere in the row's resident, form, property, room or facts.
- * Cancelled copies never list. The result is in tab order (`sortMoveInFormsForTab`).
- */
-export function filterMoveInForms(forms: MoveInFormSummary[], filters: MoveInFormFilters, now: Date = new Date()): MoveInFormSummary[] {
-  const words = (filters.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-  const matched = forms.filter((form) => {
-    const bucket = moveInFormTab(form);
-    if (!bucket) return false;
-    if (filters.status && bucket !== filters.status) return false;
-    if (filters.propertyId && form.propertyId !== filters.propertyId) return false;
-    if (filters.formName && moveInFormNameKey(form.formName) !== moveInFormNameKey(filters.formName)) return false;
-    if (words.length === 0) return true;
-    const haystack = [form.residentName, form.formName, form.propertyLabel, form.roomLabel, ...moveInFormFacts(form, now).map((fact) => fact.text)]
-      .join(" ")
-      .toLowerCase();
-    return words.every((word) => haystack.includes(word));
-  });
-  return sortMoveInFormsForTab(matched, now);
 }
 
 /* ------------------------------------------------------------ the Forms list (sidebar + resident record) */
@@ -297,18 +161,6 @@ export function filterFormsList(forms: readonly MoveInFormSummary[], filters: Fo
     return words.every((word) => haystack.includes(word));
   });
   return sortMoveInFormsForTab(matched, now);
-}
-
-/** Rows per tab, keyed by tab id (sent and submitted together, cancelled excluded). A form with no copies counts 0. */
-export function moveInFormTabCounts(groups: readonly MoveInFormTabGroup[], forms: readonly MoveInFormSummary[]): Record<string, number> {
-  const byKey = new Map(groups.map((group) => [group.key, group.id]));
-  const counts: Record<string, number> = Object.fromEntries(groups.map((group) => [group.id, 0]));
-  for (const form of forms) {
-    if (!moveInFormTab(form)) continue;
-    const id = byKey.get(moveInFormNameKey(form.formName));
-    if (id) counts[id] = (counts[id] ?? 0) + 1;
-  }
-  return counts;
 }
 
 /** Waiting forms that are past due, most overdue first. Feeds the resident Overview's "Needs you". */
