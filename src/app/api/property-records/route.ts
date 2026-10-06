@@ -435,7 +435,9 @@ export async function POST(req: Request) {
       body.rowData !== undefined ? body.rowData : null,
       body.propertyData !== undefined ? body.propertyData : null,
     );
-    if (emptyLeaseTermsWrite(incomingSubmission)) {
+    // A draft is unfinished by definition and closing the wizard must keep it
+    // (property-drafts.md), so only a listed/live write must name a lease term.
+    if (body.status !== "draft" && emptyLeaseTermsWrite(incomingSubmission)) {
       return NextResponse.json(
         { error: "Choose at least one lease term this property offers." },
         { status: 400 },
