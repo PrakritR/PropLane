@@ -4,7 +4,6 @@ import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import Link from "next/link";
-import { ManagerTakePaymentDialog } from "@/components/portal/manager-take-payment-dialog";
 import { escapeCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import {
@@ -337,7 +336,6 @@ export function ManagerPaymentsLedgerPanel({
     [scheduledMessages],
   );
   const [paymentToday] = useState(() => new Date().setHours(0, 0, 0, 0));
-  const [takePaymentRow, setTakePaymentRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [offlineRow, setOfflineRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [offlineRows, setOfflineRows] = useState<DemoManagerPaymentLedgerRow[]>([]);
   // Lease fee waiver: the row being waived (or restored) and the reason the manager types.
@@ -1795,33 +1793,6 @@ export function ManagerPaymentsLedgerPanel({
       });
     }
 
-    // Take payment (card) lives on the Payments list: the record header's primary is now
-    // "Payment settings" (Settings > Balance & payouts), so a single unpaid charge keeps the way in here.
-    if (singleSelectedRow?.householdChargeId && !isPaidRow(singleSelectedRow)) {
-      const row = singleSelectedRow;
-      actions.push({
-        id: "take-payment",
-        keepPriority: 5,
-        node: (
-          <Button
-            type="button"
-            variant="outline"
-            className={PAYMENTS_BULK_BAR_BTN}
-            data-attr="payments-take-payment"
-            data-record-action-id="take-payment"
-            onClick={() => setTakePaymentRow(row)}
-          >
-            Take payment
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="payments-take-payment" onSelect={() => setTakePaymentRow(row)}>
-            Take payment
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
     // One deposit/charge at a time and confirmed first: this sends real money and Stripe will
     // not un-refund it. A bulk version would make a mis-click expensive in a way no undo covers.
     const returnableDeposits = selectedRows.filter(isReturnableDepositRow);
@@ -2283,7 +2254,6 @@ export function ManagerPaymentsLedgerPanel({
         onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}
       />
     ) : null}
-      {takePaymentRow?.householdChargeId ? <ManagerTakePaymentDialog key={takePaymentRow.householdChargeId} chargeId={takePaymentRow.householdChargeId} onClose={() => setTakePaymentRow(null)} onSubmitted={() => { setTakePaymentRow(null); onRowsChanged?.(); showToast("Payment submitted. Status updates when confirmed."); }} /> : null}
       <PortalDialog
         open={Boolean(waiveRow)}
         title={waiveRow?.restore ? "Restore lease fee" : "Waive lease fee"}
