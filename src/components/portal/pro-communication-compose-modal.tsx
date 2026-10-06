@@ -279,6 +279,9 @@ export function ManagerCommunicationComposeModal({
   const [sendVia, setSendVia] = useState<string[]>(["email"]);
   /** "This is a vendor": a typed phone number nobody has on the list is added to Vendors with the text. */
   const [markVendor, setMarkVendor] = useState(false);
+  /** "I work with this vendor": the manager's attestation, only for a first text to a vendor with no consent yet. */
+  const [attestVendor, setAttestVendor] = useState(false);
+  const [vendorTextStatus, setVendorTextStatus] = useState<Record<string, { needsAttestation: boolean; optedOut: boolean; senderLine?: string }>>({});
   const [scheduleLater, setScheduleLater] = useState(false);
   const [sendAt, setSendAt] = useState(defaultPortalMessageScheduleAt);
   const [sending, setSending] = useState(false);
@@ -356,10 +359,16 @@ export function ManagerCommunicationComposeModal({
     if (!open) return;
     queueMicrotask(() => {
       const email = initialDraft?.recipientEmail?.trim().toLowerCase();
+      const vendorRecordId = initialDraft?.vendorRecordId?.trim();
       if (initialDraft) {
         setSubject(initialDraft.subject);
         setBody(initialDraft.body);
-        if (email) {
+        if (vendorRecordId) {
+          // Opened from a vendor's "Text": that vendor, by text.
+          setSelectedCategories(["vendor"]);
+          setSelectedKeys([`id:ven-${vendorRecordId}`]);
+          setOtherTokens([]);
+        } else if (email) {
           setSelectedCategories(["other"]);
           setSelectedKeys([]);
           setOtherTokens([{ kind: "email", value: email, label: email }]);
@@ -375,8 +384,11 @@ export function ManagerCommunicationComposeModal({
         setSubject("");
         setBody("");
       }
+      setAttestVendor(false);
       setSendVia(
-        initialDraft?.recipientEmail && initialChannel === "sms"
+        initialDraft?.vendorRecordId && smsUiEnabled
+          ? ["sms"]
+          : initialDraft?.recipientEmail && initialChannel === "sms"
           ? defaultPortalMessageChannelSelection(true, smsUiEnabled, false, true)
           : portalMessageSelectionFromDeliverVia(
               channelsFor("inbox_default"),
@@ -524,13 +536,13 @@ export function ManagerCommunicationComposeModal({
   };
 
   const resolveSmsTargets = () => {
-    const targets: { phone: string; residentUserId?: string | null }[] = [];
+    const targets: { phone: string; residentUserId?: string | null; vendorRecordId?: string }[] = [];
     const seen = new Set<string>();
-    const add = (phone: string | null | undefined, residentUserId?: string | null) => {
+    const add = (phone: string | null | undefined, residentUserId?: string | null, vendorRecordId?: string) => {
       const e164 = phone ? normalizePhoneE164(phone) : null;
       if (!e164 || seen.has(e164)) return;
       seen.add(e164);
-      targets.push({ phone: e164, residentUserId });
+      targets.push({ phone: e164, residentUserId, ...(vendorRecordId ? { vendorRecordId } : {}) });
     };
 
     const wantsAllResidents = selectedKeys.includes("broadcast:resident");
@@ -543,6 +555,11 @@ export function ManagerCommunicationComposeModal({
       const id = key.slice(3);
       const contact = contacts.find((c) => c.id === id);
       if (!contact) continue;
+      if (contact.role === "vendor") {
+        // A vendor texts its OWN saved phone (the roster row), never a name match to a resident.
+        if (contact.phone) add(contact.phone, null, id.replace(/^ven-/, ""));
+        continue;
+      }
       const email = contact.email.trim().toLowerCase();
       const byEmail = withPhone.find((r) => r.residentEmail?.trim().toLowerCase() === email);
       if (byEmail) {
@@ -563,6 +580,51 @@ export function ManagerCommunicationComposeModal({
 
     return targets;
   };
+
+  // Roster vendors picked in To who will be texted at their own saved phone.
+  const vendorSmsRecordIds = useMemo(
+    () =>
+      selectedKeys.flatMap((key) => {
+        if (!key.startsWith("id:")) return [];
+        const contact = contacts.find((c) => c.id === key.slice(3));
+        return contact?.role === "vendor" && contact.phone ? [contact.id.replace(/^ven-/, "")] : [];
+      }),
+    [selectedKeys, contacts],
+  );
+  const vendorSmsRecordKey = vendorSmsRecordIds.join(",");
+  useEffect(() => {
+    if (!open || !viaSms || vendorSmsRecordIds.length === 0 || isDemoModeActive()) return;
+    let active = true;
+    for (const recordId of vendorSmsRecordIds) {
+      void fetch(`/api/manager/vendor-text-consent?vendorRecordId=${encodeURIComponent(recordId)}`, {
+        credentials: "include",
+        cache: "no-store",
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { needsAttestation?: boolean; optedOut?: boolean; senderLine?: string } | null) => {
+          if (!active || !data) return;
+          setVendorTextStatus((previous) => ({
+            ...previous,
+            [recordId]: {
+              needsAttestation: data.needsAttestation === true,
+              optedOut: data.optedOut === true,
+              ...(data.senderLine ? { senderLine: data.senderLine } : {}),
+            },
+          }));
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      active = false;
+    };
+    // vendorSmsRecordKey is the stable identity of vendorSmsRecordIds.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, viaSms, vendorSmsRecordKey]);
+  const attestationVendors = vendorSmsRecordIds.filter((id) => vendorTextStatus[id]?.needsAttestation);
+  const attestationSenderLine = attestationVendors.map((id) => vendorTextStatus[id]?.senderLine).find(Boolean);
+  useEffect(() => {
+    if (attestationVendors.length === 0) setAttestVendor(false);
+  }, [attestationVendors.length]);
 
   /**
    * Why a send did not happen, shown INSIDE the modal.
@@ -655,6 +717,19 @@ export function ManagerCommunicationComposeModal({
       const smsTargets = resolveSmsTargets();
       if (smsTargets.length === 0) {
         fail("Add at least one phone (resident with a number, or Other).");
+        return;
+      }
+      const vendorTargets = smsTargets.filter((target) => target.vendorRecordId);
+      if (vendorTargets.some((target) => vendorTextStatus[target.vendorRecordId!]?.optedOut)) {
+        fail("That number has opted out of texts.");
+        return;
+      }
+      if (vendorTargets.length > 0 && scheduleLater) {
+        fail("A text to a vendor sends now. Turn off Schedule, or schedule an email instead.");
+        return;
+      }
+      if (vendorTargets.some((target) => vendorTextStatus[target.vendorRecordId!]?.needsAttestation) && !attestVendor) {
+        fail("Confirm you work with this vendor to send the first text.");
         return;
       }
     }
@@ -811,6 +886,7 @@ export function ManagerCommunicationComposeModal({
             ...smsTargets.map((target) => [
               target.phone,
               target.residentUserId ?? null,
+              target.vendorRecordId ?? null,
             ]),
           ]),
           smsTargets.length,
@@ -830,7 +906,10 @@ export function ManagerCommunicationComposeModal({
                 toPhone: target.phone,
                 text,
                 residentUserId: target.residentUserId ?? undefined,
-                ...(markVendor && !target.residentUserId ? { isVendor: true } : {}),
+                ...(target.vendorRecordId
+                  ? { vendorRecordId: target.vendorRecordId, attestVendorRelationship: attestVendor }
+                  : {}),
+                ...(markVendor && !target.residentUserId && !target.vendorRecordId ? { isVendor: true } : {}),
               }),
             });
             const data = (await res.json().catch(() => ({}))) as {
@@ -846,6 +925,12 @@ export function ManagerCommunicationComposeModal({
             }
             if (!res.ok) {
               lastError = data.error ?? lastError;
+              if (data.code === "vendor_attestation_required" && target.vendorRecordId) {
+                setVendorTextStatus((previous) => ({
+                  ...previous,
+                  [target.vendorRecordId!]: { ...previous[target.vendorRecordId!], needsAttestation: true, optedOut: false },
+                }));
+              }
               continue;
             }
             sent += 1;
@@ -994,6 +1079,25 @@ export function ManagerCommunicationComposeModal({
           <Paperclip className="h-3 w-3" />{item.fileName}{item.uploading ? " · Uploading…" : item.error ? " · Failed" : ""}
           <button type="button" aria-label={`Remove ${item.fileName}`} onClick={() => {revokeInboxAttachmentPreview(item); setAttachments((previous) => previous.filter((value) => value.id !== item.id));}}><X className="h-3 w-3" /></button>
         </span>)}</div> : null}
+        {viaSms && attestationVendors.length > 0 ? (
+          <div className="space-y-1.5" data-attr="communication-compose-vendor-attest">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={attestVendor}
+                onChange={(event) => setAttestVendor(event.target.checked)}
+                data-attr="communication-compose-vendor-attest-checkbox"
+              />
+              <span>I work with this vendor</span>
+            </label>
+            {attestationSenderLine ? (
+              <p className="text-xs text-muted" data-attr="communication-compose-vendor-sender-line">
+                Sent as: &ldquo;{body.trim() ? `${body.trim().length > 40 ? `${body.trim().slice(0, 40).trimEnd()}…` : body.trim()} ` : "… "}
+                {attestationSenderLine}&rdquo;
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {viaSms && otherTokens.some((token) => token.kind === "phone") ? (
           <label className="flex items-center gap-2 text-sm" data-attr="communication-compose-is-vendor">
             <input type="checkbox" checked={markVendor} onChange={(event) => setMarkVendor(event.target.checked)} />

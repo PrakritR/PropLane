@@ -68,6 +68,7 @@ import {
 import { type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
 import { catalogVendorMatchesTradeArea, listManagerCatalogVendors } from "@/lib/vendor-catalog-list";
 import { RecordActionContext } from "@/components/ui/record-action-context";
+import { stageManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { findRosterCatalogMatch } from "@/lib/manager-vendor-typical-rates";
 import {
@@ -127,6 +128,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     vendorId: vendorIdProp,
     vendorTab: vendorTabProp,
     listBasePath,
+    smsUiEnabled = false,
   }: {
     /** When true, render inside Services tab shell (no duplicate page header). */
     embedded?: boolean;
@@ -135,6 +137,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     vendorId?: string;
     vendorTab?: string;
     listBasePath?: string;
+    /** `isSmsCommUiEnabled()`: when false the Text actions are hidden, like the New message Text channel. */
+    smsUiEnabled?: boolean;
   },
   ref: React.Ref<ManagerVendorsPanelHandle>,
 ) {
@@ -143,6 +147,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const searchParams = useSearchParams();
   const portalBase = usePaidPortalBasePath();
   const basePath = listBasePath ?? portalBase;
+  /** Open New message on this vendor, by text, from the workspace work number. */
+  const textVendor = useCallback(
+    (vendorRowId: string) => {
+      stageManagerComposePrefill({ subject: "", body: "", vendorRecordId: vendorRowId });
+      navigate(`${portalBase}/communication/active`);
+    },
+    [navigate, portalBase],
+  );
   const { userId, ready: authReady } = useManagerUserId();
   const workspaces = useWorkspaces();
   const workspacePropertyIds = workspaces?.active?.propertyIds ?? NO_WORKSPACE_PROPERTY_IDS;
@@ -782,17 +794,24 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         : "overview";
     const baseSections = recordSections("manager", "vendor", { basePath });
     // A vendor who was already invited is re-invited, not invited: the same icon, the honest word.
+    const canTextRouteVendor = smsUiEnabled && Boolean(routeVendor.phone.trim());
     const sections = {
       ...baseSections,
-      headerActions: baseSections.headerActions.map((action) =>
-        action.id === "invite" && routeVendor.invitedAt && !routeVendor.vendorUserId
-          ? { ...action, label: "Resend invite" }
-          : action,
-      ),
+      headerActions: baseSections.headerActions
+        .filter((action) => action.id !== "text" || canTextRouteVendor)
+        .map((action) =>
+          action.id === "invite" && routeVendor.invitedAt && !routeVendor.vendorUserId
+            ? { ...action, label: "Resend invite" }
+            : action,
+        ),
     };
     const onVendorHeaderAction = (actionId: string) => {
       if (actionId === "message") {
         navigate(vendorDetailHref(basePath, routeVendor.id, "communication"));
+        return;
+      }
+      if (actionId === "text") {
+        textVendor(routeVendor.id);
         return;
       }
       if (actionId === "edit") {
@@ -1138,8 +1157,23 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               ? `${reviewAggregate.average?.toFixed(1)} (${reviewAggregate.count})`
               : undefined;
           return (
-            <PortalApplicantRecordRow
+            <RecordActionContext.Provider
               key={row.id}
+              value={
+                smsUiEnabled && phone
+                  ? {
+                      scope: row.id,
+                      clear: () => {},
+                      actions: (
+                        <DropdownMenuItem data-attr="vendor-row-text" onSelect={() => textVendor(row.id)}>
+                          Text
+                        </DropdownMenuItem>
+                      ),
+                    }
+                  : null
+              }
+            >
+            <PortalApplicantRecordRow
               name={row.name}
               // C267: "Not set" is the app's one empty-value word (C254);
               // "—" stays only for the unused count/rating/money state.
@@ -1176,6 +1210,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               onOpen={() => openVendorDetail(row)}
               dataAttr="vendor-list-row"
             />
+            </RecordActionContext.Provider>
           );
         })}
       </div>

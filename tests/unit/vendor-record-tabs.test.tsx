@@ -282,10 +282,11 @@ describe("Communication tab", () => {
 describe("vendor record header icons", () => {
   const sections = recordSections("manager", "vendor", { basePath: "/portal" });
 
-  it("are Edit · Invite · Message · Remove, with Remove last and destructive", () => {
+  it("are Edit · Invite · Text · Message · Remove, with Remove last and destructive", () => {
     expect(sections.headerActions.map((a) => [a.id, a.label])).toEqual([
       ["edit", "Edit vendor"],
       ["invite", "Invite to PropLane"],
+      ["text", "Text"],
       ["message", "Message"],
       ["remove", "Remove vendor"],
     ]);

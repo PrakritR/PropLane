@@ -161,7 +161,8 @@ export function ManagerCommunication({
 
   const liveContacts = useMemo(() => {
     void propertyTick;
-    return buildManagerInboxLiveContacts(userId);
+    // New message can text a roster vendor that has a phone but no email.
+    return buildManagerInboxLiveContacts(userId, { textOnlyVendors: true });
   }, [userId, propertyTick]);
 
   useEffect(() => {
@@ -221,7 +222,7 @@ export function ManagerCommunication({
     const prefill = consumeManagerComposePrefill();
     if (!prefill) return;
     setComposeDraft(prefill);
-    setComposeChannel("email");
+    setComposeChannel(prefill.vendorRecordId ? "sms" : "email");
     setComposeOpen(true);
   }, []);
 
