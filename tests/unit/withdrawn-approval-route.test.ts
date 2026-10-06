@@ -30,6 +30,8 @@ let REQUESTOR: { role: string; email: string; sms_from_number: string | null } |
 let APP_ROWS: StoredRecord[];
 let APP_QUERY_ERROR: { message: string } | null;
 let LINKED_PROPERTY_IDS: string[];
+/** Properties the stub says exist, keyed id -> the manager user id that DIRECTLY owns it. */
+let OWNED_PROPERTIES: Record<string, string>;
 let PROFILE_UPDATE_CALLS: number;
 /** The move-in form rows the stub "stores" (what blocks approval is read from here). */
 let FORMS: Array<Record<string, unknown>> = [];
@@ -75,7 +77,12 @@ function matchingRecords(filters: { ids: string[] | null; residentEmail: string 
 function makeServiceClient() {
   return {
     from(table: string) {
-      const filters: { ids: string[] | null; residentEmail: string | null } = { ids: null, residentEmail: null };
+      const filters: { ids: string[] | null; residentEmail: string | null; managerUserId: string | null; rowId: string | null } = {
+        ids: null,
+        residentEmail: null,
+        managerUserId: null,
+        rowId: null,
+      };
       const builder: Record<string, unknown> = {
         select() {
           return builder;
@@ -86,6 +93,8 @@ function makeServiceClient() {
         },
         eq(column: string, value: string) {
           if (column === "resident_email") filters.residentEmail = value;
+          if (column === "manager_user_id") filters.managerUserId = value;
+          if (column === "id") filters.rowId = value;
           return builder;
         },
         in(column: string, values: string[]) {
@@ -100,6 +109,10 @@ function makeServiceClient() {
         },
         maybeSingle() {
           if (table === "profiles") return Promise.resolve({ data: REQUESTOR, error: null });
+          if (table === "manager_property_records") {
+            const owner = filters.rowId ? OWNED_PROPERTIES[filters.rowId] : undefined;
+            return Promise.resolve({ data: owner ? { manager_user_id: owner } : null, error: null });
+          }
           if (table !== "manager_application_records") return Promise.resolve({ data: null, error: null });
           if (APP_QUERY_ERROR) return Promise.resolve({ data: null, error: APP_QUERY_ERROR });
           return Promise.resolve({ data: matchingRecords(filters)[0] ?? null, error: null });
@@ -111,6 +124,12 @@ function makeServiceClient() {
           if (table === "manager_application_records") {
             if (APP_QUERY_ERROR) return Promise.resolve({ data: null, error: APP_QUERY_ERROR }).then(resolve);
             return Promise.resolve({ data: matchingRecords(filters), error: null }).then(resolve);
+          }
+          if (table === "manager_property_records") {
+            const owned = Object.entries(OWNED_PROPERTIES)
+              .filter(([, owner]) => owner === filters.managerUserId)
+              .map(([id]) => ({ id }));
+            return Promise.resolve({ data: owned, error: null }).then(resolve);
           }
           return Promise.resolve({ data: null, error: null }).then(resolve);
         },
@@ -165,6 +184,7 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
     ];
     APP_QUERY_ERROR = null;
     LINKED_PROPERTY_IDS = [];
+    OWNED_PROPERTIES = {};
     PROFILE_UPDATE_CALLS = 0;
     FORMS = [];
     FORMS_ERROR = null;
@@ -248,6 +268,30 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
     );
     expect(res.status).toBe(403);
     expect(PROFILE_UPDATE_CALLS).toBe(0);
+  });
+
+  it("still approves a row with no manager_user_id stamp when the caller owns its property directly", async () => {
+    // An application's stamp is frozen at submit time, so a transferred property or an
+    // unattributed draft keeps a stale or empty one. The Applications list shows that row
+    // through property ownership, so this guard has to resolve ownership the same way or it
+    // refuses a row the manager can plainly see.
+    APP_ROWS = [
+      {
+        id: "AXIS-UNSTAMPED",
+        row_data: appRow({ id: "AXIS-UNSTAMPED" }),
+        resident_email: "applicant@example.com",
+        manager_user_id: null,
+        property_id: "mgr-demo-pioneer",
+      },
+    ];
+    OWNED_PROPERTIES = { "mgr-demo-pioneer": "mgr-1" };
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(
+      patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-UNSTAMPED" }),
+    );
+    const body = await res.json();
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    expect(PROFILE_UPDATE_CALLS).toBe(1);
   });
 
   it("does NOT let the email fallback cross landlords — another manager's withdrawal cannot block this approval", async () => {
@@ -407,6 +451,7 @@ describe("PATCH /api/portal/resident-approval — a form that blocks approval", 
     APP_ROWS = [{ id: "AXIS-9001", row_data: appRow({}), resident_email: "applicant@example.com", manager_user_id: "mgr-1", property_id: "mgr-demo-pioneer" }];
     APP_QUERY_ERROR = null;
     LINKED_PROPERTY_IDS = [];
+    OWNED_PROPERTIES = {};
     PROFILE_UPDATE_CALLS = 0;
     FORMS = [];
     FORMS_ERROR = null;

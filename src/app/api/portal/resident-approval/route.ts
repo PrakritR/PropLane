@@ -5,6 +5,10 @@ import { notifyApplicantApplicationSms } from "@/lib/application-lifecycle-sms.s
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import {
+  managerCanAccessApplicationRecord,
+  type ApplicationAccessRecord,
+} from "@/lib/auth/manager-application-access";
+import {
   APPROVAL_BLOCKED_BY_FORM_MESSAGE,
   APPROVAL_FORMS_CHECK_FAILED_MESSAGE,
   loadApplicationBlockingForms,
@@ -179,7 +183,7 @@ export async function PATCH(req: Request) {
     // reject this manager's legitimate approval). A query error fails CLOSED (matching
     // `resolveApplicationWriteOwner`).
     if (!actorIsResident && approved) {
-      // One read of the caller's co-managed property scope, shared by both lookups.
+      // One read of the caller's co-managed property scope, for the email fallback's row pick.
       let scopedPropertyIdsPromise: Promise<Set<string>> | null = null;
       const scopedPropertyIdsForCaller = () => {
         scopedPropertyIdsPromise ??= Promise.all([
@@ -188,21 +192,15 @@ export async function PATCH(req: Request) {
         ]).then(([appIds, resIds]) => new Set<string>([...appIds, ...resIds]));
         return scopedPropertyIdsPromise;
       };
-      const callerHoldsApplication = async (record: {
-        manager_user_id?: string | null;
-        property_id?: string | null;
-        assigned_property_id?: string | null;
-      }): Promise<boolean> => {
-        if (actorIsAdmin) return true;
-        if (String(record.manager_user_id ?? "").trim() === user.id) return true;
-        const scopedPropertyIds = await scopedPropertyIdsForCaller();
-        const propertyId = String(record.property_id ?? "").trim();
-        const assignedPropertyId = String(record.assigned_property_id ?? "").trim();
-        return Boolean(
-          (propertyId && scopedPropertyIds.has(propertyId)) ||
-            (assignedPropertyId && scopedPropertyIds.has(assignedPropertyId)),
-        );
-      };
+      /**
+       * Whether this row is the caller's to judge by — the SAME test the Applications list and
+       * every other by-id action guard use, so a row the manager can plainly see is never one
+       * they are refused on. Direct property ownership is part of it: an application's
+       * `manager_user_id` is frozen at submit time, so a transferred property or an
+       * unattributed draft keeps a stale or absent stamp that ownership has to answer for.
+       */
+      const callerHoldsApplication = async (record: ApplicationAccessRecord): Promise<boolean> =>
+        actorIsAdmin || (await managerCanAccessApplicationRecord(svc, user.id, record));
 
       const loadById = async (): Promise<WithdrawnLookup> => {
         const { data, error } = await svc
