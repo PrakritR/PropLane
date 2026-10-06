@@ -10,6 +10,8 @@ if (url && !["127.0.0.1", "localhost"].includes(new URL(url).hostname)) {
 const suite = url ? describe : describe.skip;
 const db = new Pool({ connectionString: url, max: 8 });
 const migration = readFileSync("supabase/migrations/20261004230000_resident_checkout_attempt_claims.sql", "utf8");
+// Replaces the reservation function body to bound the recipient net by the principal, not the payer total.
+const netBound = readFileSync("supabase/migrations/20261005130000_resident_attempt_net_principal_bound.sql", "utf8");
 
 async function household(count: number) {
   const manager = randomUUID(), resident = randomUUID();
@@ -35,7 +37,8 @@ async function household(count: number) {
 }
 
 type Home = Awaited<ReturnType<typeof household>>;
-async function reserve(home: Home, ids: string[], method: "ach" | "card" = "card", client: Pool | PoolClient = db) {
+async function reserve(home: Home, ids: string[], method: "ach" | "card" = "card", client: Pool | PoolClient = db,
+  amounts: { payerTotal?: number; net?: number } = {}) {
   const token = randomUUID();
   const sorted = [...ids].sort();
   const subtotal = 1000 * sorted.length;
@@ -46,7 +49,7 @@ async function reserve(home: Home, ids: string[], method: "ach" | "card" = "card
   const result = await client.query(`select * from reserve_resident_checkout_attempt(
     $1,$2,$3,$4,$5::text[],$6::integer[],$7,$8,$9,$10,$11::jsonb)`,
   [token, home.resident, home.email, home.manager, sorted, sorted.map(() => 1000),
-    subtotal, subtotal, subtotal, method, JSON.stringify(terms)]);
+    subtotal, amounts.payerTotal ?? subtotal, amounts.net ?? subtotal, method, JSON.stringify(terms)]);
   return result.rows[0] as { id: string; attempt_token: string; stripe_session_id: string | null; status: string };
 }
 
@@ -64,6 +67,20 @@ suite("resident checkout cart arbitration on local PostgreSQL", () => {
     await db.query("alter table public.resident_autopay_runs add column if not exists failure_reason text");
     await db.query(migration);
     await db.query(migration);
+    await db.query(netBound);
+    await db.query(netBound); // replaces a function body only: safe to re-apply
+  });
+
+  it("bounds the recipient net by the principal at reservation, not by the payer total (20261005130000)", async () => {
+    const home = await household(1);
+    // The processing fee is the payer's add-on: payer total 1050 over a 1000 principal.
+    await expect(reserve(home, home.ids, "card", db, { payerTotal: 1050, net: 1020 })).rejects.toThrow();
+    // Nothing committed: no attempt row and no charge slot for the refused quote.
+    expect((await db.query("select count(*)::int as n from resident_checkout_attempts where charge_ids && $1::text[]", [home.ids])).rows[0].n).toBe(0);
+    expect((await db.query("select count(*)::int as n from resident_charge_payment_slots where charge_id=any($1::text[])", [home.ids])).rows[0].n).toBe(0);
+    // The exact principal (and the payer's fee on top) still reserves.
+    const ok = await reserve(home, home.ids, "card", db, { payerTotal: 1050, net: 1000 });
+    expect(ok.status).toBe("pending");
   });
   afterAll(async () => { await db.end(); });
 
