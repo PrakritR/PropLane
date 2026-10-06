@@ -568,6 +568,7 @@ export function ManagerProperties({
          */
         <ListingWizardOverlay>
           <CreateWorkspace
+            onImportPortfolio={() => router.push("/portal/properties/import")}
             onClose={() => {
               // Closing a NEW property opens that property, exactly as Publish
               // does — a manager who just made a home expects to land in it,

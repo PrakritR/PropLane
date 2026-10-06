@@ -20,7 +20,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Building2 } from "lucide-react";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import {
@@ -123,8 +122,11 @@ export function CreateWorkspace({
   initialDraftId = null,
   onOpenPricing,
   onDiscarded,
+  onImportPortfolio,
 }: {
   onClose: () => void;
+  /** The pop-up's Upload menu offers "Import a portfolio" (a rent roll of several properties and their residents) when given. */
+  onImportPortfolio?: () => void;
   /**
    * Footer Delete discarded the draft(s): the host forgets any "open the draft I just saved" memory before
    * `onClose` runs, so closing does not navigate to a row that no longer exists.
@@ -151,12 +153,11 @@ export function CreateWorkspace({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   /** blank: the editor on a listing typed by hand; import: the Found list; edit: one imported property open. */
   const [phase, setPhase] = useState<"blank" | "import" | "edit">("blank");
-  const router = useRouter();
   // The Properties list has no Import icon of its own: a whole rent roll (several properties and their
-  // residents) is one more door in this pop-up's Upload menu.
+  // residents) is one more door in this pop-up's Upload menu, when the host can take the manager there.
   const portfolioImportItems = useMemo(
-    () => [{ label: "Import a portfolio", icon: Building2, onSelect: () => router.push("/portal/properties/import"), dataAttr: "listing-v2-header-import-portfolio" }],
-    [router],
+    () => (onImportPortfolio ? [{ label: "Import a portfolio", icon: Building2, onSelect: onImportPortfolio, dataAttr: "listing-v2-header-import-portfolio" }] : undefined),
+    [onImportPortfolio],
   );
   const [editStep, setEditStep] = useState<ListingV2StepId>("basics");
   const [busy, setBusy] = useState(false);

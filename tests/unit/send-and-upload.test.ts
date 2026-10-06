@@ -256,7 +256,8 @@ describe("Upload for resident: parsed values fill the normal form and create for
     expect(read("src/components/portal/pro-leases.tsx")).not.toContain("icon={Upload}");
     expect(read("src/components/portal/pro-properties.tsx")).not.toContain("icon={Upload}");
     expect(read("src/components/portal/lease-send-sheet.tsx")).toContain('data-attr="lease-send-header-upload"');
-    expect(read("src/components/portal/listing-wizard-v2/create-workspace.tsx")).toContain("/portal/properties/import");
+    expect(read("src/components/portal/pro-properties.tsx")).toContain('router.push("/portal/properties/import")');
+    expect(read("src/components/portal/listing-wizard-v2/create-workspace.tsx")).toContain("Import a portfolio");
     expect(read("src/components/portal/manager-resident-upload-modal.tsx")).toContain('label="Upload for resident"');
     // The resident record header is only Edit and Delete; each action sits in the tab it belongs to.
     const residents = read("src/components/portal/pro-residents.tsx");
