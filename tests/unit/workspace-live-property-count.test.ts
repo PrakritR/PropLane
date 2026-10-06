@@ -57,6 +57,17 @@ describe("workspace live property count (PRP-481)", () => {
     expect(workspace?.livePropertyCount).toBe(1);
   });
 
+  it("livePropertyIds leaves drafts out (Bookings) while propertyIds keeps them (scoping)", async () => {
+    const db = mockDb([
+      { id: "p-live", workspace_id: WORKSPACE, row_data: { buildingName: "Live house" }, status: "live" },
+      { id: "p-draft", workspace_id: WORKSPACE, row_data: {}, status: "draft" },
+      { id: "p-unlisted", workspace_id: WORKSPACE, row_data: { buildingName: "Unlisted house" }, status: "unlisted" },
+    ]);
+    const [workspace] = await loadWorkspaces(db, OWNER);
+    expect(workspace?.propertyIds).toContain("p-draft");
+    expect([...(workspace?.livePropertyIds ?? [])].sort()).toEqual(["p-live", "p-unlisted"]);
+  });
+
   it("is zero when every record in the workspace is a draft or unlisted", async () => {
     const db = mockDb([
       { id: "p-draft", workspace_id: WORKSPACE, row_data: {}, status: "draft" },

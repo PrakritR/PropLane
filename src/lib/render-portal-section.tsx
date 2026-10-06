@@ -1375,7 +1375,7 @@ export async function renderPortalSection(
           managerOwnerSubscriptionTier,
         );
       }
-      // Stays and Occupancy were folded into the date tabs: old links redirect.
+      // Stays and Occupancy are not tabs: old links redirect to Calendar.
       const legacyBucket = LEGACY_MANAGER_BOOKING_BUCKET_REDIRECTS[segmentRaw];
       if (legacyBucket && tabParts.length === 1) {
         redirect(`${def.basePath}/bookings/${legacyBucket}`);

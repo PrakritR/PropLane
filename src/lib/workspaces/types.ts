@@ -104,6 +104,13 @@ export type PortalWorkspace = {
    * field keep compiling; every real payload from `loadWorkspaces` sets it.
    */
   livePropertyCount?: number;
+  /**
+   * The same houses as `propertyIds` minus drafts — what Bookings lists. Never
+   * used for scoping (a draft is still the workspace's). Optional like
+   * `livePropertyCount`; a payload without it means "no draft information",
+   * and readers fall back to `propertyIds`.
+   */
+  livePropertyIds?: string[];
   /** Display names from the property record itself, so the pane never depends on a client cache. */
   propertyLabels?: Record<string, string>;
   /** Street address per property, only where the record has a name AND an address (the label is the address otherwise). */

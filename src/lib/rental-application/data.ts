@@ -524,10 +524,17 @@ export function getPropertyById(id: string): MockProperty | undefined {
   const { propertyId } = parseRoomChoiceValue(base);
   // Prefer the full extras cache (includes resident-hydrated unpublished
   // listings) over the public live-only catalog, which may be incomplete.
+  // The same id can exist twice: a static/seeded copy with no listing
+  // submission, and the saved record carrying the real rooms. Outside /demo
+  // the saved record wins; /demo keeps resolving its own seeded copy (first
+  // match) because it never reads real rows.
+  const known = [
+    ...mockProperties.filter((p) => p.id === propertyId),
+    ...readAllExtraListings().filter((p) => p.id === propertyId),
+    ...readExtraListings().filter((p) => p.id === propertyId),
+  ];
   const fromKnown =
-    mockProperties.find((p) => p.id === propertyId) ??
-    readAllExtraListings().find((p) => p.id === propertyId) ??
-    readExtraListings().find((p) => p.id === propertyId);
+    (isDemoModeActive() ? undefined : known.find((p) => p.listingSubmission?.v === 1)) ?? known[0];
   if (fromKnown) return fromKnown;
   // Fall back to pending properties (not yet approved/listed) so their title resolves correctly.
   const pendingRow = readAllPendingManagerProperties().find((p) => p.id === propertyId);
@@ -559,7 +566,11 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
 
   if (selected.listingSubmission?.v === 1) {
     const sub = normalizeManagerListingSubmissionV1(selected.listingSubmission);
-    const configuredRooms = sub.rooms.filter((room) => room.name.trim());
+    // One option per saved room: a blank name reads "Room n", never dropped.
+    const configuredRooms = sub.rooms.map((room, index) => ({
+      ...room,
+      name: room.name.trim() || `Room ${index + 1}`,
+    }));
     if (!isEntireHomeListing(sub) && configuredRooms.length > 0) {
       const roomRows = configuredRooms
         .filter((room) => roomOffersLeaseTerm(room, options.leaseTerm))

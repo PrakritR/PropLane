@@ -113,6 +113,22 @@ describe("BookingsPortfolioTimeline", () => {
     expect(bar?.className).toContain("bg-[#3d7d46]");
   });
 
+  it("carries the occupancy figures on Calendar: staying, check-ins, check-outs and 'n of N occupied'", () => {
+    render(
+      <BookingsPortfolioTimeline
+        propertyIds={["prop-a"]}
+        entries={[bookingEntry({ start: TODAY_KEY, end: TODAY_KEY })]}
+        today={TODAY}
+        onOpenDay={() => {}}
+      />,
+    );
+    pickView("day");
+    const summary = document.querySelector('[data-attr="bookings-calendar-summary"]')!.textContent!;
+    expect(summary).toContain("1 staying");
+    expect(summary).toContain("1 check-ins");
+    expect(summary).toContain("1 of 1 occupied · 100%");
+  });
+
   it("calls onOpenDay with the clicked date's key", () => {
     const onOpenDay = vi.fn();
     render(

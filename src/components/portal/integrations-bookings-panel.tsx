@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BedDouble, Building2, House, Palmtree, Sofa } from "lucide-react";
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
@@ -33,7 +33,8 @@ export function ManagerBookingChannelsPanel() {
   const activeWorkspace = workspaceCtx?.active ?? null;
   const [channelOpen, setChannelOpen] = useState<ChannelCalendarProvider | null>(null);
   const [counts, setCounts] = useState<ChannelCounts>({ airbnb: null, booking_com: null, vrbo: null });
-  const propertyKey = (activeWorkspace?.propertyIds ?? []).join(",");
+  const liveIds = useMemo(() => activeWorkspace?.livePropertyIds ?? activeWorkspace?.propertyIds ?? [], [activeWorkspace]);
+  const propertyKey = liveIds.join(",");
 
   const loadChannels = useCallback(async () => {
     const ids = propertyKey.split(",").filter(Boolean);
@@ -58,7 +59,7 @@ export function ManagerBookingChannelsPanel() {
     void loadChannels();
   }, [loadChannels]);
 
-  const propertyOptions = (activeWorkspace?.propertyIds ?? []).map((id) => ({
+  const propertyOptions = liveIds.map((id) => ({
     id,
     label: activeWorkspace?.propertyLabels?.[id] ?? id,
   }));
@@ -106,7 +107,7 @@ export function ManagerBookingChannelsPanel() {
         open={channelOpen !== null}
         onClose={() => setChannelOpen(null)}
         initialProvider={channelOpen ?? undefined}
-        propertyIds={activeWorkspace?.propertyIds ?? []}
+        propertyIds={liveIds}
         propertyOptions={propertyOptions}
         showToast={showToast}
         onChanged={() => {
