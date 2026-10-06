@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Check, Circle } from "lucide-react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
@@ -216,6 +216,26 @@ export function HousematesTabContent({
   );
 }
 
+function PageBody({ children }: { children: ReactNode }) {
+  return <div className={PORTAL_LIST_PAGE_BODY}>{children}</div>;
+}
+
+function ManagerCardStack({ children }: { children: ReactNode }) {
+  return <div className="min-w-0">{children}</div>;
+}
+
+/** A titled card on the manager's resident record: same chrome as the "received" card above it. */
+function ManagerDetailCard({ title, dataAttr, children }: { title: string; dataAttr: string; children: ReactNode }) {
+  return (
+    <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr={dataAttr}>
+      <div className="flex items-center border-b border-border/70 px-4 py-2.5">
+        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+      </div>
+      <div className="px-4 py-3">{children}</div>
+    </section>
+  );
+}
+
 export function InfoTabContent({
   resolved,
   forManager = false,
@@ -226,13 +246,15 @@ export function InfoTabContent({
 }) {
   const hasSections = !houseInfoIsEmpty(resolved.houseInfo);
   const hasLegacyText = Boolean(resolved.generalHouseInfo || resolved.houseRulesText);
+  // The manager's record stacks these as sibling cards, so the resident page-body padding stays out.
+  const Body = forManager ? ManagerCardStack : PageBody;
 
   // "How your portal works" is PropLane's own copy, so it is worth showing even
   // to a resident whose manager has filled in nothing — it is the one thing on
   // this tab that is always true.
   if (!hasSections && !hasLegacyText) {
     return (
-      <div className={PORTAL_LIST_PAGE_BODY}>
+      <Body>
         <PortalDataTableEmpty
           icon="default"
           message={forManager ? "No house info or rules added yet." : "Your property manager has not added house info or rules yet."}
@@ -242,17 +264,30 @@ export function InfoTabContent({
             <ResidentPortalHelpCard />
           </div>
         )}
-      </div>
+      </Body>
     );
   }
 
   return (
-    <div className={PORTAL_LIST_PAGE_BODY}>
+    <Body>
       <div className="space-y-3">
         <HouseInfoReadSections info={resolved.houseInfo} />
 
         {/* A property nobody has migrated still reads exactly as it did before. */}
-        {hasLegacyText ? (
+        {hasLegacyText && forManager ? (
+          <>
+            {resolved.generalHouseInfo ? (
+              <ManagerDetailCard title="House info" dataAttr="resident-move-in-general-info">
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{resolved.generalHouseInfo}</div>
+              </ManagerDetailCard>
+            ) : null}
+            {resolved.houseRulesText ? (
+              <ManagerDetailCard title="House rules" dataAttr="resident-move-in-house-rules">
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{resolved.houseRulesText}</div>
+              </ManagerDetailCard>
+            ) : null}
+          </>
+        ) : hasLegacyText ? (
           <section className="rounded-2xl border border-border bg-card px-4 py-3">
             <div className="space-y-4 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
               {resolved.generalHouseInfo ? <div>{resolved.generalHouseInfo}</div> : null}
@@ -263,13 +298,32 @@ export function InfoTabContent({
 
         {forManager ? null : <ResidentPortalHelpCard />}
       </div>
-    </div>
+    </Body>
   );
 }
 
 /** Amenities read as a section of Move-in details; a home that lists none shows nothing here. */
-export function AmenitiesSection({ resolved }: { resolved: ResidentMoveInResolved }) {
+export function AmenitiesSection({
+  resolved,
+  forManager = false,
+}: {
+  resolved: ResidentMoveInResolved;
+  /** The manager's resident record draws this as a titled card. */
+  forManager?: boolean;
+}) {
   if (resolved.amenities.length === 0) return null;
+
+  if (forManager) {
+    return (
+      <ManagerDetailCard title="Amenities" dataAttr="resident-move-in-amenities">
+        <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-foreground">
+          {resolved.amenities.map((amenity) => (
+            <li key={amenity}>{amenity}</li>
+          ))}
+        </ul>
+      </ManagerDetailCard>
+    );
+  }
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-move-in-amenities">
@@ -294,9 +348,12 @@ export function AmenitiesSection({ resolved }: { resolved: ResidentMoveInResolve
 export function InstructionsTabContent({
   resolved,
   focusRoomId,
+  forManager = false,
 }: {
   resolved: ResidentMoveInResolved;
   focusRoomId?: string;
+  /** The manager's resident record draws each group as a titled card. */
+  forManager?: boolean;
 }) {
   // A room link (e.g. from a manager share) that names THIS resident's own
   // room skips the house section — it is asking to see the room, not the whole
@@ -308,6 +365,42 @@ export function InstructionsTabContent({
     (Boolean(resolved.houseInstructions) ||
       resolved.houseMoveInPhotoDataUrls.length > 0 ||
       Boolean(resolved.houseMoveInVideoDataUrl));
+
+  if (forManager) {
+    const room = resolved.instructions || resolved.moveInPhotoDataUrls.length > 0 || resolved.moveInVideoDataUrl;
+    const mine = resolved.residentSection;
+    return (
+      <div className="space-y-3" data-attr="resident-move-in-arrival-cards">
+        {hasHouse ? (
+          <ManagerDetailCard title="Arrival: whole house" dataAttr="resident-move-in-house-section">
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{resolved.houseInstructions}</div>
+            <ResidentMoveInMediaGallery
+              photoDataUrls={resolved.houseMoveInPhotoDataUrls}
+              videoDataUrl={resolved.houseMoveInVideoDataUrl}
+            />
+          </ManagerDetailCard>
+        ) : null}
+        {room ? (
+          <ManagerDetailCard
+            title={`Arrival: ${resolved.roomLabel.trim() || "room"}`}
+            dataAttr="resident-move-in-room-section"
+          >
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{resolved.instructions}</div>
+            <ResidentMoveInMediaGallery
+              photoDataUrls={resolved.moveInPhotoDataUrls}
+              videoDataUrl={resolved.moveInVideoDataUrl}
+            />
+          </ManagerDetailCard>
+        ) : null}
+        {mine ? (
+          <ManagerDetailCard title={`Arrival: Resident ${mine.slot}`} dataAttr="resident-move-in-resident-section">
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{mine.instructions}</div>
+            <ResidentMoveInMediaGallery photoDataUrls={mine.photoDataUrls} videoDataUrl={mine.videoDataUrl} />
+          </ManagerDetailCard>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>

@@ -17,7 +17,7 @@
  * Only facts that exist are shown; there is no "Opened" row because nothing records it.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { Download, ExternalLink, FileText, Send } from "lucide-react";
+import { Download, FileText, Pencil, Send } from "lucide-react";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
@@ -279,8 +279,8 @@ export function ResidentRecordMoveInSection({
       />
     ) : activeTab === "info" && propertyId ? (
       <PortalIconAction
-        icon={ExternalLink}
-        label="Open property Move-in"
+        icon={Pencil}
+        label="Edit move-in details"
         data-attr="resident-move-in-open-property"
         onClick={openPropertyMoveIn}
       />
@@ -396,10 +396,10 @@ export function ResidentRecordMoveInSection({
             <RecordFactRow label="Video" value={details.video} />
           </Card>
           {resolved ? (
-            <div className="space-y-6" data-attr="resident-record-move-in-house-info">
+            <div className="space-y-3" data-attr="resident-record-move-in-house-info">
               <InfoTabContent resolved={resolved} forManager />
-              <InstructionsTabContent resolved={resolved} />
-              <AmenitiesSection resolved={resolved} />
+              <InstructionsTabContent resolved={resolved} forManager />
+              <AmenitiesSection resolved={resolved} forManager />
             </div>
           ) : null}
         </>

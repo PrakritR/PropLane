@@ -3473,11 +3473,6 @@ export function ManagerResidents({
                             ) : resolvedDetailTab === "communication" ? (
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
-                              <ManagerResidentSectionToolbar
-                                title="Communication"
-                                actions={[]}
-                                onAction={onResidentSectionHeaderAction}
-                              />
                               <ManagerResidentDetailInbox
                                 residentEmail={selected.email}
                                 residentName={selected.name}

@@ -113,10 +113,12 @@ describe("header icons are tab-independent", () => {
   });
 
   it("every tab's own actions live in its section header card, which carries a title", () => {
-    for (const title of ["Application", "Background check", "Lease", "Payments", "Services", "Documents", "Tours", "Communication"]) {
+    for (const title of ["Application", "Background check", "Lease", "Payments", "Services", "Documents", "Tours"]) {
       expect(residents, title).toContain(`title="${title}"`);
     }
     expect(read("src/components/portal/move-in-forms/resident-record-move-in-section.tsx")).toContain('title="Move in"');
+    // Communication is the exception: the thread card has its own header (avatar, name, info icon) and fills the page.
+    expect(residents).not.toContain('title="Communication"');
   });
 
   it("the registry header set does not depend on the open section for the record's own header", () => {
