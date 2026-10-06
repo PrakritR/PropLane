@@ -6,7 +6,8 @@ import {
   type DepositReturnContext,
 } from "@/lib/deposit-return";
 import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
-import { refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { HouseholdChargeRefundReviewError,
+  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -148,7 +149,10 @@ export async function POST(req: Request) {
       amountCents: decision.amountCents,
       remainingCents: decision.remainingAfterCents,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof HouseholdChargeRefundReviewError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: "Could not return the deposit." }, { status: 500 });
   }
 }

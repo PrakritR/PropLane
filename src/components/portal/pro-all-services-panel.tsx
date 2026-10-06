@@ -1028,6 +1028,7 @@ export function ManagerAllServicesPanel({
           intent={vendorsIntent}
           sending={addOnJob.sending}
           approvingBidId={addOnJob.approvingBidId}
+          paying={addOnJob.paying}
           allowMarketplace={!isDemoModeActive()}
           onSend={addOnJob.send}
           onWithdraw={(request) => void addOnJob.withdraw(request)}

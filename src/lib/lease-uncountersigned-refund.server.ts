@@ -8,7 +8,8 @@ import {
   decideChargeRefund,
   type ChargeRefundContext,
 } from "@/lib/charge-refund";
-import { refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { HouseholdChargeRefundReviewError,
+  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 
@@ -124,13 +125,20 @@ async function refundChargeIfPaid(
   // One rail decision, made by the payment: a central platform capture is
   // refunded through its reservation, a legacy destination charge reverses its
   // transfer. See `household-charge-refund-rail.server.ts`.
-  await refundPaidHouseholdCharge(stripe, db, {
-    chargeId,
-    stripeChargeId: decision.stripeChargeId,
-    amountCents: decision.amountCents,
-    idempotencyKey: chargeRefundIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }),
-    metadata: { proplane_charge_id: chargeId, kind: "uncountersigned_lease_refund" },
-  });
+  try {
+    await refundPaidHouseholdCharge(stripe, db, {
+      chargeId,
+      stripeChargeId: decision.stripeChargeId,
+      amountCents: decision.amountCents,
+      idempotencyKey: chargeRefundIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }),
+      metadata: { proplane_charge_id: chargeId, kind: "uncountersigned_lease_refund" },
+    });
+  } catch (error) {
+    if (error instanceof HouseholdChargeRefundReviewError) {
+      return { refunded: false, error: error.message };
+    }
+    throw error;
+  }
   const now = new Date().toISOString();
   await db.from("portal_household_charge_records").upsert(
     {

@@ -421,8 +421,13 @@ export async function handleStripeRefund(
   }
   const settlement = await settleReservedPlatformMoneyRefundFromWebhook(stripe, db, current);
   if (settlement === "unmatched") {
+    // Only a CENTRAL capture's refund has to come through the reservation. A
+    // destination-allocation hold reverses its transfer with the refund and books
+    // through the legacy ledger path below, exactly as a charge with no hold row
+    // does — the same rule `household-charge-refund-rail.server.ts` picks its rail by.
     const { data: allocations, error: allocationError } = await db.from("platform_payment_holds")
-      .select("id").eq("stripe_charge_id", stripeChargeId).limit(1);
+      .select("id").eq("stripe_charge_id", stripeChargeId)
+      .eq("source_allocation_mode", "hold").limit(1);
     if (allocationError) throw new Error("Could not check refund recipient allocation.");
     if (allocations?.length) throw new Error("Captured source refund needs exact allocation review.");
   }

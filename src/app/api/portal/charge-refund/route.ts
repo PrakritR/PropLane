@@ -10,7 +10,8 @@ import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
-import { refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { HouseholdChargeRefundReviewError,
+  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
@@ -150,7 +151,10 @@ export async function POST(req: Request) {
       amountCents: decision.amountCents,
       remainingCents: decision.remainingAfterCents,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof HouseholdChargeRefundReviewError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: "Could not refund this charge." }, { status: 500 });
   }
 }

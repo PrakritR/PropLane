@@ -14,8 +14,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *    central source allocator credits the owner): the money is captured on PropLane's platform, so
  *    Stripe's own fee is PropLane's cost and never belongs on the manager's book. The row carries
  *    the FROZEN per-charge `recipient_net_cents` the owner is actually paid, and a fee of only what
- *    the owner bears under the frozen fee payer — the processing fee when it is `manager`, zero when
- *    the resident or PropLane absorbs it. Until those frozen terms exist the fee and net stay NULL
+ *    the owner bears under the frozen fee payer: PropLane's service fee (which covers processing)
+ *    when it is `manager`, zero when the resident or PropLane absorbs it. Despite the column name
+ *    that figure is NOT Stripe's processing fee — Stripe's own cost stays with the platform and is
+ *    never attributed here. Until those frozen terms exist the fee and net stay NULL
  *    ("unknown"): a captured card payment is never recorded as a 0 fee with net equal to gross on
  *    the strength of nothing, and never as the platform's net either.
  *
@@ -103,8 +105,9 @@ async function enrichPlatformCaptureLedger(
         .update({
           stripe_charge_id: stripeChargeId,
           net_cents: component.recipient_net_cents,
-          // Only what the owner bears. A resident- or PropLane-paid processing fee is a
-          // known zero on the owner's book, not an unknown.
+          // Only what the owner bears: PropLane's service fee, which covers processing.
+          // Not Stripe's fee — that is the platform's cost. A resident- or
+          // PropLane-absorbed fee is a known zero on the owner's book, not an unknown.
           stripe_fee_cents: feePayer === "manager"
             ? component.principal_cents - component.recipient_net_cents
             : 0,

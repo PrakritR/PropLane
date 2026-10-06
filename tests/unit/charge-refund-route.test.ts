@@ -156,6 +156,8 @@ describe("how the money moves", () => {
       owner_user_id: "mgr-1",
       owner_role: "manager",
       stripe_charge_id: "ch_1",
+      source_allocation_mode: "hold",
+      source_verified_at: "2026-10-04T00:00:00Z",
       source_components: [{ source_id: "chg-1", principal_cents: 90_000 }],
     }];
 
@@ -179,6 +181,8 @@ describe("how the money moves", () => {
       owner_user_id: "mgr-1",
       owner_role: "manager",
       stripe_charge_id: "ch_1",
+      source_allocation_mode: "hold",
+      source_verified_at: "2026-10-04T00:00:00Z",
       source_components: [{ source_id: "chg-1", principal_cents: 90_000 }],
     }];
     runReservedRefund.mockResolvedValue({ status: "failed", refundId: "",
@@ -187,6 +191,56 @@ describe("how the money moves", () => {
     const res = await post({ chargeId: "chg-1" });
 
     expect(res.status).toBe(500);
+    expect(upserted).toHaveLength(0);
+  });
+
+  /**
+   * A destination charge also has a hold row, so the rail is picked by
+   * `source_allocation_mode`. The manager already holds the money, so the transfer
+   * is reversed with the refund.
+   */
+  it("reverses the transfer for a destination-allocation hold instead of reserving", async () => {
+    rows.holds = [{
+      id: "6a65b330-d052-4970-86b1-ce3c98d44bd1",
+      owner_user_id: "mgr-1",
+      owner_role: "manager",
+      stripe_charge_id: "ch_1",
+      source_allocation_mode: "destination",
+      source_verified_at: "2026-10-04T00:00:00Z",
+      source_components: [{ source_id: "chg-1", principal_cents: 90_000 }],
+    }];
+
+    const res = await post({ chargeId: "chg-1" });
+
+    expect(res.status).toBe(200);
+    expect(runReservedRefund).not.toHaveBeenCalled();
+    expect(refundsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ reverse_transfer: true }), expect.anything());
+  });
+
+  /**
+   * A charge captured before the central rail landed can never be refunded in-app.
+   * The manager must be told that, not handed a generic 500 they will retry forever.
+   */
+  it("answers 409 with the reason for a pre-arbitration hold, and calls no provider", async () => {
+    rows.holds = [{
+      id: "6a65b330-d052-4970-86b1-ce3c98d44bd1",
+      owner_user_id: "mgr-1",
+      owner_role: "manager",
+      stripe_charge_id: "ch_1",
+      source_allocation_mode: null,
+      source_verified_at: null,
+      source_components: null,
+    }];
+
+    const res = await post({ chargeId: "chg-1" });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "This payment was taken before the new payment system; its refund needs review.",
+    });
+    expect(refundsCreate).not.toHaveBeenCalled();
+    expect(runReservedRefund).not.toHaveBeenCalled();
     expect(upserted).toHaveLength(0);
   });
 

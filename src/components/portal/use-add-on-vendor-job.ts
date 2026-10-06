@@ -145,7 +145,7 @@ export function useAddOnVendorJob({
    * settled toast belongs to `completePayCheckout`, never to a session that was merely created.
    */
   const pay = useCallback(async () => {
-    if (!job) return;
+    if (!job || paying) return;
     setPaying(true);
     try {
       const result = await payVendorJob(job);
@@ -162,7 +162,7 @@ export function useAddOnVendorJob({
     } finally {
       setPaying(false);
     }
-  }, [job, showToast, onChanged]);
+  }, [job, paying, showToast, onChanged]);
 
   const closePayCheckout = useCallback(() => setPayCheckoutSecret(null), []);
 

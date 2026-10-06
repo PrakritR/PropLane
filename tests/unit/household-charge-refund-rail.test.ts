@@ -5,7 +5,8 @@ vi.mock("@/lib/platform-money-refund.server", () => ({
   runReservedPlatformMoneyRefund: (...args: unknown[]) => runReservedPlatformMoneyRefund(...args),
 }));
 
-import { refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { HouseholdChargeRefundReviewError, PRE_ARBITRATION_REFUND_REVIEW_MESSAGE,
+  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
 
 const chargeId = "charge-a";
 const stripeChargeId = "ch_paid";
@@ -17,6 +18,8 @@ type Hold = {
   owner_user_id: string;
   owner_role: string;
   stripe_charge_id: string;
+  source_allocation_mode: string | null;
+  source_verified_at: string | null;
   source_components: Array<{ source_id: string; principal_cents: number }> | null;
 };
 
@@ -52,6 +55,8 @@ const centralHold: Hold = {
   owner_user_id: owner,
   owner_role: "manager",
   stripe_charge_id: stripeChargeId,
+  source_allocation_mode: "hold",
+  source_verified_at: "2026-10-04T00:00:00Z",
   source_components: [{ source_id: chargeId, principal_cents: 5000 }],
 };
 
@@ -156,6 +161,87 @@ describe("refundPaidHouseholdCharge", () => {
     const { stripe, db } = fixture([], true);
 
     await expect(refundPaidHouseholdCharge(stripe as never, db as never, input)).rejects.toThrow(/recipient allocation/i);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `verify_platform_hold_source` stamps a hold row for a DESTINATION charge too
+ * (`source_allocation_mode='destination'`), so "a hold row exists" is not the rail
+ * test. The money already sits in the manager's connected account, so the transfer
+ * must be reversed with the refund.
+ */
+describe("destination-allocation holds take the legacy transfer-reversing rail", () => {
+  const destinationHold: Hold = {
+    ...centralHold,
+    source_allocation_mode: "destination",
+  };
+
+  it("reverses the transfer on a verified destination-allocation hold", async () => {
+    const { stripe, db } = fixture([destinationHold]);
+    runReservedPlatformMoneyRefund.mockResolvedValue({
+      status: "succeeded", refundId: "re_central", recipientNetDebitCents: 5000, vendorFeeShareCents: 0,
+    });
+
+    const result = await refundPaidHouseholdCharge(stripe as never, db as never, input);
+
+    expect(result).toEqual({ refundId: "re_legacy", rail: "destination" });
+    expect(runReservedPlatformMoneyRefund).not.toHaveBeenCalled();
+    expect(stripe.refunds.create).toHaveBeenCalledWith(
+      expect.objectContaining({ charge: stripeChargeId, amount: 5000, reverse_transfer: true }),
+      { idempotencyKey: input.idempotencyKey },
+    );
+  });
+});
+
+/**
+ * A charge captured before the central rail landed has a hold row with no
+ * `source_verified_at` and no frozen components. `reserve_platform_money_refund`
+ * would raise on it and reversing a transfer that was never made would take the
+ * money out of PropLane's balance, so it is refused before any Stripe call — with a
+ * message that says why, not an opaque 500.
+ */
+describe("pre-arbitration holds are refused up front", () => {
+  const preArbitration: Hold = {
+    ...centralHold,
+    source_allocation_mode: null,
+    source_verified_at: null,
+    source_components: null,
+  };
+
+  it("refuses an unverified pre-arbitration hold with the review message and no Stripe call", async () => {
+    const { stripe, db } = fixture([preArbitration]);
+
+    await expect(refundPaidHouseholdCharge(stripe as never, db as never, input))
+      .rejects.toThrow(PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+    expect(runReservedPlatformMoneyRefund).not.toHaveBeenCalled();
+  });
+
+  it("marks the refusal as a 409 review error, not a server failure", async () => {
+    const { stripe, db } = fixture([preArbitration]);
+
+    const error = await refundPaidHouseholdCharge(stripe as never, db as never, input)
+      .then(() => null, (thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(HouseholdChargeRefundReviewError);
+    expect((error as HouseholdChargeRefundReviewError).status).toBe(409);
+  });
+
+  it("refuses a hold stamped verified but still missing its frozen components", async () => {
+    const { stripe, db } = fixture([{ ...centralHold, source_components: null }]);
+
+    await expect(refundPaidHouseholdCharge(stripe as never, db as never, input))
+      .rejects.toThrow(PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+    expect(runReservedPlatformMoneyRefund).not.toHaveBeenCalled();
+  });
+
+  it("refuses a central hold that was never source-verified", async () => {
+    const { stripe, db } = fixture([{ ...centralHold, source_verified_at: null }]);
+
+    await expect(refundPaidHouseholdCharge(stripe as never, db as never, input))
+      .rejects.toThrow(PRE_ARBITRATION_REFUND_REVIEW_MESSAGE);
     expect(stripe.refunds.create).not.toHaveBeenCalled();
   });
 });
