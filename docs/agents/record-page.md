@@ -59,6 +59,20 @@ each kind actually keeps) are later-wave work. Until they land, most kinds'
 own tab content is unchanged from before this plan, and `phonePrimary` no
 longer exists — the phone has no sticky action of its own to prime.
 
+## Manager resident record (2026-10-05)
+
+Rail: RESIDENT (Overview · Tours · Application · Background check), HOME (Lease · Move in · Payments ·
+Services, current residents only · Documents · Communication, last). No Activity tab; Inspections is a
+Move in sub-tab (`/move-in/inspections`, and an old `/inspections` link redirects there).
+
+The record's top-right icons are identical on every tab: the one `PortalRecordActions` in
+`pro-residents.tsx` publishes them, and no tab body may publish a second set (the slot is single,
+last wins). A tab's own actions are icons in its section header card — `ManagerResidentSectionToolbar`
+with a `title` (the section's name), the tabs as `destinationRow`, icon actions, the blue + last.
+Application and Background check share Incomplete · Pending · Approved · Rejected
+(`residentApplicationStatusBucket`, `residentBackgroundCheckStatusBucket`); Move in's sub-tabs are
+the resident's My home tabs in the same order.
+
 ## Header actions are per (role, kind, section)
 
 `recordSections(role, kind, ctx, activeSectionId?)` resolves `headerActions`

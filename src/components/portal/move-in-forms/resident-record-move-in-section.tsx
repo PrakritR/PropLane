@@ -1,19 +1,34 @@
 "use client";
 
 /**
- * Resident record › Move-in (every resident stage). Two cards, per docs/agents/record-page.md:
- *  - "Move-in forms": EVERY form of the resident's property (its stored list), one flat row each,
- *    merged with the copies already sent: Not sent (⋯ Send), Sent with its due date (⋯ Remind /
- *    Preview / Cancel) or Submitted (⋯ Open / Download PDF / Send again). A copy whose form was
- *    since deleted still shows under the name it was sent with. Download all and the round + that
- *    opens the send popup already pointed at this resident stay.
- *  - "Move-in details <first name> received": the property's existing move-in instructions,
- *    photos and video as plain facts, with an icon link to the property's Move-in tab.
+ * Resident record › Move in (every resident stage). One section header card ("Move in", then the
+ * same sub-tabs, in the same order and words, the resident sees in My home: Forms · Placement ·
+ * Move-in details · Roommates · Inspections), and one body per sub-tab:
+ *  - Forms: EVERY form of the resident's property (its stored list), one flat row each, merged with
+ *    the copies already sent: Not sent (⋯ Send), Sent with its due date (⋯ Remind / Preview /
+ *    Cancel) or Submitted (⋯ Open / Download PDF / Send again). A copy whose form was since deleted
+ *    still shows under the name it was sent with. Download all and the round + that opens the send
+ *    popup already pointed at this resident sit in the header card.
+ *  - Placement: the property, room and dates this resident is placed at.
+ *  - Move-in details: what the resident received (instructions, photos, video) plus the house
+ *    info, rules, Wi-Fi, instructions and amenities their own Move-in details tab shows.
+ *  - Roommates: the other residents of the house, as the resident sees them.
+ *  - Inspections: this resident's move-in / move-out inspections (`InspectionsPanel`).
  * Only facts that exist are shown; there is no "Opened" row because nothing records it.
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { Download, ExternalLink, FileText, Send } from "lucide-react";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
+import { InspectionsPanel } from "@/components/portal/inspections-panel";
+import {
+  AmenitiesSection,
+  HousematesTabContent,
+  InfoTabContent,
+  InstructionsTabContent,
+} from "@/components/portal/resident-move-in-view";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { PortalEntryRow, type PortalEntryRowFact } from "@/components/portal/portal-entry-row";
 import { PortalListGroupRowContext } from "@/components/portal/portal-list-group";
@@ -40,7 +55,12 @@ import { moveInFormTab } from "@/lib/move-in-forms/manager-rows";
 import { readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 import type { MoveInFormSummary, MoveInFormTemplate } from "@/lib/move-in-forms/types";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { propertyDetailHref } from "@/lib/portal-detail-routes";
+import {
+  propertyDetailHref,
+  RESIDENT_MOVE_IN_TABS,
+  RESIDENT_MOVE_IN_TAB_LABELS,
+  type ResidentMoveInTabId,
+} from "@/lib/portal-detail-routes";
 import { resolveResidentMoveInFromApplications } from "@/lib/resident-move-in-resolve";
 
 /** One form of the resident's property: its latest live copy, or none yet. */
@@ -124,13 +144,15 @@ export function describeMoveInDetails(
   };
 }
 
-function Card({ title, actions, children, dataAttr }: { title: string; actions?: ReactNode; children: ReactNode; dataAttr: string }) {
+function Card({ title, actions, children, dataAttr }: { title?: string; actions?: ReactNode; children: ReactNode; dataAttr: string }) {
   return (
     <section className="mb-4 flex min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr={dataAttr}>
-      <div className="flex items-center gap-1 border-b border-border/70 px-4 py-2.5">
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
-        {actions}
-      </div>
+      {title ? (
+        <div className="flex items-center gap-1 border-b border-border/70 px-4 py-2.5">
+          <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+          {actions}
+        </div>
+      ) : null}
       {children}
     </section>
   );
@@ -143,6 +165,9 @@ export function ResidentRecordMoveInSection({
   residentEmail,
   propertyId,
   basePath = "/portal",
+  subTab,
+  onSubTabChange,
+  placement,
 }: {
   userId: string;
   /** The application id the Residents routes use for this person. */
@@ -151,7 +176,15 @@ export function ResidentRecordMoveInSection({
   residentEmail: string;
   propertyId: string;
   basePath?: string;
+  /** The open sub-tab (the record keeps it in the URL). Omitted = the section keeps it itself, opening on Forms. */
+  subTab?: ResidentMoveInTabId;
+  onSubTabChange?: (tab: ResidentMoveInTabId) => void;
+  /** Where this resident is placed, for the Placement sub-tab. */
+  placement?: { propertyLabel?: string; roomLabel?: string; moveInDate?: string; moveOutDate?: string };
 }) {
+  const [localTab, setLocalTab] = useState<ResidentMoveInTabId>("forms");
+  const activeTab = subTab ?? localTab;
+  const changeTab = onSubTabChange ?? setLocalTab;
   const navigate = usePortalNavigate();
   const actions = useMoveInFormRowActions();
   const { showToast } = useAppUi();
@@ -199,18 +232,23 @@ export function ResidentRecordMoveInSection({
   const rowFacts = (row: ResidentMoveInFormRow): PortalEntryRowFact[] =>
     row.copy ? moveInFormEntryFacts(row.copy, now) : [{ icon: Send, label: "Not sent" }];
 
-  const details = useMemo(() => {
+  // What this resident's own Move-in tabs would resolve to: the property's move-in copy, house
+  // info and the other approved residents of the house (every application row is read so the
+  // roommates can be found).
+  const { resolved, entireHome } = useMemo(() => {
     const hit = propertyId ? resolveManagerListingSubmissionForPropertyId(userId, propertyId) : null;
-    const row: DemoApplicantRow | undefined = readManagerApplicationRows().find((r) => r.id === applicationId);
+    const all = readManagerApplicationRows();
+    const row: DemoApplicantRow | undefined = all.find((r) => r.id === applicationId);
     const property = hit
       ? ({ id: propertyId, title: "", buildingName: "", listingSubmission: hit.sub } as unknown as MockProperty)
       : undefined;
-    const resolved =
+    const found =
       row && residentEmail && property
-        ? resolveResidentMoveInFromApplications(residentEmail, [row], { [propertyId]: property })
+        ? resolveResidentMoveInFromApplications(residentEmail, all, { [propertyId]: property })
         : null;
-    return describeMoveInDetails(resolved, hit ? isEntireHomeListing(hit.sub) : false);
+    return { resolved: found, entireHome: hit ? isEntireHomeListing(hit.sub) : false };
   }, [userId, applicationId, propertyId, residentEmail]);
+  const details = useMemo(() => describeMoveInDetails(resolved, entireHome), [resolved, entireHome]);
 
   const open = (form: MoveInFormSummary) => {
     track("move_in_form_opened", { status: form.status });
@@ -221,26 +259,58 @@ export function ResidentRecordMoveInSection({
     for (const form of submitted) await actions.download(form);
   };
 
+  const tabItems = RESIDENT_MOVE_IN_TABS.map((id) => ({
+    id,
+    label: id === "placement" ? "Placement" : RESIDENT_MOVE_IN_TAB_LABELS[id],
+    count: id === "forms" ? rows.length : id === "housemates" ? resolved?.housemates.length : undefined,
+    dataAttr: `resident-move-in-tab-${id}`,
+  }));
+  const openPropertyMoveIn = () => navigate(propertyDetailHref(basePath, "all", propertyId, "move-in"));
+  const headerActions =
+    activeTab === "forms" && !demo ? [{ id: "send-form", label: "Add form", icon: Send, tone: "primary" as const }] : [];
+  const headerExtras =
+    activeTab === "forms" && !demo ? (
+      <PortalIconAction
+        icon={Download}
+        label="Download all"
+        disabled={submitted.length === 0}
+        data-attr="resident-move-in-download-all"
+        onClick={() => void downloadAll()}
+      />
+    ) : activeTab === "info" && propertyId ? (
+      <PortalIconAction
+        icon={ExternalLink}
+        label="Open property Move-in"
+        data-attr="resident-move-in-open-property"
+        onClick={openPropertyMoveIn}
+      />
+    ) : null;
+  const placementProperty = resolved?.propertyLabel?.trim() || placement?.propertyLabel?.trim() || "";
+  const placementRoom = resolved?.roomLabel?.trim() || placement?.roomLabel?.trim() || "";
+  const placementMoveIn = resolved?.earliestMoveInDateLabel?.trim() || placement?.moveInDate?.trim() || "";
+
   return (
-    <div className="min-w-0" data-attr="resident-record-move-in">
-      <Card
-        title="Move-in forms"
-        dataAttr="resident-record-move-in-forms"
-        actions={
-          demo ? null : (
-            <>
-              <PortalIconAction
-                icon={Download}
-                label="Download all"
-                disabled={submitted.length === 0}
-                data-attr="resident-move-in-download-all"
-                onClick={() => void downloadAll()}
-              />
-              <PortalPrimaryIconAction label="Send a form" data-attr="resident-move-in-send" onClick={() => setSendOpen(true)} />
-            </>
-          )
+    <div className="min-w-0" data-attr="resident-record-move-in" data-move-in-tab={activeTab}>
+      <ManagerResidentSectionToolbar
+        title="Move in"
+        actions={headerActions}
+        onAction={(id) => {
+          if (id === "send-form") setSendOpen(true);
+        }}
+        overflowMenu={headerExtras}
+        destinationRow={
+          <LocalDestinationNav
+            items={tabItems}
+            activeId={activeTab}
+            onChange={(id) => changeTab(id as ResidentMoveInTabId)}
+            ariaLabel="Move in sections"
+            appearance="command"
+            className="w-full"
+          />
         }
-      >
+      />
+
+      {activeTab === "forms" ? (
         <PortalListGroupRowContext.Provider value>
           <PortalRecordListSurface
             className="!pb-0 max-lg:!pb-0 lg:!pb-0"
@@ -254,7 +324,7 @@ export function ResidentRecordMoveInSection({
               actions:
                 demo || !propertyId
                   ? []
-                  : [{ label: "Open Forms", onClick: () => navigate(propertyDetailHref(basePath, "all", propertyId, "move-in")), dataAttr: "resident-move-in-empty-open-forms" }],
+                  : [{ label: "Open Forms", onClick: openPropertyMoveIn, dataAttr: "resident-move-in-empty-open-forms" }],
             }}
             onBulkClear={() => setSelected(new Set())}
             bulkCount={selected.size}
@@ -306,26 +376,57 @@ export function ResidentRecordMoveInSection({
             </div>
           </PortalRecordListSurface>
         </PortalListGroupRowContext.Provider>
-      </Card>
+      ) : null}
 
-      <Card
-        title={`Move-in details ${first} received`}
-        dataAttr="resident-record-move-in-details"
-        actions={
-          propertyId ? (
-            <PortalIconAction
-              icon={ExternalLink}
-              label="Open property Move-in"
-              data-attr="resident-move-in-open-property"
-              onClick={() => navigate(propertyDetailHref(basePath, "all", propertyId, "move-in"))}
-            />
-          ) : null
-        }
-      >
-        <RecordFactRow label="Instructions" value={details.instructions} />
-        <RecordFactRow label="Photos" value={details.photos} />
-        <RecordFactRow label="Video" value={details.video} />
-      </Card>
+      {activeTab === "placement" ? (
+        <Card dataAttr="resident-record-move-in-placement">
+          <RecordFactRow label="Property" value={placementProperty || "Not set yet"} />
+          {resolved?.addressLine ? <RecordFactRow label="Address" value={resolved.addressLine} /> : null}
+          <RecordFactRow label="Room" value={placementRoom || "Not assigned yet"} />
+          <RecordFactRow label="Move-in date" value={placementMoveIn || "Not set yet"} />
+          {placement?.moveOutDate?.trim() ? <RecordFactRow label="Move-out date" value={placement.moveOutDate.trim()} /> : null}
+        </Card>
+      ) : null}
+
+      {activeTab === "info" ? (
+        <>
+          <Card title={`Move-in details ${first} received`} dataAttr="resident-record-move-in-details">
+            <RecordFactRow label="Instructions" value={details.instructions} />
+            <RecordFactRow label="Photos" value={details.photos} />
+            <RecordFactRow label="Video" value={details.video} />
+          </Card>
+          {resolved ? (
+            <div className="space-y-6" data-attr="resident-record-move-in-house-info">
+              <InfoTabContent resolved={resolved} forManager />
+              <InstructionsTabContent resolved={resolved} />
+              <AmenitiesSection resolved={resolved} />
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {activeTab === "housemates" ? (
+        <div data-attr="resident-record-move-in-roommates">
+          {resolved ? (
+            <HousematesTabContent resolved={resolved} emptyMessage="No other residents are listed for this household yet." />
+          ) : (
+            <PortalDataTableEmpty icon="residents" message="No other residents are listed for this household yet." />
+          )}
+        </div>
+      ) : null}
+
+      {activeTab === "inspections" ? (
+        <InspectionsPanel
+          role="manager"
+          applicationId={applicationId}
+          embeddedInResident
+          embeddedToolbar={(nav) => (
+            <div className="mb-2 rounded-xl border border-border bg-card px-1 shadow-sm" data-attr="resident-move-in-inspections-tabs">
+              {nav}
+            </div>
+          )}
+        />
+      ) : null}
 
       {viewing ? <MoveInFormViewer form={viewing} actions={actions} onClose={() => setViewing(null)} /> : null}
       {sendOpen ? (

@@ -161,13 +161,20 @@ function HousemateRow({ mate }: { mate: ResidentMoveInHousemate }) {
   );
 }
 
-function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
+export function HousematesTabContent({
+  resolved,
+  emptyMessage = "No other residents are listed for your household yet.",
+}: {
+  resolved: ResidentMoveInResolved;
+  /** The manager's resident record says this in its own voice. */
+  emptyMessage?: string;
+}) {
   if (resolved.housemates.length === 0) {
     return (
       <div className={PORTAL_LIST_PAGE_BODY}>
         <PortalDataTableEmpty
           icon="residents"
-          message="No other residents are listed for your household yet."
+          message={emptyMessage}
         />
       </div>
     );
@@ -209,7 +216,14 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
   );
 }
 
-function InfoTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
+export function InfoTabContent({
+  resolved,
+  forManager = false,
+}: {
+  resolved: ResidentMoveInResolved;
+  /** The manager's resident record: PropLane's "How your portal works" card is resident-facing, so it is left out. */
+  forManager?: boolean;
+}) {
   const hasSections = !houseInfoIsEmpty(resolved.houseInfo);
   const hasLegacyText = Boolean(resolved.generalHouseInfo || resolved.houseRulesText);
 
@@ -221,11 +235,13 @@ function InfoTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
       <div className={PORTAL_LIST_PAGE_BODY}>
         <PortalDataTableEmpty
           icon="default"
-          message="Your property manager has not added house info or rules yet."
+          message={forManager ? "No house info or rules added yet." : "Your property manager has not added house info or rules yet."}
         />
-        <div className="mt-4">
-          <ResidentPortalHelpCard />
-        </div>
+        {forManager ? null : (
+          <div className="mt-4">
+            <ResidentPortalHelpCard />
+          </div>
+        )}
       </div>
     );
   }
@@ -245,14 +261,14 @@ function InfoTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
           </section>
         ) : null}
 
-        <ResidentPortalHelpCard />
+        {forManager ? null : <ResidentPortalHelpCard />}
       </div>
     </div>
   );
 }
 
 /** Amenities read as a section of Move-in details; a home that lists none shows nothing here. */
-function AmenitiesSection({ resolved }: { resolved: ResidentMoveInResolved }) {
+export function AmenitiesSection({ resolved }: { resolved: ResidentMoveInResolved }) {
   if (resolved.amenities.length === 0) return null;
 
   return (
@@ -275,7 +291,7 @@ function AmenitiesSection({ resolved }: { resolved: ResidentMoveInResolved }) {
  * which key opens Room 3 — and the house level used to be written by the manager
  * and read by nobody (AXI-163).
  */
-function InstructionsTabContent({
+export function InstructionsTabContent({
   resolved,
   focusRoomId,
 }: {

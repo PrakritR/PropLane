@@ -69,7 +69,11 @@ export function ManagerResidentToursPanel({
   buildTourDetailHref?: (row: ManagerTourRow) => string;
   buildTourListHref?: (bucket: ManagerTourBucketId) => string;
   propertyIds?: string[];
-  sectionToolbar?: ReactNode;
+  /**
+   * The section's header card (title · icon actions). The panel hands it the Scheduled · Upcoming ·
+   * Past tabs as `destinationRow`, so the tabs sit inside that one card.
+   */
+  sectionToolbar?: (destinationRow: ReactNode) => ReactNode;
 }) {
   const navigate = usePortalNavigate();
   const normalizedEmail = residentEmail.trim().toLowerCase();
@@ -120,22 +124,26 @@ export function ManagerResidentToursPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      {sectionToolbar}
-      <LocalDestinationNav
-        items={RESIDENT_TOUR_TABS.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          count: bucketCounts[tab.id],
-          dataAttr: tab.dataAttr,
-        }))}
-        activeId={bucket}
-        onChange={(id) => {
-          if (buildTourListHref) navigate(buildTourListHref(id as ManagerTourBucketId));
-        }}
-        ariaLabel="Tour status"
-        size="toolbar"
-        itemLayout="equal"
-      />
+      {(() => {
+        const statusTabs = (
+          <LocalDestinationNav
+            items={RESIDENT_TOUR_TABS.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              count: bucketCounts[tab.id],
+              dataAttr: tab.dataAttr,
+            }))}
+            activeId={bucket}
+            onChange={(id) => {
+              if (buildTourListHref) navigate(buildTourListHref(id as ManagerTourBucketId));
+            }}
+            ariaLabel="Tour status"
+            appearance="command"
+            className="w-full"
+          />
+        );
+        return sectionToolbar ? sectionToolbar(statusTabs) : statusTabs;
+      })()}
       <PortalListControlStack
         variant="command"
         className="plp-header-card mb-0"

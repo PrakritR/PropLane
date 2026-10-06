@@ -3713,6 +3713,14 @@ html[data-native] [data-listing-subnav] {
   flex: 1 1 auto;
 }
 
+/* Resident record › Communication: the thread card fills the page — the app bar, the record header and
+   the section header card sit above it — with the composer pinned to its bottom. */
+@media (min-width: 1024px) {
+  .portal-resident-detail-inbox .portal-inbox-two-pane {
+    min-height: calc(100dvh - 15rem);
+  }
+}
+
 .portal-resident-detail-inbox .portal-inbox-thread-body {
   min-height: 0;
   flex: 1 1 auto;

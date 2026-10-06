@@ -279,18 +279,22 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
   resident: {
     basePathDefault: "/portal",
     ownGroups: [
+      // Rail order (captain, 2026-10-05): the person first, then the home. Communication closes the
+      // rail; Documents sits just before it. Inspections is a sub-tab of Move in and there is no
+      // Activity tab, so the shared trio is not appended for a resident (the two it keeps are listed here).
       { label: "Resident", ids: [
         { id: "overview", label: "Overview" },
+        { id: "tours", label: "Tours" },
         { id: "application", label: "Application" },
         { id: "background-check", label: "Background check" },
       ] },
       { label: "Home", ids: [
         { id: "lease", label: "Lease" },
-        { id: "move-in", label: "Move-in" },
+        { id: "move-in", label: "Move in" },
         { id: "payments", label: "Payments" },
         { id: "services", label: "Services" },
-        { id: "inspections", label: "Inspections" },
-        { id: "tours", label: "Tours" },
+        { id: "documents", label: "Documents" },
+        { id: "communication", label: "Communication" },
       ] },
     ],
     headerActions: [
@@ -322,12 +326,14 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "add-charge", label: "Add charge", icon: Plus, tone: "primary" },
       ],
       services: [{ id: "add-service", label: "Add service", icon: Plus, tone: "primary" }],
-      inspections: [{ id: "add-inspection", label: "Add inspection", icon: Plus, tone: "primary" }],
       tours: [{ id: "add-tour", label: "Add tour", icon: Plus, tone: "primary" }],
       documents: [{ id: "upload", label: "Add document", icon: Upload, tone: "primary" }],
     },
-    hasDocuments: true,
-    hasActivity: true,
+    // Documents and Communication are listed in "Home" above (Communication last), so the registry
+    // appends nothing after them.
+    hasCommunication: false,
+    hasDocuments: false,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const residentsTab = ctx.residentsTab ?? "current";

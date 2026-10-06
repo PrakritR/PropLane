@@ -128,7 +128,12 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
   return "preview";
 }
 
-/** Routed detail tabs for manager resident profile (Appendix C2). */
+/**
+ * Routed detail tabs for manager resident profile (Appendix C2), in rail order:
+ * RESIDENT (Overview · Tours · Application · Background check) then HOME (Lease · Move in ·
+ * Payments · Services · Documents · Communication, Communication last). There is no Activity
+ * tab, and Inspections is a sub-tab of Move in (`/move-in/inspections`).
+ */
 export const RESIDENT_DETAIL_TABS = [
   // Overview lands first (round 3): who they are, where they live, what is
   // due and what is waiting — the property page's Preview, for a person.
@@ -140,10 +145,8 @@ export const RESIDENT_DETAIL_TABS = [
   "move-in",
   "payments",
   "services",
-  "inspections",
-  "communication",
   "documents",
-  "activity",
+  "communication",
 ] as const;
 
 export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number];
@@ -153,14 +156,12 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
   "background-check": "Background check",
   application: "Application",
   lease: "Lease",
-  "move-in": "Move-in",
+  "move-in": "Move in",
   tours: "Tours",
   payments: "Payments",
   services: "Services",
-  inspections: "Inspections",
   communication: "Communication",
   documents: "Documents",
-  activity: "Activity",
 };
 
 /** Compact labels for resident detail tabs on phone-width layouts. */
@@ -169,14 +170,12 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
   "background-check": "Screen",
   application: "Apply",
   lease: "Lease",
-  "move-in": "Move-in",
+  "move-in": "Move in",
   tours: "Tours",
   payments: "Pay",
   services: "Svc",
-  inspections: "Inspect",
   communication: "Comms",
   documents: "Docs",
-  activity: "Activity",
 };
 
 export const RESIDENT_DETAIL_TAB_DESCRIPTIONS: Record<ResidentDetailTabId, string> = {
@@ -185,13 +184,11 @@ export const RESIDENT_DETAIL_TAB_DESCRIPTIONS: Record<ResidentDetailTabId, strin
   application: "Screen this renter",
   "background-check": "Screening results",
   lease: "Draft, send and e-sign",
-  "move-in": "Move-in forms and details",
+  "move-in": "Move-in forms, details and inspections",
   payments: "Charges and receipts",
   services: "Repairs and requests",
-  inspections: "Move-in and move-out photos",
   communication: "Messages with this person",
   documents: "Files about this person",
-  activity: "What changed and when",
 };
 
 /** Sidebar subsection ids under Residents when viewing an applicant profile. */
@@ -238,6 +235,8 @@ export function parsePropertyCalendarSubTab(raw: string | undefined | null): Pro
 
 export function parseResidentDetailTab(raw: string | undefined | null): ResidentDetailTabId {
   if (raw === "applicant") return "application";
+  // Inspections is a sub-tab of Move in now; an old `/inspections` link opens it there.
+  if (raw === "inspections") return "move-in";
   if (raw && (RESIDENT_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentDetailTabId;
   }
@@ -1206,6 +1205,25 @@ export function residentMoveInHref(
   tab: ResidentMoveInTabId = "placement",
 ): string {
   return `${basePath}/move-in/${tab}`;
+}
+
+/**
+ * The manager resident record's Move in sub-tab. The record opens on Forms (the first tab), unlike
+ * the resident's own My home, which opens on Placement.
+ */
+export function parseResidentRecordMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {
+  return raw ? parseResidentMoveInTab(raw) : "forms";
+}
+
+/** One Move in sub-tab of the manager resident record; Forms is the bare `/move-in`. */
+export function residentRecordMoveInHref(
+  basePath: string,
+  residentsTab: string,
+  residentId: string,
+  tab: ResidentMoveInTabId = "forms",
+): string {
+  const base = residentDetailHref(basePath, residentsTab, residentId, "move-in");
+  return tab === "forms" ? base : `${base}/${tab}`;
 }
 
 /**

@@ -792,11 +792,18 @@ export async function renderPortalSection(
           `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId!)}/${legacyApplicantTab}${tail ? `/${tail}` : ""}`,
         );
       }
+      if (residentDetailTabRaw === "inspections" && residentId) {
+        // Inspections is a sub-tab of Move in now; an old link opens it there.
+        redirect(
+          `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId)}/move-in/inspections`,
+        );
+      }
       const residentDetailTab = residentDetailTabRaw;
       let residentPaymentId: string | undefined;
       let residentTourBucket: import("@/lib/portal-detail-routes").ManagerTourBucketId | undefined;
       let residentTourId: string | undefined;
       let residentServiceItemId: string | undefined;
+      let residentMoveInSubTab: string | undefined;
       if (residentDetailTab === "tours" && residentId) {
         const { MANAGER_TOUR_BUCKETS, parseManagerTourBucket } = await import(
           "@/lib/portal-detail-routes"
@@ -828,6 +835,7 @@ export async function renderPortalSection(
           residentDetailTab === "payments" ? residentDetailItemId : undefined;
         residentServiceItemId =
           residentDetailTab === "services" ? residentDetailItemId : undefined;
+        residentMoveInSubTab = residentDetailTab === "move-in" ? residentDetailItemId : undefined;
         if (tabParts.length > 4) notFound();
       }
       const ManagerResidents = await loadManagerResidents();
@@ -840,6 +848,7 @@ export async function renderPortalSection(
           tourBucket={residentTourBucket}
           tourId={residentTourId}
           serviceItemId={residentServiceItemId}
+          moveInTab={residentMoveInSubTab}
           smsUiEnabled={isSmsCommUiEnabled()}
         />,
         kind,

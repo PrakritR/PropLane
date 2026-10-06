@@ -91,8 +91,11 @@ describe("residentDetailTabsForStage", () => {
       expect(tabs[1]).toBe("tours");
       expect(tabs).toContain("services");
       expect(tabs).toContain("payments");
-      expect(tabs).toContain("inspections");
+      expect(tabs).toContain("move-in");
       expect(tabs).toContain("communication");
+      // Inspections is a sub-tab of Move in and there is no Activity tab.
+      expect(tabs).not.toContain("inspections");
+      expect(tabs).not.toContain("activity");
     }
   });
 

@@ -17,11 +17,18 @@ describe("resident detail tab chrome", () => {
     expect(RESIDENT_DETAIL_TABS[1]).toBe("tours");
   });
 
-  it("application subsection pills match the Applications hub buckets", () => {
+  it("application subsection tabs are Incomplete · Pending · Approved · Rejected", () => {
     expect(RESIDENT_DETAIL_APPLICATION_BUCKET_TABS.map((tab) => tab.id)).toEqual([
+      "incomplete",
       "pending",
       "approved",
       "rejected",
+    ]);
+    expect(RESIDENT_DETAIL_APPLICATION_BUCKET_TABS.map((tab) => tab.label)).toEqual([
+      "Incomplete",
+      "Pending",
+      "Approved",
+      "Rejected",
     ]);
   });
 

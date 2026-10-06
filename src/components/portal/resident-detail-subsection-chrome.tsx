@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Filter, Pencil, Settings } from "lucide-react";
+import { Filter, Pencil, Settings, type LucideIcon } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { LocalDestinationNav, type LocalDestinationNavItem } from "@/components/ui/destination-nav";
 import { cn } from "@/lib/utils";
 import { MANAGER_SETTINGS_ENTRY_POINTS } from "@/components/portal/settings-entry-points";
@@ -15,19 +16,18 @@ import { MANAGER_SETTINGS_ENTRY_POINTS } from "@/components/portal/settings-entr
 const DEFAULT_SETTINGS_ENTRY = MANAGER_SETTINGS_ENTRY_POINTS.residentDetail;
 
 /**
- * One compact button in the record-detail command strip: an icon, and the word
- * beside it from `md` up. Kept as a plain button rather than the site Button so
- * the strip reads as a toolbar (Mobbin record-detail rows), not a row of CTAs.
+ * One icon action in the record-detail command strip. Icon only at every width — the word is the
+ * tooltip and the accessible name (docs/agents/ui-change-checklist.md § Icon chrome).
  */
 function ChromeAction({
-  icon: Icon,
+  icon,
   label,
   onClick,
   disabled,
   dataAttr,
   title,
 }: {
-  icon: typeof Pencil;
+  icon: LucideIcon;
   label: string;
   onClick?: () => void;
   disabled?: boolean;
@@ -35,22 +35,14 @@ function ChromeAction({
   title?: string;
 }) {
   return (
-    <button
-      type="button"
+    <PortalIconAction
+      icon={icon}
+      label={label}
       data-attr={dataAttr}
       disabled={disabled}
-      title={title}
-      aria-label={label}
+      title={title ?? label}
       onClick={() => onClick?.()}
-      className={cn(
-        "portal-pressable inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3 text-[13px] font-semibold text-foreground transition-colors",
-        "hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card",
-      )}
-    >
-      <Icon className="h-4 w-4 shrink-0 text-muted" strokeWidth={1.8} aria-hidden />
-      <span className="hidden md:inline">{label}</span>
-    </button>
+    />
   );
 }
 

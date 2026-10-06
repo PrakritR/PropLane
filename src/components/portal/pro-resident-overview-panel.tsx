@@ -368,46 +368,60 @@ export function ResidentOverviewPanel({
             {residentHeaderStageLine(lifecycle)}
           </p>
         ) : null}
-        {/* Every step is the same shape (dot · label · date line, top-aligned), so a step
-            with no date never sits lower than its neighbours. */}
+        {/* Every step is the same shape: a fixed-height dot row (the connector is drawn inside it,
+            between dot centers), then the label, then a date line that is always reserved. Nothing
+            step-specific (a connector, a ring, a missing date) changes a step's vertical position. */}
         <ol className="flex list-none items-start gap-0 p-0" data-rt-track aria-label="Stage progress">
-          {lifecycle.steps.map((step, index) => (
-            <li
-              key={step.id}
-              data-rt-stage={step.id}
-              data-rt-keep={phoneKeep.has(index) ? "" : undefined}
-              data-rt-first={index === Math.min(...phoneKeep) ? "" : undefined}
-              aria-current={step.state === "current" ? "step" : undefined}
-              className={cn(
-                "relative flex min-w-0 flex-1 flex-col items-center justify-start gap-2 self-start text-center",
-                "max-sm:data-[rt-keep]:flex max-sm:data-[rt-keep=false]:hidden",
-                index > 0 &&
-                  "before:absolute before:right-1/2 before:top-[6px] before:-z-0 before:h-0.5 before:w-full before:rounded-full before:bg-foreground/10",
-                (step.state === "done" || step.state === "current") && "before:bg-primary",
-              )}
-            >
-              <span
+          {lifecycle.steps.map((step, index) => {
+            const reached = step.state === "done" || step.state === "current";
+            return (
+              <li
+                key={step.id}
+                data-rt-stage={step.id}
+                data-rt-keep={phoneKeep.has(index) ? "" : undefined}
+                data-rt-first={index === Math.min(...phoneKeep) ? "" : undefined}
+                aria-current={step.state === "current" ? "step" : undefined}
                 className={cn(
-                  "relative z-[1] box-border size-3.5 rounded-full border-2 border-foreground/15 bg-card",
-                  step.state === "done" && "border-primary bg-primary",
-                  step.state === "current" && "border-primary bg-primary shadow-[0_0_0_2px_var(--background),0_0_0_6px_color-mix(in_srgb,var(--primary)_18%,transparent)]",
+                  "relative flex min-w-0 flex-1 flex-col items-stretch text-center",
+                  "max-sm:data-[rt-keep]:flex max-sm:data-[rt-keep=false]:hidden",
                 )}
-              />
-              <span
-                className={cn(
-                  "px-1 text-[13px] font-medium leading-tight text-muted",
-                  step.state === "current" && "font-bold text-primary",
-                  step.state === "done" && "text-muted",
-                )}
-                data-rt-stage-label={step.state === "current" ? "" : undefined}
               >
-                {step.label}
-              </span>
-              <span className="-mt-1 min-h-4 text-xs leading-4 text-muted/80" aria-hidden={step.date ? undefined : true}>
-                {step.date ?? ""}
-              </span>
-            </li>
-          ))}
+                <div className="relative flex h-4 items-center justify-center" data-rt-dot-row>
+                  {index > 0 ? (
+                    <span
+                      aria-hidden
+                      data-rt-connector
+                      className={cn(
+                        "absolute right-1/2 top-1/2 h-0.5 w-full -translate-y-1/2 rounded-full",
+                        reached ? "bg-primary" : "bg-foreground/10",
+                      )}
+                    />
+                  ) : null}
+                  <span
+                    data-rt-dot
+                    className={cn(
+                      "relative z-[1] box-border size-3.5 shrink-0 rounded-full border-2 border-foreground/15 bg-card",
+                      step.state === "done" && "border-primary bg-primary",
+                      step.state === "current" && "border-primary bg-primary shadow-[0_0_0_2px_var(--background),0_0_0_6px_color-mix(in_srgb,var(--primary)_18%,transparent)]",
+                    )}
+                  />
+                </div>
+                <span
+                  className={cn(
+                    "mt-2 block px-1 text-[13px] font-medium leading-tight text-muted",
+                    step.state === "current" && "font-bold text-primary",
+                    step.state === "done" && "text-muted",
+                  )}
+                  data-rt-stage-label={step.state === "current" ? "" : undefined}
+                >
+                  {step.label}
+                </span>
+                <span className="mt-1 block h-4 text-xs leading-4 text-muted/80" aria-hidden={step.date ? undefined : true}>
+                  {step.date ?? ""}
+                </span>
+              </li>
+            );
+          })}
         </ol>
         {lifecycle.next ? (
           <div

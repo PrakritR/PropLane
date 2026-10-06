@@ -5,13 +5,10 @@ import { track } from "@/lib/analytics/track-client";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Bell, Check, Download, Trash2, Undo2, X, Link2, Mail, Settings as SettingsIcon, Pencil, Send, ScrollText, Upload } from "lucide-react";
-import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
-import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
+import { Bell, CheckCircle2, Download, XCircle, Mail, Settings as SettingsIcon, Pencil, Send, ScrollText, Upload } from "lucide-react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
-import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { ResidentRecordMoveInSection } from "@/components/portal/move-in-forms/resident-record-move-in-section";
 import { useResidentMoveInNeedsYou } from "@/components/portal/move-in-forms/use-resident-move-in-needs";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -50,7 +47,6 @@ import {
 } from "@/components/portal/portal-metrics";
 import {
   PortalDataTableEmpty,
-  PORTAL_DETAIL_BTN,
 } from "@/components/portal/portal-data-table";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
@@ -74,16 +70,22 @@ import {
   residentDetailHref,
   residentListHref,
   residentPaymentDetailHref,
+  residentRecordMoveInHref,
   parseResidentDetailTab,
+  parseResidentRecordMoveInTab,
   parseResidentsTab,
   type ResidentDetailTabId,
+  type ResidentMoveInTabId,
   type ResidentsTabId,
-  type ResidentApplicationBucketId,
   type ManagerTourBucketId,
 } from "@/lib/portal-detail-routes";
 import {
   RESIDENT_DETAIL_APPLICATION_BUCKET_TABS,
+  RESIDENT_DETAIL_BACKGROUND_CHECK_BUCKET_TABS,
   RESIDENT_DETAIL_LEASE_PIPELINE_TABS,
+  residentApplicationStatusBucket,
+  residentBackgroundCheckStatusBucket,
+  type ResidentRecordStatusBucketId,
 } from "@/lib/resident-detail-subsection-tabs";
 import { ResidentDetailCommandToolbar } from "@/components/portal/resident-detail-subsection-chrome";
 import {
@@ -101,13 +103,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { ResidentInviteClaimsPanel } from "@/components/portal/resident-invite-claims-panel";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { renderRecordSection } from "@/components/portal/record-section-renderers";
-import { importedActivity, parseResidentImportFile } from "@/lib/portfolio-import/activity";
-import { buildManagerResidentActivityEvents } from "@/lib/manager-resident-activity-events";
-import {
-  appendManagerResidentActivityLog,
-  readManagerResidentActivityLog,
-} from "@/lib/manager-resident-activity-log";
+import { appendManagerResidentActivityLog } from "@/lib/manager-resident-activity-log";
 import { ManagerResidentApplicationFactCards } from "@/components/portal/manager-resident-application-fact-cards";
 import { ManagerResidentBackgroundCheckPanel } from "@/components/portal/manager-resident-background-check-panel";
 import { uploadManagerDocumentForResident } from "@/lib/manager-resident-document-upload";
@@ -133,6 +129,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoreHorizontal } from "lucide-react";
+import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
@@ -162,7 +159,6 @@ import {
   PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
-import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
@@ -253,13 +249,9 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import {
   appendLeaseThreadMessage,
-  deleteLeasePipelineRow,
   deleteLeasePipelineRowsForResident,
   regenerateEditableLeasesForResident,
-  leaseGenerationSupportedForRow,
   managerSignLease,
-  leaseAllowsManagerDocumentEdits,
-  leaseAllowsManagerGeneratedBodyEdits,
   leasePipelineRowsForManagerResident,
   LEASE_PIPELINE_EVENT,
   confirmUploadedLeaseParseOnServer,
@@ -268,7 +260,6 @@ import {
   executedLeaseIdentities,
   readLeasePipeline,
   residentCanViewLeaseRow,
-  sendLeaseBackToManager,
   syncLeasePipelineFromApplications,
   syncLeasePipelineFromServer,
   runLeaseDownload,
@@ -278,7 +269,7 @@ import {
   leaseRowMatchesListTab,
   type LeaseListTabId,
   type LeasePipelineRow,} from "@/lib/lease-pipeline-storage";
-import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
+import { retryUploadedLeaseParse } from "@/lib/uploaded-lease-parse.client";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
 import {
@@ -310,7 +301,7 @@ import {
   isInProgressApplicationRow,
   shouldOfferApplicationCompletionReminder,
 } from "@/lib/rental-application/in-progress-application";
-import { buildApplicationGroups, groupForRow } from "@/lib/rental-application/application-groups";
+import { buildApplicationGroups } from "@/lib/rental-application/application-groups";
 import {
   invalidatePersistedInboxCache,
   loadPersistedInbox,
@@ -545,6 +536,7 @@ export function ManagerResidents({
   tourBucket: tourBucketProp = "pending",
   tourId: tourIdProp,
   serviceItemId: serviceItemIdProp,
+  moveInTab: moveInTabProp,
   smsUiEnabled = false,
 }: {
   tabId?: ResidentsTabId;
@@ -554,6 +546,8 @@ export function ManagerResidents({
   tourBucket?: ManagerTourBucketId;
   tourId?: string;
   serviceItemId?: string;
+  /** The Move in tab's sub-tab (`/move-in/{forms|placement|info|housemates|inspections}`). */
+  moveInTab?: string;
   smsUiEnabled?: boolean;
 }) {
   const { showToast } = useAppUi();
@@ -605,7 +599,6 @@ export function ManagerResidents({
   );
   const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
-  const [uploadingLeaseRowId, setUploadingLeaseRowId] = useState<string | null>(null);
   const [importReviewLeaseId, setImportReviewLeaseId] = useState<string | null>(null);
   const [editResidentLeaseId, setEditResidentLeaseId] = useState<string | null>(null);
   const [activeResidentLeaseId, setActiveResidentLeaseId] = useState<string | null>(null);
@@ -654,12 +647,18 @@ export function ManagerResidents({
     useState<ResidentUnifiedServicesBucket>("pending");
 
   const activeDetailTab = parseResidentDetailTab(detailTabProp);
+  // Inspections is a sub-tab of Move in: an old `/inspections` link opens Move in on it.
+  const residentMoveInSubTab = parseResidentRecordMoveInTab(
+    (detailTabProp as string | undefined) === "inspections" ? "inspections" : moveInTabProp,
+  );
   const [applicationEditOpen, setApplicationEditOpen] = useState(false);
   const [applicationEditInitialStep, setApplicationEditInitialStep] = useState<number | undefined>(undefined);
-  const [activityLogTick, setActivityLogTick] = useState(0);
+  const [, setActivityLogTick] = useState(0);
   const [messageReminderForPayment, setMessageReminderForPayment] = useState(false);
   const [residentApplicationBucket, setResidentApplicationBucket] =
-    useState<ResidentApplicationBucketId>("pending");
+    useState<ResidentRecordStatusBucketId>("pending");
+  const [residentBackgroundCheckBucket, setResidentBackgroundCheckBucket] =
+    useState<ResidentRecordStatusBucketId>("incomplete");
   const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<LeaseListTabId>("manager");
   const [residentDetailSettingsOpen, setResidentDetailSettingsOpen] = useState(false);
   const [residentDetailSettingsTab, setResidentDetailSettingsTab] =
@@ -1386,11 +1385,6 @@ export function ManagerResidents({
 
   const selectedHasPortalAccount = Boolean(selectedApplicationRow?.residentUserId);
 
-  const selectedApplicationGroup = useMemo(() => {
-    if (!selectedApplicationRow) return null;
-    return groupForRow(applicationGroups, { groupId: groupIdForRow(selectedApplicationRow) });
-  }, [applicationGroups, selectedApplicationRow]);
-
   const residentCosignerSignerIds = useMemo(
     () => (selectedApplicationRow ? signerAppIdsForCosignerLookup([selectedApplicationRow]) : []),
     [selectedApplicationRow],
@@ -1402,49 +1396,33 @@ export function ManagerResidents({
     return residentCosignerSubmissionsBySigner.get(key) ?? [];
   }, [selectedApplicationRow, residentCosignerSubmissionsBySigner]);
 
-  const residentHouseholdApplicationRows = useMemo(() => {
-    void hcTick;
-    if (!selectedApplicationRow) return [];
-    const group = selectedApplicationGroup;
-    if (!group) return [selectedApplicationRow];
-    const memberIds = new Set(group.members.map((member) => member.id));
-    return readManagerApplicationRows().filter((row) => memberIds.has(row.id));
-  }, [hcTick, selectedApplicationGroup, selectedApplicationRow]);
-
+  // The Application tab's counts: this resident's own application, under the one tab it belongs to.
   const residentApplicationBucketCounts = useMemo(() => {
-    const counts: Record<ResidentApplicationBucketId, number> = {
-      pending: 0,
-      approved: 0,
-      rejected: 0,
-    };
-    for (const row of residentHouseholdApplicationRows) {
-      if (row.bucket === "pending" || row.bucket === "approved" || row.bucket === "rejected") {
-        counts[row.bucket] += 1;
-      }
-    }
+    const counts: Record<ResidentRecordStatusBucketId, number> = { incomplete: 0, pending: 0, approved: 0, rejected: 0 };
+    if (selectedApplicationRow) counts[residentApplicationStatusBucket(selectedApplicationRow)] += 1;
     return counts;
-  }, [residentHouseholdApplicationRows]);
+  }, [selectedApplicationRow]);
 
-  const residentApplicationsInActiveBucket = useMemo(
-    () =>
-      residentHouseholdApplicationRows.filter((row) => row.bucket === residentApplicationBucket),
-    [residentApplicationBucket, residentHouseholdApplicationRows],
-  );
+  // The Background check tab's counts: the one check this resident has, mapped from its status.
+  const selectedBackgroundCheckBucket = selectedApplicationRow
+    ? residentBackgroundCheckStatusBucket(selectedApplicationRow)
+    : "incomplete";
+  const residentBackgroundCheckBucketCounts = useMemo(() => {
+    const counts: Record<ResidentRecordStatusBucketId, number> = { incomplete: 0, pending: 0, approved: 0, rejected: 0 };
+    if (selectedApplicationRow) counts[selectedBackgroundCheckBucket] += 1;
+    return counts;
+  }, [selectedApplicationRow, selectedBackgroundCheckBucket]);
 
+  // Open on the tab the record is under; the manager can still look at the others.
+  const selectedApplicationBucket = selectedApplicationRow
+    ? residentApplicationStatusBucket(selectedApplicationRow)
+    : null;
   useEffect(() => {
-    if (!selectedApplicationRow) return;
-    if (
-      selectedApplicationRow.bucket === "pending" ||
-      selectedApplicationRow.bucket === "approved" ||
-      selectedApplicationRow.bucket === "rejected"
-    ) {
-      setResidentApplicationBucket(selectedApplicationRow.bucket);
-    }
-  }, [selectedApplicationRow?.bucket, selectedApplicationRow?.id]);
-
-  const applicationMatchesActiveBucket =
-    Boolean(selectedApplicationRow) &&
-    selectedApplicationRow!.bucket === residentApplicationBucket;
+    if (selectedApplicationBucket) setResidentApplicationBucket(selectedApplicationBucket);
+  }, [selectedApplicationBucket, selectedApplicationRow?.id]);
+  useEffect(() => {
+    if (selectedApplicationRow) setResidentBackgroundCheckBucket(selectedBackgroundCheckBucket);
+  }, [selectedBackgroundCheckBucket, selectedApplicationRow?.id]);
 
   const openResidentDetailSettings = useCallback((tab: ManagerPortalSettingsTab) => {
     setResidentDetailSettingsTab(tab);
@@ -2797,46 +2775,6 @@ export function ManagerResidents({
     showToast(linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`);
   }
 
-  function leaseGenerationGateTitle(row: LeasePipelineRow): string | undefined {
-    const gate = leaseGenerationSupportedForRow(row);
-    return gate.ok ? undefined : gate.error;
-  }
-
-  const uploadLeaseForSelectedResident = useCallback(
-    async (file: File, rowId: string) => {
-      if (!selected || !rowId) return;
-      setUploadingLeaseRowId(rowId);
-      const result = await uploadAndParseLeasePdf(rowId, file, userId);
-      setUploadingLeaseRowId(null);
-      if (!result.ok) {
-        showToast(result.error ?? "Upload failed.");
-        return;
-      }
-      setLeaseTick((n) => n + 1);
-      if (result.saveError) {
-        showToast(`Lease PDF uploaded, but its PropLane reading was not stored: ${result.saveError}`);
-        return;
-      }
-      if (!result.parse) {
-        showToast("Lease PDF uploaded.");
-        return;
-      }
-      setImportReviewLeaseId(rowId);
-      showToast(
-        result.parse.status === "parsed"
-          ? `Lease imported into PropLane format (${result.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
-          : `Lease PDF uploaded, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
-      );
-    },
-    [selected, showToast, userId],
-  );
-
-  function openGenerateLeaseConfirm(rowId: string) {
-    const row = readLeasePipeline(userId).find((r) => r.id === rowId);
-    if (!row || !leaseAllowsManagerDocumentEdits(row) || !leaseGenerationSupportedForRow(row).ok) return;
-    setRegenerateConfirmLeaseId(rowId);
-  }
-
   const generateLeaseRow = regenerateConfirmLeaseId
     ? readLeasePipeline(userId).find((r) => r.id === regenerateConfirmLeaseId) ?? null
     : null;
@@ -2884,156 +2822,6 @@ export function ManagerResidents({
       return false;
     }
   }
-
-  /**
-   * The footer follows the application's state rather than showing one fixed
-   * pair. It offered Approve and Download only, so a manager could approve but
-   * never reject, and once a decision was made there was no way back from it
-   * on this screen at all.
-   *
-   *   decidable (pending, complete) → Approve · Reject
-   *   approved                      → Move to pending   (undo the decision)
-   *   rejected                      → Move to pending · Delete
-   *   incomplete                    → Send reminder
-   *
-   * Download is always there. "Move to pending" rather than "Un-approve"
-   * because pending is a real bucket the row goes back to, not an absence.
-   */
-  const residentApplicationTabFooterActions = selectedApplicationRow ? (() => {
-    const row = selectedApplicationRow;
-    const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
-    const decidable = row.bucket === "pending" && !undecidable;
-    const actions = [portalIconActionSpec({ id: "download", label: "Download", icon: Download,
-      dataAttr: "resident-application-download-footer", onClick: () => runApplicationPdfDownload(row, showToast) })];
-    if (undecidable && shouldOfferApplicationCompletionReminder(row)) actions.unshift(portalIconActionSpec({
-      id: "reminder", label: "Send reminder", icon: Bell, dataAttr: "resident-application-completion-reminder",
-      onClick: () => openApplicationCompletionReminderPreview(row),
-    }));
-    if (decidable) actions.push(
-      portalIconActionSpec({ id: "reject", label: "Decline", icon: X, tone: "danger", dataAttr: "resident-application-reject", onClick: () => void declineApplicationRow(row) }),
-      portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "resident-application-approve", onClick: () => setApprovePreviewRow(row) }),
-    );
-    if (row.bucket === "approved" || row.bucket === "rejected") actions.push(portalIconActionSpec({
-      id: "pending", label: "Move to pending", icon: Undo2, dataAttr: "resident-application-move-pending", onClick: () => setApplicationBucket(row.id, "pending"),
-    }));
-    if (row.bucket === "rejected") actions.push(portalIconActionSpec({
-      id: "delete", label: "Delete", icon: Trash2, tone: "danger", dataAttr: "resident-application-delete", onClick: () => deleteApplicationForRow(row),
-    }));
-    return <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />;
-  })() : null;
-
-  /**
-   * The screening panel already publishes the run action for this tab — "Run
-   * background check" when there is no report, "Run again" when there is — so
-   * a second button that opens the same modal was pure duplication: the footer
-   * read "Run again · Download · Request screening", three buttons for two
-   * actions.
-   *
-   * What is left is the case the panel does NOT cover: the applicant has not
-   * authorized a check yet. There is nothing to run, and the useful move is to
-   * chase the applicant, so that is what the button says.
-   */
-  const residentBackgroundCheckTabFooterActions = selectedApplicationRow ? (
-    <>
-      {applicationShowsBackgroundCheck(selectedApplicationRow) &&
-      !selectedApplicationRow.application?.consentCredit &&
-      shouldOfferApplicationCompletionReminder(selectedApplicationRow) ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="resident-application-screening-reminder"
-          onClick={() => void openApplicationCompletionReminderPreview(selectedApplicationRow)}
-        >
-          Send reminder
-        </Button>
-      ) : null}
-    </>
-  ) : null;
-
-  const residentLeaseTabFooterActions =
-    selected && residentLease ? (
-      <LeasePrimaryHeaderActions
-        embedded
-        flatFooter
-        btnClass={PORTAL_DETAIL_BTN}
-        row={residentLease}
-        downloadDataAttr="resident-lease-download"
-        signManagerDataAttr="resident-lease-sign-manager"
-        signingReminderDataAttr="resident-lease-signing-reminder"
-        onDownload={() => runLeaseDownload(residentLease, showToast)}
-        onSignManager={() => signLeaseAsManager(residentLease)}
-        onSigningReminder={() => openLeaseSigningReminderPreview(selected, residentLease)}
-        signingReminderBusy={leaseReminderBusy}
-        sendToResidentDataAttr="resident-lease-send"
-        moveToManagerReviewDataAttr="resident-lease-move-manager-review"
-        onSendToResident={() => openLeaseSendPreview(selected, residentLease)}
-        shareRecordId={residentLease.id}
-        // Deliberately never disabled for a blocked send: `openLeaseSendPreview`
-        // states the reason and opens the review that clears it, and disabling
-        // makes that unreachable. The gate is `sendLeaseToResident`, not the
-        // button. Same reasoning as the Leases pipeline panel.
-        sendToResidentDisabled={false}
-        onMoveToManagerReview={() => {
-          void (async () => {
-            const moveResult = await sendLeaseBackToManager(residentLease.id, userId);
-            if (!moveResult.ok) {
-              showToast(moveResult.error);
-              return;
-            }
-            appendLeaseThreadMessage(
-              residentLease.id,
-              "manager",
-              "Moved lease back to manager review.",
-              userId,
-            );
-            setLeaseTick((n) => n + 1);
-            showToast("Lease moved to Manager Review.");
-          })();
-        }}
-        canEditDocument={leaseAllowsManagerDocumentEdits(residentLease)}
-        generateLeaseDisabled={!leaseGenerationSupportedForRow(residentLease).ok}
-        generateLeaseBusy={false}
-        generateLeaseTitle={leaseGenerationGateTitle(residentLease)}
-        onGenerateLease={() => openGenerateLeaseConfirm(residentLease.id)}
-        onEditLease={
-          leaseAllowsManagerGeneratedBodyEdits(residentLease)
-            ? () => setEditResidentLeaseId(residentLease.id)
-            : undefined
-        }
-        editLeaseDataAttr="resident-lease-edit"
-        uploadPdfBusy={uploadingLeaseRowId === residentLease.id}
-        onReviewImportedLease={() => setImportReviewLeaseId(residentLease.id)}
-        onUploadPdf={async (file) => uploadLeaseForSelectedResident(file, residentLease.id)}
-        deleteLabel="Delete lease"
-        deleteDataAttr="resident-lease-delete"
-        onDelete={async () => {
-          if (
-            !(await confirm({
-              description: `Delete the lease document for ${selected.name}?`,
-              note: "Generate or upload can recreate it.",
-            }))
-          ) {
-            return;
-          }
-          if (deleteLeasePipelineRow(residentLease.id, userId)) {
-            setLeaseTick((n) => n + 1);
-            showToast("Lease document deleted.");
-          } else {
-            showToast("Could not delete lease document.");
-          }
-        }}
-      />
-    ) : null;
-
-  // Payments list: Settings + Edit live in the section header card
-  // (ManagerResidentSectionToolbar, C2-RT3). A second Settings/Setup dock duplicated those controls.
-  // Detail + bulk selection still publish their own footer actions below.
-  const residentPaymentsListFooterActions = null;
-
-  // Services adds through the dashed ADD row in the list itself, the same way
-  // every other list in the portal does — so this tab publishes no dock action.
-  const residentServicesTabFooterActions = null;
 
   /** The one ⋯ on a resident service row: Edit first (opens the service), Delete last. */
   const residentServiceRowMenu = ({
@@ -3101,39 +2889,6 @@ export function ManagerResidents({
       />
     </div>
   );
-
-  const residentDetailBottomBarActions = useMemo(() => {
-    if (resolvedDetailTab === "background-check" && showResidentApplication) {
-      return residentBackgroundCheckTabFooterActions;
-    }
-    if (resolvedDetailTab === "application" && showResidentApplication) {
-      return null;
-    }
-    if (resolvedDetailTab === "lease" && showResidentLease) {
-      return null;
-    }
-    if (resolvedDetailTab === "payments") {
-      if (paymentIdProp) return embeddedPaymentFooterActions;
-      if (embeddedPaymentBulkActions) return embeddedPaymentBulkActions;
-      return residentPaymentsListFooterActions;
-    }
-    if (resolvedDetailTab === "services") {
-      return residentServicesTabFooterActions;
-    }
-    return null;
-  }, [
-    resolvedDetailTab,
-    showResidentApplication,
-    showResidentLease,
-    residentApplicationTabFooterActions,
-    residentBackgroundCheckTabFooterActions,
-    residentLeaseTabFooterActions,
-    paymentIdProp,
-    embeddedPaymentFooterActions,
-    embeddedPaymentBulkActions,
-    residentPaymentsListFooterActions,
-    residentServicesTabFooterActions,
-  ]);
 
   useEffect(() => {
     if (resolvedDetailTab !== "payments") {
@@ -3227,7 +2982,7 @@ export function ManagerResidents({
       lease: residentDetailHref(portalBase, residentsTab, selected.id, "lease"),
       payments: residentDetailHref(portalBase, residentsTab, selected.id, "payments"),
       tours: managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp),
-      inspections: residentDetailHref(portalBase, residentsTab, selected.id, "inspections"),
+      inspections: residentRecordMoveInHref(portalBase, residentsTab, selected.id, "inspections"),
       services: residentDetailHref(portalBase, residentsTab, selected.id, "services"),
     };
     const lifecycle = buildResidentLifecycle(residentLifecycleInput, hrefs);
@@ -3255,7 +3010,11 @@ export function ManagerResidents({
     return withSetup;
   }, [portalBase, residentsTab, selectedHasPortalAccount]);
 
-  const residentSectionHeaderActions = useMemo(() => {
+  /**
+   * The icon actions of the open tab's section header card. Header actions at the top right never
+   * change with the tab; everything tab-specific lives here, in the tab's own header.
+   */
+  const residentSectionHeaderActions = useMemo((): RecordHeaderAction[] => {
     const sections = recordSections(
       "manager",
       "resident",
@@ -3264,22 +3023,39 @@ export function ManagerResidents({
     );
     let actions = sections.headerActions;
     if (resolvedDetailTab === "application") {
-      actions = actions.filter((a) => a.id !== "upload");
+      // Every application action, as icons: what applies follows the application's state — a
+      // pending one can be approved or rejected, a decided one can be moved back, an unfinished one
+      // can be chased. The blue + sends an application.
+      const row = selectedApplicationRow;
+      const next: RecordHeaderAction[] = [];
+      if (row) {
+        const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
+        if (shouldOfferApplicationCompletionReminder(row)) {
+          next.push({ id: "remind-application", label: "Send reminder", icon: Bell });
+        }
+        if (row.bucket === "pending" && !undecidable) {
+          next.push({ id: "approve", label: "Approve", icon: CheckCircle2 });
+          next.push({ id: "decline", label: "Reject", icon: XCircle, tone: "danger" });
+        }
+        if (row.application) next.push({ id: "edit", label: "Edit", icon: Pencil });
+        next.push({ id: "download", label: "Download PDF", icon: Download });
+      }
+      next.push({ id: "send-application", label: "Add application", icon: Send, tone: "primary" });
+      return next;
+    }
+    if (resolvedDetailTab === "background-check") {
+      if (selectedApplicationRow?.screening) {
+        actions = actions.filter((a) => a.id !== "run-check");
+      }
+      // Chase the applicant when they have not authorized a check yet (there is nothing to run).
       if (
         selectedApplicationRow &&
+        applicationShowsBackgroundCheck(selectedApplicationRow) &&
+        !selectedApplicationRow.application?.consentCredit &&
         shouldOfferApplicationCompletionReminder(selectedApplicationRow)
       ) {
-        actions = [
-          { id: "remind-application", label: "Send reminder", icon: Bell },
-          ...actions,
-        ];
+        actions = [{ id: "remind-application", label: "Send reminder", icon: Bell }, ...actions];
       }
-    }
-    if (
-      resolvedDetailTab === "background-check" &&
-      selectedApplicationRow?.screening
-    ) {
-      actions = actions.filter((a) => a.id !== "run-check");
     }
     if (
       resolvedDetailTab === "lease" &&
@@ -3303,7 +3079,6 @@ export function ManagerResidents({
     selectedApplicationRow,
     residentLease,
     residentLedgerRows,
-    shouldOfferApplicationCompletionReminder,
   ]);
 
   const residentSections = useMemo(() => {
@@ -3352,7 +3127,7 @@ export function ManagerResidents({
       communication: href("communication"),
       tours: managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp),
       backgroundCheck: href("background-check"),
-      inspections: href("inspections"),
+      inspections: residentRecordMoveInHref(portalBase, residentsTab, selected.id, "inspections"),
     };
   }, [portalBase, residentDetailTabsAvailable, residentsTab, selected, tourBucketProp]);
 
@@ -3450,7 +3225,7 @@ export function ManagerResidents({
         navigate(managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp));
         return;
       case "add-inspection":
-        navigate(residentDetailHref(portalBase, residentsTab, selected.id, "inspections"));
+        navigate(residentRecordMoveInHref(portalBase, residentsTab, selected.id, "inspections"));
         return;
       case "approve":
         if (selectedApplicationRow) setApprovePreviewRow(selectedApplicationRow);
@@ -3485,6 +3260,9 @@ export function ManagerResidents({
         return;
       case "remind-application":
         if (selectedApplicationRow) void openApplicationCompletionReminderPreview(selectedApplicationRow);
+        return;
+      case "send-application":
+        setSendApplicationOpen(true);
         return;
       default:
         showToast("Coming soon");
@@ -3541,20 +3319,6 @@ export function ManagerResidents({
       cancelled = true;
     };
   }, [selected?.email, residentDocsTick]);
-
-  const residentActivityEvents = useMemo(() => {
-    if (!selected) return [];
-    return buildManagerResidentActivityEvents({
-      applicationRow: selectedApplicationRow,
-      leaseRows: residentLeaseRows,
-      ledgerRows: residentLedgerRows,
-      importEvents: importedActivity(
-        parseResidentImportFile(selected.detail),
-        selected.manualResidentDetails?.importedAt,
-      ),
-      manualEvents: readManagerResidentActivityLog(selected.id),
-    });
-  }, [activityLogTick, residentLeaseRows, residentLedgerRows, selected, selectedApplicationRow]);
 
   const residentDocumentSections = useMemo(() => {
     const sections: Partial<Record<ManagerResidentDocTabId, import("@/components/portal/manager-resident-documents-panel").ManagerResidentDocumentRow[]>> =
@@ -3694,26 +3458,26 @@ export function ManagerResidents({
                                   residentEmail={selected.email}
                                   propertyId={selected.propertyId}
                                   basePath={portalBase}
-                                />
-                              </ResidentDetailTabPanel>
-                            ) : resolvedDetailTab === "inspections" ? (
-                              <ResidentDetailTabPanel fill>
-                                <InspectionsPanel
-                                  role="manager"
-                                  applicationId={selectedApplicationRow?.id ?? selected.id}
-                                  embeddedInResident
-                                  embeddedToolbar={(destinationRow) => (
-                                    <ManagerResidentSectionToolbar
-                                      actions={residentSectionHeaderActions}
-                                      onAction={onResidentSectionHeaderAction}
-                                      destinationRow={destinationRow}
-                                    />
-                                  )}
+                                  subTab={residentMoveInSubTab}
+                                  onSubTabChange={(tab: ResidentMoveInTabId) =>
+                                    navigate(residentRecordMoveInHref(portalBase, residentsTab, selected.id, tab))
+                                  }
+                                  placement={{
+                                    propertyLabel: selected.propertyLabel,
+                                    roomLabel: selected.roomLabel,
+                                    moveInDate: selected.leaseStart,
+                                    moveOutDate: selected.leaseEnd,
+                                  }}
                                 />
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "communication" ? (
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
+                              <ManagerResidentSectionToolbar
+                                title="Communication"
+                                actions={[]}
+                                onAction={onResidentSectionHeaderAction}
+                              />
                               <ManagerResidentDetailInbox
                                 residentEmail={selected.email}
                                 residentName={selected.name}
@@ -3727,8 +3491,24 @@ export function ManagerResidents({
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               <ManagerResidentSectionToolbar
+                                title="Lease"
                                 actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
+                                destinationRow={
+                                  <LocalDestinationNav
+                                    items={RESIDENT_DETAIL_LEASE_PIPELINE_TABS.map((tab) => ({
+                                      id: tab.id,
+                                      label: tab.label,
+                                      count: residentLeasePipelineCounts[tab.id],
+                                      dataAttr: tab.dataAttr,
+                                    }))}
+                                    activeId={residentLeasePipelineTab}
+                                    onChange={(id) => setResidentLeasePipelineTab(id as LeaseListTabId)}
+                                    ariaLabel="Lease status"
+                                    appearance="command"
+                                    className="w-full"
+                                  />
+                                }
                               />
                               {residentLease ? (
                                 <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -3740,6 +3520,10 @@ export function ManagerResidents({
                                     emptyHint="No lease document yet. Generate or upload one from Manager Review first."
                                   />
                                 </div>
+                              ) : residentLeaseRows.length > 0 ? (
+                                <p className="text-sm text-muted">
+                                  No {RESIDENT_DETAIL_LEASE_PIPELINE_TABS.find((tab) => tab.id === residentLeasePipelineTab)?.label.toLowerCase()} lease.
+                                </p>
                               ) : (
                                 <p className="text-sm text-muted">
                                   {selectedApplicationRow?.bucket === "approved"
@@ -3753,11 +3537,31 @@ export function ManagerResidents({
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               <ManagerResidentSectionToolbar
+                                title="Background check"
                                 actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
+                                destinationRow={
+                                  <LocalDestinationNav
+                                    items={RESIDENT_DETAIL_BACKGROUND_CHECK_BUCKET_TABS.map((tab) => ({
+                                      id: tab.id,
+                                      label: tab.label,
+                                      count: residentBackgroundCheckBucketCounts[tab.id],
+                                      dataAttr: tab.dataAttr,
+                                    }))}
+                                    activeId={residentBackgroundCheckBucket}
+                                    onChange={(id) => setResidentBackgroundCheckBucket(id as ResidentRecordStatusBucketId)}
+                                    ariaLabel="Background check status"
+                                    appearance="command"
+                                    className="w-full"
+                                  />
+                                }
                               />
-                              {selectedApplicationRow &&
-                              applicationShowsBackgroundCheck(selectedApplicationRow) ? (
+                              {residentBackgroundCheckBucket !== selectedBackgroundCheckBucket ? (
+                                <p className="text-sm text-muted">
+                                  No {residentBackgroundCheckBucket} background check.
+                                </p>
+                              ) : selectedApplicationRow &&
+                                applicationShowsBackgroundCheck(selectedApplicationRow) ? (
                                 <ManagerResidentBackgroundCheckPanel row={selectedApplicationRow} />
                               ) : (
                                 <p className="text-sm text-muted">No background check for this resident.</p>
@@ -3768,8 +3572,24 @@ export function ManagerResidents({
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               <ManagerResidentSectionToolbar
+                                title="Application"
                                 actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
+                                destinationRow={
+                                  <LocalDestinationNav
+                                    items={RESIDENT_DETAIL_APPLICATION_BUCKET_TABS.map((tab) => ({
+                                      id: tab.id,
+                                      label: tab.label,
+                                      count: residentApplicationBucketCounts[tab.id],
+                                      dataAttr: tab.dataAttr,
+                                    }))}
+                                    activeId={residentApplicationBucket}
+                                    onChange={(id) => setResidentApplicationBucket(id as ResidentRecordStatusBucketId)}
+                                    ariaLabel="Application status"
+                                    appearance="command"
+                                    className="w-full"
+                                  />
+                                }
                                 overflowMenu={
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
@@ -3791,11 +3611,33 @@ export function ManagerResidents({
                                       >
                                         Upload completed application
                                       </DropdownMenuItem>
+                                      {selectedApplicationRow &&
+                                      (selectedApplicationRow.bucket === "approved" ||
+                                        selectedApplicationRow.bucket === "rejected") ? (
+                                        <DropdownMenuItem
+                                          data-attr="resident-application-move-pending"
+                                          onSelect={() => void setApplicationBucket(selectedApplicationRow.id, "pending")}
+                                        >
+                                          Move to pending
+                                        </DropdownMenuItem>
+                                      ) : null}
+                                      {selectedApplicationRow?.bucket === "rejected" ? (
+                                        <DropdownMenuItem
+                                          data-attr="resident-application-delete"
+                                          onSelect={() => void deleteApplicationForRow(selectedApplicationRow)}
+                                        >
+                                          Delete
+                                        </DropdownMenuItem>
+                                      ) : null}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 }
                               />
-                              {selectedApplicationRow?.application ? (
+                              {residentApplicationBucket !== selectedApplicationBucket ? (
+                                <p className="text-sm text-muted">
+                                  No {residentApplicationBucket} application.
+                                </p>
+                              ) : selectedApplicationRow?.application ? (
                                 activeCosignerSubmission ? (
                                   <ManagerCosignerReadonlyReview
                                     sub={activeCosignerSubmission}
@@ -3832,20 +3674,22 @@ export function ManagerResidents({
                                 bucket={tourBucketProp}
                                 tourId={tourIdProp}
                                 propertyIds={managerPortfolioPropertyIds}
-                                sectionToolbar={
-                                  <>
-                                    <ManagerResidentSectionToolbar
-                                      actions={residentSectionHeaderActions}
-                                      onAction={onResidentSectionHeaderAction}
-                                    />
-                                    <ResidentDetailCommandToolbar
-                                      onSettings={() => openResidentDetailSettings("tours")}
-                                      settingsLabel={toursSettingsEntry.label}
-                                      settingsDataAttr={toursSettingsEntry.dataAttr}
-                                      onEdit={() => onResidentSectionHeaderAction("add-tour")}
-                                    />
-                                  </>
-                                }
+                                sectionToolbar={(destinationRow) => (
+                                  <ManagerResidentSectionToolbar
+                                    title="Tours"
+                                    actions={residentSectionHeaderActions}
+                                    onAction={onResidentSectionHeaderAction}
+                                    destinationRow={destinationRow}
+                                    overflowMenu={
+                                      <ResidentDetailCommandToolbar
+                                        onSettings={() => openResidentDetailSettings("tours")}
+                                        settingsLabel={toursSettingsEntry.label}
+                                        settingsDataAttr={toursSettingsEntry.dataAttr}
+                                        onEdit={() => onResidentSectionHeaderAction("add-tour")}
+                                      />
+                                    }
+                                  />
+                                )}
                                 buildTourListHref={
                                   selected
                                     ? (targetBucket) =>
@@ -3880,6 +3724,7 @@ export function ManagerResidents({
                             <ResidentDetailTabPanel fill>
                               {!paymentIdProp ? (
                                 <ManagerResidentSectionToolbar
+                                  title="Payments"
                                   actions={residentSectionHeaderActions}
                                   onAction={onResidentSectionHeaderAction}
                                   destinationRow={
@@ -3904,6 +3749,8 @@ export function ManagerResidents({
                                   }
                                   overflowMenu={
                                     <>
+                                      {/* A selection's bulk actions live in this header card, not in the page's title row. */}
+                                      {embeddedPaymentBulkActions}
                                       <PortalIconAction
                                         icon={SettingsIcon}
                                         label={paymentsSettingsEntry.label}
@@ -3918,6 +3765,14 @@ export function ManagerResidents({
                                       />
                                     </>
                                   }
+                                />
+                              ) : embeddedPaymentFooterActions ? (
+                                // One payment's own actions sit in the same header card, never in the page's title row.
+                                <ManagerResidentSectionToolbar
+                                  title="Payments"
+                                  actions={[]}
+                                  onAction={onResidentSectionHeaderAction}
+                                  overflowMenu={embeddedPaymentFooterActions}
                                 />
                               ) : null}
                               <PortalPageScrollBody
@@ -3996,6 +3851,7 @@ export function ManagerResidents({
                               ) : (
                               <>
                               <ManagerResidentSectionToolbar
+                                title="Services"
                                 actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
                                 destinationRow={
@@ -4123,6 +3979,7 @@ export function ManagerResidents({
                             {resolvedDetailTab === "documents" ? (
                               <ResidentDetailTabPanel fill>
                                 <ManagerResidentSectionToolbar
+                                  title="Documents"
                                   actions={residentSectionHeaderActions}
                                   onAction={onResidentSectionHeaderAction}
                                 />
@@ -4130,27 +3987,9 @@ export function ManagerResidents({
                               </ResidentDetailTabPanel>
                             ) : null}
 
-                            {resolvedDetailTab === "activity" ? (
-                              <ResidentDetailTabPanel>
-                                {renderRecordSection("activity", {
-                                  role: "manager",
-                                  kind: "resident",
-                                  kindLabel: "resident",
-                                  recordId: selected.id,
-                                  recordLabel: selected.name,
-                                  activity: residentActivityEvents,
-                                })}
-                              </ResidentDetailTabPanel>
-                            ) : null}
-
                             </>
                             )}
 
-                            {residentDetailBottomBarActions ? (
-                              <PortalRecordActions omitSpacer={residentDetailPaymentsScroll}>
-                                {residentDetailBottomBarActions}
-                              </PortalRecordActions>
-                            ) : null}
                           </div>
                           </PortalRecordSectionChrome>
     ) : null;
