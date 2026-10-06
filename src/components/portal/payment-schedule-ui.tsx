@@ -1450,6 +1450,14 @@ export async function patchScheduledMessage(
     customDeliverViaSms?: boolean;
   },
 ): Promise<void> {
+  // `/demo` never writes real rows, so the sandbox takes EVERY patch locally — a cancel and a
+  // subject/body edit alike — instead of issuing a request that can only be refused. Previously only a
+  // cancel had this fallback and only after the 401, so editing a demo reminder surfaced
+  // "Could not update reminder." on a card whose Save had nothing wrong with it.
+  if (isDemoModeActive()) {
+    mergeClientScheduledMessagePatch(messageId, patch);
+    return;
+  }
   const pathId = encodeScheduledMessagePathId(messageId);
   const res = await fetch(`/api/portal/scheduled-messages/${pathId}`, {
     method: "PATCH",
@@ -1458,10 +1466,6 @@ export async function patchScheduledMessage(
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
-    if (isDemoModeActive() && patch.cancelled !== undefined) {
-      mergeClientScheduledMessagePatch(messageId, patch);
-      return;
-    }
     throw new Error(await readPortalApiError(res, "Could not update reminder."));
   }
   mergeClientScheduledMessagePatch(messageId, patch);

@@ -19,6 +19,9 @@ import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages
 
 type ScheduledRef = { id: string; source: "manual" | "automation" };
 
+/** A send cannot be faked locally the way a cancel or an edit can, so the sandbox refuses out loud. */
+const DEMO_SEND_NOW_MESSAGE = "Not available in the demo.";
+
 export function useThreadScheduledCards({
   recipientEmail,
   smsAvailable,
@@ -42,9 +45,10 @@ export function useThreadScheduledCards({
   // Every call that only a real workspace can answer is gated on this: the reads, and the manual
   // scheduled-inbox API (`/demo` has no manual rows to act on, and never writes real ones). A disabled
   // hook (its section is not showing) must not reach the API through a stale callback either.
-  // `patchScheduledMessage` is deliberately NOT gated: it carries `/demo`'s own local override, so Cancel
-  // and Save on a projected demo reminder still take effect in the sandbox instead of silently doing
-  // nothing. Only a disabled hook makes them no-ops.
+  // `patchScheduledMessage` is deliberately NOT gated: it applies any patch locally under `/demo`, so
+  // Cancel and Save on a projected demo reminder take effect in the sandbox instead of silently doing
+  // nothing. A send has no local equivalent, so `/demo` says so rather than going quiet. Only a disabled
+  // hook makes these no-ops.
   const live = useCallback(() => enabled && !isDemoModeActive(), [enabled]);
 
   const reloadManual = useCallback(async () => {
@@ -116,7 +120,11 @@ export function useThreadScheduledCards({
 
   const sendNow = useCallback(
     async (item: ScheduledRef) => {
-      if (!live()) return;
+      if (!enabled) return;
+      if (!live()) {
+        report(null, DEMO_SEND_NOW_MESSAGE);
+        return;
+      }
       setBusyId(item.id);
       setFailure(null);
       try {
@@ -128,7 +136,7 @@ export function useThreadScheduledCards({
         setBusyId(null);
       }
     },
-    [live, onSent, reloadScheduled],
+    [enabled, live, onSent, report, reloadScheduled],
   );
 
   const saveEdit = useCallback(

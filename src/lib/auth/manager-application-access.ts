@@ -39,8 +39,14 @@ export async function managerOwnedPropertyIdSet(db: ServiceClient, userId: strin
  * in-flight read; a rejected one stays rejected, which keeps the predicate failing closed.
  *
  * Request-scoped on purpose: holding it longer would cache a revoked grant.
+ *
+ * It carries the manager it was built for, because every answer in it is that manager's scope and
+ * nobody else's. `managerCanAccessApplicationRecord` discards a memo stamped with a different
+ * `userId` and resolves the caller's own scope instead, so a mis-threaded memo can only ever cost a
+ * query — never hand manager A's grants back as manager B's answer.
  */
 export type ApplicationAccessMemo = {
+  readonly userId: string;
   ownedPropertyIds(): Promise<Set<string>>;
   coManagerPermission(propertyId: string, module: "applications" | "residents", level: CoManagerPermissionLevel): Promise<boolean>;
 };
@@ -49,6 +55,7 @@ export function createApplicationAccessMemo(db: ServiceClient, userId: string): 
   let owned: Promise<Set<string>> | null = null;
   const permissions = new Map<string, Promise<boolean>>();
   return {
+    userId,
     ownedPropertyIds() {
       owned ??= managerOwnedPropertyIdSet(db, userId);
       return owned;
@@ -101,8 +108,9 @@ export async function managerCanAccessApplicationRecord(
   if (candidateIds.length === 0) return false;
 
   // A caller testing one record gets a memo of its own, which costs exactly what the uncached reads
-  // did; a caller testing many passes one in and pays for each distinct property once.
-  const memo = options?.memo ?? createApplicationAccessMemo(db, userId);
+  // did; a caller testing many passes one in and pays for each distinct property once. A memo built
+  // for ANOTHER manager is discarded, never consulted: its scope is not an answer about this caller.
+  const memo = options?.memo?.userId === userId ? options.memo : createApplicationAccessMemo(db, userId);
 
   // Direct ownership — resolved through the SAME `managerOwnedPropertyIdSet`
   // helper the Applications list uses, so the list and this guard can never

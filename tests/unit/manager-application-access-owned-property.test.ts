@@ -73,11 +73,11 @@ function makeDb() {
 async function canAccess(
   userId: string,
   record: Record<string, unknown>,
-  options?: { level?: CoManagerPermissionLevel },
+  options?: { level?: CoManagerPermissionLevel; memo?: unknown },
 ) {
   const { managerCanAccessApplicationRecord } = await import("@/lib/auth/manager-application-access");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return managerCanAccessApplicationRecord(makeDb() as any, userId, record as any, options);
+  return managerCanAccessApplicationRecord(makeDb() as any, userId, record as any, options as any);
 }
 
 beforeEach(() => {
@@ -143,5 +143,42 @@ describe("managerCanAccessApplicationRecord — co-manager level gating", () => 
     expect(await canAccess(OWNER, { manager_user_id: OWNER, property_id: "some-other-prop" }, { level: "delete" })).toBe(
       true,
     );
+  });
+});
+
+describe("createApplicationAccessMemo — one manager's scope is never another's answer", () => {
+  const record = { manager_user_id: STALE_STAMP, property_id: OWNED_PROPERTY, assigned_property_id: null };
+
+  it("reuses a memo built for the SAME manager instead of re-reading the owned set", async () => {
+    const { createApplicationAccessMemo } = await import("@/lib/auth/manager-application-access");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const memo = createApplicationAccessMemo(makeDb() as any, OWNER);
+    const spy = vi.spyOn(memo, "ownedPropertyIds");
+    expect(await canAccess(OWNER, record, { memo })).toBe(true);
+    expect(await canAccess(OWNER, record, { memo })).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(2);
+    // Two consults, ONE read: the memo holds the promise, not a fresh query per call.
+    expect(await Promise.all([memo.ownedPropertyIds(), memo.ownedPropertyIds()])).toEqual([
+      new Set([OWNED_PROPERTY]),
+      new Set([OWNED_PROPERTY]),
+    ]);
+  });
+
+  it("DISCARDS a memo built for a different manager — the stranger is still refused", async () => {
+    const { createApplicationAccessMemo } = await import("@/lib/auth/manager-application-access");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ownersMemo = createApplicationAccessMemo(makeDb() as any, OWNER);
+    expect(ownersMemo.userId).toBe(OWNER);
+    // Mis-threading the owner's memo into a check about the stranger must not lend them the owner's scope.
+    expect(await canAccess(STRANGER, record, { memo: ownersMemo })).toBe(false);
+  });
+
+  it("a co-manager memo does not lend its grants to a manager with none", async () => {
+    const { createApplicationAccessMemo } = await import("@/lib/auth/manager-application-access");
+    CO_MANAGER_GRANTS = { [CO_MANAGER]: { [OWNED_PROPERTY]: ["read", "delete"] } };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const coManagerMemo = createApplicationAccessMemo(makeDb() as any, CO_MANAGER);
+    expect(await canAccess(CO_MANAGER, record, { level: "delete", memo: coManagerMemo })).toBe(true);
+    expect(await canAccess(STRANGER, record, { level: "delete", memo: coManagerMemo })).toBe(false);
   });
 });
