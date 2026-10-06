@@ -25,6 +25,7 @@ import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import {
   applicationConfigForVariant,
   editorVisibleDisabledApplicationFields,
+  GUEST_ASKED_IDENTITY_STANDARD_KEYS,
   resolveListingApplicationFields,
   STANDARD_APPLICATION_FIELD_CATALOG,
   type ApplicationConfigSlice,
@@ -85,7 +86,12 @@ function fieldOf(slice: ApplicationConfigSlice, standardKey: string) {
   return ctxFor(slice).fields.find((field) => field.standardKey === standardKey)!;
 }
 
-function renderStep(step: number, slice: ApplicationConfigSlice, form: Partial<ReturnType<typeof createInitialRentalWizardState>> = {}) {
+function renderStep(
+  step: number,
+  slice: ApplicationConfigSlice,
+  form: Partial<ReturnType<typeof createInitialRentalWizardState>> = {},
+  extra: Partial<WizardStepsProps> = {},
+) {
   const noop = () => {};
   return render(
     <RentalWizardStepBody
@@ -94,6 +100,7 @@ function renderStep(step: number, slice: ApplicationConfigSlice, form: Partial<R
       errors={{}}
       mode="public"
       applicationConfigOverride={slice}
+      {...extra}
       propertyOptions={[]}
       patch={noop as WizardStepsProps["patch"]}
       applicationFeeGate={undefined as unknown as WizardStepsProps["applicationFeeGate"]}
@@ -392,5 +399,53 @@ describe("Upload a PDF is in each +", () => {
   it("the property Move-in + offers Upload a PDF", async () => {
     render(<MoveInFormChooser open onClose={() => {}} onPick={() => {}} copySources={[]} />);
     expect(await screen.findByText("Upload a PDF")).toBeTruthy();
+  });
+});
+
+/**
+ * A removed identity question is read from the signed-in applicant's ACCOUNT. A signed-OUT applicant has no
+ * account, so the wizard asks a guest for Full legal name and Email whatever the template says, and the guest
+ * submit path refuses a row carrying neither (`manager-applications` route).
+ */
+describe("a signed-out applicant is still asked who they are", () => {
+  const withoutIdentity = (): ApplicationConfigSlice => ({
+    ...startSlice(),
+    disabledStandardApplicationKeys: [...GUEST_ASKED_IDENTITY_STANDARD_KEYS],
+  });
+
+  it("renders the two questions for a guest, and leaves the template alone otherwise", () => {
+    renderStep(2, withoutIdentity());
+    expect(document.querySelector('[data-wizard-field="fullLegalName"]')).toBeNull();
+    expect(document.querySelector('[data-wizard-field="email"]')).toBeNull();
+    cleanup();
+
+    renderStep(2, withoutIdentity(), {}, { guestApplicant: true });
+    expect(document.querySelector('[data-wizard-field="fullLegalName"]')).not.toBeNull();
+    expect(document.querySelector('[data-wizard-field="email"]')).not.toBeNull();
+    // Nothing else the template removed comes back.
+    expect(document.querySelector('[data-wizard-field="phone"]')).not.toBeNull();
+  });
+
+  it("requires them for a guest, including when the manager kept them but marked them optional", () => {
+    const form = createInitialRentalWizardState();
+    const removed = withoutIdentity();
+    expect(validateRentalWizardStep(2, form, { configOverride: removed }).fullLegalName).toBeUndefined();
+    const asGuest = validateRentalWizardStep(2, form, { configOverride: removed, guestApplicant: true });
+    expect(asGuest.fullLegalName).toEqual(expect.any(String));
+    expect(asGuest.email).toEqual(expect.any(String));
+
+    let optional = startSlice();
+    for (const key of GUEST_ASKED_IDENTITY_STANDARD_KEYS) {
+      optional = change(optional, {
+        kind: "edit-question",
+        sectionId: "personal",
+        questionId: fieldOf(optional, key).id,
+        patch: { required: false },
+      });
+    }
+    expect(validateRentalWizardStep(2, form, { configOverride: optional }).fullLegalName).toBeUndefined();
+    const optionalAsGuest = validateRentalWizardStep(2, form, { configOverride: optional, guestApplicant: true });
+    expect(optionalAsGuest.fullLegalName).toEqual(expect.any(String));
+    expect(optionalAsGuest.email).toEqual(expect.any(String));
   });
 });

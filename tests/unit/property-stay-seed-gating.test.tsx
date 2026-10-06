@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { createDefaultListingSubmission, resolveAllowedLeaseTerms, withOfferedLeaseTermsFilled } from "@/lib/manager-listing-submission";
+import { persistManagerListingSubmission } from "@/lib/manager-property-save-target";
 import { submissionWithDefaultLeasingSetup, submissionWithShortStayDefaults } from "@/lib/leasing-quick-add";
-import { buildLeaseTemplateSeeds } from "@/lib/property-lease-template-sync";
+import { buildLeaseTemplateSeeds, syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 import {
   availableApplicationTemplateSeeds,
   buildApplicationTemplateSeeds,
@@ -14,9 +15,19 @@ import { readPropertyApplicationTemplates } from "@/lib/property-application-tem
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
 
 const persist = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => true));
+const persistPendingLocal = vi.hoisted(() => vi.fn((..._args: unknown[]) => true));
+const persistDraftLocal = vi.hoisted(() => vi.fn((..._args: unknown[]) => true));
 vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/demo-property-pipeline")>();
-  return { ...actual, updateExtraListingFromSubmissionOnServer: persist };
+  return {
+    ...actual,
+    updateExtraListingFromSubmissionOnServer: persist,
+    updatePendingManagerProperty: persistPendingLocal,
+  };
+});
+vi.mock("@/lib/demo-admin-property-inventory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/demo-admin-property-inventory")>();
+  return { ...actual, updateManagerPropertyDraftSubmission: persistDraftLocal };
 });
 vi.mock("@/components/portal/pro-application-questions-editor-modal", () => ({
   ManagerApplicationQuestionsEditorModal: () => <div role="dialog">editor</div>,
@@ -33,6 +44,8 @@ vi.mock("next/navigation", () => ({
 afterEach(() => {
   cleanup();
   persist.mockClear();
+  persistPendingLocal.mockClear();
+  persistDraftLocal.mockClear();
 });
 
 const longOnly = { allowedLeaseTerms: ["Long-term"], shortTermRentalsAllowed: false, airbnbRentalsAllowed: false };
@@ -154,5 +167,61 @@ describe("saving a property that never stored a submission", () => {
     view.rerender(<ManagerPropertyApplicationQuestionsPanel sub={{ ...sub }} {...props} />);
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
     expect(persist).not.toHaveBeenCalled();
+  });
+});
+
+describe("the local persist mirrors nothing the server would refuse", () => {
+  it("a pending write carries the lease terms the screens showed; a draft keeps its unchosen stays", () => {
+    const empty = createDefaultListingSubmission();
+    expect(persistManagerListingSubmission({ mode: "pending", saveId: "pending-1" }, "mgr-1", empty)).toBe(true);
+    expect(resolveAllowedLeaseTerms(persistPendingLocal.mock.calls[0]![1] as typeof empty)).toEqual(["Long-term"]);
+
+    // A draft is unfinished by definition and the server exempts it, so nothing chooses a stay for it.
+    expect(persistManagerListingSubmission({ mode: "draft", saveId: "draft-1" }, "mgr-1", empty)).toBe(true);
+    expect((persistDraftLocal.mock.calls[0]![2] as typeof empty).allowedLeaseTerms).toEqual([]);
+  });
+});
+
+describe("hiding a short-stay default remembers whether the manager had it on", () => {
+  const shortTermRow = (sub: ReturnType<typeof createDefaultListingSubmission>) =>
+    readPropertyApplicationTemplates(sub).find((row) => row.listingSeedKey === "short-term");
+  const shortTermLease = (sub: ReturnType<typeof createDefaultListingSubmission>) =>
+    readPropertyLeaseTemplates(sub).find((row) => row.listingSeedKey === "short-term");
+
+  it("a default the manager switched OFF is still off when short term is allowed again", () => {
+    const stored = submissionWithDefaultLeasingSetup({ ...createDefaultListingSubmission(), ...withShort });
+    const switchedOff = {
+      ...stored,
+      propertyApplicationTemplates: readPropertyApplicationTemplates(stored).map((row) =>
+        row.listingSeedKey === "short-term" ? { ...row, offered: false } : row,
+      ),
+      propertyLeaseTemplates: readPropertyLeaseTemplates(stored).map((row) =>
+        row.listingSeedKey === "short-term" ? { ...row, offered: false } : row,
+      ),
+    };
+
+    const longNow = syncPropertyLeaseTemplatesFromListing(
+      syncPropertyApplicationTemplatesFromListing({ ...switchedOff, ...longOnly }),
+    );
+    expect(shortTermRow(longNow)).toMatchObject({ offered: false, stayHidden: true, stayHiddenOffered: false });
+    expect(shortTermLease(longNow)).toMatchObject({ offered: false, stayHidden: true, stayHiddenOffered: false });
+    // A second sync while the stay is still off must not record the hidden row's own `offered: false`.
+    const again = syncPropertyLeaseTemplatesFromListing(syncPropertyApplicationTemplatesFromListing(longNow));
+
+    const back = syncPropertyLeaseTemplatesFromListing(
+      syncPropertyApplicationTemplatesFromListing({ ...again, ...withShort }),
+    );
+    expect(shortTermRow(back)).toMatchObject({ offered: false });
+    expect(shortTermRow(back)?.stayHidden).toBeUndefined();
+    expect(shortTermLease(back)).toMatchObject({ offered: false });
+    expect(shortTermLease(back)?.stayHidden).toBeUndefined();
+  });
+
+  it("an untouched default the manager never switched off still comes back on", () => {
+    const stored = submissionWithDefaultLeasingSetup({ ...createDefaultListingSubmission(), ...withShort });
+    const longNow = syncPropertyApplicationTemplatesFromListing({ ...stored, ...longOnly });
+    expect(shortTermRow(longNow)).toMatchObject({ stayHidden: true, stayHiddenOffered: true });
+    const back = syncPropertyApplicationTemplatesFromListing({ ...longNow, ...withShort });
+    expect(shortTermRow(back)?.offered).toBe(true);
   });
 });

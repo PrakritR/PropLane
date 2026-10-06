@@ -644,6 +644,45 @@ export function resolveListingApplicationFields(
   return resolved.toSorted((left, right) => (position.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(right.id) ?? Number.MAX_SAFE_INTEGER));
 }
 
+/**
+ * The two identity questions a SIGNED-OUT applicant is always asked.
+ *
+ * Every question is removable, and a signed-in applicant's name and email are then read from their
+ * ACCOUNT (`applicant-identity.ts`). A guest has no account, so the template's removal would leave the
+ * application identifying nobody — the lease's tenant name, screening and the manager's queue all read
+ * those two values. For a guest the questions come back on and required, whatever the template says;
+ * the server refuses a nameless guest submit on the same rule.
+ */
+export const GUEST_ASKED_IDENTITY_STANDARD_KEYS: readonly string[] = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+  (field) => field.section === "personal" && (field.label === "Full legal name" || field.label === "Email"),
+).map((field) => field.standardKey);
+
+const GUEST_ASKED_IDENTITY_STANDARD_KEY_SET = new Set(GUEST_ASKED_IDENTITY_STANDARD_KEYS);
+
+/**
+ * The same config as the manager authored it, with {@link GUEST_ASKED_IDENTITY_STANDARD_KEYS} asked and
+ * required. One transform so the rendered step, the gate, the required marker and the validator can
+ * never disagree about what a guest is asked.
+ */
+export function withGuestIdentityQuestionsAsked<T extends ApplicationConfigSlice>(slice: T): T {
+  const disabled = Array.isArray(slice.disabledStandardApplicationKeys) ? slice.disabledStandardApplicationKeys : [];
+  const custom = Array.isArray(slice.customApplicationFields) ? slice.customApplicationFields : [];
+  const hidden = disabled.some((key) => GUEST_ASKED_IDENTITY_STANDARD_KEY_SET.has(key));
+  const optional = custom.some(
+    (field) => field.standardKey && GUEST_ASKED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) && field.required === false,
+  );
+  if (!hidden && !optional) return slice;
+  return {
+    ...slice,
+    disabledStandardApplicationKeys: disabled.filter((key) => !GUEST_ASKED_IDENTITY_STANDARD_KEY_SET.has(key)),
+    customApplicationFields: custom.map((field) =>
+      field.standardKey && GUEST_ASKED_IDENTITY_STANDARD_KEY_SET.has(field.standardKey) && field.required === false
+        ? { ...field, required: true }
+        : field,
+    ),
+  };
+}
+
 /** Required policy for built-ins follows the same override rows as the editor. */
 export function isWizardFormFieldRequired(
   slice: ApplicationConfigSlice | null | undefined,

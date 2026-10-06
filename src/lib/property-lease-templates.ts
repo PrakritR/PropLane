@@ -65,10 +65,17 @@ export type PropertyLeaseTemplate = {
   /**
    * Set (with `offered: false`) by the listing sync when this is an UNTOUCHED PropLane default for a stay the
    * property does not allow (a short-term lease on a long-term-only house). The row is kept, never deleted; it
-   * does not count toward that stay's tab, and the sync switches it back on when the stay is allowed again.
+   * does not count toward that stay's tab, and the sync restores exactly the `offered` value it had when it
+   * was hidden ({@link PropertyLeaseTemplate.stayHiddenOffered}) once the stay is allowed again.
    * A row the manager edited never carries it.
    */
   stayHidden?: boolean;
+  /**
+   * The `offered` value this row held just before `stayHidden` switched it off, so re-allowing the stay
+   * gives the manager's own choice back rather than switching a lease they had deliberately turned off
+   * back on. Absent on a row hidden before this was recorded, which restores as offered.
+   */
+  stayHiddenOffered?: boolean;
   /**
    * This lease's own Lease fee in cents - what a resident pays for THIS lease (captain, Oct 3 2026: lease
    * fees are set on the lease). Absent/null = the lease sets none; `0` is a real "free". It sits under a

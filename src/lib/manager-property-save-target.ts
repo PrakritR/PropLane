@@ -104,11 +104,17 @@ export function applicationConfigFieldsFromSubmission(sub: ManagerListingSubmiss
 export function persistManagerListingSubmission(
   saveTarget: ManagerPricingSaveTarget,
   managerUserId: string,
-  next: ManagerListingSubmissionV1,
+  submission: ManagerListingSubmissionV1,
 ): boolean {
+  // A draft is unfinished by definition — its stays may not be chosen yet, and the server exempts a
+  // `draft` write from the lease-term refusal (property-drafts.md). Every OTHER mode mirrors the row
+  // to `POST /api/property-records` as pending/live, which refuses an empty lease-term list, so the
+  // terms the screens already showed are written down here: one rule for the local write and the
+  // server-confirmed one, so no caller can mirror a submission the server will reject.
   if (saveTarget.mode === "draft") {
-    return updateManagerPropertyDraftSubmission(saveTarget.saveId, managerUserId, next);
+    return updateManagerPropertyDraftSubmission(saveTarget.saveId, managerUserId, submission);
   }
+  const next = withOfferedLeaseTermsFilled(submission);
   if (saveTarget.mode === "pending") {
     return updatePendingManagerProperty(saveTarget.saveId, next, managerUserId);
   }
@@ -126,14 +132,14 @@ export async function persistManagerListingSubmissionOnServer(
 ): Promise<boolean> {
   // The leasing panels save the submission they DISPLAY; for a property that never stored one that carries an
   // empty lease-term list, which the server refuses. Write the terms the screens already showed instead.
-  const next = withOfferedLeaseTermsFilled(submission);
   if (saveTarget.mode === "pending") {
-    return updatePendingManagerPropertyOnServer(saveTarget.saveId, next, managerUserId);
+    return updatePendingManagerPropertyOnServer(saveTarget.saveId, withOfferedLeaseTermsFilled(submission), managerUserId);
   }
   if (saveTarget.mode === "listing") {
-    return updateExtraListingFromSubmissionOnServer(saveTarget.saveId, managerUserId, next);
+    return updateExtraListingFromSubmissionOnServer(saveTarget.saveId, managerUserId, withOfferedLeaseTermsFilled(submission));
   }
-  return persistManagerListingSubmission(saveTarget, managerUserId, next);
+  // Draft / requestChange: the local writer owns the same rule (a draft keeps its unchosen stays).
+  return persistManagerListingSubmission(saveTarget, managerUserId, submission);
 }
 
 /** Apply the same lease configuration fields to each property id (demo + live). */

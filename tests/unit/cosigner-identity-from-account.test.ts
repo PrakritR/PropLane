@@ -152,6 +152,18 @@ describe("a co-signer template without name, email or phone questions", () => {
     expect(saved).toMatchObject({ fullName: "Maria Lee", email: "mom@example.com" });
   });
 
+  it("refuses, rather than storing blanks, when the account supplies no name or email", async () => {
+    const { db } = seed(IDENTITY_KEYS);
+    (db.tables.profiles![0] as Record<string, unknown>).full_name = null;
+    (db.tables.profiles![0] as Record<string, unknown>).email = null;
+    state.db = db;
+    state.user = { id: "helper-1", email: "" };
+    const res = await submitCosigner(post(body({ formRequestId: REQUEST_ID, fullName: "Mallory Evil", email: "mallory@evil.test" })));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("Add your name and email to your account");
+    expect(db.tables.cosigner_submission_records).toHaveLength(0);
+  });
+
   it("a signed-out co-signer has no account to read, so name and email stay required", async () => {
     const { db, cosignerId } = seed(IDENTITY_KEYS);
     state.db = db;

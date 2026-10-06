@@ -20,7 +20,11 @@ draws what it returns.
   floor): full legal name, email and phone are removable, optional and
   retypable like any other question; every section has a live switch and every
   question's ⋯ menu offers Edit · Duplicate · Delete. The server falls back to the
-  signed-in account's name and email when those questions are removed.
+  signed-in account's name and email when those questions are removed. A
+  signed-OUT applicant has no account to fall back to, so the wizard asks a
+  guest for Full legal name and Email whatever the template says
+  (`withGuestIdentityQuestionsAsked`) and the guest submit path refuses a row
+  carrying neither.
 - **Two structural limits, not locks.** A built-in whose choices the wizard
   compares by stored value (`BUILT_IN_ANSWER_VALUES`) can have each choice
   reworded but not added, removed or reordered — position *i* stores value *i*.

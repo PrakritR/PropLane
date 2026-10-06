@@ -455,7 +455,7 @@ answer. Fail closed to `true`.
 | Listing syndication | `docs/agents/listing-syndication.md` | Zillow Rental Network only; the feed is a `publicListingProjection` map, nothing wider; a listing missing a street address or a real photo is excluded, never given a placeholder |
 | Integrations page | `docs/agents/integrations.md` | One page (Messages · Bookings · Posting · Google), a new channel is a row on it; linking/unlinking/syncing a channel calendar needs Calendar at `edit`; the export feed URL is built on the canonical server origin (request origin only for localhost outside production); Facebook Marketplace is Copy post only |
 | Move-in forms | `docs/agents/move-in-forms.md` | A sent form snapshots its questions; a submitted form is locked; files only through signed URLs |
-| Application questions | `docs/agents/application-questions.md` | Everything is editable except the identity floor (full legal name + email); a share link is stored only as its SHA-256 hash and covers one request; a linked application charges its own fee to whoever fills it |
+| Application questions | `docs/agents/application-questions.md` | Everything is editable, nothing is locked — with name/email removed a signed-in applicant's come from their account and a guest is always asked; a share link is stored only as its SHA-256 hash and covers one request; a linked application charges its own fee to whoever fills it |
 
 ## There are no "work orders" in the product — only services
 

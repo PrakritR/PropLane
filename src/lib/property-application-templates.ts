@@ -100,10 +100,17 @@ export type PropertyApplicationTemplate = {
   /**
    * Set (with `offered: false`) by the listing sync when this is an UNTOUCHED PropLane default for a stay the
    * property does not allow (a short-term application on a long-term-only house). The row is kept, never
-   * deleted; it does not count toward that stay's tab, and the sync switches it back on when the stay is
-   * allowed again. A row the manager edited never carries it.
+   * deleted; it does not count toward that stay's tab, and the sync restores exactly the `offered` value it
+   * had when it was hidden ({@link PropertyApplicationTemplate.stayHiddenOffered}) once the stay is allowed
+   * again. A row the manager edited never carries it.
    */
   stayHidden?: boolean;
+  /**
+   * The `offered` value this row held just before `stayHidden` switched it off, so re-allowing the stay
+   * gives the manager's own choice back rather than switching an application they had deliberately turned
+   * off back on. Absent on a row hidden before this was recorded, which restores as offered.
+   */
+  stayHiddenOffered?: boolean;
   /**
    * Which stay this application is for (the Application step groups rows under Long term / Short term /
    * Both). Stored on the listing submission JSON; absent on every row saved before it existed, which is

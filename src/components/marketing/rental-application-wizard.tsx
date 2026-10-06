@@ -108,6 +108,7 @@ import { normalizePersistedWizardStep } from "@/lib/rental-application/wizard-st
 import { normalizeCustomApplicationFields, normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   activeApplicationWizardSteps,
+  withGuestIdentityQuestionsAsked,
   applicationConfigForVariant,
   type ApplicationFormVariant,
 } from "@/lib/rental-application/application-field-catalog";
@@ -511,6 +512,11 @@ function RentalApplicationWizardInner({
   const [extrasTick, setExtrasTick] = useState(0);
   const [chargeTick, setChargeTick] = useState(0);
   const [feeStepUserId, setFeeStepUserId] = useState<string | null>(null);
+  // A signed-out applicant on the public flow: no account to read their name and email from, so those two
+  // questions are asked and required even when the template removed them (`withGuestIdentityQuestionsAsked`),
+  // matching the refusal the guest submit path applies server-side. Treated as a guest until the session
+  // resolves, so the questions are never skipped on the one path that has nowhere else to get them.
+  const guestApplicant = mode === "public" && !templatePreview && !feeStepUserId && !isDemoModeActive();
   const [reviewReturnStep, setReviewReturnStep] = useState<number | null>(null);
   const [postSubmit, setPostSubmit] = useState<{
     axisId: string;
@@ -586,10 +592,10 @@ function RentalApplicationWizardInner({
       ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType))
       : applicationConfigForApplicant(listingSub, applicationRentalTypeFor(form.rentalType), form.applicationTemplateId, form.applicationTemplateVersion).config;
     return activeApplicationWizardSteps(
-      config,
+      guestApplicant ? withGuestIdentityQuestionsAsked(config) : config,
       normalizeCustomApplicationFields,
     );
-  }, [form.propertyId, form.rentalType, form.applicationTemplateId, form.applicationTemplateVersion, extrasTick, templatePreview, templatePreviewSubmission, templatePreviewVariant]);
+  }, [form.propertyId, form.rentalType, form.applicationTemplateId, form.applicationTemplateVersion, extrasTick, guestApplicant, templatePreview, templatePreviewSubmission, templatePreviewVariant]);
 
   useEffect(() => {
     const propertyId = form.propertyId.trim();
@@ -2452,7 +2458,7 @@ function RentalApplicationWizardInner({
       const previewProperty = storedProperty && templatePreviewSubmission
         ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
         : storedProperty;
-      const previewErrors = validateRentalWizardStep(step, form, { property: previewProperty, configOverride: templatePreviewSubmission ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType)) : undefined });
+      const previewErrors = validateRentalWizardStep(step, form, { property: previewProperty, guestApplicant, configOverride: templatePreviewSubmission ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType)) : undefined });
       if (countValidationErrors(previewErrors) > 0) {
         setErrors(previewErrors);
         showToast("Please review the highlighted fields before continuing.");
@@ -2624,7 +2630,7 @@ function RentalApplicationWizardInner({
       const previewProperty = storedProperty && templatePreview && templatePreviewSubmission
         ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
         : storedProperty;
-      const e = validateRentalWizardStep(step, form, { property: previewProperty, configOverride: templatePreview && templatePreviewSubmission ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType)) : undefined });
+      const e = validateRentalWizardStep(step, form, { property: previewProperty, guestApplicant, configOverride: templatePreview && templatePreviewSubmission ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType)) : undefined });
       setErrors(e);
       if (countValidationErrors(e) > 0) {
         showToast("Please fix the highlighted fields before continuing.");
@@ -2843,6 +2849,7 @@ function RentalApplicationWizardInner({
                   ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType))
                   : undefined}
                 mode={mode}
+                guestApplicant={guestApplicant}
                 propertyOptions={propertyOptions}
                 propertyLocked={
                   templatePreview
