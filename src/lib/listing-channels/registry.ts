@@ -12,6 +12,8 @@
  * approved yet is `coming_soon` and nothing posts.
  */
 
+import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
+
 export type ListingChannelGroup = "automatic" | "one_click" | "request_access";
 export type ListingChannelAvailability = "live" | "coming_soon";
 
@@ -51,7 +53,7 @@ export type ListingChannelDef = {
 };
 
 /** The one contact address a "Request access" button opens a mail draft to. */
-export const LISTING_CHANNEL_REQUEST_EMAIL = "partners@proplane.ai";
+export const LISTING_CHANNEL_REQUEST_EMAIL = PUBLIC_SUPPORT_EMAIL;
 
 export const LISTING_CHANNEL_DEFS: readonly ListingChannelDef[] = [
   // Automatic: official API or feed.

@@ -37,7 +37,7 @@ import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
-function asProperty(value: unknown, id: string): MockProperty | null {
+export function asProperty(value: unknown, id: string): MockProperty | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const property = value as MockProperty;
   // `property_data` predates the typed listing writer and can contain partial

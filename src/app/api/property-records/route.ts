@@ -1,4 +1,5 @@
 import { clearHousingAccessForDeletedProperty } from "@/lib/auth/clear-property-housing-access";
+import { scheduleListingChannelSync } from "@/lib/listing-channels/sync.server";
 import { NextResponse } from "next/server";
 import { readWorkspaceCookie } from "@/lib/workspaces/cookie";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
@@ -394,6 +395,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: message }, { status: 500 });
       }
       track("property_deleted", user.id, { property_id: id });
+      // Take any listing-site posts down (queued; never blocks or fails the delete).
+      scheduleListingChannelSync(db, id, { deleted: true });
       return NextResponse.json({ ok: true });
     }
 
@@ -726,6 +729,10 @@ export async function POST(req: Request) {
         );
       }
     }
+
+    // Listing sites: publish / update / unpublish follows the save. Queued after the response;
+    // a failure here never fails the save (the cron retries).
+    scheduleListingChannelSync(db, id);
 
     return NextResponse.json({ ok: true });
   } catch (e) {
