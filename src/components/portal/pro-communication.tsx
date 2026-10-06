@@ -2,7 +2,7 @@
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 
-import { MessageSquarePlus, Settings } from "lucide-react";
+import { MessageSquarePlus } from "lucide-react";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -16,9 +16,7 @@ import {
   type CommunicationComposeChannel,
 } from "@/components/portal/pro-communication-compose-modal";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { getSettingsEntryPoint, settingsDialogTitlePrefix } from "@/components/portal/settings-entry-points";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import {
   axisAdminFilterContact,
   EMPTY_COMMUNICATION_THREAD_FILTERS,
@@ -52,7 +50,6 @@ export type ManagerCommunicationChannel = "inbox" | "sms";
 /** @deprecated Legacy SMS folder URLs redirect to unified inbox. */
 export type ManagerSmsTabId = "all" | "unopened" | "opened" | "schedule" | "sent";
 
-const communicationSettingsEntry = getSettingsEntryPoint("communication");
 
 const ROLE_OPTIONS: { value: CommunicationFilterRole; label: string }[] = [
   { value: "resident", label: "Residents & applicants" },
@@ -141,7 +138,6 @@ export function ManagerCommunication({
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeChannel, setComposeChannel] = useState<CommunicationComposeChannel>("email");
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
-  const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
   const [smsDirectory, setSmsDirectory] = useState<{ viewer: string | null; rows: ManagerSmsResidentConversation[] }>({ viewer: null, rows: [] });
   const smsRecipients = smsDirectory.viewer === userId ? smsDirectory.rows : [];
   // The Seattle Homes sandbox already has a work number set up — never
@@ -351,26 +347,9 @@ export function ManagerCommunication({
     />
   );
 
-  const communicationCommandActions = (
-    <>
-      {communicationFilterSheet}
-      {/*
-        Every other section has a settings gear; Communication didn't. The
-        panel this used to point at was phone verification — the resident's
-        own Settings → Messaging, which really was a duplicate — but the
-        settings tab now holds real Communication-wide preferences
-        (`CommunicationSettingsPanel`), so the gear belongs back on the
-        toolbar. Label/title/data-attr all come from one registry entry
-        (`settings-entry-points.ts`) so they cannot drift from each other.
-      */}
-      <PortalIconAction
-        icon={Settings}
-        label={communicationSettingsEntry.label}
-        data-attr={communicationSettingsEntry.dataAttr}
-        onClick={() => setCommunicationSettingsOpen(true)}
-      />
-    </>
-  );
+  // Filter is the only tool on this toolbar (captain, 2026-10-05): Communication-wide preferences
+  // are reached from the central Settings hub's Communication tab, not a gear of their own here.
+  const communicationCommandActions = communicationFilterSheet;
 
   // The chips stay on the page background between the title band and the cards.
   // PortalActiveFilterChips returns null when empty, and the shell drops its
@@ -424,12 +403,6 @@ export function ManagerCommunication({
         onAddConversation={() => openCompose("email")}
         onApplicationsLoaded={refreshDirectory}
         onArchivedViewChange={handleSegmentNavigate}
-      />
-      <ManagerPortalSettingsModal
-        open={communicationSettingsOpen}
-        onClose={() => setCommunicationSettingsOpen(false)}
-        initialTab="communication"
-        scopedTitle={settingsDialogTitlePrefix(communicationSettingsEntry)}
       />
     </PortalCommunicationShell>
   );
