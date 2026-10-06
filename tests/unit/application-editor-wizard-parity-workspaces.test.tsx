@@ -112,7 +112,7 @@ describe.each(WORKSPACES)("%s: editor sections match the apply wizard step for s
       if (section.id === "review") continue;
       const fields = editorFields.filter((f) => (f.section ?? "additional") === section.id);
       const expectedVisible = fields.filter((f) => !isCustomFieldHiddenByCondition(f, []));
-      const { container, unmount } = render(<ApplicationSectionPreviewPane section={section} fields={fields} />);
+      const { container, unmount } = render(<ApplicationSectionPreviewPane sections={[section]} fields={fields} />);
       const pane = container.querySelector('[data-attr="application-preview-pane"]')!;
       const text = pane.textContent ?? "";
       for (const field of fields.filter((f) => !f.isStandard)) {
@@ -132,7 +132,7 @@ describe("the preview follows the draft and reveals a conditional question when 
   const fieldsOf = (s: typeof sub): ResolvedApplicationField[] => resolveListingApplicationFields(s, normalizeCustomApplicationFields).filter((f) => (f.section ?? "additional") === "household");
 
   it("hides 'Describe the service animal' until the parent is answered Yes, then shows it", () => {
-    render(<ApplicationSectionPreviewPane section={household} fields={fieldsOf(sub)} />);
+    render(<ApplicationSectionPreviewPane sections={[household]} fields={fieldsOf(sub)} />);
     expect(screen.queryByText("Describe the service animal")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^Yes$/ }));
     expect(screen.getByText("Describe the service animal")).toBeTruthy();
@@ -141,14 +141,14 @@ describe("the preview follows the draft and reveals a conditional question when 
   });
 
   it("updates as the draft changes: a retyped label and a new required question show at once", () => {
-    const { rerender } = render(<ApplicationSectionPreviewPane section={household} fields={fieldsOf(sub)} />);
+    const { rerender } = render(<ApplicationSectionPreviewPane sections={[household]} fields={fieldsOf(sub)} />);
     const edited = createDefaultListingSubmission();
     edited.applicationConfigMode = "custom";
     edited.customApplicationFields = normalizeCustomApplicationFields([
       ...sub.customApplicationFields!.map((f) => (f.key === "has_pets" ? { ...f, label: "Do you have an assistance animal?" } : f)),
       custom({ id: "s9", key: "vet", label: "Vet name", section: "household", required: true }),
     ]);
-    rerender(<ApplicationSectionPreviewPane section={household} fields={fieldsOf(edited)} />);
+    rerender(<ApplicationSectionPreviewPane sections={[household]} fields={fieldsOf(edited)} />);
     expect(screen.getByText(/Do you have an assistance animal\?/)).toBeTruthy();
     expect(screen.queryByText("Do you have a service animal?")).toBeNull();
     expect(screen.getByText("Vet name").parentElement!.textContent).not.toContain("*");
@@ -156,8 +156,40 @@ describe("the preview follows the draft and reveals a conditional question when 
 
   it("a half-typed blank label shows as Untitled question instead of an empty control", () => {
     const blank = fieldsOf(sub).map((f) => (f.key === "has_pets" ? { ...f, label: "  " } : f));
-    render(<ApplicationSectionPreviewPane section={household} fields={blank} />);
+    render(<ApplicationSectionPreviewPane sections={[household]} fields={blank} />);
     expect(screen.getByText(/Untitled question/)).toBeTruthy();
+  });
+});
+
+describe("Applicant sees pages through the whole form with the shared arrows", () => {
+  const sub = seattleHomes();
+  const all = resolveListingApplicationFields(sub, normalizeCustomApplicationFields);
+  const sections = RENTAL_APPLICATION_SECTIONS.filter((s) => s.id !== "review");
+
+  it("shows whole sections per step with the section title, names the form, and disables the arrows at the ends", () => {
+    render(<ApplicationSectionPreviewPane sections={sections} fields={all} formName="Seattle application" />);
+    const label = document.querySelector('[data-attr="application-preview-step-label"]')!.textContent ?? "";
+    const match = label.match(/^Step 1 of (\d+) · Seattle application$/);
+    expect(match, label).not.toBeNull();
+    const total = Number(match![1]);
+    expect(total).toBeGreaterThan(1);
+    expect((screen.getByRole("button", { name: "Previous step" }) as HTMLButtonElement).disabled).toBe(true);
+    // Every section shown on a step is whole: its title is a heading above its questions.
+    expect(screen.getAllByRole("heading").length).toBeGreaterThan(0);
+    for (let step = 1; step < total; step++) fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+    expect(document.querySelector('[data-attr="application-preview-step-label"]')!.textContent).toBe(`Step ${total} of ${total} · Seattle application`);
+    expect((screen.getByRole("button", { name: "Next step" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps a section's questions together: no section is split across steps", () => {
+    const { container } = render(<ApplicationSectionPreviewPane sections={sections} fields={all} formName="X" />);
+    const seen = new Map<string, number>();
+    const total = Number((container.querySelector('[data-attr="application-preview-step-label"]')!.textContent ?? "").match(/of (\d+)/)![1]);
+    for (let step = 0; step < total; step++) {
+      for (const h of container.querySelectorAll('[data-attr="application-preview-step"] h4')) seen.set(h.textContent ?? "", (seen.get(h.textContent ?? "") ?? 0) + 1);
+      if (step < total - 1) fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+    }
+    for (const [title, count] of seen) expect(count, title).toBe(1);
   });
 });
 
