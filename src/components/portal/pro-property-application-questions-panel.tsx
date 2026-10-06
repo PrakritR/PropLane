@@ -59,11 +59,6 @@ import {
 import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
 import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
 import { missingApplicationDefaults, submissionWithApplicationDefault } from "@/lib/leasing-quick-add";
-import {
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-} from "@/components/portal/portal-list-add-row";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 import { createPropertyApplicationTemplate } from "@/lib/property-application-templates";
 import { useConfirm } from "@/components/providers/app-ui-provider";
@@ -679,21 +674,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
         onAdd={(key) => void addSeedTemplate(key)}
       />
 
-      {/* The page's command bar carries the one "+" (its popup also takes a
-          PDF upload); only the embedded modal, which has no command bar,
-          needs a footer add row. */}
-      {embedInModal ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label="Add"
-            ariaLabel="Add application"
-            icon={PORTAL_LIST_ADD_ICONS.application}
-            onClick={openAdd}
-            dataAttr="property-application-add"
-            inline
-          />
-        </div>
-      ) : null}
     </>
   );
 

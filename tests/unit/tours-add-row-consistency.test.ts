@@ -39,7 +39,7 @@ describe("Add tour matches every other tab's ADD row", () => {
     expect(tours).not.toContain('dataAttr: "tours-list-add"');
   });
 
-  it("leaves the shared inline-when-nonempty rule as the default", () => {
-    expect(surface).toContain("add.inline ?? !isEmpty");
+  it("the shared surface draws no dashed Add row at all", () => {
+    expect(surface).not.toContain("PortalListAddRow");
   });
 });

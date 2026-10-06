@@ -157,11 +157,6 @@ import {
   DEV_RESIDENT_LIST_FIXTURES,
   shouldShowDevResidentListFixtures,
 } from "@/lib/dev/resident-list-fixtures";
-import {
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
@@ -2857,24 +2852,6 @@ export function ManagerResidents({
     }
   };
 
-  const residentServicesAddRow = (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-      <PortalListAddRow
-        label="Add service"
-        ariaLabel="Add service for this resident"
-        icon={PORTAL_LIST_ADD_ICONS.service}
-        disabled={!canAddResidentServiceItem}
-        hint={
-          canAddResidentServiceItem
-            ? undefined
-            : "Link this resident to a property before adding services."
-        }
-        onClick={() => setAddResidentServiceOpen(true)}
-        dataAttr="resident-add-service"
-      />
-    </div>
-  );
-
   useEffect(() => {
     if (resolvedDetailTab !== "payments") {
       setEmbeddedPaymentBulkActions(null);
@@ -3954,7 +3931,6 @@ export function ManagerResidents({
                                   })}
                                 </PortalRecordListSurface>
                               ) : null}
-                              {residentServicesAddRow}
                               </>
                               )}
                             </ResidentDetailTabPanel>

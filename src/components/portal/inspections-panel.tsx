@@ -819,7 +819,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       }}
       add={{
         ariaLabel: `Add ${effectiveKindForAdd === "move-in" ? "move-in" : "move-out"} inspection`,
-        inline: true,
         dataAttr: "inspection-add",
         onClick: () => {
           const next = visible.find((residency) =>

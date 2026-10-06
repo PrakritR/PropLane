@@ -8,11 +8,6 @@ import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
-import {
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { ServiceRequestCatalogSuggestions } from "@/components/portal/service-request-catalog-suggestions";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -214,16 +209,6 @@ export function ServiceRequestCatalogEditor({
 
       <div className="px-3 pb-4 pt-2 max-md:px-2.5 sm:pb-5">
         <ServiceRequestCatalogSuggestions offers={offers} onAddPreset={openAddPreset} />
-      </div>
-
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add"
-          ariaLabel="Add custom service type"
-          icon={PORTAL_LIST_ADD_ICONS.service}
-          onClick={openAddCustom}
-          dataAttr="service-request-add-custom"
-        />
       </div>
 
       <ServiceOfferingEditModal

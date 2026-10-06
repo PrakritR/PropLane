@@ -42,11 +42,6 @@ import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
 import { missingLeaseDefaults, submissionWithLeaseDefault } from "@/lib/leasing-quick-add";
 import type { PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
 import {
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-} from "@/components/portal/portal-list-add-row";
-import {
   explicitDefaultLeaseForStay,
   leaseTemplateStay,
   propertyLeaseSourceFromTemplate,
@@ -665,21 +660,6 @@ export function ManagerPropertyLeasePanel({
         dataAttr="property-lease-quick-add"
         onAdd={(key) => addSeedTemplate(key as PropertyLeaseListingSeedKey)}
       />
-      {/* The page's command bar carries the one "+" (its form also takes a
-          PDF upload); only the embedded modal, which has no command bar,
-          needs a footer add row. */}
-      {embedInModal ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label="Add"
-            ariaLabel="Add lease"
-            icon={PORTAL_LIST_ADD_ICONS.lease}
-            onClick={openAdd}
-            dataAttr="property-lease-add"
-            inline
-          />
-        </div>
-      ) : null}
     </>
   );
 

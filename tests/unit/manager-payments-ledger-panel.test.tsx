@@ -460,7 +460,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(screen.getByRole("menuitem", { name: /^Delete$/i })).toBeTruthy();
   });
 
-  it("renders a dashed list add row when embedded in resident", () => {
+  it("draws no dashed list add row when embedded in resident", () => {
     render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -471,7 +471,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Add payment/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add payment/i })).toBeNull();
   });
 
   // C208: the whole row opened the record everywhere except this list, where

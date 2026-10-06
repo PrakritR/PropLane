@@ -10,10 +10,6 @@ import { RowSelectionModeContext } from "@/components/ui/row-selection-mode";
 import type { LucideIcon } from "lucide-react";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { Button } from "@/components/ui/button";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import {
   PortalListEmptyCard,
@@ -40,9 +36,6 @@ export type PortalListAddConfig = {
   onClick: () => void;
   disabled?: boolean;
   dataAttr?: string;
-  /** Override the default inline-when-nonempty rule. No surface does today — Tours
-   *  used to and was the one tab whose ADD row looked different (AXI-160). */
-  inline?: boolean;
   className?: string;
 };
 
@@ -69,11 +62,9 @@ export function PortalRecordListSurface({
    */
   listControls?: ReactNode;
   /**
-   * The dashed ADD row. It renders only while the list is EMPTY — a populated
-   * list adds from the page head, and the dashed box under twenty rows was a
-   * second Add nobody needed (Mobbin polish §10). A call site that sets
-   * `inline` explicitly (either way) has no page-head Add — a ledger embedded
-   * in a resident record — and keeps the row.
+   * Names the list's one create action (the header card's blue +). It draws nothing
+   * itself: no dashed "+ Add" row sits under the rows or in an empty list (captain,
+   * Oct 6) — it only titles the empty card ("Add lease" → "No leases yet").
    */
   add?: PortalListAddConfig;
   bulkCount?: number;
@@ -182,25 +173,6 @@ export function PortalRecordListSurface({
           className={cn(justLoaded && "motion-just-loaded")}
           onAnimationEnd={justLoaded ? () => setJustLoaded(false) : undefined}
         >{isEmpty ? emptyBody : children}</div>}
-        {/* The dashed row survives only for a call site with an explicit `inline` — a
-            ledger embedded in a resident record, which has no page head to add from. */}
-        {add && add.inline != null && !isEmpty && !loading && !loadError ? (
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              // Every list footer reads "+ Add"; the per-list glyph and long label
-              // moved into the accessible name so the rows stay uniform.
-              label="Add"
-              ariaLabel={add.ariaLabel}
-              hint={add.hint}
-              onClick={add.onClick}
-              disabled={add.disabled}
-              dataAttr={add.dataAttr}
-              className={add.className}
-              // Inline once rows exist above it, unless a list opts into compact always.
-              inline={add.inline ?? !isEmpty}
-            />
-          </div>
-        ) : null}
       </div>
       </RecordActionContext.Provider>
       </PortalRecordShareHost>

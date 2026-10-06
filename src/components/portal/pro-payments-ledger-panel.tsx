@@ -2479,7 +2479,6 @@ export function ManagerPaymentsLedgerPanel({
                 icon: PORTAL_LIST_ADD_ICONS.payment,
                 onClick: onAddPayment,
                 dataAttr: "payments-list-add",
-                ...(embeddedInResident ? { inline: false } : {}),
               }
             : undefined
         }
@@ -2497,9 +2496,6 @@ export function ManagerPaymentsLedgerPanel({
                 icon: PORTAL_LIST_ADD_ICONS.payment,
                 onClick: onAddPayment,
                 dataAttr: "payments-list-add",
-                // Resident profile matches Services: full dashed ADD footer, not the
-                // compact inline strip used on the main Payments ledger when rows exist.
-                ...(embeddedInResident ? { inline: false } : {}),
               }
             : undefined
         }

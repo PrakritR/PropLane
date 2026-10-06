@@ -1916,7 +1916,6 @@ export function ManagerApplications({
             ariaLabel: "Add application",
             onClick: () => setAddApplicationOpen(true),
             dataAttr: "applications-add-row",
-            inline: true,
           }}
           emptyCard={
             searchHidesEveryRow

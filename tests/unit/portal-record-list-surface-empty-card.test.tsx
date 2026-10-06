@@ -46,13 +46,13 @@ describe("PortalRecordListSurface empty card", () => {
     expect(screen.queryByRole("button", { name: /add task/i })).toBeNull();
   });
 
-  it("still shows the dashed ADD footer for an inline (embedded) list", () => {
+  it("draws no dashed ADD footer under rows, inline or not", () => {
     render(
-      <PortalRecordListSurface add={{ ariaLabel: "Add charge", onClick: vi.fn(), inline: true }}>
+      <PortalRecordListSurface add={{ ariaLabel: "Add charge", onClick: vi.fn() }}>
         <div />
       </PortalRecordListSurface>,
     );
-    expect(screen.getByRole("button", { name: "Add charge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add charge" })).toBeNull();
   });
 });
 
