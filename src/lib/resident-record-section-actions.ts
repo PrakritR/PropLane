@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, Download, Pencil, PenLine, Plus, RefreshCw, Send, XCircle } from "lucide-react";
+import { Bell, CheckCircle2, Download, Pencil, PenLine, Plus, RefreshCw, Send, Trash2, Undo2, XCircle } from "lucide-react";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import type { ResidentRecordStatusBucketId } from "@/lib/resident-detail-subsection-tabs";
 import type { LeaseListTabId } from "@/lib/lease-pipeline-storage";
@@ -59,7 +59,12 @@ export function residentSectionHeaderActions(ctx: ResidentSectionActionContext):
       if (app.subTab === "approved") {
         return [DOWNLOAD_PDF, { id: "send-lease", label: "Send lease", icon: Send, tone: "primary" }];
       }
-      return [DOWNLOAD_PDF];
+      // Rejected: a decision can be taken back, or the application deleted (the page confirms first).
+      return [
+        DOWNLOAD_PDF,
+        { id: "move-pending", label: "Move to pending", icon: Undo2 },
+        { id: "delete-application", label: "Delete", icon: Trash2, tone: "danger" as const },
+      ];
     }
     case "lease": {
       // One lease is shown at a time; what can be done to it follows the stage it is in.
