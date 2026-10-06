@@ -17,3 +17,15 @@ export function vendorBankingEnabled(): boolean {
   const raw = process.env.VENDOR_BANKING_ENABLED?.trim().toLowerCase();
   return raw !== "0" && raw !== "false" && raw !== "off";
 }
+
+/**
+ * Vendor-initiated refunds to a manager. Default OFF: the existing path
+ * (`refund.server.ts`) refunds central 'hold' captures outside the reserved
+ * central refund rail, which the webhook refuses and which wedges the hold.
+ * Stays off until the refund runs through `runReservedPlatformMoneyRefund`.
+ * `VENDOR_REFUNDS_ENABLED=1` re-enables it (tests / a rebuilt path only).
+ */
+export function vendorRefundsEnabled(): boolean {
+  const raw = process.env.VENDOR_REFUNDS_ENABLED?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "on";
+}
