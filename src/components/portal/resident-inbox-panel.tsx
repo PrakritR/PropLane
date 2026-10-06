@@ -443,7 +443,7 @@ export const ResidentInboxPanel = forwardRef<
   }, [scheduledRows]);
 
   const toggleScheduledCancelled = useCallback(
-    async (id: string, cancelled: boolean) => {
+    async (id: string, cancelled: boolean, options?: { rethrow?: boolean }) => {
       try {
         const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(id)}?as=resident`, {
           method: "PATCH",
@@ -456,6 +456,7 @@ export const ResidentInboxPanel = forwardRef<
         void reloadScheduledMessages();
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not update scheduled message.");
+        if (options?.rethrow) throw e;
       }
     },
     [reloadScheduledMessages, showToast],
@@ -1403,7 +1404,7 @@ export const ResidentInboxPanel = forwardRef<
     async (id: string) => {
       setScheduledBusyId(id);
       try {
-        await toggleScheduledCancelled(id, true);
+        await toggleScheduledCancelled(id, true, { rethrow: true });
       } finally {
         setScheduledBusyId(null);
       }
@@ -1430,6 +1431,7 @@ export const ResidentInboxPanel = forwardRef<
                 deliverViaEmail={item.deliverViaEmail}
                 deliverViaSms={item.deliverViaSms}
                 source={item.source}
+                deliveryStatus={item.deliveryStatus}
                 editable={false}
                 busy={scheduledBusyId === item.id}
                 recipient={activeThread.email}
