@@ -39,11 +39,18 @@ export const RESIDENT_DETAIL_BACKGROUND_CHECK_TABS: {
  * How many checks the Completed tab counts: a check that has actually come back, never one that
  * merely applies. `applicationShowsBackgroundCheck` answers the second question (anything but
  * `not_applicable`), so counting with it read "Completed 1" for every submitted application while
- * the panel underneath said pending. `passed` / `flagged` are the two finished states both provider
- * mappers write back onto the row.
+ * the panel underneath said pending.
+ *
+ * The REPORT decides, not the derived badge. `backgroundCheckStatusFromScreening` collapses a
+ * complete report whose recommendation is `review` or `not_available` back to `pending_review` —
+ * and `review` is the default recommendation — so reading only `backgroundCheckStatus` said
+ * "Completed 0" beside a panel rendering the finished report. A finished order is counted whatever
+ * it concluded; `passed` / `flagged` still covers a result a manager recorded by hand.
  */
 export function residentBackgroundCheckCompletedCount(row: DemoApplicantRow | null): number {
   if (!row) return 0;
+  if (row.backgroundCheck?.status === "complete") return 1;
+  if (row.screening?.status === "complete") return 1;
   const status = resolveBackgroundCheckStatus(row);
   return status === "passed" || status === "flagged" ? 1 : 0;
 }
