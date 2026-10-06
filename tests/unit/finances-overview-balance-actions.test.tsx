@@ -23,8 +23,8 @@ describe("Finances simplified overview", () => {
   it("routes unpaid bills to the one Outgoing list", async () => {
     setup(true); expect((await screen.findByRole("link", { name: /To pay/ })).getAttribute("href")).toBe("/portal/outgoing/to-pay");
   });
-  it("routes deposits to filtered Activity", async () => {
-    setup(true); expect((await screen.findByRole("link", { name: /Held deposits/ })).getAttribute("href")).toBe("/portal/financials/activity?category=deposits");
+  it("routes deposits to the Deposits report", async () => {
+    setup(true); expect((await screen.findByRole("link", { name: /Held deposits/ })).getAttribute("href")).toBe("/portal/financials/security-deposits");
   });
   it("removes pay cards, plan credit and secondary overview cards", async () => {
     setup(true); await screen.findByText("Held deposits");

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { FinancesWithdrawAction } from "@/components/portal/finances/finances-withdraw-action";
 import { PropertyFinanceWorksheet } from "@/components/portal/finances/property-worksheet";
-import { ManagerFinancesActivity } from "@/components/portal/finances/finances-activity";
 import { ArrowLeft } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
@@ -363,7 +362,6 @@ export function FinancesDataTable({
 // statement tab hangs off, so a report tab lights the Reports door.
 const FINANCE_TAB_DESTINATIONS = [
   { id: "overview", label: "Overview" },
-  { id: "activity", label: "Activity" },
   { id: "reports", label: "Reports" },
 ] as const;
 
@@ -617,7 +615,7 @@ export function ManagerFinancesPanel({
   });
 
   const reportId: string | null =
-    ["overview", "reports", "activity", "income", "expenses", "profitability"].includes(tabId) ? null : (TAB_TO_REPORT[tabId] ?? "rent-receipts");
+    ["overview", "reports", "income", "expenses", "profitability"].includes(tabId) ? null : (TAB_TO_REPORT[tabId] ?? "rent-receipts");
   const [sortKey, setSortKey] = useState(DEFAULT_SORT[tabId]?.key ?? "date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">(DEFAULT_SORT[tabId]?.dir ?? "desc");
 
@@ -889,10 +887,9 @@ export function ManagerFinancesPanel({
 
   const isOverviewTab = tabId === "overview";
   const isReportsHubTab = tabId === "reports";
-  const isActivityTab = ["activity", "income", "expenses"].includes(tabId);
-  const activeFinanceDestinationId = isActivityTab ? "activity" : isOverviewTab ? "overview" : "reports";
+  const activeFinanceDestinationId = isOverviewTab ? "overview" : "reports";
 
-  const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions", "overview", "reports", "activity", "income", "expenses"]);
+  const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions", "overview", "reports", "income", "expenses"]);
   const showScopedReportFilters = !specialFinancePanels.has(tabId);
   const isTransactionTab = tabId === "income" || tabId === "expenses";
   const activeDefaultSort = DEFAULT_SORT[tabId] ?? { key: "date", dir: "desc" as const };
@@ -1165,17 +1162,17 @@ export function ManagerFinancesPanel({
         }))}
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
-        actions={isActivityTab || isReportsHubTab ? undefined : isOverviewTab ? <FinancesWithdrawAction /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
+        actions={isReportsHubTab ? undefined : isOverviewTab ? <FinancesWithdrawAction /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
         primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={() => setEntryChooser(true)} /> : undefined}
 
         activeFilterChips={
-          !isActivityTab && activeFinanceFilterChips.length > 0 ? (
+          activeFinanceFilterChips.length > 0 ? (
             <PortalActiveFilterChips chips={activeFinanceFilterChips} />
           ) : null
         }
       />
       <PortalDialog open={entryChooser} onClose={() => setEntryChooser(false)} title="Financial entry" primaryAction={{ label: "Continue", dataAttr: "finances-entry-continue", onClick: () => { setEntryChooser(false); if (entryKind === "income") openAddIncome(); else openAddExpense(); } }}><FieldSingleSelect label="Type" value={entryKind} onChange={(value) => setEntryKind(value)} options={[{ value: "expense", label: "Expense" }, { value: "income", label: "Income" }]} /></PortalDialog>
-      {tabId === "profitability" ? <PropertyFinanceWorksheet onAdd={propertyId => { setFilters(current => ({ ...current, propertyId })); setEntryChooser(true); }} /> : isActivityTab ? <ManagerFinancesActivity userId={userId} key={`${tabId}:${userId}`} direction={tabId === "income" ? "in" : tabId === "expenses" ? "out" : undefined} /> : isOverviewTab ? (
+      {tabId === "profitability" ? <PropertyFinanceWorksheet onAdd={propertyId => { setFilters(current => ({ ...current, propertyId })); setEntryChooser(true); }} /> : isOverviewTab ? (
         <ManagerFinancesOverview
           key={userId}
           userId={userId ?? null}

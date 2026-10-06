@@ -258,7 +258,7 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
   const toggleSeries = (key: SeriesKey) => setSeries(prev => prev === key ? "all" : key);
   const pick = (key: string) => {
     if (onMonthSelect) onMonthSelect(key);
-    else window.location.assign(`/portal/financials/activity?month=${encodeURIComponent(key)}`);
+    else window.location.assign(`/portal/financials/overview`);
   };
 
   const show = { rev: series === "all" || series === "rev", exp: series === "all" || series === "exp", net: series === "all" || series === "net" };

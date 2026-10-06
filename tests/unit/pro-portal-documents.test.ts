@@ -17,7 +17,7 @@ describe("pro portal documents section", () => {
   it("finances tabs are income and expenses only in nav", () => {
     const financials = proPortal.sections.find((s) => s.section === "financials");
     expect(financials?.label).toBe("Finances");
-    expect(financials?.tabs.map((t) => t.id)).toEqual(["overview", "activity", "reports"]);
+    expect(financials?.tabs.map((t) => t.id)).toEqual(["overview", "reports"]);
   });
 
   it("orders leasing → tenancy → operations → marketing → finances, then feedback before profile", () => {

@@ -13,7 +13,7 @@ import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { summarizeFinancialActivity } from "@/lib/reports/financial-activity-totals";
 import { lastNMonths } from "@/lib/portal-monthly-profit";
-/** Overview figures read as whole dollars, like the studio ("$7,700"); exact cents stay in Activity. */
+/** Overview figures read as whole dollars, like the studio ("$7,700"); exact cents stay in Reports. */
 const wholeMoney = (cents: number | undefined) => cents === undefined ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Math.round(cents / 100));
 export type FinancesPeriodKind = "month" | "year" | "12m";
 
@@ -147,7 +147,6 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   if (!summary) return <div role="status" className="py-8">Loading finances…</div>;
   const totals = summary.months[month] ?? { revenueCents: 0, expenseCents: 0, profitCents: 0, rentCollectedCents: 0 };
   const months = lastNMonths(clock, 24);
-  const activityHref = (direction?: string, category?: string) => `${basePath}/financials/activity?${new URLSearchParams(category ? { category } : { month, ...(direction ? { direction } : {}) })}`;
   const tile = (label: string, value: number | undefined, href?: string, fact?: string, icon?: LucideIcon, tone?: "positive") => {
     const Icon = icon;
     const body = <><span className="flex items-center gap-1.5 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">{Icon ? <Icon className="size-3.5" aria-hidden /> : null}{label}</span><span className={`mt-2 block text-[22px] font-bold ${tone === "positive" && (value ?? 0) > 0 ? "text-emerald-600" : "text-foreground"}`}>{wholeMoney(value)}</span>{fact ? <span className="mt-1 block text-xs text-muted">{fact}</span> : null}</>;
@@ -156,7 +155,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   return <div className="space-y-4 pb-6" data-attr="finances-overview">
     <div className="grid grid-cols-2 divide-border rounded-xl border border-border bg-card md:grid-cols-4" data-attr="finances-balance-strip">
       {tile("Available", balance?.availableCents, undefined, undefined, Landmark)}{tile("Pending", balance?.pendingCents, undefined, undefined, Clock)}
-      {tile("Held deposits", summary.heldDepositsCents, activityHref(undefined, "deposits"), undefined, ShieldCheck)}
+      {tile("Held deposits", summary.heldDepositsCents, `${basePath}/financials/security-deposits`, undefined, ShieldCheck)}
       {tile("To pay", owed, `${basePath}/outgoing/to-pay`, billCount === undefined ? undefined : `${billCount} ${billCount === 1 ? "bill" : "bills"}`, ReceiptText)}
     </div>
     <div className="rounded-xl border border-border bg-card">
@@ -166,7 +165,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
           options={[...months].reverse().map(m => ({ value: m.key, label: new Date(`${m.key}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" }) }))} />
       </div>
       <div className="grid grid-cols-3">
-        {tile("Revenue", totals.revenueCents, activityHref("in"), undefined, undefined, "positive")}{tile("Expenses", totals.expenseCents, activityHref("out"))}
+        {tile("Revenue", totals.revenueCents, undefined, undefined, undefined, "positive")}{tile("Expenses", totals.expenseCents)}
         {tile("Profit", totals.profitCents, undefined, undefined, undefined, "positive")}
       </div>
     </div>

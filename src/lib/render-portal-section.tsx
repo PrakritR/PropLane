@@ -119,7 +119,7 @@ const LEGACY_DOCUMENTS_TAB_MAP: Record<string, string> = {
   "rental-days": "income-documents",
   library: "other",
 };
-const FINANCIALS_TABS = ["overview", "activity", "reports", "income-statement", "profitability", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
+const FINANCIALS_TABS = ["overview", "reports", "income-statement", "profitability", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
 
 const MANAGER_INBOX_TABS = ["unopened", "opened", "schedule", "sent", "trash"] as const;
 
@@ -162,8 +162,9 @@ async function renderManagerFinancesSection(
     notFound();
   }
   const finTab = tabParts[0]!;
-  if (finTab === "income" || finTab === "expenses") {
-    redirect(`${basePath}/financials/activity?direction=${finTab === "income" ? "in" : "out"}`);
+  // The Activity tab is gone: it and the legacy income/expenses tabs land on Overview in one hop.
+  if (finTab === "activity" || finTab === "income" || finTab === "expenses") {
+    redirect(`${basePath}/financials/overview`);
   }
   if (!FINANCIALS_TABS.includes(finTab as (typeof FINANCIALS_TABS)[number])) {
     const docsRedirect = legacyTabMapLookup(LEGACY_FINANCIALS_TO_DOCUMENTS, finTab);
