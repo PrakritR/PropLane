@@ -1,14 +1,12 @@
 // @vitest-environment jsdom
 /**
- * C252 (U035): a Potential resident row with an incomplete application had
- * only its plain "Incomplete application" status text — no action reachable
- * from the row itself, only from a checkbox-selected bulk bar or by opening
- * the full record. `ManagerResidentsGroupedTable` now renders a nudge button
- * directly on any row `nudgeEligibleIds` names, and nothing extra on any
- * other row.
+ * Captain, 2026-10-06: the bell drawn over an incomplete applicant's row overlapped the ⋯. The row
+ * carries no bell now; "Remind to finish" is reachable from the row's ⋯ menu (`residents-bulk-completion-reminder`).
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import type { ManagerResidentListCluster } from "@/lib/manager-resident-list-grouping";
 import type { ManagerResidentListRow } from "@/lib/manager-resident-list";
@@ -35,56 +33,20 @@ function clustersFor(rows: ManagerResidentListRow[]): ManagerResidentListCluster
   }));
 }
 
-describe("ManagerResidentsGroupedTable nudge action (C252)", () => {
-  it("renders a nudge button only for a row the caller marks eligible", () => {
-    const onNudge = vi.fn();
+describe("ManagerResidentsGroupedTable rows carry no inline bell", () => {
+  it("never renders a reminder bell beside the row's ⋯ — the reminder lives in the ⋯ menu", () => {
     const incomplete = row({ id: "app-incomplete", name: "Jordan Lee", statusLabel: "Incomplete" });
-    const approved = row({ id: "app-approved", name: "Maya Chen", statusLabel: "" });
-
-    render(
-      <ManagerResidentsGroupedTable
-        clusters={clustersFor([incomplete, approved])}
-        groupMode="resident"
-        onOpenResident={() => {}}
-        nudgeEligibleIds={new Set(["app-incomplete"])}
-        onNudge={onNudge}
-      />,
+    const { container } = render(
+      <ManagerResidentsGroupedTable clusters={clustersFor([incomplete])} groupMode="resident" onOpenResident={() => {}} />,
     );
-
-    const buttons = screen.getAllByRole("button", { name: /Remind .* to finish their application/i });
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveAccessibleName("Remind Jordan Lee to finish their application");
+    expect(screen.queryByRole("button", { name: /Remind/i })).toBeNull();
+    expect(container.querySelector('[data-attr="resident-row-nudge"]')).toBeNull();
   });
 
-  it("calls onNudge with the row and never opens the record", () => {
-    const onNudge = vi.fn();
-    const onOpenResident = vi.fn();
-    const incomplete = row({ id: "app-incomplete", name: "Jordan Lee" });
-
-    render(
-      <ManagerResidentsGroupedTable
-        clusters={clustersFor([incomplete])}
-        groupMode="resident"
-        onOpenResident={onOpenResident}
-        nudgeEligibleIds={new Set(["app-incomplete"])}
-        onNudge={onNudge}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Remind Jordan Lee to finish their application" }));
-    expect(onNudge).toHaveBeenCalledTimes(1);
-    expect(onNudge).toHaveBeenCalledWith(expect.objectContaining({ id: "app-incomplete" }));
-    expect(onOpenResident).not.toHaveBeenCalled();
-  });
-
-  it("renders no nudge button at all when the caller omits nudgeEligibleIds", () => {
-    render(
-      <ManagerResidentsGroupedTable
-        clusters={clustersFor([row({ id: "app-1", name: "Jordan Lee" })])}
-        groupMode="resident"
-        onOpenResident={() => {}}
-      />,
-    );
-    expect(screen.queryByRole("button", { name: /Remind/i })).not.toBeInTheDocument();
+  it("the Residents list keeps 'Remind to finish' in the ⋯ bulk menu and no row-level nudge", () => {
+    const src = readFileSync(resolve(process.cwd(), "src/components/portal/pro-residents.tsx"), "utf8");
+    expect(src).toContain('data-attr="residents-bulk-completion-reminder"');
+    expect(src).not.toContain("nudgeEligibleIds");
+    expect(src).not.toContain("onNudge");
   });
 });
