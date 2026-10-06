@@ -15,6 +15,13 @@ const COSIGNER_SEED_KEY: PropertyLeaseListingSeedKey = "cosigner";
 /** Retired — one co-signer application covers every stay type; kept for legacy rows. */
 const COSIGNER_SHORT_TERM_SEED_KEY: PropertyLeaseListingSeedKey = "cosigner-short-term";
 const AIRBNB_SEED_KEY: PropertyLeaseListingSeedKey = "airbnb";
+/**
+ * Names the Airbnb application shipped under as a PropLane default before it got its own. A stored `airbnb`
+ * row still carrying one is an untouched default, so it takes the current name. This is the ONLY seed whose
+ * old default names are recognized: every other row is judged against its current default alone, so a name
+ * the manager chose is never rewritten.
+ */
+const AIRBNB_RETIRED_DEFAULT_LABELS: readonly string[] = ["Short-term application"];
 
 export type ApplicationTemplateSeed = {
   seedKey: PropertyLeaseListingSeedKey;
@@ -64,9 +71,7 @@ function shippedDefaultLabelsForSeed(seed: ApplicationTemplateSeed): string[] {
       "Short-term co-signer application",
     ];
   }
-  // The Airbnb application shipped as "Short-term application" before it got its own name; a row still
-  // carrying that is an untouched default, not a manager's name for it.
-  if (seed.seedKey === AIRBNB_SEED_KEY) return ["Airbnb application", "Short-term application"];
+  if (seed.seedKey === AIRBNB_SEED_KEY) return ["Airbnb application", ...AIRBNB_RETIRED_DEFAULT_LABELS];
   return [defaultLabelForSeed(seed)];
 }
 
@@ -219,9 +224,12 @@ export function syncPropertyApplicationTemplatesFromListing(
       const defaultLabel = defaultLabelForSeed(seed);
       const trimmedPrevLabel = prev.label.trim();
       const normalizedForDefaultCheck = normalizePropertyApplicationTemplateLabel(trimmedPrevLabel);
-      const shippedDefaults = shippedDefaultLabelsForSeed(seed);
+      const retiredDefaults =
+        prev !== legacyAdopted && prev.listingSeedKey === AIRBNB_SEED_KEY ? AIRBNB_RETIRED_DEFAULT_LABELS : [];
       const label =
-        normalizedForDefaultCheck && !shippedDefaults.includes(normalizedForDefaultCheck)
+        normalizedForDefaultCheck &&
+        normalizedForDefaultCheck !== defaultLabel &&
+        !retiredDefaults.includes(normalizedForDefaultCheck)
           ? trimmedPrevLabel
           : defaultLabel;
       nextSeeded.push({

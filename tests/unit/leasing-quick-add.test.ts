@@ -150,6 +150,33 @@ describe("Quick add: which PropLane defaults are missing", () => {
     expect(keptName.find((a) => a.listingSeedKey === "airbnb")!.label).toBe("Nightly guests");
   });
 
+  it("renaming is the Airbnb seed's alone: a legacy co-signer name is left exactly as stored", () => {
+    const cosigner = createPropertyApplicationTemplate({
+      kind: "long-term",
+      label: "Long-term co-signer application",
+      listingSeedKey: "cosigner",
+      formVariant: "cosigner",
+    });
+    const sub = { ...createDefaultListingSubmission(), propertyApplicationTemplates: [cosigner] };
+    const synced = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(sub));
+    expect(synced.find((a) => a.listingSeedKey === "cosigner")!.label).toBe("Long-term co-signer application");
+    // The Airbnb old name is recognized for the Airbnb row only - the short-term row keeps it as its own.
+    const shortNamedLikeAirbnbOld = createPropertyApplicationTemplate({
+      kind: "short-term",
+      label: "Short-term application",
+      listingSeedKey: "short-term",
+      formVariant: "short_term",
+    });
+    const shortSub = {
+      ...createDefaultListingSubmission(),
+      airbnbRentalsAllowed: true,
+      propertyApplicationTemplates: [shortNamedLikeAirbnbOld],
+    };
+    const shortSynced = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(shortSub));
+    expect(shortSynced.find((a) => a.listingSeedKey === "short-term")!.label).toBe("Short-term application");
+    expect(shortSynced.find((a) => a.listingSeedKey === "airbnb")!.label).toBe("Airbnb application");
+  });
+
   it("a move-in starter is added as the manager's own form that sends only by hand", () => {
     const added = readMoveInFormTemplates(submissionWithMoveInStarter(fresh(), "key-receipt"));
     expect(added).toHaveLength(1);
