@@ -4,7 +4,7 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Bell, CheckCircle2, Download, XCircle, Settings as SettingsIcon, Pencil, Send } from "lucide-react";
+import { Bell, CheckCircle2, Download, XCircle, RefreshCw, Settings as SettingsIcon, Pencil, Send } from "lucide-react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -68,6 +68,7 @@ import {
   managerResidentTourDetailHref,
   managerResidentTourListHref,
   parseFormsBucket,
+  propertyDetailHref,
   residentDetailHref,
   residentFormsHref,
   residentListHref,
@@ -357,6 +358,19 @@ const applicationsSettingsEntry = getSettingsEntryPoint("applications");
 const paymentsSettingsEntry = getSettingsEntryPoint("payments");
 const toursSettingsEntry = getSettingsEntryPoint("tours");
 
+/**
+ * Whether Approve / Decline are a real move on this application.
+ *
+ * `bucket === "pending"` alone is not the answer: a resident-withdrawn row keeps its bucket (the
+ * closeout is the resident's, not a manager decision) and an unfinished draft has never been
+ * submitted — the server refuses a decision on both, so neither is ever offered one. One predicate
+ * for the header actions, the footer actions and the handlers behind them.
+ */
+function applicationAwaitsDecision(row: DemoApplicantRow | null | undefined): boolean {
+  if (!row || row.bucket !== "pending") return false;
+  return !isWithdrawnApplicationRow(row) && !isInProgressApplicationRow(row);
+}
+
 function residentRoomRentSuffix(
   room: { monthlyRent?: number; shortTermRent?: string },
   isShortTerm: boolean,
@@ -566,6 +580,9 @@ export function ManagerResidents({
   const [hcTick, setHcTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [leaseTick, setLeaseTick] = useState(0);
+  // Move-in → Forms owns the "Add inspection" control; the embedded InspectionsPanel owns the
+  // create flow. Bumping this counter is how the band asks it for one.
+  const [addInspectionRequest, setAddInspectionRequest] = useState(0);
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [srTick, setSrTick] = useState(0);
   const [inboxTick, setInboxTick] = useState(0);
@@ -889,6 +906,15 @@ export function ManagerResidents({
     return executedLeaseIdentities(userId);
   }, [leaseTick, userId]);
 
+  // The one per-row answer: a tenancy starts at the executed lease, not the approval. Both the
+  // directory rows and the Move-in hub's Roommates list read it here so they cannot drift apart.
+  const applicationLeaseExecuted = useCallback(
+    (row: DemoApplicantRow) =>
+      executedLeaseKeys.axisIds.has(normalizeApplicationAxisId(row.id)) ||
+      Boolean(row.email?.trim() && executedLeaseKeys.emails.has(row.email.trim().toLowerCase())),
+    [executedLeaseKeys],
+  );
+
   const loadedDirectoryRows = useMemo<ActiveResident[]>(() => {
     void hcTick;
     // `propertyTick` is a cache-invalidation signal, not a value read here:
@@ -922,10 +948,7 @@ export function ManagerResidents({
         const leaseStart = (row.manualResidentDetails?.moveInDate?.trim() || row.application?.leaseStart?.trim() || "");
         const leaseEnd = (row.manualResidentDetails?.moveOutDate?.trim() || row.application?.leaseEnd?.trim() || "");
         const axisId = normalizeApplicationAxisId(row.id);
-        const leaseExecuted =
-          executedLeaseKeys.axisIds.has(axisId) ||
-          Boolean(row.email?.trim() && executedLeaseKeys.emails.has(row.email.trim().toLowerCase()));
-        const stage = residentDirectoryStage(row, { leaseExecuted });
+        const stage = residentDirectoryStage(row, { leaseExecuted: applicationLeaseExecuted(row) });
         return {
           id: row.id,
           // An unfinished application often has no name yet — every other
@@ -960,7 +983,7 @@ export function ManagerResidents({
       }));
     }
     return built;
-  }, [userId, hcTick, propertyTick, executedLeaseKeys, directorySourcesReady]);
+  }, [userId, hcTick, propertyTick, applicationLeaseExecuted, directorySourcesReady]);
 
   const [directorySnapshot, setDirectorySnapshot] = useState<{ viewer: string | null; rows: ActiveResident[] } | null>(null);
   useEffect(() => {
@@ -2996,6 +3019,16 @@ export function ManagerResidents({
       if (selectedApplicationRow?.screening) {
         actions = actions.filter((a) => a.id !== "run-check");
       }
+      // No check yet: the Run check icon. Pending: nothing to run. Complete (or cancelled): the
+      // same icon becomes "Run new check".
+      const check = selectedApplicationRow?.backgroundCheck;
+      if (check?.status === "pending") {
+        actions = actions.filter((a) => a.id !== "run-check");
+      } else if (check) {
+        actions = actions.map((a) =>
+          a.id === "run-check" ? { id: "run-check", label: "Run new check", icon: RefreshCw } : a,
+        );
+      }
       // Chase the applicant when they have not authorized a check yet (there is nothing to run).
       if (
         selectedApplicationRow &&
@@ -3143,11 +3176,18 @@ export function ManagerResidents({
       case "add-tour":
         navigate(managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp));
         return;
+      case "upload-application":
+        setResidentUploadKindPreset("application");
+        setResidentUploadOpen(true);
+        return;
+      // Approve / Decline are only offered while a decision is still on the table; the handlers say so too.
       case "approve":
-        if (selectedApplicationRow) setApprovePreviewRow(selectedApplicationRow);
+        if (applicationAwaitsDecision(selectedApplicationRow)) setApprovePreviewRow(selectedApplicationRow);
         return;
       case "decline":
-        if (selectedApplicationRow) void declineApplicationRow(selectedApplicationRow);
+        if (selectedApplicationRow && applicationAwaitsDecision(selectedApplicationRow)) {
+          void declineApplicationRow(selectedApplicationRow);
+        }
         return;
       case "download":
         if (resolvedDetailTab === "application" && selectedApplicationRow) {

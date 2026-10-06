@@ -139,6 +139,8 @@ function LeaseOptionCheckbox({
 
 export const LEASE_PREVIEW_DOCUMENT_SCOPE = "lease-document-preview-scope";
 
+const LEASE_UPLOAD_ACCEPT = "application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 function validateLeaseDraft(draft: LeaseConfigDraft, mode: PropertyLeaseDocumentMode): string | null {
   if (mode !== "upload") return null;
   return draft.leaseTemplateDocUrl?.trim()
@@ -173,6 +175,7 @@ export function PropertyLeaseFormModal({
   propertyHint,
   propertyId,
   bulk = false,
+  initialStay,
   demoMode = false,
   canDelete = false,
   onClose,
@@ -190,6 +193,8 @@ export function PropertyLeaseFormModal({
   propertyId?: string | null;
   /** A bulk edit spans several properties, whose ids differ: no per-template link rows. */
   bulk?: boolean;
+  /** A NEW lease opens as this stay's PropLane format (the open Long-term / Short-term tab). */
+  initialStay?: "long_term" | "short_term";
   demoMode?: boolean;
   canDelete?: boolean;
   onClose: () => void;
@@ -406,23 +411,25 @@ export function PropertyLeaseFormModal({
     setAddModeLeaseTemplateId(makePropertyLeaseTemplateId());
     setStartFrom("proplane");
     setCopyFromLeaseId(null);
-    setLeaseAddType("long-term");
-    setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
+    const addKind = initialStay === "short_term" ? "short-term" : "long-term";
+    const addMode = initialStay === "short_term" ? "proplane_short_term" : "proplane_long_term";
+    setLeaseAddType(addKind);
+    setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === addKind)!.defaultLabel);
     setLinkedApplicationTemplateId(null);
     setOffered(true);
     setLeaseFeeText("");
     initialApplicationIdsRef.current = [];
     setApplicationIds([]);
-    setKind("long-term");
-    setDocumentMode("proplane_long_term");
-    const applied = applyPropertyLeaseDocumentMode("proplane_long_term");
+    setKind(addKind);
+    setDocumentMode(addMode);
+    const applied = applyPropertyLeaseDocumentMode(addMode);
     setDraft((d) => ({ ...d, ...applied.draftFields }));
     setHtmlOverride("");
     setImportSource(null);
     setLinkedGuarantorTemplateId(null);
     setPendingLeaseImport(null);
     setPendingLeaseImportCompareOpen(false);
-  }, [open, mode, template, templates, sub]);
+  }, [open, mode, template, templates, sub, initialStay]);
 
   useEffect(() => {
     if (!open || mode !== "edit" || !template?.id) return;
@@ -562,6 +569,18 @@ export function PropertyLeaseFormModal({
       showToast,
       setTemplateUploading,
     );
+  };
+
+  // The pop-up header's single Upload icon (every step, Add mode). Same door as the Lease step's
+  // strip: jump to the step that hosts the strip + staged-import card so the reading state and the
+  // "Replace what you typed?" confirm are visible, then run the one existing handler.
+  const onPickLeaseFromHeader = (file: File) => {
+    setStepIdx(0);
+    setStartFrom("upload");
+    setSectionsUploadFileName(file.name);
+    if (documentMode !== "upload") handleDocumentModeChange("upload");
+    if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
+    onPickLeaseTemplateDoc(file);
   };
 
   // F016: writes a staged import into the lease being edited — the same
@@ -990,6 +1009,7 @@ export function PropertyLeaseFormModal({
       discardTitle="Discard this lease?"
       assistantContext={assistantContext}
       assistantScopeKey="Lease modal"
+      headerUpload={mode === "add" ? { accept: LEASE_UPLOAD_ACCEPT, onPick: onPickLeaseFromHeader, disabled: templateUploading || parsingLease || saving, dataAttr: "property-lease-header-upload", label: "Upload lease" } : undefined}
       sidePanel={htmlPreview}
       lastLabel={mode === "add" ? "Create lease" : "Save"}
       lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError) || Boolean(pendingLeaseImport)}
@@ -1151,7 +1171,7 @@ export function PropertyLeaseFormModal({
               <ImportFileStrip
                 dataAttr="property-lease-name-upload"
                 chips={[".pdf", ".docx", "Your own lease", "up to 5 MB"]}
-                accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                accept={LEASE_UPLOAD_ACCEPT}
                 busy={templateUploading || parsingLease}
                 state={
                   templateUploading || parsingLease

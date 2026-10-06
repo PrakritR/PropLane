@@ -127,6 +127,22 @@ describe("promoteIncompleteApplicationAfterFeePaid", () => {
     expect(written._applicantIdentity).toBeDefined();
   });
 
+  it("names a draft whose template never asked for a name from the account, never the word 'Applicant'", async () => {
+    const nameless = draft();
+    nameless.name = "";
+    nameless.application = { ...nameless.application, fullLegalName: "" } as DemoApplicantRow["application"];
+    stored[0]!.row_data = sealApplicantRow(nameless, ID, MANAGER);
+    const { promoteIncompleteApplicationAfterFeePaid } = await import("@/lib/promote-incomplete-application-after-fee.server");
+    const result = await promoteIncompleteApplicationAfterFeePaid(makeDb() as never, session);
+
+    expect(result).toMatchObject({ ok: true, promoted: true });
+    const submitted = prepareGuestApplicationUpsert.mock.calls[0]![1].row as DemoApplicantRow;
+    // No profile row is readable in this fake, so the email's local part is the account-derived name.
+    expect(submitted.name).toBe("riley");
+    expect(submitted.application?.fullLegalName).toBe("riley");
+    expect(submitted.email).toBe("riley@example.com");
+  });
+
   it("keeps captured money separate from promotion when pricing cannot be read", async () => {
     vi.mocked(resolveRequiredApplicationFee).mockRejectedValueOnce(new Error("listing unavailable"));
     const { promoteIncompleteApplicationAfterFeePaid } = await import("@/lib/promote-incomplete-application-after-fee.server");

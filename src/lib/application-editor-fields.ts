@@ -3,7 +3,6 @@ import { withDerivedCosignerRule } from "@/lib/application-linked-forms";
 import { normalizeCustomApplicationFieldsForEditor } from "@/lib/manager-listing-submission";
 import {
   BUILT_IN_ANSWER_VALUES,
-  isIdentityFloorStandardKey,
   resolveListingApplicationFields,
   type ApplicationFormVariant,
   type ApplicationConfigSlice,
@@ -46,9 +45,9 @@ export function orderedEditorApplicationFields(configSlice: ApplicationConfigSli
 }
 
 /**
- * Which edits the editor allows on a question. One floor: full legal name and email keep being asked, stay
- * required and keep their type (`isIdentityFloorStandardKey`), but can be reworded. Otherwise nothing is locked: every question's words, type, Required,
- * choices, position and on/off are the manager's to change, built-in or custom, on every form variant.
+ * Which edits the editor allows on a question. Nothing is locked: every question's words, type, Required,
+ * choices, position and on/off are the manager's to change, built-in or custom, on every form variant
+ * (full legal name, email and phone included).
  * Two things are structural rather than locks:
  *  - a built-in whose choices the wizard reads by stored value (`BUILT_IN_ANSWER_VALUES`) can have each choice
  *    reworded, not added, removed or reordered (position i stores value i);
@@ -61,11 +60,6 @@ export function canEditBuiltInApplicationField(
   action: "label" | "required" | "visibility" | "order" | "type" | "options",
 ): boolean {
   if (!field.isStandard) return true;
-  // The identity floor: full legal name and email are always asked, always required, and keep their type.
-  // Their words (and position) are still the manager's.
-  if (isIdentityFloorStandardKey(field.standardKey) && (action === "required" || action === "visibility" || action === "type" || action === "options")) {
-    return false;
-  }
   if (action === "options") return field.section !== "property" || field.options.length > 0;
   return true;
 }

@@ -225,6 +225,8 @@ type KindDef = {
   hasCommunication?: boolean;
   hasDocuments: boolean;
   hasActivity: boolean;
+  /** Label of the group the shared Communication/Documents/Activity trio lands in; omitted = unlabeled group. */
+  trioLabel?: string;
   href: (ctx: RecordSectionContext) => (recordId: string, tab: string) => string;
 };
 
@@ -270,7 +272,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     // the portal-wide Communication/Documents pages now.
     hasCommunication: false,
     hasDocuments: false,
-    hasActivity: true,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const stage = ctx.stage ?? "all";
@@ -948,10 +950,12 @@ export function recordSections(
   if (def.hasActivity) {
     trioItems.push({ id: "activity", label: "Activity", href: (recordId: string) => hrefFor(recordId, "activity") });
   }
-  // No group label: Communication/Documents/Activity read as universal record
-  // chrome, not a labeled category the way "Money" or "People" are.
+  // Unlabeled by default: Communication/Documents/Activity read as universal
+  // record chrome, not a labeled category the way "Money" or "People" are. A
+  // kind that wants them named says so with `trioLabel` (the resident rail
+  // closes with "Records").
   if (trioItems.length > 0) {
-    groups.push({ label: "", items: trioItems });
+    groups.push({ label: def.trioLabel ?? "", items: trioItems });
   }
 
   const headerActions = orderHeaderActions(

@@ -589,6 +589,10 @@ export function ManagerProperties({
             onDraftsChanged={() => {
               void refreshPending();
             }}
+            onDiscarded={() => {
+              // Delete discarded the draft: closing must not open the row that no longer exists.
+              lastSavedDraftIdRef.current = null;
+            }}
             onOpenPricing={(id) => {
               // Publish needs a rent and the wizard has none to type: the work is
               // saved, so open that draft on its Pricing tab.

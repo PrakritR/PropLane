@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ApplicationQuestionsEditor } from "@/components/portal/question-editor/application-questions-editor";
 import {
+  APPLICATION_EDITOR_SECTIONS,
   applicationSectionsForEditor,
   applyApplicationEditorChange,
   type ApplicationEditorState,
@@ -308,59 +309,78 @@ describe("a household question can be deleted and the application still submits"
   });
 });
 
-describe("the identity floor: full legal name and email are always asked; everything else is open", () => {
-  const FLOOR = [NAME, "personal-email"];
+describe("nothing is locked: full legal name, email and phone are as open as every other question", () => {
+  const IDENTITY = [NAME, "personal-email", "personal-phone"];
 
-  it("every built-in deletes except full legal name and email, which stay on", () => {
+  it("no catalog field carries a lock", () => {
+    for (const def of STANDARD_APPLICATION_FIELD_CATALOG) {
+      expect(Object.keys(def).filter((key) => /lock/i.test(key)), def.standardKey).toEqual([]);
+    }
+    const fields = ctxFor(startSlice()).fields;
+    for (const field of fields) expect(Object.keys(field).filter((key) => /lock/i.test(key)), field.standardKey).toEqual([]);
+  });
+
+  it("every built-in deletes, name, email and phone included", () => {
     const slice = startSlice();
     const state = { slice, disabledSectionIds: [] };
     for (const def of STANDARD_APPLICATION_FIELD_CATALOG) {
       const field = fieldOf(slice, def.standardKey);
       const next = applyApplicationEditorChange(state, { kind: "delete-question", sectionId: def.section, questionId: field.id }, ctxFor(slice));
-      if (FLOOR.includes(def.standardKey)) expect(next.slice.disabledStandardApplicationKeys, def.standardKey).not.toContain(def.standardKey);
-      else expect(next.slice.disabledStandardApplicationKeys, def.standardKey).toContain(def.standardKey);
+      expect(next.slice.disabledStandardApplicationKeys, def.standardKey).toContain(def.standardKey);
     }
   });
 
-  it("the editor offers Delete, Type, Required, wording and order on every question except name and email, which can only be reworded and moved", () => {
+  it("the editor offers Delete, Type, Required, wording and order on every question", () => {
     const sections = applicationSectionsForEditor({ ...ctxFor(startSlice()), disabledSectionIds: [] });
     const questions = sections.flatMap((section) => section.questions);
     expect(questions.length).toBeGreaterThan(30);
     for (const q of questions) {
-      const floor = q.label === "Full legal name" || q.label === "Email";
-      expect(q.can?.remove !== false, q.label).toBe(!floor);
-      expect(q.can?.type !== false, q.label).toBe(!floor);
-      expect(q.can?.required !== false, q.label).toBe(!floor);
+      expect(q.can?.remove, q.label).not.toBe(false);
+      expect(q.can?.type, q.label).not.toBe(false);
+      expect(q.can?.required, q.label).not.toBe(false);
       expect(q.can?.label, q.label).not.toBe(false);
       expect(q.can?.move, q.label).not.toBe(false);
     }
   });
 
-  it("only the section holding name and email is locked on; the others are live", () => {
+  it("every question row's menu offers Edit, Duplicate and Delete, and no section shows a lock", () => {
     render(<Harness />);
-    const sw = (id: string) => document.querySelector(`[data-attr="${PREFIX}-section-switch-${id}"]`) as HTMLButtonElement;
-    expect(sw("personal").disabled).toBe(true);
-    expect(document.querySelector(`[data-attr="${PREFIX}-section-lock-personal"]`)).not.toBeNull();
-    for (const id of ["property", "household"]) expect(sw(id).disabled).toBe(false);
-  });
-
-  it("Required toggles off on phone, never on name or email", () => {
-    let slice = startSlice();
-    slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, "personal-phone").id, patch: { required: false } });
-    expect(fieldOf(slice, "personal-phone").required).toBe(false);
-    for (const key of FLOOR) {
-      slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, key).id, patch: { required: false } });
-      expect(fieldOf(slice, key).required, key).toBe(true);
+    for (const section of APPLICATION_EDITOR_SECTIONS) openSection(section.id);
+    expect(document.querySelectorAll("[data-attr*='-section-lock-']")).toHaveLength(0);
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-question-id]:not([data-off])"));
+    expect(rows.length).toBeGreaterThan(30);
+    for (const label of ["Full legal name", "Email", "Phone"]) {
+      const row = rowFor(label);
+      fireEvent.keyDown(within(row).getByRole("button", { name: /^Actions for/ }), { key: "ArrowDown" });
+      for (const item of ["Edit", "Duplicate", "Delete"]) expect(screen.getByRole("menuitem", { name: item }), `${label} ${item}`).toBeTruthy();
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     }
   });
 
-  it("name and email can be reworded but keep their type", () => {
+  it("every section's switch is live", () => {
+    render(<Harness />);
+    for (const section of APPLICATION_EDITOR_SECTIONS) {
+      const sw = document.querySelector(`[data-attr="${PREFIX}-section-switch-${section.id}"]`) as HTMLButtonElement;
+      expect(sw, section.id).toBeTruthy();
+      expect(sw.disabled, section.id).toBe(false);
+    }
+  });
+
+  it("turning the personal section off removes name, email and phone; Required and wording stay editable", () => {
     let slice = startSlice();
-    const emailType = fieldOf(slice, "personal-email").type;
+    const state = { slice, disabledSectionIds: [] };
+    const off = applyApplicationEditorChange(state, { kind: "toggle-section", sectionId: "personal", enabled: false }, ctxFor(slice));
+    for (const key of IDENTITY) expect(off.slice.disabledStandardApplicationKeys, key).toContain(key);
+    for (const key of IDENTITY) {
+      slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, key).id, patch: { required: false } });
+      expect(fieldOf(slice, key).required, key).toBe(false);
+    }
+  });
+
+  it("name and email can be reworded and retyped", () => {
+    let slice = startSlice();
     slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, "personal-email").id, patch: { label: "Best email" } });
-    slice = change(slice, { kind: "edit-question", sectionId: "personal", questionId: fieldOf(slice, "personal-email").id, patch: { type: "long_text" } });
     expect(fieldOf(slice, "personal-email").label).toBe("Best email");
-    expect(fieldOf(slice, "personal-email").type).toBe(emailType);
   });
 });
 

@@ -18,7 +18,8 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   number, payouts). Vocabulary: Filter `Filter` (funnel) · Settings/Defaults
   `Settings` (the gear) · Share link `Share2` · Add availability `CalendarPlus` · Block
   dates `CalendarOff` · Link calendars `CalendarSync` · Update from sheet
-  `RefreshCw` · Vendor catalog `BookOpen` · Payment setup `Wrench` ·
+  `RefreshCw` · Send reminder `Bell` · Add inspection `ClipboardCheck` ·
+  Vendor catalog `BookOpen` · Payment setup `Wrench` ·
   Set up messaging `Phone` · Export CSV `Download` · Plan credit `Coins`
   (admin Accounts only — a global per-plan default, not a per-row action) ·
   Import your portfolio `Upload` (Properties) · Send application link `Send`
@@ -28,6 +29,11 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   `FileBarChart` (reports) where the job is not "add". Keep the accessible name
   specific ("Add property"), keep the `data-attr`. Linking a channel calendar is
   NOT a primary — it is the `CalendarSync` utility above.
+- **Exception — a record section band** (`ManagerResidentSectionToolbar`): the
+  round `+` stays for an add, but any other primary (Approve, Run background
+  check, Send lease) renders as a labelled pill, because that verb is the
+  decision the section exists for and must read without a hover. The band's
+  secondary utilities stay icon-only exactly as above.
 - Exactly one add per screen: the bar's primary, plus the titled
   `PortalListEmptyCard` button only while the list is empty. The dashed
   `PortalListAddRow` survives only for an embedded ledger with no bar.

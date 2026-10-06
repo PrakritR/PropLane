@@ -464,7 +464,7 @@ Services nav: add-on requests (`portal_service_request_records`) and
 maintenance (`portal_work_order_records`). Do not merge tables, tabs, or counts.
 Two stored-title matchers must keep saying "Work order" (legacy row titles).
 
-**One stage vocabulary, everywhere.** Every service list and Tasks say
+**One stage vocabulary, everywhere.** Every service-request list and Tasks say
 **Open · Assigned · Scheduled · Completed** from `src/lib/service-lifecycle.ts` —
 never a bucket of your own, and the retired words fail
 `tests/unit/service-vocabulary.test.ts`. A vendor's answer, the manager's

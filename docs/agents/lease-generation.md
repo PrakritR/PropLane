@@ -2326,3 +2326,51 @@ An accepted lease transition and its action-event delivery intents are persisted
 - **Payments start at the last signature**: `lease-signing-charges.client.ts` calls the existing `freezeSignedLeaseTerms` + `recordApprovedApplicationCharges` (no arithmetic of its own, idempotent). It runs on the manager's countersign, on mark-signed, and from `watchExecutedLeaseCharges` for a lease the resident signed last. It is client-driven because the ledger generator reads the manager's browser-only listing catalog.
 - **A lease the manager never countersigns refunds itself** (off by default). `/api/cron/lease-uncountersigned-refund` (daily) runs `refundUncountersignedMoveInCharges` (`src/lib/lease-uncountersigned-refund.server.ts`) only when `LEASE_UNCOUNTERSIGNED_REFUND_ENABLED` is `1`/`true`/`on` - it moves real money, so a deploy alone never turns it on. It takes leases still `Manager Signature Pending` whose resident signature is older than `UNCOUNTER_SIGN_REFUND_AFTER_DAYS` (45), skipping short stays and anything voided, fully signed or already countersigned, refunds that lease's paid move-in charges (deposit, prorated first month and utilities, lease / move-in / signing fees, other costs) and then voids the lease with a system thread note. It owns no refund math: `decideChargeRefund` + `chargeRefundIdempotencyKey` (`src/lib/charge-refund.ts`) decide and dedupe every refund, and the Stripe refund reverses the Connect transfer. The deadline is filtered in the DATABASE, not in JS - `row_data` carries the lease PDF and generated HTML, so paging the table would pull hundreds of MB through the egress budget every run.
 - **Shared-room clauses**: `lease-shared-room-terms.ts` is the one source for the generated lease's clauses and the "Shared room addendum" shown beside an uploaded PDF (the PDF bytes are never edited).
+
+## Lease `defaultFor` and the stay tabs
+
+- **Tabs.** The property's Applications and Leases pages are tabbed **Long term · Short term**
+  (Leases: **Long-term leases · Short-term leases**), each with a count. There is no Default tab. A stay's tab
+  exists only when the property allows that stay (`allowedStays` in `src/lib/property-stay-tabs.ts`, Airbnb
+  counts as short term). **Never hide data:** a disallowed stay that still holds a row of its own keeps its tab. An
+  application for both stays is the same record in both tabs; the co-signer application is Long term only.
+  The + creates a row pre-set to the open tab's stay, and **Quick add offers only the PropLane defaults that
+  tab would then list** - `missingApplicationDefaults` / `missingLeaseDefaults` (`leasing-quick-add.ts`) take
+  the open stay and derive each seed's stay the same way the created row is read back (`applicationAppliesTo`
+  / `leaseTemplateStay`), so a co-signer never shows under Short term and a new seed cannot land in the wrong
+  tab. The Airbnb seed's default application is named **"Airbnb application"**; a stored `airbnb` row still
+  reading "Short-term application" is an untouched default and takes the current name (the one seed whose
+  retired default labels are recognized - every other row keeps the name the manager chose).
+- **A lease's stay is derived, never stored:** `leaseTemplateStay` (`property-lease-templates.ts`). Kind
+  `short-term` is short term, `long-term` is long term; a time-based or custom lease reads its routed
+  `applicationLeaseTerms` (only Short-Term Stay / Airbnb terms means short term).
+- **`PropertyLeaseTemplate.defaultFor?: ("long_term"|"short_term")[]`** mirrors the application's: JSON on
+  the listing submission, normalized on read (unknown stays and repeats drop, empty is absent). The pure
+  helpers are `explicitDefaultLeaseForStay`, `effectiveDefaultLeaseForStay` (explicit, else the property's
+  `defaultLeaseTemplateId` when that lease is of the stay, else the first offered lease of the stay) and
+  `withLeaseDefaultForStay`.
+- **Absent `defaultFor` = routing unchanged.** `resolvePropertyLeaseTemplateForApplication` lets an explicit
+  default stand in for the stay-kind pick only (after the application's own mapped lease and an exact
+  `applicationLeaseTerms` match). A property that never set one routes exactly as before.
+- **A stay's default is a row inside its list, not a tab.** The default application / lease of the open stay
+  shows a plain **Default** fact with a star glyph (a fact, never a pill); every other row's ⋯ menu offers
+  **Set as default for long term** or **... for short term** - only the stay of the tab you are on
+  (`withApplicationDefaultForStay` / `withLeaseDefaultForStay`). An application for both stays can be the
+  default of each tab independently (`defaultFor` holds both stays). A co-signer application or addendum
+  lease is never a default.
+- **Short-stay defaults exist only where the stay is allowed.** `buildLeaseTemplateSeeds` (the one source the
+  application seeds derive from) adds the Short-term seed - and Airbnb's - only when `listingOfferedStays`
+  says the property offers a short stay, so a long-term-only property is seeded with a Long-term application
+  and lease plus the Co-signer form and never a short-term one (`submissionWithDefaultLeasingSetup`, the
+  application sync and Quick add all read it). Ticking Short term in "Stays you offer" adds them
+  (`submissionWithShortStayDefaults`). A short-stay default stored BEFORE this rule is never deleted: when the
+  property does not allow the stay and the row is untouched (default name, no edits) the sync keeps it with
+  `offered: false` and `stayHidden: true`, it does not count toward that stay's tab, and the sync switches it
+  back on when the stay is allowed again. A row the manager renamed or edited keeps its tab. Guards:
+  `tests/unit/property-stay-seed-gating.test.tsx`, `tests/unit/property-stay-tabs-panels.test.tsx`.
+- **A default the property has not stored yet keeps one id** (`seededApplicationTemplateId`, `app-tpl-seed-<seedKey>`):
+  it is rebuilt from the listing on every read, and a random id made an open Preview vanish and the Edit
+  action's "is it stored yet?" check never true. Saving a property that never stored a submission writes the
+  lease terms the screens already showed (`withOfferedLeaseTermsFilled`, applied in
+  `persistManagerListingSubmissionOnServer`); the server refuses an empty `allowedLeaseTerms`, which is why
+  Edit / Preview on such a row used to end in "Could not save application settings.".

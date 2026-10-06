@@ -33,9 +33,10 @@ export type ResidentLifecycleStep = {
   date?: string;
 };
 
+/** `description` is the one-line "what is happening" shown beside the button on the Overview card. */
 export type ResidentLifecycleAction =
-  | { kind: "navigate"; href: string; label: string }
-  | { kind: "callback"; label: string; actionId: string };
+  | { kind: "navigate"; href: string; label: string; description?: string }
+  | { kind: "callback"; label: string; actionId: string; description?: string };
 
 export type ResidentNeedsAttentionItem = {
   id: string;
@@ -224,23 +225,69 @@ export function buildResidentLifecycle(
 
   // One blue button, and it does the next thing: Review application opens the Approve popup, Send
   // lease opens the Send lease screen, Sign lease / Remind to sign act on the lease out for signature.
+  const balanceText = formatResidentMoney(balanceCents);
+  const overdueText = formatResidentMoney(overdueCents);
+  const leaseSentDate = lease?.sentToResidentAt ? formatResidentShortDate(lease.sentToResidentAt) : "";
+  const moveInShort = input.moveInDate ? formatResidentShortDate(input.moveInDate) : "";
   let next: ResidentLifecycleAction | null = null;
   if (stage === "applicant" && app && app.bucket === "pending") {
-    next = { kind: "callback", label: "Review application", actionId: "approve-application" };
+    next = {
+      kind: "callback",
+      label: "Review application",
+      actionId: "approve-application",
+      description: "Application waiting for your review",
+    };
   } else if (stage === "approved") {
-    next = { kind: "callback", label: "Send lease", actionId: "send-lease" };
+    next = {
+      kind: "callback",
+      label: "Send lease",
+      actionId: "send-lease",
+      description: "Application approved. The lease is ready to send",
+    };
   } else if (stage === "lease_sent" && lease?.bucket === "manager") {
-    next = { kind: "callback", label: "Send lease", actionId: "send-lease" };
+    next = {
+      kind: "callback",
+      label: "Send lease",
+      actionId: "send-lease",
+      description: "Lease drafted and waiting for you to send it",
+    };
   } else if (stage === "lease_sent" && lease) {
-    next = { kind: "callback", label: "Remind to sign", actionId: "remind-sign" };
+    next = {
+      kind: "callback",
+      label: "Remind to sign",
+      actionId: "remind-sign",
+      description: leaseSentDate
+        ? `Lease sent ${leaseSentDate}. Waiting for signature`
+        : "Lease sent. Waiting for signature",
+    };
   } else if (lease && lease.bucket === "signed" && lease.status !== "Fully Signed" && !lease.managerSignature) {
-    next = { kind: "callback", label: "Sign lease", actionId: "sign-lease" };
+    next = {
+      kind: "callback",
+      label: "Sign lease",
+      actionId: "sign-lease",
+      description: "Resident has signed. Your signature is needed",
+    };
   } else if (stage === "current" && overdue.length > 0) {
-    next = { kind: "navigate", href: hrefs.payments, label: "Collect balance" };
+    next = {
+      kind: "navigate",
+      href: hrefs.payments,
+      label: "Collect balance",
+      description: `${overdueText} overdue`,
+    };
   } else if ((stage === "signed" || stage === "current") && unpaid.length > 0) {
-    next = { kind: "navigate", href: hrefs.payments, label: "View payments" };
+    next = {
+      kind: "navigate",
+      href: hrefs.payments,
+      label: "View payments",
+      description: `${balanceText} balance due${stage === "signed" && moveInShort ? ` · move-in ${moveInShort}` : ""}`,
+    };
   } else if (stage === "past" && balanceCents > 0) {
-    next = { kind: "navigate", href: hrefs.payments, label: "Collect balance" };
+    next = {
+      kind: "navigate",
+      href: hrefs.payments,
+      label: "Collect balance",
+      description: `${balanceText} balance due from a past resident`,
+    };
   }
 
   const todo: ResidentNeedsAttentionItem[] = [];

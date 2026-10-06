@@ -1,10 +1,93 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type FocusEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { Check, Copy, Plus, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CrossfadeFace, CrossfadeSlot } from "@/components/ui/motion/crossfade-slot";
 import { useReducedMotion } from "@/components/ui/motion/use-reduced-motion";
+
+/**
+ * Instant hover / focus-visible label for an icon-only control: a small dark pill under the button, no
+ * delay, `pointer-events-none`. It is portaled to `document.body` with fixed positioning because the
+ * command bars these buttons sit in scroll horizontally (`overflow-x-auto`), which would clip an
+ * absolutely-positioned child. `align="end"` right-aligns to the button so a header action at the
+ * viewport's right edge never overflows; otherwise it is centred (clamped to stay on screen).
+ *
+ * It sits above every other layer in the stack — the dialog stack (z-90/91), the listing wizard
+ * overlay (z-80), the field-select menus (z-10060) and the phone sheet (z-10070/10071) — because an
+ * icon action is the chrome of all of them and the native `title` is gone. `pointer-events-none`
+ * means a layer above nothing can be blocked by it.
+ */
+function useIconTip(label: string, align: "center" | "end") {
+  const [tip, setTip] = useState<{ top: number; left?: number; right?: number } | null>(null);
+  const [shown, setShown] = useState(false);
+
+  // Positioned from the event's own target, so no ref is read during render.
+  const show = useCallback(
+    (el: HTMLElement) => {
+      if (typeof window === "undefined") return;
+      const rect = el.getBoundingClientRect();
+      const top = rect.bottom + 6;
+      if (align === "end") {
+        setTip({ top, right: Math.max(8, window.innerWidth - rect.right) });
+      } else {
+        const center = rect.left + rect.width / 2;
+        setTip({ top, left: Math.min(Math.max(center, 64), window.innerWidth - 64) });
+      }
+    },
+    [align],
+  );
+  const hide = useCallback(() => {
+    setShown(false);
+    setTip(null);
+  }, []);
+
+  useEffect(() => {
+    if (!tip) return;
+    const frame = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(frame);
+  }, [tip]);
+
+  const node =
+    tip && typeof document !== "undefined"
+      ? createPortal(
+          <span
+            role="presentation"
+            data-slot="portal-icon-tooltip"
+            style={{ top: tip.top, left: tip.left, right: tip.right }}
+            className={cn(
+              "pointer-events-none fixed z-[10090] whitespace-nowrap rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium leading-none text-white shadow-md transition-opacity duration-100 dark:bg-neutral-100 dark:text-neutral-900",
+              align === "center" && "-translate-x-1/2",
+              shown ? "opacity-100" : "opacity-0",
+            )}
+          >
+            {label}
+          </span>,
+          document.body,
+        )
+      : null;
+
+  return { node, show, hide };
+}
+
+/** Runs the caller's own handler, then ours. */
+function chain<E>(own: ((e: E) => void) | undefined, ours: () => void) {
+  return (e: E) => {
+    own?.(e);
+    ours();
+  };
+}
 
 /**
  * Utility control — Filter, Settings, Share, Export, Edit, Delete.
@@ -51,15 +134,30 @@ export const PortalIconAction = forwardRef<
   }
 >(function PortalIconAction(
   // `shortLabel` / `iconOnly` are accepted and ignored — see the props above.
-  { icon: Icon, label, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, ring = false, ringPrimary = false, iconSlot, className, type = "button", ...rest },
+  { icon: Icon, label, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, ring = false, ringPrimary = false, iconSlot, className, type = "button", onMouseEnter, onMouseLeave, onFocus, onBlur, onClick, ...rest },
   ref,
 ) {
+  const tip = useIconTip(label, ring ? "end" : "center");
   return (
+    <>
     <button
       ref={ref}
       type={type}
       aria-label={label}
-      title={label}
+      // A disabled button fires no mouse events, so the instant label can't show; it keeps the native one.
+      title={rest.disabled ? label : undefined}
+      onMouseEnter={(e: MouseEvent<HTMLButtonElement>) => {
+        onMouseEnter?.(e);
+        tip.show(e.currentTarget);
+      }}
+      onMouseLeave={chain<MouseEvent<HTMLButtonElement>>(onMouseLeave, tip.hide)}
+      onFocus={(e: FocusEvent<HTMLButtonElement>) => {
+        onFocus?.(e);
+        // Keyboard focus only — a mouse click focusing the button must not pin the label open.
+        if (e.currentTarget.matches(":focus-visible")) tip.show(e.currentTarget);
+      }}
+      onBlur={chain<FocusEvent<HTMLButtonElement>>(onBlur, tip.hide)}
+      onClick={chain<MouseEvent<HTMLButtonElement>>(onClick, tip.hide)}
       aria-pressed={active || undefined}
       data-slot="portal-icon-action"
       data-ring={ring || undefined}
@@ -79,6 +177,8 @@ export const PortalIconAction = forwardRef<
       {iconSlot ?? <Icon className="size-[18px]" strokeWidth={1.75} aria-hidden />}
       <PortalIconBadge badge={badge} />
     </button>
+    {tip.node}
+    </>
   );
 });
 
@@ -165,13 +265,27 @@ export const PortalPrimaryIconAction = forwardRef<
     /** Defaults to a plus; a section whose primary is not "add" passes its own glyph. */
     icon?: LucideIcon;
   }
->(function PortalPrimaryIconAction({ label, icon: Icon = Plus, className, type = "button", ...rest }, ref) {
+>(function PortalPrimaryIconAction({ label, icon: Icon = Plus, className, type = "button", onMouseEnter, onMouseLeave, onFocus, onBlur, onClick, ...rest }, ref) {
+  const tip = useIconTip(label, "center");
   return (
+    <>
     <button
       ref={ref}
       type={type}
       aria-label={label}
-      title={label}
+      // A disabled button fires no mouse events, so the instant label can't show; it keeps the native one.
+      title={rest.disabled ? label : undefined}
+      onMouseEnter={(e: MouseEvent<HTMLButtonElement>) => {
+        onMouseEnter?.(e);
+        tip.show(e.currentTarget);
+      }}
+      onMouseLeave={chain<MouseEvent<HTMLButtonElement>>(onMouseLeave, tip.hide)}
+      onFocus={(e: FocusEvent<HTMLButtonElement>) => {
+        onFocus?.(e);
+        if (e.currentTarget.matches(":focus-visible")) tip.show(e.currentTarget);
+      }}
+      onBlur={chain<FocusEvent<HTMLButtonElement>>(onBlur, tip.hide)}
+      onClick={chain<MouseEvent<HTMLButtonElement>>(onClick, tip.hide)}
       data-slot="portal-primary-icon-action"
       className={cn(
         "portal-command-primary relative ml-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full border-0 p-0 text-white outline-none transition md:size-9",
@@ -182,6 +296,8 @@ export const PortalPrimaryIconAction = forwardRef<
     >
       <Icon className="size-[18px]" strokeWidth={2.4} aria-hidden />
     </button>
+    {tip.node}
+    </>
   );
 });
 

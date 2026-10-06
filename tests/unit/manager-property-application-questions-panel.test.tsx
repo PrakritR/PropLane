@@ -26,11 +26,10 @@ afterEach(() => {
 });
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
-  it("property tab shows per-template action menus and only the Applications tab", () => {
-    const sub = addApplicationTemplateFromSeed(
-      addApplicationTemplateFromSeed(createDefaultListingSubmission(), "standard"),
-      "short-term",
-    );
+  it("property tab shows per-template action menus under the Long term · Short term tabs", () => {
+    // Short term is offered, so its default application exists (a long-term-only property is never given one).
+    const bothStays = { ...createDefaultListingSubmission(), allowedLeaseTerms: ["Long-term", "Short-Term Stay"], shortTermRentalsAllowed: true };
+    const sub = addApplicationTemplateFromSeed(addApplicationTemplateFromSeed(bothStays, "standard"), "short-term");
     render(
       <ManagerPropertyApplicationQuestionsPanel
         sub={sub}
@@ -45,8 +44,12 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Application automation" })).toBeNull();
-    expect(screen.getByRole("link", { name: /^Applications/ })).toBeTruthy();
+    // Tabs: Long term · Short term. There is no Default tab: a stay's default is a row in its list.
+    expect(screen.getByRole("button", { name: /^Long term/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Short term/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Default/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /Leases/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Short term/ }));
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBeGreaterThan(0);
     expect(document.querySelector('[data-attr="record-row-facts"]')).toBeTruthy();

@@ -4,7 +4,7 @@
  * and the tooltip, never visible text, at every width. The page's one primary
  * action is the filled circle and still announces its job by name.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { SlidersHorizontal, Link2 } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -13,7 +13,10 @@ describe("PortalIconAction", () => {
   it("draws no visible word — the label is the accessible name and the tooltip", () => {
     render(<PortalIconAction icon={SlidersHorizontal} label="Filter" />);
     const button = screen.getByRole("button", { name: "Filter" });
-    expect(button.getAttribute("title")).toBe("Filter");
+    // No native title (it would double the instant label); hovering shows the label at once.
+    expect(button.getAttribute("title")).toBeNull();
+    fireEvent.mouseEnter(button);
+    expect(document.querySelector('[data-slot="portal-icon-tooltip"]')?.textContent).toBe("Filter");
     expect(button.textContent?.trim()).toBe("");
     expect(button.querySelector("svg")).not.toBeNull();
   });

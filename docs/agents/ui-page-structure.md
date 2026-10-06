@@ -29,7 +29,7 @@ them; do not invent a variant.
 
 **Pop-ups and create/edit flows → Add property** (`ListingEditorV2` / `AddWorkspace`):
 - One header: title, save state, "✦ Ask PropLane", ✕. Left step rail, centre step, right
-  preview pane, footer Back on the left and one primary on the right.
+  preview pane, footer Delete / Discard draft on the left and Back then one primary on the right.
 - ✕ and Esc close and **keep a draft** ("Draft saved") — no dismiss-only Cancel/Close button
   and no "Discard?" confirm.
 - Footer and dialog buttons sit **side by side on one row**; never stack them.
@@ -160,8 +160,11 @@ Add applicant, Add lease, …) is the same **full-screen editor**, never a small
 - **Right column:** "<THING> PREVIEW" (facts, with "Not set" for anything unset) and "THIS WILL
   CREATE" (✓ will happen · ! needs attention · – won't happen), and it must be true to what the
   commit really does.
-- **Footer:** Back · "Step n of N" · a primary button naming the next step ("Continue to Home"),
-  and on the last step the commit ("Add resident & send notice").
+- **Footer:** one shared shell for every `AddWorkspace` door (`src/lib/editor-footer-state.ts`, pure, so
+  the editors and their test read one rule): the red **Delete** (editing) or **Discard draft** on the left,
+  "Step n of N" in the middle, then **Back** (never on step 1) and **Next** on the right. On the last step
+  Next becomes the commit — **Save** when editing, **Create** when adding, or the door's own word
+  ("Add resident & send notice"). A tab rail has no steps to walk: no Back, and the primary always commits.
 Small confirmations and single-field actions stay `PortalDialog` pop-ups (§4).
 
 ## 5. Settings

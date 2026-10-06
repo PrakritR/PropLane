@@ -18,6 +18,7 @@ import {
   persistManagerListingSubmission,
   type ManagerPropertySaveTarget,
 } from "@/lib/manager-property-save-target";
+import type { StayAppliesTo } from "@/lib/property-stay-tabs";
 
 function RpSvcBand({ children, first }: { children: ReactNode; first?: boolean }) {
   return (
@@ -433,6 +434,20 @@ export function ServiceOfferingEditModal({
               />
             </FactRow>
           ) : null}
+          <FactRow label="Applies to">
+            <FieldSingleSelect
+              label="Applies to"
+              hideLabel
+              value={draft.appliesTo ?? "both"}
+              onChange={(v) => patch({ appliesTo: v as StayAppliesTo })}
+              options={[
+                { value: "both", label: "Long and short term" },
+                { value: "long_term", label: "Long term" },
+                { value: "short_term", label: "Short term" },
+              ]}
+              dataAttr="service-offering-applies-to"
+            />
+          </FactRow>
           <FactRow label="Description" sub>
             <Textarea
               value={draft.description}

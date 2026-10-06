@@ -99,13 +99,15 @@ listing drafts) through the real per-domain creation paths.
   pieces are direct service-role writes (mirroring `create_property` and
   every other server-side write tool, which never `fetch()` an internal
   route) versus calls into existing shared functions.
-- **Every imported record shows one Activity entry, no new column.** An
-  imported resident, property draft, and charge each render exactly one
+- **An imported record shows one Activity entry, no new column.** An
+  imported resident and charge each render exactly one
   "Imported from `<file>`" entry (dated to the import) on their record's
   Activity tab — `src/lib/portfolio-import/activity.ts`'s `importedActivity`,
   read into `record-section-renderers.tsx`'s shared `ActivitySection` by
-  `pro-residents.tsx`, `pro-house-properties-panel.tsx`, and
-  `pro-payments-ledger-panel.tsx`. Each kind's provenance lives in a field
+  `pro-residents.tsx` and `pro-payments-ledger-panel.tsx`. A property draft
+  stamps the same provenance but shows no entry: a property record has no
+  Activity at all ([`record-page.md`](record-page.md) § A property has no
+  Activity). Each kind's provenance lives in a field
   that already existed or was added additively to that record's own
   `row_data` — never a new table or column: a resident's stamped `detail`
   ("Imported from `<file>`.") paired with `manualResidentDetails.importedAt`;

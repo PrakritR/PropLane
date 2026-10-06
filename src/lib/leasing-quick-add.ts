@@ -16,7 +16,9 @@
  */
 import { isAddendumLeaseTemplate, isCosignerApplicationTemplate, leaseLinkFields } from "@/lib/application-lease-mapping";
 import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import { moveInFormLeaseTypeForStay, moveInFormsInStay } from "@/lib/move-in-forms/stays";
 import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
+import { inStay, type PropertyStay, type StayAppliesTo } from "@/lib/property-stay-tabs";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   addApplicationTemplateFromSeed,
@@ -25,6 +27,7 @@ import {
 } from "@/lib/property-application-template-sync";
 import {
   applicationAllowsCosigner,
+  applicationAppliesTo,
   applicationFormVariantForTemplate,
   readPropertyApplicationTemplates,
   withPropertyApplicationTemplatesExplicit,
@@ -32,12 +35,14 @@ import {
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import {
+  SHORT_STAY_SEED_KEYS,
   addLeaseTemplateFromSeed,
   availableLeaseTemplateSeeds,
   buildLeaseTemplateSeeds,
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
 import {
+  leaseTemplateStay,
   readPropertyLeaseTemplates,
   type PropertyLeaseListingSeedKey,
   type PropertyLeaseTemplate,
@@ -45,29 +50,57 @@ import {
 
 export type QuickAddKind = "application" | "lease" | "movein";
 
-/** One PropLane default the property does not carry: `key` is a listing seed key or a move-in starter key. */
-export type QuickAddEntry = { key: string; label: string };
+/**
+ * One PropLane default the property does not carry: `key` is a listing seed key or a move-in starter key.
+ * `appliesTo` is the stay the default would land in, derived from the seed by the same rule the created row
+ * is read back with - so Quick add only ever offers what the open tab would then show.
+ */
+export type QuickAddEntry = { key: string; label: string; appliesTo?: StayAppliesTo };
 
-/** The PropLane default applications this property does not currently carry ("Long-term application" ...). */
-export function missingApplicationDefaults(sub: ManagerListingSubmissionV1): QuickAddEntry[] {
-  return availableApplicationTemplateSeeds(syncPropertyApplicationTemplatesFromListing(sub)).map((seed) => ({
-    key: seed.seedKey,
-    label: seed.label,
-  }));
+/**
+ * The PropLane default applications this property does not currently carry ("Long-term application" ...).
+ * With a `stay` (the open Long term / Short term tab) only the defaults that tab would list are offered.
+ */
+export function missingApplicationDefaults(sub: ManagerListingSubmissionV1, stay?: PropertyStay): QuickAddEntry[] {
+  return availableApplicationTemplateSeeds(syncPropertyApplicationTemplatesFromListing(sub))
+    .map((seed) => ({
+      key: seed.seedKey,
+      label: seed.label,
+      appliesTo: applicationAppliesTo({
+        kind: seed.kind,
+        listingSeedKey: seed.seedKey,
+        formVariant: seed.formVariant,
+      }) as StayAppliesTo,
+    }))
+    .filter((entry) => !stay || inStay(entry.appliesTo, stay));
 }
 
-/** The PropLane default leases this property does not currently carry ("Long-term lease", "Short-term lease"). */
-export function missingLeaseDefaults(sub: ManagerListingSubmissionV1): QuickAddEntry[] {
-  return availableLeaseTemplateSeeds(syncPropertyLeaseTemplatesFromListing(sub)).map((seed) => ({
-    key: seed.seedKey,
-    label: seed.label,
-  }));
+/**
+ * The PropLane default leases this property does not currently carry ("Long-term lease", "Short-term lease",
+ * "Airbnb stay agreement"). With a `stay`, only the defaults that tab would list are offered - the stay comes
+ * from `leaseTemplateStay`, so an Airbnb seed is short term exactly as its created lease is.
+ */
+export function missingLeaseDefaults(sub: ManagerListingSubmissionV1, stay?: PropertyStay): QuickAddEntry[] {
+  return availableLeaseTemplateSeeds(syncPropertyLeaseTemplatesFromListing(sub))
+    .map((seed) => ({
+      key: seed.seedKey,
+      label: seed.label,
+      appliesTo: leaseTemplateStay({ kind: seed.kind, applicationLeaseTerms: seed.applicationLeaseTerms }) as StayAppliesTo,
+    }))
+    .filter((entry) => !stay || inStay(entry.appliesTo, stay));
 }
 
-/** The move-in starters this property does not currently carry (matched on the form's starter key). */
-export function missingMoveInStarters(sub: ManagerListingSubmissionV1 | { moveInFormTemplates?: unknown }): QuickAddEntry[] {
+/**
+ * The move-in starters this property does not currently carry (matched on the form's starter key). With a `stay`
+ * (the open Long-term / Short-term forms tab) only the forms shown in that tab count as carried.
+ */
+export function missingMoveInStarters(
+  sub: ManagerListingSubmissionV1 | { moveInFormTemplates?: unknown },
+  stay?: PropertyStay,
+): QuickAddEntry[] {
+  const templates = readMoveInFormTemplates(sub);
   const present = new Set(
-    readMoveInFormTemplates(sub)
+    (stay ? moveInFormsInStay(templates, stay, stayLeases(sub)) : templates)
       .map((template) => template.starterKey)
       .filter((key): key is MoveInFormStarterKey => Boolean(key)),
   );
@@ -77,11 +110,20 @@ export function missingMoveInStarters(sub: ManagerListingSubmissionV1 | { moveIn
   }));
 }
 
-/** "Quick add" entries for one list, in the order the list shows them. */
-export function missingDefaultsFor(kind: QuickAddKind, sub: ManagerListingSubmissionV1): QuickAddEntry[] {
-  if (kind === "application") return missingApplicationDefaults(sub);
-  if (kind === "lease") return missingLeaseDefaults(sub);
-  return missingMoveInStarters(sub);
+/** The property's leases as `{ id, kind }`, for deriving the stay of a form linked to specific leases. */
+function stayLeases(sub: ManagerListingSubmissionV1 | { moveInFormTemplates?: unknown }) {
+  return readPropertyLeaseTemplates(sub as ManagerListingSubmissionV1).map((lease) => ({ id: lease.id, kind: lease.kind }));
+}
+
+/** "Quick add" entries for one list, in the order the list shows them; scoped to the open tab's `stay`. */
+export function missingDefaultsFor(
+  kind: QuickAddKind,
+  sub: ManagerListingSubmissionV1,
+  stay?: PropertyStay,
+): QuickAddEntry[] {
+  if (kind === "application") return missingApplicationDefaults(sub, stay);
+  if (kind === "lease") return missingLeaseDefaults(sub, stay);
+  return missingMoveInStarters(sub, stay);
 }
 
 /* ───────────────────────────── adding one default ───────────────────────────── */
@@ -205,15 +247,22 @@ export function submissionWithLeaseDefault(
 
 /**
  * Adds one move-in starter as the manager's own form. It sends only when the manager says so
- * (`manual`), the same rule the chooser and the wizard already apply to a form added by hand.
+ * (`manual`), the same rule the chooser and the wizard already apply to a form added by hand. With a `stay` (Quick add
+ * on the Long-term / Short-term forms tab) the form is created for that stay: its "Applies to" is that stay.
  */
 export function submissionWithMoveInStarter(
   sub: ManagerListingSubmissionV1,
   starterKey: MoveInFormStarterKey,
+  stay?: PropertyStay,
 ): ManagerListingSubmissionV1 {
   const templates = readMoveInFormTemplates(sub);
-  if (templates.some((template) => template.starterKey === starterKey)) return sub;
-  const created: MoveInFormTemplate = { ...newMoveInFormTemplate("built", starterKey), trigger: "manual" };
+  const carried = stay ? moveInFormsInStay(templates, stay, stayLeases(sub)) : templates;
+  if (carried.some((template) => template.starterKey === starterKey)) return sub;
+  const created: MoveInFormTemplate = {
+    ...newMoveInFormTemplate("built", starterKey),
+    trigger: "manual",
+    ...(stay ? { leaseType: moveInFormLeaseTypeForStay(stay) } : {}),
+  };
   return { ...sub, moveInFormTemplates: [...templates, created] };
 }
 
@@ -253,4 +302,24 @@ export function submissionWithDefaultLeasingSetup(sub: ManagerListingSubmissionV
   // "All" lease types is the absence of a lease-type restriction (`MoveInFormTemplate.leaseType`).
   const checklist = newMoveInFormTemplate("built", "move-in-checklist");
   return { ...next, moveInFormTemplates: [checklist] };
+}
+
+/**
+ * The short-stay defaults a property gains the moment "Short term" is ticked in "Stays you offer": the
+ * Short-term application and the Short-term lease (and the Airbnb ones when Airbnb is allowed), linked as in
+ * a new property's setup. A hidden untouched default (`stayHidden`) is switched back on by the sync; one the
+ * property already carries is left as it is. A property that has stored no leasing setup at all is returned
+ * untouched - its defaults still come from the listing when it is first saved. Call it on the submission AFTER
+ * the stays patch is applied.
+ */
+export function submissionWithShortStayDefaults(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+  const hasStored = readPropertyApplicationTemplates(sub).length > 0 || readPropertyLeaseTemplates(sub).length > 0;
+  if (!hasStored) return sub;
+  let next = syncPropertyLeaseTemplatesFromListing(syncPropertyApplicationTemplatesFromListing(sub));
+  for (const seed of buildLeaseTemplateSeeds(next)) {
+    if (!SHORT_STAY_SEED_KEYS.has(seed.seedKey)) continue;
+    next = submissionWithApplicationDefault(next, seed.seedKey);
+    next = submissionWithLeaseDefault(next, seed.seedKey);
+  }
+  return next;
 }

@@ -22,7 +22,8 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/providers/app-ui-provider";
+import { WorkspaceUploadAction, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "@/components/portal/add-workspace/upload-action";
 import { Input, Textarea } from "@/components/ui/input";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -149,6 +150,7 @@ import {
 import { listingLeaseTypeScopeOptions, listingPricingLeaseTabs, listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { listingOfferedStays, staysPatch } from "@/lib/listing-stays";
+import { submissionWithShortStayDefaults } from "@/lib/leasing-quick-add";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { listingV2PublishPricingBlocker, PUBLISH_BLOCKER_RENT } from "@/lib/listing-wizard-validation";
@@ -206,6 +208,8 @@ import {
   StepHeading,
   StepRail,
   ListingWorkspace,
+  WizardFooterActions,
+  WizardStepProgress,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 
 /**
@@ -635,7 +639,8 @@ function StepBasics({
       return;
     }
     setRefusedLastStay(false);
-    patch(patchFor);
+    // Ticking Short term adds the short-term application and lease; a long-term-only property never has them.
+    patch(stay === "short_term" && !offeredStays.short_term ? submissionWithShortStayDefaults({ ...sub, ...patchFor }) : patchFor);
   };
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
   const setBedrooms = (next: number) => {
@@ -3128,8 +3133,21 @@ export function ListingEditorV2({
   showToast,
   ensureSaved,
   onOpenSettings,
+  headerUpload,
+  onDiscardDraft,
 }: {
   submission: ManagerListingSubmissionV1;
+  /**
+   * The pop-up's ONE Upload icon, drawn in the header on every step (Upload file, Take photo, Scan).
+   * Picking a file jumps to Basics first, where the "Start from a file" strip shows the reading or the
+   * "Replace what you typed?" confirm, then hands the file to `onPick`. Absent on an edit.
+   */
+  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled">;
+  /**
+   * Footer Delete on a NEW property: the host forgets the draft (after the confirm drawn here) and closes.
+   * Without it, or on an edit, the footer has no Delete.
+   */
+  onDiscardDraft?: () => void | Promise<unknown>;
   /**
    * What the Application, Lease, Move-in and Pricing steps need to open the property's own
    * editors ("Edit in full"). `ensureSaved` saves the wizard and resolves the record id, so a
@@ -3190,6 +3208,9 @@ export function ListingEditorV2({
     setPublishFix(null);
   }, [submission]);
 
+  const confirmAction = useConfirm();
+  /** Steps the manager pressed Next on — the progress bar turns one red when it still had something missing. */
+  const [attemptedSteps, setAttemptedSteps] = useState<ReadonlySet<number>>(new Set());
   const [step, setStep] = useState(() => listingV2StepIndex(initialStep));
   useEffect(() => {
     onStepChange?.(step);
@@ -3289,8 +3310,6 @@ export function ListingEditorV2({
   };
   const nextStep = nextOnPath();
   const prevStep = prevOnPath();
-  const onPath = pathIndexOf(stepId) !== -1;
-  const pathPosition = onPath ? pathIndexOf(stepId) + 1 : null;
 
   // The same assistant the previous wizard offered, told which step it is on so
   // it can answer about the field in front of the manager.
@@ -3398,7 +3417,27 @@ export function ListingEditorV2({
     return preview;
   }, [stepId, submission, previewRoomId]);
 
+  const onNext = () => {
+    setAttemptedSteps((prev) => new Set(prev).add(step + railOffset));
+    if (nextStep != null) goTo(nextStep);
+  };
+  const deleteDraft = () => {
+    if (busy || !onDiscardDraft) return;
+    void confirmAction({
+      title: "Delete this property?",
+      description: "The draft and everything typed so far is deleted. This can't be undone.",
+      confirmLabel: "Delete",
+      note: null,
+      tone: "danger",
+      guard: "tap",
+      dataAttr: "listing-v2-delete-confirm",
+    }).then((ok) => {
+      if (ok) void onDiscardDraft();
+    });
+  };
+
   return (
+    <WorkspaceHeaderUploadPresent.Provider value={Boolean(headerUpload) && !isEdit}>
     <ListingWorkspace
       title={title}
       closeDisabled={busy}
@@ -3412,7 +3451,24 @@ export function ListingEditorV2({
       }
       saveState={saveState}
       onClose={() => onClose(step)}
-      headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
+      headerAside={
+        <>
+          {headerUpload && !isEdit ? (
+            <WorkspaceUploadAction
+              accept={headerUpload.accept}
+              disabled={busy || headerUpload.disabled}
+              dataAttr="listing-v2-header-upload"
+              inputDataAttr="import-upload-file-input"
+              label="Upload"
+              onPick={(file) => {
+                goTo(0);
+                headerUpload.onPick(file);
+              }}
+            />
+          ) : null}
+          <ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />
+        </>
+      }
       headerCenter={headerCenter}
       rail={<StepRail steps={railSteps} current={step + railOffset} onJump={onRailJump} visited={visited} />}
       railHeader={
@@ -3445,43 +3501,30 @@ export function ListingEditorV2({
               ) : null}
             </p>
           ) : null}
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              hidden={prevStep == null && !leadingStep}
-              disabled={busy || (prevStep == null && !leadingStep)}
-              onClick={() => {
-                if (prevStep != null) goTo(prevStep);
-                else leadingStep?.onOpen();
-              }}
-              className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
-            >
-              Back
-            </button>
-          </div>
-          {/*
-           * The counter used to be desktop-only, so a phone showed Back and
-           * Continue with nothing between them — no idea how much was left.
-           * It fits between the two buttons at 375px, so it shows everywhere.
-           */}
-          <span className="min-w-0 flex-1 truncate text-center text-[12.5px] text-muted">
-            {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
-          </span>
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            {nextStep != null ? (
-              <Button disabled={busy} onClick={() => goTo(nextStep)} data-attr="listing-v2-next" aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`} className="px-3 sm:px-5">
-                Continue
-              </Button>
-            ) : (
-              <Button disabled={busy} loading={busy} onClick={() => publishFromCurrentStep()} data-attr="listing-v2-publish" className="px-3 sm:px-5">
-                Publish
-              </Button>
-            )}
-          </div>
+          <WizardFooterActions
+            hasPrev={prevStep != null || Boolean(leadingStep)}
+            hasNext={nextStep != null}
+            lastLabel={isEdit ? "Save" : "Create property"}
+            busy={busy}
+            dataAttrPrefix="listing-v2"
+            nextDataAttr="listing-v2-next"
+            finishDataAttr="listing-v2-publish"
+            nextAriaLabel={nextStep != null ? `Next: ${LISTING_V2_STEPS[nextStep]!.label}` : undefined}
+            onBack={() => {
+              if (prevStep != null) goTo(prevStep);
+              else leadingStep?.onOpen();
+            }}
+            onNext={onNext}
+            onFinish={() => void publishFromCurrentStep()}
+            onDelete={onDiscardDraft && !isEdit ? deleteDraft : undefined}
+            deleteDataAttr="listing-v2-delete"
+          />
         </>
       }
     >
+      <WizardStepProgress steps={railSteps} current={step + railOffset} attempted={attemptedSteps} />
       {body}
     </ListingWorkspace>
+    </WorkspaceHeaderUploadPresent.Provider>
   );
 }

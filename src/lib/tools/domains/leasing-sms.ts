@@ -23,9 +23,11 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadPublicRoomOccupancy } from "@/lib/public-room-occupancy.server";
 import { availabilityLabelFromPublicSpans, pacificListingDay } from "@/lib/public-room-occupancy";
 import {
+  normalizeAiCommunicationInfoShortTerm,
   normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
+import { aiInfoForStay, aiInfoTextForStay, type ProspectStay } from "@/lib/property-ai-info-by-stay";
 import { listingOffersCustomLeaseSurcharge } from "@/lib/listing-fees";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import {
@@ -98,20 +100,57 @@ function listingMarketingNotes(src: Record<string, unknown> | null): string | nu
   return notes.length > MARKETING_NOTES_MAX_CHARS ? `${notes.slice(0, MARKETING_NOTES_MAX_CHARS)}…` : notes;
 }
 
+/** Caps one stored text so a manager's whole essay does not ride along. */
+function capAssistantText(value: string): string {
+  return value.length > MARKETING_NOTES_MAX_CHARS ? `${value.slice(0, MARKETING_NOTES_MAX_CHARS)}…` : value;
+}
+
 /**
- * The AI info tab's other sections — tours, house rules, pricing, neighborhood.
- * Assistant-only: they shape answers but are never quoted as listing copy.
+ * "About this home" for a prospect of `stay` - the ONE About text the payload carries, so the model never
+ * sees two unlabelled descriptions of the same home. `property-ai-info-by-stay.ts` is the rule: a short-term
+ * prospect gets the short-term version when the row has one (else the shared text), a long-term prospect the
+ * shared text only, and an unknown stay both, each labelled. Each version is capped before they are joined so
+ * a long shared text can never swallow the short-term one.
  */
-function listingAssistantInfo(src: Record<string, unknown> | null): Record<string, string> | null {
+function listingAboutForStay(src: Record<string, unknown> | null, stay: ProspectStay): string | null {
   const subRaw = asObject(src?.listingSubmission as unknown);
-  const info = asObject(subRaw?.aiCommunicationInfo as unknown);
-  if (!info) return null;
+  if (!subRaw) return null;
+  const shared = capAssistantText(str(subRaw, "marketingNotes")?.trim() ?? "");
+  const short = capAssistantText(
+    normalizeAiCommunicationInfoShortTerm(subRaw.aiCommunicationInfoShortTerm)?.about?.trim() ?? "",
+  );
+  return aiInfoTextForStay(shared, short, stay) || null;
+}
+
+/**
+ * The AI info tab's other sections - tours, house rules, pricing, neighborhood - for a prospect of `stay`
+ * (`property-ai-info-by-stay.ts`: short-term text for a short-term prospect, shared only for a long-term one,
+ * both labelled when the stay is unknown). Assistant-only: they shape answers but are never quoted as listing
+ * copy. "About this home" is not here - it is the payload's one `marketingNotes` (`listingAboutForStay`).
+ */
+function listingAssistantInfo(src: Record<string, unknown> | null, stay: ProspectStay): Record<string, string> | null {
+  const subRaw = asObject(src?.listingSubmission as unknown);
+  if (!subRaw) return null;
+  const { sections } = aiInfoForStay(subRaw as Parameters<typeof aiInfoForStay>[0], stay);
   const out: Record<string, string> = {};
   for (const key of ["tours", "rules", "pricing", "neighborhood"] as const) {
-    const value = str(info, key)?.trim();
-    if (value) out[key] = value.length > MARKETING_NOTES_MAX_CHARS ? `${value.slice(0, MARKETING_NOTES_MAX_CHARS)}…` : value;
+    const value = sections[key]?.trim();
+    if (value) out[key] = capAssistantText(value);
   }
   return Object.keys(out).length ? out : null;
+}
+
+/** The manager's own AI info rows (Custom), for this prospect's stay. */
+function listingAssistantCustomInfo(src: Record<string, unknown> | null, stay: ProspectStay) {
+  const subRaw = asObject(src?.listingSubmission as unknown);
+  if (!subRaw) return null;
+  const { custom } = aiInfoForStay(subRaw as Parameters<typeof aiInfoForStay>[0], stay);
+  return custom.length
+    ? custom.map((item) => ({
+        title: item.title,
+        text: capAssistantText(item.text),
+      }))
+    : null;
 }
 
 function summarizeRooms(src: Record<string, unknown> | null) {
@@ -665,6 +704,12 @@ export const getListingDetailsTool = defineTool({
         .string()
         .optional()
         .describe("Optional room name fragment to highlight matching rooms."),
+      stay: z
+        .enum(["long_term", "short_term"])
+        .optional()
+        .describe(
+          "Only when the prospect has said which stay they want (a monthly lease vs a nightly or short stay). Leave it out when unknown: the answer then labels long-term and short-term notes separately.",
+        ),
     })
     .strict(),
   handler: async (ctx, input) => {
@@ -728,8 +773,9 @@ export const getListingDetailsTool = defineTool({
         beds: typeof src?.beds === "number" ? src.beds : null,
         baths: typeof src?.baths === "number" ? src.baths : null,
         tagline: str(src, "tagline"),
-        marketingNotes: listingMarketingNotes(src),
-        assistantInfo: listingAssistantInfo(src),
+        marketingNotes: listingAboutForStay(src, input.stay ?? null),
+        assistantInfo: listingAssistantInfo(src, input.stay ?? null),
+        assistantCustomInfo: listingAssistantCustomInfo(src, input.stay ?? null),
         alsoListedAs: str(src, "alsoListedAs"),
         petFriendly: facts.petFriendly,
         description: str(src, "description")?.slice(0, 800) ?? null,

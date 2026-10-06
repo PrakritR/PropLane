@@ -251,9 +251,10 @@ describe("Upload for resident: parsed values fill the normal form and create for
     const read = (file: string) => readFileSync(path.join(process.cwd(), file), "utf8");
     expect(read("src/components/portal/pro-applications.tsx")).toContain('label="Upload for resident"');
     expect(read("src/components/portal/pro-leases.tsx")).toContain('label="Upload for resident"');
+    // The resident record header is only Edit and Delete; each action sits in the tab it belongs to.
     const residents = read("src/components/portal/pro-residents.tsx");
-    expect(residents).toContain('id: "upload-for-resident"');
+    expect(read("src/lib/portals/record-sections.ts")).toContain('id: "upload-for-resident"');
     expect(residents).toContain('id: "send-application"');
-    expect(residents).toContain('id: "send-lease"');
+    expect(residents).toContain('actionId === "send-lease"');
   });
 });

@@ -45,6 +45,8 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
+import { deleteManagerPropertyDraft } from "@/lib/demo-admin-property-inventory";
+import type { WorkspaceHeaderUploadProps } from "@/components/portal/add-workspace/upload-action";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import { prepareListingSubmissionForPersist } from "@/lib/prepare-listing-submission-for-persist";
 import {
@@ -118,8 +120,21 @@ export function ListingWizardV2({
   flushRef,
   initialStep,
   onOpenPricing,
+  headerUpload,
+  onDiscarded,
 }: {
   onClose: () => void;
+  /**
+   * The header's ONE Upload icon, drawn on every step of a new property (the file reader the Basics strip
+   * already uses). Picking a file jumps to Basics first, where the strip shows its reading / replace confirm.
+   */
+  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled">;
+  /**
+   * Footer Delete on a new property: after the confirm, the draft row is deleted and this runs INSTEAD of
+   * `onClose` (the host decides where the manager lands). Without it a new property has no Delete.
+   * Closing with the x still keeps the draft.
+   */
+  onDiscarded?: () => void;
   /** After a flush save (X or debounce). `savedId` is the record written. */
   onSaved?: (sub: ManagerListingSubmissionV1, savedId?: string) => void;
   /**
@@ -458,6 +473,28 @@ export function ListingWizardV2({
     [editing, onClose, persist, runLifecycle, showToast],
   );
 
+  /** Footer Delete on a new property (the editor already confirmed): drop the draft row, then hand control to the host. */
+  const discardDraft = useCallback(async () => {
+    if (!onDiscarded || editing) return;
+    const ok = await runLifecycle(async () => {
+      const id = savedIdRef.current?.trim() || initialDraftId?.trim() || "";
+      if (id) {
+        const deleted = userId ? await deleteManagerPropertyDraft(id, userId).catch(() => false) : false;
+        if (!deleted) {
+          showToast?.("Could not delete the draft. Check your connection and try again.");
+          return false;
+        }
+        savedIdRef.current = null;
+      }
+      return true;
+    });
+    if (!ok) return;
+    track("listing_editor_discard_draft", {});
+    setDirty(false);
+    setSaveFail(null);
+    onDiscarded();
+  }, [editing, initialDraftId, onDiscarded, runLifecycle, showToast, userId]);
+
   // Explicit save is available from every V2 step. It keeps the editor open so
   // managers can safely continue after committing a partial draft.
   const handleSave = useCallback(
@@ -496,6 +533,8 @@ export function ListingWizardV2({
         onOpenSettings={openSettingsPage}
         workspacePricingDefaults={workspacePricingDefaults}
         onOpenPricing={onOpenPricing ? openPricing : undefined}
+        headerUpload={headerUpload}
+        onDiscardDraft={onDiscarded && !editing ? discardDraft : undefined}
         onPublish={() =>
           runLifecycle(async () => {
             const filled = applyWorkspaceDefaultsOnPublish(

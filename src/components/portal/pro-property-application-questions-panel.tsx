@@ -3,7 +3,6 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { CalendarDays, ClipboardList, CreditCard, FileUp, Moon, Star } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
@@ -13,6 +12,12 @@ import { openPropertyFormTemplateInNewTab } from "@/components/portal/property-f
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { STAY_LABEL, listingOfferedStays, type StaySectionKey } from "@/lib/listing-stays";
+import {
+  stayCounts,
+  stayLabel,
+  stayTabsFor,
+  type PropertyStay,
+} from "@/lib/property-stay-tabs";
 import { applicationFeeFactForTerms } from "@/lib/form-resolved-fee";
 import { applicationIdForStayTerm, offeredStayTypeTerms } from "@/lib/property-form-stay-type-routing";
 import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
@@ -32,8 +37,12 @@ import {
   resolveManagerListingSubmissionForPropertyId,
 } from "@/lib/manager-property-save-target";
 import {
+  applicationAppliesTo,
+  applicationCoversStay,
   applicationFormVariantForTemplate,
+  effectiveDefaultApplicationForStay,
   groupApplicationTemplatesByStay,
+  isApplicationTemplateOffered,
   readPropertyApplicationTemplates,
   withApplicationAppliesTo,
   withApplicationDefaultForStay,
@@ -49,7 +58,7 @@ import {
 } from "@/lib/property-application-template-sync";
 import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
 import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
-import { submissionWithApplicationDefault } from "@/lib/leasing-quick-add";
+import { missingApplicationDefaults, submissionWithApplicationDefault } from "@/lib/leasing-quick-add";
 import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
   PortalListAddRow,
@@ -153,7 +162,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
    */
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
-  const pathname = usePathname();
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
   const [formKindFilter, setFormKindFilter] = useState("");
@@ -165,13 +173,34 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [promoOpen, setPromoOpen] = useState(false);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
+  const leases = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
-  const propertyFormsSectionNav = useMemo(() => {
-    if (embedInModal || !pathname) return undefined;
-    const match = pathname.match(/^(.*)\/(application|lease)$/);
-    if (!match) return undefined;
-    return { activeId: "application" as const, href: pathname, count: templates.length };
-  }, [embedInModal, pathname, templates.length]);
+  // Long term · Short term. A stay the property does not allow loses its tab unless it still holds an application
+  // the manager owns (never hide data); an untouched PropLane default the sync switched off for a stay the
+  // property does not offer (`stayHidden`) does not count. An application for both stays counts in, and is
+  // listed under, each tab. The stay's default is a row inside its list (a Default fact + "Set as default").
+  const [tab, setTab] = useState<PropertyStay>("long_term");
+  const counted = useMemo(() => templates.filter((row) => !row.stayHidden), [templates]);
+  const tabItems = useMemo(
+    () => {
+      const counts = stayCounts(counted, (row) => applicationAppliesTo(row, leases));
+      // An application for both stays is listed in the allowed stay's tab already, so only one that is for a
+      // disallowed stay ALONE keeps that stay's tab alive (never hide data, never show an empty stay).
+      const onlyHere = (stay: PropertyStay) => counted.filter((row) => applicationAppliesTo(row, leases) === stay).length;
+      const held = { long_term: onlyHere("long_term"), short_term: onlyHere("short_term") };
+      return stayTabsFor(syncedSub, held).map((stay) => ({
+        id: stay,
+        label: stayLabel(stay),
+        count: counts[stay],
+        dataAttr: `property-application-tab-${stay}`,
+      }));
+    },
+    [counted, leases, syncedSub],
+  );
+  const activeTab: PropertyStay = tabItems.some((item) => item.id === tab) ? tab : tabItems[0]!.id;
+  const activeStay: PropertyStay = activeTab;
+  const [addStay, setAddStay] = useState<PropertyStay | undefined>(undefined);
+  const tabAddStay: PropertyStay | undefined = embedInModal ? undefined : activeStay;
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -304,6 +333,15 @@ export function ManagerPropertyApplicationQuestionsPanel({
    * auto-seeding — so without this list a removed default is unrecoverable.
    */
   const availableSeeds = useMemo(() => availableApplicationTemplateSeeds(syncedSub), [syncedSub]);
+  /**
+   * Quick add adds to the tab you are on: only the defaults the open stay's tab would then list are offered,
+   * derived from the seed by the same rule the created application is read back with (`applicationAppliesTo`),
+   * so a co-signer form never shows under Short term and a short-term form never under Long term.
+   */
+  const quickAddEntries = useMemo(
+    () => missingApplicationDefaults(sub, embedInModal ? undefined : activeStay),
+    [activeStay, embedInModal, sub],
+  );
 
   const addSeedTemplate = useCallback(
     async (seedKey: string) => {
@@ -373,8 +411,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const openAdd = useCallback(() => {
     setEditorMode("add");
     setEditingTemplate(null);
+    setAddStay(tabAddStay);
     setEditorOpen(true);
-  }, []);
+  }, [tabAddStay]);
 
   const openEditApplication = useCallback(async (template: PropertyApplicationTemplate) => {
     // Older properties render their default forms from listing terms before the
@@ -397,7 +436,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
 
   const visibleTemplates = useMemo(() => {
     const q = applicationSearch.trim().toLowerCase();
-    let rows = templates;
+    let rows = templates.filter((template) => !template.stayHidden);
     if (formKindFilter) {
       rows = rows.filter((template) => applicationFormVariantForTemplate(template) === formKindFilter);
     }
@@ -479,7 +518,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
     onUpdated();
   };
 
-  const leases = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const applicationGroups = useMemo(
     () => groupApplicationTemplatesByStay(templates, leases, visibleTemplates),
     [leases, templates, visibleTemplates],
@@ -532,9 +570,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const catalogBody = (
     <>
       <>
-        {applicationGroups.map((group) => (
+        {(embedInModal ? applicationGroups : applicationGroups.filter((group) => group.id === activeStay)).map((group) => (
           <section key={group.id} className="mb-4" data-attr={`property-application-stay-section-${group.id}`} aria-label={group.label}>
-            <StayHeader section={group.id} />
+            {embedInModal ? <StayHeader section={group.id} /> : null}
             {group.rows.map(({ template, appliesTo, stay, isDefault }) => {
           const isCosignerRow = applicationFormVariantForTemplate(template) === "cosigner";
           const sourceName =
@@ -635,7 +673,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
       </>
 
       <LeasingQuickAddRow
-        entries={availableSeeds.map((seed) => ({ key: seed.seedKey, label: seed.label }))}
+        entries={quickAddEntries}
         noun="application"
         dataAttr="property-application-quick-add"
         onAdd={(key) => void addSeedTemplate(key)}
@@ -671,6 +709,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           managerUserId={managerUserId}
           applicationPreviewPropertyId={applicationPreviewPropertyId}
           initialVariant={editingTemplate?.formVariant ?? "standard"}
+          initialAppliesTo={editorMode === "add" ? addStay : undefined}
           lockVariant={Boolean(editingTemplate)}
           templateEditorMode={editorMode}
           applicationTemplate={editingTemplate}
@@ -698,7 +737,12 @@ export function ManagerPropertyApplicationQuestionsPanel({
       pane={pane}
       onPaneChange={setPane}
       panes={[{ id: "form", label: "Form" }]}
-      propertyFormsSectionNav={propertyFormsSectionNav}
+      stayTabs={{
+        items: tabItems,
+        activeId: activeTab,
+        onChange: (id) => setTab(id as PropertyStay),
+        ariaLabel: "Applications",
+      }}
       search={{
         value: applicationSearch,
         onChange: setApplicationSearch,

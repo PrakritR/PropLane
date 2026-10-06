@@ -26,7 +26,7 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
 
-import { ListingEditorV2, LISTING_V2_STEPS, listingRailChrome } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { ListingEditorV2, LISTING_V2_STEPS, listingRailChrome, listingV2PathStepIds } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { createDefaultListingSubmission, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import { longTermPrivateArrangementRow, placementFeeOptionsFor, resolvePlacementStandardFees } from "@/lib/listing-placement-standard-fees";
@@ -92,10 +92,10 @@ describe("the wizard rail", () => {
     expect(LISTING_V2_STEPS).toHaveLength(9);
   });
 
-  it("counts the leasing steps on the Continue path (Basics, Rooms, 4 leasing, Review), not five", () => {
+  it("walks the leasing steps on the Next path (Basics, Rooms, 4 leasing, Review), not five", () => {
     mount();
-    expect(screen.getAllByText(/^Step 1 of 7$/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Step 1 of 5$/)).toBeNull();
+    expect(listingV2PathStepIds(sub())).toHaveLength(7);
+    expect(screen.queryByText(/^Step \d+ of \d+$/)).toBeNull(); // the footer carries no counter
   });
 
   it("the phone step tabs list the new steps", () => {
@@ -395,7 +395,7 @@ describe("Application step", () => {
     const choices = await openMenu(q("[data-attr='listing-v2-add-application-icon']")!);
     fireEvent.click(choices[0]!);
     fireEvent.click(q("[data-attr='listing-v2-application-applies-to']")!);
-    const offered = Array.from(screen.getAllByRole("listbox").at(-1)!.querySelectorAll('[role="option"]')).map((node) => node.textContent);
+    const offered = Array.from(screen.getAllByRole("listbox").at(-1)!.querySelectorAll('[role="option"]')).map((node) => node.textContent?.replace(/^✓/, ""));
     expect(offered).toEqual(["Long-term residents", "Short-term residents", "Both"]);
     tapOption("Short-term residents");
     fireEvent.click(q("[data-attr='listing-v2-application-applies-to-create']")!);
@@ -574,7 +574,7 @@ describe("Lease step", () => {
   });
 
   it("a PropLane default the property lacks is a Quick add action under the list, never a placeholder card", () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("lease");
     expect(qa("[data-attr='listing-v2-lease-default-card']")).toHaveLength(0);
     expect(qa("[data-attr='listing-v2-lease-card']")).toHaveLength(0);
@@ -592,7 +592,7 @@ describe("Lease step", () => {
 
   it("every lease card, a PropLane default included, has Edit, Duplicate and a red Delete last; deleting a default brings back its Quick add", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
-    const withThree = subWithLeases();
+    const withThree = { ...subWithLeases(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] };
     const live = mountLive({
       ...withThree,
       propertyLeaseTemplates: [...withThree.propertyLeaseTemplates!, lease("l3", "Parking addendum", { kind: "custom" })],

@@ -297,7 +297,9 @@ describe("vendor record header icons", () => {
     render(<PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} primaryId="message" />);
     for (const label of ["Edit vendor", "Invite to PropLane", "Message", "Remove vendor"]) {
       const button = screen.getAllByLabelText(label)[0]!;
-      expect(button.getAttribute("title")).toBe(label);
+      // The label is the accessible name; the hover tooltip is a portaled pill, not a native title.
+      expect(button.getAttribute("aria-label")).toBe(label);
+      expect(button.getAttribute("title")).toBeNull();
     }
     const filled = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="portal-icon-action"]')].filter((el) => el.className.includes("bg-[var(--btn-primary)]"));
     expect([...new Set(filled.map((el) => el.getAttribute("aria-label")))]).toEqual(["Message"]);

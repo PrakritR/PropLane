@@ -313,15 +313,19 @@ export function ResidentOverviewPanel({
               icon: "payments",
               title: row.chargeTitle,
               fact: (() => {
-                const due =
-                  /^\d{4}-\d{2}-\d{2}$/.test((row.dueDate ?? "").trim())
-                    ? formatPortalListDate(row.dueDate)
-                    : row.dueDate;
+                const raw = (row.dueDate ?? "").trim();
+                const due = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? formatPortalListDate(raw) : raw;
+                // dueDate text can already read "Before lease signing" / "By Oct 5" — fold the case
+                // so it reads "Due before lease signing", never "Due Before …". Every bucket reads
+                // it mid-sentence, so every bucket gets the fold.
+                const dueText = /^(before|by)\b/i.test(due)
+                  ? due.replace(/^./, (c) => c.toLowerCase())
+                  : due;
                 return row.bucket === "paid"
-                  ? `Paid ${due}`
+                  ? `Paid ${dueText}`
                   : row.bucket === "overdue"
-                    ? `Overdue · ${due}`
-                    : `Due ${due}`;
+                    ? `Overdue · ${dueText}`
+                    : `Due ${dueText}`;
               })(),
               urgent: row.bucket === "overdue",
               rank: 0,
@@ -428,7 +432,12 @@ export function ResidentOverviewPanel({
             className="mt-5 flex flex-col gap-2.5 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between"
             data-rt-next
           >
-            <span className="text-[13px] text-muted">Next step</span>
+            <div className="flex min-w-0 flex-col gap-0.5" data-rt-next-copy>
+              <span className="text-xs text-muted">Next step</span>
+              {lifecycle.next.description ? (
+                <span className="text-sm font-medium text-foreground">{lifecycle.next.description}</span>
+              ) : null}
+            </div>
             <Button
               onClick={() => {
                 if (lifecycle.next!.kind === "callback") onNextAction?.(lifecycle.next!.actionId);

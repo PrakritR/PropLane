@@ -65,7 +65,7 @@ function mount(submission: ManagerListingSubmissionV1, onOpenPricing?: () => voi
 
 function publish() {
   fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
-  fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create property" }));
 }
 
 describe("a missing rent is fixed on Pricing, not on a step with no rent field", () => {
@@ -151,7 +151,7 @@ describe("a draft can be priced before it publishes", () => {
 
   it("the draft detail page offers a Pricing tab and renders it with the draft target", () => {
     const panel = readFileSync("src/components/portal/pro-house-properties-panel.tsx", "utf8");
-    expect(panel).toMatch(/bucket === 5\s*\?[^\]]*\["preview", "pricing", "activity"\]/s);
+    expect(panel).toMatch(/bucket === 5\s*\?[^\]]*\["preview", "pricing"\]/s);
     expect(panel).toMatch(/activeDetailTab === "pricing" && bucket === 5[\s\S]{0,200}saveTarget=\{\{ mode: "draft"/);
     // Pricing is the only draft tab that saves through the draft target; the
     // lease / house-details panels stay hidden so a draft is never mirrored live.

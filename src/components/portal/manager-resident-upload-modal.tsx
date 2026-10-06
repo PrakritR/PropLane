@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 
 export type ResidentUploadDocKind =
   | "application"
@@ -62,8 +62,36 @@ export function ManagerResidentUploadModal({
         onClose();
       }}
       dataAttr="resident-upload-modal"
+      contextPanel={null}
+      preview={null}
+      footer={
+        <ModalFooter>
+          <Button
+            type="button"
+            disabled={files.length === 0 || busy}
+            onClick={() => {
+              void (async () => {
+                const resolved = files.map(
+                  (f) => perFileKinds[`${f.name}-${f.size}`] ?? kind,
+                );
+                setBusy(true);
+                try {
+                  await onUploaded(files, resolved);
+                  reset();
+                  onClose();
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            }}
+            data-attr="resident-upload-submit"
+          >
+            {busy ? "Uploading…" : "Upload"}
+          </Button>
+        </ModalFooter>
+      }
     >
-      <div className="space-y-4 px-1 pb-1">
+      <div className="space-y-4">
         <label
           className="flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-secondary/30 px-4 py-8 text-center"
           data-attr="resident-upload-dropzone"
@@ -105,30 +133,6 @@ export function ManagerResidentUploadModal({
             })}
           </ul>
         ) : null}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button
-            type="button"
-            disabled={files.length === 0 || busy}
-            onClick={() => {
-              void (async () => {
-                const resolved = files.map(
-                  (f) => perFileKinds[`${f.name}-${f.size}`] ?? kind,
-                );
-                setBusy(true);
-                try {
-                  await onUploaded(files, resolved);
-                  reset();
-                  onClose();
-                } finally {
-                  setBusy(false);
-                }
-              })();
-            }}
-            data-attr="resident-upload-submit"
-          >
-            {busy ? "Uploading…" : "Upload"}
-          </Button>
-        </div>
       </div>
     </Modal>
   );

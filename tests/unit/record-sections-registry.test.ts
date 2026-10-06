@@ -166,3 +166,20 @@ describe("record-sections registry", () => {
     expect(included.href("po-1")).toBe("/vendor/financials/payouts/po-1/included-invoices");
   });
 });
+
+describe("manager resident rail", () => {
+  it("runs Resident then Home, with no Inspections and no Activity section", () => {
+    const { groups } = recordSections("manager", "resident");
+    expect(groups.map((g) => g.label)).toEqual(["Resident", "Home"]);
+    expect(groups.map((g) => g.items.map((i) => i.id))).toEqual([
+      ["overview", "tours", "application", "background-check"],
+      ["lease", "forms", "move-in", "payments", "services", "documents", "communication"],
+    ]);
+  });
+
+  it("keeps Edit and Delete as the only header set on every section", () => {
+    const { headerActions } = recordSections("manager", "resident");
+    expect(headerActions.map((a) => a.id)).toEqual(["edit", "delete"]);
+    expect(headerActions.find((a) => a.id === "edit")!.label).toBe("Edit");
+  });
+});

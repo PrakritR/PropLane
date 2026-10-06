@@ -7,11 +7,13 @@ import {
   CalendarOff,
   CalendarPlus,
   CalendarSync,
+  ClipboardCheck,
   Coins,
   Copy,
   Download,
   Phone,
   RefreshCw,
+  Bell,
   Search,
   Send,
   Settings,
@@ -59,6 +61,8 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Send, // Send application link (Applications band)
   UserPlus, // Assign (service record, Vendor & schedule)
   Pencil, // Edit (service record, Service)
+  Bell, // Send reminder (resident record: payments, lease signing, application consent)
+  ClipboardCheck, // Add inspection (resident record: Move-in → Forms)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */

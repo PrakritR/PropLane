@@ -75,7 +75,7 @@ function bookingEntry(overrides: Partial<PropertyBookingEntry> = {}): PropertyBo
 }
 
 describe("BookingsPortfolioTimeline", () => {
-  it("groups every property under its own header with its rooms beneath, even with zero bookings", () => {
+  it("renders every property even with zero bookings; a single-row property is one row under its own name", () => {
     render(
       <BookingsPortfolioTimeline
         propertyIds={["prop-a", "prop-b"]}
@@ -88,10 +88,14 @@ describe("BookingsPortfolioTimeline", () => {
     expect(document.querySelector('[data-attr="bookings-timeline-property-prop-a"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="bookings-timeline-property-prop-b"]')).toBeTruthy();
     expect(screen.getByText("Prop A House")).toBeTruthy();
-    expect(screen.getByText("prop-b")).toBeTruthy();
+    // A title-less listing never shows its raw id.
+    expect(screen.queryByText("prop-b")).toBeNull();
+    expect(screen.getByText("Untitled listing")).toBeTruthy();
+    // A single bookable row folds into the property's own row: its unit name is a subline.
     expect(screen.getByText("Room 1")).toBeTruthy();
-    // prop-b has no declared rooms and no bookings — it still renders a room row.
-    expect(screen.getByText("Whole home")).toBeTruthy();
+    // prop-b has no declared rooms and no bookings — it is one row, not a property strip
+    // above a repeated "Whole home" row.
+    expect(screen.queryByText("Whole home")).toBeNull();
   });
 
   it("renders a booking inside the visible window as a bar with the right source styling", () => {

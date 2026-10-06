@@ -91,7 +91,9 @@ describe("residentDetailTabsForStage", () => {
       expect(tabs[1]).toBe("tours");
       expect(tabs).toContain("services");
       expect(tabs).toContain("payments");
+      // Inspections moved under Move-in → Forms; the retired id is never listed.
       expect(tabs).toContain("move-in");
+      expect(tabs).not.toContain("inspections");
       expect(tabs).toContain("communication");
       // Inspections is a sub-tab of Move in and there is no Activity tab.
       expect(tabs).not.toContain("inspections");
@@ -186,5 +188,12 @@ describe("residents directory hydration (PRP-458)", () => {
 
   it("emits the lease-pipeline event even when the lease GET fails", () => {
     expect(leaseSrc).toMatch(/if \(!res\.ok\) \{\s*leaseReadSucceeded = false;\s*leasePipelineLastSyncedAt = 0;[\s\S]*?emit\(\);\s*return localSnapshot;/);
+  });
+});
+
+describe("parseResidentDetailTab inspections alias", () => {
+  it("lands the retired /inspections tab on Move-in", async () => {
+    const { parseResidentDetailTab } = await import("@/lib/portal-detail-routes");
+    expect(parseResidentDetailTab("inspections")).toBe("move-in");
   });
 });

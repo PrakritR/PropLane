@@ -3,8 +3,8 @@
 /**
  * The move-in form editor, in the SAME popup frame as "Edit application" and "Edit lease"
  * (`AddWorkspace`): title, a steps rail ("Form", "Questions"), a thin progress bar, the step in
- * the centre, the resident's live view flush right, and a footer with a red Delete on the left
- * (edit only) and Continue / Save on the right.
+ * the centre, the resident's live view flush right (the same card the application editor draws), and the
+ * shared footer: a red Delete on the left (edit only), Back then Next on the right, Save / Create on the last step.
  *
  * The Questions step draws every question through `BuilderQuestionCard`, the same row the
  * application editor's Questions step uses, so the two editors share one question UI. The
@@ -25,7 +25,8 @@ import {
   MOVE_IN_TRIGGER_OPTIONS,
   MOVE_OUT_DAYS_CHOICES,
   moveInFormProblemsByStep,
-  moveInLeaseTypeOptions,
+  MOVE_IN_APPLIES_TO_OPTIONS,
+  moveInAppliesToValue,
   questionCountLabel,
   type MoveInAnswerMap,
 } from "@/components/portal/move-in-forms/move-in-form-model";
@@ -38,7 +39,6 @@ import { moveInFormTemplatePdfUrl, uploadMoveInFormPdf } from "@/lib/move-in-for
 import {
   MOVE_IN_FORM_STARTERS,
   moveInFormLeaseTypePatch,
-  moveInFormLeaseTypeValue,
   newMoveInFormTemplate,
 } from "@/lib/move-in-forms/templates";
 import {
@@ -52,6 +52,7 @@ import {
   type MoveInFormStarterKey,
   type MoveInFormTemplate,
 } from "@/lib/move-in-forms/types";
+import { editorFinishLabel } from "@/lib/editor-footer-state";
 import { cn } from "@/lib/utils";
 
 const MAX_PDF_BYTES = 8 * 1024 * 1024;
@@ -161,10 +162,12 @@ export function MoveInFormEditorModal({
     () => moveInLinkOptions(applicationTemplates, draft.linkedApplicationTemplateIds, "application"),
     [applicationTemplates, draft.linkedApplicationTemplateIds],
   );
-  const leaseTypeOptions = useMemo(
-    () => moveInLeaseTypeOptions(leaseTemplates, draft.linkedLeaseTemplateIds),
+  const leaseOptions = useMemo(
+    () => moveInLinkOptions(leaseTemplates, draft.linkedLeaseTemplateIds, "lease"),
     [leaseTemplates, draft.linkedLeaseTemplateIds],
   );
+  // "Specific leases…" is picked before any lease is chosen; the stored shape stays leaseType + linked ids.
+  const [specificLeases, setSpecificLeases] = useState(initial.linkedLeaseTemplateIds.length > 0);
 
   const patch = (next: Partial<MoveInFormTemplate>) => setDraft((prev) => ({ ...prev, ...next }));
   const setQuestions = (questions: MoveInFormQuestion[]) => patch({ questions });
@@ -217,6 +220,13 @@ export function MoveInFormEditorModal({
     } finally {
       setUploading(false);
     }
+  };
+
+  /** The pop-up header's Upload icon (every step, Add mode): jump to the Form step that hosts the PDF row, set Start from = Upload a PDF, then run the one existing handler. */
+  const pickPdfFromHeader = (file: File) => {
+    setStep(0);
+    if (startsFrom !== "upload") changeStartsFrom("upload");
+    void pickPdf(file);
   };
 
   /** "Start from": a blank form, an uploaded PDF, or one of the starters. Add mode only, like the application's. */
@@ -361,16 +371,19 @@ export function MoveInFormEditorModal({
           />
         </PropertyFormWizardRow>
       ) : null}
-      <PropertyFormWizardRow label="Lease type">
+      <PropertyFormWizardRow label="Applies to">
         <FieldSingleSelect
           hideLabel
-          label="Lease type"
+          label="Applies to"
           labelClassName={WIZARD_LABEL_CLASS}
           variant="cell"
           className="min-w-[200px] max-w-[280px]"
-          value={moveInFormLeaseTypeValue(draft)}
-          onChange={(value) => patch(moveInFormLeaseTypePatch(value, draft))}
-          options={leaseTypeOptions}
+          value={moveInAppliesToValue(draft, specificLeases)}
+          onChange={(value) => {
+            setSpecificLeases(value === "specific");
+            patch(value === "specific" ? { leaseType: "all" } : moveInFormLeaseTypePatch(value, draft));
+          }}
+          options={MOVE_IN_APPLIES_TO_OPTIONS}
           dataAttr="move-in-form-lease-type"
         />
       </PropertyFormWizardRow>
@@ -387,6 +400,19 @@ export function MoveInFormEditorModal({
           dataAttr="move-in-form-blocks"
         />
       </PropertyFormWizardRow>
+      {specificLeases || draft.linkedLeaseTemplateIds.length > 0 ? (
+        <PropertyFormWizardRow label="Leases">
+          <WizardMultiSelect
+            hideLabel
+            label="Leases"
+            options={leaseOptions}
+            selected={draft.linkedLeaseTemplateIds}
+            onChange={(linkedLeaseTemplateIds) => patch({ leaseType: "all", linkedLeaseTemplateIds })}
+            emptyLabel="Pick leases"
+            dataAttr="move-in-form-linked-leases"
+          />
+        </PropertyFormWizardRow>
+      ) : null}
       <PropertyFormWizardRow label="Who">
         <FieldSingleSelect
           hideLabel
@@ -569,9 +595,10 @@ export function MoveInFormEditorModal({
       discardBody="Discard unsaved changes to this move-in form?"
       assistantContext={mode === "add" ? "Add move-in form" : "Edit move-in form"}
       assistantScopeKey="move-in-form-editor"
+      headerUpload={mode === "add" && canUploadPdf ? { accept: "application/pdf,.pdf", onPick: pickPdfFromHeader, disabled: uploading || saving, dataAttr: "move-in-form-header-upload", label: "Upload a PDF" } : undefined}
       dataAttrPrefix="move-in-form"
       finishDataAttr="move-in-form-save"
-      lastLabel={mode === "add" ? "Create form" : "Save"}
+      lastLabel={editorFinishLabel(mode)}
       lastDisabled={saving || (mode === "edit" && !dirty) || (allProblems.length > 0 && showErrors)}
       busy={saving}
       hideFooterStepCount

@@ -60,7 +60,7 @@ describe("AdminAxisUsersClient Plan credit", () => {
     // UI system" — icon chrome): no visible "Plan credit" text on the button
     // itself, only the accessible name / tooltip.
     expect(openButton).toHaveAttribute("aria-label", "Plan credit");
-    expect(openButton).toHaveAttribute("title", "Plan credit");
+    expect(openButton).not.toHaveAttribute("title");
     expect(openButton.textContent?.trim()).toBe("");
   });
 

@@ -130,7 +130,9 @@ describe("validate-application-submit", () => {
     }
   });
 
-  it.each(["fullLegalName", "email"] as const)("still rejects a blank %s even when a forged published template switched it off or made it optional", (key) => {
+  // Every question is removable (captain, Oct 5 2026), name and email included: the applicant's signed-in
+  // account supplies them at submit (applicant-identity.ts), so a template without them asks for neither.
+  it.each(["fullLegalName", "email", "phone"] as const)("does not ask for %s once the template switched that question off", (key) => {
     const field = STANDARD_APPLICATION_FIELD_CATALOG.find((item) => item.wizardFormKeys.includes(key))!;
     const template = {
       ...createPropertyApplicationTemplate({ kind: "long-term" }),
@@ -141,22 +143,7 @@ describe("validate-application-submit", () => {
     };
     const application = { ...validSubmittedApplication(), applicationTemplateId: template.id, applicationTemplateVersion: 1, [key]: "" };
     const result = validateResidentApplicationSubmit({ application, property: { id: "prop-1", listingSubmission: { ...createDefaultListingSubmission(), propertyApplicationTemplates: [template] } }, inProgress: false });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.fieldErrors[key]).toBeTruthy();
-  });
-
-  it.each(["phone"] as const)("does not ask for %s once the template switched that question off", (key) => {
-    const field = STANDARD_APPLICATION_FIELD_CATALOG.find((item) => item.wizardFormKeys.includes(key))!;
-    const template = {
-      ...createPropertyApplicationTemplate({ kind: "long-term" }),
-      publishedQuestionConfig: {
-        ...applicationTemplateQuestionConfigFromSlice({ disabledStandardApplicationKeys: [field.standardKey], customApplicationFields: [{ id: key, key: field.standardKey, standardKey: field.standardKey, label: field.label, type: "text", required: false, options: [], section: "personal" }], applicationConfigMode: "custom" }),
-        version: 1,
-      },
-    };
-    const application = { ...validSubmittedApplication(), applicationTemplateId: template.id, applicationTemplateVersion: 1, [key]: "" };
-    const result = validateResidentApplicationSubmit({ application, property: { id: "prop-1", listingSubmission: { ...createDefaultListingSubmission(), propertyApplicationTemplates: [template] } }, inProgress: false });
-    if (!result.ok) expect(result.fieldErrors[key]).toBeUndefined();
+    expect(result.ok).toBe(true);
   });
 
   it("returns the same field-level error used by step validation", () => {

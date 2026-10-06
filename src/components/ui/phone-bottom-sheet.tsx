@@ -22,8 +22,9 @@ import { cn } from "@/lib/utils";
 /**
  * The ONE phone bottom sheet.
  *
- * The wizard's step picker and every select (FieldSingleSelect / CheckboxMultiSelect) draw
- * the same surface on a phone, so a popup never shows two different "sheets". The captain's
+ * The section pickers (settings, record sections, wizard steps) draw this surface on a phone.
+ * Selects (FieldSingleSelect / CheckboxMultiSelect) do NOT: they open a list attached under the
+ * field (ui/field-select-menu.tsx), so a field never throws a sheet from the bottom. The captain's
  * Oct 3 screenshot is the bug this replaces: the step sheet sat at `z-[90]`, UNDER the
  * dialog panel (`z-[91]`) and its footer, and its `bg-card` background resolves to a
  * translucent white under `[data-theme]` — so the popup's own rows and its disabled

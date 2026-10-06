@@ -111,6 +111,12 @@ describe("POST /api/property-records — legacy lease terms", () => {
     expect(UPSERTS).toHaveLength(0);
   });
 
+  it("keeps a draft whose stays are not chosen yet (closing Add property saves the draft)", async () => {
+    const res = await post({ allowedLeaseTerms: [], shortTermRentalsAllowed: false }, "draft");
+    expect(res.status).toBe(200);
+    expect(UPSERTS).toHaveLength(1);
+  });
+
   it("leaves current terms exactly as sent, and a submission that names no terms alone", async () => {
     const current = await post({ allowedLeaseTerms: ["Long-term", "Month-to-Month"], shortTermRentalsAllowed: false });
     expect(current.status).toBe(200);

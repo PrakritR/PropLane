@@ -22,8 +22,9 @@ import {
 import { readPropertyLeaseTemplates, syncLegacyLeaseFieldsFromTemplates, createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
+/** A property that offers both stays: a short-stay default exists only where the stay is allowed. */
 function submission() {
-  return createDefaultListingSubmission();
+  return { ...createDefaultListingSubmission(), allowedLeaseTerms: ["Long-term", "Short-Term Stay"], shortTermRentalsAllowed: true };
 }
 
 describe("default seed catalog", () => {

@@ -17,15 +17,17 @@ import {
 } from "@/lib/leasing-quick-add";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { MOVE_IN_FORM_STARTERS, normalizeMoveInFormTemplates, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
-import { removePropertyApplicationTemplate, readPropertyApplicationTemplates, withPropertyApplicationTemplatesExplicit } from "@/lib/property-application-templates";
+import { createPropertyApplicationTemplate, removePropertyApplicationTemplate, readPropertyApplicationTemplates, withPropertyApplicationTemplatesExplicit } from "@/lib/property-application-templates";
 import { removePropertyLeaseTemplate, readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
-import { submissionAfterRemovingApplicationTemplate } from "@/lib/property-application-template-sync";
+import { submissionAfterRemovingApplicationTemplate, syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import { syncLegacyLeaseFieldsFromTemplates } from "@/lib/property-lease-templates";
 import { pricingLeaseOptions } from "@/lib/pricing-lease-options";
 
-const fresh = () => createDefaultListingSubmission();
+/** A property that offers both stays: a short-stay default exists only where the stay is allowed. */
+const bothStays = { allowedLeaseTerms: ["Long-term", "Short-Term Stay"], shortTermRentalsAllowed: true };
+const fresh = () => ({ ...createDefaultListingSubmission(), ...bothStays });
 /** A property whose applications are not auto-seeded (the manager owns the list), so every default is missing. */
-const bare = () => withPropertyApplicationTemplatesExplicit(createDefaultListingSubmission(), []);
+const bare = () => withPropertyApplicationTemplatesExplicit(fresh(), []);
 const labels = (entries: { label: string }[]) => entries.map((entry) => entry.label);
 
 describe("a new property's default setup", () => {
@@ -113,6 +115,70 @@ describe("Quick add: which PropLane defaults are missing", () => {
     expect(missingLeaseDefaults(back)).toEqual([]);
   });
 
+  it("Quick add adds to the tab you are on: a stay only offers the defaults that tab would then list", () => {
+    const airbnbSub = withPropertyApplicationTemplatesExplicit(
+      { ...fresh(), airbnbRentalsAllowed: true },
+      [],
+    );
+    // The Airbnb starter is a short-stay lease, so it belongs to the Short term tab, never Long term.
+    expect(labels(missingLeaseDefaults(airbnbSub, "long_term"))).toEqual(["Long-term lease"]);
+    expect(labels(missingLeaseDefaults(airbnbSub, "short_term"))).toEqual(["Short-term lease", "Airbnb stay agreement"]);
+    // Co-signer applications live under Long term only.
+    expect(labels(missingApplicationDefaults(airbnbSub, "long_term"))).toEqual([
+      "Long-term application",
+      "Co-signer application",
+    ]);
+    // The two short-stay application seeds add different forms, so they carry different names (which is
+    // also the Quick add button's aria-label).
+    expect(labels(missingApplicationDefaults(airbnbSub, "short_term"))).toEqual([
+      "Short-term application",
+      "Airbnb application",
+    ]);
+  });
+
+  it("an Airbnb application still carrying its old shipped name is renamed; a manager's own name is kept", () => {
+    const airbnb = createPropertyApplicationTemplate({
+      kind: "short-term",
+      label: "Short-term application",
+      listingSeedKey: "airbnb",
+      formVariant: "short_term",
+    });
+    const sub = { ...createDefaultListingSubmission(), airbnbRentalsAllowed: true, propertyApplicationTemplates: [airbnb] };
+    const synced = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(sub));
+    expect(synced.find((a) => a.listingSeedKey === "airbnb")!.label).toBe("Airbnb application");
+    expect(synced.find((a) => a.listingSeedKey === "short-term")!.label).toBe("Short-term application");
+    const renamed = { ...sub, propertyApplicationTemplates: [{ ...airbnb, label: "Nightly guests" }] };
+    const keptName = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(renamed));
+    expect(keptName.find((a) => a.listingSeedKey === "airbnb")!.label).toBe("Nightly guests");
+  });
+
+  it("renaming is the Airbnb seed's alone: a legacy co-signer name is left exactly as stored", () => {
+    const cosigner = createPropertyApplicationTemplate({
+      kind: "long-term",
+      label: "Long-term co-signer application",
+      listingSeedKey: "cosigner",
+      formVariant: "cosigner",
+    });
+    const sub = { ...createDefaultListingSubmission(), propertyApplicationTemplates: [cosigner] };
+    const synced = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(sub));
+    expect(synced.find((a) => a.listingSeedKey === "cosigner")!.label).toBe("Long-term co-signer application");
+    // The Airbnb old name is recognized for the Airbnb row only - the short-term row keeps it as its own.
+    const shortNamedLikeAirbnbOld = createPropertyApplicationTemplate({
+      kind: "short-term",
+      label: "Short-term application",
+      listingSeedKey: "short-term",
+      formVariant: "short_term",
+    });
+    const shortSub = {
+      ...createDefaultListingSubmission(),
+      airbnbRentalsAllowed: true,
+      propertyApplicationTemplates: [shortNamedLikeAirbnbOld],
+    };
+    const shortSynced = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(shortSub));
+    expect(shortSynced.find((a) => a.listingSeedKey === "short-term")!.label).toBe("Short-term application");
+    expect(shortSynced.find((a) => a.listingSeedKey === "airbnb")!.label).toBe("Airbnb application");
+  });
+
   it("a move-in starter is added as the manager's own form that sends only by hand", () => {
     const added = readMoveInFormTemplates(submissionWithMoveInStarter(fresh(), "key-receipt"));
     expect(added).toHaveLength(1);
@@ -143,10 +209,10 @@ describe("the leasing options a property is priced under", () => {
     leaseTemplateDocUrl: null, leaseTemplateDocName: "", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z", ...extra,
   });
   it("is Long-term alone for a property that offers nothing else", () => {
-    expect(pricingLeaseOptions(fresh()).map((o) => o.label)).toEqual(["Long-term"]);
+    expect(pricingLeaseOptions(createDefaultListingSubmission()).map((o) => o.label)).toEqual(["Long-term"]);
   });
   it("adds Short-term when stays are offered, and Month-to-month only when a lease allows it", () => {
-    const stays = { ...fresh(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] };
+    const stays = { ...createDefaultListingSubmission(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] };
     expect(pricingLeaseOptions(stays).map((o) => o.label)).toEqual(["Long-term", "Short-term"]);
     const m2m = {
       ...stays,
@@ -160,7 +226,7 @@ describe("the leasing options a property is priced under", () => {
   });
   it("lists a custom lease by name when it routes a lease type of its own", () => {
     const sub = {
-      ...fresh(),
+      ...createDefaultListingSubmission(),
       propertyLeaseTemplates: [lease("l9", "Lake house stays", { kind: "custom", applicationLeaseTerms: ["Airbnb"] })],
     };
     expect(pricingLeaseOptions(sub as never).map((o) => o.label)).toEqual(["Long-term", "Lake house stays"]);

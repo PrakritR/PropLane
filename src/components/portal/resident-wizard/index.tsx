@@ -36,7 +36,7 @@ import type { WorkAssignee } from "@/lib/work-assignment";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { commitApplicationDraft, commitProspect, commitResident, sendApplicationStartedEmail, sendClosingMessage, type CommitOutcome } from "./commit";
 import { useResidentWizardDerived } from "./derived";
-import { ContactStep } from "./step-contact";
+import { ContactStep, RESIDENT_FILE_ACCEPT } from "./step-contact";
 import { HomeStep, type PropertyOption } from "./step-home";
 import { ApplicationStep } from "./step-application";
 import { LeaseStep } from "./step-lease";
@@ -278,11 +278,11 @@ export function AddResidentWizard({
   );
 
   const readPdf = useCallback(
-    async (file: File, kind: "application" | "lease") => {
+    async (file: File, kind: "application" | "lease"): Promise<boolean> => {
       const propertyId = form.propertyId || propertyOptions[0]?.id || "";
       if (!propertyId) {
         showToast("Add a property listing before reading a PDF.");
-        return;
+        return false;
       }
       setBusy(true);
       setStrip({ kind: "reading", fileName: file.name });
@@ -292,9 +292,11 @@ export function AddResidentWizard({
         parsesRef.current[kind] = parsed;
         applyParsed(kind, parsed, file, url);
         if (parsed.warnings[0]) showToast(parsed.warnings[0]);
+        return true;
       } catch (err) {
         setStrip(undoRef.current ? { kind: "read", summary: "Earlier fill kept", canUndo: true } : { kind: "blank" });
         showToast(err instanceof Error ? err.message : `Could not read ${file.name}.`);
+        return false;
       } finally {
         setBusy(false);
       }
@@ -329,6 +331,33 @@ export function AddResidentWizard({
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [form.documents, patch, readPdf, showToast],
+  );
+
+  /** The pop-up header's Upload icon (every step of an add): jump to Contact, where the reading and
+   *  "Filled from your file" states live, then run the same reader as the Contact strip. */
+  const onPickStartFileFromHeader = useCallback(
+    (file: File) => {
+      if (file.type === "application/pdf") goTo("contact");
+      onPickStartFile(file);
+    },
+    [goTo, onPickStartFile],
+  );
+
+  /** The Application step's own Upload icon: the same parser with kind = application; the answers
+   *  land through `applyParsed` -> `mapParsedFieldsToApplicationAnswers` (blank answers only, marked, undoable). */
+  const onPickApplicationFile = useCallback(
+    (file: File) => {
+      if (!acceptFile(file)) return;
+      if (file.type !== "application/pdf") {
+        onPickStartFile(file);
+        return;
+      }
+      void readPdf(file, "application").then((ok) => {
+        if (ok) showToast("Application read. Check the marked answers.");
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onPickStartFile, readPdf, showToast],
   );
 
   const onPickLeasePdf = useCallback(
@@ -557,6 +586,7 @@ export function AddResidentWizard({
       discardTitle={mode === "edit" ? "Discard these edits?" : mode === "tour" ? "Discard this tour?" : mode === "application" ? "Discard this application?" : form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}
       assistantContext={workspaceTitle}
       assistantScopeKey={mode === "tour" ? "schedule-tour-wizard" : mode === "application" ? "add-application-wizard" : "add-resident-wizard"}
+      headerUpload={mode !== "edit" && (form.kind !== "prospect" || mode === "application") ? { accept: RESIDENT_FILE_ACCEPT, onPick: onPickStartFileFromHeader, disabled: busy, dataAttr: "residents-wizard-header-upload", label: "Upload a file" } : undefined}
       railHeader={railHeader}
       sidePanel={
         <ResidentSidePanel
@@ -604,7 +634,7 @@ export function AddResidentWizard({
     >
       {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode !== "person" && mode !== "edit"} mode={mode === "edit" ? "person" : mode} /> : null}
       {stepId === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} /> : null}
-      {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} editRecord={mode === "edit" ? editContext?.record : undefined} /> : null}
+      {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} editRecord={mode === "edit" ? editContext?.record : undefined} onPickApplicationFile={mode === "edit" ? undefined : onPickApplicationFile} uploadBusy={busy} /> : null}
       {stepId === "lease" ? (
         <LeaseStep
           form={form}

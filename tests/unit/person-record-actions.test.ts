@@ -72,13 +72,12 @@ describe("person-record-actions", () => {
   it("resident Send setup is hidden after login and defaults SMS, email, and PropLane", () => {
     const src = readFileSync("src/components/portal/pro-residents.tsx", "utf8");
     expect(src).toContain('title="Send setup"');
-    // "Send setup" is no longer a standalone `title` ternary — it is appended to
-    // the registry's `headerActions` only while the resident has no portal
-    // account yet (see `residentSections`, PLAN-0920-1058 area 1a). Re-pinned
-    // here so this still fails if Send setup ever shows for a logged-in resident.
+    // The record header is only Edit and Delete (captain, 2026-10-05); the invite is an item of
+    // Overview's ⋯ menu, shown only while the resident has no portal account yet. Re-pinned here
+    // so this still fails if the invite ever shows for a logged-in resident.
     expect(src).toContain("residentRecordHeaderActions");
-    expect(src).toContain("const withSetup = selectedHasPortalAccount");
-    expect(src).toContain('{ id: "setup", label: "Send setup", icon: Mail }');
+    expect(src).toContain('data-attr="resident-overview-setup"');
+    expect(src).toMatch(/\{selectedHasPortalAccount \? null : \(\s*<DropdownMenuItem\s+data-attr="resident-overview-setup"/);
     expect(src).toContain("singleListSelectedNeedsSetup");
     const setupModal = src.slice(src.indexOf('title="Send setup"'), src.indexOf('confirmLabel="Send setup"'));
     expect(setupModal).toContain("defaultViaEmail");

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Plus } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
@@ -68,11 +69,24 @@ export function ManagerResidentSectionToolbar({
       }
       primary={
         primary ? (
-          <PortalPrimaryIconAction
-            label={primary.label}
-            data-attr={`resident-section-action-${primary.id}`}
-            onClick={() => onAction(primary.id)}
-          />
+          // An "add" action stays the round +; any other primary (Approve, Run background check,
+          // Send lease) is its own glyph in the primary tone, icon-only like the rest of the header
+          // (the word is the tooltip and aria-label).
+          primary.icon === Plus ? (
+            <PortalPrimaryIconAction
+              label={primary.label}
+              data-attr={`resident-section-action-${primary.id}`}
+              onClick={() => onAction(primary.id)}
+            />
+          ) : (
+            <PortalIconAction
+              icon={primary.icon}
+              label={primary.label}
+              tone="primary"
+              data-attr={`resident-section-action-${primary.id}`}
+              onClick={() => onAction(primary.id)}
+            />
+          )
         ) : undefined
       }
     />

@@ -11,7 +11,10 @@ its own shell.
    The set is per (role, kind, SECTION): the icons change as you move between
    a record's sections, because the action you want changes with them.
 2. Desktop keeps the left section card: the kind's own sections first, then
-   the linked trio (Payments · Communication · Documents · Activity).
+   the shared trio (Communication · Documents · Activity). The trio's group is
+   unlabeled by default — it reads as universal record chrome, not a category —
+   unless the kind names it with `trioLabel` (the resident rail closes with
+   **Records**).
 3. Overview = four `StatTile`s · a `RecordNeedsYou` list (hidden when empty) ·
    `RecordFactCard`s in two columns, each with a "Section →" link. A fact is a
    label/value row (`RecordFactRow`). Status is a value, never a pill. A card
@@ -47,6 +50,23 @@ its own shell.
     three most recent events plus "All activity →". The registry's `groups`
     for a kind is the whole tab list — adding one is a decision, not a
     default.
+
+## A property has no Activity
+
+A property record does not carry Activity (`hasActivity: false` on the manager/property registry entry): it is not
+in the rail, the phone picker, `PROPERTY_DETAIL_TABS` or the Activity band of `pro-house-properties-panel.tsx`.
+An old `/portal/properties/<stage>/<id>/activity` URL parses to Preview (`parsePropertyDetailTab`). Resident,
+vendor and every other kind keep their Activity. Guard: `tests/unit/property-redesign-round2.test.tsx`.
+
+## Property sections split by stay
+
+Applications, Leases, Move-in forms, Services and AI info draw **Long term / Short term** tabs from one helper,
+`src/lib/property-stay-tabs.ts`: a stay's tab exists when the property allows the stay (Airbnb counts as short
+term), a row for both stays shows in both tabs as one record, and a stay the property does not allow still keeps
+its tab when it holds rows of the manager's own (never hide data); an untouched PropLane short-stay default on a
+long-term-only property is `offered: false` / `stayHidden` and holds no tab. A stay's default is a row inside its
+list (a star **Default** fact + **Set as default for <stay>** in the other rows' menus), not a tab. Promotion stays
+one list. Guard: `tests/unit/property-stay-tabs.test.ts`.
 
 ## What wave 1 (area 1a of this plan) actually landed
 
@@ -104,19 +124,24 @@ before it landed — never "no residents", and never a dead-end "loading".
 `recordSections(role, kind, ctx, activeSectionId?)` resolves `headerActions`
 for the section actually open, via each kind's `sectionActions` map, falling
 back to the kind's default set when the active section has no entry of its
-own (or when a caller omits `activeSectionId` altogether, which every
-call site still does as of wave 1 — the mechanism is in place, not yet wired
-end to end). `headerActions` render as `PortalIconAction ring` (40px circle,
-first one filled) via `PortalRecordHeaderIconActions`, published through the
+own (or when a caller omits `activeSectionId` altogether, which most call
+sites still do). Resident, Property and Tasks pass the open tab and so get
+the per-section set. `headerActions` render as `PortalIconAction ring`
+(40px circle, first one filled) via `PortalRecordHeaderIconActions`, published through the
 existing `PortalRecordDetailPage iconTitleActions` slot, hidden below `lg`
 exactly as before.
 
 ## Known gap
 
 Not every action id has a real handler yet — an unwired one shows "Coming
-soon" rather than a silent no-op. Property and Resident keep their own
-already-working header actions instead of the registry's generic set, so real
-functionality it does not cover 1:1 yet is never dropped. Bookings'
+soon" rather than a silent no-op. Property keeps its own already-working
+header actions instead of the registry's generic set, so real functionality it
+does not cover 1:1 yet is never dropped. Resident now builds from the
+registry's `headerActions` and only amends it per section
+(`pro-residents.tsx`): the leasing sends splice in ahead of Delete,
+approve/decline drop unless the application still awaits a decision,
+`run-check` becomes "Run new check" once a check exists, and the consent
+reminder is prepended on the Background check tab. Bookings'
 `record-payment` header action is a narrower case: it is dropped from the
 header entirely (never rendered, never "Coming soon") on any booking without a
 verified charge path, per the plan's own "omit — never Coming soon" rule for

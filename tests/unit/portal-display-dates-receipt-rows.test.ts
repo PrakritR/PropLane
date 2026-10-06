@@ -46,7 +46,11 @@ describe("portal list dates — rent receipts", () => {
       "utf8",
     );
     expect(source).toContain("formatPortalListDate");
-    expect(source).toMatch(/formatPortalListDate\(row\.dueDate\)/);
+    // The panel now trims `row.dueDate` into `raw` first, so a stored phrase
+    // ("Before lease signing") can be case-folded into "Due before …"; the ISO
+    // branch still goes through the shared formatter, which is what this guards.
+    expect(source).toMatch(/const raw = \(row\.dueDate \?\? ""\)\.trim\(\)/);
+    expect(source).toMatch(/test\(raw\) \? formatPortalListDate\(raw\) : raw/);
   });
 
   it("outgoing payment detail uses shared due formatting", () => {

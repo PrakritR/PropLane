@@ -9,13 +9,13 @@
  * side panel, never as subtext.
  */
 
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useContext, useId, useRef, useState, type ReactNode } from "react";
 import { Lock, Upload, FileText, Image as ImageIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 import { WizardFieldError } from "./validation";
-import { WorkspaceUploadAction } from "./upload-action";
+import { WorkspaceHeaderUploadPresent, WorkspaceUploadAction } from "./upload-action";
 
 /* ─────────────────────────── controls ─────────────────────────── */
 
@@ -255,6 +255,7 @@ export function FileStartStrip({
   title?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const headerUpload = useContext(WorkspaceHeaderUploadPresent);
   void chips;
   const pick = (files: FileList | null) => {
     const file = files?.[0];
@@ -326,6 +327,7 @@ export function FileStartStrip({
       </div>
     );
   }
+  if (headerUpload) return null;
   return <WorkspaceUploadAction accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} label={title} />;
 }
 

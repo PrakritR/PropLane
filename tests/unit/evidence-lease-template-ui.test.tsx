@@ -96,6 +96,13 @@ function selectLeaseRowByLabel(container: HTMLElement, label: string) {
   fireEvent.keyDown(trigger, { key: "ArrowDown" });
 }
 
+/** The Long-term / Short-term leases tabs: a lease shows in the tab of its stay. */
+function openLeaseTab(container: HTMLElement, tab: "long_term" | "short_term" | "default") {
+  const button = container.querySelector<HTMLElement>(`[data-attr="property-lease-tab-${tab}"]`);
+  if (!button) throw new Error(`lease tab not found: ${tab}`);
+  fireEvent.click(button);
+}
+
 /** Panel + a live `sub` so a Delete inside the modal really updates the list. */
 function Harness({ initial }: { initial: ManagerListingSubmissionV1 }) {
   const [sub, setSub] = useState(initial);
@@ -119,7 +126,11 @@ describe("evidence · lease templates are opt-in", () => {
     // The Delete affordance asks for confirmation; jsdom has no confirm().
     window.confirm = () => true;
     // A. brand-new property — sync must not conjure the old four rows
-    const fresh = syncPropertyLeaseTemplatesFromListing(createDefaultListingSubmission());
+    const fresh = syncPropertyLeaseTemplatesFromListing({
+      ...createDefaultListingSubmission(),
+      allowedLeaseTerms: ["Long-term", "Short-Term Stay"],
+      shortTermRentalsAllowed: true,
+    });
     const a = render(<Harness initial={fresh} />);
     expect(a.container.querySelectorAll('[data-attr^="property-lease-row-"]')).toHaveLength(0);
     writePanel(
@@ -135,7 +146,9 @@ describe("evidence · lease templates are opt-in", () => {
       "short-term",
     );
     const b = render(<Harness initial={withBoth} />);
-    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease", "Short-term lease"]);
+    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]);
+    openLeaseTab(b.container, "short_term");
+    expect(leaseRowLabels(b.container)).toEqual(["Short-term lease"]);
     writePanel(
       "lease-b-added",
       "B · After adding the two PropLane defaults — 'Long-term lease' and 'Short-term lease' (the retired 'Lease bundle' rows are gone).",
@@ -148,7 +161,12 @@ describe("evidence · lease templates are opt-in", () => {
     await act(async () => {
       fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     });
-    await waitFor(() => expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]));
+    // This property offers short stays, so its Short-term tab stays (now empty, with its Quick add) and the
+    // Long-term lease is untouched on the other tab.
+    await waitFor(() => expect(leaseRowLabels(b.container)).toEqual([]));
+    expect(b.container.querySelector('[data-attr="property-lease-tab-short_term"]')).not.toBeNull();
+    openLeaseTab(b.container, "long_term");
+    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]);
     writePanel(
       "lease-c-deleted",
       "C · Deleted 'Short-term lease' from the Edit modal. The row is gone and a re-sync no longer resurrects it — this is the bug the change fixes.",

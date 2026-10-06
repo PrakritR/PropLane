@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -179,7 +179,25 @@ export function ManagerApplicationFeeWaiverCodesModal({ open, onClose }: { open:
   }
 
   return (
-    <Modal open={open} title="Application fee waiver codes" onClose={onClose} assistantContext="Application fee waiver codes">
+    <Modal
+      open={open}
+      title="Application fee waiver codes"
+      onClose={onClose}
+      assistantContext="Application fee waiver codes"
+      footer={
+        <ModalFooter>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={creating}
+            data-attr="manager-waiver-code-create"
+            onClick={() => createCode()}
+          >
+            {creating ? "Creating…" : "Create code"}
+          </Button>
+        </ModalFooter>
+      }
+    >
       <div className="space-y-4">
         <p className="text-xs text-muted">
           An applicant who enters a valid code pays no application fee — nothing is charged, not even $0. Codes are
@@ -217,16 +235,6 @@ export function ManagerApplicationFeeWaiverCodesModal({ open, onClose }: { open:
               data-attr="manager-waiver-code-expires"
             />
           </div>
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full px-4 text-[13px]"
-            disabled={creating}
-            data-attr="manager-waiver-code-create"
-            onClick={() => createCode()}
-          >
-            {creating ? "Creating…" : "Create code"}
-          </Button>
         </div>
 
         <div className="space-y-2">

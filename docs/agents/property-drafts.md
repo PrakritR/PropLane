@@ -83,7 +83,8 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   status CHECK.
 - **Publish needs a rent, and a draft prices its rooms on its own Pricing tab.**
   The wizard has no rent field (pricing left the rail), so a draft's detail page
-  offers `preview · pricing · activity`; Pricing saves through the `draft` save
+  offers `preview · pricing` (a property record carries no Activity —
+  [`record-page.md`](record-page.md) § A property has no Activity); Pricing saves through the `draft` save
   target (`ManagerPricingSaveTarget` → `updateManagerPropertyDraftSubmission`, same
   id, still `status: "draft"`, never `listing`). A Publish refused for a missing
   rent shows "Set rent in Pricing" (`ListingEditorV2.onOpenPricing`): the work is

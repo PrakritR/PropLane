@@ -53,6 +53,7 @@ export const MODAL_FOOTER_ROW_CLASS =
 /**
  * Sticky footer action row: primary and secondary *actions* only (Save, Delete, Send).
  * Dismiss via the header × — do not add Cancel / Close buttons in footers.
+ * Actions always go in `footer` (bottom-right), never inline in the body.
  */
 export function ModalFooter({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cn(MODAL_FOOTER_ROW_CLASS, className)}>{children}</div>;

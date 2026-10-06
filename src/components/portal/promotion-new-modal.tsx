@@ -22,7 +22,7 @@ import type { PromotionAssetKind } from "@/lib/promotion-assets";
 import { buildPromotionNewModalAssistantContext } from "@/lib/promotion-assistant-context";
 import { PROMOTION_TEXT_FORMAT_DEFAULT, type PromotionTextFormat } from "@/lib/promotion-text";
 import { PromotionPostPreview, PromotionUploadPreview } from "@/components/portal/promotion-live-preview";
-import { PromotionUploadComposer } from "@/components/portal/promotion-upload-composer";
+import { PROMOTION_UPLOAD_ACCEPT, PromotionUploadComposer } from "@/components/portal/promotion-upload-composer";
 import { PromotionFlyerPreview } from "@/components/portal/promotion-flyer-preview";
 import { Input, Textarea } from "@/components/ui/input";
 import { useConfirm } from "@/components/providers/app-ui-provider";
@@ -189,9 +189,10 @@ export function PromotionNewModal({
 
   const confirm = useConfirm();
 
-  async function requestSwitch(next: PromotionAssetKind) {
-    if (next === kind) return;
-    if (flyerBusy || textBusy || uploadBusy) return;
+  /** Resolves true when the kind is (now) `next`; false when busy or the manager declined the discard. */
+  async function requestSwitch(next: PromotionAssetKind): Promise<boolean> {
+    if (next === kind) return true;
+    if (flyerBusy || textBusy || uploadBusy) return false;
     const leavingDirty =
       kind === "flyer"
         ? flyerContentChanged(draft, flyerBase)
@@ -207,7 +208,7 @@ export function PromotionNewModal({
         confirmLabel: "Switch",
       }))
     ) {
-      return;
+      return false;
     }
     // Discard the form we're leaving: the flyer draft resets to its baseline
     // (seed + property autofill); the text composer unmounts when kind changes.
@@ -217,7 +218,19 @@ export function PromotionNewModal({
     setUploadFileName(null);
     setUploadError(null);
     setKind(next);
+    return true;
   }
+
+  /** The pop-up header's Upload icon (every step): pick the "Upload your own" kind (the existing
+   *  "Switch promotion type?" confirm guards typed flyer / post content), land on Content where
+   *  PromotionUploadComposer shows the file, and feed it the chosen file. */
+  const pickUploadFromHeader = async (file: File) => {
+    if (!(await requestSwitch("upload"))) return;
+    setUploadError(null);
+    setUploadFile(file);
+    setUploadFileName(file.name);
+    setStepIdx(1);
+  };
 
   const saveUpload = () => {
     if (!hidePropertyPicker && draft.propertyKey === CUSTOM_PROPERTY_KEY) {
@@ -277,6 +290,7 @@ export function PromotionNewModal({
       discardTitle="Discard this promotion?"
       assistantContext={assistantContext}
       assistantScopeKey="New promotion"
+      headerUpload={{ accept: PROMOTION_UPLOAD_ACCEPT, onPick: (file) => void pickUploadFromHeader(file), disabled: flyerBusy || textBusy || uploadBusy, dataAttr: "promotion-new-header-upload", label: "Upload your own" }}
       sidePanel={preview}
       lastLabel={lastLabel}
       lastDisabled={lastDisabled}

@@ -336,7 +336,7 @@ describe("built-in controls that match the applicant form", () => {
     expect(within(listbox).getByText("5", { exact: true })).toBeTruthy();
   });
 
-  it("co-signer built-ins are as editable as any other question, except that name and email always stay", async () => {
+  it("co-signer built-ins are as editable as any other question, name and email included", async () => {
     const sub = { ...createDefaultListingSubmission(), cosignerApplicationConfigMode: "custom" as const, cosignerDisabledStandardApplicationKeys: [] };
     renderEditor(sub, "cosigner");
     await waitWorkspace();
@@ -344,10 +344,10 @@ describe("built-in controls that match the applicant form", () => {
     const nameRow = document.querySelector('[data-attr="application-question-edit-std-personal-full-legal-name"]') as HTMLElement;
     fireEvent.click(nameRow);
     expect(document.querySelector('[data-attr="application-question-label"]')).not.toBeDisabled();
-    // The identity floor: the words and position are the manager's; Required, Type and Delete are not.
-    expect(document.querySelector('[data-attr="application-question-required"]')).toBeNull();
+    // Nothing is locked: Required, Reorder and Delete are offered on name like any other question.
+    expect(document.querySelector('[data-attr="application-question-required"]')).not.toBeNull();
     expect(screen.queryByRole("button", { name: /^Reorder Full legal name/ })).not.toBeNull();
-    expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).toBeNull();
+    expect(nameRow.parentElement?.querySelector('[data-attr="application-question-remove"]')).not.toBeNull();
     fireEvent.click(nameRow);
     jumpRail("employment");
     const employerRow = document.querySelector('[data-attr="application-question-edit-std-employment-employer-employer-address"]') as HTMLElement;
@@ -796,7 +796,7 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     fireEvent.change(document.querySelector('[data-attr="property-application-name"]') as HTMLInputElement, { target: { value: "Quick apply" } });
     jumpRail("sections");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Create application" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(persist).toHaveBeenCalled());
     const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.label === "Quick apply");
     expect(saved?.linkedLeaseTemplateId).toBe(leases.find((l) => l.listingSeedKey === "primary")!.id);
@@ -837,7 +837,7 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     expect(trigger.textContent).toContain("Long-term residents");
     fireEvent.click(trigger);
     const listbox = screen.getByRole("listbox");
-    expect(within(listbox).getAllByRole("option").map((option) => option.textContent)).toEqual(["Long-term residents", "Short-term residents", "Both"]);
+    expect(within(listbox).getAllByRole("option").map((option) => option.textContent?.replace(/^✓/, ""))).toEqual(["Long-term residents", "Short-term residents", "Both"]);
     const short = within(listbox).getByText("Short-term residents");
     fireEvent.pointerDown(short, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(short, { pointerId: 1, clientX: 10, clientY: 10 });
@@ -846,7 +846,7 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     fireEvent.change(document.querySelector('[data-attr="property-application-name"]') as HTMLInputElement, { target: { value: "Weekend stays" } });
     jumpRail("sections");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Create application" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(persist).toHaveBeenCalled());
     const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.label === "Weekend stays");
     expect(saved?.appliesTo).toBe("short_term");
@@ -882,6 +882,13 @@ describe("application promo codes alongside a legacy template waiver", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Promo code" }), { target: { value: "inherit10" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await screen.findByText("INHERIT10");
+    // Evidence: the fee + promo-code step as a manager sees it after the waiver
+    // switch was removed. Set EVIDENCE_DIR to dump it for a screenshot.
+    if (process.env.EVIDENCE_DIR) {
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(process.env.EVIDENCE_DIR, { recursive: true });
+      writeFileSync(`${process.env.EVIDENCE_DIR}/application-fee-promo-codes.body.html`, document.body.innerHTML, "utf8");
+    }
     const post = fetchMock.mock.calls.find(([url, init]) => url === "/api/manager/application-fee-waivers" && init?.method === "POST");
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ code: "INHERIT10", appliesTo: "application", propertyIds: ["mgr-house-1"] });
     jumpRail("sections");
