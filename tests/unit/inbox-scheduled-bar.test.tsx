@@ -74,6 +74,13 @@ describe("scheduled conversation bar", () => {
       expect(document.querySelector('[data-attr="inbox-scheduled-card"] button[aria-label="Cancel send"]')).toBeNull();
     });
 
+    it("hides Cancel send and Send now once the message is no longer scheduled", () => {
+      open({ onSendNow: vi.fn(), scheduled: false });
+      expect(screen.queryByRole("button", { name: "Cancel send" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    });
+
     it("Send now runs the send path and closes the pop-up", async () => {
       const send = vi.fn().mockResolvedValue(undefined);
       open({ onSendNow: send });

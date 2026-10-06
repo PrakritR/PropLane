@@ -131,13 +131,14 @@ describe("useThreadScheduledCards gating", () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/send-now$/), expect.anything());
   });
 
-  it("makes no request under /demo for a manual card: load, cancel and save are all no-ops", async () => {
+  it("under /demo a manual card loads nothing and refuses cancel and save out loud", async () => {
     state.demo = true;
     render(<Harness />);
     await act(async () => { handle.reload?.(); });
     expect(fetchMock).not.toHaveBeenCalled();
     await waitFor(() => expect(state.cardProps).not.toBeNull());
-    await act(async () => { await state.cardProps!.onCancel(); await state.cardProps!.onSaveEdit?.({ subject: "x", body: "y" }); });
+    await expect(state.cardProps!.onCancel()).rejects.toThrow("Not available in the demo.");
+    await expect(state.cardProps!.onSaveEdit!({ subject: "x", body: "y" })).rejects.toThrow("Not available in the demo.");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(state.patchScheduledMessage).not.toHaveBeenCalled();
   });

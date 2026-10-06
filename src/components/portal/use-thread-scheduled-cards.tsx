@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { InboxScheduledCard, InboxScheduledThreadList } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
+import { DEMO_UNAVAILABLE_MESSAGE, sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { automationChannelDefaultsFromSettings, scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
@@ -39,7 +39,8 @@ export function useThreadScheduledCards({
   // hook (its section is not showing) must not reach the API through a stale callback either.
   // `patchScheduledMessage` is deliberately NOT gated: it applies any patch locally under `/demo`, so
   // Cancel and Save on a projected demo reminder take effect in the sandbox instead of silently doing
-  // nothing. Only a disabled hook makes these no-ops.
+  // nothing. A manual row has no local equivalent, so the sandbox refuses out loud rather than
+  // returning quietly — the pop-up treats a silent return as a completed action.
   const live = useCallback(() => enabled && !isDemoModeActive(), [enabled]);
 
   const reloadManual = useCallback(async () => {
@@ -72,7 +73,7 @@ export function useThreadScheduledCards({
   const cancel = useCallback(
     async (item: ScheduledRef) => {
       if (!enabled) return;
-      if (item.source === "manual" && !live()) return;
+      if (item.source === "manual" && !live()) throw new Error(DEMO_UNAVAILABLE_MESSAGE);
       setBusyId(item.id);
       try {
         if (item.source === "manual") {
@@ -116,7 +117,7 @@ export function useThreadScheduledCards({
     ) => {
       if (!enabled) return;
       if (item.source === "manual") {
-        if (!live()) return;
+        if (!live()) throw new Error(DEMO_UNAVAILABLE_MESSAGE);
         const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },

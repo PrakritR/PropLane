@@ -83,12 +83,12 @@ export async function sendAutomationScheduledMessageNow(id: string): Promise<voi
   }
 }
 
-/** A send cannot be faked locally the way a cancel or an edit can, so the sandbox refuses out loud. */
-export const DEMO_SEND_NOW_MESSAGE = "Not available in the demo.";
+/** What the sandbox cannot fake locally it refuses out loud, so a no-op never reads as success. */
+export const DEMO_UNAVAILABLE_MESSAGE = "Not available in the demo.";
 
 /** Send-now for either kind of scheduled message; throws (so the pop-up shows why) instead of going quiet. */
 export async function sendScheduledItemNow(item: { id: string; source: "manual" | "automation" }): Promise<void> {
-  if (isDemoModeActive()) throw new Error(DEMO_SEND_NOW_MESSAGE);
+  if (isDemoModeActive()) throw new Error(DEMO_UNAVAILABLE_MESSAGE);
   if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
   else await sendAutomationScheduledMessageNow(item.id);
 }

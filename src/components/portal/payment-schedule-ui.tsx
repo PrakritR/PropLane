@@ -518,6 +518,7 @@ export function ChargeRemindersModal({
           source="automation"
           channel={editingScheduled.channel}
           channelEditable={editingMessage.status === "scheduled"}
+          scheduled={editingMessage.status === "scheduled"}
           editable={editingMessage.status === "scheduled"}
           emailAvailable={capability.status === "ready" && capability.email?.available === true}
           smsAvailable={capability.status === "ready" && capability.sms?.available === true}

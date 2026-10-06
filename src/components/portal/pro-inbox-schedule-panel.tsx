@@ -317,6 +317,7 @@ export function ManagerInboxSchedulePanel({
           smsAvailable={smsAvailable}
           channelEditable={scheduled.editable && isScheduled}
           source={scheduled.source}
+          scheduled={isScheduled}
           editable={scheduled.editable && isScheduled}
           busy={editBusy}
           presentation="detail"

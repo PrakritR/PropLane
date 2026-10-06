@@ -2274,6 +2274,12 @@ export type InboxScheduledCardProps = {
   /** Sends the scheduled message immediately; omit where a send-now is not offered. */
   onSendNow?: () => void | Promise<void>;
   onSaveEdit?: (next: InboxScheduledSaveEdit) => void | Promise<void>;
+  /**
+   * Whether this send is still pending. Cancel send / Send now only act on a
+   * still-scheduled message, so a surface that can open a sent, cancelled or
+   * failed row must say so rather than offer a destructive confirm that no-ops.
+   */
+  scheduled?: boolean;
   showSendActions?: boolean;
   pinActionsInModalFooter?: boolean;
   onModalFooterChange?: (footer: ReactNode | null) => void;
@@ -2355,6 +2361,7 @@ export function InboxScheduledCard({
   onCancel,
   onSendNow,
   onSaveEdit,
+  scheduled = true,
   showSendActions = true,
   pinActionsInModalFooter = false,
   onModalFooterChange,
@@ -2457,8 +2464,8 @@ export function InboxScheduledCard({
   const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
   const actionBusy = busy || saving;
   const canSave = Boolean(draftBody.trim() && draftChannelsOk);
-  const cancelEnabled = showSendActions;
-  const sendNowEnabled = showSendActions && Boolean(onSendNow);
+  const cancelEnabled = showSendActions && scheduled;
+  const sendNowEnabled = showSendActions && scheduled && Boolean(onSendNow);
 
   /** Cancel send / Send now: run, close the pop-up on success, keep it open with the reason on failure. */
   const runAndClose = async (action: () => void | Promise<void>, fallback: string) => {
