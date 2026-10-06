@@ -837,7 +837,7 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     expect(trigger.textContent).toContain("Long-term residents");
     fireEvent.click(trigger);
     const listbox = screen.getByRole("listbox");
-    expect(within(listbox).getAllByRole("option").map((option) => option.textContent)).toEqual(["Long-term residents", "Short-term residents", "Both"]);
+    expect(within(listbox).getAllByRole("option").map((option) => option.textContent?.replace(/^✓/, ""))).toEqual(["Long-term residents", "Short-term residents", "Both"]);
     const short = within(listbox).getByText("Short-term residents");
     fireEvent.pointerDown(short, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(short, { pointerId: 1, clientX: 10, clientY: 10 });

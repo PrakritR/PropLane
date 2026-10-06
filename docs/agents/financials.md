@@ -1,6 +1,67 @@
 > Moved out of AGENTS.md to keep every-session context lean. This file is the
 > source of truth for its area — READ IT BEFORE changing code in this area.
 
+# Charge receipt authority (payment audit)
+
+The ordinary `/api/portal-household-charges` full-list mirror carries charge edits only. It cannot create `paid`/processing/refunded status, provider or receipt fields, or waiver audit fields. Existing financial rows are immutable through that mirror. Writes to known rows compare stored status and `updated_at`; new IDs insert only, and only rows actually persisted reach reminder/ledger sync. If a later row in the same mirror fails, earlier persisted rows still sync before the request returns an error. A manager's offline receipt uses only `action: "recordOfflinePayment"`, which rechecks owner, workspace, status, and the stored amount before ledger posting.
+
+`unmarkPaid` refuses settled or ambiguous receipts with 409 while there is no accounting-safe reversal; Payments offers no Undo or Move to pending on a recorded charge. Returning a service photo never marks its charge paid. The currently unused short-to-long application-fee projection cancels a clean unpaid obligation without a paid date or provider source, preserves any actual receipt or in-flight source, and does not mint a server waiver audit. A new Checkout cannot begin when a same-manager/property/resident legacy paid fee lacks application identity. The manager application detail receipt is read from the exact application's owned claim, charge and ledger source; a current listing quote never proves payment, and a failed read never appears as “Not received.”
+
+# Source arbitration, classified held funds and payment claims (payment audit)
+
+Migrations `20261004220000` (vendor/service claims), `221000` (source arbitration),
+`230000` (resident claims, see `resident-payments.md`), `231000` (classified
+withdrawal), `232000` (application-claim retention) and `20261005120000`
+(reconcile — the cross-rail double-pay trigger and the `estimate_visit_bid_id`
+visit-fee marker govern BOTH claim functions) are additive and **active**: every
+money writer below is on them, behind no flag. There is no mixed-version mode to
+support, so a new writer that does not claim, credit a verified source, and
+reserve before the provider call is a regression, not an alternative. The
+routines are service-role only. Legacy `status='held'` rows and any hold with no
+`source_verified_at` stay out of the new release and refund routines — they are
+refused (409) pending exact provider evidence, never repaired in place; do not
+infer source principal, refund history or recipient net from such a row's
+remaining amount.
+
+- **One source per captured payment.** Money enters the books only through a
+  verified source: the exact Stripe Charge (captured, unrefunded, exact amount,
+  no refund history before first settlement) behind a PaymentIntent/session.
+  Callers: `household-captured-source.server.ts` (card verify, manual ACH,
+  autopay, Checkout), `vendor-captured-source.server.ts`, the application-fee
+  fulfillment. RPCs: `verify_platform_hold_source`, `credit_verified_platform_hold`,
+  `credit_verified_platform_income_mirror`. A failed source credit is review/409;
+  nothing swallows it and nothing marks a charge paid before it.
+- **`classified_held` isolates new money.** A NEW verified source row is
+  `platform_payment_holds.status = 'classified_held'` so the legacy
+  `status='held'` transfer scanners never see it; old rows keep `held` and their
+  history, no bulk conversion. The product still says Held / available / unknown.
+  `reject_legacy_classified_balance_debit` fences a legacy debit on an account
+  with classified backing; completed legacy replays are preserved.
+- **Reserve, then call the provider.** Release, refund, recovery and withdrawal
+  reserve under the hold lock first (`reserve_platform_hold_transfer`,
+  `reserve_platform_money_refund`, `reserve_platform_owner_recovery`,
+  `reserve_platform_classified_withdrawal`). An unknown or errored provider
+  outcome keeps the reservation and the source; only exact provider metadata
+  or the original idempotency key reconciles it. Absent results stay review.
+- **Funds readers fail visibly.** `read_platform_hold_owner_funds` and
+  `readPayoutSnapshot` page exhaustively and propagate failures; the manager and
+  vendor payout balance routes answer 503/409 for missing credentials or an
+  inaccessible saved account, never a zeroed snapshot. Cards, Schedule and the
+  Withdraw maximum use `withdrawableCents`, never the held-inclusive total.
+  Offline receipts never enter wallet, held or withdrawable.
+- **Vendor/service claims.** Approve & pay for a service claims it first
+  (`claim_work_order_vendor_payment`); the default card/ACH path returns an
+  embedded Checkout client secret (settled only by the verified webhook/verify),
+  the balance path moves through `payVendorFromBalance` and releases the claim only
+  on a clean insufficient-balance answer. The payable is the accepted labor cost
+  from the stored row/bid, never the request body. Completion goes through
+  `complete_work_order_record` (stored owner kept).
+- **Account deletion.** Source, claim and refund-evidence tables retain exact
+  terms with identity detached; classify each in `account-purge-manifest.ts`.
+- **Webhook.** Events carrying `source_arbitration_v` route to the coherent
+  handlers in `api/stripe/webhook/route.ts` before any legacy handler and fail
+  the delivery when settlement or the source credit fails.
+
 # Financials Phase 0: chart of accounts + write-through ledger
 
 **`public.chart_of_accounts` is the runtime source of truth for account
@@ -43,6 +104,31 @@ receipt can retry an interrupted ledger write. Processing and partially paid
 charges are refused by this full-receipt path. The client applies the returned
 charge only after success, without sending a replacement snapshot.
 
+**One refund rail decision, made by the payment.** Every entrypoint that sends a paid
+household charge back — Refund charge, Return deposit, the uncountersigned-lease
+auto-refund — goes through `refundPaidHouseholdCharge`
+(`src/lib/household-charge-refund-rail.server.ts`), never `stripe.refunds.create`
+directly. The rail is picked by the hold's **`source_allocation_mode`**, not by whether a
+`platform_payment_holds` row exists — a destination charge also gets a hold row once
+`verify_platform_hold_source` stamps it.
+
+- **Central capture** (`source_allocation_mode = 'hold'`, verified): refunded through
+  `runReservedPlatformMoneyRefund` — no `reverse_transfer` (Stripe rejects it on a charge
+  with no transfer), the exact component reserved, the recipient's money debited exactly
+  once, and the `platform_refund_attempt` metadata the webhook settles on.
+- **Destination charge** (no hold row, or `source_allocation_mode = 'destination'`): keeps
+  `reverse_transfer: true`, or the refund comes out of PropLane's balance while the manager
+  keeps money they no longer hold. `handleStripeRefund` scopes its reservation requirement
+  to `'hold'` holds for the same reason, so this books through the legacy ledger path
+  instead of failing the event forever.
+- **Pre-arbitration hold** (a hold row with no `source_verified_at` / no frozen
+  components): refused up front with a 409 and
+  `PRE_ARBITRATION_REFUND_REVIEW_MESSAGE`, before any Stripe call.
+
+Terminal refusals throw `HouseholdChargeRefundReviewError`, which the routes answer as 409
+rather than a generic 500. A refund created outside the reservation for a `'hold'` capture
+wedges the owner's hold behind unresolved refund evidence — do not add a fourth path.
+
 **Deleting a charge deletes its ledger line — and only that line.**
 `deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
 `ledger_entries` row with that `source_charge_id`, never its `payment` / `refund`
@@ -77,6 +163,8 @@ Phase 3 excludes non-income accounts properly.
 
 **Reports** — `src/lib/reports/queries/gl-reports.ts`: `queryTrialBalance`, `queryBalanceSheet`, `queryGeneralLedger`, `queryCashFlowStatement` (simplified bank-account view). Registered in `MANAGER_REPORT_IDS`, `runManagerReport`, Finances portal tabs, and `run_financial_report` AI tool.
 
+Balance Sheet reads the same owner, property, and as-of GL totals as Trial Balance. It includes the signed balance of still-open income and expense accounts as one “Unclosed earnings” equity row; closing journals move that balance into posted equity, so closed nominal accounts add zero. A true GL imbalance remains visible rather than being plugged.
+
 **Historical repair** — `POST /api/admin/backfill-gl` (admin-gated) sweeps existing ledger + expense rows through the posting service once per environment; never on page load.
 
 **Deploy:** `npm run db:push` for `gl_journal_*` tables before GL posting will succeed in dev/staging/production.
@@ -85,7 +173,7 @@ Phase 3 excludes non-income accounts properly.
 
 **Schema** — `supabase/migrations/20260712100000_stripe_payouts_disputes.sql`: `stripe_payouts` (Connect bank payouts), `stripe_disputes`, plus `profiles.stripe_connect_charges_enabled` / `stripe_connect_payouts_enabled` cache.
 
-**Ledger fee capture** — `src/lib/stripe-ledger-fees.ts` populates `stripe_fee_cents`, `net_cents`, `axis_fee_cents`, `stripe_charge_id` on payment ledger rows after checkout. On a destination charge the manager's row carries `stripe_fee_cents = 0` and `net_cents = charge.amount − application_fee` (the destination transfer) — Stripe's fee is PropLane's, not the manager's. When Connect + bank is not ready, the same charge sits on the platform as a `platform_payment_holds` row and is transferred once identity + bank is ready (`account.updated`). See [`resident-payments.md`](resident-payments.md).
+**Ledger fee capture** — `src/lib/stripe-ledger-fees.ts` populates `stripe_fee_cents`, `net_cents`, `axis_fee_cents`, `stripe_charge_id` on payment ledger rows after checkout. On a legacy destination charge the manager's row carries `stripe_fee_cents = 0` and `net_cents = charge.amount − application_fee` (the destination transfer) — Stripe's fee is PropLane's, not the manager's. On a **platform capture** (every marked `source_arbitration_v` household payment) `stripe_charge_id` is always the PaymentIntent's latest charge (card and manual ACH alike, stamped by the central source credit). The money is captured on PropLane's platform, so Stripe's own fee is PropLane's cost and **never** lands on the manager's book: each payment row carries the capture's FROZEN per-charge `recipient_net_cents` as `net_cents` (matching what `releaseVerifiedPlatformHoldsForOwner` pays the owner) and `stripe_fee_cents` = only the fee the owner bears under the frozen `source_fee_payer`: PropLane's service fee (which covers processing) when it is `manager`, a known 0 when the resident or PropLane absorbs it. **Despite the column name that figure is not Stripe's processing fee** — on a central capture Stripe's own cost stays with the platform and is never attributed to the manager, so do not sum `stripe_fee_cents` as a payment-processing cost without reading the fee payer. A capture covering a whole cart writes each charge's own component, keyed on `source_charge_id`. Until those frozen terms are verified both stay NULL (unknown) — never 0, never gross, and never the platform's net. When Connect + bank is not ready, the same charge sits on the platform as a `platform_payment_holds` row and is transferred once identity + bank is ready (`account.updated`). See [`resident-payments.md`](resident-payments.md).
 
 **Webhook handlers** — `src/lib/stripe-webhook-financials.ts` + extended `src/app/api/stripe/webhook/route.ts`:
 - `account.updated` → Connect readiness on profiles + drain leftover `platform_payment_holds` when `connectAccountReadyForAchPayouts`
@@ -103,22 +191,10 @@ Phase 3 excludes non-income accounts properly.
 
 **Profile → Payouts** (`/portal/profile?tab=payouts`, vendor twin under
 `Vendor → Settings → Payouts`, `src/components/portal/portal-payouts-settings-page.tsx`)
-is now the one payout UI — balance with a Withdraw action (Standard or
-Instant, `payout-withdraw-sheet.tsx`), Set up steps until ready, bank
-accounts, the payout schedule, and history. `/portal/payments/payouts` and
-the vendor `financials/payouts` tab (`portal-payouts-panel.tsx`) still exist
-and share the same Withdraw sheet and API routes; every other entry point
-(the Payments setup card, the payment-settings modal's Payouts row) now
-opens Profile → Payouts instead. Stripe's Express Dashboard and Account
-Links are gone; identity and bank linking are Stripe's embedded
-`account_onboarding` / `account_management` components mounted inside
-PropLane's own modal today (a Verify/Add-bank props seam exists for the
-in-house forms PLAN-0920-1500 still has to build — see
-[`stripe-connect-ach-setup.md`](../stripe-connect-ach-setup.md)).
-**Payments → Payouts** (`/portal/payments/payouts`, vendor twin
-`/vendor/financials/payouts`) is the one payout UI — balance, a single "Pay
-out" action (Standard or Instant), the bank card, the payout schedule, and
-history. Stripe's Express Dashboard and Account Links are gone. Identity
+is the payout settings UI — balance, Withdraw (Standard to a payable bank or
+Instant to an eligible debit card), bank accounts, schedule and history.
+The old manager Payments and vendor Financials payout tabs route to this page.
+Stripe's Express Dashboard and Account Links are gone. Identity
 verification for a **new** account is PropLane's own in-app form, driven by
 `account.requirements.currently_due` (PLAN-0920-1500 Part C — see
 [`stripe-connect-ach-setup.md`](../stripe-connect-ach-setup.md) for the full
@@ -132,16 +208,23 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   estimates, `settings.payouts.schedule` ↔ our schedule shape, next-payout-date,
   and the history row normaliser.
 - **Platform hold (PLAN-0923-1041)** — `platform_payment_holds` plus
-  `src/lib/stripe-platform-hold.ts` / `.server.ts`. Ready Connect
-  (`transfers` active AND `payouts_enabled`) is a destination charge —
-  money goes straight to that person. No bank yet: charge the platform,
-  credit a hold, transfer the leftover the moment they become ready.
-  Withdraw never spends a hold. Snapshot: `availableCents` = hold +
-  Stripe; `withdrawableCents` = Stripe only.
+  `src/lib/stripe-platform-hold.ts` / `.server.ts`. A captured payment may
+  remain physically held on the platform until its exact source is eligible
+  for release. Release to Connect is a source movement, never a bank payout;
+  a later Connect payout has its own history row. Withdraw never spends a
+  hold. `availableCents` is a legacy combined display value; all withdrawal
+  maxima use the signed Stripe `withdrawableCents` (clamped to zero for the
+  action). The UI shows `heldCents`, `releasePendingCents`, provider deficit,
+  and confirmed `onTheWayCents` separately. Manager recovery owed comes from
+  succeeded funded debt less actual recovery; reserved recovery is a separate
+  noncash fact and does not reduce that debt. A pending unreconciled in-app
+  payout claim disables another withdrawal.
 - **Stripe/DB reads and writes** — `src/lib/stripe-payouts.server.ts`:
-  `readPayoutSnapshot` (balance, bank/eligibility from the external account's
-  `available_payout_methods`, setup state from `account.requirements`,
-  schedule, last-50 history, held vs withdrawable); `createInAppPayout` claims a pending
+  `readPayoutSnapshot` (balance, setup state from `account.requirements`,
+  schedule, last-50 history, held vs withdrawable); the separate exact-owner
+  bank list is the destination authority. An unknown or failed bank-list read
+  disables money actions; a `new` bank can be payable when the provider says
+  so. `createInAppPayout` claims a pending
   `stripe_payouts` row BEFORE calling Stripe — the same pattern as
   `payoutVendorForWorkOrder` (`src/lib/stripe-vendor-payout.ts`) — so a
   double-click loses the insert race on the partial unique index
@@ -162,7 +245,7 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   same `profiles.stripe_connect_account_id` column).
 - A newly created Connect account defaults to **automatic weekly payouts
   (Friday)** (`createAxisConnectAccount` in `src/lib/stripe-connect.ts`); the
-  in-app "Pay out" button works regardless of the schedule interval.
+  in-app **Withdraw** action works regardless of the schedule interval.
 - **Identity verification** — `src/lib/stripe-connect-identity.server.ts`:
   `getIdentityRequirements` maps Stripe's `currently_due`/`past_due` to a
   typed field list (an unmapped key sets `fallbackToEmbedded`, never dropped
@@ -244,10 +327,11 @@ claim; a failed payout does NOT, because the money already left the platform
 balance for the recipient's own Connect account by then (real, retryable money
 there, not PropLane's to reverse).
 
-**Funding**: resident household-charge checkout is the one caller that can
-request `fundingModel: "platform_ledger"` on `createAxisAchCheckoutSession`
-(see resident-payments.md) — application fees, autopay, and vendor-invoice-pay
-checkout never do, so they are unaffected by this flag.
+**Funding**: `fundingModel: "platform_ledger"` on `createAxisAchCheckoutSession`
+is historical only — no marked capture requests it, and the resident claim terms
+reject a request that does. Owner of what each funding model means for a
+household payment: [`resident-payments.md`](resident-payments.md) § Historical
+household funding models.
 
 **Compliance note (see `.lavish/night/research.md` § Recommended money
 architecture):** as long as this ledger stays a strict mirror of real Stripe
@@ -447,7 +531,7 @@ a rate card, and a category that cannot be sourced is 0 with the reason in
 | --- | --- |
 | Gross rent | `ledger_entries` payment rows with `category_code = rent_income` (every rent-kind charge maps there via `categoryCodeForChargeKind`), by `posted_date`. |
 | Other income | `ledger_entries` payment rows in every other **income** account (late fees, utilities, application/move-in fees, manual income). Liability accounts (security deposits) are excluded, as in `queryIncomeStatement`. |
-| Processing fees | Fees the MANAGER bore, per payment row: `stripe_fee_cents` (0 on today's Connect destination charges) plus the retained application fee, `amount_cents − net_cents` when positive. When the resident paid the service fee, `net_cents` equals the charge and the row contributes 0; a row Stripe has not enriched (`net_cents` null) contributes 0. Never the resident's fee. |
+| Processing fees | Fees the MANAGER bore, per payment row: `stripe_fee_cents` (0 on a legacy Connect destination charge; on a platform capture it is the owner-borne fee — § Ledger fee capture) plus the retained application fee, `amount_cents − net_cents` when positive. When the resident paid the service fee, `net_cents` equals the charge and the row contributes 0; a row Stripe has not enriched (`net_cents` null) contributes 0. Never the resident's fee. |
 | Vendor payouts | `vendor_payouts` rows with `status = 'paid'`, dated by `updated_at` (when the transfer settled); property via the work order's `property_id` / `assigned_property_id`. |
 | Communication | `manager_comms_usage_events.total_cents` per UTC calendar month above the plan's included allowance (`allowances.ts`, via `getEffectiveManagerSkuTier`); 0 while within it. Portfolio-wide, so it sits on the "Portfolio (unassigned)" row and is 0 when a property filter is active; 0 with a note when the plan cannot be read. |
 | Expenses | `manager_expense_entries` by `expense_date` (includes expenses created from services and paid bills). |

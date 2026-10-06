@@ -13,9 +13,26 @@ type Row = Record<string, unknown>;
 
 function makeDb(opts: { ownerUserId: string | null }) {
   const cache: Row[] = [];
+  let nextVersion = 0;
+  let appliedVersion = 0;
   return {
     cache,
     client: {
+      async rpc(name: string, args: Record<string, unknown>) {
+        if (name === "begin_payout_destination_cache_refresh") return { data: ++nextVersion, error: null };
+        if (name === "finish_payout_destination_cache_refresh") {
+          const version = Number(args.p_version);
+          if (version <= appliedVersion) return { data: false, error: null };
+          cache.splice(0, cache.length, ...(args.p_destinations as Row[]).map((row) => ({
+            owner_user_id: args.p_owner_user_id, stripe_external_account_id: row.id,
+            kind: row.kind, label: row.label, last4: row.last4,
+            status: row.status, is_default: row.is_default,
+          })));
+          appliedVersion = version;
+          return { data: true, error: null };
+        }
+        throw new Error(`unexpected rpc ${name}`);
+      },
       from(table: string) {
         if (table === "profiles") {
           return {
@@ -52,7 +69,7 @@ function makeDb(opts: { ownerUserId: string | null }) {
 function makeStripe(externalAccounts: Stripe.ExternalAccount[]) {
   return {
     accounts: {
-      retrieve: vi.fn().mockResolvedValue({ id: "acct_1", external_accounts: { data: externalAccounts } }),
+      retrieve: vi.fn().mockResolvedValue({ id: "acct_1", metadata: { axis_user_id: "owner-1" }, external_accounts: { data: externalAccounts } }),
     },
   } as unknown as Stripe;
 }

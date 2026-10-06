@@ -1,20 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const notifyManagerFromAgent = vi.fn();
-const markApplicationFeePaidFromStripeSession = vi.fn();
+const fulfillClaimedApplicationFeePayment = vi.fn();
+const promoteClaimedApplicationAfterFee = vi.fn();
 const getStripe = vi.fn();
 
 vi.mock("@/lib/agent-notify.server", () => ({
   notifyManagerFromAgent: (...args: unknown[]) => notifyManagerFromAgent(...args),
 }));
 
-vi.mock("@/lib/stripe-application-fee", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/stripe-application-fee")>("@/lib/stripe-application-fee");
-  return {
-    ...actual,
-    markApplicationFeePaidFromStripeSession: (...args: unknown[]) => markApplicationFeePaidFromStripeSession(...args),
-  };
-});
+vi.mock("@/lib/application-fee-fulfillment.server", () => ({
+  fulfillApplicationFeePayment: (...args: unknown[]) => fulfillClaimedApplicationFeePayment(...args),
+  promoteClaimedApplicationAfterFee: (...args: unknown[]) => promoteClaimedApplicationAfterFee(...args),
+}));
 
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => getStripe(),
@@ -91,6 +89,8 @@ describe("reportOrphanedApplicationFeePayment", () => {
     customer_email: "applicant@example.com",
     metadata: {
       purpose: "rental_application_fee",
+      application_id: "app_orphan_1",
+      attempt_token: "attempt-1",
       property_id: "prop-1",
       resident_email: "applicant@example.com",
       manager_user_id: "mgr-1",
@@ -107,11 +107,11 @@ describe("reportOrphanedApplicationFeePayment", () => {
         },
       },
     });
-    markApplicationFeePaidFromStripeSession.mockResolvedValue({
-      ok: true,
+    fulfillClaimedApplicationFeePayment.mockImplementation(async (_db, _stripe, paidSession) => ({
       chargeId: "hc_app_fee_1",
-      created: true,
-    });
+      ...(!paidSession.metadata?.application_id ? { legacy: true } : {}),
+    }));
+    promoteClaimedApplicationAfterFee.mockResolvedValue({ ok: true, promoted: false, reason: "no_draft" });
     notifyManagerFromAgent.mockResolvedValue({ delivered: true, suppressed: false });
   });
 
@@ -171,7 +171,7 @@ describe("reportOrphanedApplicationFeePayment", () => {
       chargeId: "hc_app_fee_1",
       reason: undefined,
     });
-    expect(markApplicationFeePaidFromStripeSession).toHaveBeenCalled();
+    expect(fulfillClaimedApplicationFeePayment).toHaveBeenCalled();
     expect(notifyManagerFromAgent).toHaveBeenCalledWith(
       db,
       expect.objectContaining({
@@ -182,7 +182,8 @@ describe("reportOrphanedApplicationFeePayment", () => {
     );
   });
 
-  it("skips notify when a submitted application already exists", async () => {
+  it("skips notify when the exact source application was already submitted", async () => {
+    promoteClaimedApplicationAfterFee.mockResolvedValueOnce({ ok: true, promoted: false, reason: "already_submitted" });
     const db = makeDb({ hasSubmitted: true });
     const result = await reportOrphanedApplicationFeePayment(db, {
       sessionId: "cs_orphan_1",
@@ -205,6 +206,19 @@ describe("reportOrphanedApplicationFeePayment", () => {
       expectedEmail: "other@example.com",
     });
     expect(result).toMatchObject({ ok: false, status: 403 });
-    expect(markApplicationFeePaidFromStripeSession).not.toHaveBeenCalled();
+    expect(fulfillClaimedApplicationFeePayment).not.toHaveBeenCalled();
+  });
+
+  it("repairs only the bound financial source for an earlier paid session", async () => {
+    getStripe.mockReturnValue({ checkout: { sessions: { retrieve: vi.fn().mockResolvedValue({
+      ...session, metadata: { ...session.metadata, application_id: undefined, attempt_token: undefined },
+    }) } } });
+    const result = await reportOrphanedApplicationFeePayment(makeDb(), {
+      sessionId: session.id, expectedEmail: "applicant@example.com",
+    });
+    expect(result).toMatchObject({ ok: true, notified: false, chargeId: "hc_app_fee_1", reason: "suppressed" });
+    expect(fulfillClaimedApplicationFeePayment).toHaveBeenCalledOnce();
+    expect(promoteClaimedApplicationAfterFee).not.toHaveBeenCalled();
+    expect(notifyManagerFromAgent).not.toHaveBeenCalled();
   });
 });

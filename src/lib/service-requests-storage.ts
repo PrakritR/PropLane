@@ -5,7 +5,7 @@ import type { WorkAssignee } from "@/lib/work-assignment";
 import {
   createManagerCharge,
   deleteHouseholdCharge,
-  markHouseholdChargePaid,
+  recordHouseholdChargeOfflinePayment,
   parseMoneyAmount,
   readChargesForManagerResident,
   updateHouseholdChargeAmount,
@@ -419,17 +419,19 @@ export function denyServiceRequest(id: string, managerNote?: string): void {
   mirrorServiceRequestToServerBestEffort(all[idx]!);
 }
 
-export function markServiceRequestServicePaid(id: string): void {
+export async function markServiceRequestServicePaid(
+  id: string,
+  receipt: { paidAt: string; method: "Cash" | "Check" | "Bank transfer" | "Other"; note: string },
+): Promise<boolean> {
   const all = readAll();
   const idx = all.findIndex((r) => r.id === id);
-  if (idx === -1) return;
+  if (idx === -1) return false;
   const row = all[idx]!;
-  if (row.serviceChargeId) {
-    markHouseholdChargePaid(row.serviceChargeId, row.managerUserId ?? null);
-  }
+  if (!row.serviceChargeId || !(await recordHouseholdChargeOfflinePayment(row.serviceChargeId, row.managerUserId ?? null, receipt))) return false;
   all[idx] = { ...row, servicePaid: true, servicePaidAt: new Date().toISOString() };
   writeAll(all);
   mirrorServiceRequestToServerBestEffort(all[idx]!);
+  return true;
 }
 
 export function markServiceRequestDepositPaid(id: string): void {
@@ -491,16 +493,11 @@ export function submitReturnPhoto(id: string, photoDataUrl: string): void {
   const idx = all.findIndex((r) => r.id === id);
   if (idx === -1) return;
   const row = all[idx]!;
-  if (row.serviceChargeId && !isServiceRequestFeePaid(row)) {
-    markHouseholdChargePaid(row.serviceChargeId, row.managerUserId ?? null);
-  }
   all[idx] = {
     ...row,
     status: "returned",
     returnPhotoDataUrl: photoDataUrl,
     returnedAt: new Date().toISOString(),
-    servicePaid: true,
-    servicePaidAt: row.servicePaidAt ?? new Date().toISOString(),
   };
   writeAll(all);
   mirrorServiceRequestToServerBestEffort(all[idx]!);

@@ -8,6 +8,7 @@ import {
 } from "@/lib/stripe-resident-customer";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import {
   assertTestWorkspaceProviderEffectAllowed,
   TestWorkspaceProviderDisabledError,
@@ -81,17 +82,20 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
+    const { data: profile } = await db
+      .from("profiles")
+      .select("full_name, role")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!(await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role }))) {
+      return NextResponse.json({ error: "Resident access required." }, { status: 403 });
+    }
     await assertTestWorkspaceProviderEffectAllowed({
       userId: user.id,
       kind: "payment",
       summary: "Saved payment method setup refused for a test workspace.",
       db,
     });
-    const { data: profile } = await db
-      .from("profiles")
-      .select("full_name")
-      .eq("id", user.id)
-      .maybeSingle();
 
     const stripe = getStripe();
     const customerId = await ensureResidentStripeCustomerId(
@@ -102,22 +106,26 @@ export async function POST(req: Request) {
       profile?.full_name,
     );
 
+    if (kind === "ach") {
+      const setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        usage: "off_session",
+        payment_method_types: ["us_bank_account"],
+        payment_method_options: { us_bank_account: { verification_method: "microdeposits" } },
+        metadata: { resident_user_id: user.id, resident_payment_flow: "saved_bank" },
+      });
+      if (!setupIntent.client_secret) {
+        return NextResponse.json({ error: "Stripe did not return a client secret." }, { status: 500 });
+      }
+      return NextResponse.json({ clientSecret: setupIntent.client_secret, setupIntentId: setupIntent.id, kind });
+    }
+
     const session = await stripe.checkout.sessions.create({
       ui_mode: "embedded",
       mode: "setup",
       customer: customerId,
       return_url: returnUrl,
-      ...(kind === "card"
-        ? { payment_method_types: ["card"] }
-        : {
-            payment_method_types: ["us_bank_account"],
-            payment_method_options: {
-              us_bank_account: {
-                financial_connections: { permissions: ["payment_method"] },
-                verification_method: "automatic",
-              },
-            },
-          }),
+      payment_method_types: ["card"],
     } as unknown as Parameters<typeof stripe.checkout.sessions.create>[0]);
 
     if (!session.client_secret) {

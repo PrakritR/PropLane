@@ -6,6 +6,8 @@ import {
   type DepositReturnContext,
 } from "@/lib/deposit-return";
 import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
+import { HouseholdChargeRefundReviewError,
+  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -111,19 +113,17 @@ export async function POST(req: Request) {
 
     const attempt = Number(charge.depositReturnAttempts ?? 0) + 1;
     const stripe = getStripe();
-    const refund = await stripe.refunds.create(
-      {
-        charge: decision.stripeChargeId,
-        amount: decision.amountCents,
-        // The deposit was collected as a destination charge into the manager's connected account,
-        // so the transfer must be reversed too. Without this the money comes out of PropLane's
-        // platform balance and the manager silently keeps a deposit they no longer hold.
-        reverse_transfer: true,
-        metadata: { proplane_charge_id: chargeId, kind: "security_deposit_return" },
-      },
+    // One rail decision, made by the payment: a central platform capture is
+    // refunded through its reservation, a legacy destination charge reverses
+    // its transfer. See `household-charge-refund-rail.server.ts`.
+    const refund = await refundPaidHouseholdCharge(stripe, db, {
+      chargeId,
+      stripeChargeId: decision.stripeChargeId,
+      amountCents: decision.amountCents,
       // Two clicks, or a retry after a timeout that actually succeeded, must not send it twice.
-      { idempotencyKey: depositReturnIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }) },
-    );
+      idempotencyKey: depositReturnIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }),
+      metadata: { proplane_charge_id: chargeId, kind: "security_deposit_return" },
+    });
 
     const now = new Date().toISOString();
     await db.from("portal_household_charge_records").upsert(
@@ -145,11 +145,14 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      refundId: refund.id,
+      refundId: refund.refundId,
       amountCents: decision.amountCents,
       remainingCents: decision.remainingAfterCents,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof HouseholdChargeRefundReviewError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: "Could not return the deposit." }, { status: 500 });
   }
 }

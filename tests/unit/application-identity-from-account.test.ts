@@ -196,6 +196,12 @@ vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({
   validateResidentApplicationRowForPersistence: async () => ({ ok: true }),
 }));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
+// The fee guard (own coverage in application-fee-submit-guard.test.ts) is recorded, so the test can pin which
+// identity it was asked to verify the fee claim for: the account's, never the body's.
+const feeGuardRows = vi.hoisted(() => [] as Array<{ email?: string }>);
+vi.mock("@/lib/rental-application/application-fee-submit-guard.server", () => ({
+  authorizeApplicationFeeSubmission: async (_db: unknown, row: { email?: string }) => { feeGuardRows.push({ email: row.email }); return { ok: true }; },
+}));
 
 import { POST } from "@/app/api/manager-applications/route";
 
@@ -236,8 +242,16 @@ const storedRow = () => stored()?.row_data as Row & { application?: Row };
 describe("a submission whose template has no Full legal name or Email question", () => {
   beforeEach(() => {
     state.records = [];
+    feeGuardRows.length = 0;
     state.user = { id: "resident-1", email: ACCOUNT_EMAIL };
     state.profile = { id: "resident-1", email: ACCOUNT_EMAIL, role: "resident", full_name: "Jane Applicant" };
+  });
+
+  it("checks the application fee claim against the account's email, not an empty or body email", async () => {
+    const res = await postUpsert(submittedRow());
+    expect(res.status).toBe(200);
+    expect(feeGuardRows.length).toBeGreaterThan(0);
+    expect(feeGuardRows.every((r) => r.email === ACCOUNT_EMAIL)).toBe(true);
   });
 
   it("still submits, and records the account's name and email on the row, the column and the answers", async () => {

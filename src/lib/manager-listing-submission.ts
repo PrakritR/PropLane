@@ -1467,6 +1467,25 @@ export function resolveOfferedLeaseTermsOrDefault(
 }
 
 /**
+ * A submission that is about to be written with an EMPTY lease-term list gets the terms the listing effectively
+ * offers (`resolveOfferedLeaseTermsOrDefault`). A property that never stored a submission is read from defaults
+ * whose `allowedLeaseTerms` is `[]`; the server refuses any write of that list ("Choose at least one lease term
+ * this property offers"), so the first Edit / Set as default on such a property failed with a save error. This
+ * writes down what the screens already showed (Long term for a listing that never chose), never anything wider.
+ * A submission that names no list at all is a legacy row and is returned untouched.
+ */
+export function withOfferedLeaseTermsFilled<T extends ManagerListingSubmissionV1>(sub: T): T {
+  if (!Array.isArray(sub.allowedLeaseTerms)) return sub;
+  if (resolveAllowedLeaseTerms(sub).length > 0) return sub;
+  const terms = resolveOfferedLeaseTermsOrDefault(sub);
+  return {
+    ...sub,
+    allowedLeaseTerms: terms,
+    leaseTermsBody: sub.leaseTermsBody?.trim() ? sub.leaseTermsBody : formatLeaseTermsBodyFromAllowed(terms),
+  };
+}
+
+/**
  * The listing fields that change when a manager ticks which lease types a property offers ("Lease terms").
  * Ticked types are what the applicant's Lease term select offers. An older listing may still carry the
  * retired Airbnb stay or fixed 3/6/9/12 lengths: they are kept untouched while their type stays ticked, so

@@ -80,7 +80,8 @@ export function ManagerOutgoingInvoicesPanel({
   const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const scoped = Boolean(vendorId);
-  const [source, setSource] = useState("balance");
+  const [source, setSource] = useState("bank");
+  const [balanceEnabled, setBalanceEnabled] = useState(false);
   const [checkout, setCheckout] = useState<OutgoingInvoice | null>(null);
   const [actionRow, setActionRow] = useState<OutgoingInvoice | null>(null);
   const [action, setAction] = useState<"schedule" | "offline">("schedule");
@@ -107,9 +108,9 @@ export function ManagerOutgoingInvoicesPanel({
   useEffect(() => setTab(tabId), [tabId]);
   useEffect(() => {
     let active = true;
-    fetch("/api/portal/payment-preferences").then(response => response.json()).then(data => { if (active) setSource(data.defaultPaymentSource === "bank" ? "bank" : "balance"); }).catch(() => {});
+    fetch("/api/portal/payment-preferences").then(response => response.json()).then(data => { if (active && balanceEnabled) setSource(data.defaultPaymentSource === "balance" ? "balance" : "bank"); }).catch(() => {});
     return () => { active = false; };
-  }, [vendorUserId]);
+  }, [vendorUserId, balanceEnabled]);
   useEffect(() => {
     const invoiceId = pay?.id;
     if (!invoiceId) return;
@@ -122,9 +123,11 @@ export function ManagerOutgoingInvoicesPanel({
     let active = true;
     fetch("/api/portal/proplane-balance").then(response => response.json()).then(data => {
       if (!active) return;
+      setBalanceEnabled(Boolean(data?.enabled));
+      if (!data?.enabled) setSource("bank");
       const cents = data?.enabled ? Number(data.availableCents ?? 0) : 0;
       setAvailableBalanceCents(Number.isFinite(cents) ? cents : 0);
-    }).catch(() => { if (active) setAvailableBalanceCents(0); });
+    }).catch(() => { if (active) { setBalanceEnabled(false); setSource("bank"); setAvailableBalanceCents(0); } });
     return () => { active = false; };
   }, [pay?.id]);
   useEffect(() => {
@@ -191,9 +194,9 @@ export function ManagerOutgoingInvoicesPanel({
     await refresh(); return true;
   };
   const recordHref = (id: string) => outgoingPaymentRecordHref(basePath, id);
-  const plannedMethod = source === "bank" ? "Bank" : "PropLane balance";
+  const plannedMethod = source === "bank" ? "Card or bank account" : "PropLane balance";
   const methodOf = (row: OutgoingInvoice) => row.status === "paid"
-    ? (row.paidFrom === "balance" ? "PropLane balance" : row.paidFrom === "stripe" ? "Bank" : row.offlineMethod || "Outside PropLane")
+    ? (row.paidFrom === "balance" ? "PropLane balance" : row.paidFrom === "stripe" ? "Card or bank account" : row.offlineMethod || "Outside PropLane")
     : plannedMethod;
   const dateOf = (row: OutgoingInvoice) => row.status === "paid" ? row.paidAt : row.status === "scheduled" ? row.scheduledFor : dueIso(row);
 
@@ -222,7 +225,7 @@ export function ManagerOutgoingInvoicesPanel({
     <ManagerAddOutgoingPaymentModal open={picker} onClose={() => setPicker(false)} managerUserId={managerUserId} initialVendorId={vendorId} basePath={basePath} onPayVendorInvoice={invoiceId => { const match = rows.find(row => row.id === invoiceId); if (match) setPay(match); }} onSubmitted={() => void refresh()} />
     <PortalDialog open={Boolean(pay)} onClose={() => { setPay(null); setActionError(""); }} title="Pay vendor" primaryAction={{ label: pay ? `Pay ${money(pay.totalCents)}` : "Pay", disabled: Boolean(pay && source === "balance" && availableBalanceCents !== null && pay.totalCents > availableBalanceCents), onClick: async () => {
       if (!pay) return;
-      if (source === "bank") { setCheckout(pay); setPay(null); return; }
+      if (source === "bank" || !balanceEnabled) { setCheckout(pay); setPay(null); return; }
       const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(pay.id)}/pay-from-balance`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
@@ -230,7 +233,7 @@ export function ManagerOutgoingInvoicesPanel({
         setActionError(data.error || "Could not pay invoice."); return;
       }
       setPay(null); showToast("Payment sent."); await refresh();
-    } }}><div className="space-y-4"><div className="flex justify-between"><span>{pay?.vendorName}</span><strong>{money(pay?.totalCents ?? 0)}</strong></div>{destination ? <div className="flex justify-between"><span>Paid to</span><span>{destination}</span></div> : null}<FieldSingleSelect label="Pay from" value={source} onChange={setSource} options={[{ value: "balance", label: availableBalanceCents === null ? "PropLane balance" : `PropLane balance · ${money(availableBalanceCents)} available` }, { value: "bank", label: "Bank account" }]} />{pay && source === "balance" && availableBalanceCents !== null && pay.totalCents > availableBalanceCents ? <p role="status" className="text-sm text-muted">Short {money(pay.totalCents - availableBalanceCents)} — choose bank or reduce the amount.</p> : null}{actionError ? <p role="alert">{actionError}</p> : null}</div></PortalDialog>
+    } }}><div className="space-y-4"><div className="flex justify-between"><span>{pay?.vendorName}</span><strong>{money(pay?.totalCents ?? 0)}</strong></div>{destination ? <div className="flex justify-between"><span>Paid to</span><span>{destination}</span></div> : null}<FieldSingleSelect label="Pay from" value={source} onChange={setSource} options={[...(balanceEnabled ? [{ value: "balance", label: availableBalanceCents === null ? "PropLane balance" : `PropLane balance · ${money(availableBalanceCents)} available` }] : []), { value: "bank", label: "Card or bank account" }]} />{pay && source === "balance" && availableBalanceCents !== null && pay.totalCents > availableBalanceCents ? <p role="status" className="text-sm text-muted">Short {money(pay.totalCents - availableBalanceCents)} — choose card or bank account.</p> : null}{actionError ? <p role="alert">{actionError}</p> : null}</div></PortalDialog>
     <PortalDialog open={Boolean(actionRow)} onClose={() => setActionRow(null)} title={action === "schedule" ? "Schedule payment" : "Mark paid outside PropLane"} primaryAction={{ label: action === "schedule" ? "Schedule" : "Record payment", onClick: async () => { if (actionRow && await mutate(actionRow, action, action === "offline" ? `${actionDate}T12:00:00-07:00` : actionDate, offlineMethod)) setActionRow(null); } }}>
       <div className="space-y-4">
         <div>

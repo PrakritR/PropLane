@@ -25,10 +25,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const gate = await assertManagerFinancialsAccess(auth);
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
+    const body = (await req.json().catch(() => ({}))) as { paymentMethod?: unknown };
+    if (body.paymentMethod !== "card" && body.paymentMethod !== "ach") {
+      return NextResponse.json({ error: "Choose card or bank transfer." }, { status: 400 });
+    }
     const result = await startVendorInvoicePayCheckout(auth.db, {
       invoiceId: id,
       managerUserId: auth.userId,
       managerEmail: auth.email || "manager@proplane.app",
+      paymentMethod: body.paymentMethod,
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json({
@@ -36,6 +41,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       sessionId: result.sessionId,
       invoiceCents: result.invoiceCents,
       platformFeeCents: result.platformFeeCents,
+      processingFeeCents: result.processingFeeCents,
+      totalCents: result.totalCents,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not start payment.";

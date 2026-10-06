@@ -55,9 +55,9 @@ for the checklist and registries that keep browser and app behavior aligned.
 | Flow | Web | iOS / Android app |
 | --- | --- | --- |
 | **Manager subscription** (Pro / Business) | Stripe Checkout — card or Apple Pay | **Apple In-App Purchase** (StoreKit via RevenueCat) on iOS — never a web purchase link (App Store 3.1.1); see [`docs/agents/apple-iap.md`](agents/apple-iap.md) |
-| **Resident rent & fees** | Bank (ACH), card (Apple Pay / Google Pay or typed card), or Link via Stripe | Bank (ACH) or card (Apple Pay in Checkout when eligible) via Stripe — no Link |
+| **Resident rent & fees** | Bank (ACH) or card (Apple Pay / Google Pay or typed card) via Stripe | Same two methods — card surfaces Apple Pay in Checkout when eligible |
 
-Per-surface pay methods come from `residentPaymentMethodsForSurface()` (`src/lib/platform/resident-payments.ts`); the app drops Link. The card rail surfaces Apple Pay through Stripe Checkout on web and in the app when the device and domain are eligible. Setup: [`docs/stripe-apple-pay-payments.md`](stripe-apple-pay-payments.md) (rent + application fees), [`docs/stripe-apple-pay-subscriptions.md`](stripe-apple-pay-subscriptions.md) (subscriptions).
+Per-surface pay methods come from `residentPaymentMethodsForSurface()` (`src/lib/platform/resident-payments.ts`); the picker offers bank and card on every surface, and Stripe Link is never offered. The card rail surfaces Apple Pay through Stripe Checkout on web and in the app when the device and domain are eligible; the bank rail is PropLane's own in-app form on both surfaces. Setup: [`docs/stripe-apple-pay-payments.md`](stripe-apple-pay-payments.md) (rent + application fees), [`docs/stripe-apple-pay-subscriptions.md`](stripe-apple-pay-subscriptions.md) (subscriptions).
 
 ---
 

@@ -8,6 +8,7 @@ import { identityStatusFromAccount } from "@/lib/stripe-connect-identity.server"
 import { createNsfFeeForFailedPayment, nsfFeeIdForCharge } from "@/lib/nsf-fees";
 import { postGlRefundEntry } from "@/lib/reports/gl-posting";
 import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
+import { categoryCodeForChargeKind } from "@/lib/reports/categories";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
 import { parseMoneyAmount } from "@/lib/parse-money";
@@ -15,9 +16,15 @@ import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
 import { markHouseholdChargePaidFromPaymentIntent } from "@/lib/stripe-household-charge";
 import { notifyAutopayDeclined, runAttempt } from "@/lib/resident-autopay.server";
-import { creditHoldFromPaymentIntent, refundPlatformHoldByChargeId, transferHoldsForOwner } from "@/lib/stripe-platform-hold.server";
+import { releaseVerifiedPlatformHoldsForOwner } from "@/lib/platform-hold-release.server";
+import { settleClearedPlatformOwnerRecovery } from "@/lib/platform-owner-recovery.server";
+import { creditVerifiedHouseholdAutopaySource,
+  verifyExistingHistoricalAutopayHold } from "@/lib/household-captured-source.server";
+import { settleReservedPlatformMoneyRefundFromWebhook } from "@/lib/platform-money-refund.server";
 import { feeCentsForMethod, normalizePayoutStatus } from "@/lib/stripe-payouts";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
+  type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
 
 async function refuseClassifiedFinancialMutation(
   db: SupabaseClient,
@@ -54,9 +61,11 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
   const claimedId = account.metadata?.axis_user_id?.trim();
   if (claimedId && claimedId !== targetId) throw new Error("Stripe account ownership mismatch.");
   if (await refuseClassifiedFinancialMutation(db, targetId, "connect_account_updated")) return;
-  if (account.settings?.payouts?.schedule?.interval && account.settings.payouts.schedule.interval !== "manual") await ensureManualPayoutPolicy(getStripe(), account.id);
-
-  await db
+  if (account.settings?.payouts?.schedule?.interval &&
+      account.settings.payouts.schedule.interval !== "manual") {
+    await ensureManualPayoutPolicy(getStripe(), account.id);
+  }
+  const { error: profileError } = await db
     .from("profiles")
     .update({
       stripe_connect_charges_enabled: Boolean(account.charges_enabled),
@@ -64,13 +73,14 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
       updated_at: new Date().toISOString(),
     })
     .eq("id", targetId);
+  if (profileError) throw new Error("Could not update saved payout account status.");
 
   // Display-only cache for Settings → Payouts (`payout_identity_status`,
   // PLAN-0920-1500 Part C) — scoped to THIS event's account only; the
   // identity route itself always reads Stripe fresh, this just saves that
   // page an extra round trip.
   const snapshot = identityStatusFromAccount(account);
-  await db.from("payout_identity_status").upsert(
+  const { error: identityError } = await db.from("payout_identity_status").upsert(
     {
       owner_user_id: targetId,
       status: snapshot.status,
@@ -81,14 +91,14 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
     },
     { onConflict: "owner_user_id" },
   );
+  if (identityError) throw new Error("Could not update payout identity status.");
 
   if (connectAccountReadyForAchPayouts(account)) {
-    await transferHoldsForOwner(db, {
-      ownerUserId: targetId,
-      destinationAccountId: account.id,
-    }).catch((e) => {
-      console.error("[stripe webhook] platform hold drain", e);
-    });
+    // The account event is a readiness signal, never authority for a transfer.
+    // The release helper re-reads saved ownership, verified captured source,
+    // refund history and the exact persisted provider attempt before money moves.
+    await settleClearedPlatformOwnerRecovery(db, getStripe(), { ownerUserId: targetId });
+    await releaseVerifiedPlatformHoldsForOwner(db, { ownerUserId: targetId });
   }
 }
 
@@ -98,58 +108,111 @@ export async function handleStripeTransferCreated(db: SupabaseClient, transfer: 
       ? transfer.source_transaction
       : transfer.source_transaction?.id ?? null;
   if (!chargeId) return;
-
-  const payment = await ledgerPaymentForStripeCharge(db, chargeId);
-  if (!payment?.manager_user_id) return;
-  if (await refuseClassifiedFinancialMutation(db, payment.manager_user_id, "transfer_created")) return;
-
-  const patch: Record<string, unknown> = {
-    stripe_transfer_id: transfer.id,
-    updated_at: new Date().toISOString(),
-  };
-  if (typeof transfer.amount === "number") patch.net_cents = transfer.amount;
-
-  await db.from("ledger_entries").update(patch).eq("stripe_charge_id", chargeId).eq("entry_type", "payment");
+  const { data: allocations, error } = await db.from("platform_payment_holds")
+    .select("id,owner_user_id,status,source_allocation_mode,source_verified_at,stripe_charge_id,stripe_transfer_id,source_transfer_gross_cents,source_destination_account_id")
+    .eq("stripe_charge_id", chargeId).limit(2);
+  if (error) throw new Error("Could not resolve transfer source allocation.");
+  if (!allocations?.length) return; // The exact paid-source handler may still be awaiting Stripe leg hydration.
+  if (allocations.length !== 1) throw new Error("Transfer charge has ambiguous recipient allocations.");
+  const hold = allocations[0];
+  const attemptId = transfer.metadata?.platform_hold_attempt?.trim();
+  const destination = typeof transfer.destination === "string"
+    ? transfer.destination : transfer.destination?.id ?? null;
+  if (!transfer.id || !Number.isSafeInteger(transfer.amount) || transfer.amount <= 0 ||
+      transfer.currency !== "usd" || hold.stripe_charge_id !== chargeId ||
+      !hold.source_verified_at || !hold.owner_user_id) {
+    throw new Error("Transfer differs from its verified recipient source.");
+  }
+  if (attemptId) {
+    const { data: attempt, error: attemptError } = await db.from("platform_hold_transfer_attempts")
+      .select("id,hold_id,attempt_key,owner_user_id,destination_account_id,source_charge_id,amount_cents,status,stripe_transfer_id")
+      .eq("id", attemptId).maybeSingle();
+    if (attemptError || !attempt || attempt.id !== attemptId || attempt.hold_id !== hold.id ||
+        transfer.metadata?.platform_hold_id !== hold.id ||
+        attempt.owner_user_id !== hold.owner_user_id ||
+        attempt.source_charge_id !== chargeId || attempt.amount_cents !== transfer.amount ||
+        attempt.destination_account_id !== destination ||
+        hold.source_allocation_mode !== "hold" ||
+        (attempt.stripe_transfer_id && attempt.stripe_transfer_id !== transfer.id)) {
+      throw new Error("Transfer does not match its reserved hold release.");
+    }
+    if (await refuseClassifiedFinancialMutation(db, hold.owner_user_id, "transfer_created")) return;
+    const { error: finishError } = await db.rpc("finish_platform_hold_transfer", {
+      p_hold: hold.id, p_owner: hold.owner_user_id,
+      p_attempt: attempt.attempt_key, p_transfer: transfer.id,
+    });
+    if (finishError) throw new Error("Could not finalize exact recipient transfer.");
+    return;
+  }
+  // Automatic destination charges transfer the payer's raw gross, while the
+  // allocation and payment ledger store recipient net. A delayed transfer
+  // event must never overwrite that immutable net or fan out across a cart.
+  if (hold.source_allocation_mode !== "destination" ||
+      !["transferred", "refunded"].includes(hold.status) ||
+      hold.stripe_transfer_id !== transfer.id ||
+      hold.source_transfer_gross_cents !== transfer.amount ||
+      hold.source_destination_account_id !== destination) {
+    throw new Error("Transfer has no matching captured destination allocation.");
+  }
 }
 
-/** Clears Connect transfer linkage when Stripe reverses a transfer (e.g. failed payout). */
+/** Settle only exact refund-linked reversal legs; preserve original transfer identity. */
 export async function handleStripeTransferReversed(db: SupabaseClient, transfer: Stripe.Transfer): Promise<void> {
-  const patch: Record<string, unknown> = {
-    stripe_transfer_id: null,
-    updated_at: new Date().toISOString(),
-  };
-
   const chargeId =
     typeof transfer.source_transaction === "string"
       ? transfer.source_transaction
       : transfer.source_transaction?.id ?? null;
-  const { data: storedTransfer, error: transferReadError } = await db
-    .from("ledger_entries")
-    .select("manager_user_id")
-    .eq("stripe_transfer_id", transfer.id)
-    .eq("entry_type", "payment")
-    .maybeSingle();
-  if (transferReadError) throw new Error(transferReadError.message);
-  const transferOwner = String(storedTransfer?.manager_user_id ?? "").trim()
-    || (chargeId ? String((await ledgerPaymentForStripeCharge(db, chargeId))?.manager_user_id ?? "").trim() : "");
-  if (!transferOwner) return;
-  if (await refuseClassifiedFinancialMutation(db, transferOwner, "transfer_reversed")) return;
-
-  const byTransferId = await db
-    .from("ledger_entries")
-    .update(patch)
-    .eq("stripe_transfer_id", transfer.id)
-    .eq("entry_type", "payment");
-
-  if (byTransferId.error) throw new Error(byTransferId.error.message);
-
   if (!chargeId) return;
-
-  await db
-    .from("ledger_entries")
-    .update(patch)
-    .eq("stripe_charge_id", chargeId)
-    .eq("entry_type", "payment");
+  const { data: allocations, error } = await db.from("platform_payment_holds")
+    .select("id,owner_user_id,source_allocation_mode,stripe_charge_id,stripe_transfer_id,source_verified_at")
+    .eq("stripe_charge_id", chargeId).limit(2);
+  if (error) throw new Error("Could not resolve reversed transfer source.");
+  if (!allocations?.length) return;
+  if (allocations.length !== 1) {
+    throw new Error("Reversed transfer does not match one verified allocation.");
+  }
+  const hold = allocations[0];
+  // Only a CENTRAL capture reverses through a reservation, which is what stamps the
+  // `platform_refund_attempt` metadata the loop below settles on. A destination charge
+  // refunded with `reverse_transfer: true` emits an auto-generated reversal carrying no
+  // metadata, and `handleStripeRefund` already books that refund on the legacy ledger
+  // path — the same scoping it and `handleStripeTransferCreated` use.
+  if (hold.source_allocation_mode !== "hold") return;
+  if (hold.stripe_transfer_id !== transfer.id ||
+      !hold.source_verified_at || transfer.currency !== "usd") {
+    throw new Error("Reversed transfer does not match one verified allocation.");
+  }
+  const reversals = transfer.reversals;
+  if (!reversals || reversals.has_more || !reversals.data.length ||
+      reversals.data.reduce((sum, leg) => sum + leg.amount, 0) !== transfer.amount_reversed) {
+    throw new Error("Transfer reversal legs need exact source review.");
+  }
+  if (await refuseClassifiedFinancialMutation(db, hold.owner_user_id, "transfer_reversed")) return;
+  for (const reversal of reversals.data) {
+    const attemptId = reversal.metadata?.platform_refund_attempt?.trim();
+    const refundId = reversal.metadata?.platform_refund_id?.trim();
+    const reversalTransferId = typeof reversal.transfer === "string"
+      ? reversal.transfer : reversal.transfer?.id ?? null;
+    if (!reversal.id || !Number.isSafeInteger(reversal.amount) || reversal.amount <= 0 ||
+        reversalTransferId !== transfer.id || !attemptId || !refundId ||
+        (reversal.source_refund &&
+          (typeof reversal.source_refund === "string" ? reversal.source_refund : reversal.source_refund.id) !== refundId)) {
+      throw new Error("Recipient reversal has no exact refund reservation.");
+    }
+    const { data: attempt, error: attemptError } = await db.from("platform_hold_refund_attempts")
+      .select("id,hold_id,attempt_key,source_charge_id,stripe_refund_id,hold_debit_cents")
+      .eq("id", attemptId).maybeSingle();
+    if (attemptError || !attempt || attempt.id !== attemptId || attempt.hold_id !== hold.id ||
+        attempt.source_charge_id !== chargeId || attempt.stripe_refund_id !== refundId ||
+        attempt.hold_debit_cents !== reversal.amount) {
+      throw new Error("Recipient reversal differs from its refunded source.");
+    }
+    const { error: finishError } = await db.rpc("finish_platform_transfer_reversal", {
+      p_attempt: attempt.attempt_key, p_source_transfer: transfer.id,
+      p_reversal: reversal.id, p_amount: reversal.amount,
+    });
+    if (finishError) throw new Error("Could not finalize exact recipient reversal.");
+  }
 }
 
 /**
@@ -204,10 +267,11 @@ export async function upsertStripePayoutRecord(
     isVendorOwnedAccount(db, managerUserId),
     db
       .from("stripe_payouts")
-      .select("amount_cents, fee_cents, initiated_in_app")
+      .select("amount_cents, fee_cents, initiated_in_app, row_data")
       .eq("stripe_payout_id", payout.id)
       .maybeSingle()
-      .then((r) => r.data as { amount_cents: number; fee_cents: number | null; initiated_in_app: boolean } | null),
+      .then((r) => r.data as { amount_cents: number; fee_cents: number | null;
+        initiated_in_app: boolean; row_data?: unknown } | null),
   ]);
 
   // An in-app "Pay out" already knows the GROSS amount the user typed and its
@@ -237,7 +301,11 @@ export async function upsertStripePayoutRecord(
     fee_cents: feeCents,
     arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString().slice(0, 10) : null,
     failure_message: payout.failure_message ?? null,
-    row_data: { id: payout.id, status: payout.status, method: payout.method, type: payout.type, proplaneBalanceWithdrawal: payout.metadata?.proplane_balance_withdrawal ?? null, proplaneBalanceTransferId: payout.metadata?.proplane_balance_transfer_id ?? null },
+    row_data: existing?.initiated_in_app && existing.row_data && typeof existing.row_data === "object"
+      ? { ...existing.row_data, providerStatus: payout.status, providerMethod: payout.method }
+      : { id: payout.id, status: payout.status, method: payout.method, type: payout.type,
+          proplaneBalanceWithdrawal: payout.metadata?.proplane_balance_withdrawal ?? null,
+          proplaneBalanceTransferId: payout.metadata?.proplane_balance_transfer_id ?? null },
     updated_at: new Date().toISOString(),
   };
   if (destinationLast4) patch.destination_last4 = destinationLast4;
@@ -307,48 +375,153 @@ async function ledgerPaymentForStripeCharge(
   return data as typeof data | null;
 }
 
+type RefundReservationSource = {
+  hold_id: string;
+  owner_user_id: string;
+  source_charge_id: string;
+  refund_components: Array<{ source_id: string; principal_cents: number }> | null;
+};
+
 export async function handleStripeRefund(
   db: SupabaseClient,
   refund: Stripe.Refund,
   stripeChargeId: string,
+  paymentIntentId?: string | null,
 ): Promise<void> {
-  await refundPlatformHoldByChargeId(db, stripeChargeId).catch((e) => {
-    console.error("[stripe webhook] refund platform hold", e);
+  const providerChargeId = typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
+  if (!refund.id || !stripeChargeId || (providerChargeId && providerChargeId !== stripeChargeId) ||
+      !Number.isSafeInteger(refund.amount) || refund.amount <= 0 || refund.currency !== "usd" ||
+      !["pending", "succeeded", "failed", "canceled"].includes(refund.status ?? "")) {
+    throw new Error("Refund event lacks exact charge, amount or terminal status.");
+  }
+  const stripe = getStripe();
+  // Event snapshots can arrive out of order. Re-read the exact provider
+  // refund before recording terminal evidence or booking money.
+  const current = await stripe.refunds.retrieve(refund.id);
+  const currentChargeId = typeof current.charge === "string" ? current.charge : current.charge?.id;
+  const eventPi = paymentIntentId || (typeof refund.payment_intent === "string"
+    ? refund.payment_intent : refund.payment_intent?.id ?? null);
+  const currentPi = typeof current.payment_intent === "string"
+    ? current.payment_intent : current.payment_intent?.id ?? null;
+  if (current.id !== refund.id || currentChargeId !== stripeChargeId ||
+      current.amount !== refund.amount || current.currency !== "usd" ||
+      (eventPi && currentPi && eventPi !== currentPi) ||
+      !["pending", "succeeded", "failed", "canceled"].includes(current.status ?? "")) {
+    throw new Error("Current provider refund differs from its signed source event.");
+  }
+  const { error: evidenceError } = await db.rpc("record_platform_source_refund_evidence", {
+    p_refund: current.id, p_charge: stripeChargeId, p_payment_intent: currentPi ?? eventPi,
+    p_amount: current.amount, p_status: current.status,
   });
-  const payment = await ledgerPaymentForStripeCharge(db, stripeChargeId, refund.metadata?.proplane_charge_id);
-  if (!payment?.source_charge_id || !payment.manager_user_id) return;
-  if (await refuseClassifiedFinancialMutation(db, payment.manager_user_id, "refund")) return;
-
-  const refundCents = refund.amount ?? 0;
-  if (refundCents <= 0) return;
-
-  const postedDate = new Date((refund.created ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
-
-  const ledgerId = await syncLedgerRefundEntry(db, {
-    managerUserId: payment.manager_user_id,
-    sourceChargeId: payment.source_charge_id,
-    categoryCode: payment.category_code,
-    amountCents: refundCents,
-    postedDate,
-    stripeChargeId,
-    stripeRefundId: refund.id,
-    propertyId: payment.property_id,
-    residentUserId: payment.resident_user_id,
-    description: `Refund — ${payment.source_charge_id}`,
-  });
-
-  await postGlRefundEntry(db, {
-    managerUserId: payment.manager_user_id,
-    sourceChargeId: payment.source_charge_id,
-    stripeRefundId: refund.id,
-    categoryCode: payment.category_code,
-    amountCents: refundCents,
-    entryDate: postedDate,
-    propertyId: payment.property_id,
-    residentUserId: payment.resident_user_id,
-    description: `Refund ${refund.id}`,
-    linkLedgerEntryId: ledgerId,
-  });
+  if (evidenceError) throw new Error("Could not record captured refund evidence.");
+  const reservedAttemptId = current.metadata?.platform_refund_attempt?.trim();
+  let reservation: RefundReservationSource | null = null;
+  if (reservedAttemptId) {
+    const { data, error: reservationError } = await db
+      .from("platform_hold_refund_attempts")
+      .select("hold_id,owner_user_id,source_charge_id,refund_components")
+      .eq("id", reservedAttemptId).maybeSingle();
+    if (reservationError || !data || data.source_charge_id !== stripeChargeId ||
+        !data.owner_user_id || !data.hold_id) {
+      throw new Error("Refund reservation owner needs exact review.");
+    }
+    reservation = data as RefundReservationSource;
+    if (await refuseClassifiedFinancialMutation(db, reservation.owner_user_id, "refund")) return;
+  }
+  const settlement = await settleReservedPlatformMoneyRefundFromWebhook(stripe, db, current);
+  if (settlement === "unmatched") {
+    // Only a CENTRAL capture's refund has to come through the reservation. A
+    // destination-allocation hold reverses its transfer with the refund and books
+    // through the legacy ledger path below, exactly as a charge with no hold row
+    // does — the same rule `household-charge-refund-rail.server.ts` picks its rail by.
+    const { data: allocations, error: allocationError } = await db.from("platform_payment_holds")
+      .select("id").eq("stripe_charge_id", stripeChargeId)
+      .eq("source_allocation_mode", "hold").limit(1);
+    if (allocationError) throw new Error("Could not check refund recipient allocation.");
+    if (allocations?.length) throw new Error("Captured source refund needs exact allocation review.");
+  }
+  if (current.status !== "succeeded" && settlement !== "succeeded") return;
+  const settledRefund = current.status === "succeeded" ? current : await stripe.refunds.retrieve(current.id);
+  if (settledRefund.status !== "succeeded") {
+    throw new Error("Refund accounting requires current succeeded provider evidence.");
+  }
+  if (reservation && settlement === "succeeded") {
+    const { data: allocation, error: allocationError } = await db.from("platform_payment_holds")
+      .select("id,owner_user_id,owner_role,stripe_charge_id")
+      .eq("id", reservation.hold_id).maybeSingle();
+    if (allocationError || !allocation || allocation.owner_user_id !== reservation.owner_user_id ||
+        allocation.stripe_charge_id !== stripeChargeId) {
+      throw new Error("Refund accounting lacks its exact recipient allocation.");
+    }
+    if (allocation.owner_role === "manager") {
+      // The source-bound settlement already posted the canonical refund
+      // ledger and journal atomically for every captured component. Running
+      // the legacy full-cash poster here would erase the creditor split.
+      return;
+    }
+  }
+  const postedDate = new Date((settledRefund.created ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
+  const components = reservation?.refund_components ?? null;
+  if (reservation && (!components?.length || components.some((component) =>
+      !component.source_id || !Number.isSafeInteger(component.principal_cents) ||
+      component.principal_cents <= 0) ||
+      components.reduce((sum, component) => sum + component.principal_cents, 0) !== settledRefund.amount)) {
+    throw new Error("Refund accounting lacks exact captured charge components.");
+  }
+  let capturedComponents: Array<{ source_id: string; kind: string; principal_cents: number }> | null = null;
+  if (reservation) {
+    const { data: allocation, error: allocationError } = await db.from("platform_payment_holds")
+      .select("owner_user_id,stripe_charge_id,source_verified_at,source_components")
+      .eq("id", reservation.hold_id).maybeSingle();
+    if (allocationError || !allocation || !allocation.source_verified_at ||
+        allocation.owner_user_id !== reservation.owner_user_id ||
+        allocation.stripe_charge_id !== stripeChargeId ||
+        !Array.isArray(allocation.source_components)) {
+      throw new Error("Refund accounting lacks an attested recipient allocation.");
+    }
+    capturedComponents = allocation.source_components as Array<{
+      source_id: string; kind: string; principal_cents: number;
+    }>;
+  }
+  const entries = components ?? [{ source_id: settledRefund.metadata?.proplane_charge_id ?? "",
+    principal_cents: settledRefund.amount }];
+  for (const component of entries) {
+    const captured = capturedComponents?.find((item) => item.source_id === component.source_id);
+    const payment = await ledgerPaymentForStripeCharge(db, stripeChargeId, component.source_id || undefined);
+    if (!payment?.source_charge_id || !payment.manager_user_id ||
+        (component.source_id && payment.source_charge_id !== component.source_id) ||
+        (reservation && (!captured || captured.principal_cents !== payment.amount_cents ||
+          payment.manager_user_id !== reservation.owner_user_id ||
+          payment.category_code !== categoryCodeForChargeKind(captured.kind)))) {
+      if (reservation) throw new Error("Refund component has no matching original payment ledger.");
+      return;
+    }
+    if (await refuseClassifiedFinancialMutation(db, payment.manager_user_id, "refund")) return;
+    const ledgerId = await syncLedgerRefundEntry(db, {
+      managerUserId: payment.manager_user_id,
+      sourceChargeId: payment.source_charge_id,
+      categoryCode: payment.category_code,
+      amountCents: component.principal_cents,
+      postedDate,
+      stripeChargeId,
+      stripeRefundId: refund.id,
+      propertyId: payment.property_id,
+      residentUserId: payment.resident_user_id,
+      description: `Refund — ${payment.source_charge_id}`,
+    });
+    await postGlRefundEntry(db, {
+      managerUserId: payment.manager_user_id,
+      sourceChargeId: payment.source_charge_id,
+      stripeRefundId: refund.id,
+      categoryCode: payment.category_code,
+      amountCents: component.principal_cents,
+      entryDate: postedDate,
+      propertyId: payment.property_id,
+      residentUserId: payment.resident_user_id,
+      description: `Refund ${refund.id}`,
+      linkLedgerEntryId: ledgerId,
+    });
+  }
 }
 
 export async function upsertStripeDisputeRecord(
@@ -413,10 +586,17 @@ export async function handleAutopayPaymentIntentSucceeded(
   const chargeId = paymentIntent.metadata?.charge_id?.trim();
   if (!runId || !chargeId) return;
 
-  await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, chargeId);
-  await creditHoldFromPaymentIntent(db, paymentIntent).catch((e) => {
-    console.error("[stripe webhook] autopay platform hold", e);
-  });
+  const paid = await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, chargeId);
+  if (paymentIntent.metadata?.source_arbitration_v === "1") {
+    if (!paid.ok) throw new Error("Marked autopay claim did not settle the captured source.");
+    await creditVerifiedHouseholdAutopaySource(db, getStripe(), paymentIntent, chargeId);
+    return; // The exact claim SQL already stamped the run succeeded.
+  } else {
+    if (paymentIntent.metadata?.source_arbitration_v) {
+      throw new Error("Unknown autopay source arbitration version.");
+    }
+    await verifyExistingHistoricalAutopayHold(db, getStripe(), paymentIntent, chargeId);
+  }
 
   await db
     .from("resident_autopay_runs")
@@ -427,6 +607,80 @@ export async function handleAutopayPaymentIntentSucceeded(
     })
     .eq("id", runId)
     .neq("status", "succeeded");
+}
+
+/** Checkout emits PI events as well as session events. A card PI owns no
+ * independent settlement path: attest its exact frozen Checkout claim and
+ * provider session, then leave paid/processing transitions to the session
+ * handler. This also prevents a copied version marker from bypassing NSF. */
+export async function assertMarkedCheckoutPaymentIntentClaim(
+  db: SupabaseClient, stripe: Stripe, paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  const meta = paymentIntent.metadata ?? {};
+  const token = meta.resident_attempt_token?.trim();
+  if (!token || meta.source_arbitration_v !== "1" ||
+      meta.purpose !== "household_charge" || meta.payment_method !== "card" ||
+      meta.manual_ach || meta.autopay_run_id ||
+      paymentIntent.currency !== "usd" || paymentIntent.transfer_data?.destination ||
+      paymentIntent.application_fee_amount) {
+    throw new Error("Marked Checkout PaymentIntent has no exact card claim.");
+  }
+  const { data, error } = await db.from("resident_checkout_attempts")
+    .select("*").eq("attempt_token", token).maybeSingle();
+  if (error || !data) throw new Error("Marked Checkout PaymentIntent claim is missing.");
+  const attempt = data as ResidentCheckoutAttempt;
+  const params = assertResidentCheckoutAttemptTerms(attempt);
+  if (attempt.payment_method !== "card" ||
+      !["pending", "processing", "settled"].includes(attempt.status) ||
+      (attempt.stripe_payment_intent_id && attempt.stripe_payment_intent_id !== paymentIntent.id) ||
+      paymentIntent.amount !== attempt.payer_total_cents ||
+      meta.charge_ids !== attempt.charge_ids.join(",") ||
+      meta.charge_id !== attempt.charge_ids[0] ||
+      meta.manager_user_id !== attempt.manager_user_id ||
+      meta.resident_email !== params.residentEmail ||
+      meta.fee_payer !== params.feePayer ||
+      meta.platform_hold !== "1" ||
+      meta.hold_amount_cents !== String(attempt.recipient_net_cents)) {
+    throw new Error("Marked Checkout PaymentIntent differs from its frozen claim.");
+  }
+  const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent.id, limit: 2 });
+  if (sessions.has_more || sessions.data.length !== 1) {
+    throw new Error("Marked Checkout PaymentIntent has no unique provider session.");
+  }
+  const session = sessions.data[0]!;
+  const sessionPi = typeof session.payment_intent === "string"
+    ? session.payment_intent : session.payment_intent?.id;
+  if (sessionPi !== paymentIntent.id) {
+    throw new Error("Marked Checkout provider session belongs to another PaymentIntent.");
+  }
+  assertResidentCheckoutSession(attempt, session);
+}
+
+/** Retryable marked PI failures retain the exact run/slot and never mint an
+ * NSF fee or authorize a second debit. An unrelated PI cannot suppress the
+ * historical failure handler by copying the marker. */
+export async function assertMarkedAutopayFailureClaim(
+  db: SupabaseClient, paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  const metadata = paymentIntent.metadata;
+  const runId = metadata?.autopay_run_id?.trim();
+  const chargeId = metadata?.charge_id?.trim();
+  const ownerId = metadata?.manager_user_id?.trim();
+  const attempt = Number(metadata?.autopay_attempt);
+  if (metadata?.source_arbitration_v !== "1" || !runId || !chargeId || !ownerId ||
+      metadata?.purpose !== "household_charge" || !Number.isSafeInteger(attempt) || attempt < 1 ||
+      paymentIntent.currency !== "usd" || paymentIntent.transfer_data?.destination ||
+      paymentIntent.application_fee_amount) {
+    throw new Error("Marked autopay failure lacks frozen claim terms.");
+  }
+  const { data: run, error } = await db.from("resident_autopay_runs")
+    .select("id,charge_id,manager_id,attempt,stripe_payment_intent_id,status")
+    .eq("id", runId).maybeSingle();
+  if (error || !run || run.charge_id !== chargeId || run.manager_id !== ownerId ||
+      Number(run.attempt) !== attempt || run.stripe_payment_intent_id !== paymentIntent.id ||
+      !["claimed", "succeeded"].includes(run.status)) {
+    throw new Error("Marked autopay failure differs from its persisted run.");
+  }
 }
 
 /**

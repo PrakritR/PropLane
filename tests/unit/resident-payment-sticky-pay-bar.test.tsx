@@ -76,9 +76,19 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => {
 vi.mock("@/components/stripe-embedded-checkout", () => ({
   StripeEmbeddedCheckout: () => <div data-testid="stripe-checkout" />,
 }));
+vi.mock("@/components/portal/resident-bank-account-form", () => ({
+  ResidentBankAccountForm: ({ intentId }: { intentId: string }) => <div data-testid="bank-form">{intentId}</div>,
+}));
 
-vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+const requests: Array<{ url: string; method: string }> = [];
+vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
+  requests.push({ url, method: init?.method ?? "GET" });
+  if (url.includes("/api/stripe/resident-ach-payment?payment_intent_id=pi_original")) {
+    return new Response(JSON.stringify({ clientSecret: "pi_secret_original", chargeIds: ["rent-oct"],
+      bankStatus: "verification", subtotalCents: 120500, processingFeeCents: 500,
+      axisFeeCents: 0, totalCents: 121000 }), { status: 200 });
+  }
   if (url.includes("checkout")) {
     return new Response(JSON.stringify({ clientSecret: "cs_test", subtotalCents: 120500, totalCents: 120500 }), {
       status: 200,
@@ -103,6 +113,11 @@ import { resetResidentLedgerCache } from "@/lib/resident-ledger-client";
 afterEach(() => {
   cleanup();
   resetResidentLedgerCache();
+  CHARGES[0]!.status = "pending";
+  CHARGES[0]!.stripeCheckoutSessionId = undefined;
+  CHARGES[0]!.balanceLabel = "$1,205.00";
+  CHARGES[0]!.paidAmountCents = undefined;
+  requests.length = 0;
 });
 
 describe("resident charge record — sticky Pay bar (C139)", () => {
@@ -127,5 +142,37 @@ describe("resident charge record — sticky Pay bar (C139)", () => {
     fireEvent.click(button);
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("$1,205.00");
+  });
+
+  it("opens the exact bank verification form for one processing charge without creating another payment", async () => {
+    CHARGES[0]!.status = "processing";
+    CHARGES[0]!.stripeCheckoutSessionId = "pi_original";
+    render(<ResidentPaymentsPanel bucket="pending" chargeId="rent-oct" />);
+    fireEvent.click(screen.getByRole("button", { name: "Verify bank or check status" }));
+    expect(await screen.findByTestId("bank-form")).toHaveTextContent("pi_original");
+    expect(screen.getByText("Processing fee $5.00")).toBeInTheDocument();
+    expect(requests.filter(({ url }) => url.includes("/api/stripe/resident-ach-payment?payment_intent_id=pi_original"))).toHaveLength(1);
+    expect(requests.filter(({ method }) => method === "POST")).toHaveLength(0);
+    expect(requests.some(({ url }) => url.includes("household-charge-checkout"))).toBe(false);
+  });
+
+  it("a paid charge's detail shows the amount paid (not the $0.00 balance) and no 'manager will update' text", async () => {
+    CHARGES[0]!.status = "paid";
+    CHARGES[0]!.balanceLabel = "$0.00";
+    CHARGES[0]!.paidAmountCents = 120500;
+    CHARGES[0]!.paidAt = "2026-10-05T10:00:00.000Z";
+    render(<ResidentPaymentsPanel bucket="paid" chargeId="rent-oct" />);
+    await waitFor(() => expect(screen.getAllByText("$1,205.00").length).toBeGreaterThan(0));
+    const amount = Array.from(document.querySelectorAll("*")).find((el) => el.children.length === 0 && el.textContent === "Amount");
+    expect(amount?.parentElement?.textContent).toContain("$1,205.00");
+    expect(amount?.parentElement?.textContent).not.toContain("$0.00");
+    expect(screen.queryByText(/will update this charge/)).toBeNull();
+  });
+
+  it("an unpaid charge that cannot be paid online still tells the resident the manager will update it", async () => {
+    CHARGES[0]!.axisPaymentsEnabledSnapshot = false;
+    render(<ResidentPaymentsPanel bucket="pending" chargeId="rent-oct" />);
+    await waitFor(() => expect(screen.getByText(/will update this charge/)).toBeInTheDocument());
+    CHARGES[0]!.axisPaymentsEnabledSnapshot = true;
   });
 });

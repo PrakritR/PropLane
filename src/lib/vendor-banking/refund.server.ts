@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { findPlatformHold, refundPlatformHold } from "@/lib/stripe-platform-hold.server";
+import { directInvoiceHoldSourceId } from "@/lib/stripe-platform-hold";
 import {
   applyVendorBankingPayoutRefund,
   getVendorBankingPayoutForVendor,
@@ -114,7 +115,7 @@ export async function refundVendorPayout(
       { charge: payout.stripeChargeId, amount: preview.requestedGrossCents, reason: mapRefundReason(opts.reason) },
       { idempotencyKey: `${idk}:refund` },
     );
-    const sourceId = payout.workOrderId ?? payout.invoiceId ?? "";
+    const sourceId = payout.invoiceId ? directInvoiceHoldSourceId(payout.invoiceId) : (payout.workOrderId ?? "");
     const hold = sourceId ? await findPlatformHold(db, "vendor_invoice", sourceId).catch(() => null) : null;
     if (hold?.status === "transferred" && hold.stripeTransferId) {
       try {

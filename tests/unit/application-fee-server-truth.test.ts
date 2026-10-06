@@ -21,6 +21,9 @@ import {
   readHouseholdCharges,
   recordApplicationCharges,
   removeResidentHouseholdPaymentData,
+  seedDemoHouseholdCharges,
+  findApplicationFeeCharge,
+  applicationFeeChargeIdForApplication,
 } from "@/lib/household-charges";
 import { residentApplicationFeeGate } from "@/lib/rental-application/application-policy";
 import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
@@ -75,6 +78,47 @@ beforeEach(() => {
 });
 
 describe("residentApplicationFeeGate — server fee overrides the per-listing catalog", () => {
+  it("merges pending and paid representations of the same application without replacing the paid source", () => {
+    const propertyId = "prop-app-source", email = "same@example.com";
+    seedListing(propertyId, "$50");
+    const pending = { id: applicationFeeChargeIdForApplication("app-same"), createdAt: "2026-01-01T00:00:00Z",
+      applicationId: "app-same", residentEmail: email, residentName: "Resident", residentUserId: null,
+      propertyId, propertyLabel: "Fee Truth Flat", managerUserId: MANAGER_ID,
+      kind: "application_fee" as const, title: "Application fee", amountLabel: "$50.00",
+      balanceLabel: "$50.00", status: "pending" as const, blocksLeaseUntilPaid: false };
+    const paid = { ...pending, id: "hc_provider_source_same", status: "paid" as const,
+      balanceLabel: "$0.00", paidAt: "2026-01-02T00:00:00Z", paidAmountCents: 5175,
+      stripeCheckoutSessionId: "cs_same" };
+    const other = { ...pending, id: applicationFeeChargeIdForApplication("app-other"), applicationId: "app-other" };
+    seedDemoHouseholdCharges([pending, paid, other]);
+    const charges = appFeeCharges(email);
+    expect(charges).toHaveLength(2);
+    expect(charges.find((charge) => charge.applicationId === "app-same"))
+      .toMatchObject({ id: paid.id, status: "paid", stripeCheckoutSessionId: "cs_same" });
+    expect(charges.find((charge) => charge.applicationId === "app-other")?.status).toBe("pending");
+  });
+  it("keeps every-time application fees distinct for two drafts on one listing", () => {
+    const propertyId = "prop-every-time-exact", email = "repeat@example.com";
+    seedListing(propertyId, "$50");
+    const paid = { id: applicationFeeChargeIdForApplication("app-one"), createdAt: "2026-01-01T00:00:00Z",
+      applicationId: "app-one", residentEmail: email, residentName: "Resident", residentUserId: null,
+      propertyId, propertyLabel: "Fee Truth Flat", managerUserId: MANAGER_ID,
+      kind: "application_fee" as const, title: "Application fee", amountLabel: "$50.00",
+      balanceLabel: "$0.00", status: "paid" as const, paidAt: "2026-01-02T00:00:00Z",
+      paidAmountCents: 5175, stripeCheckoutSessionId: "cs_app_one", blocksLeaseUntilPaid: false };
+    const second = { ...paid, id: applicationFeeChargeIdForApplication("app-two"),
+      applicationId: "app-two", status: "pending" as const, paidAt: undefined,
+      paidAmountCents: undefined, stripeCheckoutSessionId: undefined, balanceLabel: "$50.00" };
+    seedDemoHouseholdCharges([paid, second]);
+    expect(appFeeCharges(email)).toHaveLength(2);
+    expect(findApplicationFeeCharge(email, propertyId, null, "app-one")?.id).toBe(paid.id);
+    expect(findApplicationFeeCharge(email, propertyId, null, "app-two")?.id).toBe(second.id);
+    expect(residentApplicationFeeGate({ propertyId, residentEmail: email, applicationId: "app-one",
+      chargePolicy: "every_time", serverFeeCents: 5000, serverFeeWaived: false }).paid).toBe(true);
+    expect(residentApplicationFeeGate({ propertyId, residentEmail: email, applicationId: "app-two",
+      chargePolicy: "every_time", serverFeeCents: 5000, serverFeeWaived: false }).paid).toBe(false);
+    expect(findApplicationFeeCharge(email, propertyId, null, "app-three")).toBeUndefined();
+  });
   it("gates a NEW listing (empty per-listing fee) when the manager-level fee is set", () => {
     // (a) The listing form no longer carries a fee input, so a new listing's
     // stored applicationFee is "" — the server's manager-level fee must still

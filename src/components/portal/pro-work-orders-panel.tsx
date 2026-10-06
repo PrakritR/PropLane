@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRequestGuard } from "@/lib/use-request-guard";
 import type { LucideIcon } from "lucide-react";
 import { Mail, MoreHorizontal, Pencil, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { sendWorkOrderToVendors, type PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -91,6 +93,7 @@ import { PortalApplicantRecordRow, PortalServiceRecordRow } from "@/components/p
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { sharedGet } from "@/lib/shared-get-cache";
 import {
   acceptedBidOf,
   applyAcceptedBid,
@@ -247,12 +250,14 @@ export function ManagerWorkOrdersPanel({
   const [autoSchedulingId, setAutoSchedulingId] = useState<string | null>(null);
   const [approvePayRow, setApprovePayRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [approvePayBusy, setApprovePayBusy] = useState(false);
+  const [approvePayCheckoutSecret, setApprovePayCheckoutSecret] = useState<string | null>(null);
+  const approvePayGuard = useRequestGuard();
   const [approveInvoiceBusy, setApproveInvoiceBusy] = useState(false);
   const [pendingServiceInvoiceId, setPendingServiceInvoiceId] = useState<string | null>(null);
   // night/vendor-pay: an additional payment source in the confirm modal,
   // shown only once the flag-gated balance read comes back enabled. Defaults
   // to "ach" — unchanged behavior for everyone until they explicitly pick it.
-  const [approvePayChannel, setApprovePayChannel] = useState<"ach" | "balance">("ach");
+  const [approvePayChannel, setApprovePayChannel] = useState<"card" | "ach" | "balance">("card");
   const [approvePayBalance, setApprovePayBalance] = useState<{ enabled: boolean; availableCents: number } | null>(null);
   const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
@@ -286,17 +291,20 @@ export function ManagerWorkOrdersPanel({
   // picker at all, same as today.
   useEffect(() => {
     if (!approvePayRow) return;
-    setApprovePayChannel("ach");
-    const invoiceTotal =
-      approvePayDefaults(approvePayRow).vendorCostCents + approvePayDefaults(approvePayRow).materialsCostCents;
+    setApprovePayChannel("card");
+    const payableLaborCents = approvePayDefaults(approvePayRow).vendorCostCents;
     let cancelled = false;
-    fetch("/api/portal/proplane-balance", { credentials: "include" })
-      .then((res) => res.json())
-      .then((body: { enabled?: boolean; availableCents?: number }) => {
+    sharedGet("/api/portal/proplane-balance", { ttlMs: 0 })
+      .then((result) => {
         if (cancelled) return;
-        const balance = { enabled: Boolean(body.enabled), availableCents: body.availableCents ?? 0 };
+        const body = result.ok ? result.data as { enabled?: unknown; availableCents?: unknown } | null : null;
+        if (!body || typeof body.enabled !== "boolean" || !Number.isSafeInteger(body.availableCents)) {
+          setApprovePayBalance(null);
+          return;
+        }
+        const balance = { enabled: body.enabled, availableCents: body.availableCents as number };
         setApprovePayBalance(balance);
-        if (balance.enabled && balance.availableCents >= invoiceTotal) {
+        if (balance.enabled && balance.availableCents >= payableLaborCents) {
           setApprovePayChannel("balance");
         }
       })
@@ -784,7 +792,9 @@ export function ManagerWorkOrdersPanel({
   /** Runs the same completion + expense-logging as "Mark complete", then marks the vendor
    * paid (bookkeeping status only — see APPROVE_PAY_CONFIRM_THRESHOLD_CENTS for the
    * one-tap vs confirm-preview gate). */
-  const submitApprovePay = async (row: DemoManagerWorkOrderRow, paymentChannel: "ach" | "balance" = "ach") => {
+  const submitApprovePay = async (row: DemoManagerWorkOrderRow, paymentChannel: "card" | "ach" | "balance" = "card") => {
+    const epoch = approvePayGuard.begin(row.id);
+    const current = () => approvePayGuard.isCurrent(epoch, row.id);
     setApprovePayBusy(true);
     try {
       // /demo: mark paid locally — never hits the real payout/bookkeeping route.
@@ -802,9 +812,10 @@ export function ManagerWorkOrdersPanel({
         body: JSON.stringify({ workOrder: row, ...approvePayDefaults(row), paymentChannel }),
       });
       const data = await res.json();
+      if (!current()) return;
       if (!res.ok) throw new Error(data.error ?? "Could not approve payment.");
-      if (typeof data.checkoutUrl === "string" && data.checkoutUrl) {
-        window.location.assign(data.checkoutUrl);
+      if (typeof data.clientSecret === "string" && data.clientSecret) {
+        setApprovePayCheckoutSecret(data.clientSecret);
         return;
       }
       updateManagerWorkOrder(row.id, () => data.workOrder as DemoManagerWorkOrderRow);
@@ -813,20 +824,32 @@ export function ManagerWorkOrdersPanel({
       setApprovePayRow(null);
       if (workOrderIdProp) navigateToList();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not approve payment.");
+      if (current()) showToast(e instanceof Error ? e.message : "Could not approve payment.");
     } finally {
-      setApprovePayBusy(false);
+      if (current()) setApprovePayBusy(false);
     }
   };
 
   const approvePay = (row: DemoManagerWorkOrderRow) => {
-    const { vendorCostCents, materialsCostCents } = approvePayDefaults(row);
-    if (vendorCostCents + materialsCostCents < APPROVE_PAY_CONFIRM_THRESHOLD_CENTS) {
+    const { vendorCostCents } = approvePayDefaults(row);
+    approvePayGuard.begin(row.id);
+    setApprovePayCheckoutSecret(null);
+    setApprovePayBalance(null);
+    setApprovePayRow(row);
+    if (vendorCostCents < APPROVE_PAY_CONFIRM_THRESHOLD_CENTS) {
       void submitApprovePay(row);
-    } else {
-      setApprovePayRow(row);
     }
   };
+
+  useEffect(() => {
+    if (routeWorkOrder && new URLSearchParams(window.location.search).get("approve_pay") === "1") {
+      approvePayGuard.begin(routeWorkOrder.id);
+      setApprovePayRow(routeWorkOrder);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("approve_pay");
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, [routeWorkOrder]);
 
   const approveInvoiceForRow = useCallback(
     async (row: DemoManagerWorkOrderRow) => {
@@ -1411,6 +1434,105 @@ export function ManagerWorkOrdersPanel({
     />
   );
 
+  // Rendered by both the list and the service detail route: Approve & pay returns an
+  // embedded Checkout client secret, so the modal must exist wherever Pay can be tapped.
+  const approvePayModal = (
+    <Modal
+      open={Boolean(approvePayRow)}
+      onClose={() => { approvePayGuard.cancel(); setApprovePayRow(null); setApprovePayCheckoutSecret(null); }}
+      title="Approve & pay"
+      description={
+        approvePayRow ? `${approvePayRow.propertyName} · ${approvePayRow.title}` : undefined
+      }
+      footer={
+        approvePayRow && !approvePayCheckoutSecret ? (
+          <ModalFooter>
+            <Button
+              type="button"
+              variant="primary"
+              data-attr="work-order-approve-pay-confirm"
+              onClick={() => submitApprovePay(approvePayRow, approvePayChannel)}
+              disabled={
+                approvePayBusy ||
+                (approvePayChannel === "balance" &&
+                  (!approvePayBalance?.enabled ||
+                    approvePayBalance.availableCents < approvePayDefaults(approvePayRow).vendorCostCents))
+              }
+            >
+              {approvePayBusy ? "Approving…" : "Approve & pay"}
+            </Button>
+          </ModalFooter>
+        ) : undefined
+      }
+    >
+      {approvePayCheckoutSecret ? (
+        <StripeEmbeddedCheckout clientSecret={approvePayCheckoutSecret} onComplete={() => { approvePayGuard.cancel(); setApprovePayCheckoutSecret(null); setApprovePayRow(null); void syncManagerWorkOrdersFromServer(); showToast("Payment submitted. Bank transfers may take several days to clear."); }} />
+      ) : approvePayRow ? (
+        <div className="space-y-3">
+          <ServiceInvoiceDocument
+            laborCents={approvePayDefaults(approvePayRow).vendorCostCents}
+            materialsCents={approvePayDefaults(approvePayRow).materialsCostCents}
+            note={approvePayRow.vendorMarkedDoneNote}
+          />
+          <p className="text-sm text-foreground">
+            Pay{" "}
+            <span className="font-semibold">
+              $
+              {(
+                approvePayDefaults(approvePayRow).vendorCostCents /
+                100
+              ).toFixed(2)}
+            </span>
+            {approvePayRow.vendorName ? (
+              <>
+                {" "}
+                to <span className="font-semibold">{approvePayRow.vendorName}</span>
+              </>
+            ) : null}
+          </p>
+          {approvePayRow.vendorMarkedDoneNote ? (
+            <p className="text-xs text-muted">Vendor note: &ldquo;{approvePayRow.vendorMarkedDoneNote}&rdquo;</p>
+          ) : null}
+          {approvePayBalance?.enabled ? (
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-foreground">Pay from</span>
+              <Select
+                value={approvePayChannel}
+                onChange={(e) => setApprovePayChannel(e.target.value as "card" | "ach" | "balance")}
+                data-attr="work-order-approve-pay-channel"
+              >
+                <option value="card">Card (Stripe)</option>
+                <option value="balance">
+                  PropLane balance · ${(approvePayBalance.availableCents / 100).toFixed(2)} available
+                </option>
+              </Select>
+            </label>
+          ) : null}
+          {approvePayChannel === "balance" &&
+          approvePayBalance?.enabled &&
+          approvePayBalance.availableCents < approvePayDefaults(approvePayRow).vendorCostCents ? (
+            <p className="text-sm font-medium text-destructive" role="alert">
+              Short by{" "}
+              {formatServiceMoney(
+                vendorInvoiceShortfallCents(
+                  approvePayDefaults(approvePayRow).vendorCostCents,
+                  approvePayBalance.availableCents,
+                ),
+              )}{" "}
+              — add funds or pay by card.
+            </p>
+          ) : (
+            <p className="text-xs text-muted">
+              {approvePayChannel === "balance"
+                ? "Pays the vendor instantly from your PropLane balance — no card, no Stripe redirect."
+                : "Card payment runs through Stripe when the balance cannot cover the invoice."}
+            </p>
+          )}
+        </div>
+      ) : null}
+    </Modal>
+  );
+
   if (routeWorkOrderId) {
     if (!routeWorkOrder) {
       return <PortalDataTableEmpty icon="work-order" message="Service not found." />;
@@ -1666,6 +1788,7 @@ export function ManagerWorkOrdersPanel({
             {ownContent}
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
+        {approvePayModal}
         <ScheduleServiceVisitModal
           open={scheduleVisitRow !== null}
           row={scheduleVisitRow}
@@ -1941,103 +2064,7 @@ export function ManagerWorkOrdersPanel({
         ) : null}
       </PortalDialog>
 
-      <Modal
-        open={Boolean(approvePayRow)}
-        onClose={() => setApprovePayRow(null)}
-        title="Approve & pay"
-        description={
-          approvePayRow ? `${approvePayRow.propertyName} · ${approvePayRow.title}` : undefined
-        }
-        footer={
-          approvePayRow ? (
-            <ModalFooter>
-              <Button
-                type="button"
-                variant="primary"
-                data-attr="work-order-approve-pay-confirm"
-                onClick={() => submitApprovePay(approvePayRow, approvePayChannel)}
-                disabled={
-                  approvePayBusy ||
-                  (approvePayChannel === "balance" &&
-                    approvePayBalance?.enabled &&
-                    approvePayBalance.availableCents <
-                      approvePayDefaults(approvePayRow).vendorCostCents +
-                        approvePayDefaults(approvePayRow).materialsCostCents)
-                }
-              >
-                {approvePayBusy ? "Approving…" : "Approve & pay"}
-              </Button>
-            </ModalFooter>
-          ) : undefined
-        }
-      >
-        {approvePayRow ? (
-          <div className="space-y-3">
-            <ServiceInvoiceDocument
-              laborCents={approvePayDefaults(approvePayRow).vendorCostCents}
-              materialsCents={approvePayDefaults(approvePayRow).materialsCostCents}
-              note={approvePayRow.vendorMarkedDoneNote}
-            />
-            <p className="text-sm text-foreground">
-              Pay{" "}
-              <span className="font-semibold">
-                $
-                {(
-                  (approvePayDefaults(approvePayRow).vendorCostCents + approvePayDefaults(approvePayRow).materialsCostCents) /
-                  100
-                ).toFixed(2)}
-              </span>
-              {approvePayRow.vendorName ? (
-                <>
-                  {" "}
-                  to <span className="font-semibold">{approvePayRow.vendorName}</span>
-                </>
-              ) : null}
-            </p>
-            {approvePayRow.vendorMarkedDoneNote ? (
-              <p className="text-xs text-muted">Vendor note: &ldquo;{approvePayRow.vendorMarkedDoneNote}&rdquo;</p>
-            ) : null}
-            {approvePayBalance?.enabled ? (
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-foreground">Pay from</span>
-                <Select
-                  value={approvePayChannel}
-                  onChange={(e) => setApprovePayChannel(e.target.value as "ach" | "balance")}
-                  data-attr="work-order-approve-pay-channel"
-                >
-                  <option value="ach">Card (Stripe)</option>
-                  <option value="balance">
-                    PropLane balance · ${(approvePayBalance.availableCents / 100).toFixed(2)} available
-                  </option>
-                </Select>
-              </label>
-            ) : null}
-            {approvePayChannel === "balance" &&
-            approvePayBalance?.enabled &&
-            approvePayBalance.availableCents <
-              approvePayDefaults(approvePayRow).vendorCostCents +
-                approvePayDefaults(approvePayRow).materialsCostCents ? (
-              <p className="text-sm font-medium text-destructive" role="alert">
-                Short by{" "}
-                {formatServiceMoney(
-                  vendorInvoiceShortfallCents(
-                    approvePayDefaults(approvePayRow).vendorCostCents +
-                      approvePayDefaults(approvePayRow).materialsCostCents,
-                    approvePayBalance.availableCents,
-                  ),
-                )}{" "}
-                — add funds or pay by card.
-              </p>
-            ) : (
-              <p className="text-xs text-muted">
-                {approvePayChannel === "balance"
-                  ? "Pays the vendor instantly from your PropLane balance — no card, no Stripe redirect."
-                  : "Card payment runs through Stripe when the balance cannot cover the invoice."}
-              </p>
-            )}
-          </div>
-        ) : null}
-      </Modal>
+      {approvePayModal}
 
       <ConfirmDeleteModal
         open={deleteRow !== null}

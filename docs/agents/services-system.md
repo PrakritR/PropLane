@@ -150,12 +150,14 @@ Two vendor invoices therefore exist against one service, so a payout is unique p
 The job payout is built only when the service is completed AND assigned to a vendor
 (`serviceIsVendorPayable`): yourself and teammates never create an outgoing row.
 
-**Mark done books the accepted bid's cost, not the client's.** `POST /api/portal/work-orders/complete`
-reads the `accepted` bid itself (`amount_cents` / `materials_cents` / `vendor_directory_id`) exactly as
-approve-and-pay does, and a body figure stands in only when no bid was accepted (a directly-assigned
-job). More than one accepted bid answers 409 rather than guessing which one is the payout anchor. A
-completion carrying no cost at all posts nothing and reads nothing — marking a job done is not a money
-move.
+**Mark done records the accepted bid's cost and books no expense.** Marking a job done is not a money
+move: `POST /api/portal/work-orders/complete` and the `complete_work_order` agent tool both post no
+expense and no GL entry (`expenseEntryIds` is always empty). The cash expense is booked when a
+payment settles — `createExpensesFromWorkOrder` is called from `work-order-approve-pay.server.ts`
+only. The cost a completion *records* on the row is the `accepted` bid's own (`amount_cents` /
+`materials_cents` / `vendor_directory_id`), read exactly as approve-and-pay reads it, never the
+client's: a body figure stands in only when no bid was accepted (a directly-assigned job). More than
+one accepted bid answers 409 rather than guessing which one is the payout anchor.
 
 **Inside the service record** (rail and header icons: see One vocabulary above).
 The Service tab is ONE page (`ServiceDetailsSection`, no Details / Photos / Activity sub-tabs and no stat

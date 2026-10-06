@@ -1,9 +1,11 @@
 /**
  * `claim_vendor_invoice_payment` makes one rail own the invoice so a manager
- * cannot pay the same bill twice. The claim therefore has to be RELEASED on
- * every path where no money moved - not just on insufficient balance. A claim
- * left behind had the RPC reject every other rail, so the invoice could no
- * longer be paid by bank, paid offline, scheduled or deleted at all.
+ * cannot pay the same bill twice. The claim is RELEASED (through the
+ * `release_vendor_invoice_balance_claim` RPC, never a client-side delete) only
+ * when the database definitively said no money moved: an insufficient balance.
+ * Any other ledger failure is ambiguous - the debit may have committed with the
+ * response lost - so the claim is KEPT (503, "being reconciled") rather than
+ * freeing the bank rail, which shares no idempotency key with the balance move.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,7 +14,7 @@ const payVendorFromBalance = vi.fn(async () => {
   if (moveResult.throws) throw new Error("ledger unavailable");
   return moveResult.value;
 });
-const claimInvoicePayment = vi.fn(async (): Promise<unknown> => undefined);
+const claimInvoicePayment = vi.fn(async (..._a: unknown[]) => undefined);
 const settleInvoicePayment = vi.fn(async () => undefined);
 
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
@@ -30,22 +32,25 @@ vi.mock("@/lib/reports/auth", () => ({
 }));
 
 import { POST } from "@/app/api/vendor/invoices/[id]/pay-from-balance/route";
-import { VendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
 
 const MANAGER = "mgr-1";
 const INVOICE = "inv-1";
 type Row = Record<string, unknown>;
 
-/** Records the two writes that release a claim, and nothing else. */
+/** Records direct client-side writes (there must be none) and every RPC. */
 const fake = {
   db: null as unknown,
   payoutDeletes: [] as Row[][],
   invoiceUpdates: [] as Row[],
+  rpcs: [] as Array<{ name: string; args: Row }>,
+  rpcError: null as { message: string } | null,
 };
 
 function fakeDb() {
   fake.payoutDeletes = [];
   fake.invoiceUpdates = [];
+  fake.rpcs = [];
+  fake.rpcError = null;
   const from = (table: string) => {
     const filters: Row[] = [];
     const q: Record<string, unknown> = {
@@ -77,7 +82,11 @@ function fakeDb() {
     };
     return q;
   };
-  fake.db = { from };
+  const rpc = async (name: string, args: Row) => {
+    fake.rpcs.push({ name, args });
+    return { data: true, error: fake.rpcError };
+  };
+  fake.db = { from, rpc };
   return fake.db;
 }
 
@@ -89,25 +98,45 @@ const call = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   moveResult.throws = false;
-  claimInvoicePayment.mockImplementation(async () => undefined);
   fakeDb();
 });
 
 describe("pay from the PropLane balance", () => {
-  it("releases the claim when the balance is short (422)", async () => {
+  it("claims the invoice for the balance rail BEFORE the ledger moves", async () => {
+    moveResult.value = { ok: true };
+    await call();
+    expect(claimInvoicePayment).toHaveBeenCalledWith(fake.db, MANAGER, INVOICE, "balance");
+    expect(claimInvoicePayment.mock.invocationCallOrder[0]!).toBeLessThan(payVendorFromBalance.mock.invocationCallOrder[0]!);
+  });
+
+  it("releases the claim through the RPC when the balance is short (422)", async () => {
     moveResult.value = { ok: false, code: "insufficient_balance", availableCents: 1_000, requestedCents: 25_000, shortfallCents: 24_000 };
     const res = await call();
     expect(res.status).toBe(422);
-    expect(fake.payoutDeletes).toHaveLength(1);
-    expect(fake.invoiceUpdates[0]).toMatchObject({ payment_claim: null });
+    expect(await res.json()).toMatchObject({ code: "insufficient_balance", availableCents: 1_000, requestedCents: 25_000, shortfallCents: 24_000 });
+    expect(fake.rpcs).toEqual([{ name: "release_vendor_invoice_balance_claim", args: { p_invoice: INVOICE, p_manager: MANAGER } }]);
+    // The release is the RPC's job: no client-side delete/update of payouts or the invoice.
+    expect(fake.payoutDeletes).toEqual([]);
+    expect(fake.invoiceUpdates).toEqual([]);
+    expect(settleInvoicePayment).not.toHaveBeenCalled();
   });
 
-  it("releases the claim on any OTHER ledger failure too", async () => {
-    moveResult.value = { ok: false, code: "ledger_error", error: "boom" };
+  it("a short balance whose release RPC fails is a 500, never a 422 that invites another rail over a live claim", async () => {
+    moveResult.value = { ok: false, code: "insufficient_balance", availableCents: 1_000, requestedCents: 25_000, shortfallCents: 24_000 };
+    fake.rpcError = { message: "release refused" };
     const res = await call();
     expect(res.status).toBe(500);
-    expect(fake.payoutDeletes).toHaveLength(1);
-    expect(fake.invoiceUpdates[0]).toMatchObject({ payment_claim: null });
+    expect(settleInvoicePayment).not.toHaveBeenCalled();
+  });
+
+  it("KEEPS the claim on any OTHER ledger failure (503, being reconciled): the debit may have committed with the response lost", async () => {
+    moveResult.value = { ok: false, code: "ledger_error", error: "boom" };
+    const res = await call();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: "PAYMENT_STATUS_UNKNOWN" });
+    expect(fake.rpcs).toEqual([]);
+    expect(fake.payoutDeletes).toEqual([]);
+    expect(fake.invoiceUpdates).toEqual([]);
     expect(settleInvoicePayment).not.toHaveBeenCalled();
   });
 
@@ -119,35 +148,17 @@ describe("pay from the PropLane balance", () => {
     const res = await call();
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ code: "PAYMENT_STATUS_UNKNOWN" });
+    expect(fake.rpcs).toEqual([]);
     expect(fake.payoutDeletes).toEqual([]);
     expect(fake.invoiceUpdates).toEqual([]);
     expect(settleInvoicePayment).not.toHaveBeenCalled();
-  });
-
-  it("a refused claim is 409 — the job is already paid through another rail", async () => {
-    claimInvoicePayment.mockImplementation(async () => {
-      throw new VendorInvoicePaymentRefusal("This service is already paid through Approve + pay.");
-    });
-    const res = await call();
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toContain("Approve + pay");
-    expect(payVendorFromBalance).not.toHaveBeenCalled();
-  });
-
-  it("a DATABASE FAULT while claiming is 500, never the refusal — the manager must retry", async () => {
-    claimInvoicePayment.mockImplementation(async () => {
-      throw new Error("could not connect to server");
-    });
-    const res = await call();
-    expect(res.status).toBe(500);
-    expect(((await res.json()) as { error: string }).error).toContain("could not connect");
-    expect(payVendorFromBalance).not.toHaveBeenCalled();
   });
 
   it("keeps the claim once the money HAS moved", async () => {
     moveResult.value = { ok: true };
     const res = await call();
     expect(res.status).toBe(200);
+    expect(fake.rpcs).toEqual([]);
     expect(fake.payoutDeletes).toEqual([]);
     expect(settleInvoicePayment).toHaveBeenCalledOnce();
   });

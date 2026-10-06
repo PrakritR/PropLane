@@ -10,12 +10,9 @@ import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
-import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
+import { fulfillApplicationFeePayment, promoteClaimedApplicationAfterFee } from "@/lib/application-fee-fulfillment.server";
 import { getStripe } from "@/lib/stripe";
-import {
-  isApplicationFeeCheckoutSession,
-  markApplicationFeePaidFromStripeSession,
-} from "@/lib/stripe-application-fee";
+import { isApplicationFeeCheckoutSession } from "@/lib/stripe-application-fee";
 import { axisAchCheckoutPaid } from "@/lib/stripe-axis-ach-checkout";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
@@ -116,27 +113,18 @@ export async function reportOrphanedApplicationFeePayment(
     return { ok: false, status: 400, error: "Checkout session is missing listing metadata." };
   }
 
-  const marked = await markApplicationFeePaidFromStripeSession(db, session);
-  if (!marked.ok) {
-    return { ok: false, status: 500, error: "Could not record the application fee payment." };
+  const marked = await fulfillApplicationFeePayment(db, getStripe(), session);
+  if ("legacy" in marked) {
+    return { ok: true, notified: false, chargeId: marked.chargeId, reason: "suppressed" };
   }
 
-  const promoted = await promoteIncompleteApplicationAfterFeePaid(db, session);
+  const promoted = await promoteClaimedApplicationAfterFee(db, session);
   if (promoted.ok && (promoted.promoted || promoted.reason === "already_submitted")) {
     return {
       ok: true,
       notified: false,
-      chargeId: marked.chargeId ?? null,
+      chargeId: marked.chargeId,
       reason: promoted.promoted ? "promoted" : "application_exists",
-    };
-  }
-
-  if (await hasSubmittedApplicationForFee(db, { residentEmail: expectedEmail, propertyId })) {
-    return {
-      ok: true,
-      notified: false,
-      chargeId: marked.chargeId ?? null,
-      reason: "application_exists",
     };
   }
 
@@ -145,12 +133,12 @@ export async function reportOrphanedApplicationFeePayment(
     (await db
       .from("portal_household_charge_records")
       .select("manager_user_id")
-      .eq("id", marked.chargeId ?? "")
+      .eq("id", marked.chargeId)
       .maybeSingle()
       .then((r) => (typeof r.data?.manager_user_id === "string" ? r.data.manager_user_id.trim() : "")));
 
   if (!landlordId) {
-    return { ok: true, notified: false, chargeId: marked.chargeId ?? null, reason: "no_manager" };
+    return { ok: true, notified: false, chargeId: marked.chargeId, reason: "no_manager" };
   }
 
   let amountLabel = "";

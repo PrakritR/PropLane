@@ -64,7 +64,7 @@ export async function POST(req: Request) {
       materialsMemo?: string;
       workDoneSummary?: string;
       /** `"balance"` (night/vendor-pay) pays instantly from the manager's PropLane balance; ignored (treated as `"ach"`) while the flag is off. */
-      paymentChannel?: "ach" | "balance";
+      paymentChannel?: "card" | "ach" | "balance";
     };
 
     const result = await approveAndPayWorkOrder(
@@ -77,7 +77,8 @@ export async function POST(req: Request) {
         materialsCostCents: body.materialsCostCents,
         materialsMemo: body.materialsMemo,
         workDoneSummary: body.workDoneSummary,
-        paymentChannel: body.paymentChannel === "balance" ? "balance" : "ach",
+        paymentChannel: body.paymentChannel,
+        settleOnly: false,
       },
     );
     if (!result.ok) {
@@ -105,7 +106,7 @@ export async function POST(req: Request) {
       ok: true,
       workOrder: result.workOrder,
       expenseEntryIds: result.expenseEntryIds,
-      ...(result.checkoutUrl ? { checkoutUrl: result.checkoutUrl, sessionId: result.sessionId } : {}),
+      ...(result.clientSecret ? { clientSecret: result.clientSecret, sessionId: result.sessionId } : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed.";

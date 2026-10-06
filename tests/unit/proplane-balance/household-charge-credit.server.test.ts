@@ -34,11 +34,16 @@ function makeStripe(opts: { availableOnEpoch?: number | null; expandLatestCharge
     paymentIntents: {
       retrieve: async (id: string) => ({
         id,
+        status: "succeeded",
+        currency: "usd",
+        metadata: { manager_user_id: "manager-1", manager_payout_cents: "12000" },
         latest_charge:
           opts.expandLatestCharge === false
             ? "ch_unexpanded"
             : {
                 id: "ch_test_1",
+                paid: true, status: "succeeded", currency: "usd", amount: 12000,
+                payment_intent: id,
                 balance_transaction:
                   opts.availableOnEpoch === null
                     ? null
@@ -55,6 +60,7 @@ const platformLedgerSession = mockCheckoutSession({
   id: "cs_test_ledger_1",
   mode: "payment",
   payment_intent: "pi_test_1",
+  amount_total: 12000,
   metadata: { funding_model: "platform_ledger", manager_user_id: "manager-1", manager_payout_cents: "12000" },
 });
 
@@ -68,23 +74,25 @@ describe("creditProplaneBalanceFromHouseholdChargeSession", () => {
     expect(rpcCalls).toHaveLength(0);
   });
 
-  it("no-ops when manager_payout_cents is missing or non-positive", async () => {
+  it("rejects a paid source with no captured manager payout", async () => {
     const { db, insertCalls } = makeDb();
     const stripe = makeStripe({});
     const session = mockCheckoutSession({
       metadata: { funding_model: "platform_ledger", manager_user_id: "manager-1", manager_payout_cents: "0" },
     });
-    await creditProplaneBalanceFromHouseholdChargeSession(db, stripe, session);
+    await expect(creditProplaneBalanceFromHouseholdChargeSession(db, stripe, session))
+      .rejects.toThrow(/lacks its captured recipient amount/);
     expect(insertCalls).toHaveLength(0);
   });
 
-  it("no-ops when there is no payment_intent on the session", async () => {
+  it("rejects a paid source with no payment intent", async () => {
     const { db, insertCalls } = makeDb();
     const stripe = makeStripe({});
     const session = mockCheckoutSession({
       metadata: { funding_model: "platform_ledger", manager_user_id: "manager-1", manager_payout_cents: "12000" },
     });
-    await creditProplaneBalanceFromHouseholdChargeSession(db, stripe, session);
+    await expect(creditProplaneBalanceFromHouseholdChargeSession(db, stripe, session))
+      .rejects.toThrow(/has no payment intent/);
     expect(insertCalls).toHaveLength(0);
   });
 
@@ -104,23 +112,22 @@ describe("creditProplaneBalanceFromHouseholdChargeSession", () => {
     });
   });
 
-  it("falls back to 'now' when Stripe has not enriched the charge with a balance transaction yet", async () => {
+  it("does not make an un-cleared charge available before Stripe reports its clearing date", async () => {
     const { db, insertCalls } = makeDb();
     const stripe = makeStripe({ availableOnEpoch: null });
-    const before = Date.now();
-    await creditProplaneBalanceFromHouseholdChargeSession(db, stripe, platformLedgerSession);
-    const availableOn = Date.parse(String(insertCalls[0]?.row.available_on));
-    expect(availableOn).toBeGreaterThanOrEqual(before);
-    expect(availableOn).toBeLessThanOrEqual(Date.now() + 1000);
+    await expect(creditProplaneBalanceFromHouseholdChargeSession(db, stripe, platformLedgerSession))
+      .rejects.toThrow(/waiting for Stripe clearing evidence/);
+    expect(insertCalls).toHaveLength(0);
   });
 
-  it("no-ops when the payment intent has no charge at all", async () => {
+  it("rejects a payment intent without an actual paid charge", async () => {
     const { db, insertCalls } = makeDb();
     const stripe = {
       paymentIntents: { retrieve: async () => ({ id: "pi_test_1", latest_charge: null }) },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any as Stripe;
-    await creditProplaneBalanceFromHouseholdChargeSession(db, stripe, platformLedgerSession);
+    await expect(creditProplaneBalanceFromHouseholdChargeSession(db, stripe, platformLedgerSession))
+      .rejects.toThrow(/succeeded exact provider charge/);
     expect(insertCalls).toHaveLength(0);
   });
 });

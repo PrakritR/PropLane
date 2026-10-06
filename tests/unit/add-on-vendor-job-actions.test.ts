@@ -20,7 +20,7 @@ vi.mock("@/lib/manager-work-orders-storage", () => ({
 vi.mock("@/lib/service-requests-storage", () => ({ updateServiceRequest: store.updateRequest }));
 vi.mock("@/lib/work-order-vendor-offers", () => ({ sendWorkOrderToVendors: store.send }));
 
-import { ensureAddOnVendorJob, sendAddOnToVendors } from "@/lib/add-on-vendor-job-actions";
+import { ensureAddOnVendorJob, payVendorJob, sendAddOnToVendors } from "@/lib/add-on-vendor-job-actions";
 
 const addOn: ServiceRequest = {
   id: "SR-1", offerId: "storage", offerName: "Storage locker", offerDescription: "Basement locker", price: "$40", deposit: "",
@@ -69,5 +69,43 @@ describe("the first Send job on an add-on", () => {
   it("passes the marketplace opt-in through untouched", async () => {
     await sendAddOnToVendors(addOn, ctx, ["d1"], { enabled: true, trade: "General", radiusMi: 10 });
     expect(store.send).toHaveBeenCalledWith("SR-1-vendor-job", ["d1"], { enabled: true, trade: "General", radiusMi: 10 });
+  });
+});
+
+/**
+ * `/api/portal/work-orders/approve-pay` answers a card/ACH payment with an EMBEDDED
+ * Checkout client secret, never a hosted redirect URL. The payment is not taken until
+ * that form is mounted and completed, so `payVendorJob` must hand the secret back for
+ * mounting — a bare `{ ok: true }` would let the host toast "Approved and paid." over a
+ * vendor who was never paid and a stranded `pendingVendorPay` claim.
+ */
+describe("Pay vendor on an add-on's linked job", () => {
+  const job = { id: "SR-1-vendor-job", title: "Storage locker", cost: "$400.00",
+    vendorCostCents: 40_000, category: "general" } as unknown as DemoManagerWorkOrderRow;
+
+  it("hands back the embedded Checkout secret instead of reporting a settled payment", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ ok: true, clientSecret: "cs_secret_123", sessionId: "cs_123" }),
+      { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    const result = await payVendorJob(job);
+
+    expect(result).toEqual({ ok: true, clientSecret: "cs_secret_123", sessionId: "cs_123" });
+    expect(result).not.toHaveProperty("checkoutUrl");
+  });
+
+  it("reports a settled payment only when the server returns no checkout to mount", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true }),
+      { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    expect(await payVendorJob(job)).toEqual({ ok: true });
+  });
+
+  it("surfaces the server's refusal", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ error: "Payment already started" }),
+      { status: 409, headers: { "Content-Type": "application/json" } })));
+
+    expect(await payVendorJob(job)).toEqual({ ok: false, error: "Payment already started" });
   });
 });

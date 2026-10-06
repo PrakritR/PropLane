@@ -33,12 +33,16 @@ vi.mock("@/lib/pending-notice", () => ({
 }));
 
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 
 const readyBalance = {
   currency: "usd",
   availableCents: 5_000,
   withdrawableCents: 5_000,
   heldCents: 0,
+  releasePendingCents: 0,
+  recoveryOutstandingCents: 0,
+  recoveryReservedCents: 0,
   instantAvailableCents: 0,
   pendingCents: 0,
   onTheWayCents: 1_200,
@@ -64,6 +68,10 @@ function stubFetch() {
       if (url.includes("/api/vendor/payouts/balance")) {
         return { ok: true, json: async () => readyBalance };
       }
+      if (url.includes("/api/vendor/stripe-connect/bank-accounts")) {
+        return { ok: true, json: async () => ({ destinations: [{ id: "ba_1", kind: "bank", label: "Chase",
+          last4: "4421", status: "new", payable: true, instantEligible: false, default: true }] }) };
+      }
       return { ok: true, json: async () => ({}) };
     }),
   );
@@ -71,6 +79,7 @@ function stubFetch() {
 
 afterEach(() => {
   cleanup();
+  resetSharedGets();
   vi.unstubAllGlobals();
 });
 
@@ -89,8 +98,8 @@ describe("Vendor dashboard — no inline contact setup rows, Balance card instea
     stubFetch();
     render(<VendorDashboard displayName="Test Vendor" />);
     await waitFor(() => expect(screen.getByText("$50.00")).toBeTruthy());
-    expect(screen.getByText("Balance")).toBeInTheDocument();
-    expect(screen.getByText("$12.00 pending")).toBeInTheDocument();
+    expect(screen.getByText("Available to withdraw")).toBeInTheDocument();
+    expect(screen.getByText("$12.00 on the way to your bank")).toBeInTheDocument();
     const withdraw = screen.getByRole("button", { name: "Withdraw" });
     expect(withdraw).not.toBeDisabled();
     expect(document.querySelector('[data-attr="vendor-dashboard-balance"]')).toBeTruthy();

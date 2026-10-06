@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { sealApplicantRow } from "@/lib/security/applicant-identity";
+import { resolveRequiredApplicationFee } from "@/lib/application-fee-checkout.server";
 
 const prepareGuestApplicationUpsert = vi.fn();
 vi.mock("@/lib/auth/guest-application-upsert", () => ({
@@ -21,13 +22,19 @@ vi.mock("@/lib/application-submitted-notification.server", () => ({
 }));
 vi.mock("@/lib/stripe-application-fee", () => ({ isApplicationFeeCheckoutSession: () => true }));
 vi.mock("@/lib/stripe-axis-ach-checkout", () => ({ axisAchCheckoutPaid: () => true }));
+vi.mock("@/lib/application-fee-checkout.server", () => ({
+  resolveRequiredApplicationFee: vi.fn(async () => ({ cents: 0,
+    basis: { roomId: "", leaseTerm: "", bundleId: "", rentalType: "standard" } })),
+  applicationFeePaymentSatisfiesTemplate: () => true,
+  applicationFeeBasisFromSessionMetadata: () => ({}),
+}));
 
 const MANAGER = "11111111-1111-4111-8111-111111111111";
 const ID = "PROPLANE-PROMOTE1";
-let stored: { id: string; row_data: unknown; manager_user_id: string; property_id: string; assigned_property_id: null }[] = [];
+let stored: { id: string; row_data: unknown; manager_user_id: string; property_id: string; assigned_property_id: null; updated_at: string }[] = [];
 const upserts: unknown[] = [];
 
-function makeDb() {
+function makeDb(opts: { casRejected?: boolean; beforeCas?: () => void } = {}) {
   return {
     from() {
       const builder: Record<string, unknown> = {
@@ -38,11 +45,15 @@ function makeDb() {
         // template changed, so the listing read has to answer here too.
         maybeSingle: () => Promise.resolve({ data: null, error: null }),
         limit: () => Promise.resolve({ data: stored, error: null }),
-        upsert: (values: unknown) => {
+        update: (values: unknown) => {
+          opts.beforeCas?.();
           upserts.push(values);
-          return Promise.resolve({ error: null });
+          return { eq: () => builder };
         },
       };
+      builder.select = () => ({ ...builder, then: (resolve: (value: unknown) => void) => resolve({
+        data: opts.casRejected ? [] : [{ id: ID }], error: null,
+      }) });
       return builder;
     },
   };
@@ -90,6 +101,7 @@ beforeEach(() => {
       manager_user_id: MANAGER,
       property_id: "mgr-ballard",
       assigned_property_id: null,
+      updated_at: "2026-10-04T00:00:00Z",
     },
   ];
 });
@@ -129,5 +141,24 @@ describe("promoteIncompleteApplicationAfterFeePaid", () => {
     expect(submitted.name).toBe("riley");
     expect(submitted.application?.fullLegalName).toBe("riley");
     expect(submitted.email).toBe("riley@example.com");
+  });
+
+  it("keeps captured money separate from promotion when pricing cannot be read", async () => {
+    vi.mocked(resolveRequiredApplicationFee).mockRejectedValueOnce(new Error("listing unavailable"));
+    const { promoteIncompleteApplicationAfterFeePaid } = await import("@/lib/promote-incomplete-application-after-fee.server");
+    expect(await promoteIncompleteApplicationAfterFeePaid(makeDb() as never, session))
+      .toMatchObject({ ok: false, error: expect.stringContaining("verify") });
+    expect(upserts).toHaveLength(0);
+  });
+
+  it.each(["edited", "withdrawn", "deleted"])("does not promote a %s draft after its snapshot changes", async (transition) => {
+    const { promoteIncompleteApplicationAfterFeePaid } = await import("@/lib/promote-incomplete-application-after-fee.server");
+    const result = await promoteIncompleteApplicationAfterFeePaid(makeDb({ casRejected: true, beforeCas: () => {
+      if (transition === "deleted") stored = [];
+      else if (transition === "withdrawn") stored[0]!.row_data = { ...draft(), withdrawnAt: new Date().toISOString() };
+      else stored[0]!.row_data = { ...draft(), application: { ...draft().application, roomChoice1: "other-room" } };
+    } }) as never, session);
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("changed") });
+    expect(stored[0]?.row_data).not.toMatchObject({ stage: "Submitted" });
   });
 });

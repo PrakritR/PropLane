@@ -18,6 +18,15 @@ const { getUser, subscriptionsRetrieve, subscriptionsUpdate, reconcile, skuRef }
   reconcile: vi.fn(async () => {}),
   skuRef: { current: { stripeSubscriptionId: "sub_1" as string | null } },
 }));
+const { validatePrice, readHistoricalPrice } = vi.hoisted(() => ({
+  validatePrice: vi.fn(async () => {}),
+  readHistoricalPrice: vi.fn(async () => ({ tier: "pro", billing: "annual" })),
+}));
+
+vi.mock("@/lib/stripe/resolve-manager-price", () => ({
+  assertManagerPriceMatchesRateCard: validatePrice,
+  readManagerSubscriptionPriceContext: readHistoricalPrice,
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
@@ -62,6 +71,8 @@ function req(body: unknown): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  validatePrice.mockResolvedValue(undefined);
+  readHistoricalPrice.mockResolvedValue({ tier: "pro", billing: "annual" });
   subscriptionsUpdate.mockResolvedValue({});
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1" } } });
   skuRef.current = { stripeSubscriptionId: "sub_1" };
@@ -80,6 +91,16 @@ function subscription(priceId: string, metadata: Record<string, string> = {}) {
 }
 
 describe("same-tier Monthly→Annual applies today, prorated", () => {
+  it("does not mutate a subscription when its target Stripe Price fails validation", async () => {
+    subscriptionsRetrieve.mockResolvedValue(subscription("price_pro_monthly"));
+    validatePrice.mockRejectedValue(new Error("Stripe price for business monthly does not match the PropLane rate card."));
+
+    const res = await POST(req({ tier: "business", billing: "monthly" }));
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(subscriptionsUpdate).not.toHaveBeenCalled();
+  });
+
   it("upgrades tier immediately with proration (Pro→Business)", async () => {
     subscriptionsRetrieve.mockResolvedValue(subscription("price_pro_monthly"));
 
@@ -150,6 +171,18 @@ describe("Annual→Monthly and any tier downgrade schedule at period end", () =>
         metadata: expect.objectContaining({ [META_SCHEDULED_TIER]: "pro", [META_SCHEDULED_BILLING]: "monthly" }),
       }),
     );
+  });
+
+  it("preserves historical annual cadence when a retired Price ID is absent from env", async () => {
+    subscriptionsRetrieve.mockResolvedValue(subscription("price_old_pro_annual"));
+
+    const res = await POST(req({ tier: "business" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(readHistoricalPrice).toHaveBeenCalledWith(expect.anything(), "price_old_pro_annual");
+    expect(validatePrice).toHaveBeenCalledWith(expect.anything(), "price_business_annual", "business", "annual");
+    expect(body).toMatchObject({ ok: true, tier: "business", billing: "annual" });
   });
 
   it("never downgrades immediately — the subscription's own price is untouched", async () => {

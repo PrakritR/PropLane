@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
+import { ResidentBankAccountForm } from "@/components/portal/resident-bank-account-form";
 import { ResidentAutopayCard } from "@/components/portal/resident-autopay-card";
 import { PortalSettingsRow, PortalSettingsSection, PortalSettingsGroup } from "@/components/portal/portal-settings-ui";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -33,8 +34,9 @@ export function ResidentPaymentMethodsSettingsCard({ basePath = "/resident" }: {
   const [paymentMethodModalOpen, setPaymentMethodModalOpen] = useState(false);
   const [savedMethods, setSavedMethods] = useState<SavedPaymentMethod[]>([]);
   const [savedMethodsLoading, setSavedMethodsLoading] = useState(false);
-  const [setupCheckout, setSetupCheckout] = useState<{ kind: "card" | "ach"; clientSecret: string } | null>(null);
+  const [setupCheckout, setSetupCheckout] = useState<{ kind: "card" | "ach"; clientSecret: string; setupIntentId?: string } | null>(null);
   const [setupLoading, setSetupLoading] = useState<"card" | "ach" | null>(null);
+  const [pendingBankError, setPendingBankError] = useState<string | null>(null);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
 
   const reloadSavedMethods = useCallback(async () => {
@@ -54,13 +56,32 @@ export function ResidentPaymentMethodsSettingsCard({ basePath = "/resident" }: {
     }
   }, []);
 
+  const resumePendingBankSetup = useCallback(async () => {
+    if (isDemoModeActive()) return;
+    try {
+      const response = await fetch("/api/stripe/resident-bank-setup", {
+        credentials: "include", cache: "no-store",
+      });
+      const result = await response.json() as { bankStatus?: string; setupIntentId?: string; clientSecret?: string; error?: string };
+      if (!response.ok) {
+        setPendingBankError(result.error ?? "Bank setup status needs review.");
+        return;
+      }
+      setPendingBankError(null);
+      if (response.ok && result.bankStatus === "verification" && result.setupIntentId && result.clientSecret) {
+        setSetupCheckout({ kind: "ach", clientSecret: result.clientSecret, setupIntentId: result.setupIntentId });
+      }
+    } catch { setPendingBankError("Bank setup status needs review."); }
+  }, []);
+
   useEffect(() => {
     if (!paymentMethodModalOpen) {
       setSetupCheckout(null);
       return;
     }
     void reloadSavedMethods();
-  }, [paymentMethodModalOpen, reloadSavedMethods]);
+    void resumePendingBankSetup();
+  }, [paymentMethodModalOpen, reloadSavedMethods, resumePendingBankSetup]);
 
   useEffect(() => {
     if (searchParams.get("payment_method") !== "added") return;
@@ -84,12 +105,16 @@ export function ResidentPaymentMethodsSettingsCard({ basePath = "/resident" }: {
           credentials: "include",
           body: JSON.stringify({ kind, returnUrl }),
         });
-        const data = (await res.json()) as { clientSecret?: string; error?: string };
+        const data = (await res.json()) as { clientSecret?: string; setupIntentId?: string; error?: string };
         if (!res.ok || !data.clientSecret) {
           showToast(data.error ?? "Could not add payment method.");
           return;
         }
-        setSetupCheckout({ kind, clientSecret: data.clientSecret });
+        if (kind === "ach" && !data.setupIntentId) {
+          showToast("Could not start bank setup.");
+          return;
+        }
+        setSetupCheckout({ kind, clientSecret: data.clientSecret, setupIntentId: data.setupIntentId });
       } finally {
         setSetupLoading(null);
       }
@@ -165,7 +190,11 @@ export function ResidentPaymentMethodsSettingsCard({ basePath = "/resident" }: {
             <p className="text-sm text-muted">
               Add {setupCheckout.kind === "card" ? "a credit card" : "a bank account"} to pay in PropLane.
             </p>
-            <StripeEmbeddedCheckout clientSecret={setupCheckout.clientSecret} />
+            {setupCheckout.kind === "ach" && setupCheckout.setupIntentId ? (
+              <ResidentBankAccountForm key={setupCheckout.setupIntentId} kind="setup"
+                clientSecret={setupCheckout.clientSecret} intentId={setupCheckout.setupIntentId}
+                onComplete={() => { setSetupCheckout(null); void reloadSavedMethods(); }} />
+            ) : <StripeEmbeddedCheckout clientSecret={setupCheckout.clientSecret} />}
             <div className="flex justify-start">
               <Button type="button" variant="outline" className="rounded-full" onClick={() => setSetupCheckout(null)}>
                 Back
@@ -174,6 +203,7 @@ export function ResidentPaymentMethodsSettingsCard({ basePath = "/resident" }: {
           </div>
         ) : (
           <div className="space-y-4">
+            {pendingBankError ? <p role="alert" className="text-sm text-destructive">{pendingBankError}</p> : null}
             <p className="text-sm leading-relaxed text-muted">
               Save a bank account or card for faster checkout. Choose your default below — you pick how to pay each
               time you pay a charge.

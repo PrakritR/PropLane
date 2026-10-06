@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalPaymentMethodPicker } from "@/components/portal/portal-payment-method-picker";
+import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import {
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
@@ -111,13 +112,20 @@ export function ManagerOutgoingPaymentDetail({
   const payConfirmOpen = payModalOpen ?? payConfirmOpenInternal;
   const setPayConfirmOpen = onPayModalOpenChange ?? setPayConfirmOpenInternal;
   const [busy, setBusy] = useState(false);
+  const [checkout, setCheckout] = useState<{ workOrderId: string; secret: string } | null>(null);
+  const payRequestEpoch = useRef(0);
   // Double-pay guard: a `pending` / `paid` vendor_payouts row already on this work
   // order. Pre-checked when the confirm step opens so the refusal shows before the
   // first click; the server refuses with a 409 either way, with no override.
   const [existingPayout, setExistingPayout] = useState<ExistingVendorPayoutSummary | null>(null);
 
   const workOrderId = workOrder?.id ?? null;
+  const currentWorkOrderId = useRef(workOrderId);
+  useEffect(() => { currentWorkOrderId.current = workOrderId; }, [workOrderId]);
+  const checkoutSecret = checkout?.workOrderId === workOrderId ? checkout.secret : null;
   useEffect(() => {
+    payRequestEpoch.current++;
+    setCheckout(null);
     if (!payConfirmOpen) return;
     if (!workOrderId || isDemoModeActive()) {
       setExistingPayout(null);
@@ -168,6 +176,9 @@ export function ManagerOutgoingPaymentDetail({
       return;
     }
 
+    const targetId = workOrder.id;
+    const epoch = ++payRequestEpoch.current;
+    const current = () => payRequestEpoch.current === epoch && currentWorkOrderId.current === targetId;
     setBusy(true);
     try {
       const res = await fetch("/api/portal/work-orders/approve-pay", {
@@ -182,13 +193,14 @@ export function ManagerOutgoingPaymentDetail({
       });
       const data = (await res.json()) as {
         workOrder?: DemoManagerWorkOrderRow;
-        checkoutUrl?: string;
+        clientSecret?: string;
         error?: string;
         code?: string;
         existingPayout?: ExistingVendorPayoutSummary | null;
         availableCents?: number;
         requestedCents?: number;
       };
+      if (!current()) return;
       if (res.status === 409 && data.code === VENDOR_DOUBLE_PAY_CONFLICT_CODE && data.existingPayout) {
         // The pre-check missed it (or the payout landed since). Surface the server's
         // refusal on the open confirm step; there is nothing to click past.
@@ -207,8 +219,8 @@ export function ManagerOutgoingPaymentDetail({
         return;
       }
       if (!res.ok) throw new Error(data.error ?? "Could not complete payment.");
-      if (typeof data.checkoutUrl === "string" && data.checkoutUrl) {
-        window.location.assign(data.checkoutUrl);
+      if (data.clientSecret) {
+        setCheckout({ workOrderId: targetId, secret: data.clientSecret });
         return;
       }
       if (data.workOrder) updateManagerWorkOrder(workOrder.id, () => data.workOrder as DemoManagerWorkOrderRow);
@@ -217,9 +229,9 @@ export function ManagerOutgoingPaymentDetail({
       setPayConfirmOpen(false);
       onPaid?.();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not complete payment.");
+      if (current()) showToast(e instanceof Error ? e.message : "Could not complete payment.");
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   };
 
@@ -318,12 +330,12 @@ export function ManagerOutgoingPaymentDetail({
 
       <Modal
         open={payConfirmOpen}
-        onClose={() => setPayConfirmOpen(false)}
+        onClose={() => { payRequestEpoch.current++; setPayConfirmOpen(false); setCheckout(null); }}
         title="Confirm vendor payment"
         contextPanel={<PopupRecordPreview rows={[{ label: "Vendor", value: row.payeeLabel }]} />}
         previewLabel="Payment preview"
         preview={<PopupRecordPreview rows={[{ label: "Payee", value: row.payeeLabel }, { label: "Amount", value: row.amountLabel }, { label: "Method", value: managerVendorPayMethodLabel(paymentMethod) }]} />}
-        footer={
+        footer={checkoutSecret ? undefined :
           <ModalFooter>
             <Button
               type="button"
@@ -338,7 +350,7 @@ export function ManagerOutgoingPaymentDetail({
           </ModalFooter>
         }
       >
-        <div className="space-y-4 text-sm">
+        {checkoutSecret ? <StripeEmbeddedCheckout clientSecret={checkoutSecret} onComplete={() => { payRequestEpoch.current++; setPayConfirmOpen(false); setCheckout(null); void syncManagerWorkOrdersFromServer(); showToast("Payment submitted. Bank transfers may take several days to clear."); }} /> : <div className="space-y-4 text-sm">
           <p>
             Pay <span className="font-semibold text-foreground">{row.amountLabel}</span> to{" "}
             <span className="font-semibold text-foreground">{row.payeeLabel}</span> via{" "}
@@ -359,7 +371,7 @@ export function ManagerOutgoingPaymentDetail({
               ? "Pays instantly out of your PropLane balance and logs this expense. If the balance is short, PropLane pays by ACH instead."
               : "PropLane will attempt an ACH payout to the vendor's linked bank account and log this expense."}
           </p>
-        </div>
+        </div>}
       </Modal>
     </>
   );

@@ -52,9 +52,9 @@ describe("ManagerPropertyLeasePanel", () => {
       </AppUiProvider>,
     );
 
-    // Tabs: Long-term leases (with its count) · Default; the Applications tab is never here.
+    // Tabs: Long-term leases (with its count); no Default tab, and the Applications tab is never here.
     expect(screen.getByRole("button", { name: /^Long-term leases/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Default/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Default/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /Applications/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Lease settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit lease" })).toBeNull();

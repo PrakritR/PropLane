@@ -54,6 +54,11 @@ describe("initialWizardStepFromRequest", () => {
     expect(initialWizardStepFromRequest("portal", { propertyId: "mgr-alder" }, params({}))).toBe(1);
   });
 
+  it("opens a seeded saved fee-step draft at its persisted step before autosave", () => {
+    mocks.draft = { propertyId: "mgr-alder", wizardStep: 11, wizardStepSchema: RENTAL_WIZARD_STEP_SCHEMA } as Partial<RentalWizardFormState>;
+    expect(initialWizardStepFromRequest("portal", { propertyId: "mgr-alder" }, params({}))).toBe(11);
+  });
+
   it("defaults to step 1 for an out-of-range or malformed wizardStep", () => {
     mocks.draft = { propertyId: "mgr-alder" };
     expect(

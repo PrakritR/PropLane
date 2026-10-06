@@ -371,6 +371,7 @@ export async function resolveRequiredApplicationFee(
     leaseTerm?: string | null;
     rentalType?: "standard" | "short_term";
   },
+  opts?: { failClosed?: boolean },
 ): Promise<{ cents: number; basis: ApplicationFeeBasisSelectors }> {
   const rentalType = input.rentalType === "short_term" ? "short_term" : "standard";
   const resolved = await resolveApplicationFeeProperty(
@@ -388,6 +389,7 @@ export async function resolveRequiredApplicationFee(
   );
   const bundleId = (input.bundleId ?? "").trim();
   if (!resolved.ok) {
+    if (opts?.failClosed) throw new Error("Could not verify the current application fee.");
     return { cents: 0, basis: { roomId: "", leaseTerm: "", bundleId, rentalType } };
   }
   return {

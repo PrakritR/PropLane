@@ -4,7 +4,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
-import { createFinancialConnectionsSession } from "@/lib/stripe-external-accounts.server";
+import { assertOwnedPayoutAccount, createFinancialConnectionsSession } from "@/lib/stripe-external-accounts.server";
 import { stripePublishableKey } from "@/lib/stripe/stripe-js-client";
 
 export const runtime = "nodejs";
@@ -31,6 +31,7 @@ export async function POST() {
     }
 
     const stripe = getStripe();
+    await assertOwnedPayoutAccount(stripe, accountId, access.actor.userId);
     const session = await createFinancialConnectionsSession(stripe, accountId);
     return NextResponse.json({ clientSecret: session.clientSecret, publishableKey });
   } catch (e) {

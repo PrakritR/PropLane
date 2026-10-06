@@ -8,7 +8,7 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { BarChart3, Table2 } from "lucide-react";
-import { FilterChipsField } from "@/components/portal/filter-field-lists";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -177,8 +177,8 @@ function CashflowFilterFields({ range, onRangeChange, series, onSeriesChange, de
   const [draftRange, setDraftRange] = usePortalFilterDraft<string>(range, onRangeChange, defaultRange);
   const [draftSeries, setDraftSeries] = usePortalFilterDraft<CashflowSeries>(series, onSeriesChange, "all");
   return <>
-    <FilterChipsField label="Period" value={draftRange} options={PERIOD_OPTIONS} onChange={setDraftRange} dataAttr="cashflow-filter-period" />
-    <FilterChipsField<CashflowSeries> label="Show" value={draftSeries} options={SHOW_OPTIONS} onChange={setDraftSeries} dataAttr="cashflow-filter-show" />
+    <FieldSingleSelect label="Period" value={draftRange} options={PERIOD_OPTIONS} onChange={setDraftRange} dataAttr="cashflow-filter-period" />
+    <FieldSingleSelect label="Show" value={draftSeries} options={SHOW_OPTIONS} onChange={(next) => setDraftSeries(next as CashflowSeries)} dataAttr="cashflow-filter-show" />
   </>;
 }
 
@@ -325,6 +325,7 @@ export function MonthlyProfitChart({ points: rawPoints, title = "Cash flow", cla
         <PortalFilterSortSheet
           activeCount={filterActive}
           compactPanel
+          commandStripTrigger
           dropdownAlign="end"
           filterFieldCount={2}
           mobileFlushBody

@@ -67,7 +67,7 @@ describe("platform hold", () => {
   it("Withdraw uses Stripe-only cents, never a hold", () => {
     expect(withdrawableCentsFromSnapshot({ availableCents: 124_000, withdrawableCents: 0, heldCents: 124_000 })).toBe(0);
     expect(withdrawableCentsFromSnapshot({ availableCents: 428_000, withdrawableCents: 428_000 })).toBe(428_000);
-    expect(withdrawableCentsFromSnapshot({ availableCents: 428_000 })).toBe(428_000);
+    expect(withdrawableCentsFromSnapshot({ availableCents: 428_000 })).toBe(0);
   });
 
   it("names the Available line held vs on-Stripe", () => {

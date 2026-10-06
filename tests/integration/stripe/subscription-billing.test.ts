@@ -101,15 +101,27 @@ function serviceRoleDbMock(opts: { user_id?: string | null; update?: ReturnType<
   };
 }
 
-function billingIdentityDbMock() {
+function billingIdentityDbMock(opts: { reserveFails?: boolean; tier?: string; sessionId?: string } = {}) {
+  const purchase = {
+    id: "purchase_1", user_id: "user_1", email: "mgr@example.com", manager_id: "MGR-123",
+    tier: opts.tier ?? "free", stripe_subscription_id: null, stripe_checkout_session_id: opts.sessionId ?? "axis_intent_initial",
+  };
   return {
+    purchase,
     from: vi.fn((table: string) => {
       const rows = [{ user_id: "user_1", stripe_customer_id: "cus_test_123", stripe_subscription_id: "sub_test_123" }];
+      let isUpdate = false;
       const query = {
         select: vi.fn(() => query), eq: vi.fn(() => query),
-        not: vi.fn(() => query), or: vi.fn(() => query), order: vi.fn(() => query),
+        not: vi.fn(() => query), or: vi.fn(() => query), is: vi.fn(() => query), in: vi.fn(() => query), order: vi.fn(() => query),
         limit: vi.fn(() => query),
-        maybeSingle: vi.fn().mockResolvedValue({ data: table === "manager_comms_billing_accounts" ? null : {}, error: null }),
+        update: vi.fn((patch: Record<string, unknown>) => {
+          isUpdate = true;
+          if (table === "manager_purchases" && !opts.reserveFails) Object.assign(purchase, patch);
+          return query;
+        }),
+        maybeSingle: vi.fn(async () => ({ data: table === "manager_comms_billing_accounts" ? null :
+          table === "manager_purchases" ? (opts.reserveFails && isUpdate ? null : purchase) : {}, error: null })),
         upsert: vi.fn().mockResolvedValue({ error: null }),
         then: (onfulfilled: (value: { data: typeof rows; error: null }) => unknown) =>
           Promise.resolve({ data: rows, error: null }).then(onfulfilled),
@@ -120,7 +132,18 @@ function billingIdentityDbMock() {
 }
 const stripeIdentityMock = () => ({
   customers: { retrieve: vi.fn().mockResolvedValue({ id: "cus_test_123", metadata: { manager_user_id: "user_1" } }) },
-  subscriptions: { retrieve: vi.fn().mockResolvedValue({ id: "sub_test_123", customer: "cus_test_123" }) },
+  subscriptions: {
+    retrieve: vi.fn().mockResolvedValue({ id: "sub_test_123", customer: "cus_test_123" }),
+    list: vi.fn().mockResolvedValue({ data: [], has_more: false }),
+  },
+  prices: { retrieve: vi.fn(async (id: string) => {
+    const tier = id.includes("business") ? "business" : "pro";
+    const annual = id.includes("annual");
+    return { id, active: true, currency: "usd", type: "recurring",
+      unit_amount: tier === "business" ? (annual ? 249_000 : 24_900) : (annual ? 49_000 : 4_900),
+      recurring: { interval: annual ? "year" : "month", interval_count: 1 },
+      product: { id: `prod_${tier}`, metadata: { axis_plan: `axis_${tier}` } } };
+  }) },
 });
 
 describe("Stripe subscription billing", () => {
@@ -163,7 +186,7 @@ describe("Stripe subscription billing", () => {
     const res = await checkout(req);
     const { status, data } = await parseJsonResponse<{ clientSecret?: string; sessionId?: string }>(res);
 
-    expect(status).toBe(200);
+    expect(status, JSON.stringify(data)).toBe(200);
     expect(data.clientSecret).toBe("cs_test_secret");
     expect(data.sessionId).toBe("cs_test_embedded");
     expect(create).toHaveBeenCalledWith(
@@ -174,7 +197,7 @@ describe("Stripe subscription billing", () => {
         metadata: expect.objectContaining({ tier: "pro", billing: "monthly" }),
       }),
     );
-    expect(create.mock.calls[0]?.[0]).not.toHaveProperty("payment_method_types");
+    expect(create.mock.calls[0]?.[0]).toHaveProperty("payment_method_types", ["card"]);
   });
 
   it("POST /api/stripe/checkout rejects missing price env", async () => {
@@ -262,7 +285,7 @@ describe("Stripe subscription billing", () => {
     const res = await checkoutPortal(req);
     const { status, data } = await parseJsonResponse<{ url?: string }>(res);
 
-    expect(status).toBe(200);
+    expect(status, JSON.stringify(data)).toBe(200);
     expect(data.url).toContain("checkout.stripe");
     expect(requireManagerRouteUser).toHaveBeenCalledOnce();
     expect(assertTestWorkspaceProviderEffectAllowed).toHaveBeenCalledWith(
@@ -276,7 +299,105 @@ describe("Stripe subscription billing", () => {
         metadata: expect.objectContaining({ userId: "user_1", tier: "business" }),
       }),
     );
-    expect(create.mock.calls[0]?.[0]).not.toHaveProperty("payment_method_types");
+    expect(create.mock.calls[0]?.[0]).toHaveProperty("payment_method_types", ["card"]);
+    expect(managerDb.purchase.stripe_checkout_session_id).toBe("cs_portal");
+  });
+
+  it("never exposes a Checkout URL when the durable owner reservation loses its compare-and-swap", async () => {
+    const managerDb = billingIdentityDbMock({ reserveFails: true });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1", email: "mgr@example.com" } } }) },
+      from: vi.fn().mockReturnValue({ select: () => ({ eq: () => ({ maybeSingle: async () => ({
+        data: { email: "mgr@example.com", manager_id: "MGR-123" }, error: null,
+      }) }) }) }),
+    } as never);
+    vi.mocked(requireManagerRouteUser).mockResolvedValue({ userId: "user_1", db: managerDb } as never);
+    const expire = vi.fn().mockResolvedValue({ id: "cs_lost", status: "expired" });
+    vi.mocked(getStripe).mockReturnValue({ ...stripeIdentityMock(), checkout: { sessions: {
+      create: vi.fn().mockResolvedValue({ id: "cs_lost", url: "https://checkout.stripe.test/lost" }), expire,
+    } } } as never);
+    const response = await checkoutPortal(jsonRequest("http://localhost/api/stripe/checkout-portal", {
+      method: "POST", body: { tier: "pro", billing: "monthly", embedded: false },
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).not.toHaveProperty("url");
+    expect(expire).toHaveBeenCalledWith("cs_lost");
+  });
+
+  it("resumes the same owned open Checkout instead of creating another subscription", async () => {
+    const managerDb = billingIdentityDbMock({ sessionId: "cs_prior" });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1", email: "mgr@example.com" } } }) },
+      from: vi.fn().mockReturnValue({ select: () => ({ eq: () => ({ maybeSingle: async () => ({
+        data: { email: "mgr@example.com", manager_id: "MGR-123" }, error: null,
+      }) }) }) }),
+    } as never);
+    vi.mocked(requireManagerRouteUser).mockResolvedValue({ userId: "user_1", db: managerDb } as never);
+    const create = vi.fn();
+    vi.mocked(getStripe).mockReturnValue({ ...stripeIdentityMock(), checkout: { sessions: {
+      create, retrieve: vi.fn().mockResolvedValue({ id: "cs_prior", status: "open", mode: "subscription",
+        customer: "cus_test_123", client_secret: "cs_prior_secret",
+        metadata: { userId: "user_1", manager_id: "MGR-123", tier: "pro", billing: "monthly", floor_price_id: "price_pro_monthly_test" } }),
+    } } } as never);
+    const response = await checkoutPortal(jsonRequest("http://localhost/api/stripe/checkout-portal", {
+      method: "POST", body: { tier: "pro", billing: "monthly", embedded: true },
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ clientSecret: "cs_prior_secret", sessionId: "cs_prior" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("reserves Checkout for an authenticated legacy Free manager with no purchase row", async () => {
+    const insert = vi.fn();
+    const managerDb = { from: vi.fn(() => {
+      let inserting = false;
+      const query = {
+        select: vi.fn(() => query), eq: vi.fn(() => query), limit: vi.fn(() => query),
+        insert: vi.fn((row: Record<string, unknown>) => { inserting = true; insert(row); return query; }),
+        maybeSingle: vi.fn(async () => ({ data: inserting ? { id: "new-purchase" } : null, error: null })),
+        then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
+          Promise.resolve({ data: [], error: null }).then(resolve),
+      };
+      return query;
+    }) };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1", email: "mgr@example.com" } } }) },
+      from: vi.fn().mockReturnValue({ select: () => ({ eq: () => ({ maybeSingle: async () => ({
+        data: { email: "mgr@example.com", manager_id: "MGR-123" }, error: null,
+      }) }) }) }),
+    } as never);
+    vi.mocked(requireManagerRouteUser).mockResolvedValue({ userId: "user_1", db: managerDb } as never);
+    vi.mocked(getStripe).mockReturnValue({ ...stripeIdentityMock(), checkout: { sessions: {
+      create: vi.fn().mockResolvedValue({ id: "cs_new_free", client_secret: "secret_new" }),
+    } } } as never);
+    const response = await checkoutPortal(jsonRequest("http://localhost/api/stripe/checkout-portal", {
+      method: "POST", body: { tier: "pro", billing: "monthly", embedded: true },
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ clientSecret: "secret_new", sessionId: "cs_new_free" });
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: "user_1", manager_id: "MGR-123", stripe_checkout_session_id: "cs_new_free", tier: "free",
+    }));
+  });
+
+  it("blocks an unrecorded active subscription on the authenticated customer", async () => {
+    const managerDb = billingIdentityDbMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1", email: "mgr@example.com" } } }) },
+      from: vi.fn().mockReturnValue({ select: () => ({ eq: () => ({ maybeSingle: async () => ({
+        data: { email: "mgr@example.com", manager_id: "MGR-123" }, error: null,
+      }) }) }) }),
+    } as never);
+    vi.mocked(requireManagerRouteUser).mockResolvedValue({ userId: "user_1", db: managerDb } as never);
+    const stripeMock = stripeIdentityMock();
+    stripeMock.subscriptions.list.mockResolvedValue({ data: [{ id: "sub_orphan", status: "active" }], has_more: false } as never);
+    const create = vi.fn();
+    vi.mocked(getStripe).mockReturnValue({ ...stripeMock, checkout: { sessions: { create } } } as never);
+    const response = await checkoutPortal(jsonRequest("http://localhost/api/stripe/checkout-portal", {
+      method: "POST", body: { tier: "pro", billing: "monthly", embedded: true },
+    }));
+    expect(response.status).toBe(409);
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("POST /api/stripe/checkout-portal refuses a mismatched canonical manager identity", async () => {

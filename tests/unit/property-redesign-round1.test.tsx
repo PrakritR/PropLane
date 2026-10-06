@@ -138,7 +138,7 @@ describe("one lease-type label set", () => {
   });
 
   it("default lease templates read 'Long-term lease' / 'Short-term lease'", () => {
-    const seeds = buildLeaseTemplateSeeds(listing([{}]));
+    const seeds = buildLeaseTemplateSeeds({ ...listing([{}]), allowedLeaseTerms: ["Long-term", "Short-Term Stay"], shortTermRentalsAllowed: true });
     expect(seeds.map((seed) => seed.label)).toEqual(expect.arrayContaining(["Long-term lease", "Short-term lease"]));
     expect(PROPERTY_LEASE_TYPE_OPTIONS.find((option) => option.id === "short-term")).toMatchObject({ label: "Short-term", defaultLabel: "Short-term lease" });
   });

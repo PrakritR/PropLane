@@ -3,7 +3,7 @@ import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { isStripeConnectAccountAccessError, resolveManagerConnectAccountId } from "@/lib/stripe-connect";
-import { emptyPayoutSnapshot, readPayoutSnapshot, snapshotWithPlatformHolds, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
+import { readPayoutSnapshot, snapshotWithPlatformHolds, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { vendorPayFeeBps } from "@/lib/platform-fees";
 
@@ -42,10 +42,10 @@ export async function GET() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {
-        return NextResponse.json({ ...emptyPayoutSnapshot(), demo: true });
+        return NextResponse.json({ error: "Payout balances are temporarily unavailable." }, { status: 503 });
       }
       if (isStripeConnectAccountAccessError(msg)) {
-        return NextResponse.json({ ...emptyPayoutSnapshot(), needsRelink: true });
+        return NextResponse.json({ error: "Reconnect your Stripe account to view payouts.", needsRelink: true }, { status: 409 });
       }
       return stripePayoutErrorResponse("vendor/payouts/balance GET", e);
     }

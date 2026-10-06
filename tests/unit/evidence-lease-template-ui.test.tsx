@@ -126,7 +126,11 @@ describe("evidence · lease templates are opt-in", () => {
     // The Delete affordance asks for confirmation; jsdom has no confirm().
     window.confirm = () => true;
     // A. brand-new property — sync must not conjure the old four rows
-    const fresh = syncPropertyLeaseTemplatesFromListing(createDefaultListingSubmission());
+    const fresh = syncPropertyLeaseTemplatesFromListing({
+      ...createDefaultListingSubmission(),
+      allowedLeaseTerms: ["Long-term", "Short-Term Stay"],
+      shortTermRentalsAllowed: true,
+    });
     const a = render(<Harness initial={fresh} />);
     expect(a.container.querySelectorAll('[data-attr^="property-lease-row-"]')).toHaveLength(0);
     writePanel(
@@ -157,10 +161,12 @@ describe("evidence · lease templates are opt-in", () => {
     await act(async () => {
       fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     });
-    // This property does not allow short stays, so with its last short-term lease gone the Short-term tab
-    // disappears and the list falls back to Long-term leases.
-    await waitFor(() => expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]));
-    expect(b.container.querySelector('[data-attr="property-lease-tab-short_term"]')).toBeNull();
+    // This property offers short stays, so its Short-term tab stays (now empty, with its Quick add) and the
+    // Long-term lease is untouched on the other tab.
+    await waitFor(() => expect(leaseRowLabels(b.container)).toEqual([]));
+    expect(b.container.querySelector('[data-attr="property-lease-tab-short_term"]')).not.toBeNull();
+    openLeaseTab(b.container, "long_term");
+    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]);
     writePanel(
       "lease-c-deleted",
       "C · Deleted 'Short-term lease' from the Edit modal. The row is gone and a re-sync no longer resurrects it — this is the bug the change fixes.",

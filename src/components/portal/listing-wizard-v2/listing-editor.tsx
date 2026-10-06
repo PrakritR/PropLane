@@ -150,6 +150,7 @@ import {
 import { listingLeaseTypeScopeOptions, listingPricingLeaseTabs, listingPricingTabToLeaseTerm } from "@/lib/listing-fee-scope";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { listingOfferedStays, staysPatch } from "@/lib/listing-stays";
+import { submissionWithShortStayDefaults } from "@/lib/leasing-quick-add";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { listingV2PublishPricingBlocker, PUBLISH_BLOCKER_RENT } from "@/lib/listing-wizard-validation";
@@ -638,7 +639,8 @@ function StepBasics({
       return;
     }
     setRefusedLastStay(false);
-    patch(patchFor);
+    // Ticking Short term adds the short-term application and lease; a long-term-only property never has them.
+    patch(stay === "short_term" && !offeredStays.short_term ? submissionWithShortStayDefaults({ ...sub, ...patchFor }) : patchFor);
   };
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
   const setBedrooms = (next: number) => {

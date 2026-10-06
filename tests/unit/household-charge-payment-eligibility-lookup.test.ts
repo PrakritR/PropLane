@@ -1,29 +1,22 @@
 /**
- * `lookupFailed` is what lets a gate tell "this property collects offline" from
- * "nothing could be read". Every read the enrichment makes has to feed it -
- * the payout-account read included, because a manager whose account is actually
- * unusable would otherwise read as payable and hold the resident at 402 behind
- * a checkout that cannot succeed.
+ * `lookupFailed` distinguishes a listing that collects offline from a failed
+ * property read. A manager payout account is not required for platform checkout.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/stripe", () => ({
-  getStripe: () => {
-    throw new Error("no stripe in tests");
-  },
-}));
-vi.mock("@/lib/stripe-connect", () => ({
-  validateManagerConnectForDestinationCharge: async () => ({ ok: true }),
-}));
 
-import { enrichHouseholdChargesFromPropertyRecordsResult } from "@/lib/household-charge-payment-eligibility.server";
+import { enrichHouseholdChargesFromPropertyRecordsResult, resolvePropertylessManagerPaymentPolicy } from "@/lib/household-charge-payment-eligibility.server";
+import { enrichHouseholdChargePaymentFlags, householdChargeProplanePayability } from "@/lib/household-charge-payment-eligibility";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
 const fail: Record<string, boolean> = {};
 
 function fakeDb() {
+  const reads: string[] = [];
   const from = (table: string) => {
+    reads.push(table);
     const q: Record<string, unknown> = {
       select: () => q,
       eq: () => q,
@@ -39,7 +32,7 @@ function fakeDb() {
     };
     return q;
   };
-  return { from } as never;
+  return { db: { from } as never, reads };
 }
 
 const charge = {
@@ -64,27 +57,99 @@ beforeEach(() => {
 });
 
 describe("enrichHouseholdChargesFromPropertyRecordsResult", () => {
+  it("uses the current listing over a stale creation snapshot in both directions", () => {
+    const listing = createDefaultListingSubmission();
+    const turnedOn = enrichHouseholdChargePaymentFlags({ ...charge, axisPaymentsEnabledSnapshot: false }, listing);
+    expect(householdChargeProplanePayability(turnedOn)).toBe("payable");
+    expect(turnedOn.acceptedPaymentMethodsSnapshot).toEqual(["ach", "card"]);
+
+    const turnedOff = enrichHouseholdChargePaymentFlags({ ...charge, axisPaymentsEnabledSnapshot: true }, {
+      ...listing, axisPaymentsEnabled: false, acceptedPaymentMethods: ["ach"],
+    });
+    expect(householdChargeProplanePayability(turnedOff)).toBe("offline");
+    expect(turnedOff.acceptedPaymentMethodsSnapshot).toEqual(["ach"]);
+  });
+
+  it("fails closed when the current listing cannot be resolved, even with a stored on snapshot", () => {
+    const unresolved = enrichHouseholdChargePaymentFlags({ ...charge, axisPaymentsEnabledSnapshot: true }, null);
+    expect(unresolved.axisPaymentsEnabledSnapshot).toBeNull();
+    expect(unresolved.acceptedPaymentMethodsSnapshot).toBeUndefined();
+    expect(householdChargeProplanePayability(unresolved)).toBe("unknown");
+  });
+
+  it("reads a propertyless one-off from the exact manager account setting, not its old snapshot", async () => {
+    const managerIds: string[] = [];
+    const db = { from(table: string) {
+      if (table !== "manager_automation_settings") throw new Error(`Unexpected ${table}`);
+      const q = { select: () => q, eq: (_key: string, managerId: string) => { managerIds.push(managerId); return q; },
+        maybeSingle: async () => ({ data: { manual_payments: { axisPaymentsEnabled: false } }, error: null }) };
+      return q;
+    } } as never;
+    const propertyless = { ...charge, propertyId: "", axisPaymentsEnabledSnapshot: true };
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [propertyless]);
+    expect(managerIds).toEqual(["mgr-1"]);
+    expect(householdChargeProplanePayability(result.charges[0]!)).toBe("offline");
+    expect(result.charges[0]!.acceptedPaymentMethodsSnapshot).toEqual(["ach", "card"]);
+  });
+
+  it("treats a missing propertyless account policy as unknown", async () => {
+    const db = { from: () => {
+      const q = { select: () => q, eq: () => q,
+        maybeSingle: async () => ({ data: { manual_payments: {} }, error: null }) };
+      return q;
+    } } as never;
+    expect(await resolvePropertylessManagerPaymentPolicy(db, "mgr-1")).toBeNull();
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [{ ...charge, propertyId: "", axisPaymentsEnabledSnapshot: true }]);
+    expect(result.lookupFailed).toBe(true);
+    expect(householdChargeProplanePayability(result.charges[0]!)).toBe("unknown");
+  });
+
+  it("holds a historical co-manager charge for books review instead of offering payment", async () => {
+    const db = { from: (table: string) => {
+      if (table !== "manager_property_records") throw new Error(`Unexpected ${table}`);
+      const q = { select: () => q, in: () => q,
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [{ id: "prop-1", manager_user_id: "owner-1",
+          property_data: { listingSubmission: { ...createDefaultListingSubmission(), axisPaymentsEnabled: false } } }], error: null }).then(resolve) };
+      return q;
+    } } as never;
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [{ ...charge, axisPaymentsEnabledSnapshot: true }]);
+    expect(result.lookupFailed).toBe(false);
+    expect(householdChargeProplanePayability(result.charges[0]!)).toBe("unknown");
+  });
+
+  it("does not accept a listing with no owner or borrow another same-label listing", async () => {
+    const db = { from: (table: string) => {
+      if (table !== "manager_property_records") throw new Error(`Unexpected ${table}`);
+      const q = { select: () => q, in: () => q,
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [{ id: "prop-1", manager_user_id: null,
+          property_data: { listingSubmission: createDefaultListingSubmission() } }], error: null }).then(resolve) };
+      return q;
+    } } as never;
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [{ ...charge, axisPaymentsEnabledSnapshot: true }]);
+    expect(householdChargeProplanePayability(result.charges[0]!)).toBe("unknown");
+  });
   it("reports no failure when every read succeeds", async () => {
-    const result = await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb(), [charge]);
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb().db, [charge]);
     expect(result.lookupFailed).toBe(false);
     expect(result.charges).toHaveLength(1);
   });
 
   it("reports a failed property read", async () => {
     fail.manager_property_records = true;
-    expect((await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb(), [charge])).lookupFailed).toBe(true);
+    expect((await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb().db, [charge])).lookupFailed).toBe(true);
   });
 
-  it("reports a failed payout-account read too", async () => {
+  it("does not read payout accounts or block an otherwise payable charge", async () => {
     fail.profiles = true;
-    const result = await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb(), [charge]);
-    expect(result.lookupFailed).toBe(true);
-    // Undefined, not false: nothing was learned about the account either way.
+    const { db, reads } = fakeDb();
+    const result = await enrichHouseholdChargesFromPropertyRecordsResult(db, [charge]);
+    expect(result.lookupFailed).toBe(false);
+    expect(reads).not.toContain("profiles");
     expect(result.charges[0]!.managerStripeConnectReadySnapshot).toBeUndefined();
   });
 
   it("says nothing failed for an empty list", async () => {
     fail.profiles = true;
-    expect((await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb(), [])).lookupFailed).toBe(false);
+    expect((await enrichHouseholdChargesFromPropertyRecordsResult(fakeDb().db, [])).lookupFailed).toBe(false);
   });
 });

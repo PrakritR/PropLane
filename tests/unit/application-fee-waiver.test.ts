@@ -255,6 +255,20 @@ describe("redeemApplicationFeeWaiverCode — the security-critical path", () => 
     });
   });
 
+  it("does not spend a lease-only code on an application's fee", async () => {
+    const created = await createApplicationFeeWaiverCode(db, "mgr_A", {
+      code: "LEASEONLY", appliesTo: "lease",
+    });
+    if (!created.ok) throw new Error("setup failed");
+    const result = await redeemApplicationFeeWaiverCode(db, {
+      managerUserId: "mgr_A", propertyId: "prop_1",
+      residentEmail: "applicant@example.com", applicationId: "app_1", code: "LEASEONLY",
+    });
+    expect(result.ok).toBe(false);
+    const rows = await listApplicationFeeWaiverRedemptions(db, "mgr_A");
+    expect(rows).toHaveLength(0);
+  });
+
   it("REJECTS one manager's code when redeemed against a DIFFERENT manager (cross-manager isolation)", async () => {
     // mgr_A owns FREE100. An applicant applying to mgr_B's property tries the
     // same code text — this must never waive mgr_B's fee.

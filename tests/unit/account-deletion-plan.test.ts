@@ -104,6 +104,14 @@ describe("delete order", () => {
     }
   });
 
+  it("deletes source arbitration children before their payout and held-charge parents", () => {
+    expect(before("platform_hold_refund_transfer_legs", "platform_hold_refund_attempts")).toBe(true);
+    expect(before("platform_hold_refund_transfer_legs", "platform_hold_transfer_attempts")).toBe(true);
+    expect(before("platform_source_consumption_legs", "platform_hold_refund_attempts")).toBe(true);
+    expect(before("platform_hold_refund_attempts", "vendor_payouts")).toBe(true);
+    expect(before("platform_hold_transfer_attempts", "platform_payment_holds")).toBe(true);
+  });
+
   it("deletes properties after everything that references one, then the workspaces they sit in", () => {
     // A property row references its workspace with ON DELETE RESTRICT, so the
     // workspace is the one table that must follow properties.

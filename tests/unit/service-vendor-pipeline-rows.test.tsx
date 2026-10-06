@@ -117,13 +117,16 @@ describe("the Send job popup", () => {
     expect(finish.disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /Vendors/ }));
     const list = await screen.findByRole("listbox", { name: "Vendors" });
-    for (const option of within(list).getAllByRole("option").slice(0, 12)) fireEvent.click(option);
+    for (const option of within(list).getAllByRole("option").slice(0, 12)) {
+      fireEvent.pointerDown(option, { pointerId: 1, clientX: 5, clientY: 5 });
+      fireEvent.pointerUp(option, { pointerId: 1, clientX: 5, clientY: 5 });
+    }
     expect(finish.textContent).toBe("Send job to 10");
     // The marketplace reach is a switch (not a checkbox) with a radius dropdown.
     const toggle = screen.getByRole("switch", { name: /PropLane vendors within/ });
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "Marketplace radius" }));
-    const radii = within(await screen.findByRole("listbox", { name: "Marketplace radius" })).getAllByRole("option").map((o) => o.textContent);
+    const radii = within(await screen.findByRole("listbox", { name: "Marketplace radius" })).getAllByRole("option").map((o) => o.textContent?.replace(/^✓/, ""));
     expect(radii).toEqual(["5 mi", "10 mi", "25 mi"]);
     fireEvent.click(screen.getByRole("option", { name: "25 mi" }));
     fireEvent.click(finish);

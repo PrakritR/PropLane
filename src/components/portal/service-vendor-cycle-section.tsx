@@ -114,6 +114,7 @@ export function ServiceVendorPipeline({
   intent,
   sending,
   approvingBidId,
+  paying = false,
   allowMarketplace = true,
   onSend,
   onWithdraw,
@@ -131,6 +132,8 @@ export function ServiceVendorPipeline({
   intent?: VendorsIntent | null;
   sending: boolean;
   approvingBidId: string | null;
+  /** A pay request is already in flight; a second tap would race its payment claim. */
+  paying?: boolean;
   /** False where the PropLane marketplace cannot be reached (the demo). */
   allowMarketplace?: boolean;
   onSend: (vendorIds: string[], marketplace: PublishMarketplaceOptions | undefined) => void | Promise<void>;
@@ -268,7 +271,7 @@ export function ServiceVendorPipeline({
             group === "scheduled"
               ? { id: "reschedule", label: row.visitAt ? "Reschedule" : "Schedule", onSelect: () => onSchedule(row), dataAttr: "service-reschedule" }
               : row.canPay
-                ? { id: "pay", label: "Pay", onSelect: () => onPay(row), dataAttr: "service-pay-vendor" }
+                ? { id: "pay", label: paying ? "Paying…" : "Pay", onSelect: () => onPay(row), disabled: paying, dataAttr: "service-pay-vendor" }
                 : null,
             group === "scheduled" || row.vendorSaysDone
               ? { id: "mark-done", label: ADD_ON_NEXT_STEP_LABEL["mark-done"], onSelect: () => onMarkDone(row), dataAttr: "service-mark-done" }

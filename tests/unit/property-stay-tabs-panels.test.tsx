@@ -7,11 +7,14 @@ import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
   createPropertyApplicationTemplate,
+  readPropertyApplicationTemplates,
   withApplicationAppliesTo,
   withApplicationDefaultForStay,
   withPropertyApplicationTemplatesExplicit,
 } from "@/lib/property-application-templates";
-import { createPropertyLeaseTemplate, withLeaseDefaultForStay } from "@/lib/property-lease-templates";
+import { createPropertyLeaseTemplate, readPropertyLeaseTemplates, withLeaseDefaultForStay } from "@/lib/property-lease-templates";
+import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
+import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 
 vi.mock("@/components/portal/pro-application-questions-editor-modal", () => ({
   ManagerApplicationQuestionsEditorModal: () => null,
@@ -72,7 +75,6 @@ describe("Applications tabs", () => {
     renderApps(withoutShort);
     expect(screen.queryByRole("button", { name: /^Short term/ })).toBeNull();
     expect(screen.getByRole("button", { name: /^Long term/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Default/ })).toBeTruthy();
     cleanup();
 
     // Never hide data: the short-term application keeps its tab even though short stays are off.
@@ -82,24 +84,48 @@ describe("Applications tabs", () => {
     expect(appRowIds()).toContain(shortApp.id);
   });
 
-  it("Default tab lists one row per allowed stay with the application that is its default", () => {
-    const rows = withApplicationDefaultForStay([both, longApp, cosigner, shortApp], longApp.id, "long_term");
-    renderApps(appSub(bothStays, rows));
-    fireEvent.click(screen.getByRole("button", { name: /^Default/ }));
-    const longRow = document.querySelector('[data-attr="property-application-default-long_term"]')!;
-    const shortRow = document.querySelector('[data-attr="property-application-default-short_term"]')!;
-    expect(longRow.textContent).toContain("Long-term default");
-    expect(longRow.textContent).toContain("Long-term application");
-    expect(shortRow.textContent).toContain("Short-term default");
-    expect(appRowIds()).toEqual([]);
-    expect(document.querySelector('[data-attr="property-application-quick-add"]')).toBeNull();
+  it("an untouched seeded short-term default on a long-term-only property is offered:false and holds no tab", () => {
+    const seeded = { ...shortApp, listingSeedKey: "short-term" as const };
+    renderApps(appSub(longOnly, [longApp, cosigner, seeded]));
+    expect(screen.queryByRole("button", { name: /^Short term/ })).toBeNull();
+    expect(appRowIds()).not.toContain(shortApp.id);
+    // Kept, never deleted: the sync only switches it off.
+    const synced = readPropertyApplicationTemplates(syncPropertyApplicationTemplatesFromListing(appSub(longOnly, [longApp, cosigner, seeded])));
+    const kept = synced.find((row) => row.id === shortApp.id);
+    expect(kept).toMatchObject({ offered: false, stayHidden: true });
+    cleanup();
+
+    // A seeded row the manager renamed is theirs: it keeps the tab.
+    renderApps(appSub(longOnly, [longApp, cosigner, { ...seeded, label: "Guest booking form" }]));
+    expect(screen.getByRole("button", { name: /^Short term/ })).toBeTruthy();
   });
 
-  it("a long-term-only property's Default tab has the long-term row only", () => {
-    renderApps(appSub(longOnly, [both, longApp, cosigner]));
-    fireEvent.click(screen.getByRole("button", { name: /^Default/ }));
-    expect(document.querySelector('[data-attr="property-application-default-long_term"]')).toBeTruthy();
-    expect(document.querySelector('[data-attr="property-application-default-short_term"]')).toBeNull();
+  it("there is no Default tab; a stay's default is a row marked Default with Set as default on the others", () => {
+    const rows = withApplicationDefaultForStay([both, longApp, cosigner, shortApp], longApp.id, "long_term");
+    renderApps(appSub(bothStays, rows));
+    expect(screen.queryByRole("button", { name: /^Default/ })).toBeNull();
+    const defaultRow = document.querySelector(`[data-attr="property-application-row-${longApp.id}"]`)!;
+    expect(defaultRow.textContent).toContain("Default");
+    expect(document.querySelector(`[data-attr="property-application-row-${both.id}"]`)!.textContent).not.toContain("Default");
+    // The default row offers no "Set as default"; every other row offers the open stay's only.
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Long-term application" }), { key: "ArrowDown" });
+    expect(screen.queryByRole("menuitem", { name: /Set as default/ })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Standard application" }), { key: "ArrowDown" });
+    expect(screen.getByRole("menuitem", { name: "Set as default for long term" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /default for short term/ })).toBeNull();
+  });
+
+  it("an application for both stays can be the default in each tab independently", () => {
+    const rows = withApplicationDefaultForStay(
+      withApplicationDefaultForStay([both, longApp, cosigner, shortApp], both.id, "long_term"),
+      both.id,
+      "short_term",
+    );
+    renderApps(appSub(bothStays, rows));
+    expect(document.querySelector(`[data-attr="property-application-row-${both.id}"]`)!.textContent).toContain("Default");
+    fireEvent.click(screen.getByRole("button", { name: /^Short term/ }));
+    expect(document.querySelector(`[data-attr="property-application-row-${both.id}"]`)!.textContent).toContain("Default");
+    expect(document.querySelector(`[data-attr="property-application-row-${shortApp.id}"]`)!.textContent).not.toContain("Default");
   });
 });
 
@@ -126,16 +152,14 @@ describe("Leases tabs", () => {
       row.getAttribute("data-attr")!.replace("property-lease-row-", ""),
     );
 
-  it("splits leases by stay and lists each stay's default on the Default tab", () => {
+  it("splits leases by stay, with no Default tab: the stay's default is a marked row", () => {
     const leases = withLeaseDefaultForStay([longLease, shortLease], shortLease.id, "short_term");
     renderLeases(bothStays, leases);
+    expect(screen.queryByRole("button", { name: /^Default/ })).toBeNull();
     expect(leaseRowIds()).toEqual([longLease.id]);
     fireEvent.click(screen.getByRole("button", { name: /^Short-term leases/ }));
     expect(leaseRowIds()).toEqual([shortLease.id]);
-    fireEvent.click(screen.getByRole("button", { name: /^Default/ }));
-    expect(leaseRowIds()).toEqual([]);
-    expect(document.querySelector('[data-attr="property-lease-default-long_term"]')!.textContent).toContain("Long-term lease");
-    expect(document.querySelector('[data-attr="property-lease-default-short_term"]')!.textContent).toContain("Short-term lease");
+    expect(document.querySelector(`[data-attr="property-lease-row-${shortLease.id}"]`)!.textContent).toContain("Default");
   });
 
   it("hides the Short-term leases tab when short stays are off and no short-term lease exists", () => {
@@ -143,6 +167,19 @@ describe("Leases tabs", () => {
     expect(screen.queryByRole("button", { name: /^Short-term leases/ })).toBeNull();
     cleanup();
     renderLeases(longOnly, [longLease, shortLease]);
+    expect(screen.getByRole("button", { name: /^Short-term leases/ })).toBeTruthy();
+    cleanup();
+
+    // An untouched seeded short-term default is switched off (kept, not deleted) and holds no tab; a renamed one does.
+    const seeded = { ...shortLease, listingSeedKey: "short-term" as const };
+    renderLeases(longOnly, [longLease, seeded]);
+    expect(screen.queryByRole("button", { name: /^Short-term leases/ })).toBeNull();
+    const kept = readPropertyLeaseTemplates(
+      syncPropertyLeaseTemplatesFromListing({ ...createDefaultListingSubmission(), ...longOnly, propertyLeaseTemplates: [longLease, seeded] }),
+    ).find((row) => row.id === shortLease.id);
+    expect(kept).toMatchObject({ offered: false, stayHidden: true });
+    cleanup();
+    renderLeases(longOnly, [longLease, { ...seeded, label: "Guest stay agreement" }]);
     expect(screen.getByRole("button", { name: /^Short-term leases/ })).toBeTruthy();
   });
 });

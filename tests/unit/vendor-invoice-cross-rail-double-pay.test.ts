@@ -32,7 +32,7 @@ const WO = "wo-1";
 let tables: Record<string, Row[]>;
 // Mirrors `claim_vendor_invoice_payment`: the first claim stamps the rail on the invoice and
 // inserts the pending payout row that IS the claim; a same-rail re-claim changes nothing.
-const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => {
+const rpc: ReturnType<typeof vi.fn> = vi.fn(async (name: string, params: Record<string, unknown>): Promise<{ data?: unknown; error: null }> => {
   if (name === "claim_vendor_invoice_payment") {
     const invoice = (tables.vendor_invoices ?? []).find((r) => r.id === params.p_invoice);
     if (invoice && invoice.payment_claim == null) {
@@ -48,6 +48,15 @@ const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => {
       });
     }
   }
+  if (name === "claim_vendor_invoice_stripe_checkout") {
+    // Mirrors the central RPC: it takes the same `claim_vendor_invoice_payment` claim for the
+    // stripe rail (cross-rail guard included) and stamps the attempt token as the session ref.
+    await rpc("claim_vendor_invoice_payment", { p_invoice: params.p_invoice, p_manager: params.p_manager, p_rail: "stripe" });
+    const invoice = (tables.vendor_invoices ?? []).find((r) => r.id === params.p_invoice)!;
+    if (invoice.checkout_session_id == null) invoice.checkout_session_id = params.p_attempt;
+    return { data: invoice.checkout_session_id, error: null };
+  }
+  if (name === "freeze_vendor_invoice_stripe_checkout_terms") return { data: params.p_terms, error: null };
   return { error: null };
 });
 
@@ -157,15 +166,16 @@ describe("the estimate-visit fee is a separate bill", () => {
 describe("Stripe invoice pay", () => {
   it("is refused (409) before any checkout session when the job was already paid", async () => {
     seed({ payouts: [approvePayPayout("paid")] });
-    const result = await startVendorInvoicePayCheckout(fakeDb(), { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test" });
+    const result = await startVendorInvoicePayCheckout(fakeDb(), { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test", paymentMethod: "card" });
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(createCheckout).not.toHaveBeenCalled();
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("CLAIMS the payout through the same RPC the other rails use, before the card is charged", async () => {
-    const result = await startVendorInvoicePayCheckout(fakeDb(), { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test" });
+  it("CLAIMS the payout through the central claim RPC (which takes the same cross-rail claim as the other rails), before the card is charged", async () => {
+    const result = await startVendorInvoicePayCheckout(fakeDb(), { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test", paymentMethod: "card" });
     expect(result).toMatchObject({ ok: true, clientSecret: "cs_1" });
+    expect(rpc).toHaveBeenCalledWith("claim_vendor_invoice_stripe_checkout", expect.objectContaining({ p_invoice: "inv-job", p_manager: MANAGER }));
     expect(rpc).toHaveBeenCalledWith("claim_vendor_invoice_payment", { p_invoice: "inv-job", p_manager: MANAGER, p_rail: "stripe" });
     expect(rpc.mock.invocationCallOrder[0]!).toBeLessThan(createCheckout.mock.invocationCallOrder[0]!);
     // The claim now exists as a pending payout, which is what refuses Approve + pay, and it is
@@ -189,7 +199,7 @@ describe("Stripe invoice pay", () => {
         return q;
       },
     };
-    const result = await startVendorInvoicePayCheckout(faulting as never, { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test" });
+    const result = await startVendorInvoicePayCheckout(faulting as never, { invoiceId: "inv-job", managerUserId: MANAGER, managerEmail: "m@x.test", paymentMethod: "card" });
     expect(result).toMatchObject({ ok: false, status: 500 });
     if (!result.ok) expect(result.error).toContain("connection reset");
     expect(createCheckout).not.toHaveBeenCalled();

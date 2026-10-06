@@ -86,9 +86,9 @@ class FakeQuery {
     if (this.mode === "update") {
       const matched = this.matched();
       for (const r of matched) Object.assign(r, this.payload);
-      // PostgREST returns the updated rows when the caller chains `.select()`, and callers rely on
+      // PostgREST returns the updated rows only when the caller chains `.select()`; callers rely on
       // that to tell a compare-and-swap that matched from one that did not.
-      return { data: matched, error: null };
+      return { data: this.cols ? matched : null, error: null };
     }
     if (this.mode === "delete") {
       for (const hit of this.matched()) this.rows.splice(this.rows.indexOf(hit), 1);

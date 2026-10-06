@@ -38,7 +38,9 @@ afterEach(() => {
 });
 
 async function pick(trigger: string, option: string) {
-  fireEvent.click(screen.getByRole("button", { name: trigger }));
+  const button = screen.getByRole("button", { name: trigger });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
   const node = await screen.findByText(option, { selector: '[role="option"] *, [role="option"]' });
   fireEvent.pointerDown(node, { pointerId: 1, clientX: 10, clientY: 10 });
   fireEvent.pointerUp(node, { pointerId: 1, clientX: 10, clientY: 10 });

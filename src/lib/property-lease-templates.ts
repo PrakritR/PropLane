@@ -63,6 +63,13 @@ export type PropertyLeaseTemplate = {
   /** Whether this lease is offered to applicants on this property. */
   offered?: boolean;
   /**
+   * Set (with `offered: false`) by the listing sync when this is an UNTOUCHED PropLane default for a stay the
+   * property does not allow (a short-term lease on a long-term-only house). The row is kept, never deleted; it
+   * does not count toward that stay's tab, and the sync switches it back on when the stay is allowed again.
+   * A row the manager edited never carries it.
+   */
+  stayHidden?: boolean;
+  /**
    * This lease's own Lease fee in cents - what a resident pays for THIS lease (captain, Oct 3 2026: lease
    * fees are set on the lease). Absent/null = the lease sets none; `0` is a real "free". It sits under a
    * room's own Lease fee (a per-room override) and above the legacy fallbacks in the one fee resolver
