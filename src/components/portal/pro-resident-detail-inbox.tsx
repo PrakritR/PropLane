@@ -29,10 +29,7 @@ import {
   buildInboxThreadAssistantContext,
 } from "@/components/portal/inbox-thread-assistant-strip";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
-import {
-  sendAutomationScheduledMessageNow,
-  sendManualScheduledMessageNow,
-} from "@/components/portal/portal-inbox-selection";
+import { sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
   automationChannelDefaultsFromSettings,
@@ -516,12 +513,11 @@ export function ResidentDirectChatPane({
     [reloadScheduled],
   );
 
-  const sendScheduledItemNow = useCallback(
+  const sendScheduledNow = useCallback(
     async (item: { id: string; source: "manual" | "automation" }) => {
       setScheduledBusyId(item.id);
       try {
-        if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
-        else await sendAutomationScheduledMessageNow(item.id);
+        await sendScheduledItemNow(item);
         reloadScheduled();
         onSent();
       } finally {
@@ -595,12 +591,13 @@ export function ResidentDirectChatPane({
             smsAvailable={smsAvailable}
             channelEditable={item.editable}
             source={item.source}
+            deliveryStatus={item.deliveryStatus}
             editable={item.editable}
-            busy={scheduledBusyId === item.id || item.deliveryStatus === "sending"}
+            busy={scheduledBusyId === item.id}
             recipient={email}
             sendAt={item.sendAt}
-            onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
-            onSendNow={() => { if (item.deliveryStatus !== "sending") void sendScheduledItemNow(item); }}
+            onCancel={() => cancelScheduledItem(item)}
+            onSendNow={item.editable ? () => sendScheduledNow(item) : undefined}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}

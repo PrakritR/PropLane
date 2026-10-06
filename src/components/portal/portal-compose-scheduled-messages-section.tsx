@@ -4,10 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { InboxScheduledCard, InboxScheduledSubjectRow, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
-import {
-  sendAutomationScheduledMessageNow,
-  sendManualScheduledMessageNow,
-} from "@/components/portal/portal-inbox-selection";
+import { sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
   automationChannelDefaultsFromSettings,
@@ -18,7 +15,7 @@ import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages
 
 /**
  * Scheduled messages for one recipient — subject rows at the bottom of a compose
- * modal; tap a row to open the full card (edit, send now, cancel).
+ * modal; tap a row to open the full card (edit, cancel).
  */
 export function PortalComposeScheduledMessagesSection({
   recipientEmail,
@@ -120,8 +117,7 @@ export function PortalComposeScheduledMessagesSection({
     async (item: ThreadScheduledItem) => {
       setBusyId(item.id);
       try {
-        if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
-        else await sendAutomationScheduledMessageNow(item.id);
+        await sendScheduledItemNow(item);
         notifyChanged();
         setEditing(null);
       } finally {
@@ -226,13 +222,14 @@ export function PortalComposeScheduledMessagesSection({
             smsAvailable={smsAvailable}
             channelEditable={editing.editable}
             source={editing.source}
+            deliveryStatus={editing.deliveryStatus}
             editable={editing.editable}
             busy={busyId === editing.id}
             presentation="detail"
             recipient={recipientEmail}
             sendAt={editing.sendAt}
-            onCancel={() => { if (editing.deliveryStatus !== "sending") void cancelItem(editing); }}
-            onSendNow={() => { if (editing.deliveryStatus !== "sending") void sendNow(editing); }}
+            onCancel={() => cancelItem(editing)}
+            onSendNow={editing.editable ? () => sendNow(editing) : undefined}
             onSaveEdit={
               editing.editable ? (next) => saveEdit(editing, next) : undefined
             }

@@ -17,8 +17,7 @@ import {
 import { PortalInboxEmptyState, InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
-  sendAutomationScheduledMessageNow,
-  sendManualScheduledMessageNow,
+  sendScheduledItemNow,
   useInboxRowSelection,
 } from "@/components/portal/portal-inbox-selection";
 import {
@@ -206,11 +205,7 @@ export function ManagerInboxSchedulePanel({
 
   const sendRowNow = async (row: ScheduleRow) => {
     if (row.message.status !== "scheduled") return;
-    if (row.kind === "manual") {
-      await sendManualScheduledMessageNow(row.message.id);
-    } else {
-      await sendAutomationScheduledMessageNow(row.message.id);
-    }
+    await sendScheduledItemNow({ id: row.message.id, source: row.kind === "manual" ? "manual" : "automation" });
   };
 
   const bulkSendNow = async () => {
@@ -322,45 +317,44 @@ export function ManagerInboxSchedulePanel({
           smsAvailable={smsAvailable}
           channelEditable={scheduled.editable && isScheduled}
           source={scheduled.source}
+          deliveryStatus={scheduled.deliveryStatus}
+          scheduled={isScheduled}
           editable={scheduled.editable && isScheduled}
           busy={editBusy}
           presentation="detail"
           recipient={recipientEmail ?? undefined}
           sendAt={scheduled.sendAt}
-          onCancel={() => {
+          onCancel={async () => {
             if (!isScheduled) return;
             setEditBusy(true);
-            void (async () => {
-              try {
-                if (row.kind === "manual") {
-                  await toggleManualCancelled(row.message, true);
-                } else {
-                  await patchScheduledMessage(row.message.id, { cancelled: true });
-                }
-                showToast("Send cancelled.");
-                setEditingRowId(null);
-                reloadAll();
-              } catch (e) {
-                showToast(e instanceof Error ? e.message : "Could not cancel send.");
-              } finally {
-                setEditBusy(false);
+            try {
+              if (row.kind === "manual") {
+                await toggleManualCancelled(row.message, true);
+              } else {
+                await patchScheduledMessage(row.message.id, { cancelled: true });
               }
-            })();
+              showToast("Send cancelled.");
+              setEditingRowId(null);
+              reloadAll();
+            } finally {
+              setEditBusy(false);
+            }
           }}
-          onSendNow={() => {
-            if (!isScheduled) return;
-            setEditBusy(true);
-            void sendRowNow(row)
-              .then(() => {
-                showToast(row.kind === "manual" ? "Message sent." : "Reminder sent.");
-                setEditingRowId(null);
-                reloadAll();
-              })
-              .catch((e) => {
-                showToast(e instanceof Error ? e.message : "Could not send message.");
-              })
-              .finally(() => setEditBusy(false));
-          }}
+          onSendNow={
+            isScheduled
+              ? async () => {
+                  setEditBusy(true);
+                  try {
+                    await sendRowNow(row);
+                    showToast(row.kind === "manual" ? "Message sent." : "Reminder sent.");
+                    setEditingRowId(null);
+                    reloadAll();
+                  } finally {
+                    setEditBusy(false);
+                  }
+                }
+              : undefined
+          }
           onSaveEdit={
             scheduled.editable && isScheduled
               ? async (next) => {

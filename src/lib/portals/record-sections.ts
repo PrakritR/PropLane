@@ -12,7 +12,7 @@ import {
   Smartphone,
   Wallet,
   Download,
-  HandCoins,
+  Settings,
   FileSignature,
   Lock,
   Shield,
@@ -351,7 +351,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     basePathDefault: "/portal",
     ownGroups: [{ label: "", ids: [{ id: "overview", label: "Payment" }] }],
     headerActions: [
-      { id: "take-payment", label: "Take payment", icon: HandCoins },
+      { id: "payment-settings", label: "Payment settings", icon: Settings },
       { id: "mark-paid", label: "Mark paid offline", icon: CheckCircle2 },
       { id: "send-reminder", label: "Send reminder", icon: Bell },
       { id: "download", label: "Download", icon: Download },

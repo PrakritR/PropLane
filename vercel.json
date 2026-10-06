@@ -18,6 +18,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/listing-channel-posts",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/send-payment-reminders",
       "schedule": "0 9 * * *"
     },

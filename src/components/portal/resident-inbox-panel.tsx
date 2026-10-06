@@ -443,7 +443,7 @@ export const ResidentInboxPanel = forwardRef<
   }, [scheduledRows]);
 
   const toggleScheduledCancelled = useCallback(
-    async (id: string, cancelled: boolean) => {
+    async (id: string, cancelled: boolean, options?: { rethrow?: boolean }) => {
       try {
         const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(id)}?as=resident`, {
           method: "PATCH",
@@ -456,6 +456,7 @@ export const ResidentInboxPanel = forwardRef<
         void reloadScheduledMessages();
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not update scheduled message.");
+        if (options?.rethrow) throw e;
       }
     },
     [reloadScheduledMessages, showToast],
@@ -1390,7 +1391,7 @@ export const ResidentInboxPanel = forwardRef<
   }, [activeThread, activeFolder, pendingSendingThreadIds]);
 
   // Scheduled messages the resident has queued to this conversation's manager —
-  // shown inline as compact cards. Residents may cancel or send now, but not
+  // shown inline as compact cards. Residents may cancel, but not
   // edit content (the resident scheduled-message route only patches status).
   const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
 
@@ -1403,28 +1404,12 @@ export const ResidentInboxPanel = forwardRef<
     async (id: string) => {
       setScheduledBusyId(id);
       try {
-        await toggleScheduledCancelled(id, true);
+        await toggleScheduledCancelled(id, true, { rethrow: true });
       } finally {
         setScheduledBusyId(null);
       }
     },
     [toggleScheduledCancelled],
-  );
-
-  const sendResidentScheduledNow = useCallback(
-    async (id: string) => {
-      setScheduledBusyId(id);
-      try {
-        await sendManualScheduledMessageNow(id, { asResident: true });
-        showToast("Message sent.");
-        void reloadScheduledMessages();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not send message.");
-      } finally {
-        setScheduledBusyId(null);
-      }
-    },
-    [reloadScheduledMessages, showToast],
   );
 
   const residentScheduledCards =
@@ -1446,12 +1431,12 @@ export const ResidentInboxPanel = forwardRef<
                 deliverViaEmail={item.deliverViaEmail}
                 deliverViaSms={item.deliverViaSms}
                 source={item.source}
+                deliveryStatus={item.deliveryStatus}
                 editable={false}
                 busy={scheduledBusyId === item.id}
                 recipient={activeThread.email}
                 sendAt={item.sendAt}
-                onCancel={() => { if (item.deliveryStatus !== "sending") void cancelResidentScheduled(item.id); }}
-                onSendNow={() => { if (item.deliveryStatus !== "sending") void sendResidentScheduledNow(item.id); }}
+                onCancel={() => cancelResidentScheduled(item.id)}
               />
             ))}
           </InboxScheduledThreadList>

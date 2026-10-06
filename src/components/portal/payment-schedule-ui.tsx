@@ -28,13 +28,13 @@ import {
 } from "@/lib/client-scheduled-message-overrides";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
+import { sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { ReminderMessagePreviewCard, ReminderMessageUpdateModal, ReminderSendViaField } from "@/components/portal/reminder-settings-shared";
 import {
   useFlushSettingsAutosaveOnUnmount,
   useReportSettingsSaveStatus,
 } from "@/components/portal/settings-save-status-context";
-import { sendAutomationScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import {
   automationChannelDefaultsFromSettings,
   threadScheduledItemFromAutomationMessage,
@@ -351,7 +351,11 @@ export function ChargeRemindersModal({
     if (!open) setEditingMessage(null);
   }, [open]);
 
-  const toggleCancelled = async (message: ScheduledPaymentMessage, cancelled: boolean) => {
+  const toggleCancelled = async (
+    message: ScheduledPaymentMessage,
+    cancelled: boolean,
+    options?: { rethrow?: boolean },
+  ) => {
     setManageable((prev) =>
       prev.map((row) =>
         row.id === message.id ? { ...row, status: cancelled ? "cancelled" : "scheduled" } : row,
@@ -360,9 +364,10 @@ export function ChargeRemindersModal({
     try {
       await onToggleCancel(message, cancelled);
       onMessageSaved?.();
-    } catch {
+    } catch (e) {
       setManageable(manageableFromProps);
       showToast("Could not update reminder.");
+      if (options?.rethrow) throw e;
     }
   };
 
@@ -518,6 +523,7 @@ export function ChargeRemindersModal({
           source="automation"
           channel={editingScheduled.channel}
           channelEditable={editingMessage.status === "scheduled"}
+          scheduled={editingMessage.status === "scheduled"}
           editable={editingMessage.status === "scheduled"}
           emailAvailable={capability.status === "ready" && capability.email?.available === true}
           smsAvailable={capability.status === "ready" && capability.sms?.available === true}
@@ -530,21 +536,25 @@ export function ChargeRemindersModal({
           presentation="detail"
           recipient={editingMessage.residentEmail}
           sendAt={editingMessage.sendAt}
-          onCancel={() => void toggleCancelled(editingMessage, true).then(() => setEditingMessage(null))}
-          onSendNow={() => {
-            if (editingMessage.status !== "scheduled") return;
-            setDetailBusy(true);
-            void sendAutomationScheduledMessageNow(editingMessage.id)
-              .then(() => {
-                showToast("Reminder sent.");
-                onMessageSaved?.();
-                setEditingMessage(null);
-              })
-              .catch((e) => {
-                showToast(e instanceof Error ? e.message : "Could not send reminder.");
-              })
-              .finally(() => setDetailBusy(false));
+          onCancel={async () => {
+            await toggleCancelled(editingMessage, true, { rethrow: true });
+            setEditingMessage(null);
           }}
+          onSendNow={
+            editingMessage.status === "scheduled"
+              ? async () => {
+                  setDetailBusy(true);
+                  try {
+                    await sendScheduledItemNow({ id: editingMessage.id, source: "automation" });
+                    showToast("Reminder sent.");
+                    onMessageSaved?.();
+                    setEditingMessage(null);
+                  } finally {
+                    setDetailBusy(false);
+                  }
+                }
+              : undefined
+          }
           onSaveEdit={
             editingMessage.status === "scheduled"
               ? async (next) => {
@@ -571,12 +581,10 @@ export function ScheduledMessageEditForm({
   message,
   onClose,
   onSaved,
-  onSendNow,
 }: {
   message: ScheduledPaymentMessage;
   onClose: () => void;
   onSaved: () => void;
-  onSendNow?: () => void | Promise<void>;
 }) {
   const { showToast } = useAppUi();
   const [subject, setSubject] = useState(message.subject);
@@ -699,11 +707,6 @@ export function ScheduledMessageEditForm({
           <Button type="button" variant="primary" className="rounded-full" onClick={() => save()} disabled={busy}>
             Save
           </Button>
-          {message.status === "scheduled" && onSendNow ? (
-            <Button type="button" variant="outline" className="rounded-full" onClick={() => onSendNow()} disabled={busy}>
-              Send now
-            </Button>
-          ) : null}
           {message.status === "cancelled" ? (
             <Button type="button" variant="outline" className="rounded-full" onClick={() => toggleCancelled(false)} disabled={busy}>
               Restore send

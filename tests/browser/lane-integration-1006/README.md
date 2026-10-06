@@ -22,8 +22,7 @@ fills the page and offers Schedule for later, and the resident-side forms lock i
 both its blocked and its fail-closed states.
 
 They also cover `/demo`'s own half of the scheduled-sends gating: on the `/demo`
-pathname a thread's reminders are the sandbox's local projection, Send now
-refuses out loud ("Not available in the demo."), Cancel is applied locally, and
+pathname a thread's reminders are the sandbox's local projection, no Send now button is offered, Cancel is applied locally, and
 the whole flow asks the scheduled-messages API for nothing.
 
 The server half of the same work has no screen; its transcript comes from

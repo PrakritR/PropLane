@@ -107,6 +107,8 @@ export const DELETE_ORDER = [
   "service_share_links",
   "manager_house_public_links",
   "manager_syndication_feeds",
+  "listing_channel_posts",
+  "listing_channel_connections",
   "cosigner_submission_records",
   "screening_orders",
   "work_order_bids",
