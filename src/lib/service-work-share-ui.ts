@@ -5,9 +5,20 @@ import { parseMoneyAmount } from "@/lib/parse-money";
  * Copy says "service", never "work order".
  */
 
-/** Send to phone is enabled with a full phone number and the manager's "I work with this vendor" attestation. */
-export function canSendToPhone(input: { phone: string; attestWorksWithVendor: boolean }): boolean {
-  return input.attestWorksWithVendor && input.phone.replace(/\D/g, "").length >= 10;
+/**
+ * Send to phone is enabled with a full phone number, an unopted-out number, and - only while the first text
+ * to that number still needs it - the manager's "I work with this vendor" attestation.
+ */
+export function canSendToPhone(input: {
+  phone: string;
+  attestWorksWithVendor: boolean;
+  /** Unknown (still checking) counts as needed. */
+  attestationNeeded?: boolean;
+  optedOut?: boolean;
+}): boolean {
+  if (input.optedOut) return false;
+  const attested = input.attestationNeeded === false || input.attestWorksWithVendor;
+  return attested && input.phone.replace(/\D/g, "").length >= 10;
 }
 
 /** The optional "Up to" budget: blank or non-positive is none, otherwise whole cents. */

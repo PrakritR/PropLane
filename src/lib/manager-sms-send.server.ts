@@ -451,6 +451,37 @@ export async function readRosterVendorTextStatus(
   });
 }
 
+/**
+ * The same answer for a number with no roster vendor yet (Send to phone on a service): consent is read by
+ * phone alone, so a number that already texted STOP shows as opted out before anything is minted.
+ */
+export async function readPhoneVendorTextStatus(
+  db: SupabaseClient,
+  args: { actorUserId: string; phone: string },
+): Promise<SendResult> {
+  const phone = normalizeE164(args.phone);
+  if (!phone) return response({ error: "Enter a valid phone number." }, { status: 400 });
+  const consent = await readVendorTextConsent(db, { managerUserId: args.actorUserId, vendorUserId: null, phone });
+  if (!consent.ok) return response({ error: "Could not read consent." }, { status: 503 });
+  const optedOut = consent.state === "opted_out" || consent.state === "revoked";
+  const needsAttestation = consent.state === "none";
+  return response({
+    ok: true,
+    phone,
+    needsAttestation,
+    optedOut,
+    ...(needsAttestation
+      ? {
+          senderLine: await senderLineFor(
+            db,
+            args.actorUserId,
+            (await existingVendorThreadLine(db, args.actorUserId, phone)) ?? (await onlyWorkLineId(db, args.actorUserId)),
+          ),
+        }
+      : {}),
+  });
+}
+
 async function onlyWorkLineId(db: SupabaseClient, ownerManagerUserId: string): Promise<string | null> {
   const line = await resolveConversationSendLine(db, ownerManagerUserId, { propertyId: null });
   return line.ok ? line.numberId : null;

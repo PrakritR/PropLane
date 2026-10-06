@@ -285,11 +285,12 @@ export async function routeUnrecognizedInboundText(
 
 async function createVendor(
   db: Db,
-  input: { managerUserId: string; phone: string; body: string },
+  input: { managerUserId: string; phone: string; body: string; name?: string; trade?: string },
 ): Promise<InboundTextRouting> {
   const id = smsLeadVendorId(input.managerUserId, input.phone);
-  const trade = guessTradeFromInboundText(input.body);
-  const name = parseNameFromInboundText(input.body) || `${trade} · ${formatSmsPhoneLabel(input.phone) ?? input.phone}`;
+  const trade = input.trade?.trim() || guessTradeFromInboundText(input.body);
+  const name =
+    input.name?.trim() || parseNameFromInboundText(input.body) || `${trade} · ${formatSmsPhoneLabel(input.phone) ?? input.phone}`;
   const now = new Date().toISOString();
   const row: ManagerVendorRow = {
     id,
@@ -386,7 +387,7 @@ async function accountVerifiedPhone(db: Db, userId: string, phone: string): Prom
  */
 export async function ensureVendorForOutboundText(
   db: Db,
-  input: { managerUserId: string; toPhone: string; body: string; markedVendor: boolean },
+  input: { managerUserId: string; toPhone: string; body: string; markedVendor: boolean; name?: string; trade?: string },
 ): Promise<OutboundVendorResult | null> {
   const managerUserId = input.managerUserId.trim();
   const phone = normalizeE164(input.toPhone);
@@ -466,6 +467,6 @@ export async function ensureVendorForOutboundText(
   }
 
   if (!input.markedVendor) return null;
-  const created = await createVendor(db, { managerUserId, phone, body: input.body });
+  const created = await createVendor(db, { managerUserId, phone, body: input.body, name: input.name, trade: input.trade });
   return created.kind === "vendor" && created.vendorId ? { vendorId: created.vendorId, name: created.name, created: created.created } : null;
 }
