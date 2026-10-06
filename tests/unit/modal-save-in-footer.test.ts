@@ -14,6 +14,7 @@ const FILES = [
   "messaging-credit-panel",
   "pro-vendors-panel",
   "manager-plan-addons-panel",
+  "manager-usage-panel",
 ];
 
 describe("pop-up primary action lives in the Modal footer slot", () => {
@@ -32,7 +33,7 @@ describe("pop-up primary action lives in the Modal footer slot", () => {
     const src = readFileSync("src/components/portal/workspace-invite-link-strip.tsx", "utf8");
     const attr = src.indexOf('data-attr="workspace-invite-link-edit-save"');
     expect(attr, "Save button not found").toBeGreaterThan(-1);
-    const save = src.slice(src.lastIndexOf("<Button", attr), src.indexOf(">", attr));
+    const save = src.slice(src.lastIndexOf("<Button", attr), src.indexOf("</Button>", attr));
     expect(save).toContain('variant="primary"');
   });
 });
