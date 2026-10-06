@@ -4,7 +4,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { deliverPortalMessageThreadSide, scopeForRole } from "@/lib/portal-inbox-delivery";
 import { formatPacificDateTime } from "@/lib/pacific-time";
-import { normalizeE164 } from "@/lib/twilio";
 import { bindVendorReplyTarget } from "@/lib/vendor-sponsored-outbound.server";
 
 /** Store inbound sponsored-identity mail before any assistant/support fallback. */
@@ -59,50 +58,6 @@ export async function ingestVendorWorkIdentityEmail(
     vendor_user_id: vendorUserId,
     meter: "inbound_email",
     idempotency_key: `vendor-inbound-email:${email.emailId}`,
-  }, { onConflict: "idempotency_key" });
-  return { handled: true, idempotent: stored.action === "skipped" };
-}
-
-/** Inbound SMS is stored even when the vendor SMS UI is hidden or outbound is capped. */
-export async function ingestVendorWorkIdentitySms(
-  db: SupabaseClient,
-  input: { toPhone: string; fromPhone: string; text: string; messageSid: string },
-): Promise<{ handled: boolean; idempotent?: boolean }> {
-  const to = normalizeE164(input.toPhone);
-  const from = normalizeE164(input.fromPhone);
-  if (!to || !from || !input.messageSid) return { handled: false };
-  const { data: identity, error: identityError } = await db.from("vendor_work_identities")
-    .select("id,vendor_user_id,phone_number,sms_state,sms_receive_ready,attachment_state")
-    .eq("phone_number", to)
-    .eq("sms_state", "ready")
-    .eq("sms_receive_ready", true)
-    .eq("attachment_state", "attached")
-    .maybeSingle();
-  if (identityError) throw new Error("Vendor identity lookup unavailable.");
-  const vendorUserId = String(identity?.vendor_user_id ?? "").trim();
-  if (!vendorUserId) return { handled: false };
-  const messageId = `vendor-inbound-sms:${input.messageSid}`;
-  const stored = await deliverPortalMessageThreadSide(db, {
-    scope: scopeForRole("vendor"), folder: "inbox", ownerUserId: vendorUserId,
-    participantEmail: `${from}@sms.proplane.local`, otherPartyEmail: `${from}@sms.proplane.local`,
-    // The texter is a phone, not an address: the conversation is keyed by the number.
-    conversation: { otherPartyPhone: from },
-    fallbackId: `vendor-inbound-sms:${vendorUserId}:${from}`,
-    fromName: from, subject: "Text message", body: input.text || "(text received)",
-    preview: (input.text || "(text received)").slice(0, 100).replace(/\n/g, " "),
-    when: formatPacificDateTime(new Date()), unread: true, outbound: false, messageId, channel: "sms", messageSubject: "Text message",
-  });
-  await bindVendorReplyTarget(db, {
-    vendorUserId,
-    threadId: stored.threadId,
-    channel: "sms",
-    recipient: from,
-    recipientUserId: null,
-    messageId,
-  });
-  await db.from("vendor_work_identity_usage_events").upsert({
-    identity_id: (identity as { id?: string }).id, vendor_user_id: vendorUserId,
-    meter: "inbound_sms", idempotency_key: `vendor-inbound-sms:${input.messageSid}`,
   }, { onConflict: "idempotency_key" });
   return { handled: true, idempotent: stored.action === "skipped" };
 }
