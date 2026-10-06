@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { FinancesWithdrawAction } from "@/components/portal/finances/finances-withdraw-action";
+import { useRouter } from "next/navigation";
 import { PropertyFinanceWorksheet } from "@/components/portal/finances/property-worksheet";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Landmark } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
@@ -577,6 +577,7 @@ export function ManagerFinancesPanel({
     FINANCE_TABS.map((t) => t.id),
   );
   const { showToast } = useAppUi();
+  const router = useRouter();
   const { userId, ready } = useManagerUserId();
   const [propertyTick, setPropertyTick] = useState(0);
   const [vendorTick, setVendorTick] = useState(0);
@@ -1162,7 +1163,7 @@ export function ManagerFinancesPanel({
         }))}
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
-        actions={isReportsHubTab ? undefined : isOverviewTab ? <FinancesWithdrawAction /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
+        actions={isReportsHubTab ? undefined : isOverviewTab ? <PortalIconAction icon={Landmark} label="Balance & payouts" data-attr="finances-balance-payouts" onClick={() => router.push(`${basePath}/profile?tab=payments`)} /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => window.location.assign(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
         primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={() => setEntryChooser(true)} /> : undefined}
 
         activeFilterChips={
