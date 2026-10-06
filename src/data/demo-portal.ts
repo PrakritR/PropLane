@@ -350,6 +350,19 @@ export type DemoManagerWorkOrderRow = {
     publishedAt: string;
   };
   /**
+   * Published to the vendor work board (vendor-work-share-1006): signed-in vendors browse it under
+   * Services > Find work through `publicServiceProjection`, never by this row. `publishRef` is the
+   * opaque handle the board uses instead of the work order id; the hire (or Unpublish) clears
+   * `published`. Written only by the service-role publish route.
+   */
+  published?: boolean;
+  publishedAt?: string;
+  publishRef?: string;
+  /** The manager's optional "up to" budget shown on the board and the public service page. */
+  publishBudgetCents?: number | null;
+  /** The manager's "Share photos" answer for the board / a texted service link (default off). */
+  publishSharePhotos?: boolean;
+  /**
    * The manager's "Share photos" answer on the open bid request. It governs what an
    * OFFERED-but-not-hired vendor is served (`projectWorkOrderForOfferedVendor`): absent or
    * false withholds the resident's intake photos. A hired vendor always sees them.
