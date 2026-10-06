@@ -42,15 +42,40 @@ describe("Bookings rooms come from the saved record", () => {
     expect(rows[0]!.label).toContain("Bedroom 1");
     expect(getRoomOptionsForProperty(ID, { includeUnavailable: true })).toHaveLength(5);
     expect(getRoomOptionsForProperty(ID)).toHaveLength(5);
+    // Every room is named here, so the public applicant surfaces see all 5 too.
+    expect(getRoomOptionsForProperty(ID, { includeUnnamed: true })).toHaveLength(5);
   });
 
-  it("a blank room name reads Room n, in the rows and in the picker", () => {
+  it("a blank room name reads Room n, in the rows and in the booking picker", () => {
     const rooms = fiveRooms();
     rooms[2] = { ...rooms[2]!, name: "   " };
     seedDemoManagerProperties("z-manager", [saved(rooms)]);
     expect(propertyRooms(ID, [])).toHaveLength(5);
     expect(propertyRooms(ID, [])[2]!.label).toBe("Room 3");
-    expect(getRoomOptionsForProperty(ID, { includeUnavailable: true })[2]!.label.startsWith("Room 3")).toBe(true);
+    const booking = getRoomOptionsForProperty(ID, { includeUnavailable: true, includeUnnamed: true });
+    expect(booking).toHaveLength(5);
+    expect(booking[2]!.label.startsWith("Room 3")).toBe(true);
+  });
+
+  // The placeholder name is manager-side Bookings only: a prospect or a
+  // lead-share link is never offered a room the manager never named.
+  it("without includeUnnamed an unnamed room is still left out", () => {
+    const rooms = fiveRooms();
+    rooms[2] = { ...rooms[2]!, name: "   " };
+    seedDemoManagerProperties("z-manager", [saved(rooms)]);
+    const prospect = getRoomOptionsForProperty(ID, { includeUnavailable: true });
+    expect(prospect).toHaveLength(4);
+    expect(prospect.some((option) => option.label.startsWith("Room 3"))).toBe(false);
+  });
+
+  it("a listing whose rooms are all unnamed keeps its old shape off Bookings", () => {
+    const rooms = fiveRooms().map((room) => ({ ...room, name: "" }));
+    seedDemoManagerProperties("z-manager", [saved(rooms)]);
+    // No room options at all → the public surfaces fall through to the
+    // whole-home/building branch, exactly as before this change.
+    expect(getRoomOptionsForProperty(ID, { includeUnavailable: true }).some((o) => o.value.includes("::"))).toBe(false);
+    expect(getRoomOptionsForProperty(ID, { includeUnavailable: true, includeUnnamed: true })).toHaveLength(5);
+    expect(propertyRooms(ID, [])).toHaveLength(5);
   });
 
   it("an unavailable room still gets its row", () => {

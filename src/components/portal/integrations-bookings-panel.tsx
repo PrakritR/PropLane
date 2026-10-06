@@ -33,8 +33,10 @@ export function ManagerBookingChannelsPanel() {
   const activeWorkspace = workspaceCtx?.active ?? null;
   const [channelOpen, setChannelOpen] = useState<ChannelCalendarProvider | null>(null);
   const [counts, setCounts] = useState<ChannelCounts>({ airbnb: null, booking_com: null, vrbo: null });
-  const liveIds = useMemo(() => activeWorkspace?.livePropertyIds ?? activeWorkspace?.propertyIds ?? [], [activeWorkspace]);
-  const propertyKey = liveIds.join(",");
+  // Every scoped property, drafts included: a draft can still hold a channel
+  // link that is syncing, and this panel is the only place to unlink it.
+  const scopedIds = useMemo(() => activeWorkspace?.propertyIds ?? [], [activeWorkspace]);
+  const propertyKey = scopedIds.join(",");
 
   const loadChannels = useCallback(async () => {
     const ids = propertyKey.split(",").filter(Boolean);
@@ -59,7 +61,7 @@ export function ManagerBookingChannelsPanel() {
     void loadChannels();
   }, [loadChannels]);
 
-  const propertyOptions = liveIds.map((id) => ({
+  const propertyOptions = scopedIds.map((id) => ({
     id,
     label: activeWorkspace?.propertyLabels?.[id] ?? id,
   }));
@@ -107,7 +109,7 @@ export function ManagerBookingChannelsPanel() {
         open={channelOpen !== null}
         onClose={() => setChannelOpen(null)}
         initialProvider={channelOpen ?? undefined}
-        propertyIds={liveIds}
+        propertyIds={scopedIds}
         propertyOptions={propertyOptions}
         showToast={showToast}
         onChanged={() => {

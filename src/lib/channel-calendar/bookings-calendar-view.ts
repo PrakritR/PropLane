@@ -62,7 +62,7 @@ export function calendarOccupancySummary(entries: readonly PropertyBookingEntry[
   let used = 0, total = 0, peak = 0, beds = 0;
   for (const day of days) {
     const cell = occupancyForDay(occupied, day, propertyIds, capacities);
-    used += cell.occupied; total += cell.total; peak = Math.max(peak, cell.occupied); beds = cell.total;
+    used += cell.occupied; total += cell.total; peak = Math.max(peak, cell.occupied); beds = Math.max(beds, cell.total);
   }
   return { peak, beds, percent: total ? Math.round(used / total * 100) : 0 };
 }

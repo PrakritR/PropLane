@@ -115,6 +115,14 @@ type RoomAvailabilityOptions = {
    * list this one is left out. Unset keeps every room, as before.
    */
   leaseTerm?: string | null;
+  /**
+   * Manager-side Bookings only: a room the manager never named still gets an
+   * option, labelled "Room n" by its position. Off everywhere else, so a
+   * prospect or lead-share link is never offered a placeholder the manager did
+   * not write — and a listing whose rooms are all unnamed keeps falling through
+   * to the whole-home/building branch on those surfaces.
+   */
+  includeUnnamed?: boolean;
 };
 
 
@@ -528,14 +536,18 @@ export function getPropertyById(id: string): MockProperty | undefined {
   // submission, and the saved record carrying the real rooms. Outside /demo
   // the saved record wins; /demo keeps resolving its own seeded copy (first
   // match) because it never reads real rows.
-  const known = [
-    ...mockProperties.filter((p) => p.id === propertyId),
-    ...readAllExtraListings().filter((p) => p.id === propertyId),
-    ...readExtraListings().filter((p) => p.id === propertyId),
-  ];
-  const fromKnown =
-    (isDemoModeActive() ? undefined : known.find((p) => p.listingSubmission?.v === 1)) ?? known[0];
-  if (fromKnown) return fromKnown;
+  // Each source is read at most once, and only when no earlier source has
+  // already answered: this function is on every booking row and calendar cell.
+  const demo = isDemoModeActive();
+  let firstMatch: MockProperty | undefined;
+  for (const readSource of [() => mockProperties, readAllExtraListings, readExtraListings]) {
+    for (const row of readSource()) {
+      if (row.id !== propertyId) continue;
+      if (demo || row.listingSubmission?.v === 1) return row;
+      firstMatch ??= row;
+    }
+  }
+  if (firstMatch) return firstMatch;
   // Fall back to pending properties (not yet approved/listed) so their title resolves correctly.
   const pendingRow = readAllPendingManagerProperties().find((p) => p.id === propertyId);
   if (pendingRow) return buildMockPropertyFromDraft(pendingRow, propertyId);
@@ -566,11 +578,11 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
 
   if (selected.listingSubmission?.v === 1) {
     const sub = normalizeManagerListingSubmissionV1(selected.listingSubmission);
-    // One option per saved room: a blank name reads "Room n", never dropped.
-    const configuredRooms = sub.rooms.map((room, index) => ({
-      ...room,
-      name: room.name.trim() || `Room ${index + 1}`,
-    }));
+    // With `includeUnnamed` (Bookings) one option per saved room: a blank name
+    // reads "Room n", never dropped. Everywhere else an unnamed room is left out.
+    const configuredRooms = options.includeUnnamed
+      ? sub.rooms.map((room, index) => ({ ...room, name: room.name.trim() || `Room ${index + 1}` }))
+      : sub.rooms.filter((room) => room.name.trim());
     if (!isEntireHomeListing(sub) && configuredRooms.length > 0) {
       const roomRows = configuredRooms
         .filter((room) => roomOffersLeaseTerm(room, options.leaseTerm))
