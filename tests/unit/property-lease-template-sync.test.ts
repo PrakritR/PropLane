@@ -28,6 +28,7 @@ describe("property lease template sync", () => {
   it("refreshes the templates a manager added, and creates none", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month", "Month-to-Month"];
+    sub.shortTermRentalsAllowed = true;
     expect(readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(sub))).toHaveLength(0);
 
     const added = addLeaseTemplateFromSeed(addLeaseTemplateFromSeed(sub, "primary"), "short-term");
@@ -372,6 +373,7 @@ describe("property lease template sync", () => {
   describe("Airbnb lease seed (P007)", () => {
     it("offers no airbnb seed when the listing does not allow Airbnb stays", () => {
       const sub = createDefaultListingSubmission();
+      sub.shortTermRentalsAllowed = true;
       sub.airbnbRentalsAllowed = false;
       const seeds = buildLeaseTemplateSeeds(sub);
       expect(seeds.map((s) => s.seedKey).sort()).toEqual(["primary", "short-term"]);
@@ -401,15 +403,12 @@ describe("property lease template sync", () => {
       expect(templates[0]?.label).toBe("Airbnb stay agreement");
       expect(templates[0]?.kind).toBe("short-term");
 
-      // Turning Airbnb back off drops the untouched default row on the next
-      // sync — same "untouched defaults carry nothing and are left behind"
-      // rule every other seed already follows
-      // (`property-lease-template-sync.ts`'s `preservedSeeded`); a manager
-      // who actually edited the Airbnb lease keeps it (covered by the
+      // Turning Airbnb back off never deletes the row: an untouched default is kept, switched off and marked
+      // `stayHidden` (it holds no tab). A manager who edited the Airbnb lease keeps it as it is (covered by the
       // pre-existing "keeps a retired bundle template" case above).
       const turnedOff: typeof added = { ...added, airbnbRentalsAllowed: false };
       const afterTurnOff = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(turnedOff));
-      expect(afterTurnOff.some((t) => t.listingSeedKey === "airbnb")).toBe(false);
+      expect(afterTurnOff.find((t) => t.listingSeedKey === "airbnb")).toMatchObject({ offered: false, stayHidden: true });
     });
   });
 });

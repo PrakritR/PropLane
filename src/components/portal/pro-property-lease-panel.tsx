@@ -6,7 +6,7 @@ import {
   type LeaseOptionKey,
 } from "@/lib/property-form-stay-type-routing";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, FileUp, FileText, AlertTriangle, Star } from "lucide-react";
+import { FileUp, FileText, AlertTriangle, Star } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -47,7 +47,6 @@ import {
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
 import {
-  effectiveDefaultLeaseForStay,
   explicitDefaultLeaseForStay,
   leaseTemplateStay,
   propertyLeaseSourceFromTemplate,
@@ -58,7 +57,7 @@ import {
   type LeaseStay,
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
-import { allowedStays, stayCounts, stayTabItems, type PropertyStay } from "@/lib/property-stay-tabs";
+import { stayCounts, stayTabItems, type PropertyStay } from "@/lib/property-stay-tabs";
 import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
@@ -152,29 +151,28 @@ export function ManagerPropertyLeasePanel({
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
-  // Long-term leases · Short-term leases · Default. The stay is derived from the lease's kind / routed terms.
-  // A stay the property does not allow loses its tab unless it still has leases (never hide data).
-  const [tab, setTab] = useState<PropertyStay | "default">("long_term");
+  // Long-term leases · Short-term leases. The stay is derived from the lease's kind / routed terms. A stay the
+  // property does not allow loses its tab unless it still holds a lease the manager owns (never hide data); an
+  // untouched PropLane default the sync switched off for a stay the property does not offer (`stayHidden`) does
+  // not count. The stay's default is a row inside its list (a Default fact + "Set as default").
+  const [tab, setTab] = useState<PropertyStay>("long_term");
   const [addStay, setAddStay] = useState<LeaseStay | undefined>(undefined);
-  const allowed = useMemo(() => allowedStays(syncedSub), [syncedSub]);
+  const counted = useMemo(() => templates.filter((row) => !row.stayHidden), [templates]);
   const tabItems = useMemo(
     () =>
-      [
-        ...stayTabItems(
-          syncedSub,
-          stayCounts(templates, (row) => leaseTemplateStay(row)),
-          (stay) => (stay === "long_term" ? "Long-term leases" : "Short-term leases"),
-        ),
-        { id: "default", label: "Default", count: allowed.length },
-      ].map((item) => ({ ...item, dataAttr: `property-lease-tab-${item.id}` })),
-    [allowed.length, syncedSub, templates],
+      stayTabItems(
+        syncedSub,
+        stayCounts(counted, (row) => leaseTemplateStay(row)),
+        (stay) => (stay === "long_term" ? "Long-term leases" : "Short-term leases"),
+      ).map((item) => ({ ...item, dataAttr: `property-lease-tab-${item.id}` })),
+    [counted, syncedSub],
   );
-  const activeTab = tabItems.some((item) => item.id === tab) ? tab : tabItems[0]!.id;
-  const activeStay: PropertyStay | null = activeTab === "default" ? null : (activeTab as PropertyStay);
-  const tabAddStay: PropertyStay | undefined = embedInModal ? undefined : (activeStay ?? allowed[0]);
+  const activeTab: PropertyStay = tabItems.some((item) => item.id === tab) ? tab : tabItems[0]!.id;
+  const activeStay: PropertyStay = activeTab;
+  const tabAddStay: PropertyStay | undefined = embedInModal ? undefined : activeStay;
   const visibleTemplates = useMemo(() => {
     const q = leaseSearch.trim().toLowerCase();
-    let rows = embedInModal || !activeStay ? templates : templates.filter((row) => leaseTemplateStay(row) === activeStay);
+    let rows = embedInModal ? counted : counted.filter((row) => leaseTemplateStay(row) === activeStay);
     if (leaseKindFilter) {
       rows = rows.filter((template) => template.kind === leaseKindFilter);
     }
@@ -183,7 +181,7 @@ export function ManagerPropertyLeasePanel({
       const label = template.label?.trim() || "Lease";
       return label.toLowerCase().includes(q);
     });
-  }, [activeStay, embedInModal, leaseKindFilter, leaseSearch, templates]);
+  }, [activeStay, counted, embedInModal, leaseKindFilter, leaseSearch]);
   // One row per lease type the listing offers (a type with no lease yet still
   // draws its "No lease yet" row), plus any lease outside those types — the
   // header count is exactly the rows the list shows.
@@ -191,7 +189,7 @@ export function ManagerPropertyLeasePanel({
   // and the Airbnb starter is short term). `missingLeaseDefaults` derives each starter's stay from the seed
   // itself, so a new seed can never land in the wrong tab.
   const missingDefaults = useMemo(
-    () => missingLeaseDefaults(syncedSub, embedInModal ? undefined : (activeStay ?? undefined)),
+    () => missingLeaseDefaults(syncedSub, embedInModal ? undefined : activeStay),
     [activeStay, embedInModal, syncedSub],
   );
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
@@ -628,7 +626,7 @@ export function ManagerPropertyLeasePanel({
               </PortalRowFact>
             ) : null}
             {isDefault ? (
-              <PortalRowFact icon={Check} srLabel="Default">
+              <PortalRowFact icon={Star} srLabel="Default">
                 Default
               </PortalRowFact>
             ) : null}
@@ -659,57 +657,14 @@ export function ManagerPropertyLeasePanel({
   const catalogBody = (
     <>
       <>
-        {activeTab === "default"
-          ? allowed.map((stay) => {
-              const current = effectiveDefaultLeaseForStay(
-                templates,
-                stay,
-                formSetup.loaded ? formSetup.leasingPipeline.defaultLeaseTemplateId : null,
-              );
-              const candidates = templates.filter(
-                (row) =>
-                  row.offered !== false &&
-                  row.listingSeedKey !== "cosigner" &&
-                  row.listingSeedKey !== "cosigner-short-term" &&
-                  leaseTemplateStay(row) === stay &&
-                  row.id !== current?.id,
-              );
-              const title = `${stay === "long_term" ? "Long-term" : "Short-term"} default`;
-              return (
-                <PortalPropertyRecordRow
-                  key={`default:${stay}`}
-                  title={title}
-                  leading={<PortalRowIconTile icon={Star} />}
-                  leadingShape="square"
-                  facts={
-                    <PortalRowFact icon={FileText} srLabel="Lease">
-                      {current ? current.label?.trim() || "Lease" : "None yet"}
-                    </PortalRowFact>
-                  }
-                  actions={
-                    <RowActionsMenu
-                      label={title}
-                      items={candidates.map((row) => ({
-                        id: `change-default-${row.id}`,
-                        label: `Change default to ${row.label?.trim() || "Lease"}`,
-                        onSelect: () => void setStayDefault(row.id, stay),
-                      }))}
-                    />
-                  }
-                  dataAttr={`property-lease-default-${stay}`}
-                />
-              );
-            })
-          : visibleTemplates.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
+        {visibleTemplates.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
       </>
-      {embedInModal || activeStay ? (
-        <LeasingQuickAddRow
-          entries={missingDefaults}
-          noun="lease"
-          dataAttr="property-lease-quick-add"
-          onAdd={(key) => addSeedTemplate(key as PropertyLeaseListingSeedKey)}
-        />
-      ) : null}
+      <LeasingQuickAddRow
+        entries={missingDefaults}
+        noun="lease"
+        dataAttr="property-lease-quick-add"
+        onAdd={(key) => addSeedTemplate(key as PropertyLeaseListingSeedKey)}
+      />
       {/* The page's command bar carries the one "+" (its form also takes a
           PDF upload); only the embedded modal, which has no command bar,
           needs a footer add row. */}
@@ -810,7 +765,7 @@ export function ManagerPropertyLeasePanel({
       stayTabs={{
         items: tabItems,
         activeId: activeTab,
-        onChange: (id) => setTab(id as PropertyStay | "default"),
+        onChange: (id) => setTab(id as PropertyStay),
         ariaLabel: "Leases",
       }}
       search={

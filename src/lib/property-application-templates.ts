@@ -100,6 +100,13 @@ export type PropertyApplicationTemplate = {
    */
   offered?: boolean;
   /**
+   * Set (with `offered: false`) by the listing sync when this is an UNTOUCHED PropLane default for a stay the
+   * property does not allow (a short-term application on a long-term-only house). The row is kept, never
+   * deleted; it does not count toward that stay's tab, and the sync switches it back on when the stay is
+   * allowed again. A row the manager edited never carries it.
+   */
+  stayHidden?: boolean;
+  /**
    * Which stay this application is for (the Application step groups rows under Long term / Short term /
    * Both). Stored on the listing submission JSON; absent on every row saved before it existed, which is
    * then DERIVED on read (`applicationAppliesTo`).
@@ -387,7 +394,17 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * The id of a PropLane default application, derived from its seed key. A default the property has not stored
+ * yet is rebuilt from the listing on every read, so a random id would change on each render and anything that
+ * held it (an open Preview, the Edit action's "is it stored yet?" check) would lose the row.
+ */
+export function seededApplicationTemplateId(seedKey: string): string {
+  return `app-tpl-seed-${seedKey}`;
+}
+
 export function createPropertyApplicationTemplate(args: {
+  id?: string;
   kind: PropertyLeaseTemplateKind;
   label?: string;
   applicationLeaseTerms?: string[];
@@ -399,7 +416,7 @@ export function createPropertyApplicationTemplate(args: {
   const kindMeta = PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === kind);
   const stamp = nowIso();
   return {
-    id: makePropertyApplicationTemplateId(),
+    id: args.id?.trim() || makePropertyApplicationTemplateId(),
     kind,
     label: args.label?.trim() || kindMeta?.defaultLabel.replace(/ lease$/i, " application") || "Application",
     formVariant: args.formVariant ?? applicationFormVariantForKind(kind),

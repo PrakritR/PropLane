@@ -13,7 +13,6 @@ import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/com
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
 import { STAY_LABEL, listingOfferedStays, type StaySectionKey } from "@/lib/listing-stays";
 import {
-  allowedStays,
   stayCounts,
   stayLabel,
   stayTabsFor,
@@ -176,28 +175,32 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const leases = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
-  // Long term · Short term · Default. A stay the property does not allow loses its tab unless it still has
-  // applications (never hide data); an application for both stays counts in, and is listed under, each tab.
-  const [tab, setTab] = useState<PropertyStay | "default">("long_term");
-  const allowed = useMemo(() => allowedStays(syncedSub), [syncedSub]);
+  // Long term · Short term. A stay the property does not allow loses its tab unless it still holds an application
+  // the manager owns (never hide data); an untouched PropLane default the sync switched off for a stay the
+  // property does not offer (`stayHidden`) does not count. An application for both stays counts in, and is
+  // listed under, each tab. The stay's default is a row inside its list (a Default fact + "Set as default").
+  const [tab, setTab] = useState<PropertyStay>("long_term");
+  const counted = useMemo(() => templates.filter((row) => !row.stayHidden), [templates]);
   const tabItems = useMemo(
     () => {
-      const counts = stayCounts(templates, (row) => applicationAppliesTo(row, leases));
+      const counts = stayCounts(counted, (row) => applicationAppliesTo(row, leases));
       // An application for both stays is listed in the allowed stay's tab already, so only one that is for a
       // disallowed stay ALONE keeps that stay's tab alive (never hide data, never show an empty stay).
-      const onlyHere = (stay: PropertyStay) => templates.filter((row) => applicationAppliesTo(row, leases) === stay).length;
+      const onlyHere = (stay: PropertyStay) => counted.filter((row) => applicationAppliesTo(row, leases) === stay).length;
       const held = { long_term: onlyHere("long_term"), short_term: onlyHere("short_term") };
-      return [
-        ...stayTabsFor(syncedSub, held).map((stay) => ({ id: stay, label: stayLabel(stay), count: counts[stay] })),
-        { id: "default", label: "Default", count: allowed.length },
-      ].map((item) => ({ ...item, dataAttr: `property-application-tab-${item.id}` }));
+      return stayTabsFor(syncedSub, held).map((stay) => ({
+        id: stay,
+        label: stayLabel(stay),
+        count: counts[stay],
+        dataAttr: `property-application-tab-${stay}`,
+      }));
     },
-    [allowed.length, leases, syncedSub, templates],
+    [counted, leases, syncedSub],
   );
-  const activeTab = tabItems.some((item) => item.id === tab) ? tab : tabItems[0]!.id;
-  const activeStay: PropertyStay | null = activeTab === "default" ? null : (activeTab as PropertyStay);
+  const activeTab: PropertyStay = tabItems.some((item) => item.id === tab) ? tab : tabItems[0]!.id;
+  const activeStay: PropertyStay = activeTab;
   const [addStay, setAddStay] = useState<PropertyStay | undefined>(undefined);
-  const tabAddStay: PropertyStay | undefined = embedInModal ? undefined : (activeStay ?? allowed[0]);
+  const tabAddStay: PropertyStay | undefined = embedInModal ? undefined : activeStay;
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -336,7 +339,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
    * so a co-signer form never shows under Short term and a short-term form never under Long term.
    */
   const quickAddEntries = useMemo(
-    () => missingApplicationDefaults(sub, embedInModal ? undefined : (activeStay ?? undefined)),
+    () => missingApplicationDefaults(sub, embedInModal ? undefined : activeStay),
     [activeStay, embedInModal, sub],
   );
 
@@ -433,7 +436,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
 
   const visibleTemplates = useMemo(() => {
     const q = applicationSearch.trim().toLowerCase();
-    let rows = templates;
+    let rows = templates.filter((template) => !template.stayHidden);
     if (formKindFilter) {
       rows = rows.filter((template) => applicationFormVariantForTemplate(template) === formKindFilter);
     }
@@ -667,57 +670,14 @@ export function ManagerPropertyApplicationQuestionsPanel({
         })}
           </section>
         ))}
-        {activeTab === "default"
-          ? allowed.map((stay) => {
-              const current = effectiveDefaultApplicationForStay(templates, stay, leases);
-              const candidates = templates.filter(
-                (row) =>
-                  applicationFormVariantForTemplate(row) !== "cosigner" &&
-                  isApplicationTemplateOffered(row) &&
-                  applicationCoversStay(row, stay, leases) &&
-                  row.id !== current?.id,
-              );
-              const title = `${stay === "long_term" ? "Long-term" : "Short-term"} default`;
-              return (
-                <PortalPropertyRecordRow
-                  key={`default:${stay}`}
-                  title={title}
-                  leading={<PortalRowIconTile icon={Star} />}
-                  leadingShape="square"
-                  facts={
-                    <PortalRowFact icon={ClipboardList} srLabel="Application">
-                      {current ? normalizePropertyApplicationTemplateLabel(current.label) : "None yet"}
-                    </PortalRowFact>
-                  }
-                  actions={
-                    <RowActionsMenu
-                      label={title}
-                      items={candidates.map((row) => ({
-                        id: `change-default-${row.id}`,
-                        label: `Change default to ${normalizePropertyApplicationTemplateLabel(row.label)}`,
-                        onSelect: () =>
-                          void commitTemplates(
-                            withApplicationDefaultForStay(templates, row.id, stay),
-                            `Default for ${STAY_LABEL[stay].toLowerCase()} set.`,
-                          ),
-                      }))}
-                    />
-                  }
-                  dataAttr={`property-application-default-${stay}`}
-                />
-              );
-            })
-          : null}
       </>
 
-      {embedInModal || activeStay ? (
-        <LeasingQuickAddRow
-          entries={quickAddEntries}
-          noun="application"
-          dataAttr="property-application-quick-add"
-          onAdd={(key) => void addSeedTemplate(key)}
-        />
-      ) : null}
+      <LeasingQuickAddRow
+        entries={quickAddEntries}
+        noun="application"
+        dataAttr="property-application-quick-add"
+        onAdd={(key) => void addSeedTemplate(key)}
+      />
 
       {/* The page's command bar carries the one "+" (its popup also takes a
           PDF upload); only the embedded modal, which has no command bar,
@@ -780,20 +740,16 @@ export function ManagerPropertyApplicationQuestionsPanel({
       stayTabs={{
         items: tabItems,
         activeId: activeTab,
-        onChange: (id) => setTab(id as PropertyStay | "default"),
+        onChange: (id) => setTab(id as PropertyStay),
         ariaLabel: "Applications",
       }}
-      search={
-        activeStay
-          ? {
-              value: applicationSearch,
-              onChange: setApplicationSearch,
-              placeholder: "Search applications",
-              dataAttr: "property-application-search",
-            }
-          : undefined
-      }
-      filter={activeStay ? formFilterSheet : null}
+      search={{
+        value: applicationSearch,
+        onChange: setApplicationSearch,
+        placeholder: "Search applications",
+        dataAttr: "property-application-search",
+      }}
+      filter={formFilterSheet}
       onAdd={openAdd}
       addLabel="Add application"
       addDataAttr="property-application-command-add"

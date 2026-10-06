@@ -574,7 +574,7 @@ describe("Lease step", () => {
   });
 
   it("a PropLane default the property lacks is a Quick add action under the list, never a placeholder card", () => {
-    const live = mountLive();
+    const live = mountLive(bothStays());
     go("lease");
     expect(qa("[data-attr='listing-v2-lease-default-card']")).toHaveLength(0);
     expect(qa("[data-attr='listing-v2-lease-card']")).toHaveLength(0);
@@ -592,7 +592,7 @@ describe("Lease step", () => {
 
   it("every lease card, a PropLane default included, has Edit, Duplicate and a red Delete last; deleting a default brings back its Quick add", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
-    const withThree = subWithLeases();
+    const withThree = { ...subWithLeases(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] };
     const live = mountLive({
       ...withThree,
       propertyLeaseTemplates: [...withThree.propertyLeaseTemplates!, lease("l3", "Parking addendum", { kind: "custom" })],

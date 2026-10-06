@@ -23,9 +23,11 @@ import { submissionAfterRemovingApplicationTemplate, syncPropertyApplicationTemp
 import { syncLegacyLeaseFieldsFromTemplates } from "@/lib/property-lease-templates";
 import { pricingLeaseOptions } from "@/lib/pricing-lease-options";
 
-const fresh = () => createDefaultListingSubmission();
+/** A property that offers both stays: a short-stay default exists only where the stay is allowed. */
+const bothStays = { allowedLeaseTerms: ["Long-term", "Short-Term Stay"], shortTermRentalsAllowed: true };
+const fresh = () => ({ ...createDefaultListingSubmission(), ...bothStays });
 /** A property whose applications are not auto-seeded (the manager owns the list), so every default is missing. */
-const bare = () => withPropertyApplicationTemplatesExplicit(createDefaultListingSubmission(), []);
+const bare = () => withPropertyApplicationTemplatesExplicit(fresh(), []);
 const labels = (entries: { label: string }[]) => entries.map((entry) => entry.label);
 
 describe("a new property's default setup", () => {
@@ -115,7 +117,7 @@ describe("Quick add: which PropLane defaults are missing", () => {
 
   it("Quick add adds to the tab you are on: a stay only offers the defaults that tab would then list", () => {
     const airbnbSub = withPropertyApplicationTemplatesExplicit(
-      { ...createDefaultListingSubmission(), airbnbRentalsAllowed: true },
+      { ...fresh(), airbnbRentalsAllowed: true },
       [],
     );
     // The Airbnb starter is a short-stay lease, so it belongs to the Short term tab, never Long term.
@@ -207,10 +209,10 @@ describe("the leasing options a property is priced under", () => {
     leaseTemplateDocUrl: null, leaseTemplateDocName: "", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z", ...extra,
   });
   it("is Long-term alone for a property that offers nothing else", () => {
-    expect(pricingLeaseOptions(fresh()).map((o) => o.label)).toEqual(["Long-term"]);
+    expect(pricingLeaseOptions(createDefaultListingSubmission()).map((o) => o.label)).toEqual(["Long-term"]);
   });
   it("adds Short-term when stays are offered, and Month-to-month only when a lease allows it", () => {
-    const stays = { ...fresh(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] };
+    const stays = { ...createDefaultListingSubmission(), shortTermRentalsAllowed: true, allowedLeaseTerms: ["Long-term", "Short-Term Stay"] };
     expect(pricingLeaseOptions(stays).map((o) => o.label)).toEqual(["Long-term", "Short-term"]);
     const m2m = {
       ...stays,
@@ -224,7 +226,7 @@ describe("the leasing options a property is priced under", () => {
   });
   it("lists a custom lease by name when it routes a lease type of its own", () => {
     const sub = {
-      ...fresh(),
+      ...createDefaultListingSubmission(),
       propertyLeaseTemplates: [lease("l9", "Lake house stays", { kind: "custom", applicationLeaseTerms: ["Airbnb"] })],
     };
     expect(pricingLeaseOptions(sub as never).map((o) => o.label)).toEqual(["Long-term", "Lake house stays"]);

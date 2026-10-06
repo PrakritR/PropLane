@@ -2,6 +2,7 @@ import {
   resolveAllowedLeaseTerms,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
+import { listingOfferedStays } from "@/lib/listing-stays";
 import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { normalizeApplicationLeaseTerm } from "@/lib/resident-manual-lease-terms";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
@@ -76,10 +77,14 @@ function longTermApplicationLeaseTerms(
   return allowed.length > 0 ? allowed : ["12-Month"];
 }
 
+/** Seed keys that exist only for a short stay: offered only on a property that allows short-term stays. */
+export const SHORT_STAY_SEED_KEYS: ReadonlySet<PropertyLeaseListingSeedKey> = new Set(["short-term", "airbnb"]);
+
 /**
- * The default lease formats a property can hold: long-term and short-term.
- * Nothing creates these on a manager's behalf — a property starts with none and
- * gains one only through `addLeaseTemplateFromSeed`.
+ * The default lease formats a property can hold: long-term, plus short-term (and Airbnb) ONLY when the
+ * property allows that stay ("Stays you offer"). A long-term-only property is never given a short-term
+ * default. Nothing creates these on a manager's behalf — a property starts with none and gains one only
+ * through `addLeaseTemplateFromSeed`.
  */
 export function buildLeaseTemplateSeeds(
   sub: Pick<
@@ -94,6 +99,7 @@ export function buildLeaseTemplateSeeds(
   >,
 ): LeaseTemplateSeed[] {
   const longTerms = longTermApplicationLeaseTerms(sub);
+  const shortStayAllowed = listingOfferedStays(sub).short_term;
   const seeds: LeaseTemplateSeed[] = [
     {
       seedKey: LONG_TERM_SEED_KEY,
@@ -101,19 +107,21 @@ export function buildLeaseTemplateSeeds(
       label: "Long-term lease",
       applicationLeaseTerms: longTerms,
     },
-    {
+  ];
+  if (shortStayAllowed) {
+    seeds.push({
       seedKey: SHORT_TERM_SEED_KEY,
       kind: "short-term",
       label: "Short-term lease",
       applicationLeaseTerms: [SHORT_TERM_LEASE_TERM],
-    },
-  ];
+    });
+  }
   // P007 (captain 2026-09-27): "Show an Airbnb row too." Reuses the
   // "short-term" template kind — an Airbnb stay already behaves like a
   // short-term stay everywhere else (`applicationRentalTypeFor`) — with its
   // own seed key and application lease term so it never merges into the
   // generic short-term row.
-  if (sub.airbnbRentalsAllowed) {
+  if (sub.airbnbRentalsAllowed && shortStayAllowed) {
     seeds.push({
       seedKey: AIRBNB_SEED_KEY,
       kind: "short-term",
@@ -193,6 +201,13 @@ function adoptPreviousLongTermTemplate(existing: PropertyLeaseTemplate[]): Prope
   return candidates[0] ?? null;
 }
 
+/** The row as a live default again: the stay it was hidden for is allowed, so it is offered. */
+function withoutStayHidden(template: PropertyLeaseTemplate): PropertyLeaseTemplate {
+  if (!template.stayHidden) return template;
+  const { stayHidden: _hidden, ...rest } = template;
+  return { ...rest, offered: true };
+}
+
 function defaultLabelForSeed(seed: LeaseTemplateSeed): string {
   return seed.label;
 }
@@ -267,7 +282,7 @@ export function syncPropertyLeaseTemplatesFromListing(
       consumedIds.add(prev.id);
       const defaultLabel = defaultLabelForSeed(seed);
       nextSeeded.push({
-        ...prev,
+        ...withoutStayHidden(prev),
         kind: seed.kind,
         listingSeedKey: seed.seedKey,
         applicationLeaseTerms: seed.applicationLeaseTerms,
@@ -292,7 +307,20 @@ export function syncPropertyLeaseTemplatesFromListing(
   const preservedSeeded = existing.filter(
     (t) => Boolean(t.listingSeedKey) && !consumedIds.has(t.id) && templateHasManagerEdits(t),
   );
-  const merged = [...nextSeeded, ...manual, ...preservedSeeded];
+  // A short-stay default the property no longer offers (it only allows long term): an untouched one is KEPT,
+  // switched off and marked `stayHidden`, so nothing is deleted and it does not hold a Short term tab open.
+  // One the manager edited was already preserved above, as it is.
+  const preservedIds = new Set(preservedSeeded.map((t) => t.id));
+  const stayHidden = existing
+    .filter(
+      (t) =>
+        Boolean(t.listingSeedKey) &&
+        SHORT_STAY_SEED_KEYS.has(t.listingSeedKey!) &&
+        !consumedIds.has(t.id) &&
+        !preservedIds.has(t.id),
+    )
+    .map((t) => ({ ...t, offered: false, stayHidden: true }));
+  const merged = [...nextSeeded, ...manual, ...preservedSeeded, ...stayHidden];
   return syncLegacyLeaseFieldsFromTemplates(sub, merged);
 }
 
