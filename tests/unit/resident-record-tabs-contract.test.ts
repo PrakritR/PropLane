@@ -105,7 +105,7 @@ describe("Application tab: Incomplete · Pending · Approved · Rejected", () =>
 });
 
 describe("Background check tab: one Completed tab", () => {
-  const check = (status: "pending" | "complete", result: "clear" | "consider" | null) =>
+  const check = (status: "pending" | "complete" | "canceled", result: "clear" | "consider" | null) =>
     ({ provider: "checkr", candidateId: "c", reportId: "r", packageSlug: "x", status, result, orderedAt: "2026-10-01" }) as unknown as DemoApplicantRow["backgroundCheck"];
 
   it("is a single tab labelled Completed, not the Application buckets", () => {
@@ -143,6 +143,19 @@ describe("Background check tab: one Completed tab", () => {
       ),
     ).toBe(1);
     expect(residentBackgroundCheckCompletedCount(row({ backgroundCheck: check("pending", null) }))).toBe(0);
+  });
+
+  it("an order that died is not a report that came back", () => {
+    // The same mapper sends a `failed` / `canceled` screening to `flagged`, so trusting the derived
+    // badge read "Completed 1" for an order that never produced anything, beside a panel showing
+    // Pending. With an order present its own status decides; the badge is only the no-order fallback.
+    const screening = (status: string) =>
+      ({ provider: "internal", status, recommendation: "review", orderedAt: "2026-10-01" }) as unknown as DemoApplicantRow["screening"];
+    expect(residentBackgroundCheckCompletedCount(row({ screening: screening("failed"), backgroundCheckStatus: "flagged" }))).toBe(0);
+    expect(residentBackgroundCheckCompletedCount(row({ screening: screening("canceled"), backgroundCheckStatus: "flagged" }))).toBe(0);
+    expect(residentBackgroundCheckCompletedCount(row({ backgroundCheck: check("canceled", null), backgroundCheckStatus: "flagged" }))).toBe(0);
+    // No order at all: a result the manager recorded by hand still counts.
+    expect(residentBackgroundCheckCompletedCount(row({ backgroundCheckStatus: "flagged" }))).toBe(1);
   });
 
   it("the body still renders the check panel, so a pending check is visible with its true status", () => {

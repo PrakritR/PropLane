@@ -41,16 +41,19 @@ export const RESIDENT_DETAIL_BACKGROUND_CHECK_TABS: {
  * `not_applicable`), so counting with it read "Completed 1" for every submitted application while
  * the panel underneath said pending.
  *
- * The REPORT decides, not the derived badge. `backgroundCheckStatusFromScreening` collapses a
- * complete report whose recommendation is `review` or `not_available` back to `pending_review` —
- * and `review` is the default recommendation — so reading only `backgroundCheckStatus` said
- * "Completed 0" beside a panel rendering the finished report. A finished order is counted whatever
- * it concluded; `passed` / `flagged` still covers a result a manager recorded by hand.
+ * The ORDER decides whenever there is one, because the derived badge answers a different question
+ * in both directions. `backgroundCheckStatusFromScreening` collapses a complete report whose
+ * recommendation is `review` or `not_available` back to `pending_review` — and `review` is the
+ * default recommendation — so a finished report read "Completed 0"; the same mapper sends a `failed`
+ * or `canceled` order to `flagged`, so an order that DIED read "Completed 1". An order that came
+ * back is counted whatever it concluded, an order that did not is never counted, and the derived
+ * badge is consulted only when there is no order at all — a result a manager recorded by hand.
  */
 export function residentBackgroundCheckCompletedCount(row: DemoApplicantRow | null): number {
   if (!row) return 0;
-  if (row.backgroundCheck?.status === "complete") return 1;
-  if (row.screening?.status === "complete") return 1;
+  if (row.backgroundCheck || row.screening) {
+    return row.backgroundCheck?.status === "complete" || row.screening?.status === "complete" ? 1 : 0;
+  }
   const status = resolveBackgroundCheckStatus(row);
   return status === "passed" || status === "flagged" ? 1 : 0;
 }

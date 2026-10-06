@@ -5,9 +5,14 @@ import { describe, expect, it } from "vitest";
 // S021 (captain, 2026-09-27) dropped the reminders-hub gear from Tours,
 // Applications, Leases, Residents, Tasks, Bookings, and Inspections — their
 // reminder settings stay reachable from the central Settings hub instead.
-// Payments and Communication keep their own gear. Services list gear removed (captain 2026-10-03).
-const FILES = [
-  "src/components/portal/pro-payments.tsx",
+// Payments keeps its own gear. Services list gear removed (captain 2026-10-03);
+// Communication's gear removed too (captain 2026-10-05) — its preferences are
+// reached from the Settings hub's Communication tab.
+const FILES = ["src/components/portal/pro-payments.tsx"];
+
+/** A list page whose toolbar carries no settings gear at all. */
+const NO_GEAR_FILES = [
+  "src/components/portal/pro-properties.tsx",
   "src/components/portal/pro-communication.tsx",
 ];
 
@@ -18,8 +23,10 @@ describe("settings command icons are a gear", () => {
       expect(src, rel).not.toContain("Settings2");
       expect(src, rel).toContain("icon={Settings}");
     }
-    const properties = readFileSync(join(process.cwd(), "src/components/portal/pro-properties.tsx"), "utf8");
-    expect(properties).not.toContain("icon={Settings}");
-    expect(properties).not.toContain("Settings2");
+    for (const rel of NO_GEAR_FILES) {
+      const src = readFileSync(join(process.cwd(), rel), "utf8");
+      expect(src, rel).not.toContain("icon={Settings}");
+      expect(src, rel).not.toContain("Settings2");
+    }
   });
 });
