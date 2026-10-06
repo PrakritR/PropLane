@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { encodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 export function useInboxRowSelection(selectableIds: string[]) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -80,4 +81,14 @@ export async function sendAutomationScheduledMessageNow(id: string): Promise<voi
   if (!res.ok) {
     throw new Error(await readPortalApiError(res, "Could not send reminder."));
   }
+}
+
+/** A send cannot be faked locally the way a cancel or an edit can, so the sandbox refuses out loud. */
+export const DEMO_SEND_NOW_MESSAGE = "Not available in the demo.";
+
+/** Send-now for either kind of scheduled message; throws (so the pop-up shows why) instead of going quiet. */
+export async function sendScheduledItemNow(item: { id: string; source: "manual" | "automation" }): Promise<void> {
+  if (isDemoModeActive()) throw new Error(DEMO_SEND_NOW_MESSAGE);
+  if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
+  else await sendAutomationScheduledMessageNow(item.id);
 }

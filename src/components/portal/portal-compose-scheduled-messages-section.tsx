@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { InboxScheduledCard, InboxScheduledSubjectRow, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
-import {
-} from "@/components/portal/portal-inbox-selection";
+import { sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
   automationChannelDefaultsFromSettings,
@@ -105,6 +104,20 @@ export function PortalComposeScheduledMessagesSection({
         } else {
           await patchScheduledMessage(item.id, { cancelled: true });
         }
+        notifyChanged();
+        setEditing(null);
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [notifyChanged],
+  );
+
+  const sendNow = useCallback(
+    async (item: ThreadScheduledItem) => {
+      setBusyId(item.id);
+      try {
+        await sendScheduledItemNow(item);
         notifyChanged();
         setEditing(null);
       } finally {
@@ -214,7 +227,8 @@ export function PortalComposeScheduledMessagesSection({
             presentation="detail"
             recipient={recipientEmail}
             sendAt={editing.sendAt}
-            onCancel={() => { if (editing.deliveryStatus !== "sending") void cancelItem(editing); }}
+            onCancel={() => cancelItem(editing)}
+            onSendNow={editing.editable ? () => sendNow(editing) : undefined}
             onSaveEdit={
               editing.editable ? (next) => saveEdit(editing, next) : undefined
             }

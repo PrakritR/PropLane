@@ -73,7 +73,9 @@ describe("inbox thread omnichannel primitives", () => {
     expect(screen.getAllByText(LONG).length).toBeGreaterThan(0);
     expect(screen.getByText("Save")).toBeTruthy();
     expect(screen.queryByText("Send now")).toBeNull();
-    expect(screen.queryByText("Cancel send")).toBeNull();
+    // Cancel send lives in the footer (left); the old inner ✕ icon is gone.
+    expect(screen.getByRole("button", { name: "Cancel send" })).toBeTruthy();
+    expect(document.querySelector('[data-attr="inbox-scheduled-card"] button[aria-label="Cancel send"]')).toBeNull();
   });
 
   // A body-only save must NOT emit channel flags. An automated reminder with no

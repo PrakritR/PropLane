@@ -28,6 +28,7 @@ import {
 } from "@/lib/client-scheduled-message-overrides";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
+import { sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { ReminderMessagePreviewCard, ReminderMessageUpdateModal, ReminderSendViaField } from "@/components/portal/reminder-settings-shared";
 import {
@@ -529,7 +530,25 @@ export function ChargeRemindersModal({
           presentation="detail"
           recipient={editingMessage.residentEmail}
           sendAt={editingMessage.sendAt}
-          onCancel={() => void toggleCancelled(editingMessage, true).then(() => setEditingMessage(null))}
+          onCancel={async () => {
+            await toggleCancelled(editingMessage, true);
+            setEditingMessage(null);
+          }}
+          onSendNow={
+            editingMessage.status === "scheduled"
+              ? async () => {
+                  setDetailBusy(true);
+                  try {
+                    await sendScheduledItemNow({ id: editingMessage.id, source: "automation" });
+                    showToast("Reminder sent.");
+                    onMessageSaved?.();
+                    setEditingMessage(null);
+                  } finally {
+                    setDetailBusy(false);
+                  }
+                }
+              : undefined
+          }
           onSaveEdit={
             editingMessage.status === "scheduled"
               ? async (next) => {

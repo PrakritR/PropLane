@@ -76,7 +76,7 @@ import {
   PortalTableDetailActions,
   createPortalRowExpandClick,
 } from "@/components/portal/portal-data-table";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import type { TabItem } from "@/components/ui/tabs";
 import type { InboxThreadMessage } from "@/lib/portal-inbox-storage";
 import {
@@ -2182,25 +2182,52 @@ function scheduledSendAtToLocalInput(iso: string): string {
 function ScheduledMessageComposeFooter({
   busy,
   canSave,
+  showSave = true,
   onSave,
+  onCancelSend,
+  onSendNow,
 }: {
   busy?: boolean;
   canSave: boolean;
+  showSave?: boolean;
   onSave: () => void | Promise<void>;
+  onCancelSend?: () => void | Promise<void>;
+  onSendNow?: () => void | Promise<void>;
 }) {
   return (
-    <Button
-      type="button"
-      variant="primary"
-      className="rounded-full"
-      onClick={onSave}
-      disabled={busy || !canSave}
-      data-attr="inbox-scheduled-save"
-    >
-      {busy ? "Saving…" : "Save"}
-    </Button>
+    <div className="flex w-full items-center justify-between gap-2">
+      <div>
+        {onCancelSend ? (
+          <Button type="button" variant="danger" disabled={busy} onClick={() => onCancelSend()} data-attr="inbox-scheduled-cancel-send">
+            Cancel send
+          </Button>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        {onSendNow ? (
+          <Button type="button" variant="secondary" className="rounded-full" disabled={busy} onClick={() => onSendNow()} data-attr="inbox-scheduled-send-now">
+            Send now
+          </Button>
+        ) : null}
+        {showSave ? (
+          <Button
+            type="button"
+            variant="primary"
+            className="rounded-full"
+            onClick={() => onSave()}
+            disabled={busy || !canSave}
+            data-attr="inbox-scheduled-save"
+          >
+            Save
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
+
+/** Lets a card nested in {@link ScheduledMessageDetailModal} close its host after Cancel send / Send now. */
+const ScheduledDetailCloseContext = createContext<(() => void) | null>(null);
 
 function enhanceInboxScheduledCardFooter(
   node: ReactNode,
@@ -2243,7 +2270,9 @@ export type InboxScheduledCardProps = {
   recipient?: string;
   recipientPhone?: string;
   sendAt?: string;
-  onCancel: () => void;
+  onCancel: () => void | Promise<void>;
+  /** Sends the scheduled message immediately; omit where a send-now is not offered. */
+  onSendNow?: () => void | Promise<void>;
   onSaveEdit?: (next: InboxScheduledSaveEdit) => void | Promise<void>;
   showSendActions?: boolean;
   pinActionsInModalFooter?: boolean;
@@ -2289,7 +2318,9 @@ export function ScheduledMessageDetailModal({
       dataAttr={dataAttr}
       footer={footer ? <ModalFooter className="w-full justify-end gap-2">{footer}</ModalFooter> : undefined}
     >
-      {enhanceInboxScheduledCardFooter(children, setFooter)}
+      <ScheduledDetailCloseContext.Provider value={onClose}>
+        {enhanceInboxScheduledCardFooter(children, setFooter)}
+      </ScheduledDetailCloseContext.Provider>
     </Modal>
   );
 }
@@ -2322,6 +2353,7 @@ export function InboxScheduledCard({
   recipientPhone,
   sendAt,
   onCancel,
+  onSendNow,
   onSaveEdit,
   showSendActions = true,
   pinActionsInModalFooter = false,
@@ -2341,6 +2373,8 @@ export function InboxScheduledCard({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const canCompose = Boolean(editable && onSaveEdit);
+  const confirm = useConfirm();
+  const closeHost = useContext(ScheduledDetailCloseContext);
 
   const viewSendVia = useMemo(
     () => deliverViaEmail !== undefined || deliverViaSms !== undefined || deliverViaInbox !== undefined
@@ -2423,36 +2457,76 @@ export function InboxScheduledCard({
   const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
   const actionBusy = busy || saving;
   const canSave = Boolean(draftBody.trim() && draftChannelsOk);
+  const cancelEnabled = showSendActions;
+  const sendNowEnabled = showSendActions && Boolean(onSendNow);
+
+  /** Cancel send / Send now: run, close the pop-up on success, keep it open with the reason on failure. */
+  const runAndClose = async (action: () => void | Promise<void>, fallback: string) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await action();
+      if (presentation === "compact") closeModal();
+      else closeHost?.();
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error && e.message ? e.message : fallback);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancelSend = async () => {
+    const ok = await confirm({
+      title: "Cancel send",
+      description: "Cancel this scheduled message? It will not be sent.",
+      confirmLabel: "Cancel send",
+      note: null,
+      guard: "tap",
+    });
+    if (!ok) return;
+    await runAndClose(onCancel, "Could not cancel send.");
+  };
+
+  const sendNow = async () => {
+    if (!onSendNow) return;
+    await runAndClose(onSendNow, "Could not send that message.");
+  };
 
   // Read only from the footer's onClick, never during render, so the latest-ref
   // effect keeps it current without writing to a ref while rendering.
-  const saveEditRef = useRef(saveEdit);
+  const actionsRef = useRef({ saveEdit, cancelSend, sendNow });
   useEffect(() => {
-    saveEditRef.current = saveEdit;
+    actionsRef.current = { saveEdit, cancelSend, sendNow };
   });
+
+  const hasFooter = canCompose || cancelEnabled || sendNowEnabled;
 
   useEffect(() => {
     if (!pinActionsInModalFooter || !onModalFooterChange) return;
     onModalFooterChange(
-      canCompose ? (
+      hasFooter ? (
         <ScheduledMessageComposeFooter
           busy={actionBusy}
           canSave={canSave}
-          onSave={() => {
-            return saveEditRef.current();
-          }}
+          showSave={canCompose}
+          onSave={() => actionsRef.current.saveEdit()}
+          onCancelSend={cancelEnabled ? () => actionsRef.current.cancelSend() : undefined}
+          onSendNow={sendNowEnabled ? () => actionsRef.current.sendNow() : undefined}
         />
       ) : null,
     );
     return () => onModalFooterChange(null);
-  }, [pinActionsInModalFooter, onModalFooterChange, canCompose, actionBusy, canSave]);
+  }, [pinActionsInModalFooter, onModalFooterChange, hasFooter, canCompose, cancelEnabled, sendNowEnabled, actionBusy, canSave]);
 
-  const actionFooter = canCompose
+  const actionFooter = hasFooter
     ? (
         <ScheduledMessageComposeFooter
           busy={actionBusy}
           canSave={canSave}
+          showSave={canCompose}
           onSave={saveEdit}
+          onCancelSend={cancelEnabled ? cancelSend : undefined}
+          onSendNow={sendNowEnabled ? sendNow : undefined}
         />
       )
     : null;
@@ -2527,14 +2601,9 @@ export function InboxScheduledCard({
       }
       data-attr="inbox-scheduled-card"
     >
-      {showSendActions ? (
-        <div className="mb-2 flex justify-end gap-1">
-          <PortalIconAction icon={X} label="Cancel send" disabled={actionBusy} onClick={onCancel} />
-        </div>
-      ) : null}
       {composeBody}
       {!pinFooterActions && actionFooter ? (
-        <div className="mt-2.5 flex justify-end">{actionFooter}</div>
+        <div className="mt-2.5 flex w-full justify-end">{actionFooter}</div>
       ) : null}
     </div>
   );

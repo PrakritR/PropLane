@@ -95,6 +95,7 @@ import {
 import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
 import {
   useInboxRowSelection,
+  sendScheduledItemNow,
 } from "@/components/portal/portal-inbox-selection";
 import { ManagerInboxSchedulePanel } from "@/components/portal/pro-inbox-schedule-panel";
 import {
@@ -1632,8 +1633,6 @@ export const ManagerInbox = forwardRef<
         }
         showToast("Scheduled send cancelled.");
         reloadScheduled();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not cancel send.");
       } finally {
         setScheduledBusyId(null);
       }
@@ -1641,6 +1640,21 @@ export const ManagerInbox = forwardRef<
     [reloadScheduled, showToast],
   );
 
+
+  const sendScheduledNow = useCallback(
+    async (item: { id: string; source: "manual" | "automation" }) => {
+      setScheduledBusyId(item.id);
+      try {
+        await sendScheduledItemNow(item);
+        showToast("Message sent.");
+        reloadScheduled();
+        reloadInbox();
+      } finally {
+        setScheduledBusyId(null);
+      }
+    },
+    [reloadScheduled, reloadInbox, showToast],
+  );
 
   const saveScheduledEdit = useCallback(
     async (
@@ -2561,7 +2575,8 @@ export const ManagerInbox = forwardRef<
             busy={scheduledBusyId === item.id || item.deliveryStatus === "sending"}
             recipient={activeThread.email}
             sendAt={item.sendAt}
-            onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
+            onCancel={() => cancelScheduledItem(item)}
+            onSendNow={item.editable ? () => sendScheduledNow(item) : undefined}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}

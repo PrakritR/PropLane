@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { InboxScheduledCard, InboxScheduledThreadList } from "@/components/portal/portal-inbox-ui";
 
 afterEach(cleanup);
@@ -59,5 +59,47 @@ describe("scheduled conversation bar", () => {
     fireEvent.change(screen.getByDisplayValue("Original"), { target: { value: "Updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(save).toHaveBeenCalledWith({ subject: "Reminder", body: "Updated" });
+  });
+
+  describe("pop-up footer", () => {
+    const open = (props: Record<string, unknown>) => {
+      render(<InboxScheduledThreadList placement="bar" count={1}><InboxScheduledCard subject="Rent" body="Body" sendLabel="Oct 4" source="manual" editable onCancel={vi.fn()} onSaveEdit={vi.fn()} {...props} /></InboxScheduledThreadList>);
+      fireEvent.click(screen.getByRole("button", { name: /^Edit Rent/ }));
+    };
+
+    it("puts Cancel send on the left and Send now then Save on the right, with one close control", () => {
+      open({ onSendNow: vi.fn() });
+      const labels = screen.getAllByRole("button").map((b) => b.textContent).filter((t) => ["Cancel send", "Send now", "Save"].includes(t ?? ""));
+      expect(labels).toEqual(["Cancel send", "Send now", "Save"]);
+      expect(document.querySelector('[data-attr="inbox-scheduled-card"] button[aria-label="Cancel send"]')).toBeNull();
+    });
+
+    it("Send now runs the send path and closes the pop-up", async () => {
+      const send = vi.fn().mockResolvedValue(undefined);
+      open({ onSendNow: send });
+      fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+      await waitFor(() => expect(send).toHaveBeenCalledOnce());
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    });
+
+    it("keeps the pop-up open and says why when Send now fails (demo)", async () => {
+      open({ onSendNow: vi.fn().mockRejectedValue(new Error("Not available in the demo.")) });
+      fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+      expect((await screen.findByRole("alert")).textContent).toContain("Not available in the demo.");
+      expect(screen.queryByRole("dialog")).not.toBeNull();
+    });
+
+    it("Cancel send asks first; declining cancels nothing, confirming cancels and closes", async () => {
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+      open({ onCancel: cancel });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel send" }));
+      await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
+      expect(cancel).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel send" }));
+      await waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      confirmSpy.mockRestore();
+    });
   });
 });

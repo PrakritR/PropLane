@@ -29,8 +29,7 @@ import {
   buildInboxThreadAssistantContext,
 } from "@/components/portal/inbox-thread-assistant-strip";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
-import {
-} from "@/components/portal/portal-inbox-selection";
+import { sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
   automationChannelDefaultsFromSettings,
@@ -514,6 +513,20 @@ export function ResidentDirectChatPane({
     [reloadScheduled],
   );
 
+  const sendScheduledNow = useCallback(
+    async (item: { id: string; source: "manual" | "automation" }) => {
+      setScheduledBusyId(item.id);
+      try {
+        await sendScheduledItemNow(item);
+        reloadScheduled();
+        onSent();
+      } finally {
+        setScheduledBusyId(null);
+      }
+    },
+    [onSent, reloadScheduled],
+  );
+
   const saveScheduledEdit = useCallback(
     async (
       item: { id: string; source: "manual" | "automation"; editable: boolean },
@@ -582,7 +595,8 @@ export function ResidentDirectChatPane({
             busy={scheduledBusyId === item.id || item.deliveryStatus === "sending"}
             recipient={email}
             sendAt={item.sendAt}
-            onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
+            onCancel={() => cancelScheduledItem(item)}
+            onSendNow={item.editable ? () => sendScheduledNow(item) : undefined}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}
