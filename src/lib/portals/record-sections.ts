@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CreditCard,
   FileText,
+  FileUp,
   MessageSquare,
   Wallet,
   Download,
@@ -297,37 +298,40 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
         { id: "communication", label: "Communication" },
       ] },
     ],
+    // Captain, 2026-10-05 round 2: the record's own top-right icons are Edit and Delete and
+    // nothing else, identical on every tab. Everything that used to sit here lives in the tab
+    // it belongs to — Message in Communication's composer, Share / Archive / Send invite in
+    // Overview's ⋯, Send application in Application, Upload for resident in Documents.
     headerActions: [
       { id: "edit", label: "Edit", icon: Pencil },
-      { id: "share", label: "Share", icon: Share2 },
-      { id: "archive", label: "Archive", icon: Archive },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
-      { id: "message", label: "Message", icon: Mail, tone: "primary" },
     ],
     sectionActions: {
+      overview: [
+        { id: "share", label: "Share", icon: Share2 },
+        { id: "archive", label: "Archive", icon: Archive },
+      ],
       application: [
         { id: "approve", label: "Approve", icon: CheckCircle2, tone: "primary" },
         { id: "decline", label: "Decline", icon: XCircle, tone: "danger" },
         { id: "edit", label: "Edit", icon: Pencil },
         { id: "download", label: "Download PDF", icon: Download },
       ],
-      "background-check": [
-        { id: "run-check", label: "Run check", icon: Shield, tone: "primary" },
-        { id: "upload", label: "Upload report", icon: Upload },
-      ],
-      lease: [
-        { id: "send-lease", label: "Send lease", icon: Send, tone: "primary" },
-        { id: "remind-sign", label: "Remind to sign", icon: Bell },
-        { id: "download", label: "Download", icon: Download },
-        { id: "upload", label: "Upload", icon: Upload },
-      ],
+      // One Completed tab, so the only action is ordering the check itself.
+      "background-check": [{ id: "run-check", label: "Run check", icon: Shield, tone: "primary" }],
+      // Download only: sending and reminding happen from Overview's next action and the
+      // Leases hub, and a lease PDF is uploaded through Documents.
+      lease: [{ id: "download", label: "Download", icon: Download }],
       payments: [
         { id: "remind-payment", label: "Payment reminder", icon: Bell },
         { id: "add-charge", label: "Add charge", icon: Plus, tone: "primary" },
       ],
       services: [{ id: "add-service", label: "Add service", icon: Plus, tone: "primary" }],
       tours: [{ id: "add-tour", label: "Add tour", icon: Plus, tone: "primary" }],
-      documents: [{ id: "upload", label: "Add document", icon: Upload, tone: "primary" }],
+      documents: [
+        { id: "upload-for-resident", label: "Upload for resident", icon: FileUp },
+        { id: "upload", label: "Add document", icon: Upload, tone: "primary" },
+      ],
     },
     // Documents and Communication are listed in "Home" above (Communication last), so the registry
     // appends nothing after them.

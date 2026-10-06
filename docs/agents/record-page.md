@@ -65,19 +65,32 @@ Rail: RESIDENT (Overview · Tours · Application · Background check), HOME (Lea
 Services, current residents only · Documents · Communication, last). No Activity tab; Inspections is a
 Move in sub-tab (`/move-in/inspections`, and an old `/inspections` link redirects there).
 
-The record's top-right icons are identical on every tab: the one `PortalRecordActions` in
-`pro-residents.tsx` publishes them, and no tab body may publish a second set (the slot is single,
-last wins). A tab's own actions are icons in its section header card — `ManagerResidentSectionToolbar`
-with a `title` (the section's name), the tabs as `destinationRow`, icon actions, the blue + last.
-Application and Background check share Incomplete · Pending · Approved · Rejected
-(`residentApplicationStatusBucket`, `residentBackgroundCheckStatusBucket`); Move in's sub-tabs are
-the resident's My home tabs in the same order. Placement and Move-in details resolve from the
-record's OWN application row, never every row sharing the email, or an approved tenancy at another
-property describes this one. Roommates is a server read —
-`GET /api/manager-applications/<id>/housemates` authorizes the caller against the record with
-`managerCanAccessApplicationRecord`, then answers through the resident loader, so each peer is
-redacted by that peer's own sharing preferences and the manager sees no more than the resident does.
-An unrecognised Move in sub-tab slug lands on Forms (`parseResidentRecordMoveInTab`).
+The record's top-right icons are **Edit and Delete, and nothing else**, identical on every tab: the
+one `PortalRecordActions` in `pro-residents.tsx` publishes them from the registry's tab-independent
+`headerActions`, and no tab body may publish a second set (the slot is single, last wins). Everything
+that used to crowd that corner is an action of the tab it belongs to — Message is Communication's
+composer, Share · Archive (· Send invite, when there is no login yet) are the Overview tab's ⋯,
+Send application is Application's blue +, Upload for resident sits beside Documents' own +.
+
+A tab's own actions are icons in its section header card: `ManagerResidentSectionToolbar` carries
+**no section name** (the rail already says which section is open) — only the tabs as
+`destinationRow` on the left, then icon actions, the blue + last. Application is
+Incomplete · Pending · Approved · Rejected (`residentApplicationStatusBucket`); Background check is
+ONE tab, Completed (`RESIDENT_DETAIL_BACKGROUND_CHECK_TABS`); Lease keeps Download only; Documents
+draws its kinds (Application · Lease · Payments · Inspections · Other) as that same header card's
+tabs, never a second control row. Move in's sub-tabs are the resident's My home tabs in the same
+order, and an unrecognised sub-tab slug lands on Forms (`parseResidentRecordMoveInTab`).
+
+Placement and Move-in details resolve from the record's OWN application row, never every row sharing
+the email, or an approved tenancy at another property describes this one. Roommates is a server read,
+issued only while that sub-tab is open and never summarised as a tab count:
+`GET /api/manager-applications/<id>/housemates` authorizes **twice** — the record with
+`managerCanAccessApplicationRecord`, then the property re-derived from the stored row with the same
+helper but `manager_user_id` omitted, because the row's property id is writable by the manager who
+owns that record and the frozen stamp must not stand in for owning the property. It then answers
+through the resident loader, so each peer is redacted by that peer's own sharing preferences and the
+manager sees no more than the resident does. A failed read is an error with a retry, never "no
+residents".
 
 ## Header actions are per (role, kind, section)
 

@@ -256,27 +256,34 @@ export function ResidentRecordMoveInSection({
 
   // Roommates come from the server: the household is the manager's whole set of current residents
   // at this property, which the browser's own copy of the application rows cannot be trusted to
-  // scope or redact. The route authorizes this manager against the record itself.
-  // Stamped with the record it was loaded for, so moving to another resident never shows the
-  // previous one's household while the new read is in flight.
-  const [loadedHousemates, setLoadedHousemates] = useState<{ applicationId: string; list: ResidentMoveInHousemate[] } | null>(null);
-  const housemates = useMemo<ResidentMoveInHousemate[]>(
-    () => (loadedHousemates?.applicationId === applicationId ? loadedHousemates.list : []),
-    [loadedHousemates, applicationId],
-  );
+  // scope or redact. The read is issued only when the Roommates sub-tab is open — it costs the
+  // server a paged sweep of the manager's application rows — and is stamped with the record it
+  // answered for, so moving to another resident never shows the previous one's household. A failed
+  // read stays `failed`, never an empty list: "we could not look" is not "nobody lives here".
+  const [loadedHousemates, setLoadedHousemates] = useState<
+    { applicationId: string; list: ResidentMoveInHousemate[] } | { applicationId: string; failed: true } | null
+  >(null);
+  const householdRead = loadedHousemates?.applicationId === applicationId ? loadedHousemates : null;
+  const [housemateReloads, setHousemateReloads] = useState(0);
+  const wantsHousemates = activeTab === "housemates" && Boolean(applicationId) && !demo;
   useEffect(() => {
-    if (!applicationId || demo) return;
+    if (!wantsHousemates) return;
     let cancelled = false;
-    void sharedGet(`/api/manager-applications/${encodeURIComponent(applicationId)}/housemates`).then((result) => {
+    void sharedGet(`/api/manager-applications/${encodeURIComponent(applicationId)}/housemates`, {
+      force: housemateReloads > 0,
+    }).then((result) => {
       if (cancelled) return;
-      const list = result.ok ? (result.data as { housemates?: unknown } | null)?.housemates : null;
+      if (!result.ok) {
+        setLoadedHousemates({ applicationId, failed: true });
+        return;
+      }
+      const list = (result.data as { housemates?: unknown } | null)?.housemates;
       setLoadedHousemates({ applicationId, list: Array.isArray(list) ? (list as ResidentMoveInHousemate[]) : [] });
     });
     return () => {
       cancelled = true;
     };
-  }, [applicationId, demo]);
-  const household = useMemo(() => (resolved ? { ...resolved, housemates } : null), [resolved, housemates]);
+  }, [wantsHousemates, applicationId, housemateReloads]);
   const details = useMemo(() => describeMoveInDetails(resolved, entireHome), [resolved, entireHome]);
 
   const open = (form: MoveInFormSummary) => {
@@ -291,7 +298,7 @@ export function ResidentRecordMoveInSection({
   const tabItems = RESIDENT_MOVE_IN_TABS.map((id) => ({
     id,
     label: id === "placement" ? "Placement" : RESIDENT_MOVE_IN_TAB_LABELS[id],
-    count: id === "forms" ? rows.length : id === "housemates" ? housemates.length : undefined,
+    count: id === "forms" ? rows.length : undefined,
     dataAttr: `resident-move-in-tab-${id}`,
   }));
   const openPropertyMoveIn = () => navigate(propertyDetailHref(basePath, "all", propertyId, "move-in"));
@@ -321,7 +328,6 @@ export function ResidentRecordMoveInSection({
   return (
     <div className="min-w-0" data-attr="resident-record-move-in" data-move-in-tab={activeTab}>
       <ManagerResidentSectionToolbar
-        title="Move in"
         actions={headerActions}
         onAction={(id) => {
           if (id === "send-form") setSendOpen(true);
@@ -436,10 +442,26 @@ export function ResidentRecordMoveInSection({
 
       {activeTab === "housemates" ? (
         <div data-attr="resident-record-move-in-roommates">
-          {household ? (
-            <HousematesTabContent resolved={household} emptyMessage="No other residents are listed for this household yet." />
-          ) : (
+          {demo || !applicationId ? (
             <PortalDataTableEmpty icon="residents" message="No other residents are listed for this household yet." />
+          ) : householdRead === null ? (
+            <PortalDataTableEmpty icon="residents" message="Loading this household…" />
+          ) : "failed" in householdRead ? (
+            <div
+              role="alert"
+              className="rounded-2xl border border-border bg-card p-6 text-center"
+              data-attr="resident-move-in-roommates-error"
+            >
+              <p className="mb-3 text-sm">Couldn&apos;t load this household.</p>
+              <Button variant="outline" onClick={() => setHousemateReloads((n) => n + 1)}>
+                Try again
+              </Button>
+            </div>
+          ) : (
+            <HousematesTabContent
+              housemates={householdRead.list}
+              emptyMessage="No other residents are listed for this household yet."
+            />
           )}
         </div>
       ) : null}

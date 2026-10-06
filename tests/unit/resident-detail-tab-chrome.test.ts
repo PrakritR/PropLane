@@ -6,6 +6,7 @@ import {
 } from "@/lib/portal-detail-routes";
 import {
   RESIDENT_DETAIL_APPLICATION_BUCKET_TABS,
+  RESIDENT_DETAIL_BACKGROUND_CHECK_TABS,
   RESIDENT_DETAIL_LEASE_PIPELINE_TABS,
   RESIDENT_DETAIL_TOUR_BUCKET_TABS,
 } from "@/lib/resident-detail-subsection-tabs";
@@ -30,6 +31,10 @@ describe("resident detail tab chrome", () => {
       "Approved",
       "Rejected",
     ]);
+  });
+
+  it("background check is one Completed tab", () => {
+    expect(RESIDENT_DETAIL_BACKGROUND_CHECK_TABS.map((tab) => tab.id)).toEqual(["completed"]);
   });
 
   it("lease subsection pills match the Leases hub pipeline stages", () => {

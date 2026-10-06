@@ -162,14 +162,15 @@ function HousemateRow({ mate }: { mate: ResidentMoveInHousemate }) {
 }
 
 export function HousematesTabContent({
-  resolved,
+  housemates,
   emptyMessage = "No other residents are listed for your household yet.",
 }: {
-  resolved: ResidentMoveInResolved;
+  /** The household's peers, already redacted by each peer's own sharing preferences. */
+  housemates: readonly ResidentMoveInHousemate[];
   /** The manager's resident record says this in its own voice. */
   emptyMessage?: string;
 }) {
-  if (resolved.housemates.length === 0) {
+  if (housemates.length === 0) {
     return (
       <div className={PORTAL_LIST_PAGE_BODY}>
         <PortalDataTableEmpty
@@ -184,8 +185,8 @@ export function HousematesTabContent({
   // so it is called out rather than buried in one flat list. This is a NARROWING
   // of contact data the resident could already see — it grants nothing new, and
   // deliberately shows no roommate's rent, lease or documents.
-  const roommates = resolved.housemates.filter((mate) => mate.isRoommate);
-  const others = resolved.housemates.filter((mate) => !mate.isRoommate);
+  const roommates = housemates.filter((mate) => mate.isRoommate);
+  const others = housemates.filter((mate) => !mate.isRoommate);
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
@@ -472,7 +473,7 @@ function ResidentMoveInTabContent({
     case "placement":
       return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
     case "housemates":
-      return <><ResidentHousemateSharing /><HousematesTabContent resolved={resolved} /></>;
+      return <><ResidentHousemateSharing /><HousematesTabContent housemates={resolved.housemates} /></>;
     case "info":
       // Arrival details live here now: keys, parking and access codes are house information,
       // and a "Move-in" tab beside "Inspections" read as a second inspection.

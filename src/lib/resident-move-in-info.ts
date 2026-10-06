@@ -76,7 +76,12 @@ function listingRoomNames(record: { property_data?: unknown; row_data?: unknown 
   return names;
 }
 
-function propertyIdFromAppRow(row: DemoApplicantRow): string {
+/**
+ * The property a stored application row places its resident at. Exported so a route can
+ * authorize that property before any household is read from it — the stored row is not a
+ * trust boundary, because the manager who owns the record can write this value.
+ */
+export function propertyIdFromAppRow(row: DemoApplicantRow): string {
   return (
     row.assignedPropertyId?.trim() ||
     row.propertyId?.trim() ||
@@ -174,22 +179,22 @@ async function loadHousematesForProperty(
 /**
  * The household peers of ONE stored application record, redacted exactly as the
  * resident's own My home shows them (`sharedHousemateDetails` + each peer's own
- * sharing preferences). The manager resident record reads this through its own
- * authorized route.
+ * sharing preferences).
  *
- * Everything that decides the answer — the property, the room, the email — comes
- * from the stored row, never from a caller-supplied id, and the caller must have
- * authorized the record before calling. A peer's details are still gated on that
- * peer's sharing preferences, so a manager surface discloses nothing the resident
- * cannot already see.
+ * `propertyId` is the household this answer is about and the caller MUST have
+ * authorized it for the viewer already — this function never derives it, because
+ * the property id inside `row_data` is writable by the manager who owns the record
+ * and would otherwise read another manager's household. A peer's details are still
+ * gated on that peer's own sharing preferences, so a manager surface discloses
+ * nothing the resident cannot already see.
  */
 export async function loadHousematesForApplicationRow(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   row: DemoApplicantRow,
-  options: { selfEmail: string; managerUserId?: string | null },
+  options: { selfEmail: string; propertyId: string; managerUserId?: string | null },
 ): Promise<ResidentMoveInHousemate[]> {
   const selfEmail = options.selfEmail.trim().toLowerCase();
-  const propertyId = propertyIdFromAppRow(row);
+  const propertyId = options.propertyId.trim();
   if (!selfEmail || !propertyId) return [];
   // Only a current residency has a household, the same gate the resident path applies.
   if (!isCurrentResidentApplicationRow(row) || row.withdrawnAt) return [];

@@ -12,9 +12,8 @@ import {
 } from "@/lib/portal-detail-routes";
 import { recordSections } from "@/lib/portals/record-sections";
 import {
-  RESIDENT_DETAIL_BACKGROUND_CHECK_BUCKET_TABS,
+  RESIDENT_DETAIL_BACKGROUND_CHECK_TABS,
   residentApplicationStatusBucket,
-  residentBackgroundCheckStatusBucket,
 } from "@/lib/resident-detail-subsection-tabs";
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
@@ -83,24 +82,15 @@ describe("Application tab: Incomplete · Pending · Approved · Rejected", () =>
   });
 });
 
-describe("Background check tab: same four buckets, mapped from the check's status", () => {
-  const check = (status: "pending" | "complete", result: "clear" | "consider" | null) =>
-    ({ provider: "checkr", candidateId: "c", reportId: "r", packageSlug: "x", status, result, orderedAt: "2026-10-01" }) as unknown as DemoApplicantRow["backgroundCheck"];
-
-  it("labels the tabs like Application", () => {
-    expect(RESIDENT_DETAIL_BACKGROUND_CHECK_BUCKET_TABS.map((t) => t.label)).toEqual(["Incomplete", "Pending", "Approved", "Rejected"]);
+describe("Background check tab: one Completed tab", () => {
+  it("is a single tab labelled Completed, not the Application buckets", () => {
+    expect(RESIDENT_DETAIL_BACKGROUND_CHECK_TABS.map((t) => t.id)).toEqual(["completed"]);
+    expect(RESIDENT_DETAIL_BACKGROUND_CHECK_TABS.map((t) => t.label)).toEqual(["Completed"]);
   });
 
-  it("not run → Incomplete, ordered → Pending, clear → Approved, consider → Rejected", () => {
-    const base = { application: {} as never };
-    expect(residentBackgroundCheckStatusBucket(row({ ...base, backgroundCheckStatus: "pending_review" }))).toBe("incomplete");
-    expect(residentBackgroundCheckStatusBucket(row({ ...base, backgroundCheck: check("pending", null) }))).toBe("pending");
-    expect(residentBackgroundCheckStatusBucket(row({ ...base, backgroundCheck: check("complete", "clear") }))).toBe("approved");
-    expect(residentBackgroundCheckStatusBucket(row({ ...base, backgroundCheck: check("complete", "consider") }))).toBe("rejected");
-  });
-
-  it("a resident with no check at all (not applicable) is Incomplete", () => {
-    expect(residentBackgroundCheckStatusBucket(row({ manuallyAdded: true }))).toBe("incomplete");
+  it("its header offers ordering a check and nothing to upload", () => {
+    const ids = recordSections("manager", "resident", { basePath: "/portal" }, "background-check").headerActions.map((a) => a.id);
+    expect(ids).toEqual(["run-check"]);
   });
 });
 
@@ -115,17 +105,65 @@ describe("header icons are tab-independent", () => {
     expect(residents).toContain("actions={residentRecordHeaderActions}");
   });
 
-  it("every tab's own actions live in its section header card, which carries a title", () => {
-    for (const title of ["Application", "Background check", "Lease", "Payments", "Services", "Documents", "Tours"]) {
-      expect(residents, title).toContain(`title="${title}"`);
+  it("the record's top-right icons are Edit and Delete only, on every tab", () => {
+    const withTab = (tab?: string) =>
+      recordSections("manager", "resident", { basePath: "/portal" }, tab).headerActions.map((a) => a.id);
+    expect(withTab()).toEqual(["edit", "delete"]);
+    // The record reads the tab-independent set, never the open section's.
+    expect(residents).toContain('recordSections("manager", "resident", { basePath: portalBase, residentsTab }).headerActions');
+    for (const relocated of ["message", "share", "archive", "setup", "send-application", "send-lease", "upload-for-resident"]) {
+      expect(withTab(), relocated).not.toContain(relocated);
     }
-    expect(read("src/components/portal/move-in-forms/resident-record-move-in-section.tsx")).toContain('title="Move in"');
-    // Communication is the exception: the thread card has its own header (avatar, name, info icon) and fills the page.
-    expect(residents).not.toContain('title="Communication"');
   });
 
-  it("the registry header set does not depend on the open section for the record's own header", () => {
-    const withTab = (tab: string) => recordSections("manager", "resident", { basePath: "/portal" }, tab).headerActions;
-    expect(withTab("overview").map((a) => a.id)).toEqual(withTab("communication").map((a) => a.id));
+  it("no tab header card carries a section title — only its tabs and icons", () => {
+    for (const title of ["Application", "Background check", "Lease", "Payments", "Services", "Documents", "Tours", "Communication"]) {
+      expect(residents, title).not.toContain(`title="${title}"`);
+    }
+    expect(read("src/components/portal/move-in-forms/resident-record-move-in-section.tsx")).not.toContain('title="Move in"');
+    expect(read("src/components/portal/manager-resident-section-toolbar.tsx")).not.toContain("resident-section-title");
+  });
+
+  it("every relocated action is reachable from the tab it moved to", () => {
+    const section = (tab: string) =>
+      recordSections("manager", "resident", { basePath: "/portal" }, tab).headerActions.map((a) => a.id);
+    // Share / Archive are the Overview ⋯; Send invite joins them when there is no login yet.
+    expect(section("overview")).toEqual(["share", "archive"]);
+    expect(residents).toContain('data-attr="resident-overview-more"');
+    expect(residents).toContain('data-attr="resident-overview-setup"');
+    // Send application is the Application tab's blue +.
+    expect(residents).toContain('{ id: "send-application", label: "Add application"');
+    // Lease keeps download only — no bell, no upload, no +.
+    expect(section("lease")).toEqual(["download"]);
+    // Upload for resident sits with Documents' own +.
+    expect(section("documents")).toEqual(["upload-for-resident", "upload"]);
+  });
+
+  it("Documents draws its kinds as the header card's tabs, not a second control row", () => {
+    expect(residents).toContain("MANAGER_RESIDENT_DOC_TABS");
+    expect(residents).toContain("activeId={residentDocumentTab}");
+    const panel = read("src/components/portal/manager-resident-documents-panel.tsx");
+    expect(panel).not.toContain("LocalDestinationNav");
+  });
+});
+
+describe("Roommates reads the household from the server", () => {
+  const section = read("src/components/portal/move-in-forms/resident-record-move-in-section.tsx");
+
+  it("fetches only while the Roommates sub-tab is open, and never counts the household in a tab badge", () => {
+    expect(section).toContain('activeTab === "housemates" && Boolean(applicationId) && !demo');
+    expect(section).toContain('count: id === "forms" ? rows.length : undefined');
+  });
+
+  it("a failed read is an error with a retry, never 'no residents'", () => {
+    expect(section).toContain('data-attr="resident-move-in-roommates-error"');
+    expect(section).toContain("failed: true");
+  });
+
+  it("the route re-authorizes the property the household is derived from", () => {
+    const route = read("src/app/api/manager-applications/[id]/housemates/route.ts");
+    expect(route).toContain("propertyIdFromAppRow(row)");
+    expect(route).toContain("managerCanAccessApplicationRecord(db, user.id, { property_id: propertyId })");
+    expect(route).toContain('"Not authorized for this property."');
   });
 });

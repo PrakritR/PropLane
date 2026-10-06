@@ -7,9 +7,12 @@ import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 
 /**
  * Section header card for manager resident record tabs (studio-redesign C2-RT3).
+ *
+ * It carries no section name: the rail already says which section is open, so the card holds
+ * only the blue underline tabs on the left and the section's icon actions on the right
+ * (captain, 2026-10-05 round 2).
  */
 export function ManagerResidentSectionToolbar({
-  title,
   actions,
   onAction,
   destinationRow,
@@ -17,8 +20,6 @@ export function ManagerResidentSectionToolbar({
   overflowMenu,
   className,
 }: {
-  /** The section's name, on the left of the header card (every resident record tab carries one). */
-  title?: string;
   actions: RecordHeaderAction[];
   onAction: (actionId: string) => void;
   destinationRow?: ReactNode;
@@ -29,20 +30,11 @@ export function ManagerResidentSectionToolbar({
   const primaryIndex = actions.findIndex((a) => a.tone === "primary");
   const primary = primaryIndex >= 0 ? actions[primaryIndex] : undefined;
   const secondary = actions.filter((_, i) => i !== primaryIndex);
-  const headerRow =
-    title || destinationRow ? (
-      <div className="flex min-w-0 items-center gap-1" data-attr="resident-section-header">
-        {title ? (
-          <h2
-            className="shrink-0 px-3 text-[15px] font-semibold tracking-[-0.01em] text-foreground"
-            data-attr="resident-section-title"
-          >
-            {title}
-          </h2>
-        ) : null}
-        {destinationRow ? <div className="min-w-0 flex-1">{destinationRow}</div> : null}
-      </div>
-    ) : undefined;
+  const headerRow = destinationRow ? (
+    <div className="flex min-w-0 items-center gap-1" data-attr="resident-section-header">
+      <div className="min-w-0 flex-1">{destinationRow}</div>
+    </div>
+  ) : undefined;
 
   return (
     <PortalListControlStack

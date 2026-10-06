@@ -1,8 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { FileText, MoreHorizontal } from "lucide-react";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { formatResidentShortDate } from "@/lib/manager-resident-lifecycle";
@@ -15,7 +13,8 @@ export type ManagerResidentDocumentRow = {
   href?: string;
 };
 
-const DOC_TABS = [
+/** The document kinds, as the record's own section header tabs (captain, 2026-10-05 round 2). */
+export const MANAGER_RESIDENT_DOC_TABS = [
   { id: "application", label: "Application" },
   { id: "lease", label: "Lease" },
   { id: "payments", label: "Payments" },
@@ -23,22 +22,29 @@ const DOC_TABS = [
   { id: "other", label: "Other" },
 ] as const;
 
-export type ManagerResidentDocTabId = (typeof DOC_TABS)[number]["id"];
+export type ManagerResidentDocTabId = (typeof MANAGER_RESIDENT_DOC_TABS)[number]["id"];
 
+/** How many files each kind holds — the caller draws the tabs, so it needs the counts. */
+export function managerResidentDocCounts(
+  sections: Partial<Record<ManagerResidentDocTabId, ManagerResidentDocumentRow[]>>,
+): Record<ManagerResidentDocTabId, number> {
+  const counts = {} as Record<ManagerResidentDocTabId, number>;
+  for (const t of MANAGER_RESIDENT_DOC_TABS) counts[t.id] = sections[t.id]?.length ?? 0;
+  return counts;
+}
+
+/**
+ * The files of one resident. The kind tabs are NOT drawn here: they are the blue underline tabs
+ * of the record's one section header card, so this panel is handed the open kind.
+ */
 export function ManagerResidentDocumentsPanel({
   sections,
-  onUpload,
+  tab,
 }: {
   sections: Partial<Record<ManagerResidentDocTabId, ManagerResidentDocumentRow[]>>;
-  onUpload?: () => void;
+  tab: ManagerResidentDocTabId;
 }) {
-  const [tab, setTab] = useState<ManagerResidentDocTabId>("application");
   const rows = sections[tab] ?? [];
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const t of DOC_TABS) c[t.id] = sections[t.id]?.length ?? 0;
-    return c;
-  }, [sections]);
 
   const emptyLine =
     tab === "application"
@@ -53,19 +59,6 @@ export function ManagerResidentDocumentsPanel({
 
   return (
     <div className="rs40 flex min-h-0 flex-1 flex-col gap-2" data-attr="resident-documents-panel">
-      <LocalDestinationNav
-        items={DOC_TABS.map((t) => ({
-          id: t.id,
-          label: t.label,
-          count: counts[t.id],
-          dataAttr: `resident-documents-tab-${t.id}`,
-        }))}
-        activeId={tab}
-        onChange={(id) => setTab(id as ManagerResidentDocTabId)}
-        ariaLabel="Document kind"
-        size="toolbar"
-        itemLayout="auto"
-      />
       <PortalRecordListSurface isEmpty={rows.length === 0} className="mt-0 plp-rows">
         {rows.length === 0 ? (
           <p className="px-4 py-6 text-sm text-muted">{emptyLine}</p>
@@ -100,7 +93,6 @@ export function ManagerResidentDocumentsPanel({
           ))
         )}
       </PortalRecordListSurface>
-      {onUpload ? null : null}
     </div>
   );
 }
