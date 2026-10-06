@@ -1833,6 +1833,11 @@ export async function renderPortalSection(
       redirect(vendorWorkOrderListHref(def.basePath, DEFAULT_VENDOR_WORK_ORDER_TAB));
     }
     const raw = tabParts[0]!;
+    // Find work: the fifth Services tab, published work from any manager (vendor-work-share-1006).
+    if (raw === "find-work") {
+      if (tabParts.length > 1) notFound();
+      return <VendorWorkOrdersPanel tabId="find-work" />;
+    }
     if (VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) {
       redirect(vendorWorkOrderListHref(def.basePath, VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!));
     }
