@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createTwilioRestClient: vi.fn(),
   scheduleManagerMessagingReady: vi.fn(),
   linkVerifiedPhoneHistory: vi.fn(),
+  linkVerifiedVendorPhoneHistory: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -29,6 +30,9 @@ vi.mock("@/lib/proplane-sms-transport.server", () => ({
 
 vi.mock("@/lib/communication/resident-conversations.server", () => ({
   linkVerifiedPhoneHistory: mocks.linkVerifiedPhoneHistory,
+}));
+vi.mock("@/lib/communication/vendor-conversations.server", () => ({
+  linkVerifiedVendorPhoneHistory: mocks.linkVerifiedVendorPhoneHistory,
 }));
 vi.mock("@/lib/claw-onboarding-sms.server", () => ({
   maybeSendManagerPropLaneAssistantIntro: vi.fn(async () => undefined),
@@ -283,5 +287,61 @@ describe("confirming a phone links resident text history only for a resident", (
     const response = await confirm([{ user_id: USER, role: "manager" }]);
     expect(response.status).toBe(200);
     expect(mocks.linkVerifiedPhoneHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirming a phone links vendor text history only for a vendor", () => {
+  async function confirm(profileRoles: { user_id: string; role: string }[]) {
+    db = createMemoryDb({
+      profiles: [{ id: USER, phone: null, phone_verified_at: null, role: "manager" }],
+      profile_roles: profileRoles,
+      phone_verifications: [
+        {
+          user_id: USER,
+          phone: PHONE,
+          code_hash: createHash("sha256").update("123456").digest("hex"),
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+          attempts: 0,
+        },
+      ],
+    });
+    return PUT(
+      new Request("https://prop-lane.test/api/manager/phone", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: "123456" }),
+      }),
+    );
+  }
+
+  it("links when profile_roles says vendor, even for an account created as a manager", async () => {
+    const response = await confirm([{ user_id: USER, role: "vendor" }]);
+    expect(response.status).toBe(200);
+    expect(mocks.linkVerifiedVendorPhoneHistory).toHaveBeenCalledWith(db, USER);
+  });
+
+  it("does not link a manager-only account", async () => {
+    const response = await confirm([{ user_id: USER, role: "manager" }]);
+    expect(response.status).toBe(200);
+    expect(mocks.linkVerifiedVendorPhoneHistory).not.toHaveBeenCalled();
+  });
+
+  it("never links when the code is wrong", async () => {
+    db = createMemoryDb({
+      profiles: [{ id: USER, phone: null, phone_verified_at: null }],
+      profile_roles: [{ user_id: USER, role: "vendor" }],
+      phone_verifications: [
+        { user_id: USER, phone: PHONE, code_hash: createHash("sha256").update("123456").digest("hex"), expires_at: new Date(Date.now() + 600_000).toISOString(), attempts: 0 },
+      ],
+    });
+    const response = await PUT(
+      new Request("https://prop-lane.test/api/manager/phone", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: "000000" }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.linkVerifiedVendorPhoneHistory).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
-import { Archive, ArchiveRestore, MailOpen, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, MailOpen, MessageSquare, Trash2 } from "lucide-react";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, INBOX_TAB_DEFS, InboxBubbleMessage, InboxComposer, InboxThreadEmpty, InboxThreadView, PortalInboxEmptyState, PortalInboxMessageTable, inboxTabEmptyCopy, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
 import {
   PortalInboxSelectionToolbar,
@@ -797,6 +798,8 @@ export const VendorInboxPanel = forwardRef<
   const renderEmbeddedThreadHeaderActions = useCallback(
     (row: PortalInboxTableRow) => {
       const thread = local.find((t) => t.id === row.id);
+      // A text-only conversation is derived from the SMS store: nothing to archive or delete.
+      if (thread?.smsOnly) return undefined;
       const folder = thread?.folder ?? (tabId === "trash" ? "trash" : "inbox");
       if (folder === "trash") {
         return (
@@ -1069,7 +1072,23 @@ export const VendorInboxPanel = forwardRef<
               })}
               emptyLabel="No messages in this conversation."
               composer={
-                activeThread.folder === "trash" || tabId === "trash" ? undefined : (
+                activeThread.folder === "trash" || tabId === "trash" ? undefined : activeThread.smsOnly ? (
+                  // A text-only conversation has no in-app thread yet: reply by text to the
+                  // manager's work number (the manager sees one conversation either way), or
+                  // start an in-app message with New message.
+                  activeThread.counterparty?.workPhone ? (
+                    <div className="shrink-0 border-t border-border p-3">
+                      <a
+                        href={`sms:${activeThread.counterparty.workPhone}`}
+                        className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                        data-attr="vendor-inbox-text-manager"
+                      >
+                        <MessageSquare className="h-4 w-4 shrink-0" aria-hidden />
+                        Text {formatSmsPhoneLabel(activeThread.counterparty.workPhone) ?? activeThread.counterparty.workPhone}
+                      </a>
+                    </div>
+                  ) : undefined
+                ) : (
                   <>
                     <InboxThreadAssistantStrip
                       contextHint={buildInboxThreadAssistantContext({

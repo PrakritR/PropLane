@@ -1256,11 +1256,50 @@ export async function fetchResidentSmsConversation(
   };
 }
 
-/** Vendor Communication → SMS: work-order agent texts. */
+/**
+ * Vendor Communication → SMS: the texts of every manager workspace this vendor
+ * talks with, ONE conversation per workspace (`ws:<workspace>`). They are the
+ * vendor's through their account or a phone they VERIFIED by code - never a typed
+ * number (see `communication/vendor-conversations.server.ts`) - and are read from
+ * the same projection the manager sees, so a vendor and a manager always look at
+ * one conversation. A vendor with no linked texts (no verified phone yet) still
+ * gets the work-order agent's own SMS turns, as before.
+ */
 export async function fetchVendorSmsConversation(
   db: SupabaseClient,
   vendorUserId: string,
-): Promise<RoleSmsConversationPayload> {
+): Promise<RoleSmsConversationPayload & { conversations?: { workspaceId: string; key: string; managerName: string; workPhone: string | null; lastEventAt: string | null }[] }> {
+  const smsConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+  const { loadVendorSmsConversations } = await import("@/lib/communication/vendor-conversations.server");
+  const linked = await loadVendorSmsConversations(db, vendorUserId);
+  if (linked.conversations.length > 0) {
+    const messages: ManagerSmsMessageRow[] = linked.conversations.flatMap((conversation) =>
+      conversation.turns.map((turn) => ({
+        id: `sms-proj:${turn.id}`,
+        // Rows are the manager's perspective (inbound = the vendor texted the
+        // manager); the vendor sees their own texts as sent.
+        direction: turn.direction === "inbound" ? ("outbound" as const) : ("inbound" as const),
+        body: turn.body,
+        fromPhone: turn.fromPhone,
+        toPhone: turn.toPhone ?? "",
+        messageSid: null,
+        source: "work_number" as const,
+        createdAt: turn.at,
+      })),
+    );
+    messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return {
+      messages,
+      smsConfigured,
+      conversations: linked.conversations.map((conversation) => ({
+        workspaceId: conversation.workspaceId,
+        key: conversation.key,
+        managerName: conversation.counterparty.name,
+        workPhone: conversation.counterparty.workPhone,
+        lastEventAt: conversation.lastEventAt,
+      })),
+    };
+  }
   const messages: ManagerSmsMessageRow[] = [];
   const { data: sessions } = await db
     .from("agent_sessions")
@@ -1291,10 +1330,7 @@ export async function fetchVendorSmsConversation(
       });
     }
   }
-  return {
-    messages,
-    smsConfigured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
-  };
+  return { messages, smsConfigured };
 }
 
 /**

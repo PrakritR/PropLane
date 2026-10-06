@@ -321,7 +321,7 @@ export async function loadResidentManagerCounterpartiesByEmail(
   return out;
 }
 
-type ProjectionRow = {
+export type ProjectionRow = {
   id: string;
   owner: string;
   role: string;
@@ -347,7 +347,7 @@ function mapProjection(row: Row): ProjectionRow {
 }
 
 /** Candidate projection summaries: the account's own, plus the verified phone's. Decided afterwards. */
-async function readProjectionCandidates(db: Db, identity: ResidentPhoneIdentity): Promise<ProjectionRow[]> {
+export async function readProjectionCandidates(db: Db, identity: ResidentPhoneIdentity): Promise<ProjectionRow[]> {
   const byId = new Map<string, ProjectionRow>();
   const reads: Promise<{ data: unknown }>[] = [
     db
@@ -376,7 +376,7 @@ async function readProjectionCandidates(db: Db, identity: ResidentPhoneIdentity)
   return [...byId.values()];
 }
 
-async function readTurns(db: Db, conversationId: string): Promise<ResidentSmsTurn[]> {
+export async function readTurns(db: Db, conversationId: string): Promise<ResidentSmsTurn[]> {
   const { data } = await db
     .from("sms_projection_turns")
     .select("id, direction, body, occurred_at, from_phone, to_phone")
@@ -417,16 +417,31 @@ export async function loadResidentSmsConversations(
   const id = clean(residentId);
   if (!id) return { conversations: [], phone: { hasPhone: false, verified: false, ambiguous: false } };
   const identity = preloaded ?? (await loadResidentPhoneIdentity(db, id));
+  return loadLinkedSmsConversations(db, identity, (row) =>
+    decideResidentSmsLink({
+      residentId: id,
+      verifiedPhone: identity.verifiedPhone,
+      phoneVerifierIds: identity.phoneVerifierIds,
+      row: { role: row.role, counterpartyUserId: row.userId, counterpartyPhone: row.phone },
+    }),
+  );
+}
+
+/**
+ * One account's text conversations, ONE per manager workspace, for whichever
+ * role (`link` is that role's single link decision). Shared by the resident and
+ * the vendor Communication so the placement rules cannot drift apart.
+ */
+export async function loadLinkedSmsConversations(
+  db: Db,
+  identity: ResidentPhoneIdentity,
+  link: (row: ProjectionRow) => "account" | "verified_phone" | null,
+): Promise<{ conversations: ResidentSmsConversation[]; phone: ResidentPhoneState }> {
   try {
     const candidates = await readProjectionCandidates(db, identity);
     const mine: { row: ProjectionRow; linkedBy: "account" | "verified_phone" }[] = [];
     for (const row of candidates) {
-      const linkedBy = decideResidentSmsLink({
-        residentId: id,
-        verifiedPhone: identity.verifiedPhone,
-        phoneVerifierIds: identity.phoneVerifierIds,
-        row: { role: row.role, counterpartyUserId: row.userId, counterpartyPhone: row.phone },
-      });
+      const linkedBy = link(row);
       if (linkedBy) mine.push({ row, linkedBy });
     }
     if (mine.length === 0) return { conversations: [], phone: identity.state };

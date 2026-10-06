@@ -9,6 +9,7 @@ import {
   CreditCard,
   FileText,
   MessageSquare,
+  Smartphone,
   Wallet,
   Download,
   HandCoins,
@@ -593,6 +594,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     headerActions: [
       { id: "edit", label: "Edit vendor", icon: Pencil },
       { id: "invite", label: "Invite to PropLane", icon: UserPlus },
+      // Text goes from the workspace work number to the vendor's own saved phone; the vendor page
+      // drops it when the vendor has no phone or texting is off.
+      { id: "text", label: "Text", icon: Smartphone },
       { id: "message", label: "Message", icon: Send, tone: "primary" },
       { id: "remove", label: "Remove vendor", icon: Trash2, tone: "danger" },
     ],

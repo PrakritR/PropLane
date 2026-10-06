@@ -1,22 +1,25 @@
 "use client";
 
-/** Business contacts and sponsored send identities load independently. */
+/**
+ * The vendor's work EMAIL card. There is no PropLane text number for a vendor
+ * (retired Oct 6): managers text the vendor's own phone from their work number.
+ * Business contacts and the sponsored email identity load independently.
+ */
 import { useEffect, useState } from "react";
 import { Copy, Check, RefreshCw } from "lucide-react";
 import { PortalInboxContactCard, type PortalInboxContactCardAction } from "@/components/portal/portal-inbox-contact-card";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import type { VendorWorkIdentityResponse } from "@/lib/vendor-work-identity";
 
-type Contacts = { workEmail?: string; workPhone?: string };
+type Contacts = { workEmail?: string };
 type Load = "loading" | "ready" | "failed";
 
 function copyAction(text: string, copied: boolean, onCopied: () => void): PortalInboxContactCardAction {
   return { key: "copy", label: copied ? "Copied" : "Copy", dataAttr: "vendor-work-contact-copy", icon: copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />, onClick: () => void copyTextToClipboard(text).then((ok) => ok && onCopied()) };
 }
 
-function readiness(identity: VendorWorkIdentityResponse | null, channel: "email" | "sms") {
+function readiness(identity: VendorWorkIdentityResponse | null, channel: "email") {
   const value = identity?.[channel];
   if (!value) return "Unavailable";
   if (value.blockedReason === "provider_disabled") return "Disabled";
@@ -39,7 +42,7 @@ function readiness(identity: VendorWorkIdentityResponse | null, channel: "email"
 function channelCaption(
   load: Load,
   identity: VendorWorkIdentityResponse | null,
-  channel: "email" | "sms",
+  channel: "email",
 ): { text: string; warn: boolean } {
   if (load === "loading") return { text: "Checking status…", warn: false };
   if (load === "failed") return { text: "Status unavailable", warn: true };
@@ -60,7 +63,7 @@ export function VendorWorkNumberCard() {
   const [identityLoad, setIdentityLoad] = useState<Load>("loading");
   const [copied, setCopied] = useState<string | null>(null);
   const reload = () => {
-    if (isDemoModeActive()) { setContacts({ workEmail: "office@northwestplumbing.test", workPhone: "+12065550142" }); setContactLoad("ready"); setIdentityLoad("ready"); return () => {}; }
+    if (isDemoModeActive()) { setContacts({ workEmail: "office@northwestplumbing.test" }); setContactLoad("ready"); setIdentityLoad("ready"); return () => {}; }
     let active = true;
     void fetch("/api/vendor/business-profile", { credentials: "include", cache: "no-store" }).then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) })).then(({ ok, body }) => { if (!active) return; if (!ok) setContactLoad("failed"); else { setContacts(body.profile ?? {}); setContactLoad("ready"); } }).catch(() => active && setContactLoad("failed"));
     void fetch("/api/vendor/work-identity", { credentials: "include", cache: "no-store" }).then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) })).then(({ ok, body }) => { if (!active) return; if (!ok || !body.identity) setIdentityLoad("failed"); else { setIdentity(body.identity); setIdentityLoad("ready"); } }).catch(() => active && setIdentityLoad("failed"));
@@ -69,21 +72,21 @@ export function VendorWorkNumberCard() {
   useEffect(() => reload(), []);
   useEffect(() => { if (!copied) return; const timer = window.setTimeout(() => setCopied(null), 1600); return () => window.clearTimeout(timer); }, [copied]);
   const card = (
-    label: "Your work number" | "Your work email",
+    label: "Your work email",
     value: string | undefined,
     dataAttr: string,
-    channel: "sms" | "email",
+    channel: "email",
   ) => {
     if (contactLoad === "loading") return <div className="h-[52px] animate-pulse rounded-2xl bg-muted" data-attr={`${dataAttr}-loading`} aria-label={`Loading ${label}`} />;
     if (contactLoad === "failed") return <div className="flex items-center gap-2"><PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-failed`} label={label} value="Could not load" actions={[]} /><button type="button" className="text-xs font-semibold underline" onClick={() => reload()}>Retry</button></div>;
-    if (!value) return <PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-missing`} label={label} value={label === "Your work number" ? "Set up work number" : "Set up work email"} actions={[]} />;
-    const shown = label === "Your work number" ? formatSmsPhoneLabel(value) || value : value;
+    if (!value) return <PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-missing`} label={label} value="Set up work email" actions={[]} />;
+    const shown = value;
     const caption = channelCaption(identityLoad, identity, channel);
     const actions: PortalInboxContactCardAction[] = [copyAction(shown, copied === dataAttr, () => setCopied(dataAttr))];
     if (identityLoad === "failed") {
       actions.push({
         key: "retry",
-        label: `Retry ${channel === "sms" ? "SMS" : "email"} status`,
+        label: "Retry email status",
         dataAttr: `${dataAttr}-status-retry`,
         icon: <RefreshCw className="h-4 w-4" />,
         onClick: () => reload(),
@@ -103,7 +106,6 @@ export function VendorWorkNumberCard() {
   };
   return (
     <div className="grid gap-2 px-3 pt-3" data-attr="vendor-work-identity">
-      {card("Your work number", contacts?.workPhone, "vendor-business-work-number", "sms")}
       {card("Your work email", contacts?.workEmail, "vendor-business-work-email", "email")}
     </div>
   );

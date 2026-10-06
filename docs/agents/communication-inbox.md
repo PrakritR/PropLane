@@ -718,6 +718,35 @@ routes. A 20s TTL now sits in front of the refresher; `force: true` (e.g.
 after a send/delete) still always starts a fresh fetch. Any new caller should
 go through this client rather than calling the route directly.
 
+## A vendor's texts are in their conversation (Oct 6)
+
+The vendor equivalent of the resident rule above. A vendor holds ONE conversation
+per manager workspace (`ws:<workspace>`); a manager's texts with the vendor's phone
+appear in it, with the in-app turns. `communication/vendor-conversations.server.ts`
+reads them (it shares the placement code with the resident loader), the pure rule is
+`communication/vendor-conversation.ts` (`decideVendorSmsLink`), tests are
+`tests/unit/vendor-conversation.test.ts`:
+
+- a text conversation is a vendor's only via the account the pipeline resolved
+  (`counterparty_user_id`) or a phone **they verified by code**
+  (`profiles.phone_verified_at`). `vendor_business_profiles.work_phone` and an
+  unverified `profiles.phone` link nothing;
+- a number two accounts verified links to **neither**;
+- only `vendor` conversations; the workspace is the work line's own (work line +
+  epoch), a line that cannot be placed is dropped;
+- verifying a phone (`PUT /api/manager/phone`, role from `profile_roles`) calls
+  `linkVerifiedVendorPhoneHistory`: a roster row links (`vendor_user_id`) ONLY when
+  its own saved phone equals the verified phone and is not already linked, and the
+  vendor's conversations are re-keyed through the one resolver;
+- `GET /api/portal-inbox-threads?scope=vendor` folds the texts in
+  (`applyVendorConversationExtras`); linked history is **not** behind
+  `SMS_COMM_UI_ENABLED` (that flag hides the manager's text compose). A text-only
+  conversation is a derived `vendor_sms_<workspace>` row (`smsOnly`, never client
+  created): the vendor replies by text to that manager's work number, or starts an
+  in-app message with New message, after which both are one row.
+- `/api/vendor/sms-conversations` returns the same conversations (one per
+  workspace) and falls back to the job assistant's SMS turns only when nothing is linked.
+
 ## Work identity disclosure
 
 Public listing contacts, preview contacts, resident manager cards, manager thread contact details, and new flyer defaults use the relevant workspace work number and work email. Personal profile phone/email and the retired sharing opt-in never provide fallback contact values. `resident-manager-contact.server.ts` and the authorized `/api/manager/work-contact` relationship read enforce this server-side.

@@ -97,6 +97,11 @@ export function createConversationFakeDb(seed: Record<string, Row[]> = {}): Fake
         predicates.push((row) => (value === null ? cell(row, column) != null : cell(row, column) !== value));
         return builder;
       },
+      ilike(column: string, pattern: string) {
+        const re = new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*")}$`, "i");
+        predicates.push((row) => re.test(String(cell(row, column) ?? "")));
+        return builder;
+      },
       or(filter: string) {
         const alts = parseOr(filter);
         predicates.push((row) => alts.some((p) => p(row)));
@@ -134,6 +139,25 @@ export function createConversationFakeDb(seed: Record<string, Row[]> = {}): Fake
     from(name: string) {
       return {
         select: () => selectBuilder(name),
+        /** `update(patch).eq(..).is(..)`: applies to every row all the filters match. */
+        update(patch: Row) {
+          const predicates: Array<(row: Row) => boolean> = [];
+          const builder: Record<string, unknown> = {
+            eq(column: string, value: unknown) {
+              predicates.push((row) => cell(row, column) === value);
+              return builder;
+            },
+            is(column: string, value: unknown) {
+              predicates.push((row) => (value === null ? cell(row, column) == null : cell(row, column) === value));
+              return builder;
+            },
+            then<T>(resolve: (value: { error: null }) => T) {
+              for (const row of table(name)) if (predicates.every((p) => p(row))) Object.assign(row, patch);
+              return Promise.resolve({ error: null }).then(resolve);
+            },
+          };
+          return builder;
+        },
         upsert(payload: Row) {
           if (failUpsertColumns.value && ("conversation_key" in payload || "workspace_id" in payload)) {
             return Promise.resolve({

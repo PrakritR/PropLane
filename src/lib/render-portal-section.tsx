@@ -723,7 +723,7 @@ export async function renderPortalSection(
       const vendorTab = tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const ManagerVendorsPanel = await loadManagerVendorsPanel();
       return subscriptionGated(
-        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} />,
+        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} smsUiEnabled={isSmsCommUiEnabled()} />,
         kind,
         "vendors",
         managerOwnerSubscriptionTier,

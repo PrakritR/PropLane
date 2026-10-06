@@ -16,7 +16,6 @@ import {
   type InboundPayload,
 } from "@/lib/sms/inbound-pipeline.server";
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
-import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.server";
 
 export const runtime = "nodejs";
 // ponytail: room for the QStash-outage fallback (quiet window + agent turn) in after().
@@ -155,18 +154,10 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
     return twimlOk();
   }
 
-  // Vendor identities are resolved before manager-only work-number ownership.
-  // Inbound never consumes a manager credit/cap and remains visible with the
-  // SMS UI feature flag off.
-  if (messageSid) {
-    try {
-      const vendorInbound = await ingestVendorWorkIdentitySms(db, { toPhone, fromPhone, text: body, messageSid });
-      if (vendorInbound.handled) return twimlOk();
-    } catch (error) {
-      console.error("vendor inbound SMS ingest failed", messageSid, error);
-      return NextResponse.json({ error: "Vendor inbox unavailable." }, { status: 503 });
-    }
-  }
+  // Vendors never own a number (retired Oct 6): a vendor's text arrives on a
+  // MANAGER's work number and is routed by the sender's phone below (vendor
+  // roster, vendor job session, or a number that manager texted), never by a
+  // vendor-owned line.
 
   mark("controls");
   // Pooled proxy lines are retired. Only owned work numbers route replies.

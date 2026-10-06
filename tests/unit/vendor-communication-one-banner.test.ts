@@ -28,8 +28,8 @@ describe("vendor Communication — one banner, no separate Disabled status cards
     expect(card).not.toContain('"grid grid-cols-2 gap-2 text-xs"');
     expect(card).toContain("channelCaption");
     expect(card).toContain("noteTone");
-    // Still stacked work number + work email cards with copy icons.
-    expect(card).toContain('"Your work number"');
+    // The work EMAIL card keeps its copy icon; the work number card is retired (vendors never own a number).
+    expect(card).not.toContain('"Your work number"');
     expect(card).toContain('"Your work email"');
     expect(card).toContain("copyAction");
   });

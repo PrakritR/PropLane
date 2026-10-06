@@ -44,7 +44,7 @@ describe("vendor Settings — old tab ids still resolve after the VD01/VD66 regr
     vi.unstubAllGlobals();
   });
 
-  it("the merged 'work' tab renders Work number & email", async () => {
+  it("the merged 'work' tab renders Work contact & email", async () => {
     currentTab = "work";
     mockFetchByUrl({
       "/api/vendor/profile": { profile: {}, linked: true, contact: {} },
@@ -53,12 +53,12 @@ describe("vendor Settings — old tab ids still resolve after the VD01/VD66 regr
     });
     render(<VendorSettingsPanel />);
     await waitFor(() => {
-      expect(document.body.textContent).toContain("Work number & email");
+      expect(document.body.textContent).toContain("Work contact & email");
     });
   });
 
   for (const legacy of ["work-contacts", "work-number", "work-email"]) {
-    it(`legacy ?tab=${legacy} resolves to the merged Work number & email pane, not a 404`, async () => {
+    it(`legacy ?tab=${legacy} resolves to the merged Work contact & email pane, not a 404`, async () => {
       currentTab = legacy;
       mockFetchByUrl({
         "/api/vendor/profile": { profile: {}, linked: true, contact: {} },
@@ -67,7 +67,7 @@ describe("vendor Settings — old tab ids still resolve after the VD01/VD66 regr
       });
       render(<VendorSettingsPanel />);
       await waitFor(() => {
-        expect(document.body.textContent).toContain("Work number & email");
+        expect(document.body.textContent).toContain("Work contact & email");
       });
     });
   }
