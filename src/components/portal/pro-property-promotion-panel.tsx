@@ -13,7 +13,9 @@ import {
 } from "@/components/portal/portal-property-detail-section";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { ZillowRentalNetworkRow } from "@/components/portal/zillow-rental-network-row";
+import { LISTING_CHANNEL_DEFS } from "@/lib/listing-channels/registry";
+import { PropertyListingSitesPanel } from "@/components/portal/listing-sites-panel";
+import { resolveZillowSyndicationStatus } from "@/lib/listing-syndication/zillow-syndication-status";
 import { Settings } from "lucide-react";
 import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
@@ -862,7 +864,7 @@ export function ManagerPropertyPromotionPanel({
     const tabs: { id: "flyers" | "social" | "sites" | "yours"; label: string; count: number }[] = [
       { id: "flyers", label: "Flyers & printables", count: customFlyers + builtinFlyerCount },
       { id: "social", label: "Social", count: customSocial + builtinSocialCount },
-      { id: "sites", label: "Listing sites", count: 1 },
+      { id: "sites", label: "Listing sites", count: LISTING_CHANNEL_DEFS.length },
     ];
     if (customAssets.length > 0) {
       tabs.push({ id: "yours", label: "Yours", count: customAssets.length });
@@ -1005,39 +1007,18 @@ export function ManagerPropertyPromotionPanel({
         </>
       ) : null}><PortalPropertyDetailSection contentClassName="space-y-0">
         {headerActionsExtra ? <div className="mb-3">{headerActionsExtra}</div> : null}
-        {promoTab === "sites" && sub && saveTarget ? (
-          <div>
-            <ZillowRentalNetworkRow
-              variant="row"
-              propertyTitle={propertyLabel ?? "This property"}
-              sub={sub}
-              listingStatus="live"
-              workEmail={workEmail}
-              onToggle={(next) => persistZillowToggle(next)}
-              onResend={() => {
-                if (!zillow?.enabled) return;
-                const nextSub: ManagerListingSubmissionV1 = {
-                  ...sub,
-                  syndication: {
-                    ...sub.syndication,
-                    zillow: { ...zillow, enabled: true, sentAt: new Date().toISOString(), status: "sent" },
-                  },
-                };
-                if (saveTarget.mode === "pending") {
-                  updatePendingManagerProperty(saveTarget.saveId, nextSub, userId ?? "");
-                } else if (saveTarget.mode === "listing") {
-                  updateExtraListingFromSubmission(saveTarget.saveId, userId ?? "", nextSub);
-                } else if (saveTarget.mode === "requestChange") {
-                  updateRequestChangeProperty(saveTarget.saveId, userId ?? "", nextSub);
-                }
-                onUpdated?.();
-                showToast("Feed resent to Zillow Rental Network.");
-              }}
-              onStop={() => persistZillowToggle(false)}
-              toggleDisabled={zillowSaving}
-              dataAttrPrefix="property-promotion-zillow"
-            />
-          </div>
+        {promoTab === "sites" && propertyId ? (
+          <PropertyListingSitesPanel
+            propertyId={propertyId}
+            zillow={{
+              enabled: zillowEnabled,
+              fact: sub
+                ? resolveZillowSyndicationStatus({ sub, listingStatus: "live", syndicationSwitchOn: zillowEnabled }).text
+                : "Not sent",
+              saving: zillowSaving || !sub || !saveTarget,
+              onToggle: (next) => persistZillowToggle(next),
+            }}
+          />
         ) : null}
         {promoTab !== "sites"
           ? visibleBuiltins.map((def) => {

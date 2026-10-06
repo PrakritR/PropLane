@@ -1,6 +1,8 @@
 "use client";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
+import { LISTING_CHANNEL_DEFS } from "@/lib/listing-channels/registry";
+import { WorkspaceListingSitesPanel } from "@/components/portal/listing-sites-panel";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -231,6 +233,8 @@ export function ManagerPromotion({
   }, [assets, propertyFilters]);
 
   const activeKind = parsePromotionKindSection(searchParams.get("kind"));
+  // Listing sites is a workspace view of the same page: `?kind=sites`, never its own rail tab.
+  const showSites = searchParams.get("kind") === "sites";
   const kindCounts = useMemo(
     () => countPromotionAssetsBySection(propertyScopedAssets),
     [propertyScopedAssets],
@@ -938,8 +942,15 @@ export function ManagerPromotion({
             count: kindCounts.image,
             dataAttr: "promotion-kind-image",
           },
+          {
+            id: "sites",
+            label: "Listing sites",
+            href: `${basePath}/promotion?kind=sites`,
+            count: LISTING_CHANNEL_DEFS.length,
+            dataAttr: "promotion-kind-sites",
+          },
         ]}
-        activeDestinationId={activeKind}
+        activeDestinationId={showSites ? "sites" : activeKind}
         destinationAriaLabel="Promotion type"
         search={{
           value: listSearch,
@@ -992,7 +1003,7 @@ export function ManagerPromotion({
             </Button>
           </div>
         </>
-      ) : null}><div data-attr="promotion-content-direct">
+      ) : null}>{showSites ? <WorkspaceListingSitesPanel /> : <div data-attr="promotion-content-direct">
         {visibleAssets.length === 0 ? (
           propertyScopedAssets.length === 0 && assets.length > 0 ? (
             <PortalListEmptyCard
@@ -1057,7 +1068,7 @@ export function ManagerPromotion({
             />
           </div>
         )}
-      </div></PortalRecordListSurface>
+      </div>}</PortalRecordListSurface>
 
 
 
