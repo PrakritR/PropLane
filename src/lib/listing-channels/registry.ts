@@ -12,8 +12,6 @@
  * approved yet is `coming_soon` and nothing posts.
  */
 
-import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
-
 export type ListingChannelGroup = "automatic" | "one_click" | "request_access";
 export type ListingChannelAvailability = "live" | "coming_soon";
 
@@ -50,10 +48,13 @@ export type ListingChannelDef = {
   textLimit: number;
   /** one_click: the site's own create-listing page. */
   createUrl?: string;
+  /**
+   * request_access: the company's real partner contact. These are company-to-company requests the
+   * PropLane team sends itself, so only a PropLane admin is ever shown the link (the API withholds it
+   * from everyone else); a manager just sees "Coming soon".
+   */
+  partnerContact?: { kind: "email"; address: string } | { kind: "url"; url: string };
 };
-
-/** The one contact address a "Request access" button opens a mail draft to. */
-export const LISTING_CHANNEL_REQUEST_EMAIL = PUBLIC_SUPPORT_EMAIL;
 
 export const LISTING_CHANNEL_DEFS: readonly ListingChannelDef[] = [
   // Automatic: official API or feed.
@@ -78,13 +79,6 @@ export const LISTING_CHANNEL_DEFS: readonly ListingChannelDef[] = [
   { id: "roomster", label: "Roomster", group: "one_click", textLimit: 2000, createUrl: "https://roomster.com/post" },
   { id: "roomies", label: "Roomies", group: "one_click", textLimit: 2000, createUrl: "https://www.roomies.com/post" },
   {
-    id: "furnished_finder",
-    label: "Furnished Finder",
-    group: "one_click",
-    textLimit: 2000,
-    createUrl: "https://www.furnishedfinder.com/listing",
-  },
-  {
     id: "craigslist",
     label: "Craigslist",
     group: "one_click",
@@ -92,13 +86,65 @@ export const LISTING_CHANNEL_DEFS: readonly ListingChannelDef[] = [
     createUrl: "https://post.craigslist.org/",
   },
   // Request access: partner agreement or API approval first.
-  { id: "zumper_padmapper", label: "Zumper and PadMapper", group: "request_access", textLimit: 5000 },
-  { id: "apartments_com", label: "Apartments.com", group: "request_access", textLimit: 5000 },
-  { id: "apartment_list", label: "Apartment List", group: "request_access", textLimit: 5000 },
-  { id: "spareroom", label: "SpareRoom", group: "request_access", textLimit: 5000 },
-  { id: "nextdoor", label: "Nextdoor", group: "request_access", textLimit: 5000 },
-  { id: "google_business_profile", label: "Google Business Profile", group: "request_access", textLimit: 1500 },
-  { id: "linkedin", label: "LinkedIn", group: "request_access", textLimit: 3000 },
+  {
+    id: "zumper_padmapper",
+    label: "Zumper and PadMapper",
+    group: "request_access",
+    textLimit: 5000,
+    partnerContact: { kind: "email", address: "directlistings@zumper.com" },
+  },
+  {
+    id: "apartments_com",
+    label: "Apartments.com",
+    group: "request_access",
+    textLimit: 5000,
+    partnerContact: { kind: "email", address: "feeds@apartments.com" },
+  },
+  {
+    id: "apartment_list",
+    label: "Apartment List",
+    group: "request_access",
+    textLimit: 5000,
+    partnerContact: { kind: "email", address: "clientservices@apartmentlist.com" },
+  },
+  {
+    id: "furnished_finder",
+    label: "Furnished Finder",
+    group: "request_access",
+    textLimit: 5000,
+    partnerContact: { kind: "email", address: "partnerships@furnishedfinder.com" },
+  },
+  {
+    id: "spareroom",
+    label: "SpareRoom",
+    group: "request_access",
+    textLimit: 5000,
+    partnerContact: { kind: "email", address: "customerservices@spareroom.com" },
+  },
+  {
+    id: "nextdoor",
+    label: "Nextdoor",
+    group: "request_access",
+    textLimit: 5000,
+    partnerContact: { kind: "url", url: "https://forms.gle/i2hHc4A9noKJRBGW9" },
+  },
+  {
+    id: "google_business_profile",
+    label: "Google Business Profile",
+    group: "request_access",
+    textLimit: 1500,
+    partnerContact: { kind: "url", url: "https://support.google.com/business/contact/api_default" },
+  },
+  {
+    id: "linkedin",
+    label: "LinkedIn",
+    group: "request_access",
+    textLimit: 3000,
+    partnerContact: {
+      kind: "url",
+      url: "https://learn.microsoft.com/en-us/linkedin/marketing/community-management-app-review?view=li-lms-2026-06",
+    },
+  },
 ];
 
 export type ListingChannel = ListingChannelDef & { availability: ListingChannelAvailability };
@@ -146,10 +192,23 @@ export function apiPostingChannelIds(): ListingChannelId[] {
   return LISTING_CHANNEL_DEFS.filter((def) => def.group === "automatic" && def.mode === "api").map((def) => def.id);
 }
 
-export function requestAccessMailto(def: Pick<ListingChannelDef, "label">): string {
-  const subject = encodeURIComponent(`Request access: ${def.label}`);
-  const body = encodeURIComponent(`Please enable ${def.label} listing posting for my PropLane workspace.`);
-  return `mailto:${LISTING_CHANNEL_REQUEST_EMAIL}?subject=${subject}&body=${body}`;
+/** The href of a request-access channel's real partner contact (a mail draft or the company's contact page), or null. */
+export function partnerContactHref(def: Pick<ListingChannelDef, "label" | "partnerContact">): string | null {
+  const contact = def.partnerContact;
+  if (!contact) return null;
+  if (contact.kind === "url") return contact.url;
+  const subject = encodeURIComponent(`Listing partnership: PropLane and ${def.label}`);
+  return `mailto:${contact.address}?subject=${subject}`;
+}
+
+/** channel id -> partner contact href for every request-access channel; sent only to PropLane admins. */
+export function partnerContactHrefs(): Partial<Record<ListingChannelId, string>> {
+  const out: Partial<Record<ListingChannelId, string>> = {};
+  for (const def of listingChannelsByGroup("request_access")) {
+    const href = partnerContactHref(def);
+    if (href) out[def.id] = href;
+  }
+  return out;
 }
 
 /** Row states stored in `listing_channel_posts.state`. */

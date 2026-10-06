@@ -14,6 +14,8 @@ import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 export type ListingChannelsStatus = {
   workspaceId: string;
   canManage: boolean;
+  /** Request-access partner contacts; empty unless the viewer is a PropLane admin. */
+  partnerContacts?: Partial<Record<ListingChannelId, string>>;
   schemaReady: boolean;
   channels: { id: ListingChannelId; availability: ListingChannelAvailability }[];
   meta: { configured: boolean; connected: boolean; pageName: string | null; igUsername: string | null; revoked: boolean };

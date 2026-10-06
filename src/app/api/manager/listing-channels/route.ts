@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { listingChannels, metaAppConfigured, listingChannelsByGroup } from "@/lib/listing-channels/registry";
+import { isAdminUser } from "@/lib/auth/admin-preview";
+import { listingChannels, metaAppConfigured, listingChannelsByGroup, partnerContactHrefs } from "@/lib/listing-channels/registry";
 import { buildListingPostText, listingChannelEligibility, type ListingHoldReason } from "@/lib/listing-channels/post-text";
 import { loadMetaConnectionPublic } from "@/lib/listing-channels/meta/connection.server";
 import { propertyInWorkspace, resolveListingChannelContext, toPostRow } from "@/lib/listing-channels/route-context.server";
@@ -19,6 +20,7 @@ export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const { db, workspace } = ctx;
+  const isAdmin = await isAdminUser(ctx.userId).catch(() => false);
   const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() || "";
 
   try {
@@ -59,6 +61,8 @@ export async function GET(request: Request) {
       {
         workspaceId: workspace.id,
         canManage: workspace.owned,
+        // Company-to-company partner contacts: only a PropLane admin ever receives them.
+        partnerContacts: isAdmin ? partnerContactHrefs() : {},
         // A table that is not migrated yet reads as "no posts", never as a failure of the page.
         schemaReady: !postsRes.error,
         channels,

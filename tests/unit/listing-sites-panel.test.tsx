@@ -64,7 +64,7 @@ const row = (id: string) => document.querySelector(`[data-attr="listing-site-row
 describe("property Promotion › Listing sites", () => {
   it("has the three groups with counts, Automatic first", async () => {
     render(<PropertyListingSitesPanel propertyId="p1" zillow={ZILLOW} />);
-    for (const [g, n] of [["automatic", "3"], ["one_click", "6"], ["request_access", "7"]] as const) {
+    for (const [g, n] of [["automatic", "3"], ["one_click", "5"], ["request_access", "8"]] as const) {
       const tab = document.querySelector(`[data-attr="property-listing-sites-tab-${g}"]`) as HTMLElement;
       expect(tab.textContent).toContain(n);
     }
@@ -145,14 +145,27 @@ describe("property Promotion › Listing sites", () => {
     expect((document.querySelector('[data-attr="listing-site-copy-open-roomster"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("Request access rows say Coming soon and open a mail draft", async () => {
-    const hrefSet = vi.fn();
-    Object.defineProperty(window, "location", { configurable: true, value: { set href(v: string) { hrefSet(v); }, get href() { return "http://localhost/"; }, search: "" } });
+  it("Request access rows say Coming soon with no button for a normal manager", async () => {
     render(<PropertyListingSitesPanel propertyId="p1" zillow={ZILLOW} />);
     fireEvent.click(document.querySelector('[data-attr="property-listing-sites-tab-request_access"]') as HTMLElement);
     expect(row("zumper_padmapper").textContent).toContain("Coming soon");
-    fireEvent.click(document.querySelector('[data-attr="listing-site-request-zumper_padmapper"]') as HTMLElement);
-    expect(hrefSet.mock.calls[0]![0]).toMatch(/^mailto:/);
+    expect(row("furnished_finder").textContent).toContain("Coming soon");
+    expect(document.querySelector('[data-attr^="listing-site-partner-"]')).toBeNull();
+  });
+
+  it("an admin sees the partner contact and it opens the company's address", async () => {
+    status.value = baseStatus({ partnerContacts: { zumper_padmapper: "mailto:directlistings@zumper.com?subject=x", nextdoor: "https://forms.gle/x" } });
+    const hrefSet = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { set href(v: string) { hrefSet(v); }, get href() { return "http://localhost/"; }, search: "" } });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<PropertyListingSitesPanel propertyId="p1" zillow={ZILLOW} />);
+    fireEvent.click(document.querySelector('[data-attr="property-listing-sites-tab-request_access"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-attr="listing-site-partner-zumper_padmapper"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="listing-site-partner-spareroom"]')).toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="listing-site-partner-zumper_padmapper"]') as HTMLElement);
+    expect(hrefSet.mock.calls[0]![0]).toBe("mailto:directlistings@zumper.com?subject=x");
+    fireEvent.click(document.querySelector('[data-attr="listing-site-partner-nextdoor"]') as HTMLElement);
+    expect(open).toHaveBeenCalledWith("https://forms.gle/x", "_blank", "noopener,noreferrer");
   });
 });
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicMobileBackBar } from "@/components/layout/public-mobile-back-bar";
+import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -163,6 +164,31 @@ export default function PrivacyPolicyPage() {
                 Google API Services User Data Policy
               </a>
               , including the Limited Use requirements.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-foreground">Facebook and Instagram</h2>
+            <p className="mt-2">
+              A property manager may connect a Facebook Page and linked Instagram account to PropLane. When you do, we
+              receive the list of Pages you manage, permission to publish listing posts to the Page and Instagram account
+              you choose, and the ids of the posts we publish.
+            </p>
+            <p className="mt-2">
+              We use this only to publish, update, and remove your own listing posts on that Page and Instagram account.
+              We do not read your messages, followers, or other content, and we do not use this data for advertising or
+              sell it. The access token Meta gives us is stored encrypted.
+            </p>
+            <p className="mt-2">
+              To delete it, disconnect in Settings &rsaquo; Integrations &rsaquo; Posting, use our{" "}
+              <Link href="/integrations/meta/data-deletion" className="font-medium text-primary hover:opacity-90">
+                data deletion page
+              </Link>
+              , or email{" "}
+              <a href={`mailto:${PUBLIC_SUPPORT_EMAIL}`} className="font-medium text-primary hover:opacity-90">
+                {PUBLIC_SUPPORT_EMAIL}
+              </a>
+              .
             </p>
           </section>
 

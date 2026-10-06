@@ -9,7 +9,8 @@ import {
   listingChannelsByGroup,
   metaAppConfigured,
   metaChannelsLive,
-  requestAccessMailto,
+  partnerContactHref,
+  partnerContactHrefs,
 } from "@/lib/listing-channels/registry";
 
 describe("listing channel registry", () => {
@@ -20,13 +21,13 @@ describe("listing channel registry", () => {
       "facebook_groups",
       "roomster",
       "roomies",
-      "furnished_finder",
       "craigslist",
     ]);
     expect(listingChannelsByGroup("request_access").map((c) => c.id)).toEqual([
       "zumper_padmapper",
       "apartments_com",
       "apartment_list",
+      "furnished_finder",
       "spareroom",
       "nextdoor",
       "google_business_profile",
@@ -71,9 +72,23 @@ describe("listing channel registry", () => {
     expect(metaChannelsLive({ META_APP_ID: "1", META_APP_SECRET: "s", META_APP_LIVE: "0" })).toBe(false);
   });
 
-  it("Request access opens a mail draft naming the site", () => {
-    const href = requestAccessMailto({ label: "Zumper and PadMapper" });
-    expect(href.startsWith("mailto:")).toBe(true);
-    expect(decodeURIComponent(href)).toContain("Request access: Zumper and PadMapper");
+  it("Furnished Finder is Request access (Coming soon) with no create page", () => {
+    const def = listingChannelDef("furnished_finder")!;
+    expect(def.group).toBe("request_access");
+    expect(def.createUrl).toBeUndefined();
+    expect(listingChannelAvailability(def)).toBe("coming_soon");
+  });
+
+  it("every request-access channel carries its company's real partner contact", () => {
+    const hrefs = partnerContactHrefs();
+    for (const def of listingChannelsByGroup("request_access")) expect(hrefs[def.id], def.id).toBeTruthy();
+    expect(hrefs.zumper_padmapper).toMatch(/^mailto:directlistings@zumper\.com/);
+    expect(hrefs.apartments_com).toMatch(/^mailto:feeds@apartments\.com/);
+    expect(hrefs.apartment_list).toMatch(/^mailto:clientservices@apartmentlist\.com/);
+    expect(hrefs.furnished_finder).toMatch(/^mailto:partnerships@furnishedfinder\.com/);
+    expect(hrefs.nextdoor).toMatch(/^https:\/\//);
+    expect(hrefs.google_business_profile).toMatch(/^https:\/\//);
+    expect(JSON.stringify(hrefs)).not.toContain("support@proplane.ai");
+    expect(partnerContactHref({ label: "x" })).toBeNull();
   });
 });

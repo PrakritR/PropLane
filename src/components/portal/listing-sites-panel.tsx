@@ -28,7 +28,6 @@ import { postListingChannelWrite, useListingChannels } from "@/hooks/use-listing
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import {
   listingChannelsByGroup,
-  requestAccessMailto,
   type ListingChannelDef,
   type ListingChannelGroup,
   type ListingChannelId,
@@ -84,16 +83,19 @@ function GroupNav({ active, onChange, dataAttrPrefix }: { active: ListingChannel
   );
 }
 
-function RequestAccessButton({ def }: { def: ListingChannelDef }) {
+/** Admin-only: opens the company's real partner contact. A normal manager gets no button at all. */
+function PartnerContactButton({ def, href }: { def: ListingChannelDef; href: string | undefined }) {
+  if (!href) return null;
   return (
     <Button
       variant="ghost"
-      data-attr={`listing-site-request-${def.id}`}
+      data-attr={`listing-site-partner-${def.id}`}
       onClick={() => {
-        window.location.href = requestAccessMailto(def);
+        if (href.startsWith("mailto:")) window.location.href = href;
+        else window.open(href, "_blank", "noopener,noreferrer");
       }}
     >
-      Request access
+      Partner contact
     </Button>
   );
 }
@@ -272,7 +274,7 @@ export function PropertyListingSitesPanel({ propertyId, zillow }: { propertyId: 
                 name={def.label}
                 fact="Coming soon"
                 dataAttr={`listing-site-row-${def.id}`}
-                action={<RequestAccessButton def={def} />}
+                action={<PartnerContactButton def={def} href={status?.partnerContacts?.[def.id]} />}
               />
             );
           })
@@ -354,7 +356,7 @@ export function WorkspaceListingSitesPanel() {
       {group === "request_access"
         ? listingChannelsByGroup("request_access").map((def) => {
             const glyph = CHANNEL_GLYPH[def.id];
-            return <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact="Coming soon" dataAttr={`listing-site-row-${def.id}`} action={<RequestAccessButton def={def} />} />;
+            return <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact="Coming soon" dataAttr={`listing-site-row-${def.id}`} action={<PartnerContactButton def={def} href={status?.partnerContacts?.[def.id]} />} />;
           })
         : null}
     </div>
