@@ -453,19 +453,20 @@ export function ResidentOverviewPanel({
 
       {lifecycle.kpiTiles.length > 0 ? (
         <div
-          className="grid auto-cols-fr grid-flow-col overflow-x-auto rounded-2xl border border-border/80 bg-card shadow-sm max-sm:flex max-sm:scrollbar-none"
+          className="grid auto-cols-fr grid-flow-col overflow-x-auto rounded-2xl border border-border/80 bg-card shadow-sm max-sm:grid-flow-row max-sm:grid-cols-2 max-sm:gap-px max-sm:overflow-hidden max-sm:bg-border/70 max-sm:[&>:last-child:nth-child(odd)]:col-span-2"
           data-rt-kpis
         >
           {lifecycle.kpiTiles.map((tile, i) => (
             <div
               key={tile.label}
               className={cn(
-                "flex min-w-0 flex-col gap-1 px-6 py-4 max-sm:min-w-32 max-sm:shrink-0",
-                i > 0 && "border-l border-border/70",
+                // Phone: a two-column grid on 1px hairlines; every fact wraps to a second line, none is cut off.
+                "flex min-w-0 flex-col gap-1 px-6 py-4 max-sm:bg-card max-sm:px-4",
+                i > 0 && "border-l border-border/70 max-sm:border-l-0",
               )}
             >
               <span className="text-[12.5px] text-muted">{tile.label}</span>
-              <span className="truncate text-lg font-bold tracking-tight">{tile.value}</span>
+              <span className="truncate text-lg font-bold tracking-tight max-sm:overflow-visible max-sm:whitespace-normal max-sm:break-words max-sm:text-base">{tile.value}</span>
             </div>
           ))}
         </div>
