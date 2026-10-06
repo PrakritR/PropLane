@@ -93,6 +93,16 @@ Send application is Application's blue +, and Documents has only its own + (Add 
 for resident" is a second door on that pop-up's "Start from a file" card ("Read a filled application
 or lease"), not a header icon of its own.
 
+**A tab header shows only what applies to its open sub-tab, and there is no ⋯ in it (2026-10-06).** An action
+that does not apply is absent, never disabled. Application: Incomplete = Remind · Edit · Send application;
+Pending = Reject · Edit · Download · Approve; Approved = Download · Send lease; Rejected = Download. Lease:
+Draft = Edit · Send lease; Resident signature = Remind; Manager signature = Sign; Signed = Download. Payments:
+Pending / Overdue = Remind · +; Paid = Download. Background check = Run check / Run new check. Tours: the + on
+Scheduled and Upcoming, nothing on Past. Forms: the + on Pending only. "Upload completed application" is the
+"Start from a file" card inside the Send application pop-up (`ShareLeadLinkModal`'s
+`onUploadCompletedApplication`), not a menu item. The sets live in `residentSectionHeaderActions`
+(`pro-residents.tsx`).
+
 A tab's own actions are icons in its section header card: `ManagerResidentSectionToolbar` carries
 **no section name** (the rail already says which section is open) — only the tabs as
 `destinationRow` on the left, then icon actions, the blue + last. Application is

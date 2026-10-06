@@ -4,7 +4,7 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Bell, CheckCircle2, Download, XCircle, RefreshCw, Settings as SettingsIcon, Pencil, Send } from "lucide-react";
+import { Bell, CheckCircle2, Download, XCircle, RefreshCw, Settings as SettingsIcon, Pencil, PenLine, Plus, Send } from "lucide-react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -90,7 +90,6 @@ import {
   residentApplicationStatusBucket,
   type ResidentRecordStatusBucketId,
 } from "@/lib/resident-detail-subsection-tabs";
-import { ResidentDetailCommandToolbar } from "@/components/portal/resident-detail-subsection-chrome";
 import {
   ProPortalSettingsModal,
   type ManagerPortalSettingsTab,
@@ -131,6 +130,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoreHorizontal } from "lucide-react";
+import { escapeCsv } from "@/lib/csv";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
@@ -351,7 +351,6 @@ const residentsSettingsEntry = getSettingsEntryPoint("residents");
 const leasesSettingsEntry = getSettingsEntryPoint("leases");
 const applicationsSettingsEntry = getSettingsEntryPoint("applications");
 const paymentsSettingsEntry = getSettingsEntryPoint("payments");
-const toursSettingsEntry = getSettingsEntryPoint("tours");
 
 /**
  * Whether Approve / Decline are a real move on this application.
@@ -2955,26 +2954,55 @@ export function ManagerResidents({
       resolvedDetailTab,
     );
     let actions = sections.headerActions;
+    // A tab header carries only what applies to the sub-tab that is open, and an action that does
+    // not apply is absent, never disabled (captain, 2026-10-06). There is no ⋯ overflow in a header.
     if (resolvedDetailTab === "application") {
-      // Every application action, as icons: what applies follows the application's state — a
-      // pending one can be approved or rejected, a decided one can be moved back, an unfinished one
-      // can be chased. The blue + sends an application.
       const row = selectedApplicationRow;
-      const next: RecordHeaderAction[] = [];
-      if (row) {
-        const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
+      // The actions are the one application's, so they show only under the sub-tab it sits in.
+      if (!row || selectedApplicationBucket !== residentApplicationBucket) return [];
+      const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
+      const download: RecordHeaderAction = { id: "download", label: "Download PDF", icon: Download };
+      const edit: RecordHeaderAction = { id: "edit", label: "Edit", icon: Pencil };
+      if (residentApplicationBucket === "incomplete") {
+        const next: RecordHeaderAction[] = [];
         if (shouldOfferApplicationCompletionReminder(row)) {
           next.push({ id: "remind-application", label: "Send reminder", icon: Bell });
         }
-        if (row.bucket === "pending" && !undecidable) {
-          next.push({ id: "approve", label: "Approve", icon: CheckCircle2 });
+        if (row.application) next.push(edit);
+        next.push({ id: "send-application", label: "Send application", icon: Send, tone: "primary" });
+        return next;
+      }
+      if (residentApplicationBucket === "pending") {
+        const next: RecordHeaderAction[] = [];
+        if (!undecidable) {
           next.push({ id: "decline", label: "Reject", icon: XCircle, tone: "danger" });
         }
-        if (row.application) next.push({ id: "edit", label: "Edit", icon: Pencil });
-        next.push({ id: "download", label: "Download PDF", icon: Download });
+        if (row.application) next.push(edit);
+        next.push(download);
+        if (!undecidable) next.push({ id: "approve", label: "Approve", icon: CheckCircle2, tone: "primary" });
+        return next;
       }
-      next.push({ id: "send-application", label: "Add application", icon: Send, tone: "primary" });
-      return next;
+      if (residentApplicationBucket === "approved") {
+        return [download, { id: "send-lease", label: "Send lease", icon: Send, tone: "primary" }];
+      }
+      return [download];
+    }
+    if (resolvedDetailTab === "lease") {
+      // One lease is shown at a time; what can be done to it follows the stage it is in.
+      if (!residentLease) return [];
+      if (residentLeasePipelineTab === "draft") {
+        return [
+          { id: "edit-lease", label: "Edit", icon: Pencil },
+          { id: "send-lease", label: "Send lease", icon: Send, tone: "primary" },
+        ];
+      }
+      if (residentLeasePipelineTab === "resident") {
+        return [{ id: "remind-sign", label: "Send reminder", icon: Bell }];
+      }
+      if (residentLeasePipelineTab === "manager") {
+        return [{ id: "sign-lease", label: "Sign", icon: PenLine, tone: "primary" }];
+      }
+      return [{ id: "download", label: "Download", icon: Download }];
     }
     if (resolvedDetailTab === "background-check") {
       if (selectedApplicationRow?.screening) {
@@ -2990,21 +3018,20 @@ export function ManagerResidents({
           a.id === "run-check" ? { id: "run-check", label: "Run new check", icon: RefreshCw } : a,
         );
       }
-      // Chase the applicant when they have not authorized a check yet (there is nothing to run).
-      if (
-        selectedApplicationRow &&
-        applicationShowsBackgroundCheck(selectedApplicationRow) &&
-        !selectedApplicationRow.application?.consentCredit &&
-        shouldOfferApplicationCompletionReminder(selectedApplicationRow)
-      ) {
-        actions = [{ id: "remind-application", label: "Send reminder", icon: Bell }, ...actions];
-      }
     }
     if (resolvedDetailTab === "payments") {
-      const hasUnpaid = residentLedgerRows.some((r) => r.bucket === "overdue" || r.bucket === "pending");
-      if (!hasUnpaid) {
-        actions = actions.filter((a) => a.id !== "remind-payment");
+      const inBucket = residentLedgerRows.filter((r) => r.bucket === chargeBucket);
+      if (chargeBucket === "paid") {
+        return inBucket.length > 0 ? [{ id: "download", label: "Download", icon: Download }] : [];
       }
+      return [
+        ...(inBucket.length > 0 ? [{ id: "remind-payment", label: "Payment reminder", icon: Bell }] : []),
+        { id: "add-charge", label: "Add charge", icon: Plus, tone: "primary" as const },
+      ];
+    }
+    if (resolvedDetailTab === "tours") {
+      // Nothing is added to a tour that has already happened.
+      return tourBucketProp === "past" ? [] : actions;
     }
     return actions;
   }, [
@@ -3012,7 +3039,13 @@ export function ManagerResidents({
     residentsTab,
     resolvedDetailTab,
     selectedApplicationRow,
+    selectedApplicationBucket,
+    residentApplicationBucket,
+    residentLease,
+    residentLeasePipelineTab,
     residentLedgerRows,
+    chargeBucket,
+    tourBucketProp,
   ]);
 
   const residentSections = useMemo(() => {
@@ -3155,6 +3188,17 @@ export function ManagerResidents({
           runApplicationPdfDownload(selectedApplicationRow, showToast);
         } else if (resolvedDetailTab === "lease" && residentLease) {
           runLeaseDownload(residentLease, showToast);
+        } else if (resolvedDetailTab === "payments") {
+          // The paid list as a spreadsheet, the same columns the one-payment download writes.
+          const paid = residentLedgerRows.filter((r) => r.bucket === "paid");
+          const lines = [["Resident", "Charge", "Amount", "Status", "Due date"], ...paid.map((r) => [r.residentName, r.chargeTitle, r.lineAmount, r.statusLabel, r.dueDate])];
+          const csv = lines.map((line) => line.map((v) => escapeCsv(/^[\s]*[=+@-]/.test(v) ? `'${v}` : v)).join(",")).join("\n");
+          const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = "paid-payments.csv";
+          anchor.click();
+          URL.revokeObjectURL(url);
         } else {
           showToast("Download will be available from the document preview.");
         }
@@ -3174,6 +3218,19 @@ export function ManagerResidents({
         return;
       case "send-application":
         setSendApplicationOpen(true);
+        return;
+      case "send-lease":
+        if (residentLease) openLeaseSendPreview(selected, residentLease);
+        else openSendLeaseForApplication(selectedApplicationRow?.id ?? selected.id);
+        return;
+      case "edit-lease":
+        if (residentLease) setEditResidentLeaseId(residentLease.id);
+        return;
+      case "remind-sign":
+        if (residentLease) openLeaseSigningReminderPreview(selected, residentLease);
+        return;
+      case "sign-lease":
+        if (residentLease) signLeaseAsManager(residentLease);
         return;
       default:
         showToast("Coming soon");
@@ -3503,48 +3560,6 @@ export function ManagerResidents({
                                     className="w-full"
                                   />
                                 }
-                                overflowMenu={
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <span>
-                                        <PortalIconAction
-                                          icon={MoreHorizontal}
-                                          label="More"
-                                          data-attr="resident-application-more"
-                                        />
-                                      </span>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem
-                                        data-attr="resident-application-upload-completed"
-                                        onSelect={() => {
-                                          setResidentUploadKindPreset("application");
-                                          setResidentUploadOpen(true);
-                                        }}
-                                      >
-                                        Upload completed application
-                                      </DropdownMenuItem>
-                                      {selectedApplicationRow &&
-                                      (selectedApplicationRow.bucket === "approved" ||
-                                        selectedApplicationRow.bucket === "rejected") ? (
-                                        <DropdownMenuItem
-                                          data-attr="resident-application-move-pending"
-                                          onSelect={() => void setApplicationBucket(selectedApplicationRow.id, "pending")}
-                                        >
-                                          Move to pending
-                                        </DropdownMenuItem>
-                                      ) : null}
-                                      {selectedApplicationRow?.bucket === "rejected" ? (
-                                        <DropdownMenuItem
-                                          data-attr="resident-application-delete"
-                                          onSelect={() => void deleteApplicationForRow(selectedApplicationRow)}
-                                        >
-                                          Delete
-                                        </DropdownMenuItem>
-                                      ) : null}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                }
                               />
                               {selectedApplicationBucket && residentApplicationBucket !== selectedApplicationBucket ? (
                                 <p className="text-sm text-muted">
@@ -3593,14 +3608,6 @@ export function ManagerResidents({
                                     onAction={onResidentSectionHeaderAction}
                                     destinationRow={destinationRow}
                                     search={toursSearch}
-                                    overflowMenu={
-                                      <ResidentDetailCommandToolbar
-                                        onSettings={() => openResidentDetailSettings("tours")}
-                                        settingsLabel={toursSettingsEntry.label}
-                                        settingsDataAttr={toursSettingsEntry.dataAttr}
-                                        onEdit={() => onResidentSectionHeaderAction("add-tour")}
-                                      />
-                                    }
                                   />
                                 )}
                                 buildTourListHref={
@@ -3660,22 +3667,8 @@ export function ManagerResidents({
                                     />
                                   }
                                   overflowMenu={
-                                    <>
-                                      {/* A selection's bulk actions live in this header card, not in the page's title row. */}
-                                      {embeddedPaymentBulkActions}
-                                      <PortalIconAction
-                                        icon={SettingsIcon}
-                                        label={paymentsSettingsEntry.label}
-                                        data-attr={paymentsSettingsEntry.dataAttr}
-                                        onClick={() => openResidentDetailSettings("payments")}
-                                      />
-                                      <PortalIconAction
-                                        icon={Pencil}
-                                        label="Edit"
-                                        data-attr="resident-detail-edit"
-                                        onClick={() => setResidentPaymentSettingsOpen(true)}
-                                      />
-                                    </>
+                                    // A selection's bulk actions live in this header card, not in the page's title row.
+                                    embeddedPaymentBulkActions
                                   }
                                 />
                               ) : embeddedPaymentFooterActions ? (
@@ -4496,6 +4489,7 @@ export function ManagerResidents({
         properties={propertyOptions}
         preselectedPropertyId={selected?.propertyId || undefined}
         initialRecipient={{ name: selected?.name, email: selected?.email, phone: selectedApplicationRow?.manualResidentDetails?.phone ?? selectedApplicationRow?.application?.phone }}
+        onUploadCompletedApplication={(file) => handleResidentUploadComplete([file], ["application"])}
       />
 
       <UploadForResidentModal

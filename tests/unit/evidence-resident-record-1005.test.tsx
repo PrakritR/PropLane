@@ -327,30 +327,39 @@ describe("Background check's own section row", () => {
     dump("resident-record-background-check", html);
   });
 
-  it("puts the consent reminder in the row as a Bell, not as header title actions", async () => {
+  it("offers only Run check here; the reminder to finish an application belongs to Application's Incomplete tab", async () => {
     const html = await record(DRAFT.id, "background-check");
-    expect(sectionActionIds(html)).toContain("remind-application");
-    const bell = document.querySelector('[data-attr="resident-section-action-remind-application"]');
-    expect(bell?.getAttribute("aria-label")).toBe("Send reminder");
-    expect(bell?.querySelector("svg.lucide-bell")).toBeTruthy();
-    // The record's own header is still the record's: the reminder did not replace it.
+    expect(sectionActionIds(html)).not.toContain("remind-application");
+    // The record's own header is still the record's.
     for (const label of HEADER_ACTIONS) expect(html).toContain(`aria-label="${label}"`);
     dump("resident-record-background-check-reminder", html);
   });
 });
 
-describe("Application only offers a decision while one is pending", () => {
-  it("publishes Approve and Decline for a submitted pending application", async () => {
+describe("Application header actions follow the sub-tab, with no ⋯", () => {
+  it("Incomplete: Remind, Send application (a draft has nothing to approve, reject or download)", async () => {
+    const html = await record(DRAFT.id, "application");
+    const ids = sectionActionIds(html);
+    expect(ids).toContain("remind-application");
+    expect(ids).toContain("send-application");
+    for (const absent of ["approve", "decline", "download", "send-lease"]) expect(ids).not.toContain(absent);
+    expect(html).not.toContain('data-attr="resident-application-more"');
+    dump("resident-record-application-incomplete", html);
+  });
+
+  it("Pending: Approve, Reject, Edit, Download and no bell", async () => {
     const html = await record(PENDING.id, "application");
-    expect(sectionActionIds(html)).toEqual(expect.arrayContaining(["approve", "decline"]));
+    const ids = sectionActionIds(html);
+    expect(ids).toEqual(expect.arrayContaining(["approve", "decline", "edit", "download"]));
+    for (const absent of ["remind-application", "send-application", "send-lease"]) expect(ids).not.toContain(absent);
+    expect(html).not.toContain('data-attr="resident-application-more"');
     dump("resident-record-application-pending", html);
   });
 
-  it("publishes neither for an already approved application", async () => {
+  it("Approved: Download, Send lease and nothing to decide", async () => {
     const html = await record(APPROVED.id, "application");
     const ids = sectionActionIds(html);
-    expect(ids).not.toContain("approve");
-    expect(ids).not.toContain("decline");
+    expect(ids).toEqual(["download", "send-lease"]);
     dump("resident-record-application-approved", html);
   });
 });

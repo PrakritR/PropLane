@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { DOCUMENT_FILE_CHIPS } from "@/components/portal/add-workspace/upload-action";
+import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/documents/manager-documents";
 import {
   ReviewCard,
   WizardField,
@@ -122,6 +124,7 @@ export function ShareLeadLinkModal({
   preselectedPropertyId,
   preselectedPropertyIds,
   initialRecipient,
+  onUploadCompletedApplication,
 }: {
   open: boolean;
   onClose: () => void;
@@ -138,6 +141,12 @@ export function ShareLeadLinkModal({
   preselectedPropertyIds?: string[];
   /** A resident the manager is sending to from their record: name, email and phone start filled in. */
   initialRecipient?: { name?: string; email?: string; phone?: string };
+  /**
+   * Send application from a resident's record only: a "Start from a file" card at the top of the
+   * first step takes an application the resident already filled in on paper and hands the file to
+   * the record's existing completed-application upload, instead of sending a link.
+   */
+  onUploadCompletedApplication?: (file: File) => void | Promise<void>;
 }) {
   const { showToast } = useAppUi();
   const { userId: managerUserId } = useManagerUserId();
@@ -603,6 +612,20 @@ export function ShareLeadLinkModal({
       onJump={setStep}
       onClose={onClose}
       hideFooterStepCount
+      headerUpload={
+        kind === "apply" && onUploadCompletedApplication
+          ? {
+              accept: DOCUMENT_UPLOAD_ACCEPT,
+              chips: DOCUMENT_FILE_CHIPS,
+              label: "Upload a completed application",
+              dataAttr: "share-lead-header-upload",
+              disabled: sendBusy,
+              onPick: (file) => {
+                void Promise.resolve(onUploadCompletedApplication(file)).then(onClose, () => undefined);
+              },
+            }
+          : undefined
+      }
       reviewEditLinks
       assistantContext={inviteTitle}
       assistantScopeKey={`share-lead-${kind}`}
