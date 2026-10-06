@@ -52,7 +52,9 @@ describe("ManagerPropertyLeasePanel", () => {
       </AppUiProvider>,
     );
 
-    expect(screen.getByRole("link", { name: /^Leases/ })).toBeTruthy();
+    // Tabs: Long-term leases (with its count) · Default; the Applications tab is never here.
+    expect(screen.getByRole("button", { name: /^Long-term leases/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Default/ })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Applications/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Lease settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit lease" })).toBeNull();
@@ -85,11 +87,11 @@ describe("ManagerPropertyLeasePanel", () => {
     expect(document.querySelectorAll('[data-attr^="property-lease-empty-type-"]')).toHaveLength(0);
     expect(document.querySelectorAll('[data-attr^="property-lease-row-"]')).toHaveLength(0);
     // The header count is exactly the rows shown: none.
-    const link = screen.getByRole("link", { name: /^Leases/ });
-    expect(link.textContent).toMatch(/Leases\s*0/);
+    const link = screen.getByRole("button", { name: /^Long-term leases/ });
+    expect(link.textContent).toMatch(/Long-term leases\s*0/);
     const row = document.querySelector('[data-attr="property-lease-quick-add"]')!;
     expect(row.textContent).toContain("Quick add");
-    expect(Array.from(row.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Long-term lease", "Short-term lease"]);
+    expect(Array.from(row.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Long-term lease"]); // the open tab's stay only
   });
 
   it("leaseListRowCount: exactly the leases the property has", () => {

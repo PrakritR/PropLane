@@ -100,10 +100,13 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(attr(view, "bookings-block-dates-next")).not.toBeNull();
     goToReview();
     const button = attr(view, "bookings-block-dates-save")!;
-    const footer = button.parentElement!;
+    // Back and the primary button share the footer's right-hand group.
+    const group = button.parentElement!;
+    const footer = group.parentElement!;
     expect(footer.className).toContain("justify-between");
     expect(footer.className).not.toContain("justify-start");
-    expect(footer.lastElementChild).toBe(button);
+    expect(footer.lastElementChild).toBe(group);
+    expect(group.lastElementChild).toBe(button);
   });
 
   it("saves with no one by default, and with the picked resident's name and email", async () => {

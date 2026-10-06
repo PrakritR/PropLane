@@ -20,6 +20,24 @@ answer; `portal_work_order_records.row_data` only carries the lightweight
 (`DemoManagerWorkOrderRow` fields) plus the existing `vendorId` / `vendorName` /
 `cost` fields that already model final vendor assignment.
 
+## The property Services page is services offered, by stay (property-term-split-1005)
+
+A property record's Services section lists the services **offered** there (`serviceRequestOptions`), under
+**Long term · Short term** tabs. Each service carries `appliesTo?: "long_term" | "short_term" | "both"`
+(`ManagerListingServiceOption`); **absent = both**, so a service for both stays shows in both tabs and
+existing rows land in both. The tab rule is the one helper `src/lib/property-stay-tabs.ts` (a stay the
+property does not allow has no tab unless a service for that stay alone still exists, so nothing is
+hidden). Quick add presets and their stay defaults live in `src/lib/property-services-by-stay.ts`.
+**Service requests (Open / Assigned / Scheduled / Completed) are not listed on the property page** — they
+live on the main Services page, which already filters by property.
+
+**AI info has the same split.** Every AI info row is shared by default; a built-in row may carry a
+short-term version in `aiCommunicationInfoShortTerm` (listing submission JSON, no schema change) and a
+custom row an `appliesTo` (absent = both). The assistant reads them through
+`src/lib/property-ai-info-by-stay.ts`: a short-term prospect gets the short-term text when present else
+the shared text; a long-term prospect gets the shared text only (short-term text is never mixed in); an
+unknown stay gets both, labelled. `get_listing_details` takes an optional `stay` for this.
+
 ## One vocabulary (services-vendors-1004)
 
 Every service list - the manager Services page, a property's Services tab, a vendor record's

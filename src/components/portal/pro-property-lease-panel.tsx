@@ -6,10 +6,10 @@ import {
   type LeaseOptionKey,
 } from "@/lib/property-form-stay-type-routing";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Check, FileUp, FileText, AlertTriangle } from "lucide-react";
+import { Check, FileUp, FileText, AlertTriangle, Star } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
@@ -47,12 +47,18 @@ import {
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
 import {
+  effectiveDefaultLeaseForStay,
+  explicitDefaultLeaseForStay,
+  leaseTemplateStay,
   propertyLeaseSourceFromTemplate,
   readPropertyLeaseTemplates,
   removePropertyLeaseTemplate,
   syncLegacyLeaseFieldsFromTemplates,
+  withLeaseDefaultForStay,
+  type LeaseStay,
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
+import { allowedStays, stayCounts, stayTabItems, type PropertyStay } from "@/lib/property-stay-tabs";
 import { ManagerLeaseQuestionsEditorModal } from "@/components/portal/pro-lease-questions-editor-modal";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { usePropertyFormSetupSettings } from "@/lib/property-form-setup-settings.client";
@@ -130,7 +136,6 @@ export function ManagerPropertyLeasePanel({
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const confirm = useConfirm();
   const [pane, setPane] = useState<"form" | "automation">("form");
@@ -146,9 +151,30 @@ export function ManagerPropertyLeasePanel({
 
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
+  const embedInModal = Boolean(onBulkActionsChange);
+  // Long-term leases · Short-term leases · Default. The stay is derived from the lease's kind / routed terms.
+  // A stay the property does not allow loses its tab unless it still has leases (never hide data).
+  const [tab, setTab] = useState<PropertyStay | "default">("long_term");
+  const [addStay, setAddStay] = useState<LeaseStay | undefined>(undefined);
+  const allowed = useMemo(() => allowedStays(syncedSub), [syncedSub]);
+  const tabItems = useMemo(
+    () =>
+      [
+        ...stayTabItems(
+          syncedSub,
+          stayCounts(templates, (row) => leaseTemplateStay(row)),
+          (stay) => (stay === "long_term" ? "Long-term leases" : "Short-term leases"),
+        ),
+        { id: "default", label: "Default", count: allowed.length },
+      ].map((item) => ({ ...item, dataAttr: `property-lease-tab-${item.id}` })),
+    [allowed.length, syncedSub, templates],
+  );
+  const activeTab = tabItems.some((item) => item.id === tab) ? tab : tabItems[0]!.id;
+  const activeStay: PropertyStay | null = activeTab === "default" ? null : (activeTab as PropertyStay);
+  const tabAddStay: PropertyStay | undefined = embedInModal ? undefined : (activeStay ?? allowed[0]);
   const visibleTemplates = useMemo(() => {
     const q = leaseSearch.trim().toLowerCase();
-    let rows = templates;
+    let rows = embedInModal || !activeStay ? templates : templates.filter((row) => leaseTemplateStay(row) === activeStay);
     if (leaseKindFilter) {
       rows = rows.filter((template) => template.kind === leaseKindFilter);
     }
@@ -157,19 +183,17 @@ export function ManagerPropertyLeasePanel({
       const label = template.label?.trim() || "Lease";
       return label.toLowerCase().includes(q);
     });
-  }, [leaseKindFilter, leaseSearch, templates]);
-  const embedInModal = Boolean(onBulkActionsChange);
+  }, [activeStay, embedInModal, leaseKindFilter, leaseSearch, templates]);
   // One row per lease type the listing offers (a type with no lease yet still
   // draws its "No lease yet" row), plus any lease outside those types — the
   // header count is exactly the rows the list shows.
-  const leaseRowCount = useMemo(() => leaseListRowCount(templates), [templates]);
-  const missingDefaults = useMemo(() => missingLeaseDefaults(syncedSub), [syncedSub]);
-  const propertyFormsSectionNav = useMemo(() => {
-    if (embedInModal || !pathname) return undefined;
-    const match = pathname.match(/^(.*)\/(application|lease)$/);
-    if (!match) return undefined;
-    return { activeId: "lease" as const, href: pathname, count: leaseRowCount };
-  }, [embedInModal, pathname, leaseRowCount]);
+  // Quick add offers only the starters for the open tab's stay (a long-term tab never offers a short-term lease).
+  const missingDefaults = useMemo(() => {
+    const entries = missingLeaseDefaults(syncedSub);
+    if (embedInModal || !activeStay) return entries;
+    const isShortSeed = (key: string) => key === "short-term" || key === "bundle-short-term" || key === "cosigner-short-term";
+    return entries.filter((entry) => (activeStay === "short_term") === isShortSeed(entry.key));
+  }, [activeStay, embedInModal, syncedSub]);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = useMemo(
@@ -253,8 +277,9 @@ export function ManagerPropertyLeasePanel({
   const openAdd = useCallback(() => {
     setFormMode("add");
     setEditingTemplateId(null);
+    setAddStay(tabAddStay);
     setFormOpen(true);
-  }, []);
+  }, [tabAddStay]);
 
   const openEdit = useCallback(
     (templateId: string) => {
@@ -483,16 +508,16 @@ export function ManagerPropertyLeasePanel({
     showToast("Lease duplicated.");
   };
 
-  const setDefaultLease = useCallback(
-    (templateId: string) => {
-      if (!formSetup.loaded) return;
-      void formSetup.patch({
-        leasingPipeline: { ...formSetup.leasingPipeline, defaultLeaseTemplateId: templateId },
-      });
-      showToast("Default lease updated.");
-    },
-    [formSetup, showToast],
-  );
+  // Makes one lease the default of a stay: the lease carries `defaultFor` (explicit, so routing follows it);
+  // a stay nobody set keeps routing exactly as before.
+  const setStayDefault = async (templateId: string, stay: LeaseStay) => {
+    if (!(await persistTemplates(withLeaseDefaultForStay(templates, templateId, stay)))) {
+      showToast("Could not set default.");
+      return;
+    }
+    showToast(`Default for ${stay === "long_term" ? "long term" : "short term"} set.`);
+    onUpdated();
+  };
 
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
@@ -528,13 +553,18 @@ export function ManagerPropertyLeasePanel({
 
   const renderLeaseTemplateRow = (template: PropertyLeaseTemplate, typeLabel?: string | null) => {
     const notOffered = template.offered === false;
+    const stay = leaseTemplateStay(template);
+    // The stay's explicit default; with none set, the property's older single default lease still stars.
+    const explicitDefault = explicitDefaultLeaseForStay(templates, stay);
     const isDefault =
       !notOffered &&
-      Boolean(
-        formSetup.loaded &&
-          formSetup.leasingPipeline.defaultLeaseTemplateId &&
-          formSetup.leasingPipeline.defaultLeaseTemplateId === template.id,
-      );
+      (explicitDefault
+        ? explicitDefault.id === template.id
+        : Boolean(
+            formSetup.loaded &&
+              formSetup.leasingPipeline.defaultLeaseTemplateId &&
+              formSetup.leasingPipeline.defaultLeaseTemplateId === template.id,
+          ));
     const rowLabel = template.label?.trim() || "Lease";
     // One derivation with the Edit lease popup's "Type of lease": the stay types this lease is mapped to.
     const mappedTypeLabel =
@@ -554,11 +584,11 @@ export function ManagerPropertyLeasePanel({
             label: "Open in new tab",
             onSelect: () => openPropertyFormTemplateInNewTab("lease", template.id),
           },
-          !isDefault && !notOffered && formSetup.loaded
+          !isDefault && !notOffered
             ? {
                 id: "set-default",
-                label: "Set as default",
-                onSelect: () => setDefaultLease(template.id),
+                label: `Set as default for ${stay === "long_term" ? "long term" : "short term"}`,
+                onSelect: () => void setStayDefault(template.id, stay),
               }
             : null,
           { id: "duplicate", label: "Duplicate", onSelect: () => void duplicateTemplate(template) },
@@ -629,14 +659,57 @@ export function ManagerPropertyLeasePanel({
   const catalogBody = (
     <>
       <>
-        {visibleTemplates.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
+        {activeTab === "default"
+          ? allowed.map((stay) => {
+              const current = effectiveDefaultLeaseForStay(
+                templates,
+                stay,
+                formSetup.loaded ? formSetup.leasingPipeline.defaultLeaseTemplateId : null,
+              );
+              const candidates = templates.filter(
+                (row) =>
+                  row.offered !== false &&
+                  row.listingSeedKey !== "cosigner" &&
+                  row.listingSeedKey !== "cosigner-short-term" &&
+                  leaseTemplateStay(row) === stay &&
+                  row.id !== current?.id,
+              );
+              const title = `${stay === "long_term" ? "Long-term" : "Short-term"} default`;
+              return (
+                <PortalPropertyRecordRow
+                  key={`default:${stay}`}
+                  title={title}
+                  leading={<PortalRowIconTile icon={Star} />}
+                  leadingShape="square"
+                  facts={
+                    <PortalRowFact icon={FileText} srLabel="Lease">
+                      {current ? current.label?.trim() || "Lease" : "None yet"}
+                    </PortalRowFact>
+                  }
+                  actions={
+                    <RowActionsMenu
+                      label={title}
+                      items={candidates.map((row) => ({
+                        id: `change-default-${row.id}`,
+                        label: `Change default to ${row.label?.trim() || "Lease"}`,
+                        onSelect: () => void setStayDefault(row.id, stay),
+                      }))}
+                    />
+                  }
+                  dataAttr={`property-lease-default-${stay}`}
+                />
+              );
+            })
+          : visibleTemplates.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
       </>
-      <LeasingQuickAddRow
-        entries={missingDefaults}
-        noun="lease"
-        dataAttr="property-lease-quick-add"
-        onAdd={(key) => addSeedTemplate(key as PropertyLeaseListingSeedKey)}
-      />
+      {embedInModal || activeStay ? (
+        <LeasingQuickAddRow
+          entries={missingDefaults}
+          noun="lease"
+          dataAttr="property-lease-quick-add"
+          onAdd={(key) => addSeedTemplate(key as PropertyLeaseListingSeedKey)}
+        />
+      ) : null}
       {/* The page's command bar carries the one "+" (its form also takes a
           PDF upload); only the embedded modal, which has no command bar,
           needs a footer add row. */}
@@ -666,6 +739,7 @@ export function ManagerPropertyLeasePanel({
         propertyHint={propertyHint}
         propertyId={propertyId ?? bulkPropertyIds[0] ?? null}
         bulk={bulkPropertyIds.length > 0}
+        initialStay={formMode === "add" ? addStay : undefined}
         demoMode={demoMode}
         canDelete={formMode === "edit"}
         onClose={() => {
@@ -733,14 +807,23 @@ export function ManagerPropertyLeasePanel({
       pane={pane}
       onPaneChange={setPane}
       panes={[{ id: "form", label: "Form" }]}
-      propertyFormsSectionNav={propertyFormsSectionNav}
-      search={{
-        value: leaseSearch,
-        onChange: setLeaseSearch,
-        placeholder: "Search leases",
-        dataAttr: "property-lease-search",
+      stayTabs={{
+        items: tabItems,
+        activeId: activeTab,
+        onChange: (id) => setTab(id as PropertyStay | "default"),
+        ariaLabel: "Leases",
       }}
-      filter={formFilterSheet}
+      search={
+        activeStay
+          ? {
+              value: leaseSearch,
+              onChange: setLeaseSearch,
+              placeholder: "Search leases",
+              dataAttr: "property-lease-search",
+            }
+          : undefined
+      }
+      filter={activeStay ? formFilterSheet : null}
       onAdd={openAdd}
       addLabel="Add lease"
       addDataAttr="property-lease-command-add"

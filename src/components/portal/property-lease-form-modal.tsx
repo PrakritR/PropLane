@@ -173,6 +173,7 @@ export function PropertyLeaseFormModal({
   propertyHint,
   propertyId,
   bulk = false,
+  initialStay,
   demoMode = false,
   canDelete = false,
   onClose,
@@ -190,6 +191,8 @@ export function PropertyLeaseFormModal({
   propertyId?: string | null;
   /** A bulk edit spans several properties, whose ids differ: no per-template link rows. */
   bulk?: boolean;
+  /** A NEW lease opens as this stay's PropLane format (the open Long-term / Short-term tab). */
+  initialStay?: "long_term" | "short_term";
   demoMode?: boolean;
   canDelete?: boolean;
   onClose: () => void;
@@ -406,23 +409,25 @@ export function PropertyLeaseFormModal({
     setAddModeLeaseTemplateId(makePropertyLeaseTemplateId());
     setStartFrom("proplane");
     setCopyFromLeaseId(null);
-    setLeaseAddType("long-term");
-    setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === "long-term")!.defaultLabel);
+    const addKind = initialStay === "short_term" ? "short-term" : "long-term";
+    const addMode = initialStay === "short_term" ? "proplane_short_term" : "proplane_long_term";
+    setLeaseAddType(addKind);
+    setLabel(PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === addKind)!.defaultLabel);
     setLinkedApplicationTemplateId(null);
     setOffered(true);
     setLeaseFeeText("");
     initialApplicationIdsRef.current = [];
     setApplicationIds([]);
-    setKind("long-term");
-    setDocumentMode("proplane_long_term");
-    const applied = applyPropertyLeaseDocumentMode("proplane_long_term");
+    setKind(addKind);
+    setDocumentMode(addMode);
+    const applied = applyPropertyLeaseDocumentMode(addMode);
     setDraft((d) => ({ ...d, ...applied.draftFields }));
     setHtmlOverride("");
     setImportSource(null);
     setLinkedGuarantorTemplateId(null);
     setPendingLeaseImport(null);
     setPendingLeaseImportCompareOpen(false);
-  }, [open, mode, template, templates, sub]);
+  }, [open, mode, template, templates, sub, initialStay]);
 
   useEffect(() => {
     if (!open || mode !== "edit" || !template?.id) return;

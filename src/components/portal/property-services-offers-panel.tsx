@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CircleSlash, CreditCard, Wrench } from "lucide-react";
+import { ArrowLeftRight, CircleSlash, CreditCard, Wrench } from "lucide-react";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -17,6 +18,19 @@ import {
   type ServiceBillingCadence,
 } from "@/lib/manager-listing-submission";
 import { persistManagerListingSubmission, type ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
+import {
+  missingServiceQuickAdds,
+  serviceAppliesTo,
+  serviceFromQuickAdd,
+} from "@/lib/property-services-by-stay";
+import {
+  appliesToForTab,
+  rowsInStay,
+  stayCounts,
+  stayLabel,
+  stayTabsFor,
+  type PropertyStay,
+} from "@/lib/property-stay-tabs";
 
 
 function offerCadence(offer: ManagerListingServiceOption): ServiceBillingCadence {
@@ -43,7 +57,10 @@ type Props = {
   showToast: (m: string) => void;
 };
 
-/** Property Services catalog — one list (captain, Oct 3: requests and add-ons are the same thing); studio header: Services section tab + search + +. */
+/**
+ * Property Services = the services offered here (captain, Oct 5): tabs Long term · Short term, a service for
+ * both stays in both, search + the round +, and a Quick add row. Requests live on the main Services page.
+ */
 export function PropertyServicesOffersPanel({
   sub,
   saveTarget,
@@ -54,24 +71,50 @@ export function PropertyServicesOffersPanel({
 }: Props) {
   void _propertyLabel;
   const [query, setQuery] = useState("");
+  const [stayPick, setStayPick] = useState<PropertyStay>("long_term");
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<ManagerListingServiceOption | null>(null);
   const [isNew, setIsNew] = useState(false);
   const confirm = useConfirm();
 
-  const offers = sub.serviceRequestOptions ?? [];
+  const offers = useMemo(() => sub.serviceRequestOptions ?? [], [sub.serviceRequestOptions]);
   const q = query.trim().toLowerCase();
 
-  // One list: a per-request service and a monthly add-on are the same kind of
-  // offer; the row's price fact says how it is billed.
+  // A stay the property does not allow still gets its tab while it holds services, so none is hidden.
+  // Only a service for that stay alone holds the tab open: a both-stays service never forces a Short term tab.
+  const counts = stayCounts(offers, (o) => o.appliesTo);
+  const only = {
+    long_term: offers.filter((o) => o.appliesTo === "long_term").length,
+    short_term: offers.filter((o) => o.appliesTo === "short_term").length,
+  };
+  const tabItems = stayTabsFor(sub, only).map((id) => ({ id, label: stayLabel(id), count: counts[id] }));
+  const stay: PropertyStay = tabItems.some((t) => t.id === stayPick) ? stayPick : (tabItems[0]?.id ?? "long_term");
+  const showBothFact = tabItems.length > 1;
+
+  // One list per stay: a per-request service and a monthly add-on are the same kind of offer; the row's
+  // price fact says how it is billed.
   const filtered = useMemo(
-    () => offers.filter((o) => !q || (o.name ?? "").toLowerCase().includes(q)),
-    [offers, q],
+    () => rowsInStay(offers, stay, (o) => o.appliesTo).filter((o) => !q || (o.name ?? "").toLowerCase().includes(q)),
+    [offers, stay, q],
   );
+
+  const quickAdds = missingServiceQuickAdds(offers);
+  const quickAdd = (key: string) => {
+    const row = serviceFromQuickAdd(key, stay);
+    if (!row) return;
+    const next: ManagerListingSubmissionV1 = { ...sub, serviceRequestOptions: [row, ...offers] };
+    if (!persistManagerListingSubmission(saveTarget, managerUserId, next)) {
+      showToast("Could not add service.");
+      return;
+    }
+    showToast(`${row.name} added.`);
+    onUpdated();
+  };
 
   const openAdd = () => {
     const row = createManagerListingServiceOption();
     row.billingCadence = "per_request";
+    row.appliesTo = appliesToForTab(stay);
     setEditing(row);
     setIsNew(true);
     setEditOpen(true);
@@ -104,14 +147,14 @@ export function PropertyServicesOffersPanel({
         variant="command"
         destinationRow={
           <LocalDestinationNav
-            items={[{ id: "services", label: "Services" }]}
-            activeId="services"
-            onChange={() => {}}
-            ariaLabel="Services"
+            items={tabItems}
+            activeId={stay}
+            onChange={(id) => setStayPick(id as PropertyStay)}
+            ariaLabel="Stay"
             appearance="command"
           />
         }
-        activeDestinationId="services"
+        activeDestinationId={stay}
         search={{
           value: query,
           onChange: setQuery,
@@ -146,6 +189,11 @@ export function PropertyServicesOffersPanel({
                 <PortalRowFact icon={CreditCard} srLabel="Price">
                   {offerPriceFact(offer)}
                 </PortalRowFact>
+                {showBothFact && serviceAppliesTo(offer) === "both" ? (
+                  <PortalRowFact icon={ArrowLeftRight} srLabel="Applies to">
+                    Long and short term
+                  </PortalRowFact>
+                ) : null}
                 {offer.deposit?.trim() ? (
                   <PortalRowFact icon={CreditCard} srLabel="Deposit">
                     {`${offer.deposit.trim()} deposit`}
@@ -172,6 +220,8 @@ export function PropertyServicesOffersPanel({
           />
         ))}
       </PortalRecordListSurface>
+
+      <LeasingQuickAddRow entries={quickAdds} onAdd={quickAdd} noun="service" dataAttr="property-services-quick-add" />
 
       <ServiceOfferingEditModal
         open={editOpen}

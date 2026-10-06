@@ -12,6 +12,7 @@ import type { ApplicationConfigSlice } from "@/lib/rental-application/applicatio
 // comment) rather than inventing a second one, since the lease and
 // application editors are meant to share one question-editor UI.
 import type { ApplicationTemplateQuestionConfig } from "@/lib/property-application-templates";
+import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 /** Standard PropLane lease formats — plus custom builder. */
 export type PropertyLeaseTemplateKind = "short-term" | "long-term" | "time-based" | "custom";
@@ -115,7 +116,16 @@ export type PropertyLeaseTemplate = {
    * library form's id. The property's own forms never carry it.
    */
   libraryFormId?: string | null;
+  /**
+   * The stays this lease is the DEFAULT for (Default tab on the property's Leases). Only an explicit entry
+   * changes routing; a stay with none behaves exactly as it always did (`defaultLeaseTemplateId` stays the
+   * fallback read for display). Stored on the listing submission JSON, like an application's `defaultFor`.
+   */
+  defaultFor?: LeaseStay[];
 };
+
+/** A property's two stays; a lease belongs to exactly one (derived from its kind / routed terms). */
+export type LeaseStay = "long_term" | "short_term";
 
 export const PROPERTY_LEASE_TYPE_OPTIONS: readonly {
   id: PropertyLeaseTemplateKind;
@@ -248,14 +258,93 @@ function normalizeTemplate(row: PropertyLeaseTemplate & { kind: string }): Prope
           representedCharacters: Number.isFinite(review.representedCharacters) ? Math.max(0, review.representedCharacters) : 0,
         }
       : undefined;
+  const defaultFor = Array.isArray(row.defaultFor)
+    ? row.defaultFor.filter((stay, i, all) => (stay === "long_term" || stay === "short_term") && all.indexOf(stay) === i)
+    : undefined;
   return {
     ...row,
     kind: normalizeLeaseTemplateKind(row.kind),
+    defaultFor: defaultFor && defaultFor.length > 0 ? defaultFor : undefined,
     offered: row.offered !== false,
     leaseTemplateHtmlOverride:
       typeof row.leaseTemplateHtmlOverride === "string" ? row.leaseTemplateHtmlOverride : "",
     leaseTemplateImportReview,
   };
+}
+
+/* ───────────────────────── which stay a lease is for ───────────────────────── */
+
+/**
+ * The stay a lease belongs to, derived (nothing new is stored): a short-term lease -> short term, a long-term
+ * lease -> long term. A time-based / custom lease reads the stay types it is routed to
+ * (`applicationLeaseTerms`): only short-stay terms (Short-Term Stay / Airbnb) -> short term, anything else
+ * (or no terms) -> long term. Pure.
+ */
+export function leaseTemplateStay(
+  template: Pick<PropertyLeaseTemplate, "kind" | "applicationLeaseTerms">,
+): LeaseStay {
+  const kind = normalizeLeaseTemplateKind(template.kind);
+  if (kind === "short-term") return "short_term";
+  if (kind === "long-term") return "long_term";
+  const terms = (template.applicationLeaseTerms ?? []).filter((term) => term.trim());
+  const onlyShort = terms.length > 0 && terms.every((term) => term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM);
+  return onlyShort ? "short_term" : "long_term";
+}
+
+type DefaultableLease = Pick<PropertyLeaseTemplate, "id" | "kind" | "applicationLeaseTerms" | "offered" | "defaultFor" | "listingSeedKey">;
+
+/** A co-signer / guarantor addendum rides along with a main lease; it is never a stay's default. */
+function canBeStayDefaultLease(template: Pick<PropertyLeaseTemplate, "listingSeedKey">): boolean {
+  return template.listingSeedKey !== "cosigner" && template.listingSeedKey !== "cosigner-short-term";
+}
+
+/**
+ * The lease a stay gets when the manager SET one: the offered lease of that stay whose `defaultFor` names it.
+ * Null when none is explicit, which is what routing reads so a property that never chose a default routes
+ * exactly as before.
+ */
+export function explicitDefaultLeaseForStay<T extends DefaultableLease>(
+  templates: readonly T[],
+  stay: LeaseStay,
+): T | null {
+  return (
+    templates.find(
+      (row) =>
+        canBeStayDefaultLease(row) &&
+        (row.defaultFor ?? []).includes(stay) &&
+        row.offered !== false &&
+        leaseTemplateStay(row) === stay,
+    ) ?? null
+  );
+}
+
+/**
+ * The default of a stay for DISPLAY: the explicit one, else the property's `defaultLeaseTemplateId` when that
+ * lease is of this stay, else the first offered lease of the stay. Null when the stay has no lease.
+ */
+export function effectiveDefaultLeaseForStay<T extends DefaultableLease>(
+  templates: readonly T[],
+  stay: LeaseStay,
+  fallbackDefaultLeaseId?: string | null,
+): T | null {
+  const explicit = explicitDefaultLeaseForStay(templates, stay);
+  if (explicit) return explicit;
+  const inStay = templates.filter((row) => canBeStayDefaultLease(row) && row.offered !== false && leaseTemplateStay(row) === stay);
+  const fallbackId = fallbackDefaultLeaseId?.trim();
+  return (fallbackId ? inStay.find((row) => row.id === fallbackId) : undefined) ?? inStay[0] ?? null;
+}
+
+/** Makes one lease the default of a stay (and the only one), keeping every other row's other defaults. */
+export function withLeaseDefaultForStay<T extends Pick<PropertyLeaseTemplate, "id" | "defaultFor">>(
+  templates: readonly T[],
+  id: string,
+  stay: LeaseStay,
+): T[] {
+  return templates.map((row) => {
+    const rest = (row.defaultFor ?? []).filter((s) => s !== stay);
+    const next = row.id === id ? [...rest, stay] : rest;
+    return { ...row, defaultFor: next.length > 0 ? next : undefined };
+  });
 }
 
 /** Migrate legacy single lease fields into a template list when needed. */

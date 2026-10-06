@@ -9,6 +9,9 @@ import { PropertyMoveInFormsPanel } from "@/components/portal/move-in-forms/prop
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { persistManagerListingSubmissionOnServer } from "@/lib/manager-property-save-target";
 import { readMoveInFormSettings, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import { moveInFormStayTabs } from "@/lib/move-in-forms/stays";
+import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import type { PropertyStay } from "@/lib/property-stay-tabs";
 import type { MoveInFormSettings } from "@/lib/move-in-forms/types";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -42,6 +45,9 @@ type RoomSaveTarget =
   | null;
 
 type MoveInTabId = "details" | "forms";
+
+/** The forms tabs' labels: one per stay the property allows (or still holds a form for). */
+const FORMS_TAB_LABEL: Record<PropertyStay, string> = { long_term: "Long-term forms", short_term: "Short-term forms" };
 
 const REMIND_OPTIONS: { value: MoveInFormSettings["remind"]; label: string }[] = [
   { value: "before-and-due", label: "2 days before due and on the due date" },
@@ -144,10 +150,17 @@ export function ManagerPropertyRoomMoveInPanel({
   const [moveSaving, setMoveSaving] = useState(false);
   const [movePreview, setMovePreview] = useState<MoveInEditorTarget | null>(null);
   const [tab, setTab] = useState<MoveInTabId>("details");
+  const [formStay, setFormStay] = useState<PropertyStay>("long_term");
   const [chooserOpen, setChooserOpen] = useState(false);
   const [formSettings, setFormSettings] = useState<MoveInFormSettings>(() => readMoveInFormSettings(sub));
   const [savingSettings, setSavingSettings] = useState(false);
-  const formCount = useMemo(() => readMoveInFormTemplates(sub).length, [sub]);
+  // Each form shows under the stay(s) its "Applies to" names; a form for both is in both tabs. A stay the property
+  // does not allow gets no tab unless it still holds a form (nothing is hidden).
+  const { tabs: formStayTabs, counts: formStayCounts } = useMemo(() => {
+    const leases = readPropertyLeaseTemplates(sub).map((lease) => ({ id: lease.id, kind: lease.kind }));
+    return moveInFormStayTabs(sub, readMoveInFormTemplates(sub), leases);
+  }, [sub]);
+  const openFormStay: PropertyStay = formStayTabs.includes(formStay) ? formStay : formStayTabs[0]!;
 
   useEffect(() => {
     setHouseInstructions(sub.houseMoveInInstructions ?? "");
@@ -432,18 +445,24 @@ export function ManagerPropertyRoomMoveInPanel({
     if (ok) setMoveEditorOpen(false);
   };
 
-  /** One nav for the one command bar: Details (Whole house, Rooms) then Forms. */
-  const activeNavId = tab === "forms" ? "forms" : activeMoveTab;
+  /** One nav for the one command bar: Details (Whole house, Rooms) then the Long-term / Short-term forms tabs. */
+  const activeNavId = tab === "forms" ? openFormStay : activeMoveTab;
   const moveNav = (
     <LocalDestinationNav
       items={[
         { id: "house", label: "Whole house", count: 1, dataAttr: "property-move-in-tab-house" },
         ...(showRooms ? [{ id: "rooms", label: "Rooms", count: sub.rooms.length, dataAttr: "property-move-in-tab-rooms" }] : []),
-        { id: "forms", label: "Forms", count: formCount, dataAttr: "property-move-in-tab-forms" },
+        ...formStayTabs.map((stay) => ({
+          id: stay,
+          label: FORMS_TAB_LABEL[stay],
+          count: formStayCounts[stay],
+          dataAttr: `property-move-in-tab-forms-${stay === "long_term" ? "long" : "short"}`,
+        })),
       ]}
       activeId={activeNavId}
       onChange={(id) => {
-        if (id === "forms") {
+        if (id === "long_term" || id === "short_term") {
+          setFormStay(id);
           setTab("forms");
           return;
         }
@@ -490,7 +509,7 @@ export function ManagerPropertyRoomMoveInPanel({
           className="mb-2 max-lg:mb-1.5"
           variant="command"
           destinationRow={moveNav}
-          activeDestinationId="forms"
+          activeDestinationId={openFormStay}
           destinationAriaLabel="Move-in"
           actions={
             <PortalIconAction
@@ -522,6 +541,7 @@ export function ManagerPropertyRoomMoveInPanel({
           showToast={showToast}
           chooserOpen={chooserOpen}
           onChooserOpenChange={setChooserOpen}
+          stay={openFormStay}
         />
       ) : (
       <div className="space-y-2" data-attr="property-move-in-list">

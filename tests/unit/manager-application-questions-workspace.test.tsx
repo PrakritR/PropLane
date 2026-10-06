@@ -796,7 +796,7 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     fireEvent.change(document.querySelector('[data-attr="property-application-name"]') as HTMLInputElement, { target: { value: "Quick apply" } });
     jumpRail("sections");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Create application" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(persist).toHaveBeenCalled());
     const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.label === "Quick apply");
     expect(saved?.linkedLeaseTemplateId).toBe(leases.find((l) => l.listingSeedKey === "primary")!.id);
@@ -846,7 +846,7 @@ describe("the application's first step: its own fee, promo codes, PropLane defau
     fireEvent.change(document.querySelector('[data-attr="property-application-name"]') as HTMLInputElement, { target: { value: "Weekend stays" } });
     jumpRail("sections");
     await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Create application" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(persist).toHaveBeenCalled());
     const saved = (persist.mock.calls.at(-1)?.[0] as ManagerListingSubmissionV1).propertyApplicationTemplates?.find((t) => t.label === "Weekend stays");
     expect(saved?.appliesTo).toBe("short_term");

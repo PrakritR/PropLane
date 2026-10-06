@@ -5,9 +5,9 @@
  *
  * Add resident, Schedule tour, Add application, Add lease, Invite vendor and
  * New promotion all render here: the listing wizard's full-screen overlay,
- * header, step rail, single-column body, live side panel and Back / Continue
- * footer. A door supplies its steps and their bodies; the shell owns
- * navigation, the "things to finish" card, the discard-on-close confirm and
+ * header, step rail, single-column body, live side panel and Delete / Back /
+ * Next footer (Next is Save or Create on the last step). A door supplies its
+ * steps and their bodies; the shell owns navigation, the "things to finish" card, the discard-on-close confirm and
  * the phone layout (the rail collapses to the chip strip `StepRail` already
  * draws).
  *
@@ -28,6 +28,7 @@ import {
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { editorFooterState } from "@/lib/editor-footer-state";
 import { cn } from "@/lib/utils";
 import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
 import { WorkspaceDeleteButton } from "./frame";
@@ -112,10 +113,10 @@ export function AddWorkspace({
   railHeader?: ReactNode;
   sidePanel?: ReactNode;
   children: ReactNode;
-  /** The footer's primary label on the last step — "Add resident", "Schedule tour". */
+  /** The footer's primary label on the last step — "Add resident", "Schedule tour", or Save / Create on the editors. */
   lastLabel: string;
   lastDisabled?: boolean;
-  /** Continue on a non-last step — a missing required field stays on this step. */
+  /** Next on a non-last step — a missing required field stays on this step. */
   nextDisabled?: boolean;
   /** Return false to keep the manager on this step (and show the field error). */
   onBeforeNext?: () => boolean;
@@ -150,8 +151,8 @@ export function AddWorkspace({
   /** Icon actions beside Ask PropLane — Generate / Upload on Add lease. */
   headerActions?: ReactNode;
   /**
-   * When true, Continue / Back skip `offPath` extras (Add resident Also create).
-   * Other doors keep walking every listed step so optional rail rows stay reachable from Continue.
+   * When true, Next / Back skip `offPath` extras (Add resident Also create).
+   * Other doors keep walking every listed step so optional rail rows stay reachable from Next.
    */
   skipOffPath?: boolean;
   /** F012: numbered rail steps with a check once nothing is missing — Add application / Add lease only. */
@@ -214,7 +215,8 @@ export function AddWorkspace({
     : current > 0
       ? current - 1
       : null;
-  const isLast = tabRail || nextPath == null;
+  const footer = editorFooterState({ hasPrev: prevPath != null, hasNext: nextPath != null, lastLabel, tabRail });
+  const isLast = footer.isLast;
 
   const close = useCallback(() => {
     if (busy) return;
@@ -342,46 +344,49 @@ export function AddWorkspace({
                   Discard draft
                 </button>
               ) : null}
-              <button
-                type="button"
-                disabled={prevPath == null || busy}
-                hidden={tabRail || prevPath == null}
-                onClick={() => {
-                  if (prevPath != null) onJump(prevPath);
-                }}
-                data-attr={`${dataAttrPrefix}-back`}
-                className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
-              >
-                Back
-              </button>
             </div>
             <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
               {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : null}
               {hideFooterStepCount || steps.length < 2 ? null : <>Step {current + 1} of {steps.length}</>}
             </span>
-            {isLast ? (
-              <button
-                type="button"
-                onClick={finish}
-                disabled={lastDisabled || busy}
-                data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
-              >
-                {busy ? "Saving…" : lastLabel}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={goNext}
-                disabled={busy}
-                aria-disabled={nextDisabled || Boolean(readiness) || steps[current]?.incomplete || undefined}
-                data-attr={`${dataAttrPrefix}-next`}
-                aria-label={nextPath != null ? `Continue to ${steps[nextPath]!.label}` : "Continue"}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted"
-              >
-                Continue
-              </button>
-            )}
+            <div className="flex items-center gap-2.5">
+              {footer.showBack ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (prevPath != null) onJump(prevPath);
+                  }}
+                  data-attr={`${dataAttrPrefix}-back`}
+                  className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
+                >
+                  Back
+                </button>
+              ) : null}
+              {isLast ? (
+                <button
+                  type="button"
+                  onClick={finish}
+                  disabled={lastDisabled || busy}
+                  data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
+                  className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+                >
+                  {busy ? "Saving…" : footer.primaryLabel}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={busy}
+                  aria-disabled={nextDisabled || Boolean(readiness) || steps[current]?.incomplete || undefined}
+                  data-attr={`${dataAttrPrefix}-next`}
+                  aria-label={nextPath != null ? `Next: ${steps[nextPath]!.label}` : "Next"}
+                  className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted"
+                >
+                  {footer.primaryLabel}
+                </button>
+              )}
+            </div>
           </>
         }
       >

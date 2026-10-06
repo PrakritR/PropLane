@@ -103,10 +103,11 @@ describe("the Services page has no Vendors tab", () => {
   });
 });
 
-describe("the property record's Services tab is the same list", () => {
-  it("renders ManagerAllServicesPanel scoped to the property, with the catalog behind the settings icon", () => {
+describe("the property record's Services tab lists services offered, not requests", () => {
+  it("renders the offers panel (Long term / Short term); requests stay on the main Services page", () => {
     const tab = read("src/components/portal/property-services-tab.tsx");
-    expect(tab).toMatch(/<ManagerAllServicesPanel[\s\S]*lockedPropertyId=\{propertyId\}/);
+    expect(tab).toContain("<PropertyServicesOffersPanel");
+    expect(tab).not.toContain("ManagerAllServicesPanel");
     const house = read("src/components/portal/pro-house-properties-panel.tsx");
     expect(house).toContain("<PropertyServicesTab");
     expect(house).not.toContain("<PropertyServicesOffersPanel");

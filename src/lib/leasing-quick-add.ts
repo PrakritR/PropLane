@@ -16,7 +16,9 @@
  */
 import { isAddendumLeaseTemplate, isCosignerApplicationTemplate, leaseLinkFields } from "@/lib/application-lease-mapping";
 import { MOVE_IN_FORM_STARTERS, newMoveInFormTemplate, readMoveInFormTemplates } from "@/lib/move-in-forms/templates";
+import { moveInFormLeaseTypeForStay, moveInFormsInStay } from "@/lib/move-in-forms/stays";
 import type { MoveInFormStarterKey, MoveInFormTemplate } from "@/lib/move-in-forms/types";
+import type { PropertyStay } from "@/lib/property-stay-tabs";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   addApplicationTemplateFromSeed,
@@ -64,10 +66,17 @@ export function missingLeaseDefaults(sub: ManagerListingSubmissionV1): QuickAddE
   }));
 }
 
-/** The move-in starters this property does not currently carry (matched on the form's starter key). */
-export function missingMoveInStarters(sub: ManagerListingSubmissionV1 | { moveInFormTemplates?: unknown }): QuickAddEntry[] {
+/**
+ * The move-in starters this property does not currently carry (matched on the form's starter key). With a `stay`
+ * (the open Long-term / Short-term forms tab) only the forms shown in that tab count as carried.
+ */
+export function missingMoveInStarters(
+  sub: ManagerListingSubmissionV1 | { moveInFormTemplates?: unknown },
+  stay?: PropertyStay,
+): QuickAddEntry[] {
+  const templates = readMoveInFormTemplates(sub);
   const present = new Set(
-    readMoveInFormTemplates(sub)
+    (stay ? moveInFormsInStay(templates, stay, stayLeases(sub)) : templates)
       .map((template) => template.starterKey)
       .filter((key): key is MoveInFormStarterKey => Boolean(key)),
   );
@@ -75,6 +84,11 @@ export function missingMoveInStarters(sub: ManagerListingSubmissionV1 | { moveIn
     key: starter.starterKey!,
     label: starter.name,
   }));
+}
+
+/** The property's leases as `{ id, kind }`, for deriving the stay of a form linked to specific leases. */
+function stayLeases(sub: ManagerListingSubmissionV1 | { moveInFormTemplates?: unknown }) {
+  return readPropertyLeaseTemplates(sub as ManagerListingSubmissionV1).map((lease) => ({ id: lease.id, kind: lease.kind }));
 }
 
 /** "Quick add" entries for one list, in the order the list shows them. */
@@ -205,15 +219,22 @@ export function submissionWithLeaseDefault(
 
 /**
  * Adds one move-in starter as the manager's own form. It sends only when the manager says so
- * (`manual`), the same rule the chooser and the wizard already apply to a form added by hand.
+ * (`manual`), the same rule the chooser and the wizard already apply to a form added by hand. With a `stay` (Quick add
+ * on the Long-term / Short-term forms tab) the form is created for that stay: its "Applies to" is that stay.
  */
 export function submissionWithMoveInStarter(
   sub: ManagerListingSubmissionV1,
   starterKey: MoveInFormStarterKey,
+  stay?: PropertyStay,
 ): ManagerListingSubmissionV1 {
   const templates = readMoveInFormTemplates(sub);
-  if (templates.some((template) => template.starterKey === starterKey)) return sub;
-  const created: MoveInFormTemplate = { ...newMoveInFormTemplate("built", starterKey), trigger: "manual" };
+  const carried = stay ? moveInFormsInStay(templates, stay, stayLeases(sub)) : templates;
+  if (carried.some((template) => template.starterKey === starterKey)) return sub;
+  const created: MoveInFormTemplate = {
+    ...newMoveInFormTemplate("built", starterKey),
+    trigger: "manual",
+    ...(stay ? { leaseType: moveInFormLeaseTypeForStay(stay) } : {}),
+  };
   return { ...sub, moveInFormTemplates: [...templates, created] };
 }
 

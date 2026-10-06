@@ -54,7 +54,7 @@ function fill(email = "vendor@example.test") {
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
 }
 function next() {
-  fireEvent.click(screen.getByRole("button", { name: /Continue to / }));
+  fireEvent.click(screen.getByRole("button", { name: /Next: / }));
 }
 function continueToReview() {
   next();
@@ -97,10 +97,10 @@ describe("three-path vendor invitation", () => {
     };
     render(<ManagerVendorFormModal open mode="edit" vendor={vendor} onClose={vi.fn()} showToast={() => {}} />);
     fireEvent.change(screen.getByLabelText("Vendor name"), { target: { value: "Updated" } });
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Properties" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Who can handle" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Typical price" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next: Properties" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next: Who can handle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next: Typical price" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next: Review" }));
     fireEvent.click(screen.getByRole("button", { name: "Save vendor" }));
     await waitFor(() => expect(persistManagerVendorToServer).toHaveBeenCalledOnce());
     expect(persistManagerVendorToServer.mock.calls[0][0]).toMatchObject({ ...vendor, name: "Updated" });
@@ -148,13 +148,13 @@ describe("three-path vendor invitation", () => {
     expect(screen.getByLabelText("Properties")).toBeInTheDocument();
     expect(screen.getByText("Northwest Plumbing Co")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Invite" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Continue to / })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Next: / })).not.toBeInTheDocument();
   });
 
   it("opens on Invite by, then Contact", () => {
     show();
     expect(screen.getByLabelText("Invite by")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Continue to Contact/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Next: Contact/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Invite by first name")).not.toBeInTheDocument();
     next();
     expect(screen.getByLabelText("Invite by first name")).toBeInTheDocument();
@@ -163,11 +163,11 @@ describe("three-path vendor invitation", () => {
   it("rejects missing name and malformed email before any write", async () => {
     show();
     next();
-    fireEvent.click(screen.getByRole("button", { name: /Continue to Properties/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Next: Properties/ }));
     expect(screen.getByRole("alert")).toHaveTextContent("Invite by first name: Required");
     expect(screen.getByLabelText("Invite by first name")).toHaveAttribute("aria-invalid", "true");
     fill("invalid");
-    fireEvent.click(screen.getByRole("button", { name: /Continue to Properties/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Next: Properties/ }));
     expect(screen.getByRole("alert")).not.toBeEmptyDOMElement();
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
     expect(persistManagerVendorToServer).not.toHaveBeenCalled();

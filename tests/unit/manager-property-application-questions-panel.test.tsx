@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
-  it("property tab shows per-template action menus and only the Applications tab", () => {
+  it("property tab shows per-template action menus under the Long term · Short term · Default tabs", () => {
     const sub = addApplicationTemplateFromSeed(
       addApplicationTemplateFromSeed(createDefaultListingSubmission(), "standard"),
       "short-term",
@@ -45,8 +45,12 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Application automation" })).toBeNull();
-    expect(screen.getByRole("link", { name: /^Applications/ })).toBeTruthy();
+    // Tabs: Long term · Short term (this property holds a short-term application) · Default.
+    expect(screen.getByRole("button", { name: /^Long term/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Short term/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Default/ })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Leases/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Short term/ }));
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBeGreaterThan(0);
     expect(document.querySelector('[data-attr="record-row-facts"]')).toBeTruthy();

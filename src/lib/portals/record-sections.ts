@@ -271,7 +271,7 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     // the portal-wide Communication/Documents pages now.
     hasCommunication: false,
     hasDocuments: false,
-    hasActivity: true,
+    hasActivity: false,
     href: (ctx) => {
       const basePath = ctx.basePath ?? "/portal";
       const stage = ctx.stage ?? "all";

@@ -262,7 +262,7 @@ describe("F004: a brand-new (unsaved) application stages before persisting too",
 
     // The footer's commit button only renders on the LAST rail step.
     jumpRail("sections");
-    const addButton = await screen.findByRole("button", { name: "Create application" });
+    const addButton = await screen.findByRole("button", { name: "Create" });
     await waitFor(() => expect(addButton).not.toBeDisabled());
     fireEvent.click(addButton);
 

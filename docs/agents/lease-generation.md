@@ -2326,3 +2326,26 @@ An accepted lease transition and its action-event delivery intents are persisted
 - **Payments start at the last signature**: `lease-signing-charges.client.ts` calls the existing `freezeSignedLeaseTerms` + `recordApprovedApplicationCharges` (no arithmetic of its own, idempotent). It runs on the manager's countersign, on mark-signed, and from `watchExecutedLeaseCharges` for a lease the resident signed last. It is client-driven because the ledger generator reads the manager's browser-only listing catalog.
 - **A lease the manager never countersigns refunds itself** (off by default). `/api/cron/lease-uncountersigned-refund` (daily) runs `refundUncountersignedMoveInCharges` (`src/lib/lease-uncountersigned-refund.server.ts`) only when `LEASE_UNCOUNTERSIGNED_REFUND_ENABLED` is `1`/`true`/`on` - it moves real money, so a deploy alone never turns it on. It takes leases still `Manager Signature Pending` whose resident signature is older than `UNCOUNTER_SIGN_REFUND_AFTER_DAYS` (45), skipping short stays and anything voided, fully signed or already countersigned, refunds that lease's paid move-in charges (deposit, prorated first month and utilities, lease / move-in / signing fees, other costs) and then voids the lease with a system thread note. It owns no refund math: `decideChargeRefund` + `chargeRefundIdempotencyKey` (`src/lib/charge-refund.ts`) decide and dedupe every refund, and the Stripe refund reverses the Connect transfer. The deadline is filtered in the DATABASE, not in JS - `row_data` carries the lease PDF and generated HTML, so paging the table would pull hundreds of MB through the egress budget every run.
 - **Shared-room clauses**: `lease-shared-room-terms.ts` is the one source for the generated lease's clauses and the "Shared room addendum" shown beside an uploaded PDF (the PDF bytes are never edited).
+
+## Lease `defaultFor` and the stay tabs
+
+- **Tabs.** The property's Applications and Leases pages are tabbed **Long term · Short term · Default**
+  (Leases: **Long-term leases · Short-term leases · Default**), each with a count. A stay's tab exists only
+  when the property allows that stay (`allowedStays` in `src/lib/property-stay-tabs.ts`, Airbnb counts as
+  short term). **Never hide data:** a disallowed stay that still holds a row of its own keeps its tab. An
+  application for both stays is the same record in both tabs; the co-signer application is Long term only.
+  The + creates a row pre-set to the open tab's stay.
+- **A lease's stay is derived, never stored:** `leaseTemplateStay` (`property-lease-templates.ts`). Kind
+  `short-term` is short term, `long-term` is long term; a time-based or custom lease reads its routed
+  `applicationLeaseTerms` (only Short-Term Stay / Airbnb terms means short term).
+- **`PropertyLeaseTemplate.defaultFor?: ("long_term"|"short_term")[]`** mirrors the application's: JSON on
+  the listing submission, normalized on read (unknown stays and repeats drop, empty is absent). The pure
+  helpers are `explicitDefaultLeaseForStay`, `effectiveDefaultLeaseForStay` (explicit, else the property's
+  `defaultLeaseTemplateId` when that lease is of the stay, else the first offered lease of the stay) and
+  `withLeaseDefaultForStay`.
+- **Absent `defaultFor` = routing unchanged.** `resolvePropertyLeaseTemplateForApplication` lets an explicit
+  default stand in for the stay-kind pick only (after the application's own mapped lease and an exact
+  `applicationLeaseTerms` match). A property that never set one routes exactly as before.
+- **The Default tab** shows one row per allowed stay ("Long-term default" / "Short-term default") with the
+  application or lease it resolves to; the row menu changes it (`withApplicationDefaultForStay` /
+  `withLeaseDefaultForStay`). A co-signer application or addendum lease is never a default.

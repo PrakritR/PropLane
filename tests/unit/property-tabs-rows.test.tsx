@@ -40,9 +40,10 @@ describe("Services tab rows (studio-redesign property-tabs)", () => {
     expect(row.querySelector('[data-slot="portal-row-icon-tile"]')).toBeTruthy();
     expect(row.querySelector('[data-attr="record-row-facts"]')!.textContent).toContain("$40 · Per request");
     expect(row.querySelectorAll('button[aria-label^="Actions for"]')).toHaveLength(1);
-    // One list (captain, Oct 3): the monthly add-on sits beside the per-request service, no Add-ons tab;
-    // the header carries the Services section tab and no settings gear.
-    expect(within(container).getByRole("button", { name: "Services" })).toBeTruthy();
+    // One list per stay (captain, Oct 5): the monthly add-on sits beside the per-request service, no Add-ons tab;
+    // a long-term-only property has just the Long term tab, and no settings gear.
+    expect(within(container).getByRole("button", { name: /^Long term/ })).toBeTruthy();
+    expect(within(container).queryByRole("button", { name: /^Short term/ })).toBeNull();
     expect(within(container).queryByRole("button", { name: "Service settings" })).toBeNull();
     expect(within(container).queryByRole("button", { name: /Add-ons/ })).toBeNull();
     const rows = [...container.querySelectorAll(".portal-property-row")].map((r) => r.textContent ?? "");
@@ -132,5 +133,48 @@ describe("property tabs carry no pills and no subtext", () => {
 describe("Move-in no longer renders a second, empty header card", () => {
   it("does not mount PortalPropertySectionToolbar", () => {
     expect(read("src/components/portal/pro-property-room-move-in-panel.tsx")).not.toContain("<PortalPropertySectionToolbar");
+  });
+});
+
+describe("Services tab: Long term / Short term", () => {
+  function bothStaySub() {
+    const sub = createDefaultListingSubmission();
+    sub.allowedLeaseTerms = ["Long-Term", "Short-Term Stay"] as never;
+    sub.serviceRequestOptions = [
+      { ...createManagerListingServiceOption(), id: "s1", name: "Cleaning", price: "$40", appliesTo: "both" },
+      { ...createManagerListingServiceOption(), id: "s2", name: "Parking", price: "$100", billingCadence: "monthly", appliesTo: "long_term" },
+      { ...createManagerListingServiceOption(), id: "s3", name: "Linen change", price: "$25", appliesTo: "short_term" },
+    ];
+    return sub;
+  }
+  const props = (sub: ReturnType<typeof bothStaySub>) => ({
+    sub,
+    saveTarget: { mode: "listing", saveId: "p1" } as const,
+    managerUserId: "mgr-1",
+    propertyLabel: "Alder",
+    onUpdated: () => {},
+    showToast: () => {},
+  });
+
+  it("shows a both-stay service in both tabs and the others only in theirs; the both fact carries the arrows glyph", () => {
+    const { container } = render(<PropertyServicesOffersPanel {...props(bothStaySub())} />);
+    const rowTitles = () => [...container.querySelectorAll(".portal-property-row")].map((r) => r.querySelector("p")?.textContent);
+    expect(rowTitles()).toEqual(["Cleaning", "Parking"]);
+    expect(container.querySelector(".portal-property-row")!.textContent).toContain("Long and short term");
+    fireEvent.click(within(container).getByRole("button", { name: /^Short term/ }));
+    expect(rowTitles()).toEqual(["Cleaning", "Linen change"]);
+    // Quick add offers the presets this property does not carry yet, and no request list renders here.
+    expect(container.querySelector('[data-attr="property-services-quick-add"]')!.textContent).toContain("Early check-in");
+    expect(container.querySelector('[data-attr="property-services-quick-add"]')!.textContent).not.toContain("Cleaning");
+    expect(container.querySelector('[data-attr="work-order-list-row"]')).toBeNull();
+  });
+
+  it("a long-term-only property has no Short term tab and no both fact", () => {
+    const sub = bothStaySub();
+    sub.allowedLeaseTerms = ["Long-Term"] as never;
+    sub.serviceRequestOptions = sub.serviceRequestOptions!.filter((o) => o.appliesTo !== "short_term");
+    const { container } = render(<PropertyServicesOffersPanel {...props(sub)} />);
+    expect(within(container).queryByRole("button", { name: /^Short term/ })).toBeNull();
+    expect(container.textContent).not.toContain("Long and short term");
   });
 });
