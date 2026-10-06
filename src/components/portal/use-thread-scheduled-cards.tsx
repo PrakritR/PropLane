@@ -12,6 +12,7 @@ import { InboxScheduledCard, InboxScheduledThreadList } from "@/components/porta
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import { sendAutomationScheduledMessageNow, sendManualScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { automationChannelDefaultsFromSettings, scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
@@ -38,7 +39,12 @@ export function useThreadScheduledCards({
   const showToast = useOptionalAppUi()?.showToast;
   const { messages: automation, settings, reload: reloadAutomation } = useScheduledPaymentMessages({ includeHidden: false, enabled });
 
+  // Every network call below is gated on this. `/demo` never writes or reads real rows, and a disabled
+  // hook (its section is not showing) must not reach the API through a stale callback either.
+  const live = useCallback(() => enabled && !isDemoModeActive(), [enabled]);
+
   const reloadManual = useCallback(async () => {
+    if (!live()) return;
     try {
       const res = await fetch("/api/portal/scheduled-inbox-messages", { credentials: "include", cache: "no-store" });
       if (!res.ok) return;
@@ -47,12 +53,13 @@ export function useThreadScheduledCards({
     } catch {
       /* keep what is drawn */
     }
-  }, []);
+  }, [live]);
 
   const reloadScheduled = useCallback(() => {
+    if (!live()) return;
     void reloadManual();
     void reloadAutomation();
-  }, [reloadAutomation, reloadManual]);
+  }, [live, reloadAutomation, reloadManual]);
 
   useEffect(() => {
     if (enabled) reloadScheduled();
@@ -79,6 +86,7 @@ export function useThreadScheduledCards({
 
   const cancel = useCallback(
     async (item: ScheduledRef) => {
+      if (!live()) return;
       setBusyId(item.id);
       setFailure(null);
       try {
@@ -98,11 +106,12 @@ export function useThreadScheduledCards({
         setBusyId(null);
       }
     },
-    [reloadScheduled],
+    [live, reloadScheduled],
   );
 
   const sendNow = useCallback(
     async (item: ScheduledRef) => {
+      if (!live()) return;
       setBusyId(item.id);
       setFailure(null);
       try {
@@ -114,7 +123,7 @@ export function useThreadScheduledCards({
         setBusyId(null);
       }
     },
-    [onSent, reloadScheduled],
+    [live, onSent, reloadScheduled],
   );
 
   const saveEdit = useCallback(
@@ -122,6 +131,7 @@ export function useThreadScheduledCards({
       item: ScheduledRef,
       next: { subject: string; body: string; deliverViaInbox?: boolean; deliverViaEmail?: boolean; deliverViaSms?: boolean; sendAt?: string },
     ) => {
+      if (!live()) return;
       if (item.source === "manual") {
         const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
           method: "PATCH",
@@ -149,7 +159,7 @@ export function useThreadScheduledCards({
       }
       reloadScheduled();
     },
-    [reloadScheduled],
+    [live, reloadScheduled],
   );
 
   // The bar reads its children's props as scheduled rows, so the refusal sits above it, never inside.

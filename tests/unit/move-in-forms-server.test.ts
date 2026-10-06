@@ -1121,6 +1121,25 @@ describe("manager edit of a pending form (PATCH /api/move-in-forms/:id)", () => 
     await expect(editMoveInForm(manager(), ID, { blocks: "approval" })).rejects.toMatchObject({ status: 409 });
   });
 
+  it("loses a race with the resident's own save: 409 'reopen and try again', nothing of the edit is written", async () => {
+    const { writeAuditLog } = await import("@/lib/tools/audit");
+    forms = [formRow({ updated_at: "2026-10-02T00:00:00.000Z", answers: [{ key: "name", value: "A" }] })];
+    // The resident's draft save lands between the manager's read and the manager's write.
+    vi.mocked(writeAuditLog).mockImplementationOnce(async () => {
+      forms[0]!.updated_at = "2026-10-02T00:00:05.000Z";
+      forms[0]!.answers = [{ key: "name", value: "A" }, { key: "pet", value: "no" }];
+      return { recorded: true } as never;
+    });
+    await expect(editMoveInForm(manager(), ID, { questions: [q("name", "text", { required: true }), q("sig", "signature", { required: true })] }))
+      .rejects.toMatchObject({ status: 409, message: "The resident just saved; reopen and try again" });
+    // The resident's newer save is intact (the edit's answers filter would have dropped "pet").
+    expect(forms[0]!.answers).toEqual([{ key: "name", value: "A" }, { key: "pet", value: "no" }]);
+    expect(forms[0]!.updated_at).toBe("2026-10-02T00:00:05.000Z");
+    // Reopened, the edit goes through on the fresh row.
+    const { form } = await editMoveInForm(manager(), ID, { blocks: "approval" });
+    expect(form.snapshot.blocks).toBe("approval");
+  });
+
   it("refuses a body that names an id, a status or an owner, and a block value it does not know", async () => {
     await expect(editMoveInForm(manager(), ID, { status: "submitted" })).rejects.toThrow();
     await expect(editMoveInForm(manager(), ID, { managerUserId: "someone-else" })).rejects.toThrow();

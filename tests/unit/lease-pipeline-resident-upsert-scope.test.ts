@@ -1083,11 +1083,32 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
   });
 
   it("refuses the signature with 409 while a form that blocks lease signing is unsubmitted, and writes nothing", async () => {
-    FORMS = [{ id: "form-1", form_id: "f1", status: "sent", sent_at: "2026-10-03T00:00:00Z", resident_user_id: RESIDENT_ID, snapshot: { kind: "other", blocks: "lease_signing" } }];
+    FORMS = [{ id: "form-1", form_id: "f1", status: "sent", sent_at: "2026-10-03T00:00:00Z", resident_user_id: RESIDENT_ID, property_id: "prop-1", application_id: APPLICATION_ID, snapshot: { kind: "other", blocks: "lease_signing" } }];
     const res = await sign();
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ code: "FORMS_BLOCK_LEASE_SIGNING", formId: "form-1", error: expect.stringContaining("Finish your forms first") });
     expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("matches the lease's own application, so a mismatched property id on the form cannot open the gate", async () => {
+    STORED.row_data = { ...awaitingResident, axisId: "AXIS-77" };
+    FORMS = [{ id: "tied", form_id: "f1", status: "sent", sent_at: "2026-10-03T00:00:00Z", resident_user_id: RESIDENT_ID, property_id: "some-other-property", application_id: "axis-77", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    const res = await sign();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "FORMS_BLOCK_LEASE_SIGNING", formId: "tied" });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("still scopes by property when the lease names its application: a form for another house and another application does not block", async () => {
+    STORED.row_data = { ...awaitingResident, axisId: "AXIS-77" };
+    FORMS = [{ id: "elsewhere", form_id: "f1", status: "sent", resident_user_id: RESIDENT_ID, property_id: "some-other-property", application_id: "AXIS-99", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    expect((await sign()).status).toBe(200);
+  });
+
+  it("a lease that names no application is not narrowed by its stored property id at all", async () => {
+    STORED.row_data = { ...awaitingResident, axisId: undefined };
+    FORMS = [{ id: "stale", form_id: "f1", status: "sent", resident_user_id: RESIDENT_ID, property_id: "some-other-property", application_id: "AXIS-99", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    expect((await sign()).status).toBe(409);
   });
 
   it("is not blocked by a form that blocks something else, a submitted one, or one tied to another login", async () => {

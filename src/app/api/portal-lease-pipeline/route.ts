@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
+import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, leaseApplicationIds, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
@@ -1142,11 +1142,16 @@ export async function POST(req: Request) {
         ) {
           // A form sent with "Blocks: Lease signing" has to be submitted first (read from the forms table
           // for this resident and this lease's property; a failed read blocks). 409 is the same refusal
-          // the page shows as "Finish your forms first".
+          // the page shows as "Finish your forms first". The lease's stored property id alone never decides
+          // which forms count: a form tied to this lease's application blocks it whatever property id either
+          // row carries, and a lease that names no application at all is not narrowed by property (every
+          // sent form of this resident blocks).
+          const leaseApplicationIdList = leaseApplicationIds(storedRow);
           const formsBlocking = await loadResidentBlockingForms(ctx.db, {
             email: ctx.user.email ?? "",
             userId: ctx.user.id,
-            propertyId: existingRecord?.property_id ?? null,
+            propertyId: leaseApplicationIdList.length > 0 ? (existingRecord?.property_id ?? null) : null,
+            applicationIds: leaseApplicationIdList,
           });
           // A read that failed refuses too, but as a retryable 503: there is no form to point them at.
           if (formsBlocking.readFailed) {

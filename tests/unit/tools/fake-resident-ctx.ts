@@ -242,6 +242,7 @@ export function makeResidentToolCtx(
     managerIds: ["manager_1"],
     phase: "approved",
     managerTier: "paid",
+    moveInDetailsLocked: false,
     landlordId: "resident_a",
     db,
     ...overrides,

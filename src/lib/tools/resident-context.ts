@@ -14,6 +14,7 @@ import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import type { ManagerSubscriptionTier } from "@/lib/manager-access";
+import { loadResidentFormsFacts } from "@/lib/move-in-forms/blocking";
 
 /**
  * One image the resident attached to THIS chat turn, already stored privately
@@ -49,6 +50,18 @@ export type ResidentAgentContext = {
   /** The linked manager's subscription tier gates services/inbox tools. */
   managerTier: ManagerSubscriptionTier;
   /**
+   * A move-in form that blocks "Move-in details" is unsubmitted (or the forms read failed, which
+   * holds the same lock). The portal withholds the house's door codes, Wi-Fi, rules and instructions
+   * behind this (`blockingFormsPending.moveInDetails` + `redactMoveInDetails`); every agent surface
+   * must withhold the same. REQUIRED, so a context builder that forgets it fails typecheck. Build it
+   * with `loadMoveInDetailsLock` — never default it to `false`.
+   */
+  moveInDetailsLocked: boolean;
+  /** The form that unlocks it, when known (absent after a failed read — nothing is named then). */
+  moveInDetailsLockFormId?: string | null;
+  /** The lock is held only because the forms read failed. */
+  moveInDetailsLockReadFailed?: boolean;
+  /**
    * audit_log/agent_sessions scope column value for resident actions: the
    * resident's own user id (there may be zero or many linked managers).
    */
@@ -67,6 +80,30 @@ export type ResidentAgentContext = {
    */
   db: ReturnType<typeof createSupabaseServiceRoleClient>;
 };
+
+export type MoveInDetailsLock = Pick<ResidentAgentContext, "moveInDetailsLocked" | "moveInDetailsLockFormId" | "moveInDetailsLockReadFailed">;
+
+/**
+ * The one place every resident agent context builder (portal chat, SMS, inbox, SMS test harness)
+ * derives `moveInDetailsLocked`, from the same forms-facts loader the portal uses. A read that fails
+ * or throws locks (fail closed) and names no form.
+ */
+export async function loadMoveInDetailsLock(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  who: { email: string; userId?: string | null },
+): Promise<MoveInDetailsLock> {
+  try {
+    const { blocking } = await loadResidentFormsFacts(db, who);
+    if (!blocking.moveInDetails) return { moveInDetailsLocked: false, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: false };
+    return {
+      moveInDetailsLocked: true,
+      moveInDetailsLockFormId: blocking.readFailed ? null : (blocking.formIds?.moveInDetails ?? null),
+      moveInDetailsLockReadFailed: blocking.readFailed === true,
+    };
+  } catch {
+    return { moveInDetailsLocked: true, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: true };
+  }
+}
 
 /**
  * Returns the resident agent context for the current request, or null when the
@@ -88,7 +125,7 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
   if (!email) return null;
 
   const managerId = String(profile?.manager_id ?? "").trim();
-  const [managerIds, managerTier, access] = await Promise.all([
+  const [managerIds, managerTier, access, moveInLock] = await Promise.all([
     managerIdsOwningResident(db, email),
     managerId ? getManagerSubscriptionTierByManagerId(managerId) : Promise.resolve(null),
     loadResidentPortalAccessState({
@@ -97,6 +134,7 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
       email,
       managerSubscriptionTier: null,
     }),
+    loadMoveInDetailsLock(db, { email, userId: user.id }),
   ]);
 
   return {
@@ -107,6 +145,7 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
     channel: "portal",
     phase: access.leaseAccessUnlocked ? "approved" : "application",
     managerTier,
+    ...moveInLock,
     landlordId: user.id,
     db,
   };

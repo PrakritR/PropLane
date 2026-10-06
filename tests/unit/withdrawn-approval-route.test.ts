@@ -488,4 +488,46 @@ describe("PATCH /api/portal/resident-approval — a form that blocks approval", 
     APP_ROWS = [{ id: "AXIS-9001", row_data: appRow({ bucket: "approved" }), resident_email: "applicant@example.com", manager_user_id: "mgr-1", property_id: "mgr-demo-pioneer" }];
     expect((await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }))).status).toBe(200);
   });
+
+  describe("with no application to resolve, the email fallback only counts forms the caller holds", () => {
+    const form = (patch: Record<string, unknown>) => ({ ...blocking, manager_user_id: "mgr-1", property_id: "mgr-demo-pioneer", ...patch });
+
+    beforeEach(() => {
+      APP_ROWS = [];
+      OWNED_PROPERTIES = { "mgr-demo-pioneer": "mgr-1" };
+    });
+
+    it("refuses on the caller's own blocking form", async () => {
+      FORMS = [form({})];
+      const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+      const res = await PATCH(patch({ email: "applicant@example.com", approved: true }));
+      expect(res.status).toBe(409);
+      expect(PROFILE_UPDATE_CALLS).toBe(0);
+    });
+
+    it("refuses on a form for a property the caller owns even when the form's stamped manager is stale", async () => {
+      FORMS = [form({ manager_user_id: "previous-owner" })];
+      const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+      expect((await PATCH(patch({ email: "applicant@example.com", approved: true }))).status).toBe(409);
+    });
+
+    it("neither blocks on, nor reveals, another landlord's form for the same applicant", async () => {
+      FORMS = [form({ manager_user_id: "mgr-2", property_id: "other-landlord-house" })];
+      const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+      const res = await PATCH(patch({ email: "applicant@example.com", approved: true }));
+      // Past the forms gate: the refusal that remains is the portfolio check (this fixture has no application),
+      // never the form block, and nothing about the other landlord's form is in the body.
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.blocked).toBeUndefined();
+      expect(JSON.stringify(body)).not.toContain("form-1");
+    });
+
+    it("still fails closed (503) when the read fails", async () => {
+      FORMS_ERROR = { code: "500", message: "boom" };
+      const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+      expect((await PATCH(patch({ email: "applicant@example.com", approved: true }))).status).toBe(503);
+      expect(PROFILE_UPDATE_CALLS).toBe(0);
+    });
+  });
 });

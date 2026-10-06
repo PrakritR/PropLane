@@ -11,7 +11,7 @@ import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-app
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAgentContext, type AgentContext } from "@/lib/tools/context";
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
-import type { ResidentAgentContext } from "@/lib/tools/resident-context";
+import { loadMoveInDetailsLock, type ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
   requireActiveTestWorkspaceActor,
   isTestWorkspaceFeatureEnabled,
@@ -253,6 +253,7 @@ export async function resolveSmsTestContext(args: {
   }
 
   const managerTier = await getManagerSubscriptionTierByManagerId(target.managerUserId);
+  const moveInLock = await loadMoveInDetailsLock(db, { email: actorEmail, userId: capability.actorUserId });
   const residentContext: ResidentAgentContext = {
     kind: "resident",
     userId: capability.actorUserId,
@@ -261,6 +262,7 @@ export async function resolveSmsTestContext(args: {
     activeManagerId: target.managerUserId,
     phase: stage === "approved" ? "approved" : "application",
     managerTier,
+    ...moveInLock,
     landlordId: capability.actorUserId,
     db,
   };

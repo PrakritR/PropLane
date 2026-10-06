@@ -79,6 +79,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.pushState({}, "", "/");
 });
 
 describe("RecordCommunicationSection", () => {
@@ -302,6 +303,8 @@ describe("RecordCommunicationSection", () => {
 
   it("fill mode draws the contact's scheduled sends inline above the timeline, like the main thread", async () => {
     threadRows = [];
+    // A real portal page: at "/" jsdom looks like the landing-page demo embed, where these cards never load.
+    window.history.pushState({}, "", "/portal/vendors/vendor-1");
     const sendAt = new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString();
     vi.stubGlobal(
       "fetch",

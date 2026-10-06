@@ -12,9 +12,8 @@ import {
   APPROVAL_BLOCKED_BY_FORM_MESSAGE,
   APPROVAL_FORMS_CHECK_FAILED_MESSAGE,
   loadApplicationBlockingForms,
-  loadResidentBlockingForms,
 } from "@/lib/move-in-forms/blocking";
-import { canManageResidentApproval, setResidentApprovalForManager } from "@/lib/resident-approval.server";
+import { canManageResidentApproval, loadCallerScopedResidentBlockingForms, setResidentApprovalForManager } from "@/lib/resident-approval.server";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
@@ -285,10 +284,12 @@ export async function PATCH(req: Request) {
       }
       // A form sent with "Blocks: Approval" must be submitted first. Keyed on the stored application the
       // lookup resolved (by id, else the owner's own row by email), never on a body claim; no resolvable
-      // application falls back to the applicant's own sent forms, and a failed read blocks (fail closed).
+      // application falls back to the applicant's sent forms THE CALLER HOLDS (they sent it, own the property or
+      // co-manage it with permission): another landlord's form neither blocks this manager nor is revealed by
+      // the refusal. A failed read or scope check blocks (fail closed).
       if (lookup.stored?.bucket !== "approved") {
         const ids = lookup.storedId ? [...idVariants(applicationId), ...idVariants(lookup.storedId)] : [];
-        const blocking = ids.length > 0 ? await loadApplicationBlockingForms(svc, ids) : await loadResidentBlockingForms(svc, { email });
+        const blocking = ids.length > 0 ? await loadApplicationBlockingForms(svc, ids) : await loadCallerScopedResidentBlockingForms(svc, { userId: user.id, isAdmin: actorIsAdmin }, email);
         // A read that failed refuses too, but as a retryable 503 that names no form: there may be none.
         if (blocking.readFailed) {
           return NextResponse.json({ error: APPROVAL_FORMS_CHECK_FAILED_MESSAGE, blocked: "forms-check" }, { status: 503 });

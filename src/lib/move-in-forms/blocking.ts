@@ -80,25 +80,73 @@ function tableMissing(error: { code?: string; message?: string }): boolean {
 }
 
 const SELECT = "id, form_id, status, sent_at, snapshot, resident_user_id";
+/** The same read plus the two columns a caller-scope test needs. */
+const SCOPED_SELECT = `${SELECT}, manager_user_id, property_id, application_id`;
+
+/** The two facts that say whose a sent form is. */
+export type BlockingFormOwnership = { manager_user_id: string | null; property_id: string | null };
+
+/**
+ * The application ids a lease row belongs to (its primary application and every joint member's), for
+ * `loadResidentBlockingForms({ applicationIds })`. The forms read is already pinned to the signing
+ * resident's own email, so another member's id can only ever match that resident's own copies.
+ */
+export function leaseApplicationIds(row: {
+  axisId?: string | null;
+  jointLeaseMembers?: ReadonlyArray<{ applicationId?: string | null }> | null;
+} | null | undefined): string[] {
+  if (!row) return [];
+  const ids = [row.axisId, ...(Array.isArray(row.jointLeaseMembers) ? row.jointLeaseMembers.map((member) => member?.applicationId) : [])];
+  return [...new Set(ids.map((id) => (typeof id === "string" ? id.trim() : "")).filter(Boolean))];
+}
 
 /**
  * A resident's blocking forms: their own sent copies by login email (and login, when the copy is tied
  * to one). `propertyId` narrows to one house (a lease is for one property); omitted = every house.
+ *
+ * `callerHolds` is for a MANAGER asking about someone else's resident: only forms the caller may judge
+ * by count, so another landlord's form neither blocks this manager nor reveals itself. A predicate
+ * that throws fails closed like a failed read.
  */
 export async function loadResidentBlockingForms(
   db: SupabaseClient,
-  who: { email: string; userId?: string | null; propertyId?: string | null },
+  who: {
+    email: string;
+    userId?: string | null;
+    propertyId?: string | null;
+    /**
+     * Every spelling of the application ids the lease in question belongs to. With `propertyId`, a form
+     * counts when it is for that property OR is tied to one of these applications, so a lease row whose
+     * stored property id is stale or mismatched can never open the gate for a form that is plainly
+     * this resident's for this lease.
+     */
+    applicationIds?: readonly string[];
+    callerHolds?: (form: BlockingFormOwnership) => Promise<boolean>;
+  },
 ): Promise<BlockingFormsPending> {
   const email = who.email.trim().toLowerCase();
   if (!email) return NO_BLOCKING_FORMS;
   try {
-    let query = db.from("resident_move_in_forms").select(SELECT).eq("resident_email", email).eq("status", "sent");
-    if (who.propertyId) query = query.eq("property_id", who.propertyId);
+    const appIds = new Set((who.applicationIds ?? []).map((id) => id.trim().toUpperCase()).filter(Boolean));
+    // With application ids the property narrowing moves in memory: it is an OR with the application match.
+    const orScope = Boolean(who.propertyId) && appIds.size > 0;
+    let query = db.from("resident_move_in_forms").select(who.callerHolds || orScope ? SCOPED_SELECT : SELECT).eq("resident_email", email).eq("status", "sent");
+    if (who.propertyId && !orScope) query = query.eq("property_id", who.propertyId);
     const { data, error } = await query;
     if (error) return tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED;
-    const rows = ((data ?? []) as Array<BlockingRow & { resident_user_id?: string | null }>).filter(
+    let rows = ((data ?? []) as unknown as Array<BlockingRow & { resident_user_id?: string | null; manager_user_id?: string | null; property_id?: string | null; application_id?: string | null }>).filter(
       (row) => !row.resident_user_id || !who.userId || row.resident_user_id === who.userId,
     );
+    if (orScope) {
+      rows = rows.filter((row) => row.property_id === who.propertyId || appIds.has(String(row.application_id ?? "").trim().toUpperCase()));
+    }
+    if (who.callerHolds) {
+      const keep: typeof rows = [];
+      for (const row of rows) {
+        if (await who.callerHolds({ manager_user_id: row.manager_user_id ?? null, property_id: row.property_id ?? null })) keep.push(row);
+      }
+      rows = keep;
+    }
     return blockingFormsFromRows(rows);
   } catch {
     return BLOCKING_FORMS_FAIL_CLOSED;

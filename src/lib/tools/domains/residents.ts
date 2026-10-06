@@ -4,7 +4,9 @@ import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { managerOwnsResident } from "@/lib/auth/resident-relationship";
+import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, APPROVAL_FORMS_CHECK_FAILED_MESSAGE } from "@/lib/move-in-forms/blocking";
 import {
+  loadResidentApprovalBlocking,
   revokeResidentAccessForManager,
   setResidentApprovalForManager,
 } from "@/lib/resident-approval.server";
@@ -123,6 +125,17 @@ async function loadResidentProfile(
   return (((data ?? []) as { full_name: string | null; application_approved: boolean | null }[])[0]) ?? null;
 }
 
+/**
+ * Turning a resident's access ON is an approval, so it honours the same gate `update_application_bucket`
+ * does: a form sent with "Blocks: Approval" has to be submitted first, and a read that fails refuses too
+ * (fail closed, retryable message). Throws before anything is written.
+ */
+async function assertNoApprovalBlockingForms(ctx: AgentContext, email: string): Promise<void> {
+  const blocking = await loadResidentApprovalBlocking(ctx.db, { userId: ctx.landlordId, isAdmin: ctx.isAdmin }, email);
+  if (blocking.readFailed) throw new Error(APPROVAL_FORMS_CHECK_FAILED_MESSAGE);
+  if (blocking.approval) throw new Error(APPROVAL_BLOCKED_BY_FORM_MESSAGE);
+}
+
 /** Non-admin managers may only act on residents tied to their own portfolio. */
 async function assertResidentInPortfolio(ctx: AgentContext, email: string): Promise<string | null> {
   if (ctx.isAdmin) return null;
@@ -154,6 +167,7 @@ export const setResidentApprovalTool = defineWriteTool({
     if (currently === input.approved) {
       throw new Error(`${email} is already ${input.approved ? "approved" : "not approved"} — nothing to change.`);
     }
+    if (input.approved) await assertNoApprovalBlockingForms(ctx, email);
     return {
       confirmedInput: { ...input, residentEmail: email },
       kind: "set_resident_approval",
@@ -170,6 +184,9 @@ export const setResidentApprovalTool = defineWriteTool({
   handler: async (ctx, input) => {
     const email = input.residentEmail.trim().toLowerCase();
     if (!email.includes("@")) throw new Error("A valid resident email is required.");
+
+    // Re-checked at execute time (a form may have been sent since the preview); refuses before the audit row.
+    if (input.approved) await assertNoApprovalBlockingForms(ctx, email);
 
     // One-shot per email+value: repeating the same toggle returns already-done.
     const dedupeKey = `set_resident_approval:${ctx.landlordId}:${email}:${input.approved}`;

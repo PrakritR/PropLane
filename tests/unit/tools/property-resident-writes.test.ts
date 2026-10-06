@@ -12,6 +12,7 @@ import { createDefaultListingSubmission } from "@/lib/manager-listing-submission
 import type { AgentContext } from "@/lib/tools/context";
 import { auditDayBucket } from "@/lib/tools/audit";
 import { buildRegistry } from "@/lib/tools/registry";
+import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, APPROVAL_FORMS_CHECK_FAILED_MESSAGE } from "@/lib/move-in-forms/blocking";
 
 // The share tool authorizes through getShareablePropertyForUser, which builds
 // its own service-role client — stub it so tests stay in-memory. manager_a may
@@ -809,6 +810,56 @@ describe("set_resident_approval", () => {
     const second = await executeWrite(setResidentApprovalTool, ctx, { residentEmail: "t@x.com", approved: true });
     expect(second).toMatchObject({ ok: true });
     if (second.ok) expect(second.reply).toContain("already");
+  });
+
+  const approvalForm = (patch: Record<string, unknown> = {}) => ({
+    id: "form_1", application_id: "app_1", manager_user_id: "manager_a", property_id: "p1", resident_email: "t@x.com",
+    resident_user_id: null, form_id: "f1", status: "sent", sent_at: "2026-10-01T00:00:00Z",
+    snapshot: { kind: "other", blocks: "approval" }, ...patch,
+  });
+
+  it("refuses to approve while a form that blocks approval is unsubmitted, in preview and at execute, and writes nothing", async () => {
+    const { ctx, tables, log } = makeWriteCtx({ ...residentSeed(), resident_move_in_forms: [approvalForm()] });
+    const preview = await previewWrite(setResidentApprovalTool, ctx, { residentEmail: "t@x.com", approved: true });
+    expect(preview).toMatchObject({ ok: false });
+    if (!preview.ok) expect(preview.error).toBe(APPROVAL_BLOCKED_BY_FORM_MESSAGE);
+    const res = await executeWrite(setResidentApprovalTool, ctx, { residentEmail: "t@x.com", approved: true });
+    expect(res).toMatchObject({ ok: false });
+    if (!res.ok) expect(res.error).toBe(APPROVAL_BLOCKED_BY_FORM_MESSAGE);
+    expect(tables.profiles!.find((p) => p.id === "u1")!.application_approved).toBe(false);
+    expect(log.updates.filter((u) => u.table === "profiles")).toHaveLength(0);
+    expect(auditRows(tables)).toHaveLength(0);
+  });
+
+  it("a submitted form, or a form that blocks something else, does not stop the approval", async () => {
+    const submitted = makeWriteCtx({ ...residentSeed(), resident_move_in_forms: [approvalForm({ status: "submitted" })] });
+    expect(await executeWrite(setResidentApprovalTool, submitted.ctx, { residentEmail: "t@x.com", approved: true })).toMatchObject({ ok: true });
+    const other = makeWriteCtx({ ...residentSeed(), resident_move_in_forms: [approvalForm({ snapshot: { kind: "other", blocks: "lease_signing" } })] });
+    expect(await executeWrite(setResidentApprovalTool, other.ctx, { residentEmail: "t@x.com", approved: true })).toMatchObject({ ok: true });
+  });
+
+  it("another landlord's blocking form for the same applicant neither blocks nor is revealed", async () => {
+    const foreign = approvalForm({ id: "form_x", application_id: "app_other", manager_user_id: "manager_b", property_id: "p_other" });
+    const { ctx, tables } = makeWriteCtx({ ...residentSeed(), resident_move_in_forms: [foreign] });
+    expect(await executeWrite(setResidentApprovalTool, ctx, { residentEmail: "t@x.com", approved: true })).toMatchObject({ ok: true });
+    expect(tables.profiles!.find((p) => p.id === "u1")!.application_approved).toBe(true);
+  });
+
+  it("a failed forms read refuses approval with the retryable message and writes nothing; suspending is never gated", async () => {
+    const { ctx, tables, log } = makeWriteCtx(residentSeed());
+    const realFrom = ctx.db.from.bind(ctx.db);
+    (ctx.db as { from: (t: string) => unknown }).from = (table: string) => {
+      if (table === "resident_move_in_forms") throw new Error("down");
+      return realFrom(table);
+    };
+    const res = await executeWrite(setResidentApprovalTool, ctx, { residentEmail: "t@x.com", approved: true });
+    expect(res).toMatchObject({ ok: false });
+    if (!res.ok) expect(res.error).toBe(APPROVAL_FORMS_CHECK_FAILED_MESSAGE);
+    expect(log.updates.filter((u) => u.table === "profiles")).toHaveLength(0);
+    expect(tables.profiles!.find((p) => p.id === "u1")!.application_approved).toBe(false);
+
+    const suspend = makeWriteCtx({ ...residentSeed(), profiles: [{ id: "u1", role: "resident", email: "t@x.com", full_name: "Ten Ant", application_approved: true }], resident_move_in_forms: [approvalForm()] });
+    expect(await executeWrite(setResidentApprovalTool, suspend.ctx, { residentEmail: "t@x.com", approved: false })).toMatchObject({ ok: true });
   });
 
   it("execute refuses (and does not touch profiles) for a foreign resident", async () => {

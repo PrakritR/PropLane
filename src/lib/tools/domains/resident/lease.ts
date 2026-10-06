@@ -15,6 +15,7 @@ import {
   propertyFromRecord,
   resolveBestResidentRow,
   resolveResidentMoveInFromApplications,
+  redactMoveInDetails,
 } from "@/lib/resident-move-in-resolve";
 import { loadResidentEmailRows, untrustedText } from "./load-resident-rows";
 import { applicationPropertyId } from "./property-research-application";
@@ -144,8 +145,14 @@ export const getMoveInInfoTool = defineTool({
       };
     }
 
-    const resolved = resolveResidentMoveInFromApplications(ctx.email, applications, propertiesById);
-    if (!resolved) return { moveIn: null };
+    const resolvedFull = resolveResidentMoveInFromApplications(ctx.email, applications, propertiesById);
+    if (!resolvedFull) return { moveIn: null };
+    // The portal's Move-in details tab is locked while a form that blocks it is unsubmitted
+    // (`blockingFormsPending.moveInDetails`), and it redacts server-side with `redactMoveInDetails`.
+    // The agent withholds exactly the same content through the same function. Anything other than an
+    // explicit `false` locks (a context built without the flag, or after a failed forms read).
+    const moveInDetailsLocked = ctx.moveInDetailsLocked !== false;
+    const resolved = moveInDetailsLocked ? redactMoveInDetails(resolvedFull) : resolvedFull;
     // Door, gate and alarm codes, the lockbox and the Wi-Fi password are exactly
     // what the portal's My home section withholds until the lease is signed
     // (`STAGE_UNLOCKED_SECTIONS` unlocks `move-in` only at `post_lease`).
@@ -153,7 +160,31 @@ export const getMoveInInfoTool = defineTool({
     // an attested tenancy — so an approved applicant who has not signed gets the
     // address and the date and nothing that opens the door.
     const houseAccessUnlocked = ctx.phase === "approved";
+    let lockedNotice: string | null = null;
+    if (moveInDetailsLocked) {
+      if (ctx.moveInDetailsLockReadFailed || ctx.moveInDetailsLocked === undefined || !ctx.moveInDetailsLockFormId) {
+        lockedNotice = ctx.moveInDetailsLockReadFailed || ctx.moveInDetailsLocked === undefined
+          ? "Could not check your forms right now, so the move-in details (door codes, Wi-Fi, house rules and instructions) are held back. Ask again in a moment, or open My home > Forms."
+          : "Your move-in details (door codes, Wi-Fi, house rules and instructions) unlock once you submit the form your manager sent. Finish it in My home > Forms, then ask again.";
+      } else {
+        // Name the form that unlocks it. Scoped to this resident's own copy; a failed lookup just stays generic.
+        let formName = "";
+        try {
+          const { data } = await ctx.db
+            .from("resident_move_in_forms")
+            .select("form_name:snapshot->>name")
+            .eq("id", ctx.moveInDetailsLockFormId)
+            .eq("resident_email", ctx.email)
+            .maybeSingle();
+          formName = String((data as { form_name?: string | null } | null)?.form_name ?? "").replace(/[\u0000-\u001f"]/g, " ").trim().slice(0, 80);
+        } catch {
+          formName = "";
+        }
+        lockedNotice = `Your move-in details (door codes, Wi-Fi, house rules and instructions) unlock once you submit ${formName ? `the "${formName}" form` : "the form your manager sent"}. Finish it in My home > Forms, then ask again.`;
+      }
+    }
     return {
+      ...(lockedNotice ? { moveInDetailsLocked: true, lockedNotice } : {}),
       moveIn: {
         propertyLabel: resolved.propertyLabel,
         addressLine: resolved.addressLine,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   blockingFormsFromRows,
   BLOCKING_FORMS_FAIL_CLOSED,
+  leaseApplicationIds,
   loadApplicationBlockingForms,
   loadResidentBlockingForms,
   loadResidentFormsFacts,
@@ -97,6 +98,35 @@ describe("loading what a resident or an application is blocked on", () => {
     const result = await loadResidentBlockingForms(db, { email: " A@Example.TEST ", userId: "u1", propertyId: "p1" });
     expect(result).toMatchObject({ leaseSigning: true, approval: false });
     expect(calls).toEqual(expect.arrayContaining([["eq", "resident_email", "a@example.test"], ["eq", "status", "sent"], ["eq", "property_id", "p1"]]));
+  });
+
+  it("a manager's read only counts forms the caller holds, and a scope check that throws fails closed", async () => {
+    const rows = [
+      row({ id: "mine", snapshot: { blocks: "approval" }, manager_user_id: "m1", property_id: "p1" }),
+      row({ id: "theirs", snapshot: { blocks: "lease_signing" }, manager_user_id: "m2", property_id: "p2" }),
+    ];
+    const { db, selects } = fakeDb({ data: rows });
+    const result = await loadResidentBlockingForms(db, { email: "a@example.test", callerHolds: async (form) => form.manager_user_id === "m1" });
+    expect(result).toMatchObject({ approval: true, leaseSigning: false });
+    expect(result.formIds).toEqual({ approval: "mine" });
+    expect(selects[0]).toContain("manager_user_id, property_id");
+    expect(await loadResidentBlockingForms(fakeDb({ data: rows }).db, { email: "a@example.test", callerHolds: async () => { throw new Error("scope down"); } })).toEqual(BLOCKING_FORMS_FAIL_CLOSED);
+    expect((await loadResidentBlockingForms(fakeDb({ data: rows }).db, { email: "a@example.test", callerHolds: async () => false }))).toMatchObject({ approval: false, leaseSigning: false });
+  });
+
+  it("with application ids, a form counts for the lease's property OR its application, never the property alone", async () => {
+    const forms = [
+      row({ id: "other-house-same-app", snapshot: { blocks: "lease_signing" }, property_id: "p9", application_id: "axis-1" }),
+      row({ id: "other-house-other-app", snapshot: { blocks: "approval" }, property_id: "p9", application_id: "AXIS-2" }),
+      row({ id: "same-house", snapshot: { blocks: "move_in_details" }, property_id: "p1", application_id: "AXIS-3" }),
+    ];
+    const { db, calls } = fakeDb({ data: forms });
+    const result = await loadResidentBlockingForms(db, { email: "a@example.test", propertyId: "p1", applicationIds: ["AXIS-1"] });
+    expect(result).toMatchObject({ leaseSigning: true, approval: false, moveInDetails: true });
+    // The property narrowing moved in memory, so the DB read is not pinned to the property.
+    expect(calls.some(([, column]) => column === "property_id")).toBe(false);
+    expect(leaseApplicationIds({ axisId: " AXIS-1 ", jointLeaseMembers: [{ applicationId: "AXIS-2" }, { applicationId: "AXIS-1" }, { applicationId: "" }] })).toEqual(["AXIS-1", "AXIS-2"]);
+    expect(leaseApplicationIds(undefined)).toEqual([]);
   });
 
   it("an application is read by every spelling of its id", async () => {

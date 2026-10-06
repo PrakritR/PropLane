@@ -95,6 +95,8 @@ type MoveInFormRow = {
   submitted_at: string | null;
   reminded_at: string | null;
   manager_viewed_at: string | null;
+  /** The optimistic-concurrency token a manager edit swaps on. */
+  updated_at: string;
 };
 
 /* ------------------------------------------------------------------ scope */
@@ -899,11 +901,21 @@ export async function editMoveInForm(actor: MoveInFormActor, id: string, raw: un
   }
   patch.snapshot = snapshot;
   const auditKey = await audit(actor, "edit", { form_record_id: row.id, fields: Object.keys(input) });
+  // Compare-and-swap on the row as it was READ (`updated_at`), not just its status: a resident's draft
+  // save between this read and the write stamps `updated_at`, and the edit's `answers` filter / snapshot
+  // were computed from the older row, so it must lose rather than overwrite the resident's save.
   const { data, error } = await actor.context.db.from(TABLE).update(patch)
-    .eq("id", row.id).eq("status", "sent").select("*").maybeSingle();
+    .eq("id", row.id).eq("status", "sent").eq("updated_at", row.updated_at).select("*").maybeSingle();
   await updateAuditResult(actor.context, auditKey, { status: error || !data ? "failed" : "success" });
   if (error) throw new MoveInFormError("Could not save the form.", 500);
-  if (!data) throw new MoveInFormError("This form was already submitted, so it is locked.", 409);
+  if (!data) {
+    // Lost the swap: either the resident submitted (locked) or just saved a draft (reopen and retry).
+    const { data: now } = await actor.context.db.from(TABLE).select("status").eq("id", row.id).maybeSingle();
+    if (now && (now as { status?: string }).status === "sent") {
+      throw new MoveInFormError("The resident just saved; reopen and try again", 409);
+    }
+    throw new MoveInFormError("This form was already submitted, so it is locked.", 409);
+  }
   // Dropping a question drops its answer, so the photo or signature the resident already uploaded for
   // it is now unreferenced. Only the REMOVED questions' prefixes are swept: a surviving question's
   // object may have been uploaded seconds ago and not yet be in a saved draft answer, and deleting it

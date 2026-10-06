@@ -13,6 +13,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deleteResidentAccount } from "@/lib/auth/delete-portal-account";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
+import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
+import {
+  BLOCKING_FORMS_FAIL_CLOSED,
+  NO_BLOCKING_FORMS,
+  loadApplicationBlockingForms,
+  loadResidentBlockingForms,
+  type BlockingFormsPending,
+} from "@/lib/move-in-forms/blocking";
 import { managerOwnsResident, residentPropertyIdsForManager } from "@/lib/auth/resident-relationship";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
@@ -27,6 +35,63 @@ export type ResidentApprovalActor = {
   /** True skips the portfolio-ownership check (platform admins). */
   isAdmin: boolean;
 };
+
+/**
+ * The email-keyed forms read a MANAGER's approval decision may rest on. Scoped to forms the caller
+ * holds (the SAME access test the Applications list uses: they sent it, own the property, or
+ * co-manage it with permission), so another landlord's form for the same applicant neither blocks
+ * this manager nor reveals itself. Admins see every form. Fails closed on a read or scope error.
+ */
+export function loadCallerScopedResidentBlockingForms(
+  db: SupabaseClient,
+  actor: ResidentApprovalActor,
+  email: string,
+): Promise<BlockingFormsPending> {
+  return loadResidentBlockingForms(db, {
+    email,
+    callerHolds: actor.isAdmin
+      ? undefined
+      : (form) => managerCanAccessApplicationRecord(db, actor.userId, { manager_user_id: form.manager_user_id, property_id: form.property_id }),
+  });
+}
+
+/**
+ * What blocks turning a resident's portal access ON from a manager's hand when no single application is
+ * named (the agent's set_resident_approval): forms tied to any of the caller's applications for this
+ * email, plus the caller-scoped email read. Fails closed on any error.
+ */
+export async function loadResidentApprovalBlocking(
+  db: SupabaseClient,
+  actor: ResidentApprovalActor,
+  email: string,
+): Promise<BlockingFormsPending> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return NO_BLOCKING_FORMS;
+  try {
+    const { data, error } = await db
+      .from("manager_application_records")
+      .select("id, manager_user_id, property_id, assigned_property_id, row_data")
+      .eq("resident_email", normalized);
+    if (error) return BLOCKING_FORMS_FAIL_CLOSED;
+    const ids: string[] = [];
+    for (const record of (data ?? []) as Array<{ id: string; manager_user_id: string | null; property_id: string | null; assigned_property_id: string | null; row_data: { id?: unknown } | null }>) {
+      if (!actor.isAdmin && !(await managerCanAccessApplicationRecord(db, actor.userId, record))) continue;
+      ids.push(String(record.id), String(record.row_data?.id ?? ""));
+    }
+    const [byApplication, byEmail] = await Promise.all([
+      loadApplicationBlockingForms(db, ids),
+      loadCallerScopedResidentBlockingForms(db, actor, normalized),
+    ]);
+    if (byApplication.readFailed || byEmail.readFailed) return BLOCKING_FORMS_FAIL_CLOSED;
+    return {
+      moveInDetails: byApplication.moveInDetails || byEmail.moveInDetails,
+      leaseSigning: byApplication.leaseSigning || byEmail.leaseSigning,
+      approval: byApplication.approval || byEmail.approval,
+    };
+  } catch {
+    return BLOCKING_FORMS_FAIL_CLOSED;
+  }
+}
 
 export type ResidentApprovalResult = { ok: true } | { ok: false; status: number; error: string };
 
