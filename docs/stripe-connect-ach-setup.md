@@ -6,12 +6,21 @@ ACH bank transfers are **only** for resident rent/utility payments. Rental **app
 
 ```
 Resident pays rent at face value (no processing/service fee — any method)
-    → Stripe Checkout (us_bank_account)
-    → Connect DESTINATION charge on the platform account, no application_fee_amount
-    → Full charge subtotal transferred to manager Connect account (acct_…)
+    → bank: an in-app PaymentIntent (us_bank_account, microdeposit verification)
+      card: embedded Stripe Checkout
+    → CENTRAL capture on PropLane's platform account — no transfer_data
+      destination, no application_fee_amount
+    → credited as an exact verified source (platform_payment_holds,
+      status 'classified_held')
     → PropLane's platform balance bears Stripe's processing cost
-    → Manager receives payout to their linked bank
+    → transferred to the manager's Connect account once it is ready, then the
+      manager withdraws to their linked bank
 ```
+
+A legacy Connect **destination** charge is the historical shape and still reads
+back as one; it is not how a new payment is captured. Source, hold and
+withdrawal model: [`docs/agents/financials.md`](agents/financials.md) § Source
+arbitration.
 
 Fee model (who pays what): see [`docs/agents/resident-payments.md`](agents/resident-payments.md).
 
@@ -86,7 +95,7 @@ Instant speed — this is a Stripe Dashboard setting, not a code change. Stripe
 charges a flat **1% fee** on every Instant Payout
 (docs.stripe.com/connect/instant-payouts); PropLane passes that fee straight
 through and adds no markup (Decide 2). A newly linked bank defaults to
-**automatic weekly payouts (Friday)** (Decide 1); "Pay out" remains available
+**automatic weekly payouts (Friday)** (Decide 1); **Withdraw** remains available
 at any time regardless of the schedule.
 
 ### Bank accounts, fully in-house (PLAN-0920-1500) — Stripe.js tokens, never a raw number
@@ -202,7 +211,7 @@ Residents can still pay while the manager finishes payout setup. Checkout charge
 
 ### C1. Enable PropLane payments on listing
 
-**Properties → edit listing → Resident payment methods** → check **PropLane payments with Stripe**. One checkbox enables both rails: rent by bank (ACH), card, or Link, and the application fee by card / Apple Pay.
+**Properties → edit listing → Resident payment methods** → check **PropLane payments with Stripe**. One checkbox enables both rails: rent by bank (ACH) or card, and the application fee by card / Apple Pay.
 
 ### C2. Manager creates a charge
 

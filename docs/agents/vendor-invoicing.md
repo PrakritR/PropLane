@@ -30,14 +30,18 @@ Phase 3 already generalized Connect via `profiles.stripe_connect_account_id` +
 duplicate infrastructure. Reuse the shipped pattern.
 
 **Approve + Pay (PLAN-0923-1041).** When a vendor invoice is at least $1,
-Approve + Pay starts manager ACH Checkout of invoice + Stripe’s cost
-(`feePayer: "resident"` so the manager pays the fee). If the vendor’s
-Connect + bank is ready, that is a destination charge to the vendor’s
-Stripe — they receive the invoice total. If not, the invoice is held on
-PropLane and transfers the moment they connect. Withdraw stays
-connected-account → bank only. `vendor_payouts` is inserted pending
-before Checkout; the webhook settles with `settleOnly` so a second
-Checkout cannot start.
+Approve + Pay opens an **embedded** Stripe Checkout (card or bank) for the
+invoice + Stripe’s cost (`feePayer: "resident"` so the manager pays the fee),
+on frozen terms the retry must reuse. It is a **central platform capture**
+(`destinationAccountId: null`, `source_arbitration_v: "1"`), never a
+destination charge to the vendor’s Stripe: the money is credited as a verified
+source on PropLane and transferred to the vendor once their Connect account
+and bank are ready. Withdraw stays connected-account → bank only. The payout
+is **claimed before the card is touched** (`claim_vendor_invoice_payment` on the
+invoice rails, `claim_work_order_vendor_payment` on service Approve + pay), and the webhook
+settles with `settleOnly`, so no second Checkout and no other rail can start
+while the attempt is open — see
+[`vendor-portal.md`](vendor-portal.md) § Every rail claims before it charges.
 
 **Routes.** Vendor: `GET/POST /api/vendor/invoices` (list own / submit).
 Submit validation is ONE shared implementation — `prepareVendorInvoiceSubmission`

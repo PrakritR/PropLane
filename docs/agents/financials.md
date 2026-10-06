@@ -10,11 +10,18 @@ The ordinary `/api/portal-household-charges` full-list mirror carries charge edi
 # Source arbitration, classified held funds and payment claims (payment audit)
 
 Migrations `20261004220000` (vendor/service claims), `221000` (source arbitration),
-`230000` (resident claims, see `resident-payments.md`) and `231000` (classified
-withdrawal) are **unapplied to DEV** and not safe for mixed-version writers. An
-old writer cannot be retrofitted: activate only with the coherent callers below,
-the marked-event webhook routing, and the old money routes/crons quiesced.
-`232000` (application-claim retention) is applied.
+`230000` (resident claims, see `resident-payments.md`), `231000` (classified
+withdrawal), `232000` (application-claim retention) and `20261005120000`
+(reconcile — the cross-rail double-pay trigger and the `estimate_visit_bid_id`
+visit-fee marker govern BOTH claim functions) are additive and **active**: every
+money writer below is on them, behind no flag. There is no mixed-version mode to
+support, so a new writer that does not claim, credit a verified source, and
+reserve before the provider call is a regression, not an alternative. The
+routines are service-role only. Legacy `status='held'` rows and any hold with no
+`source_verified_at` stay out of the new release and refund routines — they are
+refused (409) pending exact provider evidence, never repaired in place; do not
+infer source principal, refund history or recipient net from such a row's
+remaining amount.
 
 - **One source per captured payment.** Money enters the books only through a
   verified source: the exact Stripe Charge (captured, unrefunded, exact amount,
@@ -238,7 +245,7 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   same `profiles.stripe_connect_account_id` column).
 - A newly created Connect account defaults to **automatic weekly payouts
   (Friday)** (`createAxisConnectAccount` in `src/lib/stripe-connect.ts`); the
-  in-app "Pay out" button works regardless of the schedule interval.
+  in-app **Withdraw** action works regardless of the schedule interval.
 - **Identity verification** — `src/lib/stripe-connect-identity.server.ts`:
   `getIdentityRequirements` maps Stripe's `currently_due`/`past_due` to a
   typed field list (an unmapped key sets `fallbackToEmbedded`, never dropped
@@ -320,10 +327,11 @@ claim; a failed payout does NOT, because the money already left the platform
 balance for the recipient's own Connect account by then (real, retryable money
 there, not PropLane's to reverse).
 
-**Funding**: resident household-charge checkout is the one caller that can
-request `fundingModel: "platform_ledger"` on `createAxisAchCheckoutSession`
-(see resident-payments.md) — application fees, autopay, and vendor-invoice-pay
-checkout never do, so they are unaffected by this flag.
+**Funding**: `fundingModel: "platform_ledger"` on `createAxisAchCheckoutSession`
+is historical only — no marked capture requests it, and the resident claim terms
+reject a request that does. Owner of what each funding model means for a
+household payment: [`resident-payments.md`](resident-payments.md) § Historical
+household funding models.
 
 **Compliance note (see `.lavish/night/research.md` § Recommended money
 architecture):** as long as this ledger stays a strict mirror of real Stripe
@@ -523,7 +531,7 @@ a rate card, and a category that cannot be sourced is 0 with the reason in
 | --- | --- |
 | Gross rent | `ledger_entries` payment rows with `category_code = rent_income` (every rent-kind charge maps there via `categoryCodeForChargeKind`), by `posted_date`. |
 | Other income | `ledger_entries` payment rows in every other **income** account (late fees, utilities, application/move-in fees, manual income). Liability accounts (security deposits) are excluded, as in `queryIncomeStatement`. |
-| Processing fees | Fees the MANAGER bore, per payment row: `stripe_fee_cents` (0 on today's Connect destination charges) plus the retained application fee, `amount_cents − net_cents` when positive. When the resident paid the service fee, `net_cents` equals the charge and the row contributes 0; a row Stripe has not enriched (`net_cents` null) contributes 0. Never the resident's fee. |
+| Processing fees | Fees the MANAGER bore, per payment row: `stripe_fee_cents` (0 on a legacy Connect destination charge; on a platform capture it is the owner-borne fee — § Ledger fee capture) plus the retained application fee, `amount_cents − net_cents` when positive. When the resident paid the service fee, `net_cents` equals the charge and the row contributes 0; a row Stripe has not enriched (`net_cents` null) contributes 0. Never the resident's fee. |
 | Vendor payouts | `vendor_payouts` rows with `status = 'paid'`, dated by `updated_at` (when the transfer settled); property via the work order's `property_id` / `assigned_property_id`. |
 | Communication | `manager_comms_usage_events.total_cents` per UTC calendar month above the plan's included allowance (`allowances.ts`, via `getEffectiveManagerSkuTier`); 0 while within it. Portfolio-wide, so it sits on the "Portfolio (unassigned)" row and is 0 when a property filter is active; 0 with a note when the plan cannot be read. |
 | Expenses | `manager_expense_entries` by `expense_date` (includes expenses created from services and paid bills). |

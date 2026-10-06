@@ -106,13 +106,11 @@ webhook each call the matching `creditVerifiedHousehold{Checkout,Manual,Autopay}
 a swallowed hold insert. Source, slot and funds model: `financials.md` § Source
 arbitration. Manager-assisted collection is card-only and settles by webhook.
 
-Before activating this migration, inventory old open household Checkout sources
-and resolve each to terminally expired and unpaid or reconcile its exact paid
-source. A legacy open session may have no charge-side session reference, so the
-new SQL cannot discover it. The current TEST inventory includes one open
-household session; do not activate new callers for its charge until a separately
-reviewed provider operation resolves it. This paragraph authorizes no expiry
-or production mutation. Delayed autopay PI events after account deletion need
+A legacy open household Checkout source may carry no charge-side session
+reference, so the new SQL cannot discover it. Such a charge needs books review —
+resolved to terminally expired and unpaid, or reconciled to its exact paid
+source — before another debit is started against it; nothing here expires a
+provider session or mutates production. Delayed autopay PI events after account deletion need
 provider reconciliation because the existing account purge cascades the run;
 they must not attach money or an old attempt to a replacement login. A deleted
 manual claim keeps immutable provider/source terms with resident access detached;
@@ -456,14 +454,14 @@ platform capture with no destination for marked household checkout),
 `tests/unit/stripe-connect.test.ts` (the resolver gate), and
 `tests/unit/stripe-setup-state.test.ts` (the UI truth mapping).
 
-**Ledger attribution.** `ledger_entries` is the manager's book. For a legacy
-destination charge `enrichLedgerPaymentFromStripeCharge` writes
-`stripe_fee_cents = 0` and `net_cents = charge.amount - application_fee` (the
-destination transfer): PropLane's real cost lives in PropLane's own Stripe
-balance. A marked platform capture records the charge id and Stripe's
-balance-transaction fee/net when readable and leaves them NULL until then —
-never 0/gross by assumption. Do not post a `stripe_fee` GL entry against a
-manager from either shape without reading who bore the fee.
+**Ledger attribution.** `ledger_entries` is the manager's book;
+[`financials.md`](financials.md) § Ledger fee capture owns exactly what each
+shape writes into `stripe_fee_cents` / `net_cents`. The invariant either way:
+never post a `stripe_fee` GL entry against a manager without reading who bore
+the fee. On a legacy destination charge Stripe's cost is PropLane's, and on a
+platform capture `stripe_fee_cents` is the owner-borne fee under the frozen fee
+payer — not Stripe's processing fee — and stays NULL (never 0, never gross)
+until the frozen terms are verified.
 
 **Every pre-Stripe confirmation states the exact total, itemizing any service
 fee the resident pays.** The resident payments panel resolves its manager's
@@ -826,7 +824,7 @@ never a forked fee calculation.** `chargeAutopay`
 `stripe-household-charge-checkout.server.ts`, also used by
 `createHouseholdChargeCheckout`) that a manual payment uses, then
 `residentServiceFeeBreakdown` for the numbers — the SAME single source of
-truth this file describes above. A manual card/Link payment creates a Checkout
+truth this file describes above. A manual card payment creates a Checkout
 Session; a manual bank payment and autopay each create a centrally captured
 PaymentIntent, with `manual_ach=1` and `autopay_run_id` respectively to keep
 their authorities distinct. The run attempt number is frozen in autopay

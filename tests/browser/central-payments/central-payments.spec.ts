@@ -77,6 +77,9 @@ const evidenceDir = process.env.EVIDENCE_DIR;
 async function shot(page: Page, name: string, opts: Parameters<Page["screenshot"]>[0] = {}) {
   if (!evidenceDir) return;
   await mkdir(evidenceDir, { recursive: true });
+  // Let the modal/sheet entrance animations finish first - a frame caught
+  // mid-fade reads as two overlapping screens to a reviewer.
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
   await page.screenshot({ path: path.join(evidenceDir, `${name}.png`), ...opts });
 }
 async function note(name: string, body: unknown) {
@@ -385,5 +388,43 @@ test("application fee receipt: the central rail states the exact receipt; an amb
 
   await shot(page, "08-application-receipt-exact-vs-legacy-needs-review");
   await note("application-receipts.json", RECEIPTS);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * The other half of the same history list: rows that are real withdrawals
+ * (`kind: "payout"`) rather than platform source movements. They take the same
+ * shape as the source rows — one title, one dated fact, one figure — and a
+ * failed withdrawal still carries its ⋯ → Retry.
+ */
+test("manager payout history: a withdrawal row is one title and one dated fact, and a failed one keeps Retry", async ({ page }) => {
+  const server = fresh();
+  const errors = collectErrors(page);
+  server.balance = {
+    ...payoutsBalance(),
+    history: [
+      {
+        id: "po_failed", kind: "payout", amountCents: 32_000, feeCents: 0, netCents: 32_000,
+        method: "standard", status: "failed", destinationLast4: "6789", createdAt: "2026-10-03T17:00:00.000Z",
+        arrivalDate: null, initiatedInApp: true, failureMessage: "Account closed", serviceLabel: null,
+      },
+      {
+        id: "po_transit", kind: "payout", amountCents: 12_500, feeCents: 0, netCents: 12_500,
+        method: "instant", status: "in_transit", destinationLast4: "6789", createdAt: "2026-10-01T17:00:00.000Z",
+        arrivalDate: null, initiatedInApp: true, failureMessage: null, serviceLabel: null,
+      },
+    ],
+  };
+  await wire(page, server);
+  await page.setViewportSize({ width: 1180, height: 1000 });
+  await page.goto(payoutsUrl());
+
+  await expect(page.getByText("Standard payout · ····6789 · Failed")).toBeVisible();
+  await expect(page.getByText("Instant payout · ····6789 · In transit")).toBeVisible();
+  // The state is said once, in the title — never repeated beside the figure.
+  await expect(page.getByText("in_transit")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Payout" })).toBeVisible();
+  await shot(page, "09-manager-payout-history-rows", { fullPage: true });
+
   expect(errors).toEqual([]);
 });
