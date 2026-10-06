@@ -68,7 +68,7 @@ export function AccountProcessingFeeSettings() {
     </PortalSettingsRow> : null}
     {error && !open ? <p role="alert" className="px-4 py-2 text-sm text-danger">{error}</p> : null}
   </PortalSettingsGroup>
-    <Modal open={open} title="Processing coverage code" onClose={() => { if (!busy) { setOpen(false); setError(null); } }} footer={<ModalFooter className="justify-end"><Button variant="primary" className="rounded-full" disabled={busy || !code.trim()} onClick={() => save("proplane", code.trim())}>Apply code</Button></ModalFooter>}>
+    <Modal open={open} title="Processing coverage code" onClose={() => { if (!busy) { setOpen(false); setError(null); } }} footer={<ModalFooter><Button disabled={busy || !code.trim()} onClick={() => save("proplane", code.trim())}>Apply code</Button></ModalFooter>}>
       <label className="block text-xs uppercase text-muted" htmlFor="account-coverage-code">Processing coverage code</label>
       <input id="account-coverage-code" autoComplete="off" autoCapitalize="characters" value={code} disabled={busy}
         onChange={(event) => setCode(event.target.value)} className="mt-2 w-full rounded-xl border border-border p-3 font-mono" />

@@ -620,10 +620,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         onClose={() => setPendingDirectoryAdd(null)}
         title="Add to your vendors"
         footer={
-          <ModalFooter className="justify-end">
+          <ModalFooter>
             <Button
-              variant="primary"
-              className="rounded-full"
               type="button"
               data-attr="vendor-directory-add-confirm"
               disabled={addingDirectoryId === pendingDirectoryAdd?.directoryVendorUserId}

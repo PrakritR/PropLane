@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, Download, Pencil, PenLine, Plus, RefreshCw, Send, Trash2, Undo2, XCircle } from "lucide-react";
+import { Bell, CheckCircle2, Download, FileX, Pencil, PenLine, Plus, RefreshCw, Send, Undo2, XCircle } from "lucide-react";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import type { ResidentRecordStatusBucketId } from "@/lib/resident-detail-subsection-tabs";
 import type { LeaseListTabId } from "@/lib/lease-pipeline-storage";
@@ -63,7 +63,7 @@ export function residentSectionHeaderActions(ctx: ResidentSectionActionContext):
       return [
         DOWNLOAD_PDF,
         { id: "move-pending", label: "Move to pending", icon: Undo2 },
-        { id: "delete-application", label: "Delete", icon: Trash2, tone: "danger" as const },
+        { id: "delete-application", label: "Delete application", icon: FileX, tone: "danger" as const },
       ];
     }
     case "lease": {

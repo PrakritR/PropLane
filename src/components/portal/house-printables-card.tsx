@@ -150,8 +150,8 @@ export function HousePrintablesCard({
         title="Welcome sheet"
         onClose={() => setWelcomeOpen(false)}
         footer={
-          <ModalFooter className="justify-end">
-            <Button asChild variant="primary" className="rounded-full">
+          <ModalFooter>
+            <Button asChild>
               <a href={welcomeHref} target="_blank" rel="noreferrer" data-attr="house-printables-welcome">
                 Open welcome sheet
               </a>
