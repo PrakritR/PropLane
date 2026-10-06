@@ -22,7 +22,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileUp, Pencil, Upload } from "lucide-react";
+import { FileUp, Pencil } from "lucide-react";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
 import { ImportedLeasePlacementReviewModal } from "@/components/portal/imported-lease-placement-review-modal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
@@ -712,26 +713,9 @@ function LeaseSendSheetBody({
     onClick: () => void send(),
   };
 
-  /* The pop-up's one Upload icon (the Leases list has no Upload of its own): reads the lease PDF you pick in place of the PropLane lease. */
-  const headerUpload = (
-    <PortalIconAction
-      ring
-      icon={Upload}
-      label="Upload lease PDF"
-      data-attr="lease-send-header-upload"
-      disabled={busy || !(lease && app && terms)}
-      onClick={() => {
-        setSource("pdf");
-        setConfirmed(false);
-        setError(null);
-        uploadRef.current?.click();
-      }}
-    />
-  );
-
   return (
     <>
-      <PortalDialog open title={title} onClose={() => !busy && onClose()} dismissBlocked={busy} size="wizard" dataAttr="lease-send-sheet" primaryAction={primary} className="lease-send-sheet" headerAction={headerUpload}>
+      <PortalDialog open title={title} onClose={() => !busy && onClose()} dismissBlocked={busy} size="wizard" dataAttr="lease-send-sheet" primaryAction={primary} className="lease-send-sheet">
         <div className="space-y-5" data-attr="lease-send-body">
           {showPicker ? (
             <FieldSingleSelect
@@ -755,6 +739,21 @@ function LeaseSendSheetBody({
 
           {lease && app && terms ? (
             <>
+              {/* The pop-up's one upload entry: the Start from a file card (the Leases list has no Upload of its own). Reads the lease PDF you pick in place of the PropLane lease. */}
+              {!lease.managerUploadedPdf ? (
+                <WorkspaceFileCard
+                  accept="application/pdf,.pdf"
+                  chips={[".pdf", "up to 3.5 MB"]}
+                  dataAttr="lease-send-header-upload"
+                  disabled={busy}
+                  onPick={(file) => {
+                    setSource("pdf");
+                    setConfirmed(false);
+                    setError(null);
+                    void onPickPdf(file);
+                  }}
+                />
+              ) : null}
               <SegmentedTwo<Source>
                 value={source}
                 onChange={(next) => {
@@ -806,18 +805,6 @@ function LeaseSendSheetBody({
                     }}
                     onCommit={(next) => void commitTerms(next, { regenerate: source === "lease" })}
                   />
-
-                  {source === "pdf" && !lease.managerUploadedPdf ? (
-                    <button
-                      type="button"
-                      className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border px-4 py-8 text-sm font-semibold text-foreground hover:border-primary/40"
-                      onClick={() => uploadRef.current?.click()}
-                      data-attr="lease-send-upload"
-                    >
-                      <FileUp className="size-5" aria-hidden />
-                      Upload the lease PDF
-                    </button>
-                  ) : null}
 
                   {source === "lease" && docIsPdf ? (
                     <div className="space-y-2 rounded-xl border border-border p-4">

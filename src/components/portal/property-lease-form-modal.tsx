@@ -1009,7 +1009,7 @@ export function PropertyLeaseFormModal({
       discardTitle="Discard this lease?"
       assistantContext={assistantContext}
       assistantScopeKey="Lease modal"
-      headerUpload={mode === "add" ? { accept: LEASE_UPLOAD_ACCEPT, onPick: onPickLeaseFromHeader, disabled: templateUploading || parsingLease || saving, dataAttr: "property-lease-header-upload", label: "Upload lease" } : undefined}
+      headerUpload={mode === "add" ? { accept: "application/pdf,.pdf", chips: [".pdf", "up to 8 MB"], onPick: onPickLeaseFromHeader, disabled: templateUploading || parsingLease || saving, dataAttr: "property-lease-header-upload", label: "Upload lease" } : undefined}
       sidePanel={htmlPreview}
       lastLabel={mode === "add" ? "Create lease" : "Save"}
       lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError) || Boolean(pendingLeaseImport)}
@@ -1170,7 +1170,7 @@ export function PropertyLeaseFormModal({
             <div className="mt-4">
               <ImportFileStrip
                 dataAttr="property-lease-name-upload"
-                chips={[".pdf", ".docx", "Your own lease", "up to 5 MB"]}
+                chips={[".pdf", "up to 8 MB"]}
                 accept={LEASE_UPLOAD_ACCEPT}
                 busy={templateUploading || parsingLease}
                 state={

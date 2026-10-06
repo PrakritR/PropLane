@@ -296,21 +296,23 @@ describe("Add application: one header Upload icon on every step", () => {
   }
   const headerInput = () => document.querySelector('[data-attr="property-application-header-upload-input"]') as HTMLInputElement | null;
 
-  it("is present on the Application step and the Questions step, and only once", async () => {
+  it("is the Start from a file card on the first step only, once, with .pdf and size chips", async () => {
     renderAdd("add");
     await screen.findByRole("dialog", { name: "Add application" });
     expect(document.querySelectorAll('[data-attr="property-application-header-upload"]')).toHaveLength(1);
     expect(headerInput()?.accept).toContain("application/pdf");
-    expect(headerInput()?.accept).toContain(".docx");
+    const card = document.querySelector('[data-attr="property-application-header-upload"]')!;
+    expect(card.textContent).toContain("Start from a file");
+    expect(card.textContent).toContain(".pdf");
+    expect(card.textContent).toContain("up to 8 MB");
     jumpRail("sections");
-    expect(document.querySelectorAll('[data-attr="property-application-header-upload"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-attr="property-application-header-upload"]')).toHaveLength(0);
     expect(document.querySelectorAll('[data-attr="property-application-start-from-file"] [data-attr$="-upload"]')).toHaveLength(0);
   });
 
-  it("picking a file from the Questions step sets Start from to Upload, returns to the Application step and runs the import", async () => {
+  it("picking a file on the card sets Start from to Upload and runs the import", async () => {
     renderAdd("add");
     await screen.findByRole("dialog", { name: "Add application" });
-    jumpRail("sections");
     fireEvent.change(headerInput()!, { target: { files: [new File(["%PDF-1.4"], "lease.pdf", { type: "application/pdf" })] } });
     await waitFor(() => expect(document.querySelector('[data-attr="application-pending-import"]')).not.toBeNull());
     expect((document.querySelector('[data-attr="property-application-start-from"]') as HTMLElement).textContent).toContain("Upload");

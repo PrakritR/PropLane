@@ -258,7 +258,7 @@ export function SendNewLeaseModal({
       discardBody="Nothing has been sent yet. Close and lose what you set?"
       assistantContext="Send new lease"
       assistantScopeKey="lease-send-new"
-      headerUpload={{ accept: PDF_ACCEPT, onPick: pickPdf, disabled: busy, dataAttr: "lease-send-new-header-upload", label: "Upload lease PDF" }}
+      headerUpload={{ accept: PDF_ACCEPT, chips: [".pdf", "up to 3.5 MB"], onPick: pickPdf, disabled: busy, dataAttr: "lease-send-new-header-upload", label: "Upload lease PDF" }}
       dataAttrPrefix="lease-send-new"
       finishDataAttr="lease-send-new-confirm"
       lastLabel="Send new lease"

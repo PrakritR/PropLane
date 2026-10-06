@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { DOCUMENT_FILE_CHIPS, WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   FilterCollapsibleSection,
@@ -947,7 +948,6 @@ function UploadModal({
   defaultCategory?: ManagerDocumentCategory;
 }) {
   const { showToast } = useAppUi();
-  const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [category, setCategory] = useState<ManagerDocumentCategory>(defaultCategory ?? "other");
@@ -956,7 +956,6 @@ function UploadModal({
   const [residentEmail, setResidentEmail] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
-  const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
   const [stepError, setStepError] = useState<string | null>(null);
@@ -971,7 +970,6 @@ function UploadModal({
       setResidentEmail("");
       setVendorId("");
       setExpiresAt("");
-      setDragging(false);
       setBusy(false);
       setStepIdx(0);
       setStepError(null);
@@ -1000,13 +998,6 @@ function UploadModal({
     setFile(f);
     setDisplayName((cur) => cur || f.name.replace(/\.[^.]+$/, ""));
   }, [showToast]);
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(false);
-    pickFile(e.dataTransfer.files?.[0]);
-  };
 
   const submit = async () => {
     if (!file) {
@@ -1101,27 +1092,12 @@ function UploadModal({
       {stepId === "file" ? (
         <StepColumn>
           <StepHeading title="File" />
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            className={`flex w-full flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed px-4 py-8 text-center text-sm transition-colors ${
-              dragging ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-accent/30"
-            }`}
-          >
-            <span className="font-bold text-foreground">{file ? file.name : "Choose a file"}</span>
-          </button>
-          <input
-            ref={inputRef}
-            type="file"
+          <WorkspaceFileCard
             accept={DOCUMENT_UPLOAD_ACCEPT}
-            className="sr-only"
-            onChange={(e) => pickFile(e.target.files?.[0])}
+            chips={DOCUMENT_FILE_CHIPS}
+            dataAttr="document-upload-file-card"
+            fileName={file?.name ?? null}
+            onPick={(next) => pickFile(next)}
           />
           <WizardField label="Name">
             <Input

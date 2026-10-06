@@ -10,7 +10,7 @@
 import { useContext, useRef, useState, type ReactNode } from "react";
 import { FileSpreadsheet, MoreHorizontal, Upload } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { WorkspaceHeaderUploadPresent, WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
+import { WorkspaceFileCard, WorkspaceHeaderUploadPresent, type WorkspaceUploadExtraItem } from "@/components/portal/add-workspace/upload-action";
 import { StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { importReadinessLabel } from "@/components/portal/listing-wizard-v2/import-property-switcher";
 import { describeSourceRows, importedMonthlyRent } from "@/lib/property-import/to-submission";
@@ -53,7 +53,8 @@ export type ImportStripState =
   | { kind: "error"; fileName: string | null; message: string }
   | { kind: "confirm"; fileName: string };
 
-const FORMAT_CHIPS = [".xlsx", ".csv", ".pdf rent roll", "AppFolio export", "Buildium export", `up to ${Math.round(PROPERTY_IMPORT_MAX_BYTES / 1024 / 1024)} MB`];
+/** What the property import reads — the chips on the Start from a file card. */
+export const IMPORT_FILE_CHIPS = [".xlsx", ".csv", ".pdf rent roll", "AppFolio export", "Buildium export", `up to ${Math.round(PROPERTY_IMPORT_MAX_BYTES / 1024 / 1024)} MB`];
 
 /**
  * The "Start from a file" strip — one dashed row that sits above Property type
@@ -68,9 +69,10 @@ export function ImportFileStrip({
   onReread,
   onConfirm,
   onCancel,
-  chips = FORMAT_CHIPS,
+  chips = IMPORT_FILE_CHIPS,
   accept = IMPORT_FILE_ACCEPT,
   dataAttr = "create-file-strip",
+  extraItems,
 }: {
   state: ImportStripState;
   busy: boolean;
@@ -91,6 +93,8 @@ export function ImportFileStrip({
   accept?: string;
   /** Root `data-attr`, so a caller outside property-import gets its own selector instead of colliding on `create-file-strip`. */
   dataAttr?: string;
+  /** More doors on the card, e.g. "Import a portfolio". */
+  extraItems?: WorkspaceUploadExtraItem[];
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const headerUpload = useContext(WorkspaceHeaderUploadPresent);
@@ -130,7 +134,7 @@ export function ImportFileStrip({
 
   if (state.kind === "blank") {
     if (headerUpload) return null;
-    return <WorkspaceUploadAction accept={accept} onPick={onPickFile} disabled={busy} dataAttr={dataAttr} inputDataAttr="import-upload-file-input" />;
+    return <WorkspaceFileCard accept={accept} chips={chips} onPick={onPickFile} disabled={busy} dataAttr={dataAttr} inputDataAttr="import-upload-file-input" extraItems={extraItems} />;
   }
 
   if (state.kind === "reading") {
@@ -228,6 +232,7 @@ export function ImportUploadStep({
   onRemove,
   onMerge,
   busy,
+  extraItems,
 }: {
   state: ImportReadState;
   entries: ImportFoundEntry[];
@@ -238,6 +243,7 @@ export function ImportUploadStep({
   /** Fold `fromKey` into `intoKey` — two rows that were one house. */
   onMerge: (fromKey: string, intoKey: string) => void;
   busy: boolean;
+  extraItems?: WorkspaceUploadExtraItem[];
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [hint, setHint] = useState("");
@@ -294,8 +300,8 @@ export function ImportUploadStep({
     const strip = stripStateFromRead(state) ?? { kind: "blank" as const };
     return (
       <div data-attr="import-upload-step" data-state={state.kind}>
-        <StepHeading title={state.kind === "reading" ? `Reading ${state.fileName}` : state.kind === "error" ? "Couldn't read this file" : "Start from a file"} />
-        <ImportFileStrip state={strip} busy={busy} onPickFile={onPickFile} onReread={onReread} />
+        <StepHeading title={state.kind === "reading" ? `Reading ${state.fileName}` : state.kind === "error" ? "Couldn't read this file" : "Import from a file"} />
+        <ImportFileStrip state={strip} busy={busy} onPickFile={onPickFile} onReread={onReread} extraItems={extraItems} />
       </div>
     );
   }

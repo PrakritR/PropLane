@@ -1187,7 +1187,8 @@ export function ManagerApplicationQuestionsEditorModal({
   // staged "Apply changes from the file" card are visible), then runs the same import the strip runs.
   const headerUpload = templateEditorMode === "add" && applicationPreviewPropertyId && !isBulkSave
     ? {
-        accept: APPLICATION_UPLOAD_ACCEPT,
+        accept: "application/pdf,.pdf",
+        chips: [".pdf", "up to 8 MB"],
         disabled: importing || saving,
         dataAttr: "property-application-header-upload",
         label: "Upload application",
@@ -1843,7 +1844,7 @@ export function ManagerApplicationQuestionsEditorModal({
             />
             {isTemplateEditor && templateEditorMode === "add" && startFrom === "upload" && applicationPreviewPropertyId && !isBulkSave ? <ImportFileStrip
               dataAttr="property-application-start-from-file"
-              chips={[".pdf", ".docx", "Your current application", "up to 5 MB"]}
+              chips={[".pdf", "up to 8 MB"]}
               accept={APPLICATION_UPLOAD_ACCEPT}
               busy={importing}
               state={

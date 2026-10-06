@@ -196,24 +196,26 @@ describe("Delete on a new property", () => {
   });
 });
 
-describe("the header Upload icon", () => {
-  it("is on every step of Add property, exactly once, and an edit has none", () => {
+describe("the Start from a file card", () => {
+  it("tops the first step of Add property, exactly once, with its chips; no other step and no edit has one", () => {
     mountEditor({ onPick: vi.fn() });
-    for (const step of LISTING_V2_STEPS) {
+    expect(document.querySelectorAll("[data-attr='listing-v2-header-upload']")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Choose file" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+    expect(screen.getByText("Start from a file")).toBeTruthy();
+    for (const step of LISTING_V2_STEPS.slice(1)) {
       fireEvent.click(rail(step.id));
-      expect(document.querySelectorAll("[data-attr='listing-v2-header-upload']")).toHaveLength(1);
-      expect(screen.getAllByRole("button", { name: "Upload" })).toHaveLength(1);
+      expect(document.querySelector("[data-attr='listing-v2-header-upload']")).toBeNull();
     }
     cleanup();
     mountEditor({ isEdit: true, onPick: vi.fn() });
     expect(document.querySelector("[data-attr='listing-v2-header-upload']")).toBeNull();
   });
 
-  it("a file picked on a later step jumps to Basics first, then reaches the reader", () => {
+  it("a file picked on the card reaches the reader and stays on Basics", () => {
     const onPick = vi.fn();
     mountEditor({ onPick });
-    fireEvent.click(rail("pricing"));
-    expect(rail("pricing").getAttribute("aria-current")).toBe("step");
+    expect(rail("basics").getAttribute("aria-current")).toBe("step");
     const input = document.querySelector<HTMLInputElement>("[data-attr='import-upload-file-input']")!;
     const file = new File(["a,b"], "rent-roll.csv", { type: "text/csv" });
     fireEvent.change(input, { target: { files: [file] } });

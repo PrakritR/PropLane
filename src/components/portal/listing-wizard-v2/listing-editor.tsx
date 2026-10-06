@@ -23,7 +23,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useConfirm } from "@/components/providers/app-ui-provider";
-import { WorkspaceUploadAction, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "@/components/portal/add-workspace/upload-action";
+import { WorkspaceFileCard, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "@/components/portal/add-workspace/upload-action";
 import { Input, Textarea } from "@/components/ui/input";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -3142,7 +3142,7 @@ export function ListingEditorV2({
    * Picking a file jumps to Basics first, where the "Start from a file" strip shows the reading or the
    * "Replace what you typed?" confirm, then hands the file to `onPick`. Absent on an edit.
    */
-  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems">;
+  headerUpload?: Pick<WorkspaceHeaderUploadProps, "accept" | "onPick" | "disabled" | "extraItems" | "chips">;
   /**
    * Footer Delete on a NEW property: the host forgets the draft (after the confirm drawn here) and closes.
    * Without it, or on an edit, the footer has no Delete.
@@ -3453,20 +3453,6 @@ export function ListingEditorV2({
       onClose={() => onClose(step)}
       headerAside={
         <>
-          {headerUpload && !isEdit ? (
-            <WorkspaceUploadAction
-              accept={headerUpload.accept}
-              disabled={busy || headerUpload.disabled}
-              dataAttr="listing-v2-header-upload"
-              inputDataAttr="import-upload-file-input"
-              label="Upload"
-              extraItems={headerUpload.extraItems}
-              onPick={(file) => {
-                goTo(0);
-                headerUpload.onPick(file);
-              }}
-            />
-          ) : null}
           <ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />
         </>
       }
@@ -3524,6 +3510,20 @@ export function ListingEditorV2({
       }
     >
       <WizardStepProgress steps={railSteps} current={step + railOffset} attempted={attemptedSteps} />
+      {headerUpload && !isEdit && step === 0 ? (
+        <WorkspaceFileCard
+          accept={headerUpload.accept}
+          chips={headerUpload.chips}
+          disabled={busy || headerUpload.disabled}
+          dataAttr="listing-v2-header-upload"
+          inputDataAttr="import-upload-file-input"
+          extraItems={headerUpload.extraItems}
+          onPick={(file) => {
+            goTo(0);
+            headerUpload.onPick(file);
+          }}
+        />
+      ) : null}
       {body}
     </ListingWorkspace>
     </WorkspaceHeaderUploadPresent.Provider>

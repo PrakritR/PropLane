@@ -12,9 +12,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileUp } from "lucide-react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WizardField, WizardSection, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { DateField } from "@/components/ui/date-field";
 import { Input } from "@/components/ui/input";
@@ -57,7 +57,6 @@ export function UploadForResidentModal({
   onCreated?: (result: { applicationId: string; leaseId?: string }) => void;
 }) {
   const { showToast } = useAppUi();
-  const uploadRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<ResidentDocumentKind>(initialKind);
   const [residentPick, setResidentPick] = useState(residentApplicationId ?? "");
@@ -145,7 +144,6 @@ export function UploadForResidentModal({
       showToast(error instanceof Error ? error.message : "Could not read that PDF.");
     } finally {
       setReading(false);
-      if (uploadRef.current) uploadRef.current.value = "";
     }
   };
 
@@ -294,22 +292,14 @@ export function UploadForResidentModal({
                 right={{ id: "lease", label: "Lease" }}
               />
             </WizardSection>
-            <button
-              type="button"
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border bg-accent/10 px-4 py-10 text-center text-sm font-semibold text-foreground transition hover:border-primary/40"
-              onClick={() => uploadRef.current?.click()}
+            <WorkspaceFileCard
+              accept="application/pdf,.pdf"
+              chips={[".pdf", "up to 3.5 MB"]}
+              dataAttr="upload-for-resident-drop"
               disabled={reading}
-              data-attr="upload-for-resident-drop"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const dropped = e.dataTransfer.files?.[0];
-                if (dropped) void readFile(dropped);
-              }}
-            >
-              <FileUp className="size-6 text-primary" aria-hidden />
-              {reading ? "Reading the PDF…" : file ? file.name : "Drop the filled PDF here or click to choose"}
-            </button>
+              fileName={reading ? "Reading the PDF…" : file?.name ?? null}
+              onPick={(next) => void readFile(next)}
+            />
           </StepColumn>
         ) : null}
 
@@ -342,18 +332,6 @@ export function UploadForResidentModal({
           </StepColumn>
         ) : null}
       </div>
-      <input
-        ref={uploadRef}
-        type="file"
-        accept="application/pdf"
-        className="sr-only"
-        aria-hidden
-        tabIndex={-1}
-        onChange={(e) => {
-          const next = e.target.files?.[0];
-          if (next) void readFile(next);
-        }}
-      />
     </AddWorkspace>
   );
 }

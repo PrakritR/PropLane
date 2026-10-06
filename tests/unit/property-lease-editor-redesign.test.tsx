@@ -202,10 +202,10 @@ describe("F-editor c: footer-only commit", () => {
     const uploadOption = await screen.findByRole("option", { name: "Upload a PDF" });
     fireEvent.pointerDown(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(uploadOption, { pointerId: 1, clientX: 10, clientY: 10 });
-    // The one Upload icon lives in the pop-up header (every step); the strip draws only its reading / confirm states.
+    // The one upload entry is the Start from a file card on the first step; the strip draws only its reading / confirm states.
     expect(document.querySelector('[data-attr="property-lease-header-upload"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="property-lease-name-upload"]')).toBeNull();
-    expect(screen.queryByRole("button", { name: "Choose file" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Choose file" })).toHaveLength(1);
   });
 
   it("never renders an in-body upload button on the PropLane path — footer Save only", async () => {

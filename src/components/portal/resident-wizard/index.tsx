@@ -586,7 +586,7 @@ export function AddResidentWizard({
       discardTitle={mode === "edit" ? "Discard these edits?" : mode === "tour" ? "Discard this tour?" : mode === "application" ? "Discard this application?" : form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}
       assistantContext={workspaceTitle}
       assistantScopeKey={mode === "tour" ? "schedule-tour-wizard" : mode === "application" ? "add-application-wizard" : "add-resident-wizard"}
-      headerUpload={mode !== "edit" && (form.kind !== "prospect" || mode === "application") ? { accept: RESIDENT_FILE_ACCEPT, onPick: onPickStartFileFromHeader, disabled: busy, dataAttr: "residents-wizard-header-upload", label: "Upload a file" } : undefined}
+      headerUpload={mode !== "edit" && (form.kind !== "prospect" || mode === "application") ? { accept: RESIDENT_FILE_ACCEPT, chips: [".pdf", "images", "PDF up to 3.5 MB"], onPick: onPickStartFileFromHeader, disabled: busy, dataAttr: "residents-wizard-header-upload", label: "Upload a file" } : undefined}
       railHeader={railHeader}
       sidePanel={
         <ResidentSidePanel

@@ -593,7 +593,7 @@ export function MoveInFormEditorModal({
       discardBody="Discard unsaved changes to this move-in form?"
       assistantContext={mode === "add" ? "Add move-in form" : "Edit move-in form"}
       assistantScopeKey="move-in-form-editor"
-      headerUpload={mode === "add" && canUploadPdf ? { accept: "application/pdf,.pdf", onPick: pickPdfFromHeader, disabled: uploading || saving, dataAttr: "move-in-form-header-upload", label: "Upload a PDF" } : undefined}
+      headerUpload={mode === "add" && canUploadPdf ? { accept: "application/pdf,.pdf", chips: [".pdf", "up to 8 MB"], onPick: pickPdfFromHeader, disabled: uploading || saving, dataAttr: "move-in-form-header-upload", label: "Upload a PDF" } : undefined}
       dataAttrPrefix="move-in-form"
       finishDataAttr="move-in-form-save"
       lastLabel={editorFinishLabel(mode)}

@@ -290,7 +290,7 @@ export function PromotionNewModal({
       discardTitle="Discard this promotion?"
       assistantContext={assistantContext}
       assistantScopeKey="New promotion"
-      headerUpload={{ accept: PROMOTION_UPLOAD_ACCEPT, onPick: (file) => void pickUploadFromHeader(file), disabled: flyerBusy || textBusy || uploadBusy, dataAttr: "promotion-new-header-upload", label: "Upload your own" }}
+      headerUpload={{ accept: PROMOTION_UPLOAD_ACCEPT, chips: ["images", ".pdf", "up to 12 MB"], onPick: (file) => void pickUploadFromHeader(file), disabled: flyerBusy || textBusy || uploadBusy, dataAttr: "promotion-new-header-upload", label: "Upload your own" }}
       sidePanel={preview}
       lastLabel={lastLabel}
       lastDisabled={lastDisabled}

@@ -24,6 +24,7 @@ import { Building2 } from "lucide-react";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import {
   IMPORT_FILE_ACCEPT,
+  IMPORT_FILE_CHIPS,
   ImportFileStrip,
   ImportUploadSidePanel,
   ImportUploadStep,
@@ -43,7 +44,6 @@ import {
   WizardFooterActions,
   WizardStepProgress,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { WorkspaceUploadAction, WorkspaceHeaderUploadPresent } from "@/components/portal/add-workspace/upload-action";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { deleteManagerPropertyDraft, saveManagerPropertyDraftToServer } from "@/lib/demo-admin-property-inventory";
@@ -483,7 +483,7 @@ export function CreateWorkspace({
         onDirtyChange={(dirty) => {
           blankDirtyRef.current = dirty;
         }}
-        headerUpload={{ accept: IMPORT_FILE_ACCEPT, onPick: onPickFileFromBasics, disabled: busy, extraItems: portfolioImportItems }}
+        headerUpload={{ accept: IMPORT_FILE_ACCEPT, chips: IMPORT_FILE_CHIPS, onPick: onPickFileFromBasics, disabled: busy, extraItems: portfolioImportItems }}
         onDiscarded={() => {
           blankDraftIdRef.current = null;
           blankDirtyRef.current = false;
@@ -541,7 +541,7 @@ export function CreateWorkspace({
         }
         flushRef={flushRef}
         initialStep={editStep}
-        headerUpload={{ accept: IMPORT_FILE_ACCEPT, onPick: onPickFileOverEntries, disabled: busy }}
+        headerUpload={{ accept: IMPORT_FILE_ACCEPT, chips: IMPORT_FILE_CHIPS, onPick: onPickFileOverEntries, disabled: busy }}
         onDiscarded={() => {
           const remaining = entriesRef.current.filter((e) => e.key !== selected.key);
           setEntries(remaining);
@@ -577,10 +577,8 @@ export function CreateWorkspace({
 
   return (
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
-      <WorkspaceHeaderUploadPresent.Provider value>
       <ListingWorkspace
         title="New listing"
-        headerAside={<WorkspaceUploadAction accept={IMPORT_FILE_ACCEPT} onPick={onPickFile} disabled={busy} dataAttr="listing-v2-header-upload" inputDataAttr="import-upload-file-input" label="Upload" extraItems={portfolioImportItems} />}
         subtitle={fileName ?? undefined}
         saveState={importSaveState(entries)}
         onClose={onClose}
@@ -650,9 +648,9 @@ export function CreateWorkspace({
           onRemove={(key) => void removeEntry(key)}
           onMerge={(from, into) => void mergeEntries(from, into)}
           busy={busy}
+          extraItems={portfolioImportItems}
         />
       </ListingWorkspace>
-      </WorkspaceHeaderUploadPresent.Provider>
     </PortalAssistantConfigProvider>
   );
 }

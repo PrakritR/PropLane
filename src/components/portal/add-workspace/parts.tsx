@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 import { WizardFieldError } from "./validation";
-import { WorkspaceHeaderUploadPresent, WorkspaceUploadAction } from "./upload-action";
+import { WorkspaceFileCard, WorkspaceHeaderUploadPresent } from "./upload-action";
 
 /* ─────────────────────────── controls ─────────────────────────── */
 
@@ -256,7 +256,6 @@ export function FileStartStrip({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const headerUpload = useContext(WorkspaceHeaderUploadPresent);
-  void chips;
   const pick = (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
@@ -328,7 +327,7 @@ export function FileStartStrip({
     );
   }
   if (headerUpload) return null;
-  return <WorkspaceUploadAction accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} label={title} />;
+  return <WorkspaceFileCard accept={accept} chips={chips} onPick={onPick} disabled={disabled} dataAttr={dataAttr} label={title} />;
 }
 
 export type AttachedDocument = {

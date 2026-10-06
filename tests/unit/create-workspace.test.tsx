@@ -108,13 +108,14 @@ async function uploadAndWait() {
 }
 
 describe("CreateWorkspace", () => {
-  it("opens at Basics with the file action in the header and no Import step yet", () => {
+  it("opens at Basics with the Start from a file card on top and no Import step yet", () => {
     mount();
     expect(screen.getByText("The home itself")).toBeInTheDocument();
-    // ONE Upload icon, in the header; the Basics strip draws no second one while it is blank.
+    // ONE upload entry, the Start from a file card; the Basics strip draws no second one while it is blank.
     const header = document.querySelector("[data-attr='listing-v2-header-upload']")!;
     expect(header.getAttribute("data-state")).toBe("blank");
-    expect(screen.getAllByRole("button", { name: "Upload" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Choose file" })).toHaveLength(1);
+    expect(header.textContent).toContain(".xlsx");
     expect(document.querySelector("[data-attr='create-file-strip']")).toBeNull();
     const rail = screen.getByRole("navigation", { name: "Listing sections" });
     expect(rail.textContent).not.toContain("Import");

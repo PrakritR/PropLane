@@ -32,7 +32,7 @@ import { editorFooterState } from "@/lib/editor-footer-state";
 import { cn } from "@/lib/utils";
 import { WizardInvalidFields, missingWizardFields, summarizeMissingFields } from "./validation";
 import { WorkspaceDeleteButton } from "./frame";
-import { WorkspaceHeaderUpload, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "./upload-action";
+import { WorkspaceFileCard, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "./upload-action";
 
 export { WORKSPACE_PREVIEW_TITLE_CLASS, WorkspaceDeleteButton, WorkspacePreviewTitle, workspaceSaveState } from "./frame";
 
@@ -153,9 +153,9 @@ export function AddWorkspace({
   /** Icon actions beside Ask PropLane — Generate / Upload on Add lease. */
   headerActions?: ReactNode;
   /**
-   * The pop-up's ONE Upload icon (Upload file · Take photo · Scan), drawn in the header beside
-   * Ask PropLane on every step. Its handler is the door's existing file reader; the step strips
-   * then draw no second icon of their own.
+   * The pop-up's ONE upload entry: the "Start from a file" card (dashed, icon tile, format chips,
+   * Choose file) at the top of the first step. Its handler is the door's existing file reader; the
+   * step strips then draw no second blank-state card of their own.
    */
   headerUpload?: WorkspaceHeaderUploadProps;
   /**
@@ -324,7 +324,6 @@ export function AddWorkspace({
         onContinue={isLast ? finish : goNext}
         headerAside={
           <>
-            {headerUpload ? <WorkspaceHeaderUpload {...headerUpload} /> : null}
             {headerActions}
             <ModalAssistantStrip contextHint={`${assistantContext} — ${steps[current]?.label ?? title} (Step ${current + 1} of ${steps.length})`} storageScopeKey={assistantScopeKey} />
           </>
@@ -408,6 +407,7 @@ export function AddWorkspace({
         {reviewEditLinks && (steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">
           {steps.filter((step) => step.id !== "review" && step.id !== "preview").map((step) => <button key={step.id} type="button" onClick={() => onJump(steps.indexOf(step))} className="min-h-11 text-sm font-semibold text-primary">Edit {step.label}</button>)}
         </nav> : null}
+        {headerUpload && current === 0 ? <WorkspaceFileCard {...headerUpload} /> : null}
         {children}
         <SideBelow>{sidePanel}</SideBelow>
       </ListingWorkspace>

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FileUp, Upload } from "lucide-react";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { FileUp } from "lucide-react";
+import { DOCUMENT_FILE_CHIPS, WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
+import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/documents/manager-documents";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -35,7 +36,7 @@ export function ManagerResidentUploadModal({
   defaultKind?: ResidentUploadDocKind;
   onClose: () => void;
   onUploaded: (files: File[], kinds: ResidentUploadDocKind[]) => Promise<void>;
-  /** The pop-up's header Upload icon: close this and read a filled application or lease PDF into the record instead. */
+  /** A second door on the Start from a file card: close this and read a filled application or lease PDF into the record instead. */
   onReadForResident?: () => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
@@ -66,22 +67,6 @@ export function ManagerResidentUploadModal({
         onClose();
       }}
       dataAttr="resident-upload-modal"
-      status={
-        onReadForResident ? (
-          <PortalIconAction
-            ring
-            icon={FileUp}
-            label="Upload for resident"
-            data-attr="resident-upload-for-resident"
-            disabled={busy}
-            onClick={() => {
-              reset();
-              onClose();
-              onReadForResident();
-            }}
-          />
-        ) : undefined
-      }
       contextPanel={null}
       preview={null}
       footer={
@@ -112,26 +97,29 @@ export function ManagerResidentUploadModal({
       }
     >
       <div className="space-y-4">
-        <label
-          className="flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-secondary/30 px-4 py-8 text-center"
-          data-attr="resident-upload-dropzone"
-        >
-          <Upload className="size-8 text-muted" strokeWidth={1.6} aria-hidden />
-          <span className="text-sm font-semibold text-foreground">Drop files or choose</span>
-          <input
-            type="file"
-            multiple
-            className="sr-only"
-            disabled={busy}
-            onChange={(e) => {
-              const next = Array.from(e.target.files ?? []);
-              setFiles(next);
-              const kinds: Record<string, ResidentUploadDocKind> = {};
-              for (const f of next) kinds[`${f.name}-${f.size}`] = kind;
-              setPerFileKinds(kinds);
-            }}
-          />
-        </label>
+        <WorkspaceFileCard
+          accept={DOCUMENT_UPLOAD_ACCEPT}
+          chips={DOCUMENT_FILE_CHIPS}
+          dataAttr="resident-upload-dropzone"
+          disabled={busy}
+          onPick={() => undefined}
+          onPickMany={(next) => {
+            setFiles(next);
+            const kinds: Record<string, ResidentUploadDocKind> = {};
+            for (const f of next) kinds[`${f.name}-${f.size}`] = kind;
+            setPerFileKinds(kinds);
+          }}
+          extraItems={onReadForResident ? [{
+            label: "Read a filled application or lease",
+            icon: FileUp,
+            dataAttr: "resident-upload-for-resident",
+            onSelect: () => {
+              reset();
+              onClose();
+              onReadForResident();
+            },
+          }] : undefined}
+        />
         {files.length > 0 ? (
           <ul className="divide-y divide-border rounded-xl border border-border bg-card">
             {files.map((file) => {
