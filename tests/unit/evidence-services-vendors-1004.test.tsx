@@ -262,7 +262,9 @@ describe("a service's Vendors section", () => {
     const finish = document.querySelector('[data-attr="service-send-job"]') as HTMLButtonElement;
     expect(finish.disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /Vendors/ }));
-    fireEvent.click(await screen.findByRole("option", { name: /Cascade Drains/ }));
+    const cascade = await screen.findByRole("option", { name: /Cascade Drains/ });
+    fireEvent.pointerDown(cascade, { pointerId: 1, clientX: 5, clientY: 5 });
+    fireEvent.pointerUp(cascade, { pointerId: 1, clientX: 5, clientY: 5 });
     expect(finish.textContent).toBe("Send job to 1");
     fireEvent.click(finish);
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(["d5"], undefined));

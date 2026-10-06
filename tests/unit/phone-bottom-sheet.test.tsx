@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 //
 // Captain, Oct 3: the phone step sheet was see-through, sat UNDER the dialog and its footer, and
-// had cramped rows. Every phone "jump to section" picker and every select now draws ONE shared
-// sheet (ui/phone-bottom-sheet.tsx): opaque, above the dialog stack, 48px rows with a current bar.
+// had cramped rows. Every phone "jump to section" picker draws ONE shared sheet
+// (ui/phone-bottom-sheet.tsx): opaque, above the dialog stack, 48px rows with a current bar.
+// Selects (FieldSingleSelect / CheckboxMultiSelect) are NOT sheets: on a phone they open a list
+// attached under the field, the same popover as desktop (Oct 5).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -139,7 +141,7 @@ describe("the shared phone bottom sheet", () => {
     expect(screen.getByText("1 to finish")).toBeTruthy();
   });
 
-  it("a FieldSingleSelect on a phone opens the same sheet and marks the chosen option", () => {
+  it("a FieldSingleSelect on a phone opens a list attached under the field, not a sheet", () => {
     const picked: string[] = [];
     render(
       <FieldSingleSelect
@@ -154,24 +156,25 @@ describe("the shared phone bottom sheet", () => {
     );
     const trigger = screen.getByRole("button", { name: "Channel" });
     fireEvent.click(trigger);
-    const root = document.querySelector("[data-phone-bottom-sheet]") as HTMLElement;
-    expect(root).not.toBeNull();
-    expect(root.querySelector("[data-phone-sheet-panel]")!.className).toContain("phone-sheet-surface");
-    expect(root.querySelector("h2")!.textContent).toBe("Channel");
-    const rows = [...root.querySelectorAll('[role="option"]')] as HTMLElement[];
+    expect(document.querySelector("[data-phone-bottom-sheet]")).toBeNull();
+    const menu = document.querySelector(".field-dropdown-menu") as HTMLElement;
+    expect(menu).not.toBeNull();
+    expect(menu.style.position).toMatch(/fixed|absolute/);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const list = menu.querySelector('[role="listbox"]') as HTMLElement;
+    expect(list.getAttribute("aria-label")).toBe("Channel");
+    const rows = [...menu.querySelectorAll('[role="option"]')] as HTMLElement[];
     expect(rows[0]!.getAttribute("aria-selected")).toBe("true");
-    expect(rows[0]!.querySelector("svg")).not.toBeNull(); // the check
     expect(rows[1]!.getAttribute("aria-selected")).toBe("false");
     // Long option text wraps instead of truncating.
     expect(rows[1]!.innerHTML).toContain("break-words");
-    expect(rows[1]!.innerHTML).not.toContain("truncate");
     // Picking reports the value.
     fireEvent.pointerDown(rows[1]!, { pointerId: 1, clientX: 5, clientY: 5 });
     fireEvent.pointerUp(rows[1]!, { pointerId: 1, clientX: 5, clientY: 5 });
     expect(picked).toEqual(["sms"]);
   });
 
-  it("a CheckboxMultiSelect on a phone opens the same sheet with checked rows", () => {
+  it("a CheckboxMultiSelect on a phone opens an attached list with checked rows", () => {
     render(
       <CheckboxMultiSelect
         label="Notify by"
@@ -184,15 +187,29 @@ describe("the shared phone bottom sheet", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Notify by" }));
-    const rows = [...document.querySelectorAll('[data-phone-bottom-sheet] [role="option"]')] as HTMLElement[];
+    expect(document.querySelector("[data-phone-bottom-sheet]")).toBeNull();
+    const rows = [...document.querySelectorAll('.field-dropdown-menu [role="option"]')] as HTMLElement[];
     expect(rows.map((row) => row.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+    expect(document.querySelector('.field-dropdown-menu [role="listbox"]')!.getAttribute("aria-multiselectable")).toBe("true");
   });
 
-  it("Escape on a select sheet closes only the sheet", () => {
-    render(<FieldSingleSelect label="Channel" value="" onChange={() => {}} options={[{ value: "a", label: "A" }]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Channel" }));
-    fireEvent.keyDown(window, { key: "Escape" });
+  it("a long phone select shows a search box at the top of the attached list", () => {
+    const options = Array.from({ length: 9 }, (_, i) => ({ value: `v${i}`, label: `Option ${i}` }));
+    render(<FieldSingleSelect label="Unit" value="" onChange={() => {}} options={options} />);
+    fireEvent.click(screen.getByRole("button", { name: "Unit" }));
+    const menu = document.querySelector(".field-dropdown-menu") as HTMLElement;
+    expect(menu.firstElementChild!.querySelector("input")).not.toBeNull();
     expect(document.querySelector("[data-phone-bottom-sheet]")).toBeNull();
+  });
+
+  it("Escape on a phone select closes the list and returns focus to the field", () => {
+    render(<FieldSingleSelect label="Channel" value="" onChange={() => {}} options={[{ value: "a", label: "A" }]} />);
+    const trigger = screen.getByRole("button", { name: "Channel" });
+    fireEvent.click(trigger);
+    expect(document.querySelector(".field-dropdown-menu")).not.toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.querySelector(".field-dropdown-menu")).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("a desktop pointer keeps the popover menu for a select", () => {

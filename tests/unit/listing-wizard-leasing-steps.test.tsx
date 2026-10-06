@@ -395,7 +395,7 @@ describe("Application step", () => {
     const choices = await openMenu(q("[data-attr='listing-v2-add-application-icon']")!);
     fireEvent.click(choices[0]!);
     fireEvent.click(q("[data-attr='listing-v2-application-applies-to']")!);
-    const offered = Array.from(screen.getAllByRole("listbox").at(-1)!.querySelectorAll('[role="option"]')).map((node) => node.textContent);
+    const offered = Array.from(screen.getAllByRole("listbox").at(-1)!.querySelectorAll('[role="option"]')).map((node) => node.textContent?.replace(/^✓/, ""));
     expect(offered).toEqual(["Long-term residents", "Short-term residents", "Both"]);
     tapOption("Short-term residents");
     fireEvent.click(q("[data-attr='listing-v2-application-applies-to-create']")!);

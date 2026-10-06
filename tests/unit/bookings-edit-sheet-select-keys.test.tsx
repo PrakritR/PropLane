@@ -25,7 +25,7 @@ afterEach(() => {
 function roomOptionLabels(): string[] {
   const trigger = document.querySelector('[data-attr="select-booking-edit-room"]') as HTMLElement;
   fireEvent.click(trigger);
-  return screen.getAllByRole("option").map((option) => option.textContent?.trim() ?? "");
+  return screen.getAllByRole("option").map((option) => (option.textContent ?? "").replace(/^✓/, "").trim());
 }
 
 describe("booking edit sheet select keys", () => {
