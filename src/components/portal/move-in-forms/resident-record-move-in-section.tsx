@@ -18,7 +18,7 @@
  *  - Inspections: this resident's move-in / move-out inspections (`InspectionsPanel`).
  * Only facts that exist are shown; there is no "Opened" row because nothing records it.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Download, FileText, Pencil, Send } from "lucide-react";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
@@ -67,7 +67,7 @@ import {
   resolveResidentMoveInFromApplications,
   type ResidentMoveInHousemate,
 } from "@/lib/resident-move-in-resolve";
-import { sharedGet } from "@/lib/shared-get-cache";
+import { sharedGet, type SharedGetResult } from "@/lib/shared-get-cache";
 
 /** One form of the resident's property: its latest live copy, or none yet. */
 export type ResidentMoveInFormRow = {
@@ -264,34 +264,47 @@ export function ResidentRecordMoveInSection({
     { applicationId: string; list: ResidentMoveInHousemate[] } | { applicationId: string; failed: true } | null
   >(null);
   const householdRead = loadedHousemates?.applicationId === applicationId ? loadedHousemates : null;
-  // Only the retry button passes `force`, and only for the press that asked for it: a counter held
-  // in state stayed true for the component's life, so one Try again made every later open of
-  // Roommates — for any resident — bypass the shared-GET cache and re-run the paged sweep.
-  const readHousehold = useCallback(
-    (force: boolean) => {
-      if (!applicationId || demo) return () => {};
-      let cancelled = false;
-      void sharedGet(`/api/manager-applications/${encodeURIComponent(applicationId)}/housemates`, { force }).then(
-        (result) => {
-          if (cancelled) return;
-          if (!result.ok) {
-            setLoadedHousemates({ applicationId, failed: true });
-            return;
-          }
-          const list = (result.data as { housemates?: unknown } | null)?.housemates;
-          setLoadedHousemates({ applicationId, list: Array.isArray(list) ? (list as ResidentMoveInHousemate[]) : [] });
-        },
-      );
-      return () => {
-        cancelled = true;
-      };
-    },
-    [applicationId, demo],
-  );
+  // Which record is on screen RIGHT NOW, read when a request settles rather than when it started.
+  // A read can take up to the shared-GET timeout, and storing its answer against the record that
+  // has since been replaced left the stamp above matching nothing: the open record then read as
+  // still loading, with no retry on screen and no dependency left to change and re-read it.
+  const viewedApplicationIdRef = useRef(applicationId);
   useEffect(() => {
-    if (activeTab !== "housemates") return;
-    return readHousehold(false);
-  }, [activeTab, readHousehold]);
+    viewedApplicationIdRef.current = applicationId;
+  }, [applicationId]);
+  const storeHousehold = useCallback((requestedFor: string, result: SharedGetResult) => {
+    if (viewedApplicationIdRef.current !== requestedFor) return;
+    if (!result.ok) {
+      setLoadedHousemates({ applicationId: requestedFor, failed: true });
+      return;
+    }
+    const list = (result.data as { housemates?: unknown } | null)?.housemates;
+    setLoadedHousemates({
+      applicationId: requestedFor,
+      list: Array.isArray(list) ? (list as ResidentMoveInHousemate[]) : [],
+    });
+  }, []);
+  const householdHref =
+    applicationId && !demo ? `/api/manager-applications/${encodeURIComponent(applicationId)}/housemates` : null;
+  useEffect(() => {
+    if (activeTab !== "housemates" || !householdHref) return;
+    const requestedFor = applicationId;
+    let cancelled = false;
+    void sharedGet(householdHref).then((result) => {
+      if (cancelled) return;
+      storeHousehold(requestedFor, result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, householdHref, applicationId, storeHousehold]);
+  // Only the retry forces past the shared-GET cache, and it returns its own promise so the Button
+  // owns the spinner for however long the forced read takes.
+  const retryHousehold = useCallback(async () => {
+    if (!householdHref) return;
+    const requestedFor = applicationId;
+    storeHousehold(requestedFor, await sharedGet(householdHref, { force: true }));
+  }, [householdHref, applicationId, storeHousehold]);
   const details = useMemo(() => describeMoveInDetails(resolved, entireHome), [resolved, entireHome]);
 
   const open = (form: MoveInFormSummary) => {
@@ -461,7 +474,7 @@ export function ResidentRecordMoveInSection({
               data-attr="resident-move-in-roommates-error"
             >
               <p className="mb-3 text-sm">Couldn&apos;t load this household.</p>
-              <Button variant="outline" onClick={() => readHousehold(true)}>
+              <Button variant="outline" onClick={() => retryHousehold()}>
                 Try again
               </Button>
             </div>

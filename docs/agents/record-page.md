@@ -92,8 +92,9 @@ issued only while that sub-tab is open and never summarised as a tab count:
 helper but `manager_user_id` omitted, because the row's property id is writable by the manager who
 owns that record and the frozen stamp must not stand in for owning the property. It then answers
 through the resident loader, so each peer is redacted by that peer's own sharing preferences and the
-manager sees no more than the resident does. A failed read is an error with a retry, never "no
-residents".
+manager sees no more than the resident does. A failed read is an error whose retry is the only
+forced read, hands its promise to the Button, and is dropped if the manager moved to another record
+before it landed — never "no residents", and never a dead-end "loading".
 
 ## Header actions are per (role, kind, section)
 

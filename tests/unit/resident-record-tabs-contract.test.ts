@@ -84,6 +84,9 @@ describe("Application tab: Incomplete · Pending · Approved · Rejected", () =>
 });
 
 describe("Background check tab: one Completed tab", () => {
+  const check = (status: "pending" | "complete", result: "clear" | "consider" | null) =>
+    ({ provider: "checkr", candidateId: "c", reportId: "r", packageSlug: "x", status, result, orderedAt: "2026-10-01" }) as unknown as DemoApplicantRow["backgroundCheck"];
+
   it("is a single tab labelled Completed, not the Application buckets", () => {
     expect(RESIDENT_DETAIL_BACKGROUND_CHECK_TABS.map((t) => t.id)).toEqual(["completed"]);
     expect(RESIDENT_DETAIL_BACKGROUND_CHECK_TABS.map((t) => t.label)).toEqual(["Completed"]);
@@ -98,6 +101,27 @@ describe("Background check tab: one Completed tab", () => {
     expect(residentBackgroundCheckCompletedCount(row({ backgroundCheckStatus: "not_applicable" }))).toBe(0);
     expect(residentBackgroundCheckCompletedCount(row({ backgroundCheckStatus: "passed" }))).toBe(1);
     expect(residentBackgroundCheckCompletedCount(row({ backgroundCheckStatus: "flagged" }))).toBe(1);
+  });
+
+  it("a report that came back counts whatever it concluded, including 'review'", () => {
+    // `backgroundCheckStatusFromScreening` collapses complete + review / not_available back to
+    // `pending_review`, and `review` is the DEFAULT recommendation — so reading only the derived
+    // status said "Completed 0" beside a panel rendering the finished report.
+    const screening = (status: string, recommendation: string) =>
+      ({ provider: "internal", status, recommendation, orderedAt: "2026-10-01" }) as unknown as DemoApplicantRow["screening"];
+    expect(
+      residentBackgroundCheckCompletedCount(row({ screening: screening("complete", "review"), backgroundCheckStatus: "pending_review" })),
+    ).toBe(1);
+    expect(
+      residentBackgroundCheckCompletedCount(row({ screening: screening("complete", "not_available"), backgroundCheckStatus: "pending_review" })),
+    ).toBe(1);
+    expect(residentBackgroundCheckCompletedCount(row({ screening: screening("in_progress", "review") }))).toBe(0);
+    expect(
+      residentBackgroundCheckCompletedCount(
+        row({ backgroundCheck: check("complete", "clear"), backgroundCheckStatus: "pending_review" }),
+      ),
+    ).toBe(1);
+    expect(residentBackgroundCheckCompletedCount(row({ backgroundCheck: check("pending", null) }))).toBe(0);
   });
 
   it("the body still renders the check panel, so a pending check is visible with its true status", () => {
@@ -169,17 +193,24 @@ describe("Roommates reads the household from the server", () => {
   const section = read("src/components/portal/move-in-forms/resident-record-move-in-section.tsx");
 
   it("fetches only while the Roommates sub-tab is open, and never counts the household in a tab badge", () => {
-    expect(section).toContain('if (activeTab !== "housemates") return;');
-    expect(section).toContain("return readHousehold(false);");
+    expect(section).toContain('if (activeTab !== "housemates" || !householdHref) return;');
     expect(section).toContain('count: id === "forms" ? rows.length : undefined');
   });
 
-  it("only the retry forces a fresh read past the shared-GET cache", () => {
+  it("only the retry forces a fresh read past the shared-GET cache, and the Button owns its spinner", () => {
     // A counter in state stayed truthy for the component's life, so one Try again made every later
-    // open of Roommates — for any resident — re-run the paged household sweep.
-    expect(section).toContain("readHousehold(true)");
-    expect(section).toContain("{ force }");
+    // open of Roommates — for any resident — re-run the paged household sweep. And the retry has to
+    // hand its promise to the Button, or a 15s forced read shows no sign of running.
+    expect(section).toContain("sharedGet(householdHref, { force: true })");
+    expect(section).toContain("const retryHousehold = useCallback(async () => {");
+    expect(section).toContain("onClick={() => retryHousehold()}");
     expect(section).not.toContain("housemateReloads");
+  });
+
+  it("an answer that lands after the manager moved on is dropped, not stored under the old record", () => {
+    // Storing it would leave the stamp matching nothing: the open record read as still loading,
+    // with no retry on screen and no dependency left to change and re-read it.
+    expect(section).toContain("viewedApplicationIdRef.current !== requestedFor");
   });
 
   it("a failed read is an error with a retry, never 'no residents'", () => {
