@@ -101,7 +101,6 @@ export function VendorInvoiceManagerPaySheet({
     setMethod("card");
     setLoading(false);
     setError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceId]);
 
   const netToVendorCents = invoice ? Math.max(0, invoice.totalCents - platformFeeCents) : 0;

@@ -144,7 +144,7 @@ test("the round blue + opens Send a form, and the resident record Forms tab is t
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  let errors = await open(page, "forms-record");
+  const errors = await open(page, "forms-record");
   await expect(page.getByText("Maya Chen")).toHaveCount(0); // resident is not repeated in the place line
   await expect(page.getByText("Resident intake").first()).toBeVisible();
   await expect(page.getByText("Marcus Lee")).toHaveCount(0); // other residents are out of scope
