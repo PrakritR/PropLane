@@ -1,4 +1,5 @@
 import "server-only";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
@@ -152,6 +153,21 @@ async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: 
       .in("manager_user_id", owners).in("phone_e164", phones) : Promise.resolve({ data: [], error: null }),
   ]);
   if (profilesResult.error || contactsResult.error) throw new Error("Could not load SMS contact labels.");
+  // A vendor thread is named by the manager's own Vendors list (the row's saved phone or its linked account).
+  const vendorNames = new Map<string, string>();
+  if (summaries.some((summary) => summary.counterpartyRole === "vendor")) {
+    const { data: roster, error: rosterError } = await db.from("manager_vendor_records")
+      .select("manager_user_id,vendor_user_id,row_data").in("manager_user_id", owners).limit(2000);
+    if (rosterError) throw new Error("Could not load SMS vendor labels.");
+    for (const record of roster ?? []) {
+      const row = record.row_data as { name?: string; phone?: string; active?: boolean } | null;
+      const name = String(row?.name ?? "").trim();
+      if (!row || !name || row.active === false) continue;
+      const phoneKey = normalizeE164(row.phone ?? "");
+      if (phoneKey) vendorNames.set(`${record.manager_user_id}\0${phoneKey}`, name);
+      if (record.vendor_user_id) vendorNames.set(`${record.manager_user_id}\0user:${record.vendor_user_id}`, name);
+    }
+  }
   const profiles = new Map((profilesResult.data ?? []).map((profile) => [String(profile.id), profile]));
   const contacts = new Map((contactsResult.data ?? []).map((contact) => [
     managerSmsContactKey(String(contact.manager_user_id), String(contact.phone_e164), contact.counterparty_role), contact,
@@ -188,7 +204,13 @@ async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: 
     const email = String(profile?.email ?? summary.metadata.email ?? contact?.contact_email ?? "").trim().toLowerCase() || null;
     const application = email ? applicationsByOwnerEmail.get(`${summary.ownerManagerUserId}\0${email}`) : null;
     directory.set(summary.id, {
-      name: String(profile?.full_name ?? application?.name ?? summary.metadata.name ?? "").trim() || null,
+      name: String(
+        profile?.full_name ?? application?.name ?? summary.metadata.name ??
+          (summary.counterpartyRole === "vendor"
+            ? vendorNames.get(`${summary.ownerManagerUserId}\0user:${summary.counterpartyUserId}`) ??
+              vendorNames.get(`${summary.ownerManagerUserId}\0${normalizeE164(summary.phone ?? "") ?? ""}`)
+            : null) ?? "",
+      ).trim() || null,
       email,
       savedName: String(contact?.display_name ?? "").trim() || null,
     });

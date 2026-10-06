@@ -120,3 +120,13 @@ describe("the vendor's Communication", () => {
     expect(onboarding).toContain('data-attr="vendor-onboarding-verify-phone"');
   });
 });
+
+describe("the manager's thread names the vendor from the Vendors list", () => {
+  const projection = readFileSync("src/lib/sms/sms-projection-inbox.server.ts", "utf8");
+
+  it("a vendor-role projection conversation is labelled by the roster row's saved phone or linked account", () => {
+    expect(projection).toContain('summary.counterpartyRole === "vendor"');
+    expect(projection).toContain("manager_vendor_records");
+    expect(projection).toMatch(/vendorNames\.set\(`\$\{record\.manager_user_id\}\\0user:/);
+  });
+});
