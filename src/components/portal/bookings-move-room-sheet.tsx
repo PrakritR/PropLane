@@ -20,6 +20,7 @@ import {
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
 import { describeBookingConflict } from "@/lib/channel-calendar/bookings-ui";
+import { bookingRoomChoices } from "@/components/portal/bookings-edit-sheet";
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
 
 export function BookingsMoveRoomSheet({
@@ -48,7 +49,7 @@ export function BookingsMoveRoomSheet({
   }, [open, entry.roomId]);
 
   const roomOptions = useMemo(
-    () => getRoomOptionsForProperty(entry.propertyId, { includeUnavailable: true }),
+    () => bookingRoomChoices(getRoomOptionsForProperty(entry.propertyId, { includeUnavailable: true, includeUnnamed: true }), () => []),
     [entry.propertyId],
   );
 
@@ -85,7 +86,7 @@ export function BookingsMoveRoomSheet({
       title="Move room"
       contextPanel={<PopupRecordPreview rows={[{ label: "Property", value: entry.propertyLabel }, { label: "Current room", value: entry.roomLabel }]} />}
       previewLabel="Booking preview"
-      preview={<PopupRecordPreview rows={[{ label: "Room", value: roomOptions.find(option => option.value === roomId)?.label }, { label: "Start", value: entry.start }, { label: "End", value: entry.end }]} />}
+      preview={<PopupRecordPreview rows={[{ label: "Room", value: roomOptions.find(option => option.id === roomId)?.label ?? entry.roomLabel }, { label: "Start", value: entry.start }, { label: "End", value: entry.end }]} />}
       dismissBlocked={busy}
       dataAttr="bookings-move-room-sheet"
       footer={
@@ -106,7 +107,7 @@ export function BookingsMoveRoomSheet({
             data-attr="bookings-move-room-select"
           >
             {roomOptions.map((option) => (
-              <option key={option.value} value={option.value}>
+              <option key={option.id} value={option.id}>
                 {option.label}
               </option>
             ))}
