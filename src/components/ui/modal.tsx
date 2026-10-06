@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneStripPickerScope } from "@/components/ui/phone-strip-picker";
 import type { ComponentType, CSSProperties, ReactNode, Ref } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -447,7 +448,7 @@ function ModalPanelInner({
             "px-4 py-4 sm:px-7 sm:py-6 xl:px-10",
           )}
         >
-          {children}
+          <PhoneStripPickerScope>{children}</PhoneStripPickerScope>
         </div>
         {preview !== null ? (
           <aside data-popup-preview="" className="hidden w-[320px] shrink-0 overflow-y-auto border-l border-border bg-background p-5 lg:block xl:w-[380px]">

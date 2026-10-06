@@ -36,8 +36,10 @@ them; do not invent a variant.
 - Footer and dialog buttons sit **side by side on one row**; never stack them.
 - Raw `<select>`/`Select` is never used for a pick — `FieldSingleSelect` /
   `CheckboxMultiSelect`.
-- Phone: the steps are **underline tabs across the top of the popup** (`WizardStepTabs`), not a
-  "Step N of M" button or dropdown — a sideways-scrolling row that keeps the active tab in view, a
+- Phone: the steps are **underline tabs across the top of the popup** (`WizardStepTabs`) when they fit one
+  screen, and the same dropdown section picker the record page uses (`PhoneStripPicker`, "Basics ⌄" opening
+  the Steps sheet) when they do not (captain, 2026-10-06) — never a sideways-scrolling row of more steps than
+  fit. The tab row keeps the active tab in view, a
   check before a finished step's label, a small red dot after one that still needs something, and
   the active tab in blue text + underline. Any unlocked step is reachable from any step, exactly
   like the desktop rail (which is the only step list on desktop). A locked tab is greyed and
