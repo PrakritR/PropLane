@@ -177,11 +177,15 @@ function applicationTemplateHasManagerEdits(template: PropertyApplicationTemplat
   return !shipped.includes(label);
 }
 
-/** The row as a live default again: the stay it was hidden for is allowed, so it is offered. */
+/**
+ * The row as a live default again: the stay it was hidden for is allowed, so the `offered` value it held
+ * when it was hidden comes back — a default the manager had deliberately switched off stays off, and one
+ * hidden before that value was recorded reads as offered, exactly as before.
+ */
 function withoutStayHidden(template: PropertyApplicationTemplate): PropertyApplicationTemplate {
   if (!template.stayHidden) return template;
-  const { stayHidden: _hidden, ...rest } = template;
-  return { ...rest, offered: true };
+  const { stayHidden: _hidden, stayHiddenOffered: priorOffered, ...rest } = template;
+  return { ...rest, offered: priorOffered ?? true };
 }
 
 function adoptLegacyDefaultTemplate(
@@ -285,7 +289,9 @@ export function syncPropertyApplicationTemplatesFromListing(
         !consumedIds.has(t.id) &&
         !preservedIds.has(t.id),
     )
-    .map((t) => ({ ...t, offered: false, stayHidden: true }));
+    // Already hidden: keep the `offered` value recorded when it was FIRST hidden, or a second sync would
+    // record the hidden row's own `offered: false` and lose what the manager had chosen.
+    .map((t) => (t.stayHidden ? t : { ...t, offered: false, stayHidden: true, stayHiddenOffered: t.offered !== false }));
   const merged = [...nextSeeded, ...manual, ...preservedSeeded, ...stayHidden];
   // A short-term form now exists only on a property that allows that stay, and its presence still says nothing
   // about the stays on offer: leave `shortTermRentalsAllowed` to the listing ("Stays you offer"). Forcing it on

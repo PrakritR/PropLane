@@ -83,6 +83,7 @@ import {
   BUILT_IN_ANSWER_VALUES,
   isWizardFormFieldEnabled,
   resolveListingApplicationFields,
+  withGuestIdentityQuestionsAsked,
   type ApplicationConfigSlice,
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
@@ -149,6 +150,12 @@ export type WizardStepsProps = {
   errors: RentalWizardErrors;
   /** Unsaved manager preview; live applicants always resolve their pinned published version. */
   applicationConfigOverride?: ApplicationConfigSlice;
+  /**
+   * The applicant has no account (signed out), so Full legal name and Email are asked even when the
+   * template removed them — there is nothing to read them from. A signed-in applicant's come from
+   * their account instead (`applicant-identity.ts`).
+   */
+  guestApplicant?: boolean;
   /**
    * `public` and `portal` are the two live applicant surfaces; `manager` is the
    * manager-on-behalf flow. `editor` is read-only for payment purposes.
@@ -383,12 +390,13 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   // independently-configured question sets. `rentalType` is derived from the
   // step-3 lease-term dropdown (the single listing-permission gate), so the two
   // can never disagree.
-  const applicationConfig = p.applicationConfigOverride ?? applicationConfigForApplicant(
+  const authoredConfig = p.applicationConfigOverride ?? applicationConfigForApplicant(
     listingSub,
     applicationRentalTypeFor(form.rentalType),
     form.applicationTemplateId,
     form.applicationTemplateVersion,
   ).config;
+  const applicationConfig = p.guestApplicant ? withGuestIdentityQuestionsAsked(authoredConfig) : authoredConfig;
   const showWizardField = (key: string) => isWizardFormFieldEnabled(applicationConfig, key);
   const resolvedQuestions = resolveListingApplicationFields(applicationConfig, normalizeCustomApplicationFields);
   const sectionQuestions = (section: ResolvedApplicationField["section"]) => resolvedQuestions.filter((field) => field.section === section);

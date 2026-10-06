@@ -10,7 +10,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
-import { PropertyApplicationFormModal } from "@/components/portal/property-application-form-modal";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { PromotionNewModal } from "@/components/portal/promotion-new-modal";
 import { PromotionDefaultSuggestions } from "@/components/portal/promotion-default-suggestions";
@@ -40,7 +39,6 @@ describe("AddWorkspace editor shells (source)", () => {
       "src/components/portal/property-lease-form-modal.tsx",
       "src/components/portal/service-offering-edit-modal.tsx",
       "src/components/portal/promotion-new-modal.tsx",
-      "src/components/portal/property-application-form-modal.tsx",
       "src/components/portal/pro-vendor-form-modal.tsx",
       "src/components/portal/pro-task-form-modal.tsx",
       "src/components/portal/pro-add-payment-modal.tsx",
@@ -191,27 +189,6 @@ describe("Add promotion workspace chrome", () => {
     await screen.findByRole("dialog", { name: "New promotion" });
     expect(document.querySelector('[data-attr="listing-v2-rail-content"]')?.getAttribute("aria-current")).toBe("step");
     expect(document.querySelector('[data-attr="promotion-new-kind"]')).toBeNull();
-  });
-});
-
-describe("Add application template workspace chrome", () => {
-  it("opens one Name step with the standard footer and no separate Preview step", async () => {
-    render(
-      <PropertyApplicationFormModal
-        open
-        mode="add"
-        templates={[]}
-        onClose={() => {}}
-        onSave={() => true}
-      />,
-    );
-    await screen.findByRole("dialog", { name: "Add application" });
-    expect(document.querySelector('[data-attr="listing-v2-rail-name"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-rail-preview"]')).toBeNull();
-    expect(document.querySelector('[data-attr="property-application-next"]')).toBeNull();
-    const create = document.querySelector('[data-attr="property-application-save"]') as HTMLElement;
-    expect(create.textContent).toContain("Create application");
-    expect(screen.queryByRole("button", { name: "Add application" })).toBeNull();
   });
 });
 

@@ -154,8 +154,9 @@ export function ListingWorkspace({
   /** Enter in a single-line field follows the same validated path as Continue. */
   onContinue?: () => void;
   /**
-   * New / Edit property: the live panel is the right column from lg (captain: "listing preview
-   * should move to the right side"); below lg an eye in the header opens it in a side sheet.
+   * Every door with a live panel (New / Edit property, and every `AddWorkspace` pop-up, which always
+   * passes it): the live panel is the right column from lg (captain: "listing preview should move to
+   * the right side"); below lg an eye in the header opens it in a side sheet.
    */
   previewInEye?: boolean;
 }) {

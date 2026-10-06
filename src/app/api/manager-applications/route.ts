@@ -32,6 +32,7 @@ import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consen
 import { revokeApplicationScopedSmsConsentOnWithdrawal } from "@/lib/sms/application-consent.server";
 import { validateResidentApplicationRowForPersistence } from "@/lib/rental-application/validate-application-submit.server";
 import { fillApplicantIdentityFromAccount } from "@/lib/rental-application/applicant-identity.server";
+import { realApplicantName } from "@/lib/rental-application/applicant-name";
 import { isApplicantWizardRow } from "@/lib/rental-application/applicant-identity";
 import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -1244,6 +1245,25 @@ export async function POST(req: Request) {
           },
           { status: guest.status },
         );
+      }
+      // A guest has no account, so `fillApplicantIdentityFromAccount` (the signed-in branch below) has
+      // nothing to read: a template that removed "Full legal name" would store an application identifying
+      // nobody, and the lease's tenant name, screening and the manager's queue all read that value. The
+      // wizard asks a signed-out applicant for it whatever the template says
+      // (`withGuestIdentityQuestionsAsked`); this is the same rule, fail-closed, on the write. A draft is
+      // still being filled in, so only a submitted row is refused.
+      if (!isDraftShapedApplicationRow(guest.row)) {
+        const guestName =
+          realApplicantName(guest.row.name) || realApplicantName(guest.row.application?.fullLegalName);
+        if (!guestName) {
+          return NextResponse.json(
+            {
+              error: "Enter your full legal name to submit without an account.",
+              fieldErrors: { fullLegalName: "Full legal name is required." },
+            },
+            { status: 400 },
+          );
+        }
       }
       row = prepareApplicantIdentityWrite(anchorServerOwnedSmsConsent({
         ...guest.row,

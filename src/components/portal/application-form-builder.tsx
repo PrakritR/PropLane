@@ -2,7 +2,7 @@
 
 import { type KeyboardEvent, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
-import { WorkspacePreviewTitle } from "@/components/portal/add-workspace/frame";
+import { PreviewPager, clampPreviewIndex, packPreviewSteps, previewStepIndexOf, type PreviewGroup } from "@/components/portal/preview-pager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApplicationQuestionFields, type ExtraQuestionType } from "@/components/portal/application-question-edit-modal";
@@ -119,66 +119,130 @@ function previewSafeField(field: ResolvedApplicationField): ResolvedApplicationF
 }
 
 /**
- * Live read-only preview of ONE application section, bound to the manager's
- * UNSAVED buffered draft — the entire point of the side pane (see the editor
- * modal's Edit/Preview toggle). Renders the exact same `CustomQuestionField`
- * control the applicant wizard uses, in the section's saved question order.
- * Never
- * writes: `onChange` is a no-op and nothing here can trigger a persist call.
+ * The application's questions as the preview pager groups them: each listed section in order with
+ * only the questions an applicant would see (a conditional question stays hidden until its parent is
+ * answered, `isCustomFieldHiddenByCondition`). Exported so the editor can find the step a section is on.
+ */
+export function applicationPreviewGroups(
+  sections: readonly RentalApplicationSection[],
+  fields: readonly ResolvedApplicationField[],
+  answers: Record<string, string>,
+): PreviewGroup<ResolvedApplicationField>[] {
+  const answerRows = fields.map((field) => ({ key: field.key, label: field.label, type: field.type, section: field.section, value: answers[field.key] ?? "" }));
+  return sections.map((section) => ({
+    key: section.id,
+    title: section.title,
+    items: fields.filter((field) => (field.section ?? "additional") === section.id && !isCustomFieldHiddenByCondition(field, answerRows)),
+  }));
+}
+
+/**
+ * The one decision of which step the pane shows, from the SAME live answers the pane packs its steps
+ * from — a step derived from different answers would point at the wrong section. An arrow step the manager took wins, but only while
+ * it still exists (deleting questions must not leave the pane pointing past the end); otherwise the
+ * step of the focused section, or — when that section draws nothing — of the nearest section that
+ * does, forward first and then back, so the preview stays beside what is being edited.
+ */
+export function applicationPreviewStepAim({
+  sections,
+  fields,
+  answers,
+  focusedSectionId,
+  stepPick,
+}: {
+  sections: readonly RentalApplicationSection[];
+  fields: readonly ResolvedApplicationField[];
+  /** The pane's live preview answers — they decide how the steps pack. */
+  answers: Record<string, string>;
+  focusedSectionId: string | null;
+  /** A step the manager stepped to with the pager arrows; null when nothing has been picked. */
+  stepPick: number | null;
+}): number {
+  const groups = applicationPreviewGroups(sections, fields, answers);
+  if (stepPick !== null) return clampPreviewIndex(stepPick, packPreviewSteps(groups).length);
+  const stepOf = (sectionId: string) =>
+    previewStepIndexOf(groups, (field) => (field.section ?? "additional") === sectionId);
+  const from = Math.max(sections.findIndex((section) => section.id === focusedSectionId), 0);
+  for (const section of sections.slice(from)) {
+    const step = stepOf(section.id);
+    if (step >= 0) return step;
+  }
+  for (const section of sections.slice(0, from).reverse()) {
+    const step = stepOf(section.id);
+    if (step >= 0) return step;
+  }
+  return 0;
+}
+
+/**
+ * Live read-only "Applicant sees" panel, bound to the manager's UNSAVED buffered draft — the entire
+ * point of the side pane. It pages through the applicant form in the shared `PreviewPager` (same
+ * header, arrows and card as the move-in form editor's "Resident sees"): a step is a whole section,
+ * with short consecutive sections combined, each section's title above its questions. Every control
+ * is the exact `CustomQuestionField` the applicant wizard uses. Never writes: `onChange` only fills
+ * this pane's own state and nothing here can trigger a persist call.
  */
 export function ApplicationSectionPreviewPane({
-  section,
+  sections,
   fields,
+  formName,
   applicationPreviewPropertyId,
-  stepPosition,
+  index,
+  onIndexChange,
+  answers: controlledAnswers,
+  onAnswersChange,
 }: {
-  section: RentalApplicationSection | null;
-  fields: ResolvedApplicationField[];
+  /** The sections to page through, in applicant order. */
+  sections: readonly RentalApplicationSection[];
+  /** Every question of those sections (any order); sections with none draw nothing. */
+  fields: readonly ResolvedApplicationField[];
+  /** The application's name for the step line; "Application" when it has none yet. */
+  formName?: string;
   /** Resolved by `resolveApplicationPreviewPropertyId` — may be "" (unresolved); never blocks rendering. */
   applicationPreviewPropertyId?: string;
-  /** Static wizard position label — not clickable step tabs (C2-L11-7). */
-  stepPosition?: { index: number; total: number } | null;
+  /** Controlled step; omit and the pane keeps its own. */
+  index?: number;
+  onIndexChange?: (next: number) => void;
+  /**
+   * Controlled preview answers; omit and the pane keeps its own. A caller that also controls `index`
+   * has to own these too — the answers decide how the steps pack.
+   */
+  answers?: Record<string, string>;
+  onAnswersChange?: (next: Record<string, string>) => void;
 }) {
-  // Answers typed into the preview live only in this pane (never persisted) so a
-  // conditional question appears the moment its parent is answered, exactly as in the
-  // applicant wizard (`isCustomFieldHiddenByCondition`).
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const answerRows = fields.map((field) => ({ key: field.key, label: field.label, type: field.type, section: field.section, value: answers[field.key] ?? "" }));
-  const visibleFields = fields.filter((field) => !isCustomFieldHiddenByCondition(field, answerRows));
+  // Answers typed into the preview are never persisted (they only reveal a conditional question the
+  // moment its parent is answered, exactly as in the applicant wizard) but they do decide the step
+  // packing, so a controlling parent holds them and every pane of one editor shares one set.
+  const [ownAnswers, setOwnAnswers] = useState<Record<string, string>>({});
+  const answers = controlledAnswers ?? ownAnswers;
+  const setAnswer = (key: string, value: string) => {
+    const next = { ...answers, [key]: value };
+    setOwnAnswers(next);
+    onAnswersChange?.(next);
+  };
   return (
-    <section data-attr="application-preview-pane">
-    <WorkspacePreviewTitle>Applicant sees</WorkspacePreviewTitle>
-    <div className="space-y-4 rounded-2xl border border-border bg-card p-3.5">
-      <div>
-        {stepPosition && stepPosition.index > 0 ? (
-          <p className="text-xs text-muted" data-attr="application-preview-step-label">
-            Step {stepPosition.index} of {stepPosition.total} · {section?.title ?? "Application"}
-          </p>
-        ) : (
-          <h4 className="text-sm font-bold text-foreground">{section?.title ?? "Application"}</h4>
-        )}
-      </div>
-      {fields.length === 0 ? (
-        <p className="text-sm text-muted" data-attr="application-preview-empty">
-          No questions in this section yet.
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {visibleFields.map((field) => (
-            <CustomQuestionField
-              key={field.id}
-              field={previewSafeField(field)}
-              value={answers[field.key] ?? ""}
-              onChange={(next) => setAnswers((prev) => ({ ...prev, [field.key]: next }))}
-              // An upload would write to storage; every other control only fills this pane's own state.
-              readOnly={isFileCustomFieldType(field.type)}
-              getApplicationId={() => applicationPreviewPropertyId ?? ""}
-            />
-          ))}
-        </div>
+    <PreviewPager
+      heading="Applicant sees"
+      ariaLabel="What the applicant sees"
+      dataAttr="application-preview-pane"
+      attrPrefix="application-preview"
+      formName={formName?.trim() || "Application"}
+      groups={applicationPreviewGroups(sections, fields, answers)}
+      itemKey={(field) => field.id}
+      renderItem={(field) => (
+        <CustomQuestionField
+          field={previewSafeField(field)}
+          value={answers[field.key] ?? ""}
+          onChange={(next) => setAnswer(field.key, next)}
+          // An upload would write to storage; every other control only fills this pane's own state.
+          readOnly={isFileCustomFieldType(field.type)}
+          getApplicationId={() => applicationPreviewPropertyId ?? ""}
+        />
       )}
-    </div>
-    </section>
+      emptyText="No questions in this form yet."
+      index={index}
+      onIndexChange={onIndexChange}
+    />
   );
 }
 

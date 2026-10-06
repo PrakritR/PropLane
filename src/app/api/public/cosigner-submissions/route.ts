@@ -136,6 +136,15 @@ export async function POST(req: Request) {
       const account = await loadApplicantAccountIdentity(db, linkedUser);
       if (!nameAsked) fullName = account.name;
       if (!emailAsked) email = account.email;
+      // An account with no profile name and no email resolves to blanks, and this is a trust-signal
+      // record: refuse rather than store a submission naming nobody. Only a value TAKEN from the
+      // account is judged here — one the form still asked for is validated below as before.
+      if ((!nameAsked && !fullName.trim()) || (!emailAsked && !email.trim())) {
+        return NextResponse.json(
+          { error: "Add your name and email to your account, or answer them here." },
+          { status: 400 },
+        );
+      }
     }
     // Only what the filler typed is validated; a value read from their account needs no format check.
     const identityError = [

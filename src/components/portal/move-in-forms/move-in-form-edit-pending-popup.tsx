@@ -12,7 +12,7 @@ import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/compo
 import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { MoveInFormFrame, MoveInFormResidentCard } from "@/components/portal/move-in-forms/move-in-form-frame";
-import { MoveInFormLivePreview, previewScreens } from "@/components/portal/move-in-forms/move-in-form-live-preview";
+import { MoveInFormLivePreview, moveInPreviewStepOf } from "@/components/portal/move-in-forms/move-in-form-live-preview";
 import { questionCountLabel, type MoveInAnswerMap } from "@/components/portal/move-in-forms/move-in-form-model";
 import { MoveInQuestionsEditor } from "@/components/portal/move-in-forms/move-in-questions-editor";
 import { PropertyFormWizardCard, PropertyFormWizardRow } from "@/components/portal/property-form-wizard-kit";
@@ -127,7 +127,7 @@ function PendingFormEditor({ record, onClose }: { record: MoveInFormRecord; onCl
   ];
 
   const focusQuestion = (key: string) => {
-    const at = previewScreens(record.source, questions, previewAnswers).findIndex((s) => s.kind === "question" && s.question.key === key);
+    const at = moveInPreviewStepOf(record.source, questions, previewAnswers, key);
     if (at >= 0) setPreviewIndex(at);
   };
 
@@ -226,6 +226,7 @@ function PendingFormEditor({ record, onClose }: { record: MoveInFormRecord; onCl
           questions={questions}
           pdfUrl={null}
           index={previewIndex}
+          onIndexChange={setPreviewIndex}
           answers={previewAnswers}
           onAnswersChange={setPreviewAnswers}
         />

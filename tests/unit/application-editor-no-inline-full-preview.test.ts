@@ -11,7 +11,6 @@ const read = (path: string) => readFileSync(path, "utf8");
 describe("application editors draw no inline full-form preview", () => {
   const editors = [
     "src/components/portal/pro-application-questions-editor-modal.tsx",
-    "src/components/portal/property-application-form-modal.tsx",
     "src/components/portal/listing-wizard-v2/inline-application-questions.tsx",
     "src/components/portal/question-editor/application-questions-editor.tsx",
   ];

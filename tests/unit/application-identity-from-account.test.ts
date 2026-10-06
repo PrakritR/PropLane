@@ -338,3 +338,38 @@ describe("a submission whose template still asks for name and email is untouched
     expect(storedRow().application).toMatchObject({ fullLegalName: "Jane Q Applicant", email: "different.contact@example.com" });
   });
 });
+
+describe("a signed-out (guest) applicant has no account to read an identity from", () => {
+  beforeEach(() => {
+    state.records = [{ id: "prop-willow", manager_user_id: "mgr-1", status: "live", property_data: {} }];
+    feeGuardRows.length = 0;
+    state.user = null;
+    state.profile = null;
+  });
+
+  it("refuses a submitted application that carries no name, and stores nothing", async () => {
+    const res = await postUpsert(submittedRow({ email: "guest@example.com" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).fieldErrors).toMatchObject({ fullLegalName: expect.any(String) });
+    expect(stored()).toBeUndefined();
+  });
+
+  it("treats the stored placeholder name as no name", async () => {
+    expect((await postUpsert(submittedRow({ email: "guest@example.com", name: "Applicant" }))).status).toBe(400);
+    expect(stored()).toBeUndefined();
+  });
+
+  it("still refuses a submission with no valid email", async () => {
+    expect((await postUpsert(submittedRow({ email: "", name: "Guest Person" }))).status).toBe(400);
+    expect((await postUpsert(submittedRow({ email: "not-an-email", name: "Guest Person" }))).status).toBe(400);
+    expect(stored()).toBeUndefined();
+  });
+
+  it("lets a draft autosave through: the applicant is still filling the form in", async () => {
+    const res = await postUpsert(
+      submittedRow({ email: "guest@example.com", stage: "In progress", detail: "Started now" }),
+    );
+    expect(res.status).toBe(200);
+    expect(storedRow()).toMatchObject({ name: "", stage: "In progress" });
+  });
+});

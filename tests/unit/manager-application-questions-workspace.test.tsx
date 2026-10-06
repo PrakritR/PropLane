@@ -472,12 +472,12 @@ describe("Preview step", () => {
     await waitWorkspace();
     expandHouseholdSection();
 
-    expect(document.querySelector('[data-attr="application-preview-section"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-preview-body"]')).toBeNull();
     expect(document.querySelector('[data-attr="application-questions-save"]')).toBeNull();
 
     jumpRail("preview");
 
-    expect(document.querySelector('[data-attr="application-preview-section"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="application-preview-body"]')).not.toBeNull();
     const pane = previewPane();
     expect(pane).not.toBeNull();
     expect(within(pane!).getByText("Household application")).toBeTruthy();
@@ -490,7 +490,7 @@ describe("Preview step", () => {
 
     jumpRail("household");
 
-    expect(document.querySelector('[data-attr="application-preview-section"]')).toBeNull();
+    expect(document.querySelector('[data-attr="application-preview-body"]')).toBeNull();
     expect(document.querySelector('[data-attr^="application-question-edit-"]')).not.toBeNull();
     expect(persistOnServer).not.toHaveBeenCalled();
   });

@@ -131,24 +131,24 @@ describe("shared question renderer", () => {
 });
 
 describe("builder live preview", () => {
-  it("is the plain Resident sees card: the step label and the live field, no Back or Next, uploaded forms start on the document", () => {
-    const questions = [q("a"), q("b")];
+  it("pages a whole section at a time and starts uploaded forms on the document", () => {
+    const onIndex = vi.fn();
+    const questions = [q("a", { section: "Keys" }), q("b", { section: "Keys" })];
     const { rerender } = render(
-      <MoveInFormLivePreview name="Keys" source="built" questions={questions} pdfUrl={null} index={0} answers={{}} onAnswersChange={() => {}} />,
+      <MoveInFormLivePreview name="Keys" source="built" questions={questions} pdfUrl={null} index={0} onIndexChange={onIndex} answers={{}} onAnswersChange={() => {}} />,
     );
+    // Both questions of the one section share step 1 under the section title.
     expect(screen.getByText("Label a")).toBeTruthy();
-    expect(screen.getByText("Step 1 of 2 · Keys")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Next question|Previous question|Back|Next/ })).toBeNull();
-    rerender(
-      <MoveInFormLivePreview name="Keys" source="built" questions={questions} pdfUrl={null} index={1} answers={{}} onAnswersChange={() => {}} />,
-    );
     expect(screen.getByText("Label b")).toBeTruthy();
-    expect(screen.getByText("Step 2 of 2 · Keys")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Keys" })).toBeTruthy();
+    expect(screen.getByText("Step 1 of 1 · Keys")).toBeTruthy();
     rerender(
-      <MoveInFormLivePreview name="Pets" source="upload" questions={questions} pdfUrl={null} index={0} answers={{}} onAnswersChange={() => {}} />,
+      <MoveInFormLivePreview name="Pets" source="upload" questions={questions} pdfUrl={null} index={0} onIndexChange={onIndex} answers={{}} onAnswersChange={() => {}} />,
     );
-    expect(screen.getByText("Step 1 of 3 · Pets")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 2 · Pets")).toBeTruthy();
     expect(screen.getByText("The PDF shows here")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+    expect(onIndex).toHaveBeenCalledWith(1);
   });
 
   it("shows a placeholder for a question still being typed", () => {

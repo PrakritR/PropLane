@@ -31,7 +31,8 @@ them; do not invent a variant.
 - One header: title, save state, "✦ Ask PropLane", ✕. Left step rail, centre step, right
   preview pane, footer Delete / Discard draft on the left and Back then one primary on the right.
 - ✕ and Esc close and **keep a draft** ("Draft saved") — no dismiss-only Cancel/Close button
-  and no "Discard?" confirm.
+  and no "Discard?" confirm on the way out. The footer's red Delete is the one door that confirms,
+  and it deletes the draft rather than keeping it.
 - Footer and dialog buttons sit **side by side on one row**; never stack them.
 - Raw `<select>`/`Select` is never used for a pick — `FieldSingleSelect` /
   `CheckboxMultiSelect`.
@@ -43,8 +44,9 @@ them; do not invent a variant.
   `aria-disabled`; tapping it refuses with its `lockedReason` as a toast ("Verify your phone
   first"). A one-step popup renders no tabs at all, and the "Step N of M" count stays in the
   footer. Pickers sit as label-left, value-right rows in one rounded card (`data-wizard-picker`,
-  `globals.css`); free text stays stacked. New property keeps its live panel as a fixed column from
-  1200px and as an eye in the header below it (`ListingWorkspace previewInEye`).
+  `globals.css`); free text stays stacked. A door with a live panel keeps it as a fixed column from
+  `lg` and as an eye in the header below that (`ListingWorkspace previewInEye`, which `AddWorkspace`
+  always passes) — never an inline copy of the panel in the step body.
 - The x keeps what was typed ("Draft saved") on every Add door: pass `keepsDraft` + `onDiscardDraft` to
   `AddWorkspace` and keep the answers in memory (`useWizardDraft`, `useWorkspaceDraft`,
   `wizard-draft-memory.ts`). Only finishing the add, or the Discard draft icon, forgets them.
@@ -151,17 +153,24 @@ with the outcome. Phone: a bottom sheet with a grab handle. Every button has a l
 Every multi-field create or edit (Add property / listing editor, Schedule tour, Add resident,
 Add applicant, Add lease, …) is the same **full-screen editor**, never a small modal:
 - **Header:** title (+ status chip and address for an existing record), save state ("Not saved
-  yet" / "Saved"), "✦ Ask PropLane", ✕.
+  yet" / "Saved"), the door's **one** Upload icon when it reads a file (`AddWorkspace` /
+  `ListingEditorV2` `headerUpload`: Upload file · Take photo · Scan, on every step, jumping to the
+  step that hosts the reading / replace-confirm strip), "✦ Ask PropLane", ✕. A step's own
+  "Start from a file" strip then draws no second Upload icon (`WorkspaceHeaderUploadPresent`).
 - **Left column:** a drop card ("Add documents" / "Contact and tour") or cover photo; a "● N
   things to finish ›" card; the step list (title + one-line summary, red dot while
   required info is missing, the active step as a white card with a blue outline).
-- **Centre:** a big step title, section cards with two-column fields (required *), and tile
-  grids, radio cards, stepper rows or a "Start from a file" strip where the step needs them.
+- **Centre:** a step progress bar (desktop only; one segment per rail step, filled up to the current
+  one, red for a step the manager pressed Next past while it still needed something — none on a
+  one-step door or a tab rail), a big step title, section cards with two-column fields (required *),
+  and tile grids, radio cards, stepper rows or a "Start from a file" strip where the step needs them.
 - **Right column:** "<THING> PREVIEW" (facts, with "Not set" for anything unset) and "THIS WILL
   CREATE" (✓ will happen · ! needs attention · – won't happen), and it must be true to what the
   commit really does.
-- **Footer:** one shared shell for every `AddWorkspace` door (`src/lib/editor-footer-state.ts`, pure, so
-  the editors and their test read one rule): the red **Delete** (editing) or **Discard draft** on the left,
+- **Footer:** one shared shell for every `AddWorkspace` door and the property wizard
+  (`src/lib/editor-footer-state.ts`, pure, so the editors and their test read one rule): the red
+  **Delete** on the left — editing a record, or, on a new property, the confirm that deletes the draft
+  the ✕ would have kept — else **Discard draft**,
   "Step n of N" in the middle, then **Back** (never on step 1) and **Next** on the right. On the last step
   Next becomes the commit — **Save** when editing, **Create** when adding, or the door's own word
   ("Add resident & send notice"). A tab rail has no steps to walk: no Back, and the primary always commits.

@@ -20,7 +20,17 @@ draws what it returns.
   floor): full legal name, email and phone are removable, optional and
   retypable like any other question; every section has a live switch and every
   question's ⋯ menu offers Edit · Duplicate · Delete. The server falls back to the
-  signed-in account's name and email when those questions are removed.
+  signed-in account's name and email when those questions are removed — the
+  account's email is authoritative whenever there is one, so an answered email
+  that differs is never honoured (`applicant-identity.ts`). A signed-OUT
+  applicant has no account to fall back to, so the wizard asks a guest for Full
+  legal name and Email whatever the template says
+  (`withGuestIdentityQuestionsAsked`) and the guest submit path refuses a
+  submitted row with no name. **The co-signer form follows the same rule**: a
+  signed-in filler's unasked name and email come from their account (refused
+  when the account holds no such value), a signed-out co-signer is still asked for
+  both, and phone is validated only when the form asks for it or the filler
+  typed one.
 - **Two structural limits, not locks.** A built-in whose choices the wizard
   compares by stored value (`BUILT_IN_ANSWER_VALUES`) can have each choice
   reworded but not added, removed or reordered — position *i* stores value *i*.

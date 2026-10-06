@@ -16,9 +16,8 @@ import { AddWorkspace, workspaceSaveState, type AddWorkspaceStep } from "@/compo
 import { WizardMultiSelect } from "@/components/portal/add-workspace/parts";
 import { FloatingLabelField, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { MoveInQuestionsEditor } from "@/components/portal/move-in-forms/move-in-questions-editor";
-import { MoveInFormLivePreview, previewScreens } from "@/components/portal/move-in-forms/move-in-form-live-preview";
+import { MoveInFormLivePreview, moveInPreviewStepOf } from "@/components/portal/move-in-forms/move-in-form-live-preview";
 import {
-  audienceSummary,
   cleanMoveInTemplateForSave,
   dueForTriggerChange,
   dueOptionsForTrigger,
@@ -303,8 +302,7 @@ export function MoveInFormEditorModal({
   };
 
   const focusQuestion = (key: string) => {
-    const screens = previewScreens(draft.source, draft.questions, previewAnswers);
-    const at = screens.findIndex((screen) => screen.kind === "question" && screen.question.key === key);
+    const at = moveInPreviewStepOf(draft.source, draft.questions, previewAnswers, key);
     if (at >= 0) setPreviewIndex(at);
   };
 
@@ -629,6 +627,7 @@ export function MoveInFormEditorModal({
           questions={draft.questions}
           pdfUrl={pdfUrl}
           index={previewIndex}
+          onIndexChange={setPreviewIndex}
           answers={previewAnswers}
           onAnswersChange={setPreviewAnswers}
         />

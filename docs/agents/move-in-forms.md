@@ -141,8 +141,12 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 - **The editor is the application editor's frame** (`AddWorkspace`: Form, Questions, Who & when;
   red Delete on the left in edit) and its Questions step draws each question
   through `BuilderQuestionCard`, the same row the application editor uses. The right-hand
-  "Resident sees" pane is the application editor's card ("Step n of N · form name"), not a phone
-  frame. Its footer is the shared `AddWorkspace` shell both editors read, not one of its own
+  "Resident sees" pane is the shared `PreviewPager` (`src/components/portal/preview-pager.tsx`),
+  the one the application editor's "Applicant sees" also draws and the owner of that contract:
+  "Step n of N · form name" with ‹ › step icon buttons, a whole section per step (short
+  consecutive sections combined, a section never split), an uploaded form's PDF as step 1 — not a
+  phone frame, and not one question per step. Opening a question in the middle column moves the
+  pane to that question's step. Its footer is the shared `AddWorkspace` shell both editors read, not one of its own
   (`editor-footer-state.ts`; the shape is [`ui-page-structure.md`](ui-page-structure.md) § 4b).
 - **A property's Forms is its own rail item** in the Leasing group right after Lease (Applications · Lease ·
   Forms · Move-in · Pricing; tab id `forms`, `ManagerPropertyFormsPanel`). Its header card is the shared underline
@@ -192,8 +196,8 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 
 ## Kinds, templates, triggers and links (Move-in hub, plan `move-in-hub-1003`)
 
-- **A new property starts with a Move-in checklist for every lease type** (`submissionWithDefaultLeasingSetup`, `leasing-quick-add.ts`, with its Long-term/Short-term/Co-signer
-  applications and leases). It sends only once the manager has SAVED the property (the server ignores a move-in list that was never stored). Every other form is added by hand;
+- **A new property starts with a Move-in checklist for every lease type** (`submissionWithDefaultLeasingSetup`, `leasing-quick-add.ts`, alongside the applications and leases
+  the property's stays admit — short-stay seeds only where the property offers a short stay, see [`lease-generation.md`](lease-generation.md) § Lease `defaultFor` and the stay tabs). It sends only once the manager has SAVED the property (the server ignores a move-in list that was never stored). Every other form is added by hand;
   the list's bottom "Quick add" row re-adds any starter the property lacks (as a form that sends only when the manager sends it).
 - **Applies to** (the editor's label for Lease type; stored shape unchanged, `MoveInFormTemplate.leaseType`: absent/`all`, `long-term`, `short-term`; a specific lease is `linkedLeaseTemplateIds`, picked under "Specific leases…"): dispatch on a signed lease sends only the forms
   whose Applies to admits the signed lease's kind (the lease template's `kind`, else the application's rental type; an unknown kind never matches a restricted form).

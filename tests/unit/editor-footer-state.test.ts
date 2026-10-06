@@ -63,8 +63,10 @@ describe("both editors use the one footer", () => {
 
   it("the move-in editor's Resident sees pane is the application editor's card, not a phone frame", () => {
     const preview = read("src/components/portal/move-in-forms/move-in-form-live-preview.tsx");
-    expect(preview).toContain("rounded-2xl border border-border bg-card p-3.5");
+    const pager = read("src/components/portal/preview-pager.tsx");
+    expect(pager).toContain("rounded-2xl border border-border bg-card p-3.5");
     expect(preview).toContain("Resident sees");
+    expect(preview).toContain("<PreviewPager");
     expect(preview).not.toContain("border-[7px]");
     expect(preview).not.toContain("Next question");
     expect(preview).not.toContain("Previous question");

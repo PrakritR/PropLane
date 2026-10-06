@@ -36,7 +36,12 @@ import { acceptedLeaseTermsFromStored } from "./lease-terms";
 import type { RentalWizardErrors, RentalWizardFormState } from "./types";
 import { digitsOnly, parseMoneyInput } from "./masks";
 import { customFieldsForWizardStep, listingCustomApplicationFields, validateCustomFieldAnswers } from "./custom-fields";
-import { isWizardFormFieldEnabled, isWizardFormFieldRequired, type ApplicationConfigSlice } from "./application-field-catalog";
+import {
+  isWizardFormFieldEnabled,
+  isWizardFormFieldRequired,
+  withGuestIdentityQuestionsAsked,
+  type ApplicationConfigSlice,
+} from "./application-field-catalog";
 import { applicationConfigForApplicant } from "./application-template-config";
 
 function startOfTodayUTC(): Date {
@@ -91,6 +96,12 @@ function validEnteredMoney(value: string): boolean {
 export type ValidateRentalWizardStepOptions = {
   property?: Pick<MockProperty, "id" | "listingSubmission"> | null;
   configOverride?: ApplicationConfigSlice;
+  /**
+   * The applicant is signed OUT, so there is no account to read their name and email from
+   * (`withGuestIdentityQuestionsAsked`). Those two questions are asked and required even when the
+   * template removed them, which is the same rule the guest submit path enforces server-side.
+   */
+  guestApplicant?: boolean;
 };
 
 function resolveWizardProperty(
@@ -147,7 +158,8 @@ export function validateRentalWizardStep(
   if (templateResolution.pinMissing) {
     return { _general: "This application form version is unavailable. Ask the property manager to reopen it." };
   }
-  const configSlice = opts?.configOverride ?? templateResolution.config;
+  const authored = opts?.configOverride ?? templateResolution.config;
+  const configSlice = opts?.guestApplicant ? withGuestIdentityQuestionsAsked(authored) : authored;
   const fieldRequired = (key: string) => isWizardFormFieldRequired(configSlice, key);
   const fieldEnabled = (key: string) => isWizardFormFieldEnabled(configSlice, key);
   const e = validateStandardWizardStep(step, f, fieldRequired, prop, fieldEnabled);

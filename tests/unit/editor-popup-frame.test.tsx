@@ -102,8 +102,10 @@ describe("the four popups use the shared frame parts", () => {
   });
 
   it("the preview card titles share one style: Applicant sees, Resident sees, Lease preview, What a resident pays", () => {
-    expect(src("src/components/portal/application-form-builder.tsx")).toContain("<WorkspacePreviewTitle>Applicant sees</WorkspacePreviewTitle>");
-    expect(src("src/components/portal/move-in-forms/move-in-form-live-preview.tsx")).toContain("<WorkspacePreviewTitle>Resident sees</WorkspacePreviewTitle>");
+    // Both editors draw their panel through the one PreviewPager, which owns the title element.
+    expect(src("src/components/portal/preview-pager.tsx")).toContain("<WorkspacePreviewTitle>{heading}</WorkspacePreviewTitle>");
+    expect(src("src/components/portal/application-form-builder.tsx")).toContain('heading="Applicant sees"');
+    expect(src("src/components/portal/move-in-forms/move-in-form-live-preview.tsx")).toContain('heading="Resident sees"');
     expect(src(POPUPS.lease)).toContain("<WorkspacePreviewTitle>Lease preview</WorkspacePreviewTitle>");
     // The pricing receipt titles its card with PanelSection, which draws the identical heading style.
     const frameStyle = /text-\[11\.5px\] font-bold uppercase tracking-\[0\.06em\] text-muted/;
