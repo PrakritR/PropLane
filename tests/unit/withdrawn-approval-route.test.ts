@@ -209,6 +209,47 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
     expect(PROFILE_UPDATE_CALLS).toBe(0);
   });
 
+  it("refuses an applicationId that resolves to someone else's row instead of judging this applicant by it", async () => {
+    // Every guard here reads the resolved row to decide something about `email`, so a row
+    // belonging to another applicant must never become the one they are judged by: an
+    // unblocked, non-withdrawn sibling row would otherwise vouch for this approval.
+    APP_ROWS = [
+      WITHDRAWN_ROW,
+      {
+        id: "AXIS-OTHER",
+        row_data: appRow({ id: "AXIS-OTHER" }),
+        resident_email: "someone-else@example.com",
+        manager_user_id: "mgr-1",
+        property_id: "mgr-demo-pioneer",
+      },
+    ];
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(
+      patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-OTHER" }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/does not match/i);
+    expect(PROFILE_UPDATE_CALLS).toBe(0);
+  });
+
+  it("refuses an applicationId outside the caller's portfolio rather than keying the guard on it", async () => {
+    APP_ROWS = [
+      {
+        id: "AXIS-FOREIGN",
+        row_data: appRow({ id: "AXIS-FOREIGN" }),
+        resident_email: "applicant@example.com",
+        manager_user_id: "other-landlord",
+        property_id: "other-landlord-prop",
+      },
+    ];
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(
+      patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-FOREIGN" }),
+    );
+    expect(res.status).toBe(403);
+    expect(PROFILE_UPDATE_CALLS).toBe(0);
+  });
+
   it("does NOT let the email fallback cross landlords — another manager's withdrawal cannot block this approval", async () => {
     // Same applicant, different landlord's record. Blocking here would permanently
     // and invisibly reject this manager's legitimate approval.
@@ -277,7 +318,13 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
   });
 
   it("still approves a normal (non-withdrawn) application — the guard does not over-block", async () => {
-    APP_ROWS = [{ id: "AXIS-9001", row_data: appRow({ withdrawnAt: null }), resident_email: "applicant@example.com" }];
+    APP_ROWS = [{
+      id: "AXIS-9001",
+      row_data: appRow({ withdrawnAt: null }),
+      resident_email: "applicant@example.com",
+      manager_user_id: "mgr-1",
+      property_id: "mgr-demo-pioneer",
+    }];
     const { PATCH } = await import("@/app/api/portal/resident-approval/route");
     const res = await PATCH(
       patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }),

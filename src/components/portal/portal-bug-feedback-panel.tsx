@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, MessageSquarePlus, Star } from "lucide-react";
+import { ChevronRight, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import {
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import {
   PortalSettingsGroup,
   PortalSettingsSection,
@@ -36,7 +35,6 @@ import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { track } from "@/lib/analytics/track-client";
 import { openNativeStoreListing, requestNativeReview } from "@/lib/native/app-review";
 import { cn } from "@/lib/utils";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 
 function formatWhen(iso: string) {
   try {
@@ -185,17 +183,18 @@ export function PortalBugFeedbackPanel({
     </div>
   ) : null;
 
-  const addFeedbackRow = (
-    <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
-      <PortalListAddRow
-        label="Add"
-        ariaLabel="Add feedback"
-        hint="Share an idea or report an issue"
-        icon={MessageSquarePlus}
-        onClick={() => setSubmitOpen(true)}
-        dataAttr="feedback-add"
-      />
-    </div>
+  const commandBar = (
+    <PortalListControlStack
+      className="mb-2 max-lg:mb-1.5"
+      variant="command"
+      primary={
+        <PortalPrimaryIconAction
+          label="Add feedback"
+          data-attr="feedback-add"
+          onClick={() => setSubmitOpen(true)}
+        />
+      }
+    />
   );
 
   // App only: a standing way to rate, so the App Store is never gated behind
@@ -225,9 +224,9 @@ export function PortalBugFeedbackPanel({
 
   const body = (
     <div className="space-y-2">
-      {feedbackCards}
+      {commandBar}
+      {feedbackCards ?? <PortalEmptyState title="No feedback yet" icon="feedback" />}
       {rateAppRow}
-      {addFeedbackRow}
     </div>
   );
 

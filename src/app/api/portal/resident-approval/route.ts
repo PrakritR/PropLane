@@ -27,6 +27,12 @@ type WithdrawnLookup = {
   stored: DemoApplicantRow | null;
   storedId: string;
   matchedBy: "id" | "email";
+  /**
+   * The body's `applicationId` named a real row that is not this applicant's, or is outside the
+   * caller's portfolio. Never treated as "no application": a mismatched id must refuse, not fall
+   * through to a guard keyed on somebody else's record.
+   */
+  mismatched?: boolean;
 };
 
 type StoredApprovalApplication = {
@@ -160,30 +166,62 @@ export async function PATCH(req: Request) {
     // who explicitly pulled out. A withdrawal is a reversible stamp, so re-submission
     // (not un-withdraw) is the intended path back to approvable.
     //
-    // The ID lookup is deliberately NOT scoped to `manager_user_id`: a co-managed row
-    // keeps the linked OWNER's id, and an admin never owns the record, so scoping
-    // made the guard silently never fire for exactly the callers the UI check cannot
-    // be trusted for. The row is reduced to a single boolean here and no part of it
-    // is ever returned to the client. A bogus/unknown `applicationId` must not
-    // disable the guard either, so it falls back to a resident-email lookup — and
-    // THAT one has no id to anchor on, so it is restricted to records the caller owns
-    // or co-manages (an unrelated landlord's withdrawal must never reject this
-    // manager's legitimate approval). A query error fails CLOSED (matching
+    // The ID lookup's QUERY is deliberately NOT scoped to `manager_user_id`: a co-managed
+    // row keeps the linked OWNER's id, and an admin never owns the record, so scoping the
+    // select made the guard silently never fire for exactly the callers the UI check cannot
+    // be trusted for. The row it finds is then held to the same two facts the SMS branch
+    // above requires — it is THIS applicant's row and it is in the caller's portfolio —
+    // because every guard below reads that row to decide something about `email`. The row is
+    // reduced to booleans here and no part of it is ever returned to the client. A
+    // bogus/unknown `applicationId` must not disable the guard either, so it falls back to a
+    // resident-email lookup — and THAT one has no id to anchor on, so it is restricted to
+    // records the caller owns or co-manages (an unrelated landlord's withdrawal must never
+    // reject this manager's legitimate approval). A query error fails CLOSED (matching
     // `resolveApplicationWriteOwner`).
     if (!actorIsResident && approved) {
+      // One read of the caller's co-managed property scope, shared by both lookups.
+      let scopedPropertyIdsPromise: Promise<Set<string>> | null = null;
+      const scopedPropertyIdsForCaller = () => {
+        scopedPropertyIdsPromise ??= Promise.all([
+          linkedPropertyIdsForModule(svc, user.id, "applications"),
+          linkedPropertyIdsForModule(svc, user.id, "residents"),
+        ]).then(([appIds, resIds]) => new Set<string>([...appIds, ...resIds]));
+        return scopedPropertyIdsPromise;
+      };
+      const callerHoldsApplication = async (record: {
+        manager_user_id?: string | null;
+        property_id?: string | null;
+        assigned_property_id?: string | null;
+      }): Promise<boolean> => {
+        if (actorIsAdmin) return true;
+        if (String(record.manager_user_id ?? "").trim() === user.id) return true;
+        const scopedPropertyIds = await scopedPropertyIdsForCaller();
+        const propertyId = String(record.property_id ?? "").trim();
+        const assignedPropertyId = String(record.assigned_property_id ?? "").trim();
+        return Boolean(
+          (propertyId && scopedPropertyIds.has(propertyId)) ||
+            (assignedPropertyId && scopedPropertyIds.has(assignedPropertyId)),
+        );
+      };
+
       const loadById = async (): Promise<WithdrawnLookup> => {
         const { data, error } = await svc
           .from("manager_application_records")
-          .select("id, row_data")
+          .select("id, resident_email, manager_user_id, property_id, assigned_property_id, row_data")
           .in("id", idVariants(applicationId))
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
         if (error) return { error: true, stored: null, storedId: "", matchedBy: "id" };
+        const record = data as StoredApprovalApplication | null;
+        if (!record) return { error: false, stored: null, storedId: "", matchedBy: "id" };
+        if (normalizeEmail(record.resident_email) !== email || !(await callerHoldsApplication(record))) {
+          return { error: false, stored: null, storedId: "", matchedBy: "id", mismatched: true };
+        }
         return {
           error: false,
-          stored: (data?.row_data ?? null) as DemoApplicantRow | null,
-          storedId: String(data?.id ?? "").trim(),
+          stored: (record.row_data ?? null) as DemoApplicantRow | null,
+          storedId: String(record.id ?? "").trim(),
           matchedBy: "id",
         };
       };
@@ -201,11 +239,7 @@ export async function PATCH(req: Request) {
           if (actorIsAdmin) return records[0] ?? null;
           const owned = records.find((record) => String(record.manager_user_id ?? "") === user.id);
           if (owned) return owned;
-          const [appIds, resIds] = await Promise.all([
-            linkedPropertyIdsForModule(svc, user.id, "applications"),
-            linkedPropertyIdsForModule(svc, user.id, "residents"),
-          ]);
-          const scopedPropertyIds = new Set<string>([...appIds, ...resIds]);
+          const scopedPropertyIds = await scopedPropertyIdsForCaller();
           return (
             records.find((record) => {
               const pid = String(record.property_id ?? "").trim();
@@ -226,6 +260,9 @@ export async function PATCH(req: Request) {
       let lookup = applicationId ? await loadById() : null;
       if (lookup?.error) {
         return NextResponse.json({ error: "Could not verify the application status." }, { status: 500 });
+      }
+      if (lookup?.mismatched) {
+        return NextResponse.json({ error: "The application does not match this applicant." }, { status: 403 });
       }
       if (!lookup?.stored) {
         lookup = await loadByEmail();
