@@ -68,6 +68,18 @@ describe("PublicServicePage", () => {
     expect(document.body.textContent).not.toMatch(/\d{3,5} [A-Z][a-z]+ (St|Ave|Rd)|Unit|98115/);
   });
 
+  it("the choices are primary actions in the page header, above the description, not a strip at the bottom", async () => {
+    render(<PublicServicePage />);
+    await screen.findByText("Kitchen sink leak");
+    const header = document.querySelector('[data-attr="public-service-header"]')!;
+    expect(header.querySelector('[data-attr="public-service-actions"]')).toBeTruthy();
+    expect(header.querySelector('[data-attr="public-service-bid"]')).toBeTruthy();
+    const page = document.querySelector('[data-attr="public-service-page"]')!;
+    const description = screen.getByText("Slow leak under the sink.");
+    expect(header.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(page.querySelectorAll('[data-attr="public-service-actions"]')).toHaveLength(1);
+  });
+
   it("signed out: parks the link in a cookie and goes to vendor sign-up", async () => {
     render(<PublicServicePage />);
     fireEvent.click(await screen.findByRole("button", { name: "Bid now" }));

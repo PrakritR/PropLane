@@ -1,6 +1,7 @@
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { PublicBoardServiceView, PublicServiceView } from "@/lib/public-service-projection";
 import type { VendorJobChoiceId } from "@/lib/vendor-job-choice";
+import { syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
 
 /**
  * Browser-side callers for the vendor work share routes (vendor-work-share-1006). Each returns
@@ -75,16 +76,22 @@ export async function fetchBoardServices(filters: { trade?: string; radiusMi?: n
 }
 
 /** Vendor: request a published job; `choice` only decides where the UI goes next. */
-export function requestBoardJob(ref: string, choice: VendorJobChoiceId) {
-  return postJson<{ workOrderId: string; choice: VendorJobChoiceId }>("/api/vendor/work-board", { ref, choice });
+export async function requestBoardJob(ref: string, choice: VendorJobChoiceId) {
+  const result = await postJson<{ workOrderId: string; choice: VendorJobChoiceId }>("/api/vendor/work-board", { ref, choice });
+  // The offer now exists server-side; refresh the vendor's service cache so the job page the caller
+  // navigates to next finds it instead of reading a stale list.
+  if (result.ok) await syncManagerWorkOrdersFromServer({ force: true });
+  return result;
 }
 
 /** Vendor (signed in): redeem a texted link. */
-export function redeemServiceLink(token: string, choice?: VendorJobChoiceId) {
-  return postJson<{ workOrderId: string; choice: VendorJobChoiceId; alreadyHeld: boolean }>("/api/vendor/service-link/redeem", {
+export async function redeemServiceLink(token: string, choice?: VendorJobChoiceId) {
+  const result = await postJson<{ workOrderId: string; choice: VendorJobChoiceId; alreadyHeld: boolean }>("/api/vendor/service-link/redeem", {
     token,
     choice,
   });
+  if (result.ok) await syncManagerWorkOrdersFromServer({ force: true });
+  return result;
 }
 
 /** Public: the allowlist view behind a token. */

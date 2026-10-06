@@ -394,8 +394,6 @@ async function openOfferForVendor(
       vendor_user_id: input.vendorUserId,
       manager_user_id: input.managerUserId,
       status: "sent",
-      declined_reason: null,
-      declined_at: null,
       expires_at: expiresAt ? expiresAt.toISOString() : null,
       updated_at: now,
     },

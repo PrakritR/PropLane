@@ -64,15 +64,18 @@ describe("Find work is a fifth tab, not a fifth stage", () => {
     expect(VENDOR_WORK_ORDER_TABS.some((t) => (t.id as string) === VENDOR_FIND_WORK_TAB)).toBe(false);
   });
 
-  it("the panel appends Find work itself and uses the one choice bar on the board and on Open services", () => {
+  it("the panel appends Find work itself; the board's three choices live in each row's ⋯ menu, not a button strip", () => {
     const panel = read("src/components/portal/vendor-work-orders-panel.tsx");
     expect(panel).toContain("VendorJobChoiceBar");
     expect(panel).toContain('label: "Find work"');
     expect(panel).toContain("VENDOR_FIND_WORK_TAB");
     expect(panel).toContain("vendorJobChoiceHref");
     const list = read("src/components/portal/vendor-find-work-list.tsx");
-    expect(list).toContain("VendorJobChoiceBar");
+    expect(list).not.toContain("VendorJobChoiceBar");
+    expect(list).toContain("RowActionsMenu");
     expect(list).toContain("VendorServiceCardRow");
+    // The captain's order: Bid now, Needs an estimate visit, Message the manager.
+    expect(list).toContain('["bid", "estimate", "message"]');
     expect(list).not.toMatch(/Badge|portal-badge|rounded-full/);
     expect(read("src/components/portal/vendor-job-choice-bar.tsx")).not.toMatch(/Badge|portal-badge|rounded-full/);
   });

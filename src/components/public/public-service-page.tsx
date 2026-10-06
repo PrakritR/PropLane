@@ -108,34 +108,21 @@ export function PublicServicePage() {
 
   const place = [service.trade, service.area].filter(Boolean).join(" · ");
   return (
-    <div className="mx-auto w-full max-w-[520px] px-4 py-10 sm:px-0" data-attr="public-service-page">
+    <div className="mx-auto w-full max-w-[640px] px-4 py-10 sm:px-0" data-attr="public-service-page">
       <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
-        <h1 className="text-2xl font-semibold text-foreground" data-attr="public-service-title">
-          {service.title}
-        </h1>
-        <p className="mt-1 text-sm text-muted">{place}</p>
-        {service.description ? <p className="mt-4 text-[15px] leading-relaxed text-foreground">{service.description}</p> : null}
-        <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-          <Fact label="When" value={service.when} />
-          <Fact label="Budget" value={service.budget} />
-          <Fact label="Posted by" value={service.postedBy} />
-        </dl>
-        {service.photos.length > 0 ? (
-          <div className="mt-4 grid grid-cols-2 gap-2" data-attr="public-service-photos">
-            {service.photos.map((src, index) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={index} src={src} alt={`Photo ${index + 1}`} className="h-28 w-full rounded-xl border border-border object-cover" />
-            ))}
+        <div className="flex flex-col gap-4" data-attr="public-service-header">
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground" data-attr="public-service-title">
+              {service.title}
+            </h1>
+            <p className="mt-1 text-sm text-muted">{place}</p>
           </div>
-        ) : null}
-
-        {state === "closed" ? (
-          <p className="mt-6 text-sm font-medium text-foreground" data-attr="public-service-filled">
-            This job has been filled.
-          </p>
-        ) : (
-          <>
-            <div className="mt-6 flex flex-wrap gap-2">
+          {state === "closed" ? (
+            <p className="text-sm font-medium text-foreground" data-attr="public-service-filled">
+              This job has been filled.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2" data-attr="public-service-actions">
               {VENDOR_JOB_CHOICES.map((option) => (
                 <Button
                   key={option.id}
@@ -153,14 +140,28 @@ export function PublicServicePage() {
                 I have an account
               </Button>
             </div>
-            {notice ? (
-              <p className="mt-3 text-sm text-danger" role="alert" data-attr="public-service-notice">
-                {notice}
-              </p>
-            ) : null}
-            <p className="mt-4 text-xs text-muted">The address is shared once you&apos;re hired.</p>
-          </>
-        )}
+          )}
+          {notice ? (
+            <p className="text-sm text-danger" role="alert" data-attr="public-service-notice">
+              {notice}
+            </p>
+          ) : null}
+        </div>
+        {service.description ? <p className="mt-5 text-[15px] leading-relaxed text-foreground">{service.description}</p> : null}
+        <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+          <Fact label="When" value={service.when} />
+          <Fact label="Budget" value={service.budget} />
+          <Fact label="Posted by" value={service.postedBy} />
+        </dl>
+        {service.photos.length > 0 ? (
+          <div className="mt-4 grid grid-cols-2 gap-2" data-attr="public-service-photos">
+            {service.photos.map((src, index) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={index} src={src} alt={`Photo ${index + 1}`} className="h-28 w-full rounded-xl border border-border object-cover" />
+            ))}
+          </div>
+        ) : null}
+        <p className="mt-5 text-xs text-muted">The address is shared once you&apos;re hired.</p>
       </div>
     </div>
   );
