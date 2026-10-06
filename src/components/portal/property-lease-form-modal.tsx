@@ -139,6 +139,8 @@ function LeaseOptionCheckbox({
 
 export const LEASE_PREVIEW_DOCUMENT_SCOPE = "lease-document-preview-scope";
 
+const LEASE_UPLOAD_ACCEPT = "application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 function validateLeaseDraft(draft: LeaseConfigDraft, mode: PropertyLeaseDocumentMode): string | null {
   if (mode !== "upload") return null;
   return draft.leaseTemplateDocUrl?.trim()
@@ -569,6 +571,18 @@ export function PropertyLeaseFormModal({
     );
   };
 
+  // The pop-up header's single Upload icon (every step, Add mode). Same door as the Lease step's
+  // strip: jump to the step that hosts the strip + staged-import card so the reading state and the
+  // "Replace what you typed?" confirm are visible, then run the one existing handler.
+  const onPickLeaseFromHeader = (file: File) => {
+    setStepIdx(0);
+    setStartFrom("upload");
+    setSectionsUploadFileName(file.name);
+    if (documentMode !== "upload") handleDocumentModeChange("upload");
+    if (!label.trim()) setLabel(deriveFormNameFromFileName(file.name));
+    onPickLeaseTemplateDoc(file);
+  };
+
   // F016: writes a staged import into the lease being edited — the same
   // state the parse success handler used to set immediately. This is the
   // ONLY place that happens; picking a file never does it on its own.
@@ -995,6 +1009,7 @@ export function PropertyLeaseFormModal({
       discardTitle="Discard this lease?"
       assistantContext={assistantContext}
       assistantScopeKey="Lease modal"
+      headerUpload={mode === "add" ? { accept: LEASE_UPLOAD_ACCEPT, onPick: onPickLeaseFromHeader, disabled: templateUploading || parsingLease || saving, dataAttr: "property-lease-header-upload", label: "Upload lease" } : undefined}
       sidePanel={htmlPreview}
       lastLabel={mode === "add" ? "Create lease" : "Save"}
       lastDisabled={templateUploading || parsingLease || saving || Boolean(duplicateLeaseNameError) || Boolean(pendingLeaseImport)}
@@ -1156,7 +1171,7 @@ export function PropertyLeaseFormModal({
               <ImportFileStrip
                 dataAttr="property-lease-name-upload"
                 chips={[".pdf", ".docx", "Your own lease", "up to 5 MB"]}
-                accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                accept={LEASE_UPLOAD_ACCEPT}
                 busy={templateUploading || parsingLease}
                 state={
                   templateUploading || parsingLease

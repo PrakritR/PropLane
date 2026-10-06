@@ -30,13 +30,15 @@ export function WorkspaceHeaderUpload({ accept, onPick, disabled, dataAttr = "wo
   return <WorkspaceUploadAction accept={accept} onPick={onPick} disabled={disabled} dataAttr={dataAttr} inputDataAttr={`${dataAttr}-input`} label={label} />;
 }
 
-export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inputDataAttr, label = "Start from a file" }: {
+export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inputDataAttr, label = "Start from a file", inline = false }: {
   accept: string;
   onPick: (file: File) => void;
   disabled?: boolean;
   dataAttr: string;
   inputDataAttr?: string;
   label?: string;
+  /** Render in place (e.g. at a step heading's right) instead of portalling into `WorkspaceUploadTarget`. */
+  inline?: boolean;
 }) {
   const target = useContext(WorkspaceUploadTarget);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -79,5 +81,5 @@ export function WorkspaceUploadAction({ accept, onPick, disabled, dataAttr, inpu
       </DropdownMenuContent>
     </DropdownMenu>
   </div>;
-  return target ? createPortal(content, target) : content;
+  return target && !inline ? createPortal(content, target) : content;
 }

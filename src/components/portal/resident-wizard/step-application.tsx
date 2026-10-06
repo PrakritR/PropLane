@@ -24,6 +24,8 @@ import {
   WizardStepper,
   WizardSelect,
 } from "@/components/portal/add-workspace/parts";
+import { WorkspaceUploadAction } from "@/components/portal/add-workspace/upload-action";
+import { RESIDENT_FILE_ACCEPT } from "./step-contact";
 import type { ResidentEditRecord } from "@/lib/resident-edit-record";
 import type { ResidentWizardDerived } from "./derived";
 import { EditApplicationBottomCards, EditApplicationTopCards } from "./edit-steps";
@@ -71,6 +73,8 @@ export function ApplicationStep({
   derived,
   propertyLabel,
   editRecord,
+  onPickApplicationFile,
+  uploadBusy = false,
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
@@ -78,6 +82,9 @@ export function ApplicationStep({
   propertyLabel: string | null;
   /** Edit mode: status, household, housing charges and placement from the real record. */
   editRecord?: ResidentEditRecord;
+  /** Add doors: reads an application file (kind = application) and fills these answers. Not drawn in edit mode. */
+  onPickApplicationFile?: (file: File) => void;
+  uploadBusy?: boolean;
 }) {
   const a = form.application;
   const on = derived.fieldEnabled;
@@ -111,7 +118,12 @@ export function ApplicationStep({
 
   return (
     <StepColumn>
-      <StepHeading title="Application" />
+      <StepHeading
+        title="Application"
+        action={onPickApplicationFile && !editRecord ? (
+          <WorkspaceUploadAction inline accept={RESIDENT_FILE_ACCEPT} onPick={onPickApplicationFile} disabled={uploadBusy} dataAttr="residents-wizard-application-upload" label="Upload application" />
+        ) : undefined}
+      />
       {editRecord ? (
         <EditApplicationTopCards record={editRecord} />
       ) : (

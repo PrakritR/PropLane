@@ -218,6 +218,13 @@ export function MoveInFormEditorModal({
     }
   };
 
+  /** The pop-up header's Upload icon (every step, Add mode): jump to the Form step that hosts the PDF row, set Start from = Upload a PDF, then run the one existing handler. */
+  const pickPdfFromHeader = (file: File) => {
+    setStep(0);
+    if (startsFrom !== "upload") changeStartsFrom("upload");
+    void pickPdf(file);
+  };
+
   /** "Start from": a blank form, an uploaded PDF, or one of the starters. Add mode only, like the application's. */
   const changeStartsFrom = (value: string) => {
     const previous = MOVE_IN_FORM_STARTERS.find((starter) => (starter.starterKey ?? starter.id) === startsFrom);
@@ -569,6 +576,7 @@ export function MoveInFormEditorModal({
       discardBody="Discard unsaved changes to this move-in form?"
       assistantContext={mode === "add" ? "Add move-in form" : "Edit move-in form"}
       assistantScopeKey="move-in-form-editor"
+      headerUpload={mode === "add" && canUploadPdf ? { accept: "application/pdf,.pdf", onPick: pickPdfFromHeader, disabled: uploading || saving, dataAttr: "move-in-form-header-upload", label: "Upload a PDF" } : undefined}
       dataAttrPrefix="move-in-form"
       finishDataAttr="move-in-form-save"
       lastLabel={editorFinishLabel(mode)}

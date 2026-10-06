@@ -2,6 +2,9 @@
 
 import { useRef } from "react";
 
+/** One accept list for the composer's input and the New promotion pop-up's header Upload icon. */
+export const PROMOTION_UPLOAD_ACCEPT = "image/*,application/pdf,.pdf";
+
 export function PromotionUploadComposer({
   fileName,
   onPickFile,
@@ -18,7 +21,7 @@ export function PromotionUploadComposer({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*,application/pdf,.pdf"
+        accept={PROMOTION_UPLOAD_ACCEPT}
         className="hidden"
         data-attr="promotion-upload-input"
         onChange={(e) => {
