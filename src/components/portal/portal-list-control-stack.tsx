@@ -308,7 +308,9 @@ export function PortalListControlStack({
     const searchNode = search ? (
       <div
         className={cn(
-          "relative flex-1",
+          // `w-0`: the input's own default width must not count toward the row's content size, or
+          // a crowded band keeps its tabs at full width and pushes the + off the card.
+          "relative w-0 flex-1",
           // When tabs, icons and the + crowd the band (Communication's list pane,
           // House details' six tabs), the search yields down to its glyph so no tab
           // scrolls out of view and the + is never clipped; it opens back up while
@@ -382,14 +384,16 @@ export function PortalListControlStack({
             {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
           >
             {showDestinations ? (
-              <div className="flex shrink-0 items-center gap-2 py-0.5" data-portal-list-destination-nav>
+              // The tabs yield (and scroll in their own box) before the round + does: a crowded
+              // band used to scroll as a whole and push the + off the card's right edge on a phone.
+              <div className="flex min-w-0 shrink items-center gap-2 overflow-x-auto py-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" data-portal-list-destination-nav>
                 {destinationContent}
                 <span className="lg:hidden">{chipsNode}</span>
               </div>
             ) : null}
             {showToolRow || chipsNode ? (
               <div
-                className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 sm:gap-1.5"
+                className="flex shrink-0 grow flex-nowrap items-center gap-1 sm:gap-1.5"
                 data-attr="portal-list-command-utilities"
               >
                 {searchNode}
