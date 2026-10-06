@@ -113,7 +113,6 @@ describe("resident payment fees", () => {
   it("the service fee is Stripe's real per-method cost", () => {
     expect(residentProcessingFeeCents(10000, "ach")).toBe(80); // 0.8%
     expect(residentProcessingFeeCents(10000, "card")).toBe(320); // 2.9% + $0.30
-    expect(residentProcessingFeeCents(10000, "link")).toBe(320);
   });
 
   it("the retained application fee (resident-pays value) equals the service fee — the 0-bps platform take adds nothing", () => {

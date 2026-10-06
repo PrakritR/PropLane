@@ -39,7 +39,7 @@ split remains:
 
 `src/lib/payment-policy.ts` is the single source of truth:
 - `residentProcessingFeeCents(subtotal, method)` — Stripe's cost (ACH 0.8% cap
-  $5; card/Link 2.9% + $0.30). A pass-through, never a markup.
+  $5; card 2.9% + $0.30). A pass-through, never a markup.
 - `resolveServiceFeePayer(tier, proChoice)` — the plan rule above. `tier` is the
   normalized SKU tier (`normalizeManagerSkuTier(...) ?? "free"`), so a
   legacy/unknown tier resolves to `resident`.
@@ -496,8 +496,13 @@ only beat Stripe above ~1,000 payments/month once monthly minimums are counted
 listing still lists. `isPayableHouseholdCharge` and `filterChargesForPayMethod`
 are PropLane/Stripe alone (`src/lib/platform/resident-payments.ts`); the
 resident payments panel has no manual-channel branch. `residentPaymentMethodsSummary`
-says either "PropLane payments — bank (ACH), card (Apple Pay), or Link" or, when
+says either "PropLane payments — bank (ACH) or card (Apple Pay)" or, when
 the manager has not finished setup, to ask the manager to finish it.
+
+Stripe Link is not one of the two — `ResidentAxisPaymentMethod` is
+`"ach" | "card"` on every surface, so every payment stays in-app. How a `link`
+request is refused is owned by
+[`docs/stripe-apple-pay-payments.md`](../stripe-apple-pay-payments.md).
 
 There is no receipt inbox, no Gmail connection, no "I paid by hand" report from
 the resident, and no per-charge payment reference code. `HouseholdCharge` has no

@@ -18,8 +18,10 @@ type Body = {
 };
 
 function normalizePaymentMethod(raw: unknown, isNativeApp: boolean): ResidentAxisPaymentMethod {
-  const method: ResidentAxisPaymentMethod =
-    raw === "card" || raw === "link" ? raw : "ach";
+  /* Link is never offered — a client that still asks for it is refused rather
+     than silently charged on another method. */
+  if (raw === "link") throw new Error("Link checkout is unavailable. Choose card or bank account.");
+  const method: ResidentAxisPaymentMethod = raw === "card" ? "card" : "ach";
   return coerceResidentPaymentMethodForSurface(method, isNativeApp);
 }
 

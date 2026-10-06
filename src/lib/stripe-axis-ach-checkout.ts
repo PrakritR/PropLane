@@ -165,7 +165,7 @@ async function paymentMethodStripeConfig(
   forceExplicitCard = false,
 ): Promise<
   | {
-      payment_method_types: ("card" | "link" | "us_bank_account")[];
+      payment_method_types: ("card" | "us_bank_account")[];
       payment_method_options?: {
         us_bank_account?: {
           financial_connections: { permissions: ["payment_method"] };
@@ -186,7 +186,11 @@ async function paymentMethodStripeConfig(
       },
     };
   }
-  if (method === "link") throw new Error("Link checkout is unavailable. Choose card or bank account.");
+  /* Link is not a ResidentAxisPaymentMethod, so nothing in the app can ask for
+     it — but a legacy caller or a stored `payment_method` row still can. Refuse
+     rather than fall through to a card session: Link opens a wallet
+     authentication surface outside the app. */
+  if (String(method) === "link") throw new Error("Link checkout is unavailable. Choose card or bank account.");
   if (forceExplicitCard) return { payment_method_types: ["card"] };
   const cardPmc = process.env.STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION?.trim();
   if (cardPmc && (await cardScopedPaymentMethodConfiguration(stripe, cardPmc))) {
@@ -238,7 +242,7 @@ async function cardScopedPaymentMethodConfiguration(stripe: Stripe, pmcId: strin
   const cardScoped = offending.length === 0;
   if (!cardScoped) {
     console.error(
-      `[stripe] STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION (${pmcId}) enables non-card methods [${offending.join(", ")}], which would mislabel metadata.payment_method; falling back to explicit card payment methods. Scope the configuration to card + Apple Pay + Google Pay (+ Link).`,
+      `[stripe] STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION (${pmcId}) enables non-card methods [${offending.join(", ")}], which would mislabel metadata.payment_method; falling back to explicit card payment methods. Scope the configuration to card + Apple Pay + Google Pay.`,
     );
   }
   cardPmcScopeCache.set(pmcId, { cardScoped, expiresAt: Date.now() + CARD_PMC_CACHE_TTL_MS });
@@ -482,6 +486,5 @@ export async function createAxisAchCheckoutSession(
 
 function residentProcessingFeeLabel(method: ResidentAxisPaymentMethod): string {
   if (method === "ach") return "Bank processing";
-  if (method === "link") return "Link processing";
   return "Card processing";
 }

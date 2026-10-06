@@ -26,8 +26,10 @@ types a card; who bears Stripe's processing cost is the plan-based fee model
 owned by [`docs/agents/resident-payments.md`](agents/resident-payments.md),
 which also owns the in-app bank flow.
 
-**Stripe Link is never offered.** `paymentMethodStripeConfig` throws for a
-`link` request, and the resident method picker lists bank and card only.
+**Stripe Link is never offered.** `ResidentAxisPaymentMethod` is `"ach" | "card"`,
+so nothing in the app can ask for it; `/api/stripe/household-charge-checkout`
+refuses a request body that still names `link`, and `paymentMethodStripeConfig`
+throws on it too, rather than silently charging another method.
 
 **Surfacing the wallets.** Stripe only shows Apple Pay/Google Pay when the session
 uses **dynamic payment methods** scoped to card. `paymentMethodStripeConfig()`:
@@ -52,7 +54,8 @@ uses **dynamic payment methods** scoped to card. `paymentMethodStripeConfig()`:
 - **ACH** → explicit `["us_bank_account"]` (its own lower fee). This branch now
   serves the vendor-invoice and linked-form fee checkouts; resident rent by bank
   goes through the in-app PaymentIntent instead.
-- **Link** → refused outright (`throw`), so no session is ever created for it.
+- **Link** → not a payment method the app has; a request naming it is refused at
+  the checkout route and again here (`throw`), so no session is ever created for it.
 
 Regression coverage: `tests/unit/stripe-axis-ach-checkout.test.ts`.
 

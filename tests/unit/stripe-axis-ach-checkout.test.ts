@@ -136,6 +136,8 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
     logged.mockRestore();
   });
 
+  // Link is not a ResidentAxisPaymentMethod, so this is a legacy/stored string
+  // reaching the builder. It must be refused, never charged as card.
   it("rejects explicit Link checkout", async () => {
     const { stripe, calls } = captureStripe();
     await expect(createAxisAchCheckoutSession(stripe, { ...baseInput, paymentMethod: "link" })).rejects.toThrow("Link checkout is unavailable");
@@ -442,7 +444,6 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
 
     it("hold path: no destination account -> the hold credit nets the extra fee (hold_amount_cents already excludes it)", async () => {
       const { stripe, calls } = captureStripe();
-      const stripeCost = residentProcessingFeeCents(10_000, "ach");
       await createAxisAchCheckoutSession(stripe, {
         ...baseInput,
         amountCents: 10_000,
