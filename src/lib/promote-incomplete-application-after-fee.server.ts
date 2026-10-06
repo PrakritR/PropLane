@@ -16,6 +16,7 @@ import {
 import { createLinkedFormRequestsForSubmit } from "@/lib/application-linked-form-requests.server";
 import { dispatchMoveInFormsForResidencyAfterResponse } from "@/lib/move-in-forms/server";
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
+import { loadApplicantAccountIdentity } from "@/lib/rental-application/applicant-identity.server";
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
@@ -210,11 +211,20 @@ export async function promoteIncompleteApplicationAfterFeePaid(
     };
   }
 
-  const applicantName =
+  let applicantName =
     previousRow.name?.trim() ||
     previousApplication.fullLegalName?.trim() ||
     session.metadata?.resident_name?.trim() ||
-    "Applicant";
+    "";
+  if (!applicantName) {
+    // The template no longer asks for a name: it comes from the applicant's account (their profile, else the
+    // email's local part), never the literal "Applicant" placeholder, which a lease would print as the tenant.
+    const accountIdentity = await loadApplicantAccountIdentity(db, {
+      id: previousRow.residentUserId?.trim() || "",
+      email: residentEmail,
+    });
+    applicantName = accountIdentity.name || "Applicant";
+  }
 
   const submittedRow: DemoApplicantRow = {
     ...previousRow,

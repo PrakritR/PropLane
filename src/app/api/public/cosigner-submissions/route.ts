@@ -20,6 +20,7 @@ import { resolveCosignerTemplateForApplication } from "@/lib/rental-application/
 import { listingCustomApplicationFields, validateCustomFieldAnswers } from "@/lib/rental-application/custom-fields";
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
 import { validateDateRequired, validateEmail, validateFullName, validatePhone10, validateSsn } from "@/app/(public)/rent/apply/apply-validation";
+import { loadApplicantAccountIdentity } from "@/lib/rental-application/applicant-identity.server";
 import { isWizardFormFieldEnabled, isWizardFormFieldRequired } from "@/lib/rental-application/application-field-catalog";
 
 export const runtime = "nodejs";
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
     const formRequestId = typeof body.formRequestId === "string" ? body.formRequestId.trim() : "";
     let linkedRequest: LinkedFormRequestRow | null = null;
     let linkedUserId = "";
+    let linkedUser: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null } | null = null;
     if (formRequestId) {
       const auth = await createSupabaseServerClient();
       const {
@@ -80,18 +82,13 @@ export async function POST(req: Request) {
       }
       linkedRequest = found;
       linkedUserId = user.id;
+      linkedUser = user;
     }
 
     const signerAppId = normalizeApplicationAxisId(String(linkedRequest ? linkedRequest.application_id : (body.signerAppId ?? "")).trim());
     if (!signerAppId) {
       return NextResponse.json({ error: "Application ID is required." }, { status: 400 });
     }
-    const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
-    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    const email = typeof body.email === "string" ? body.email.trim() : "";
-    const identityError = [validateFullName(fullName), validatePhone10(phone), validateEmail(email)]
-      .find((result) => !result.ok);
-    if (identityError && !identityError.ok) return NextResponse.json({ error: identityError.message }, { status: 400 });
     if (!body.consentCredit) {
       return NextResponse.json({ error: "Credit check consent is required." }, { status: 400 });
     }
@@ -125,6 +122,28 @@ export async function POST(req: Request) {
     if (!template || template.pinMissing || (requestedTemplateId && template.templateId !== requestedTemplateId)) {
       return NextResponse.json({ error: "This co-signer form version is unavailable. Reload the link." }, { status: 409 });
     }
+    // Name, phone and email are questions like any other, so a template may no longer ask for them. What the
+    // template asks is validated from the body as before. What it does NOT ask is never taken from the body:
+    // a signed-in filler (the linked-form path) is recorded from their ACCOUNT. A signed-out co-signer has no
+    // account to read, so their name and email stay required either way.
+    const nameAsked = isWizardFormFieldEnabled(template.config, "fullLegalName");
+    const emailAsked = isWizardFormFieldEnabled(template.config, "email");
+    const phoneAsked = isWizardFormFieldEnabled(template.config, "phone");
+    let fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
+    let email = typeof body.email === "string" ? body.email.trim() : "";
+    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+    if (linkedUser && (!nameAsked || !emailAsked)) {
+      const account = await loadApplicantAccountIdentity(db, linkedUser);
+      if (!nameAsked) fullName = account.name;
+      if (!emailAsked) email = account.email;
+    }
+    // Only what the filler typed is validated; a value read from their account needs no format check.
+    const identityError = [
+      nameAsked || !linkedUser ? validateFullName(fullName) : { ok: true as const },
+      emailAsked || !linkedUser ? validateEmail(email) : { ok: true as const },
+      phoneAsked || phone ? validatePhone10(phone) : { ok: true as const },
+    ].find((result) => !result.ok);
+    if (identityError && !identityError.ok) return NextResponse.json({ error: identityError.message }, { status: 400 });
     const dob = typeof body.dob === "string" ? body.dob.trim() : "";
     const ssn = typeof body.ssn === "string" ? body.ssn.trim() : "";
     const dobEnabled = isWizardFormFieldEnabled(template.config, "dateOfBirth");
