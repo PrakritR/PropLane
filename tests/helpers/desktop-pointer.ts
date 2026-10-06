@@ -1,8 +1,8 @@
 import { vi } from "vitest";
 
 /**
- * jsdom's baseline `matchMedia` matches nothing, i.e. a touch device — so a select renders as the
- * shared phone bottom sheet. A suite that asserts the desktop popover menu (or the Settings pills)
+ * jsdom's baseline `matchMedia` matches nothing, i.e. a touch device (section pickers draw the phone
+ * bottom sheet; selects open the same attached popover either way). A suite that asserts the desktop menu (or the Settings pills)
  * calls this in `beforeEach`; `vi.unstubAllGlobals()` / the next stub undoes it.
  */
 export function stubDesktopPointer() {

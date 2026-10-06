@@ -61,7 +61,13 @@ async function withFilter(change: () => void) {
   fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
   await waitFor(() => expect(document.querySelector('[data-attr="portal-filter-dropdown-panel"]')).toBeNull());
 }
-const chip = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name });
+/** Pick `name` from the Period / Show dropdown inside the open Filter popover. */
+function pick(group: string, name: string) {
+  fireEvent.click(screen.getByRole("button", { name: group }));
+  const option = within(screen.getByRole("listbox", { name: group })).getByRole("option", { name });
+  fireEvent.pointerDown(option, { pointerId: 1, clientX: 5, clientY: 5 });
+  fireEvent.pointerUp(option, { pointerId: 1, clientX: 5, clientY: 5 });
+}
 
 describe("Cash flow chart", () => {
   it("puts the period beside the title and the switches in one Filter popover", () => {
@@ -70,6 +76,28 @@ describe("Cash flow chart", () => {
     expect(screen.queryAllByRole("tab")).toHaveLength(0);
     expect(screen.getByRole("button", { name: /^Filter/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Show table" })).toBeTruthy();
+  });
+
+  it("the Filter trigger is the shared icon beside Show table, with the active state on the icon", async () => {
+    render(<MonthlyProfitChart points={points24} />);
+    const filter = screen.getByRole("button", { name: "Filter" });
+    expect(filter.textContent?.trim()).toBe("");
+    expect(filter.parentElement!.parentElement).toBe(screen.getByRole("button", { name: "Show table" }).parentElement);
+    await withFilter(() => pick("Period", "12 months"));
+    expect(screen.getByRole("button", { name: "Filter · 1 active" })).toBeTruthy();
+  });
+
+  it("Period and Show are dropdowns, never pills", async () => {
+    render(<MonthlyProfitChart points={points24} />);
+    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-filter-dropdown-panel"]')).toBeTruthy());
+    expect(screen.queryAllByRole("radiogroup")).toHaveLength(0);
+    for (const group of ["Period", "Show"]) {
+      const trigger = screen.getByRole("button", { name: group });
+      expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(within(screen.getByRole("listbox", { name: "Show" })).getAllByRole("option").map(o => o.textContent?.replace("✓", ""))).toEqual(["All", "Revenue", "Expenses", "Profit"]);
   });
 
   it("totals the selected range with the delta against the prior equal-length period", () => {
@@ -86,11 +114,11 @@ describe("Cash flow chart", () => {
 
   it("recomputes totals and the period label for 12 months and Year to date from the filter", async () => {
     render(<MonthlyProfitChart points={points24} />);
-    await withFilter(() => fireEvent.click(chip("Period", "12 months")));
+    await withFilter(() => pick("Period", "12 months"));
     // i = 12..23: 12,000 + 100·(12+…+23 = 210) = 33,000
     expect(within(tile("revenue")).getByText("$33,000")).toBeTruthy();
     expect(screen.getByRole("heading", { name: /^Cash flow/ }).textContent).toBe("Cash flowLast 12 months");
-    await withFilter(() => fireEvent.click(chip("Period", "Year to date")));
+    await withFilter(() => pick("Period", "Year to date"));
     // 2026 Jan–Oct = i = 14..23: 10,000 + 100·185 = 28,500
     expect(within(tile("revenue")).getByText("$28,500")).toBeTruthy();
     expect(screen.getByRole("heading", { name: /^Cash flow/ }).textContent).toBe("Cash flowYear to date");
@@ -162,14 +190,14 @@ describe("Cash flow chart", () => {
   it("isolates a series from the Filter popover's Show field and refits the axis", async () => {
     render(<MonthlyProfitChart points={points24} />);
     const axisBefore = Array.from(svg().querySelectorAll("text")).map(t => t.textContent);
-    await withFilter(() => fireEvent.click(chip("Show", "Expenses")));
+    await withFilter(() => pick("Show", "Expenses"));
     expect(seriesPaths("rev")).toHaveLength(0);
     expect(seriesPaths("exp")).toHaveLength(1);
     expect(seriesPaths("net")).toHaveLength(0);
     expect(document.querySelectorAll('circle[data-series="net-dot"]')).toHaveLength(0);
     expect(Array.from(svg().querySelectorAll("text")).map(t => t.textContent)).not.toEqual(axisBefore);
     expect(tile("expenses").getAttribute("aria-pressed")).toBe("true");
-    await withFilter(() => fireEvent.click(chip("Show", "All")));
+    await withFilter(() => pick("Show", "All"));
     expect(seriesPaths("rev")).toHaveLength(1);
     expect(seriesPaths("net")).toHaveLength(1);
   });
@@ -177,8 +205,8 @@ describe("Cash flow chart", () => {
   it("changes the period and the series in one pass through the popover", async () => {
     render(<MonthlyProfitChart points={points24} />);
     await withFilter(() => {
-      fireEvent.click(chip("Period", "12 months"));
-      fireEvent.click(chip("Show", "Profit"));
+      pick("Period", "12 months");
+      pick("Show", "Profit");
     });
     expect(screen.getAllByRole("button", { name: /^\w{3} 20\d\d: Running revenue/ })).toHaveLength(12);
     expect(seriesPaths("net")).toHaveLength(1);

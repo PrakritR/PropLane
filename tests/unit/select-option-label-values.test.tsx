@@ -19,7 +19,7 @@ describe("Select options without a value attribute", () => {
     );
     const list = openList();
     const selected = list.getAllByRole("option").filter((o) => o.getAttribute("aria-selected") === "true");
-    expect(selected.map((o) => o.textContent?.trim())).toEqual(["Airbnb"]);
+    expect(selected.map((o) => o.textContent?.replace(/^✓/, "").trim())).toEqual(["Airbnb"]);
   });
 
   it("choosing an option saves its label as the value", () => {
@@ -45,6 +45,6 @@ describe("Select options without a value attribute", () => {
     );
     const list = openList();
     const selected = list.getAllByRole("option").filter((o) => o.getAttribute("aria-selected") === "true");
-    expect(selected.map((o) => o.textContent?.trim())).toEqual(["Not set"]);
+    expect(selected.map((o) => o.textContent?.replace(/^✓/, "").trim())).toEqual(["Not set"]);
   });
 });
