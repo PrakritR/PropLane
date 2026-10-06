@@ -504,9 +504,13 @@ function LocalDestinationNavStrip({
   );
 }
 
-/** The tab label as it reads on a phone (`shortLabel` is what a phone shows). */
-function phoneTab(item: { label: string; shortLabel?: string; count?: number }, appearance: string) {
-  return { label: item.shortLabel ?? item.label, count: appearance === "command" ? item.count : undefined };
+/**
+ * The tab label as it reads on a phone (`shortLabel` is what a phone shows). The live count is
+ * deliberately NOT part of it: `estimatePhoneStripWidth` reserves the count pill for every tab, so
+ * the tabs-or-picker answer cannot change when the counts load.
+ */
+function phoneTab(item: { label: string; shortLabel?: string }) {
+  return { label: item.shortLabel ?? item.label };
 }
 
 function pickerLabel(item: { label: string; count?: number }) {
@@ -528,7 +532,7 @@ export function DestinationNav(props: ComponentProps<typeof DestinationNavStrip>
   const { items, activeId, activeHref, appearance = "segmented", itemLayout = "auto", ariaLabel = "Section views" } = props;
   const asPicker = usePhoneStripAsPicker(
     appearance === "command" && itemLayout === "auto",
-    items.map((item) => phoneTab(item, appearance)),
+    items.map((item) => phoneTab(item)),
   );
   const strip = <DestinationNavStrip {...props} />;
   if (!asPicker) return strip;
@@ -566,7 +570,7 @@ export function LocalDestinationNav(props: ComponentProps<typeof LocalDestinatio
   const { items, activeId, onChange, appearance = "segmented", itemLayout = "auto", ariaLabel = "Section views" } = props;
   const asPicker = usePhoneStripAsPicker(
     appearance === "command" && itemLayout === "auto",
-    items.map((item) => phoneTab(item, appearance)),
+    items.map((item) => phoneTab(item)),
   );
   const strip = <LocalDestinationNavStrip {...props} />;
   if (!asPicker) return strip;

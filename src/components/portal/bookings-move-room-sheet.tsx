@@ -8,6 +8,11 @@ import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
  * Only a block-sourced booking (a manager-made hold) can actually be moved;
  * the record page gates when this opens. Same house only — moving a booking
  * to a different property is a new booking, not a move.
+ *
+ * A house with no rooms of its own (a whole home, or a legacy building catalog
+ * whose units carry no listing room id) has nowhere to move a booking TO:
+ * {@link canMoveBookingRoom} answers that before the action is offered, and the
+ * sheet says so rather than opening an empty Room picker.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -22,6 +27,19 @@ import {
 import { describeBookingConflict } from "@/lib/channel-calendar/bookings-ui";
 import { bookingRoomChoices } from "@/components/portal/bookings-edit-sheet";
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
+
+/** The rooms a booking in this house can be moved between — the Room picker's own choices. */
+export function bookingMoveRoomChoices(propertyId: string) {
+  return bookingRoomChoices(
+    getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }),
+    () => [],
+  );
+}
+
+/** False for a house with no rooms of its own: the Move room action is absent, never a dead field. */
+export function canMoveBookingRoom(propertyId: string): boolean {
+  return bookingMoveRoomChoices(propertyId).length > 0;
+}
 
 export function BookingsMoveRoomSheet({
   open,
@@ -48,10 +66,7 @@ export function BookingsMoveRoomSheet({
     setBusy(false);
   }, [open, entry.roomId]);
 
-  const roomOptions = useMemo(
-    () => bookingRoomChoices(getRoomOptionsForProperty(entry.propertyId, { includeUnavailable: true, includeUnnamed: true }), () => []),
-    [entry.propertyId],
-  );
+  const roomOptions = useMemo(() => bookingMoveRoomChoices(entry.propertyId), [entry.propertyId]);
 
   const conflicts = useMemo(() => {
     const pool = entries.filter((candidate) => candidate.blockId !== entry.blockId);
@@ -63,7 +78,7 @@ export function BookingsMoveRoomSheet({
     });
   }, [entries, entry.blockId, entry.propertyId, entry.start, entry.end, roomId]);
 
-  const canSave = Boolean(roomId) && roomId !== entry.roomId && conflicts.length === 0 && !busy;
+  const canSave = roomOptions.length > 0 && Boolean(roomId) && roomId !== entry.roomId && conflicts.length === 0 && !busy;
 
   const save = async () => {
     if (!canSave) return;
@@ -98,21 +113,27 @@ export function BookingsMoveRoomSheet({
       }
     >
       <div className="space-y-4">
-        <label className="block">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Room</span>
-          <Select
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-            disabled={busy}
-            data-attr="bookings-move-room-select"
-          >
-            {roomOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </label>
+        {roomOptions.length === 0 ? (
+          <p role="status" data-attr="bookings-move-room-no-rooms">
+            This house has no rooms of its own, so there is nowhere to move this booking.
+          </p>
+        ) : (
+          <label className="block">
+            <span className={MODAL_FIELD_LABEL_CLASS}>Room</span>
+            <Select
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              disabled={busy}
+              data-attr="bookings-move-room-select"
+            >
+              {roomOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </label>
+        )}
 
         {conflicts.length > 0 ? (
           <div role="alert" className="rounded-lg border px-3 py-2 text-sm portal-banner-danger" data-attr="bookings-move-room-conflicts">

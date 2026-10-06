@@ -302,8 +302,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     ],
     // Captain, 2026-10-05 round 2: the record's own top-right icons are Edit and Delete and
     // nothing else, identical on every tab. Everything that used to sit here lives in the tab
-    // it belongs to — Message in Communication's composer, Share / Archive / Send invite in
-    // Overview's ⋯, Send application in Application, Upload for resident in Documents.
+    // it belongs to — Message in Communication's composer, Send application in Application,
+    // Upload for resident in Documents. Overview has no header card at all since 2026-10-06, so
+    // Share and Archive are gone; Send invite is the row's own action in the Residents list.
     headerActions: [
       { id: "edit", label: "Edit", icon: Pencil },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },

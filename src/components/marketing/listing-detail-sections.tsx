@@ -3,7 +3,7 @@
 import { displayPropertyTitle } from "@/lib/property-title";
 import Link from "next/link";
 import { Heart, Mail, MessageSquareText, Share2 } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   ListingDetailCollapsibleSection,
   ListingDetailCollapsibleSimpleSection,
@@ -308,39 +308,25 @@ function StickyBar({
   const emailIconOnly = Boolean(doors.phone && doors.email);
   if (slim) {
     const bothStays = termCtas.length > 1;
-    // With both stays the bar says which application each button opens: Apply, Long term, Short
-    // term, Tour. Four buttons plus the price cannot share one row, so the price gets its own.
+    // One button per stay the listing offers, each opening its own application: with both stays the
+    // bar reads Long term, Short term, Tour, and the price takes its own row; with one stay the
+    // single door says Apply. Two buttons to the same application is never the answer.
     const slimCta = bothStays ? "!min-h-[40px] !w-auto min-w-0 flex-auto whitespace-nowrap !px-2 !text-[13px]" : "!min-h-[40px] !w-auto flex-none !px-4 !py-2";
     const applyButtons = (
       <>
-        {termCtas.map((cta, index) => (
-          <Fragment key={cta.id}>
-            <ProspectListingCta
-              action="apply"
-              propertyId={property.id}
-              data-attr={cta.dataAttr}
-              className={`${secondaryCtaClass} ${slimCta}`}
-              newTab={newTab}
-              applyParams={cta.rentalType === "short_term" ? { rentalType: "short_term" } : undefined}
-            >
-              <span aria-hidden>{cta.rentalType === "short_term" ? "Short term" : "Apply"}</span>
-              <span className="sr-only">{cta.label}</span>
-            </ProspectListingCta>
-            {/* Long term sits next to Short term and opens the long-term application, the way Short term opens its own. */}
-            {bothStays && index === 0 ? (
-              <ProspectListingCta
-                action="apply"
-                propertyId={property.id}
-                data-attr="listing-web-apply-long"
-                className={`${secondaryCtaClass} ${slimCta}`}
-                newTab={newTab}
-                applyParams={{ rentalType: "standard" }}
-              >
-                <span aria-hidden>Long term</span>
-                <span className="sr-only">Apply for the long-term stay</span>
-              </ProspectListingCta>
-            ) : null}
-          </Fragment>
+        {termCtas.map((cta) => (
+          <ProspectListingCta
+            key={cta.id}
+            action="apply"
+            propertyId={property.id}
+            data-attr={cta.dataAttr}
+            className={`${secondaryCtaClass} ${slimCta}`}
+            newTab={newTab}
+            applyParams={cta.rentalType === "short_term" ? { rentalType: "short_term" } : undefined}
+          >
+            <span aria-hidden>{!bothStays ? "Apply" : cta.rentalType === "short_term" ? "Short term" : "Long term"}</span>
+            <span className="sr-only">{cta.label}</span>
+          </ProspectListingCta>
         ))}
         <ProspectListingCta
           action="tour"

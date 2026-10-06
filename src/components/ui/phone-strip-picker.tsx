@@ -28,16 +28,23 @@ export const PHONE_STRIP_FIT_PX = 336;
 
 export type PhoneStripTab = {
   label: string;
-  /** A count pill after the label. */
-  count?: number;
   /** Extra glyph width (a check or an attention dot). */
   glyphs?: number;
 };
 
+/**
+ * What one tab takes beside its label: padding, gap, and the count pill.
+ *
+ * The pill is reserved whether or not the tab has a count, because a count arrives with the first
+ * data load — charging for it only once it is there is how a rendered tab row turns into the picker
+ * mid-session. The answer has to be the one the server and the first paint already gave.
+ */
+const PHONE_STRIP_TAB_CHROME_PX = 55;
+
 /** Width a command strip needs: 14px semibold text, plus each tab's padding, gap and count pill. */
 export function estimatePhoneStripWidth(tabs: readonly PhoneStripTab[]): number {
   return tabs.reduce(
-    (total, tab) => total + tab.label.length * 7 + (tab.count != null ? 55 : 32) + (tab.glyphs ?? 0) * 18,
+    (total, tab) => total + tab.label.length * 7 + PHONE_STRIP_TAB_CHROME_PX + (tab.glyphs ?? 0) * 18,
     0,
   );
 }

@@ -35,10 +35,15 @@ describe("what fits one phone screen", () => {
     expect(phoneStripFits(TOUR_TABS)).toBe(true);
     expect(estimatePhoneStripWidth(TOUR_TABS)).toBeLessThanOrEqual(PHONE_STRIP_FIT_PX);
     expect(
-      phoneStripFits(
-        ["Draft", "Resident signature", "Manager signature", "Signed"].map((label) => ({ label, count: 0 })),
-      ),
+      phoneStripFits(["Draft", "Resident signature", "Manager signature", "Signed"].map((label) => ({ label }))),
     ).toBe(false);
+  });
+
+  it("gives the same answer before and after the counts load, so a tab row never becomes the picker", () => {
+    const loaded = TOUR_TABS.map((tab) => ({ label: tab.label, count: tab.count }));
+    const empty = TOUR_TABS.map((tab) => ({ label: tab.label }));
+    expect(estimatePhoneStripWidth(loaded)).toBe(estimatePhoneStripWidth(empty));
+    expect(phoneStripFits(loaded)).toBe(phoneStripFits(empty));
   });
 });
 

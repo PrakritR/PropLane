@@ -27,3 +27,30 @@ export function toCsv(header: readonly string[], rows: readonly (readonly unknow
 export function csvMoneyFromCents(cents: number): string {
   return (Number(cents ?? 0) / 100).toFixed(2);
 }
+
+/**
+ * One cell, formula-safe: a spreadsheet reads a leading `=`, `+`, `@` or `-` as a formula, and an
+ * apostrophe in front keeps the value text. Stringified here so a `null` writes an empty field.
+ */
+export function csvCell(value: unknown): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  return escapeCsv(/^[\s]*[=+@-]/.test(text) ? `'${text}` : text);
+}
+
+/** A formula-safe CSV document from rows of cells, the header row included. */
+export function toSafeCsv(rows: readonly (readonly unknown[])[]): string {
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+/**
+ * Hand a CSV to the browser as a download: one blob, one anchor, and the object URL revoked as
+ * soon as the click is dispatched. Every export used to retype these five lines.
+ */
+export function downloadCsv(filename: string, csv: string): void {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}

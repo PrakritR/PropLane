@@ -19,7 +19,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 
 import { clearAllWorkspaceDrafts } from "@/components/portal/add-workspace/draft";
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
-import { BookingsMoveRoomSheet } from "@/components/portal/bookings-move-room-sheet";
+import { BookingsMoveRoomSheet, canMoveBookingRoom } from "@/components/portal/bookings-move-room-sheet";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { seedDemoManagerProperties } from "@/lib/demo-property-pipeline";
 import { createDefaultListingSubmission, emptyRoom } from "@/lib/manager-listing-submission";
@@ -27,9 +27,10 @@ import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-booki
 import type { MockProperty } from "@/data/types";
 
 const ID = "demo-prop-maple";
+const WHOLE_HOME_ID = "demo-prop-cedar";
 
 /** Maple Duplex, five rooms, the third one left unnamed. */
-function seedMaple() {
+function mapleProperty(): MockProperty {
   const rooms = Array.from({ length: 5 }, (_, i) => ({ ...emptyRoom(i), id: `r${i + 1}`, name: `Bedroom ${i + 1}` }));
   rooms[2] = { ...rooms[2]!, name: "   " };
   const property: MockProperty = {
@@ -38,7 +39,18 @@ function seedMaple() {
     buildingId: ID, buildingName: "Maple Duplex", unitLabel: "",
     listingSubmission: { ...createDefaultListingSubmission(), listingPlaceCategoryId: "private_room", rooms },
   } as MockProperty;
-  seedDemoManagerProperties("z-manager", [property]);
+  return property;
+}
+
+/** Cedar House, rented whole: no rooms of its own, so no room to move a booking into. */
+function cedarProperty(): MockProperty {
+  const property: MockProperty = {
+    id: WHOLE_HOME_ID, title: "Cedar House", tagline: "", address: "12 Cedar St", zip: "98107", neighborhood: "",
+    beds: 3, baths: 2, rentLabel: "$3,400/mo", available: "Now", petFriendly: false,
+    buildingId: WHOLE_HOME_ID, buildingName: "Cedar House", unitLabel: "",
+    listingSubmission: { ...createDefaultListingSubmission(), listingPlaceCategoryId: "entire_home", rooms: [] },
+  } as MockProperty;
+  return property;
 }
 
 const entry: PropertyBookingEntry = {
@@ -49,7 +61,7 @@ const entry: PropertyBookingEntry = {
 beforeEach(() => {
   window.localStorage.clear();
   window.history.pushState({}, "", "/portal/bookings/calendar");
-  seedMaple();
+  seedDemoManagerProperties("z-manager", [mapleProperty()]);
 });
 
 afterEach(() => {
@@ -103,5 +115,31 @@ describe("manager Bookings room pickers offer an unnamed room", () => {
     const options = readOptions("bookings-move-room-select");
     expect(options.map((option) => option.value)).toEqual(["r1", "r2", "r3", "r4", "r5"]);
     expect(options[2]!.label.startsWith("Room 3")).toBe(true);
+  });
+});
+
+describe("a whole home has nowhere to move a booking", () => {
+  const wholeHomeEntry: PropertyBookingEntry = {
+    ...entry, propertyId: WHOLE_HOME_ID, propertyLabel: "Cedar House", roomId: "", roomLabel: "Whole home",
+  };
+
+  beforeEach(() => {
+    seedDemoManagerProperties("z-manager", [mapleProperty(), cedarProperty()]);
+  });
+
+  it("the Move room action is not offered for it", () => {
+    expect(canMoveBookingRoom(WHOLE_HOME_ID)).toBe(false);
+    expect(canMoveBookingRoom(ID)).toBe(true);
+  });
+
+  it("the sheet says so instead of opening an empty Room picker", () => {
+    render(
+      <AppUiProvider>
+        <BookingsMoveRoomSheet open onClose={() => {}} entry={wholeHomeEntry} entries={[wholeHomeEntry]} onSave={async () => {}} />
+      </AppUiProvider>,
+    );
+    expect(document.querySelector('[data-attr="bookings-move-room-select"]')).toBeNull();
+    expect(document.querySelector('[data-attr="bookings-move-room-no-rooms"]')?.textContent).toContain("nowhere to move");
+    expect(document.querySelector<HTMLButtonElement>('[data-attr="bookings-move-room-save"]')?.disabled).toBe(true);
   });
 });

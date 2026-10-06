@@ -130,7 +130,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoreHorizontal } from "lucide-react";
-import { escapeCsv } from "@/lib/csv";
+import { downloadCsv, toSafeCsv } from "@/lib/csv";
 import { residentSectionHeaderActions as residentSectionActionsFor } from "@/lib/resident-record-section-actions";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
@@ -201,7 +201,6 @@ import {
   publicChargeIdForUrl,
   readChargesForManagerResident,
   recordApprovedApplicationCharges,
-  removeAllApplicationCharges,
   removeResidentHouseholdPaymentData,
   syncHouseholdChargesFromServer,
   type HouseholdCharge,
@@ -212,7 +211,6 @@ import {
   syncManagerApplicationsFromServer,
   upsertApplicationRowToServerAwait,
   writeManagerApplicationRows,
-  deleteManagerApplicationFromServer,
   MANAGER_APPLICATIONS_EVENT,
   normalizeApplicationAxisId,
 } from "@/lib/manager-applications-storage";
@@ -281,7 +279,7 @@ import {
   deleteServiceRequest,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
-import type { DemoApplicantRow, DemoManagerWorkOrderRow, ManagerApplicationBucket } from "@/data/demo-portal";
+import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { declineApplicationWithUndo, transitionApplicationBucket } from "@/lib/application-review";
 import { useApplicationAutomation } from "@/hooks/use-application-automation";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
@@ -1923,45 +1921,6 @@ export function ManagerResidents({
     setSendLeaseTarget(lease ? { leaseId: lease.id } : { applicationId });
   }
 
-  const setApplicationBucket = async (
-    id: string,
-    nextBucket: ManagerApplicationBucket,
-    opts?: { skipWelcomeEmail?: boolean },
-  ) => {
-    const row = readManagerApplicationRows().find((candidate) => candidate.id === id);
-    const propertyId =
-      row?.assignedPropertyId?.trim() ||
-      row?.propertyId?.trim() ||
-      row?.application?.propertyId?.trim() ||
-      "";
-    const result = await transitionApplicationBucket(id, nextBucket, {
-      userId: userId ?? null,
-      skipWelcomeEmail: opts?.skipWelcomeEmail,
-      // Without this a manager who switched automation on sees it do nothing when they approve
-      // from this surface.
-      automation: applicationAutomation.forProperty(propertyId),
-    });
-    if (!result) return null;
-    setHcTick((n) => n + 1);
-    setLeaseTick((n) => n + 1);
-    if (result.blocked) {
-      showToast(result.message ?? "That change could not be saved.");
-      return result;
-    }
-    const msg =
-      nextBucket === "approved"
-        ? opts?.skipWelcomeEmail
-          ? "Application approved (no setup email sent)."
-          : result.welcomeSent
-            ? "Application approved. A welcome email with portal setup was sent to the applicant."
-            : "Application approved."
-        : nextBucket === "rejected"
-          ? "Application rejected."
-          : "Moved to pending.";
-    showToast(msg);
-    return result;
-  };
-
   /** Decline is one click; the toast's Undo restores the application (shared with the Applications list). */
   const declineApplicationRow = async (row: DemoApplicantRow) => {
     const propertyId =
@@ -1979,26 +1938,6 @@ export function ManagerResidents({
         return result;
       },
     });
-  };
-
-  const deleteApplicationForRow = async (row: DemoApplicantRow) => {
-    if (!(await confirm({ description: `Delete the application for ${row.name || row.email}? This cannot be undone.` }))) return;
-    const nextRows = readManagerApplicationRows().filter((candidate) => candidate.id !== row.id);
-    writeManagerApplicationRows(nextRows);
-    setHcTick((n) => n + 1);
-
-    const result = await deleteManagerApplicationFromServer(row.id);
-    if (!result.ok) {
-      void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(() => setHcTick((n) => n + 1));
-      showToast(result.error ?? "Could not delete application.");
-      return;
-    }
-
-    removeAllApplicationCharges(row.id, userId ?? null);
-    deleteLeasePipelineRowsForResident("", row.id, userId ?? null);
-
-    showToast("Application deleted.");
-    navigate(`${portalBase}/residents/${residentsTab}`);
   };
 
   const sendApplicationCompletionReminder = async (
@@ -3092,16 +3031,6 @@ export function ManagerResidents({
       case "upload-for-resident":
         setUploadForResidentOpen(true);
         return;
-      case "share":
-        void navigator.clipboard?.writeText(window.location.href);
-        showToast("Link copied");
-        return;
-      case "archive":
-        showToast("Archive is not available for this resident yet.");
-        return;
-      case "setup":
-        openResidentEmailSetup(selected);
-        return;
       case "add-charge":
         setAddResidentPaymentOpen(true);
         return;
@@ -3134,16 +3063,16 @@ export function ManagerResidents({
         } else if (resolvedDetailTab === "lease" && residentLease) {
           runLeaseDownload(residentLease, showToast);
         } else if (resolvedDetailTab === "payments") {
-          // The paid list as a spreadsheet, the same columns the one-payment download writes.
+          // The paid list as a spreadsheet, the same columns and the same writer the one-payment
+          // download uses (`src/lib/csv.ts`).
           const paid = residentLedgerRows.filter((r) => r.bucket === "paid");
-          const lines = [["Resident", "Charge", "Amount", "Status", "Due date"], ...paid.map((r) => [r.residentName, r.chargeTitle, r.lineAmount, r.statusLabel, r.dueDate])];
-          const csv = lines.map((line) => line.map((v) => escapeCsv(/^[\s]*[=+@-]/.test(v) ? `'${v}` : v)).join(",")).join("\n");
-          const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-          const anchor = document.createElement("a");
-          anchor.href = url;
-          anchor.download = "paid-payments.csv";
-          anchor.click();
-          URL.revokeObjectURL(url);
+          downloadCsv(
+            "paid-payments.csv",
+            toSafeCsv([
+              ["Resident", "Charge", "Amount", "Status", "Due date"],
+              ...paid.map((r) => [r.residentName, r.chargeTitle, r.lineAmount, r.statusLabel, r.dueDate]),
+            ]),
+          );
         } else {
           showToast("Download will be available from the document preview.");
         }
