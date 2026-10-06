@@ -45,3 +45,7 @@ grant all on table public.service_share_links to service_role;
 create index if not exists portal_work_order_records_published_idx
   on public.portal_work_order_records ((row_data->>'publishRef'))
   where (row_data->>'published') = 'true';
+
+-- Rollback (trialed on a scratch Postgres, both directions, applied twice to prove idempotence):
+--   drop index if exists public.portal_work_order_records_published_idx;
+--   drop table if exists public.service_share_links;
