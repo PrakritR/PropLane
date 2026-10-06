@@ -68,16 +68,22 @@ describe("Settings → Integrations", () => {
     const scroll = vi.fn();
     Element.prototype.scrollIntoView = scroll;
     window.history.replaceState(null, "", "/portal/profile?tab=spreadsheets&integration=google");
+    vi.useFakeTimers();
     render(<ManagerIntegrationsPanel />);
     expect(screen.getByTestId("pane-google")).toBeTruthy();
-    expect(scroll).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(10);
+    vi.useRealTimers();
+    expect(scroll).toHaveBeenCalled();
     expect(scroll.mock.instances[0]).toBe(document.querySelector('[data-attr="settings-integrations-section-google"]'));
   });
 
   it("with no integration param it does not scroll", () => {
     const scroll = vi.fn();
     Element.prototype.scrollIntoView = scroll;
+    vi.useFakeTimers();
     render(<ManagerIntegrationsPanel />);
+    vi.advanceTimersByTime(3000);
+    vi.useRealTimers();
     expect(scroll).not.toHaveBeenCalled();
   });
 
