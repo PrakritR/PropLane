@@ -3057,6 +3057,12 @@ export function ManagerResidents({
           void declineApplicationRow(selectedApplicationRow);
         }
         return;
+      case "move-pending":
+        if (selectedApplicationRow?.bucket === "rejected") void setApplicationBucket(selectedApplicationRow.id, "pending");
+        return;
+      case "delete-application":
+        if (selectedApplicationRow?.bucket === "rejected") void deleteApplicationForRow(selectedApplicationRow);
+        return;
       case "download":
         if (resolvedDetailTab === "application" && selectedApplicationRow) {
           runApplicationPdfDownload(selectedApplicationRow, showToast);

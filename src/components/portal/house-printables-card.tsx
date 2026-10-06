@@ -145,7 +145,20 @@ export function HousePrintablesCard({
       />
       ) : null}
 
-      <Modal open={welcomeOpen} title="Welcome sheet" onClose={() => setWelcomeOpen(false)}>
+      <Modal
+        open={welcomeOpen}
+        title="Welcome sheet"
+        onClose={() => setWelcomeOpen(false)}
+        footer={
+          <ModalFooter className="justify-end">
+            <Button asChild variant="primary" className="rounded-full">
+              <a href={welcomeHref} target="_blank" rel="noreferrer" data-attr="house-printables-welcome">
+                Open welcome sheet
+              </a>
+            </Button>
+          </ModalFooter>
+        }
+      >
         <div className="space-y-3" data-attr="house-printables-welcome-form">
           {rooms.length > 0 ? (
             <FieldSingleSelect
@@ -168,13 +181,6 @@ export function HousePrintablesCard({
             />
           </label>
         </div>
-        <ModalFooter>
-          <Button asChild variant="primary" className="rounded-full">
-            <a href={welcomeHref} target="_blank" rel="noreferrer" data-attr="house-printables-welcome">
-              Open welcome sheet
-            </a>
-          </Button>
-        </ModalFooter>
       </Modal>
     </>
   );

@@ -283,13 +283,12 @@ export function MessagingCreditPanel({
           <PortalSettingsDisclosureRow label="Usage rates" dataAttr="messaging-credit-rates">{ratesCents ? (Object.keys(ratesCents) as CommsBillingMeter[]).map(meter => <PortalSettingsRow key={meter} label={COMMS_BILLING_METER_LABELS[meter]}><span>{ratesCents[meter] === 0 ? "Included" : formatUsdFromCents(ratesCents[meter])}</span></PortalSettingsRow>) : null}</PortalSettingsDisclosureRow>
         </PortalSettingsGroup>
       </>}
-      <Modal open={buyOpen} title="Add credit" onClose={closeBuy} assistantStrip={false} scrollableContent>
+      <Modal open={buyOpen} title="Add credit" onClose={closeBuy} assistantStrip={false} scrollableContent footer={clientSecret ? undefined : <ModalFooter className="justify-end"><Button variant="primary" className="rounded-full" disabled={checkoutLoading || !amountCents || !isValidCommsCreditAmountCents(amountCents)} onClick={buyCredit}>Add {formatUsdFromCents(amountCents ?? 0)}</Button></ModalFooter>}>
         {clientSecret ? <EmbeddedCheckoutMount clientSecret={clientSecret} onError={setCheckoutError} /> : <>
           <FieldSingleSelect label="Amount" value={amountChoice} disabled={checkoutLoading} options={[...QUICK_AMOUNTS_CENTS.map(value => ({ value: String(value), label: formatUsdFromCents(value) })), { value: "other", label: "Other" }]} onChange={value => { setAmountChoice(value); if (value !== "other") setAmountInput(String(Number(value) / 100)); }} />
           {amountChoice === "other" ? <input aria-label="Other amount in dollars" inputMode="decimal" value={amountInput} onChange={event => setAmountInput(event.target.value)} className="mt-3 w-full rounded-xl border border-border p-3" data-attr="messaging-credit-amount" /> : null}
           <div className="mt-4"><PortalSettingsRow label="Pay with"><span>{defaultCard ?? "Add a card at checkout"}</span></PortalSettingsRow><PortalSettingsRow label="Purchase"><span>One-time · carries over</span></PortalSettingsRow><PortalSettingsRow label="New balance"><span>{formatUsdFromCents((summary?.remainingCents ?? 0) + (amountCents ?? 0))}</span></PortalSettingsRow></div>
           {amountError ? <p role="alert" className="text-sm text-danger">{amountError}</p> : null}
-          <ModalFooter><Button disabled={checkoutLoading || !amountCents || !isValidCommsCreditAmountCents(amountCents)} onClick={buyCredit}>Add {formatUsdFromCents(amountCents ?? 0)}</Button></ModalFooter>
         </>}
         {checkoutError ? <p role="alert" className="mt-4 text-sm text-danger">{checkoutError}</p> : null}
         {clientSecret ? <Button variant="outline" className="mt-4" onClick={closeBuy}>Done · check balance</Button> : null}
