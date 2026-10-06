@@ -22,7 +22,7 @@ vi.mock("@/lib/move-in-forms/move-in-form-events.server", () => ({
 }));
 
 import {
-  assertMoveInPlan, assertMoveInPlanForActor, cancelMoveInForm, checkMoveInFormAnswers, deleteMoveInFormFile, dispatchMoveInFormsForResidency, dispatchMoveInFormsForSignedLease,
+  assertMoveInPlan, assertMoveInPlanForActor, cancelMoveInForm, checkMoveInFormAnswers, deleteMoveInFormFile, dispatchMoveInFormsForResidency, dispatchMoveInFormsForSignedLease, editMoveInForm,
   listMoveInForms, moveInFormDetail, moveInFormFileUrl, remindMoveInForm, saveMoveInFormDraft, sendMoveInForm, sendMoveInFormToCurrentResidents,
   submitMoveInForm, uploadMoveInFormFile, uploadMoveInFormTemplatePdf, type MoveInFormActor,
 } from "@/lib/move-in-forms/server";
@@ -1059,5 +1059,79 @@ describe("plan gate: move-in is Pro and Business, in the API and in auto-dispatc
     expect(forms).toEqual([]);
     planTier.value = "paid";
     expect(await dispatchMoveInFormsForResidency("AXIS-A", "lease-signed", { db: db as never })).toEqual({ sent: 1, failed: 0 });
+  });
+});
+
+describe("manager edit of a pending form (PATCH /api/move-in-forms/:id)", () => {
+  it("edits the due date, what it blocks and the questions on a sent copy, and drops answers to removed questions", async () => {
+    forms = [formRow({ answers: [{ key: "name", value: "A" }, { key: "pet", value: "no" }] })];
+    const { form } = await editMoveInForm(manager(), ID, {
+      dueAt: "2026-10-20T06:59:59.000Z",
+      blocks: "lease_signing",
+      questions: [q("name", "text", { required: true }), q("sig", "signature", { required: true })],
+    });
+    expect(form.dueAt).toBe("2026-10-20T06:59:59.000Z");
+    expect(form.snapshot.blocks).toBe("lease_signing");
+    expect(form.snapshot.questions.map((item) => item.key)).toEqual(["name", "sig"]);
+    expect(forms[0]!.answers).toEqual([{ key: "name", value: "A" }]);
+    expect(forms[0]!.status).toBe("sent");
+  });
+
+  it("re-derives ownership from the signed-in manager: another manager, and a resident, get a 404 and nothing changes", async () => {
+    await expect(editMoveInForm(manager("other-owner"), ID, { blocks: "approval" })).rejects.toMatchObject({ status: 404 });
+    await expect(editMoveInForm(resident(), ID, { blocks: "approval" })).rejects.toMatchObject({ status: 404 });
+    expect((forms[0]!.snapshot as { blocks?: string }).blocks).toBeUndefined();
+  });
+
+  it("lets a co-manager with edit access edit, like remind and cancel", async () => {
+    const { form } = await editMoveInForm(manager("co-manager"), ID, { blocks: "approval" });
+    expect(form.snapshot.blocks).toBe("approval");
+  });
+
+  it("answers 409 once the form is submitted or cancelled, and leaves it untouched", async () => {
+    forms = [formRow({ status: "submitted", submitted_at: "2026-10-02T00:00:00Z" })];
+    await expect(editMoveInForm(manager(), ID, { blocks: "approval", dueAt: null })).rejects.toMatchObject({ status: 409 });
+    expect(forms[0]!.due_at).toBeNull();
+    expect((forms[0]!.snapshot as { blocks?: string }).blocks).toBeUndefined();
+    forms = [formRow({ status: "cancelled" })];
+    await expect(editMoveInForm(manager(), ID, { blocks: "approval" })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("refuses a body that names an id, a status or an owner, and a block value it does not know", async () => {
+    await expect(editMoveInForm(manager(), ID, { status: "submitted" })).rejects.toThrow();
+    await expect(editMoveInForm(manager(), ID, { managerUserId: "someone-else" })).rejects.toThrow();
+    await expect(editMoveInForm(manager(), ID, { blocks: "everything" })).rejects.toThrow();
+    expect(forms[0]!.status).toBe("sent");
+    expect(forms[0]!.manager_user_id).toBe("owner");
+  });
+
+  it("will not strip an upload form's signature or empty a built form", async () => {
+    await expect(editMoveInForm(manager(), ID, { questions: [] })).rejects.toMatchObject({ status: 400 });
+    forms = [formRow({ source: "upload" })];
+    await expect(editMoveInForm(manager(), ID, { questions: [q("name", "text")] })).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("a sent copy carries what its template blocks", () => {
+  it("copies the template's blocks into the snapshot, and an intake form defaults to Move-in details", async () => {
+    forms = [];
+    properties[0]!.templates = [
+      { ...newMoveInFormTemplate("built"), id: "f1", name: "Pets", blocks: "approval", questions: [q("sig", "signature", { required: true })] },
+      { ...defaultMoveInForm("intake"), id: "default-intake" },
+      { ...newMoveInFormTemplate("built"), id: "f3", name: "Key", questions: [q("sig", "signature", { required: true })] },
+    ];
+    await sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "f1" });
+    await sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "default-intake" });
+    await sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "f3" });
+    const blocks = Object.fromEntries(forms.map((row) => [row.form_id, (row.snapshot as { blocks?: string }).blocks]));
+    expect(blocks).toEqual({ f1: "approval", "default-intake": "move_in_details", f3: "nothing" });
+  });
+
+  it("editing the template afterwards never changes a copy already sent", async () => {
+    forms = [];
+    properties[0]!.templates = [{ ...newMoveInFormTemplate("built"), id: "f1", name: "Pets", blocks: "lease_signing", questions: [q("sig", "signature", { required: true })] }];
+    await sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "f1" });
+    properties[0]!.templates = [{ ...(properties[0]!.templates as MoveInFormTemplate[])[0]!, blocks: "nothing" }];
+    expect((forms[0]!.snapshot as { blocks?: string }).blocks).toBe("lease_signing");
   });
 });

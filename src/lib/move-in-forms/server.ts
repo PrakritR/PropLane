@@ -28,8 +28,9 @@ import { MAX_FILES_PER_FORM, MAX_FILES_PER_QUESTION, MAX_SIGNATURES_PER_QUESTION
 import { emailManagerOfMoveInFormSubmission, emitMoveInFormEvent } from "./move-in-form-events.server";
 import {
   MOVE_IN_FORM_ID_PATTERN, moveInFormDefaultKindOfId, moveInFormDueFor, readMoveInFormSettings, readMoveInFormTemplates,
-  moveInLeaseKindOf, templateAppliesToRoom, templateLeaseTypeAdmits, templateLinkMatches,
+  moveInLeaseKindOf, normalizeMoveInFormQuestions, templateAppliesToRoom, templateLeaseTypeAdmits, templateLinkMatches,
 } from "./templates";
+import { MOVE_IN_FORM_BLOCKS, resolveMoveInFormBlocks } from "./types";
 import type {
   MoveInFormAnswer, MoveInFormKind, MoveInFormQuestion, MoveInFormRecord, MoveInFormStatus, MoveInFormSummary, MoveInFormTemplate,
   MoveInFormTrigger,
@@ -215,7 +216,7 @@ function toRecord(row: MoveInFormRow, viewer: "manager" | "resident"): MoveInFor
     formId: row.form_id,
     formName: row.form_name,
     source: row.source,
-    snapshot: { questions: questionsOf(row), pdf: row.snapshot?.pdf ?? null, ...(row.snapshot?.kind ? { kind: row.snapshot.kind } : {}) },
+    snapshot: { questions: questionsOf(row), pdf: row.snapshot?.pdf ?? null, ...(row.snapshot?.kind ? { kind: row.snapshot.kind } : {}), ...(row.snapshot?.blocks ? { blocks: row.snapshot.blocks } : {}) },
     status: row.status,
     answers: Array.isArray(row.answers) ? row.answers : [],
     signedDocumentSha256: row.signed_document_sha256,
@@ -232,6 +233,7 @@ function toSummary(row: MoveInFormRow, viewer: "manager" | "resident"): MoveInFo
   return {
     ...summary,
     kind: snapshot.kind ?? moveInFormDefaultKindOfId(row.form_id) ?? "other",
+    blocks: resolveMoveInFormBlocks(snapshot.blocks, snapshot.kind ?? moveInFormDefaultKindOfId(row.form_id) ?? "other"),
     questionCount: snapshot.questions.length,
     photoCount: answers.reduce((total, answer) => total + ("files" in answer ? answer.files.length : 0), 0),
     signed: answers.some((answer) => "signature" in answer),
@@ -421,7 +423,8 @@ async function buildSnapshot(
 ): Promise<MoveInFormRecord["snapshot"] | null> {
   const questions = structuredClone(template.questions);
   const kind: MoveInFormKind = template.kind;
-  if (template.source !== "upload") return { questions, pdf: null, kind };
+  const blocks = resolveMoveInFormBlocks(template.blocks, kind);
+  if (template.source !== "upload") return { questions, pdf: null, kind, blocks };
   const pdf = template.pdf;
   if (!pdf || !pdfPathTrusted(pdf.storagePath, ownerId, template.id)) return null;
   // An uploaded form is read and signed: without a signature question there is nothing to sign.
@@ -434,7 +437,7 @@ async function buildSnapshot(
     cache.set(pdf.storagePath, entry);
   }
   if (!entry) return null;
-  return { questions, pdf: { storagePath: pdf.storagePath, fileName: pdf.fileName, pageCount: pdf.pageCount, sha256: entry.sha256 }, kind };
+  return { questions, pdf: { storagePath: pdf.storagePath, fileName: pdf.fileName, pageCount: pdf.pageCount, sha256: entry.sha256 }, kind, blocks };
 }
 
 type NewRow = {
@@ -858,6 +861,47 @@ export async function remindMoveInForm(actor: MoveInFormActor, id: string): Prom
   // The row is stamped first, so a delivery failure never re-sends on retry; the inbox is the record.
   await emitMoveInFormEvent(actor.context.db, { row: data as unknown as MoveInFormRow, event: "reminder", nonce: now }).catch(() => undefined);
   return { ok: true };
+}
+
+const editSchema = z.object({
+  dueAt: z.string().datetime({ offset: true }).nullable().optional(),
+  blocks: z.enum(MOVE_IN_FORM_BLOCKS as unknown as [string, ...string[]]).optional(),
+  questions: z.array(z.record(z.string(), z.unknown())).max(200).optional(),
+}).strict();
+
+/**
+ * A manager edits a form still waiting on the resident: due date, what it blocks, and its questions.
+ * Scope is re-derived from the authenticated manager (never a body id), the write is a compare-and-swap
+ * on `status = 'sent'`, and a submitted or cancelled copy is locked (409).
+ */
+export async function editMoveInForm(actor: MoveInFormActor, id: string, raw: unknown): Promise<{ form: MoveInFormRecord }> {
+  requireManager(actor);
+  const input = editSchema.parse(raw);
+  const row = await getRow(actor, id, "edit");
+  if (row.status !== "sent") throw new MoveInFormError("Only a form still waiting on the resident can be edited.", 409);
+  const snapshot: MoveInFormRow["snapshot"] = { ...row.snapshot, questions: questionsOf(row) };
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.blocks) snapshot.blocks = input.blocks as MoveInFormRecord["snapshot"]["blocks"];
+  if (input.dueAt !== undefined) patch.due_at = input.dueAt;
+  if (input.questions) {
+    const questions = normalizeMoveInFormQuestions(input.questions);
+    if (questions.length === 0 && row.source !== "upload") throw new MoveInFormError("A form needs at least one question.", 400);
+    if (row.source === "upload" && !questions.some((question) => question.type === "signature")) {
+      throw new MoveInFormError("An uploaded form needs a signature question.", 400);
+    }
+    snapshot.questions = questions;
+    // A draft answer to a question that no longer exists is dropped, never kept hidden.
+    const keys = new Set(questions.map((question) => question.key));
+    patch.answers = (Array.isArray(row.answers) ? row.answers : []).filter((answer) => keys.has(answer.key));
+  }
+  patch.snapshot = snapshot;
+  const auditKey = await audit(actor, "edit", { form_record_id: row.id, fields: Object.keys(input) });
+  const { data, error } = await actor.context.db.from(TABLE).update(patch)
+    .eq("id", row.id).eq("status", "sent").select("*").maybeSingle();
+  await updateAuditResult(actor.context, auditKey, { status: error || !data ? "failed" : "success" });
+  if (error) throw new MoveInFormError("Could not save the form.", 500);
+  if (!data) throw new MoveInFormError("This form was already submitted, so it is locked.", 409);
+  return { form: toRecord(data as unknown as MoveInFormRow, "manager") };
 }
 
 export async function cancelMoveInForm(actor: MoveInFormActor, id: string): Promise<{ ok: true }> {

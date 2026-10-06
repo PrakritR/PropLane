@@ -12,6 +12,8 @@ import {
   DEFAULT_MOVE_IN_FORM_SETTINGS,
   type MoveInFormAudience,
   type MoveInFormDueRule,
+  MOVE_IN_FORM_BLOCKS,
+  type MoveInFormBlocks,
   type MoveInFormKind,
   type MoveInFormMoveOutDays,
   type MoveInFormQuestion,
@@ -418,6 +420,15 @@ function normalizeQuestion(raw: unknown, takenKeys: Set<string>): MoveInFormQues
   };
 }
 
+/** The same defensive read a stored template's questions get, for a manager editing a sent copy. */
+export function normalizeMoveInFormQuestions(raw: unknown): MoveInFormQuestion[] {
+  const taken = new Set<string>();
+  return (Array.isArray(raw) ? raw : [])
+    .slice(0, MAX_QUESTIONS)
+    .map((item) => normalizeQuestion(item, taken))
+    .filter((item): item is MoveInFormQuestion => item !== null);
+}
+
 function normalizeAudience(raw: unknown): MoveInFormAudience {
   if (isRecord(raw) && raw.kind === "whole-house") return { kind: "whole-house" };
   if (isRecord(raw) && raw.kind === "rooms" && Array.isArray(raw.roomIds)) {
@@ -477,6 +488,7 @@ function normalizeTemplate(raw: unknown): MoveInFormTemplate | null {
     trigger,
     due: DUE_RULES.includes(raw.due as MoveInFormDueRule) ? (raw.due as MoveInFormDueRule) : "day-before",
     kind: defaultKind ?? storedKind,
+    ...(MOVE_IN_FORM_BLOCKS.includes(raw.blocks as MoveInFormBlocks) ? { blocks: raw.blocks as MoveInFormBlocks } : {}),
     moveOutDaysBefore: (MOVE_OUT_DAYS_OPTIONS as readonly number[]).includes(days) ? (days as MoveInFormMoveOutDays) : 14,
     linkedApplicationTemplateIds: normalizeIdList(raw.linkedApplicationTemplateIds),
     linkedLeaseTemplateIds: normalizeIdList(raw.linkedLeaseTemplateIds),

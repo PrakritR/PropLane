@@ -41,12 +41,16 @@ import {
   moveInFormLeaseTypeValue,
   newMoveInFormTemplate,
 } from "@/lib/move-in-forms/templates";
-import type {
-  MoveInFormAudience,
-  MoveInFormMoveOutDays,
-  MoveInFormQuestion,
-  MoveInFormStarterKey,
-  MoveInFormTemplate,
+import {
+  MOVE_IN_FORM_BLOCKS,
+  MOVE_IN_FORM_BLOCKS_LABELS,
+  resolveMoveInFormBlocks,
+  type MoveInFormAudience,
+  type MoveInFormBlocks,
+  type MoveInFormMoveOutDays,
+  type MoveInFormQuestion,
+  type MoveInFormStarterKey,
+  type MoveInFormTemplate,
 } from "@/lib/move-in-forms/types";
 import { cn } from "@/lib/utils";
 
@@ -228,6 +232,7 @@ export function MoveInFormEditorModal({
         questions: newMoveInFormTemplate("upload").questions,
         starterKey: undefined,
         kind: "other" as const,
+        blocks: undefined,
         pdf: prev.pdf ?? null,
       }));
       return;
@@ -235,7 +240,7 @@ export function MoveInFormEditorModal({
     const starter = MOVE_IN_FORM_STARTERS.find((item) => (item.starterKey ?? item.id) === value);
     setDraft((prev) => {
       const keepName = prev.name.trim() && prev.name !== previous?.name;
-      if (!starter) return { ...prev, source: "built", pdf: null, questions: [], starterKey: undefined, kind: "other" as const };
+      if (!starter) return { ...prev, source: "built", pdf: null, questions: [], starterKey: undefined, kind: "other" as const, blocks: undefined };
       return {
         ...prev,
         source: "built",
@@ -245,6 +250,7 @@ export function MoveInFormEditorModal({
         trigger: starter.trigger,
         due: starter.due,
         kind: starter.kind,
+        blocks: undefined,
         moveOutDaysBefore: starter.moveOutDaysBefore,
         starterKey: value as MoveInFormStarterKey,
       };
@@ -366,6 +372,19 @@ export function MoveInFormEditorModal({
           onChange={(value) => patch(moveInFormLeaseTypePatch(value, draft))}
           options={leaseTypeOptions}
           dataAttr="move-in-form-lease-type"
+        />
+      </PropertyFormWizardRow>
+      <PropertyFormWizardRow label="Blocks">
+        <FieldSingleSelect
+          hideLabel
+          label="Blocks"
+          labelClassName={WIZARD_LABEL_CLASS}
+          variant="cell"
+          className="min-w-[200px] max-w-[280px]"
+          value={resolveMoveInFormBlocks(draft.blocks, draft.kind)}
+          onChange={(value) => patch({ blocks: value as MoveInFormBlocks })}
+          options={MOVE_IN_FORM_BLOCKS.map((value) => ({ value, label: MOVE_IN_FORM_BLOCKS_LABELS[value] }))}
+          dataAttr="move-in-form-blocks"
         />
       </PropertyFormWizardRow>
       <PropertyFormWizardRow label="Who">

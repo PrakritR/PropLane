@@ -9,7 +9,7 @@ import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadBlobFile } from "@/lib/portal-document-download";
 import { fitImageForUpload } from "./fit-image";
-import type { MoveInFormAnswer, MoveInFormRecord, MoveInFormSummary, MoveInFormTemplate } from "./types";
+import type { MoveInFormAnswer, MoveInFormBlocks, MoveInFormQuestion, MoveInFormRecord, MoveInFormSummary, MoveInFormTemplate } from "./types";
 
 export type MoveInFormPortal = "manager" | "resident";
 export type MoveInFormList = { forms: MoveInFormSummary[]; unread: number };
@@ -85,6 +85,11 @@ export const sendMoveInForm = (input: { applicationId: string; formId: string; d
 /** "Already-signed residents: send now too" — sends one form to every current signed residency it applies to. */
 export const sendMoveInFormToCurrentResidents = (input: { propertyId: string; formId: string }) =>
   moveInFormRequest<{ sent: number }>("manager", "/send-existing", { method: "POST", body: JSON.stringify(input) });
+/** Edits a form still waiting on the resident: due date, what it blocks and its questions. 409 once submitted. */
+export const editMoveInForm = (
+  id: string,
+  input: { dueAt?: string | null; blocks?: MoveInFormBlocks; questions?: MoveInFormQuestion[] },
+) => moveInFormRequest<{ form: MoveInFormRecord }>("manager", `/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
 export const remindMoveInForm =(id: string) =>
   moveInFormRequest<{ ok: true }>("manager", `/${encodeURIComponent(id)}/remind`, { method: "POST", body: "{}" });
 export const cancelMoveInForm = (id: string) =>

@@ -6,7 +6,7 @@ import { moveInFormPdf } from "@/lib/move-in-forms/pdf";
 import { MAX_JSON_BODY_BYTES, MAX_PDF_UPLOAD_REQUEST_BYTES, MAX_UPLOAD_REQUEST_BYTES } from "@/lib/move-in-forms/limits";
 import { BodyTooLargeError, readBodyText, readFormDataLimited } from "@/lib/move-in-forms/read-body";
 import {
-  assertMoveInPlanForActor, cancelMoveInForm, deleteMoveInFormFile, listMoveInForms, MoveInFormError, moveInFormDetail, moveInFormFileUrl, moveInFormRecordPdf,
+  assertMoveInPlanForActor, cancelMoveInForm, deleteMoveInFormFile, editMoveInForm, listMoveInForms, MoveInFormError, moveInFormDetail, moveInFormFileUrl, moveInFormRecordPdf,
   moveInFormTemplatePdf, remindMoveInForm, saveMoveInFormDraft, sendMoveInForm, sendMoveInFormToCurrentResidents,
   submitMoveInForm, uploadMoveInFormFile, uploadMoveInFormTemplatePdf, type MoveInFormActor,
 } from "@/lib/move-in-forms/server";
@@ -113,6 +113,7 @@ async function handle(req: NextRequest, context: RouteContext) {
         if (second === "file") return fileRedirect(await moveInFormFileUrl(actor, id, filePath(search)));
         if (second === "template-pdf") return originalPdf(await moveInFormRecordPdf(actor, id));
       }
+      if (id && req.method === "PATCH" && !second) return json(await editMoveInForm(actor, id, await body(req)));
       if (id && req.method === "POST" && second === "remind") return json(await remindMoveInForm(actor, id));
       if (id && req.method === "POST" && second === "cancel") return json(await cancelMoveInForm(actor, id));
       throw new MoveInFormError("Not found.", 404);

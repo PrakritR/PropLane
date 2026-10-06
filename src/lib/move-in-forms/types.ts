@@ -47,6 +47,31 @@ export type MoveInFormTrigger =
 export type MoveInFormKind = "intake" | "move-in" | "move-out" | "other";
 
 /**
+ * What an unsubmitted copy of a form holds back from the resident (or the manager). Stored on the
+ * template and copied into the sent copy's `snapshot.blocks`. Absent = the kind's default.
+ */
+export type MoveInFormBlocks = "nothing" | "move_in_details" | "lease_signing" | "approval";
+
+export const MOVE_IN_FORM_BLOCKS: readonly MoveInFormBlocks[] = ["nothing", "move_in_details", "lease_signing", "approval"];
+
+export const MOVE_IN_FORM_BLOCKS_LABELS: Record<MoveInFormBlocks, string> = {
+  nothing: "Nothing",
+  move_in_details: "Move-in details",
+  lease_signing: "Lease signing",
+  approval: "Approval",
+};
+
+/** Intake forms hold Move-in details until they are filled in; every other kind blocks nothing. */
+export function defaultMoveInFormBlocks(kind: MoveInFormKind | null | undefined): MoveInFormBlocks {
+  return kind === "intake" ? "move_in_details" : "nothing";
+}
+
+/** The blocks a template or a sent copy carries: the stored value when valid, else the kind's default. */
+export function resolveMoveInFormBlocks(blocks: unknown, kind: MoveInFormKind | null | undefined): MoveInFormBlocks {
+  return MOVE_IN_FORM_BLOCKS.includes(blocks as MoveInFormBlocks) ? (blocks as MoveInFormBlocks) : defaultMoveInFormBlocks(kind);
+}
+
+/**
  * Which signed lease type a form goes to when the lease is signed. Absent / "all" = every lease.
  * A specific custom lease is `linkedLeaseTemplateIds` (the lease the residency is on).
  */
@@ -93,6 +118,8 @@ export type MoveInFormTemplate = {
   due: MoveInFormDueRule;
   /** Absent in stored data written before kinds existed: read as "other". */
   kind: MoveInFormKind;
+  /** What an unsubmitted copy blocks. Absent = {@link defaultMoveInFormBlocks} of the kind. */
+  blocks?: MoveInFormBlocks;
   /** Used when `trigger` is "before-move-out". */
   moveOutDaysBefore: MoveInFormMoveOutDays;
   /** Application templates (`propertyApplicationTemplates` ids) this form goes to. Empty = every application. */
@@ -140,7 +167,7 @@ export type MoveInFormRecord = {
   formName: string;
   source: MoveInFormSource;
   /** Immutable once sent: the questions (and PDF fingerprint) this resident was asked. */
-  snapshot: { questions: MoveInFormQuestion[]; pdf: MoveInFormTemplate["pdf"]; kind?: MoveInFormKind };
+  snapshot: { questions: MoveInFormQuestion[]; pdf: MoveInFormTemplate["pdf"]; kind?: MoveInFormKind; blocks?: MoveInFormBlocks };
   status: MoveInFormStatus;
   answers: MoveInFormAnswer[];
   /** SHA-256 of the exact PDF bytes the resident signed (upload forms only). */
@@ -157,6 +184,8 @@ export type MoveInFormRecord = {
 export type MoveInFormSummary = Omit<MoveInFormRecord, "answers" | "snapshot"> & {
   /** Which kind of form this copy was sent from (the Waiting / Submitted filter). */
   kind: MoveInFormKind;
+  /** What this copy holds back until it is submitted (the snapshot's value, else its kind's default). */
+  blocks: MoveInFormBlocks;
   questionCount: number;
   photoCount: number;
   signed: boolean;
