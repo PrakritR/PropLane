@@ -12,6 +12,8 @@ import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points
 import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { VendorEstimateBidSection } from "@/components/portal/vendor-estimate-bid-section";
+import { VendorJobChoiceBar } from "@/components/portal/vendor-job-choice-bar";
+import { VendorFindWorkList } from "@/components/portal/vendor-find-work-list";
 import { RecordBandFilter, RecordTabBand } from "@/components/portal/record-list-band";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -46,6 +48,17 @@ import { fetchWorkOrderBidsResult, type WorkOrderBid } from "@/lib/work-order-bi
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
 import { vendorPayoutTimeline } from "@/lib/vendor-payout-timeline";
 import { VendorPayoutTimeline } from "@/components/portal/vendor-payout-timeline";
+import { fetchBoardServices, requestBoardJob } from "@/lib/service-work-share-client";
+import type { PublicBoardServiceView } from "@/lib/public-service-projection";
+import {
+  VENDOR_FIND_WORK_TAB,
+  VENDOR_JOB_CHOICE_PARAM,
+  parseVendorJobChoice,
+  replyForVendorJobChoice,
+  vendorJobChoiceHref,
+  type VendorJobChoiceId,
+} from "@/lib/vendor-job-choice";
+import { FIND_WORK_DISTANCE_OPTIONS, FIND_WORK_TRADE_OPTIONS, findWorkRadiusMi } from "@/lib/vendor-find-work";
 import { WORK_ORDER_BIDS_EVENT } from "@/lib/work-order-bids-storage";
 import {
   declineWorkOrderVendorOffer,
@@ -60,6 +73,7 @@ import {
   vendorServiceStage,
   vendorShortWhen as vendorShortWhenLabel,
   VENDOR_WORK_ORDER_TABS,
+  vendorAnswerChoices,
   type VendorWorkOrderTab,
 } from "@/lib/vendor-work-order-tabs";
 import type { VendorReplyChoice } from "@/lib/work-order-bid-cycle";
@@ -137,7 +151,8 @@ export function VendorWorkOrdersPanel({
   workOrderId,
   workOrderDetailTab,
 }: {
-  tabId?: VendorWorkOrderTab;
+  /** The four service stages, or the Find work board (a fifth tab that is not a stage). */
+  tabId?: VendorWorkOrderTab | typeof VENDOR_FIND_WORK_TAB;
   /** A vendor job RECORD id (docs/agents/record-page.md); set only when routed to /work-orders/<id>/<tab>. */
   workOrderId?: string;
   workOrderDetailTab?: VendorJobDetailTabId;
@@ -171,6 +186,49 @@ export function VendorWorkOrdersPanel({
   const [propertyFilter, setPropertyFilter] = useState("");
   const answerSubmitRef = useRef<(() => void) | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const isFindWork = tabId === VENDOR_FIND_WORK_TAB;
+  // The stage the list filters by; Find work is not a stage, so it never reaches stage code.
+  const stageTabId: VendorWorkOrderTab | null = tabId === VENDOR_FIND_WORK_TAB ? null : tabId;
+  const [boardServices, setBoardServices] = useState<PublicBoardServiceView[] | null>(null);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const [boardError, setBoardError] = useState("");
+  const [boardReload, setBoardReload] = useState(0);
+  const [tradeFilter, setTradeFilter] = useState("");
+  const [distanceFilter, setDistanceFilter] = useState("");
+  const [boardBusy, setBoardBusy] = useState<{ ref: string; choice: VendorJobChoiceId } | null>(null);
+  const appliedChoiceRef = useRef<string | null>(null);
+
+  // Find work loads only while its tab is the active one list.
+  useEffect(() => {
+    if (!isFindWork || workOrderId) return;
+    let cancelled = false;
+    setBoardLoading(true);
+    setBoardError("");
+    void fetchBoardServices({ trade: tradeFilter || undefined, radiusMi: findWorkRadiusMi(distanceFilter) }).then((result) => {
+      if (cancelled) return;
+      setBoardLoading(false);
+      if (result.ok) setBoardServices(result.services);
+      else setBoardError(result.error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isFindWork, workOrderId, tradeFilter, distanceFilter, boardReload]);
+
+  // Arriving on Estimate & bid from a job choice (?choice=estimate|bid) preselects that reply, once.
+  useEffect(() => {
+    if (!workOrderId || workOrderDetailTab !== "bid") return;
+    const key = `${workOrderId}:${window.location.search}`;
+    if (appliedChoiceRef.current === key) return;
+    const target = rows.find((r) => r.id === workOrderId);
+    if (!target) return;
+    appliedChoiceRef.current = key;
+    const choice = parseVendorJobChoice(new URLSearchParams(window.location.search).get(VENDOR_JOB_CHOICE_PARAM));
+    const wanted = choice ? replyForVendorJobChoice(choice) : null;
+    if (!wanted) return;
+    const allowed = vendorAnswerChoices(bidsByWorkOrderId[workOrderId], offersByWorkOrderId[workOrderId]);
+    if (allowed.some((c) => c.value === wanted)) setReplyChoice(wanted);
+  }, [workOrderId, workOrderDetailTab, rows, bidsByWorkOrderId, offersByWorkOrderId]);
 
   const loadBids = useCallback(async () => {
     const result = await fetchWorkOrderBidsResult();
@@ -266,9 +324,18 @@ export function VendorWorkOrdersPanel({
     return c;
   }, [sorted, stageOf]);
 
+  // The four stages, then Find work: appended here only, so VENDOR_WORK_ORDER_TABS stays the stage vocabulary.
   const tabs = useMemo(
-    () => VENDOR_WORK_ORDER_TABS.map(({ id, label }) => ({ id, label, count: tabCounts[id], href: vendorWorkOrderListHref("/vendor", id) })),
-    [tabCounts],
+    () => [
+      ...VENDOR_WORK_ORDER_TABS.map(({ id, label }) => ({ id: id as string, label, count: tabCounts[id] as number | undefined, href: vendorWorkOrderListHref("/vendor", id) })),
+      {
+        id: VENDOR_FIND_WORK_TAB as string,
+        label: "Find work",
+        count: boardServices?.length,
+        href: vendorWorkOrderListHref("/vendor", VENDOR_FIND_WORK_TAB),
+      },
+    ],
+    [tabCounts, boardServices],
   );
 
   useEffect(() => {
@@ -290,15 +357,15 @@ export function VendorWorkOrdersPanel({
     () =>
       sorted.filter(
         (row) =>
-          stageOf(row) === tabId &&
+          stageOf(row) === stageTabId &&
           (!propertyFilter || row.propertyName === propertyFilter) &&
           matchesPortalListSearch(search, row.title, row.propertyName, row.unit),
       ),
-    [sorted, tabId, stageOf, propertyFilter, search],
+    [sorted, stageTabId, stageOf, propertyFilter, search],
   );
 
   const { nearYouRows, otherOpenRows } = useMemo(() => {
-    if (tabId !== "open") return { nearYouRows: [] as DemoManagerWorkOrderRow[], otherOpenRows: visible };
+    if (stageTabId !== "open") return { nearYouRows: [] as DemoManagerWorkOrderRow[], otherOpenRows: visible };
     const near: DemoManagerWorkOrderRow[] = [];
     const rest: DemoManagerWorkOrderRow[] = [];
     for (const row of visible) {
@@ -307,7 +374,7 @@ export function VendorWorkOrdersPanel({
       else rest.push(row);
     }
     return { nearYouRows: near, otherOpenRows: rest };
-  }, [visible, tabId, offersByWorkOrderId, bidsByWorkOrderId]);
+  }, [visible, stageTabId, offersByWorkOrderId, bidsByWorkOrderId]);
 
   const wizardJobs = useMemo(() => sorted.filter((row) => stageOf(row) === "open"), [sorted, stageOf]);
 
@@ -733,6 +800,13 @@ export function VendorWorkOrdersPanel({
     const hasVisit = Boolean(row.scheduled && row.scheduled !== "—") || Boolean(row.scheduledAtIso);
     const invoiceOwed = stage === "completed" && !invoiceSent && row.automationStatus !== "paid" && !(bid?.status === "declined" || offer?.status === "declined");
 
+    // An Open service with no bid yet: the three ways to answer, on top of the Service tab.
+    const showChoiceBar = stage === "open" && !bid;
+    const onJobChoice = (choice: VendorJobChoiceId) => {
+      if (choice === "message") goTo("communication");
+      else navigate(vendorJobChoiceHref("/vendor", row.id, choice));
+    };
+
     const ownContent =
       activeTab === "bid" ? (
         <VendorEstimateBidSection
@@ -800,6 +874,11 @@ export function VendorWorkOrdersPanel({
         })
       ) : (
         <>
+          {showChoiceBar ? (
+            <div className="px-3 pb-3 pt-1 sm:px-4" data-attr="vendor-job-choices">
+              <VendorJobChoiceBar onChoose={onJobChoice} />
+            </div>
+          ) : null}
           {renderRecordSection("overview", {
             role: "vendor",
             kind: "service",
@@ -904,7 +983,33 @@ export function VendorWorkOrdersPanel({
   }
 
   const emptyCopy = portalEmptyCopy(`work-orders.${tabId}`);
-  const noMatchTitle = search.trim() || propertyFilter ? portalEmptyNoMatchTitle("services", search.trim()) : null;
+  const boardVisible = (boardServices ?? []).filter((service) =>
+    matchesPortalListSearch(search, service.title, service.area, service.trade, service.postedBy),
+  );
+  const noMatchTitle = isFindWork
+    ? search.trim() || tradeFilter || distanceFilter
+      ? portalEmptyNoMatchTitle("services", search.trim())
+      : null
+    : search.trim() || propertyFilter
+      ? portalEmptyNoMatchTitle("services", search.trim())
+      : null;
+
+  const chooseBoardJob = async (service: PublicBoardServiceView, choice: VendorJobChoiceId) => {
+    if (boardBusy) return;
+    setBoardBusy({ ref: service.ref, choice });
+    try {
+      const result = await requestBoardJob(service.ref, choice);
+      if (result.ok) {
+        navigate(vendorJobChoiceHref("/vendor", result.workOrderId, choice));
+        return;
+      }
+      // Gone (404): another vendor was hired or the manager unpublished it; drop the row.
+      if (result.status === 404) setBoardServices((prev) => (prev ? prev.filter((s) => s.ref !== service.ref) : prev));
+      showToast(result.error);
+    } finally {
+      setBoardBusy(null);
+    }
+  };
 
   const renderRow = (row: DemoManagerWorkOrderRow, near = false) => {
     const bid = bidsByWorkOrderId[row.id];
@@ -945,16 +1050,21 @@ export function VendorWorkOrdersPanel({
           ariaLabel="Service status"
           tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, count: tab.count }))}
           activeId={tabId}
-          onChange={(id) => navigate(vendorWorkOrderListHref("/vendor", id as VendorWorkOrderTab))}
+          onChange={(id) => navigate(vendorWorkOrderListHref("/vendor", id as VendorWorkOrderTab | typeof VENDOR_FIND_WORK_TAB))}
           search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
           actions={
             <>
               <RecordBandFilter
                 dataAttr="vendor-services-band"
                 fields={
-                  propertyOptions.length > 0
-                    ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
-                    : []
+                  isFindWork
+                    ? [
+                        { id: "trade", label: "Trade", anyLabel: "Any trade", value: tradeFilter, options: FIND_WORK_TRADE_OPTIONS, onChange: setTradeFilter },
+                        { id: "distance", label: "Distance", anyLabel: "Any distance", value: distanceFilter, options: FIND_WORK_DISTANCE_OPTIONS, onChange: setDistanceFilter },
+                      ]
+                    : propertyOptions.length > 0
+                      ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
+                      : []
                 }
               />
               <PortalIconAction
@@ -973,6 +1083,22 @@ export function VendorWorkOrdersPanel({
           Couldn&apos;t refresh the latest bidding/payout status. This may be out of date. Retrying automatically.
         </p>
       ) : null}
+      {isFindWork ? (
+        <PortalRecordListSurface
+          isEmpty={boardVisible.length === 0}
+          loading={boardLoading}
+          loadError={boardError || undefined}
+          onRetry={() => setBoardReload((n) => n + 1)}
+          emptyCard={{
+            title: noMatchTitle ?? emptyCopy.title,
+            section: emptyCopy.section,
+            sibling: noMatchTitle ? undefined : portalEmptySibling(tabs, tabId),
+          }}
+          dataAttr="vendor-find-work-list"
+        >
+          <VendorFindWorkList services={boardVisible} busy={boardBusy} onChoose={chooseBoardJob} />
+        </PortalRecordListSurface>
+      ) : (
       <PortalRecordListSurface
         isEmpty={visible.length === 0}
         emptyCard={{
@@ -1004,8 +1130,9 @@ export function VendorWorkOrdersPanel({
           <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted">Near you</p>
         ) : null}
         {nearYouRows.map((row) => renderRow(row, true))}
-        {(tabId === "open" ? otherOpenRows : visible).map((row) => renderRow(row))}
+        {(stageTabId === "open" ? otherOpenRows : visible).map((row) => renderRow(row))}
       </PortalRecordListSurface>
+      )}
       <VendorQuoteWizard
         open={quoteOpen}
         door="quote"

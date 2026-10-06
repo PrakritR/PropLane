@@ -50,6 +50,14 @@ export type ManagerVendorRow = {
   typicalRates?: ManagerVendorTypicalRate[];
   /** Sent-invite bookkeeping for the Invited pill: when the portal invite last went out. */
   invitedAt?: string;
+  /**
+   * How the vendor reached this roster (vendor-work-share-1006), written by the server: "service_link" =
+   * they opened a texted link, "work_board" = they requested a published service. Absent for a vendor the
+   * manager added.
+   */
+  origin?: "service_link" | "work_board";
+  /** Server-held: a link / board vendor has no phone or email on the row until they submit a bid. */
+  contactHeldUntilBid?: boolean;
   /** Synthetic settings row only — default vendor id per trade category. */
   categoryDefaults?: Record<string, string>;
   createdAt?: string;

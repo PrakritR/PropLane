@@ -32,6 +32,7 @@ import { bidCanBeApproved } from "@/lib/work-order-bid-approval";
 import { parseVisitFeeCents } from "@/lib/work-order-visit-fee";
 import { ensureVisitFeeInvoice } from "@/lib/work-order-visit-fee-invoice.server";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import { revealHeldVendorContact } from "@/lib/service-work-board.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -321,6 +322,10 @@ export async function submitWorkOrderBid(
     const { error } = await db.from("work_order_bids").insert(record);
     if (error) return { ok: false, status: 500, error: error.message };
   }
+
+  // A vendor who came off the work board or a texted link is on the manager's roster with their
+  // contact held; a submitted bid is what releases it (vendor-work-share-1006, Decide #3).
+  await revealHeldVendorContact(db, { vendorUserId: actor.userId, managerUserId: access.access.managerUserId });
 
   track("work_order_bid_submitted", actor.userId, { work_order_id: workOrderId });
   return { ok: true };
@@ -928,6 +933,8 @@ export async function acceptWorkOrderBid(
       materialsCostCents: record.materials_cents,
       biddingOpen: false,
       biddingResolvedAt: now,
+      // A hired service leaves the vendor work board (vendor-work-share-1006).
+      ...(rowData.published ? { published: false } : {}),
       // The approved bid's proposed time is booked as the visit; either side can still move it.
       ...(record.proposed_time && rowData.bucket !== "completed"
         ? {

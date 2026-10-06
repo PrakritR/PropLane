@@ -104,6 +104,7 @@ export const DELETE_ORDER = [
   "application_fee_waiver_redemptions",
   "document_share_links",
   "portal_record_share_links",
+  "service_share_links",
   "manager_house_public_links",
   "manager_syndication_feeds",
   "cosigner_submission_records",

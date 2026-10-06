@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRequestGuard } from "@/lib/use-request-guard";
 import type { LucideIcon } from "lucide-react";
-import { Mail, MoreHorizontal, Pencil, Wrench } from "lucide-react";
+import { Mail, Megaphone, MoreHorizontal, Pencil, Smartphone, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -62,6 +62,10 @@ import { track } from "@/lib/analytics/track-client";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec, portalLabeledPrimarySpec } from "@/components/portal/portal-icon-action-spec";
+import { ServicePublishPopup, ServiceSendToPhonePopup } from "@/components/portal/service-share-popups";
+import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { publishServiceToVendors, sendServiceToPhone, unpublishServiceFromVendors } from "@/lib/service-work-share-client";
+import { canShareService, sendToPhoneToast } from "@/lib/service-work-share-ui";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import { ServiceAssignDialog, type ServiceAssignMode } from "@/components/portal/service-assign-dialog";
 import { ServiceDetailsSection } from "@/components/portal/service-details-section";
@@ -267,6 +271,8 @@ export function ManagerWorkOrdersPanel({
   /** The header's Compare bids: switches to Vendors > Bids with the side-by-side view open. */
   const [vendorsIntent, setVendorsIntent] = useState<VendorsIntent | null>(null);
   const [cancelRow, setCancelRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [sendPhoneRow, setSendPhoneRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [publishRow, setPublishRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const openAssign = (row: DemoManagerWorkOrderRow, mode: ServiceAssignMode = "bids") => {
     setAssignMode(mode);
     setAssignSheetRow(row);
@@ -938,6 +944,16 @@ export function ManagerWorkOrdersPanel({
     [billDraftById, effectiveManagerId, showToast],
   );
 
+  const unpublishService = async (row: DemoManagerWorkOrderRow) => {
+    const res = await unpublishServiceFromVendors(row.id);
+    if (!res.ok) {
+      showToast(res.error);
+      return;
+    }
+    updateManagerWorkOrder(row.id, (cur) => ({ ...cur, published: false }));
+    showToast("Unpublished");
+  };
+
   const onDeleteWorkOrder = (row: DemoManagerWorkOrderRow) => {
     setDeleteRow(row);
   };
@@ -1255,6 +1271,8 @@ export function ManagerWorkOrdersPanel({
           trade: vendor.trade,
           active: vendor.active,
           rating: aggregate && aggregate.count > 0 && aggregate.average != null ? { average: aggregate.average, count: aggregate.count } : null,
+          origin: vendor.origin,
+          contactHeldUntilBid: vendor.contactHeldUntilBid,
         };
       }),
       jobTrade: tradeLabelForRow(row),
@@ -1592,6 +1610,8 @@ export function ManagerWorkOrdersPanel({
     const canReview = routeStage === "completed" && Boolean(routeWorkOrder.vendorUserId);
     const canCancel = routeStage !== "completed";
     const canReschedule = Boolean(assignee) && routeStage !== "completed" && serviceNext?.key !== "schedule";
+    // Send to phone / Publish to vendors: only while the service is Open with nobody on it (not in the demo).
+    const canShare = !isDemoModeActive() && canShareService({ stage: routeStage, hasAssignee: Boolean(assignee), status: routeWorkOrder.status });
     const headerMenu = serviceHeaderMenuItems("maintenance", { canCancel, canDelete: true });
     const menuAction = (id: "cancel" | "delete") => (id === "cancel" ? setCancelRow(routeWorkOrder) : onDeleteWorkOrder(routeWorkOrder));
     const headerActionSpecs: PortalAdaptiveAction[] = [
@@ -1605,6 +1625,24 @@ export function ManagerWorkOrdersPanel({
             workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "communication"),
           ),
       }),
+      ...(canShare
+        ? [
+            portalIconActionSpec({
+              id: "send-to-phone",
+              label: "Send to phone",
+              icon: Smartphone,
+              dataAttr: "record-header-action-send-to-phone",
+              onClick: () => setSendPhoneRow(routeWorkOrder),
+            }),
+            portalIconActionSpec({
+              id: "publish",
+              label: "Publish to vendors",
+              icon: Megaphone,
+              dataAttr: "record-header-action-publish",
+              onClick: () => setPublishRow(routeWorkOrder),
+            }),
+          ]
+        : []),
       portalIconActionSpec({
         id: "edit",
         label: "Edit",
@@ -1631,6 +1669,11 @@ export function ManagerWorkOrdersPanel({
             onSelect={() => autoScheduleVisit(routeWorkOrder)}
           >
             {autoSchedulingId === routeWorkOrder.id ? "Finding a slot…" : "Auto-schedule"}
+          </DropdownMenuItem>
+        ) : null}
+        {routeWorkOrder.published === true && !isDemoModeActive() ? (
+          <DropdownMenuItem data-attr="record-header-action-unpublish" onSelect={() => void unpublishService(routeWorkOrder)}>
+            Unpublish
           </DropdownMenuItem>
         ) : null}
         {canReview ? (
@@ -1738,6 +1781,9 @@ export function ManagerWorkOrdersPanel({
                 { label: "Preferred arrival", value: routeWorkOrder.preferredArrival?.trim() || "Anytime" },
                 { label: "Entry", value: entryPermissionLabel(routeWorkOrder.entryPermission) },
                 { label: "Priority", value: routeWorkOrder.priority ?? "—" },
+                ...(routeWorkOrder.published === true
+                  ? [{ label: "Vendors", value: <PortalRowFact icon={Megaphone}>Published</PortalRowFact> }]
+                  : []),
               ],
             },
             {
@@ -1789,6 +1835,34 @@ export function ManagerWorkOrdersPanel({
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
         {approvePayModal}
+        <ServiceSendToPhonePopup
+          open={sendPhoneRow !== null}
+          onClose={() => setSendPhoneRow(null)}
+          onSend={async (input) => {
+            const target = sendPhoneRow;
+            if (!target) return false;
+            const res = await sendServiceToPhone({ workOrderId: target.id, ...input });
+            showToast(res.ok ? sendToPhoneToast(res) : res.error);
+            return res.ok;
+          }}
+        />
+        <ServicePublishPopup
+          open={publishRow !== null}
+          onClose={() => setPublishRow(null)}
+          onPublish={async ({ budgetCents, sharePhotos }) => {
+            const target = publishRow;
+            if (!target) return false;
+            const res = await publishServiceToVendors({ workOrderId: target.id, budgetCents, sharePhotos });
+            if (!res.ok) {
+              showToast(res.error);
+              return false;
+            }
+            // The server already wrote it; mirroring stops a stale browser copy from overwriting it.
+            updateManagerWorkOrder(target.id, (cur) => ({ ...cur, ...res.patch }));
+            showToast("Published");
+            return true;
+          }}
+        />
         <ScheduleServiceVisitModal
           open={scheduleVisitRow !== null}
           row={scheduleVisitRow}

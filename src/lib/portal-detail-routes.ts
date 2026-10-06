@@ -753,9 +753,16 @@ export function parseVendorWorkOrderListTab(raw: string | undefined | null): Ven
   return DEFAULT_VENDOR_WORK_ORDER_TAB;
 }
 
+/**
+ * The fifth Services tab on the vendor portal: published work from any manager (vendor-work-share-1006).
+ * It is NOT a service stage - the four stages above stay the one vocabulary - so it lives beside
+ * `VENDOR_WORK_ORDER_LIST_TABS`, not in it.
+ */
+export const VENDOR_FIND_WORK_LIST_TAB = "find-work" as const;
+
 export function vendorWorkOrderListHref(
   basePath: string,
-  tab: VendorWorkOrderListTabId = DEFAULT_VENDOR_WORK_ORDER_TAB,
+  tab: VendorWorkOrderListTabId | typeof VENDOR_FIND_WORK_LIST_TAB = DEFAULT_VENDOR_WORK_ORDER_TAB,
 ): string {
   return `${basePath}/work-orders/${tab}`;
 }

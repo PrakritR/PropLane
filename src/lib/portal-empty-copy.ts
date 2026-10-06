@@ -62,6 +62,7 @@ export const PORTAL_EMPTY_COPY = {
   "work-orders.assigned": T("Nothing assigned", "work-orders"),
   "work-orders.scheduled": T("Nothing scheduled", "work-orders"),
   "work-orders.completed": T("Nothing completed yet", "work-orders"),
+  "work-orders.find-work": T("Nothing to bid on right now", "work-orders"),
   vendors: T("No vendors yet", "vendors"),
   "vendors.catalog": T("No PropLane vendors", "vendors"),
   "tasks.open": T("No open tasks", "tasks"),

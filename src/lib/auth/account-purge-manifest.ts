@@ -237,6 +237,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Hashed-token links to one service, texted to a vendor (vendor-work-share-1006). The manager
+    // owns the row; the vendor who redeemed it is a second owner, so both purges clear it.
+    table: "service_share_links",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    vendor: { ids: ["redeemed_by_user_id"] },
+  },
+  {
     table: "manager_house_public_links",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

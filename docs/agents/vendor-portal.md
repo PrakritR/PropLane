@@ -194,7 +194,7 @@ vendor does on a service — including the vendor's own `VendorEstimateBidSectio
 and the four Services tabs it answers under. Only the vendor-portal side lives
 below.
 
-**Jobs board retired (C152/C153 superseded).** A standalone `/vendor/jobs`
+**Jobs board retired (C152/C153 superseded) - then partly reversed Oct 6, see "The work board is back" below.** A standalone `/vendor/jobs`
 section with Invited/Open tabs and a cross-workspace open-marketplace browse
 (`work_order_open_listings`, `openListingId` on `work_order_bids`,
 `resolveVendorWorkOrderAccess`'s `"open_listing"` access kind) previously
@@ -211,6 +211,66 @@ table and its migration are untouched in the database (no drop migration) but
 no code path reads or writes it any more. Bid submission stays rate-limited
 per vendor (`work-order-bid-submit:<vendorUserId>`, 20/hour) as a general
 anti-spam guard.
+
+## The work board is back, scoped to published services (vendor-work-share-1006, Oct 6)
+
+**This reverses the Sep 26 cut above, deliberately and narrowly.** The retired board browsed every open job of every
+workspace (`work_order_open_listings`). The new one shows ONLY a service a manager explicitly published, and the
+old table stays dead: the flag is `row_data.published` on the service itself. The standing rule "a vendor never
+browses another workspace's jobs" now reads: **never beyond what a manager published, and only through the
+allowlist below.**
+
+- **Find work** is the fifth Services tab (`/vendor/work-orders/find-work`), beside Open - Assigned - Scheduled -
+  Completed, which stay the one service vocabulary (the fifth is not a stage, `VENDOR_FIND_WORK_LIST_TAB`).
+  Signed-in vendors only (Decide #1): `GET /api/vendor/work-board` answers 401/403 otherwise; there is no public
+  board page.
+- **Who can request (Decide #2):** any ONBOARDED vendor with a trade and a service area
+  (`vendorIsOnboardedForBoard`, `work-order-marketplace-match.server.ts`). A license or insurance is not required;
+  the manager sees what the vendor has on file when deciding on a bid. The manager's own "send to nearby PropLane
+  vendors" broadcast keeps its stricter licensed + insured rule.
+- **What a vendor sees before hire is `publicServiceProjection`** (`src/lib/public-service-projection.ts`): title,
+  trade, general area (`workOrderGeneralArea`), description, preferred dates, "up to" budget, photos only when the
+  manager ticked Share photos, the manager's display name, and an opaque `ref`. It is an ALLOWLIST with a build-time
+  key list (`as const satisfies readonly (keyof ...)[]`) and a leak test (`tests/unit/public-service-projection.test.ts`):
+  no address, unit, resident, entry notes, cost, work order id or manager id. A new `DemoManagerWorkOrderRow` field is
+  private until someone adds it there. Do NOT reuse `projectWorkOrderForOfferedVendor` (a deny-list) for a stranger.
+- **Requesting a job** (`POST /api/vendor/work-board`) is the same thing a manager's Send job makes: a roster row on
+  the manager's workspace and a `sent` row in `work_order_vendor_offers`, written service-role only
+  (`requestBoardJob`). Then offer -> estimate / bid -> approve runs unchanged: only a submitted bid is approvable, one
+  accepted bid, the accepted amount immutable, vendors scoped by `vendor_user_id`. The ref is re-checked against the
+  vendor's trade and area, so a ref is not a way around the list. A service leaves the board the moment it is hired
+  (`acceptWorkOrderBid` clears `published`), completed, cancelled or unpublished; a vendor the manager removed
+  (`withdrawn` offer) cannot ask again.
+- **Throttles:** `BOARD_REQUESTS_PER_VENDOR_PER_HOUR` per vendor, `MAX_BOARD_REQUESTS_PER_SERVICE` per service.
+- **Contact is held until they bid (Decide #3).** The roster row made for a board or link vendor carries
+  `origin` and `contactHeldUntilBid: true` with a blank phone and email (a texted vendor's phone is the one the
+  manager typed). `submitWorkOrderBid` calls `revealHeldVendorContact`, which writes the vendor's own business-profile
+  contact onto that row. An estimate or a message does not release it. The address is never shown before hire.
+- **Three options wherever a vendor sees a job** (the public page, Find work, their own Open services,
+  `src/lib/vendor-job-choice.ts` + `VendorJobChoiceBar`): **Needs an estimate visit** (the existing Estimate & bid
+  section on Book visit), **Bid now** (the same section on Submit bid) and **Message the manager** (the service's own
+  Communication tab, the in-app thread whose `recordRef` is the service). All three first make the vendor's offer;
+  none is a new bid path.
+
+### The texted service link
+
+A manager texts a service to a phone from the service header (Send to phone) with
+`POST /api/portal/service-share-link/send`: ownership is re-derived from the row, the phone is normalized, "I work
+with this vendor" is required, and the text goes out through the existing `sendFromManagerWorkNumber` (consent, quiet
+hours and STOP are that path's, untouched). The link is `/s/<token>`: `service_share_links` stores only the SHA-256 of
+the token (`token_hash`), 14-day expiry, revocable, access count, a per-manager daily text cap, and per-IP / per-token
+limits on the public page. `/s/<token>` is `noindex`, no-store, and answers one neutral 404 for an unknown, expired or
+revoked token. A link never creates an account, an offer or a bid by itself.
+
+Sign-up from the link: the page parks `{token, choice}` in the `pl_svc_link` cookie and sends the visitor to
+`/auth/create-account?mode=create&role=vendor` (or sign-in); the vendor portal layout mounts
+`PendingServiceLinkRedeemer`, which calls `POST /api/vendor/service-link/redeem` once signed in (email or Google).
+Redeem makes the roster row (with the texted phone) and the `sent` offer and opens bidding. A link is bound to its
+FIRST redeemer. **Phone verification is a hook point** (`serviceLinkPhoneVerificationHook`, vendor texting owns the
+verification) and records nothing until that lands.
+
+Local SMS proof: `SERVICE_LINK_SMS_SANDBOX=1` under `next dev` runs the send inside the SMS test transport, which
+captures the text instead of delivering it; it is inert in any deployed build.
 
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 
