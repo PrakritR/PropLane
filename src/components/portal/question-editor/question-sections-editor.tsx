@@ -53,7 +53,6 @@ export function QuestionSectionsEditor({
   allowedTypes: readonly QuestionEditorType[];
   /** Forms a question can link. Absent hides the Linked forms block and the row facts. */
   linkedFormOptions?: readonly LinkedFormOption[];
-  /** Sections holding a question PropLane always asks (name, email): the switch is on, disabled and carries a lock. */
   onRestoreDefaults?: () => void;
   restoreLabel?: string;
   /** False when there is no section left to add (every section already on). */

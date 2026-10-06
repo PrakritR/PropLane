@@ -55,7 +55,9 @@ and the stored terms; do not re-declare it.
   saved payload and the editor agree. Reading the raw text left such a listing offering NOTHING while Basics
   showed Long term on, and the save was refused with "Choose at least one lease term". An EMPTY list is left
   exactly as written — it is a deliberate "no stays offered" payload, and that refusal is the only thing telling
-  the manager the save did not do what they asked.
+  the manager the save did not do what they asked. **The refusal applies to a listed/pending write only**: a
+  `status: "draft"` write is exempt, because a draft's stays may not be chosen yet and closing the wizard must
+  keep it ([`property-drafts.md`](property-drafts.md)).
 - **Which application an applicant for a stay gets** is `appliesTo` + `defaultFor` on the application
   template (`src/lib/property-application-templates.ts`, the one owner; the question editor's side of this is
   [`application-questions.md`](application-questions.md)). Both are form fields on the application's own card,
@@ -2372,5 +2374,6 @@ An accepted lease transition and its action-event delivery intents are persisted
   it is rebuilt from the listing on every read, and a random id made an open Preview vanish and the Edit
   action's "is it stored yet?" check never true. Saving a property that never stored a submission writes the
   lease terms the screens already showed (`withOfferedLeaseTermsFilled`, applied in
-  `persistManagerListingSubmissionOnServer`); the server refuses an empty `allowedLeaseTerms`, which is why
-  Edit / Preview on such a row used to end in "Could not save application settings.".
+  `persistManagerListingSubmissionOnServer` for every mode but `draft`); the server refuses an empty
+  `allowedLeaseTerms` on a non-draft write, which is why Edit / Preview on such a row used to end in
+  "Could not save application settings.".

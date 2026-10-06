@@ -62,8 +62,9 @@ export function PropertyFormAutomationCommandBar({
    */
   panes?: { id: FormAutomationPane; label: string }[];
   /**
-   * Property record Applications / Leases header: the Long term · Short term · Default tabs (counts
-   * included), built by the caller from `property-stay-tabs.ts` so a stay's tab hides identically everywhere.
+   * Property record Applications / Leases header: the Long term · Short term tabs (counts included),
+   * built by the caller from `property-stay-tabs.ts` so a stay's tab hides identically everywhere.
+   * There is no Default tab — a stay's default is a row inside its own list.
    */
   stayTabs?: {
     items: LocalDestinationNavItem[];

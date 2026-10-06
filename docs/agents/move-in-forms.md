@@ -171,8 +171,8 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 
 ## Kinds, templates, triggers and links (Move-in hub, plan `move-in-hub-1003`)
 
-- **A new property starts with a Move-in checklist for every lease type** (`submissionWithDefaultLeasingSetup`, `leasing-quick-add.ts`, with its Long-term/Short-term/Co-signer
-  applications and leases). It sends only once the manager has SAVED the property (the server ignores a move-in list that was never stored). Every other form is added by hand;
+- **A new property starts with a Move-in checklist for every lease type** (`submissionWithDefaultLeasingSetup`, `leasing-quick-add.ts`, alongside the applications and leases
+  the property's stays admit — short-stay seeds only where the property offers a short stay, see [`lease-generation.md`](lease-generation.md) § Lease `defaultFor` and the stay tabs). It sends only once the manager has SAVED the property (the server ignores a move-in list that was never stored). Every other form is added by hand;
   the list's bottom "Quick add" row re-adds any starter the property lacks (as a form that sends only when the manager sends it).
 - **Applies to** (the editor's label for Lease type; stored shape unchanged, `MoveInFormTemplate.leaseType`: absent/`all`, `long-term`, `short-term`; a specific lease is `linkedLeaseTemplateIds`, picked under "Specific leases…"): dispatch on a signed lease sends only the forms
   whose Applies to admits the signed lease's kind (the lease template's `kind`, else the application's rental type; an unknown kind never matches a restricted form).

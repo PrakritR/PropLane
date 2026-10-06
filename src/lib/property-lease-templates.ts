@@ -131,7 +131,8 @@ export type PropertyLeaseTemplate = {
    */
   libraryFormId?: string | null;
   /**
-   * The stays this lease is the DEFAULT for (Default tab on the property's Leases). Only an explicit entry
+   * The stays this lease is the DEFAULT for: the row carries a star "Default" fact in that stay's own tab
+   * on the property's Leases (there is no Default tab). Only an explicit entry
    * changes routing; a stay with none behaves exactly as it always did (`defaultLeaseTemplateId` stays the
    * fallback read for display). Stored on the listing submission JSON, like an application's `defaultFor`.
    */

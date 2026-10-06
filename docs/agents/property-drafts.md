@@ -24,7 +24,7 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   (`saveManagerPropertyDraftToServer` / `publishManagerPropertyDraftToServer` /
   `deleteManagerPropertyDraft`).
 - **The draft's record id IS the eventual live `mgr-…` listing id.** Publishing
-  (final "Submit listing") re-upserts the SAME id `draft → live` and drops it
+  (the wizard's last-step primary, "Create property") re-upserts the SAME id `draft → live` and drops it
   from the drafts bucket — no orphaned duplicate. A brand-new wizard that was
   closed mid-way also publishes-in-place via the remembered id (`draftIdRef`
   in `pro-add-listing-form.tsx`), never a second row.
@@ -52,7 +52,9 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   untouched wizard closes without writing and future fields are covered without
   an allowlist. Live edits continue to write in place through
   `updateExtraListingFromSubmissionOnServer` and never fork a draft.
-  Closing with X flushes remaining dirty work, then leaves. A failed draft write leaves
+  Closing with X flushes remaining dirty work, then leaves; the footer's red **Delete** is the
+  opposite door — it confirms ("Delete this property?"), deletes the draft row and reclaims its
+  uploads (below), and only then closes. A failed draft write leaves
   the wizard OPEN with the work intact rather than closing on a lie — **but a
   failed save is never a locked door.** The refusal is shown ONCE, in the
   server's own words (`saveManagerPropertyDraftToServer` threads `onError` from
@@ -65,7 +67,10 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   validation in `POST /api/property-records` — a draft is unvalidated by
   contract, and that check refused whole draft saves for a half-typed code
   (after the record upsert had already landed). The code is applied when the
-  row publishes through the same route. Coverage:
+  row publishes through the same route. The route's empty-lease-term refusal is
+  exempted on the same grounds, so closing the wizard keeps a draft whose stays
+  are not chosen yet ([`lease-generation.md`](lease-generation.md) § lease terms
+  owns that rule). Coverage:
   `tests/unit/listing-wizard-draft-autosave.test.tsx` drives the real component
   through the real save path;
   `tests/unit/property-records-draft-skips-waiver-validation.test.ts` pins the
