@@ -347,20 +347,6 @@ export function ManagerInboxSchedulePanel({
               }
             })();
           }}
-          onSendNow={() => {
-            if (!isScheduled) return;
-            setEditBusy(true);
-            void sendRowNow(row)
-              .then(() => {
-                showToast(row.kind === "manual" ? "Message sent." : "Reminder sent.");
-                setEditingRowId(null);
-                reloadAll();
-              })
-              .catch((e) => {
-                showToast(e instanceof Error ? e.message : "Could not send message.");
-              })
-              .finally(() => setEditBusy(false));
-          }}
           onSaveEdit={
             scheduled.editable && isScheduled
               ? async (next) => {

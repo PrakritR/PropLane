@@ -4,15 +4,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { InboxScheduledCard, InboxScheduledThreadList } from "@/components/portal/portal-inbox-ui";
 
 afterEach(cleanup);
-const card = (id: string, send = vi.fn()) => <InboxScheduledCard key={id} subject={id} body={`Body ${id}`} sendLabel="Oct 4, 9 AM" source="manual" editable onCancel={vi.fn()} onSendNow={send} onSaveEdit={vi.fn()} />;
+const card = (id: string) => <InboxScheduledCard key={id} subject={id} body={`Body ${id}`} sendLabel="Oct 4, 9 AM" source="manual" editable onCancel={vi.fn()} onSaveEdit={vi.fn()} />;
 
 describe("scheduled conversation bar", () => {
-  it("sends the selected row without opening the editor", () => {
-    const send = vi.fn();
-    render(<InboxScheduledThreadList placement="bar" count={1}>{card("Rent", send)}</InboxScheduledThreadList>);
-    fireEvent.click(screen.getByRole("button", { name: "Send now" }));
-    expect(send).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("dialog")).toBeNull();
+  it("shows no Send now button on a scheduled row", () => {
+    render(<InboxScheduledThreadList placement="bar" count={1}>{card("Rent")}</InboxScheduledThreadList>);
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Edit Rent/ })).toBeTruthy();
   });
 
   it("keeps the selected message when an earlier row disappears", () => {
@@ -35,7 +33,7 @@ describe("scheduled conversation bar", () => {
     expect(screen.queryAllByRole("button", { name: /^Edit / })).toHaveLength(0);
     fireEvent.click(summary);
     expect(screen.getAllByRole("button", { name: /^Edit / })).toHaveLength(3);
-    expect(screen.getAllByRole("button", { name: "Send now" })).toHaveLength(3);
+    expect(screen.queryAllByRole("button", { name: "Send now" })).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: /Collapse 3 scheduled messages/ }));
     expect(screen.queryAllByRole("button", { name: /^Edit / })).toHaveLength(0);
   });
@@ -57,7 +55,7 @@ describe("scheduled conversation bar", () => {
 
   it("preserves an in-app-only selection on a body edit", () => {
     const save = vi.fn();
-    render(<InboxScheduledCard subject="Reminder" body="Original" sendLabel="Tomorrow" source="manual" editable presentation="detail" deliverViaInbox deliverViaEmail={false} deliverViaSms={false} onCancel={vi.fn()} onSendNow={vi.fn()} onSaveEdit={save} />);
+    render(<InboxScheduledCard subject="Reminder" body="Original" sendLabel="Tomorrow" source="manual" editable presentation="detail" deliverViaInbox deliverViaEmail={false} deliverViaSms={false} onCancel={vi.fn()} onSaveEdit={save} />);
     fireEvent.change(screen.getByDisplayValue("Original"), { target: { value: "Updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(save).toHaveBeenCalledWith({ subject: "Reminder", body: "Updated" });

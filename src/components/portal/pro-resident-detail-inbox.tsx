@@ -30,8 +30,6 @@ import {
 } from "@/components/portal/inbox-thread-assistant-strip";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import {
-  sendAutomationScheduledMessageNow,
-  sendManualScheduledMessageNow,
 } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
@@ -516,21 +514,6 @@ export function ResidentDirectChatPane({
     [reloadScheduled],
   );
 
-  const sendScheduledItemNow = useCallback(
-    async (item: { id: string; source: "manual" | "automation" }) => {
-      setScheduledBusyId(item.id);
-      try {
-        if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
-        else await sendAutomationScheduledMessageNow(item.id);
-        reloadScheduled();
-        onSent();
-      } finally {
-        setScheduledBusyId(null);
-      }
-    },
-    [onSent, reloadScheduled],
-  );
-
   const saveScheduledEdit = useCallback(
     async (
       item: { id: string; source: "manual" | "automation"; editable: boolean },
@@ -600,7 +583,6 @@ export function ResidentDirectChatPane({
             recipient={email}
             sendAt={item.sendAt}
             onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
-            onSendNow={() => { if (item.deliveryStatus !== "sending") void sendScheduledItemNow(item); }}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}

@@ -64,7 +64,6 @@ describe("inbox thread omnichannel primitives", () => {
         source="manual"
         editable
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
         onSaveEdit={vi.fn()}
       />,
     );
@@ -91,7 +90,6 @@ describe("inbox thread omnichannel primitives", () => {
         source="manual"
         editable
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
         onSaveEdit={onSaveEdit}
       />,
     );
@@ -118,7 +116,6 @@ describe("inbox thread omnichannel primitives", () => {
         smsAvailable
         editable
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
         onSaveEdit={onSaveEdit}
       />,
     );
@@ -152,7 +149,6 @@ describe("inbox thread omnichannel primitives", () => {
         source="manual"
         editable
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
         onSaveEdit={onSaveEdit}
       />,
     );
@@ -181,7 +177,6 @@ describe("inbox thread omnichannel primitives", () => {
         editable={false}
         presentation="detail"
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
       />,
     );
     expect(document.querySelector('[data-attr="inbox-scheduled-toggle"]')).toBeNull();

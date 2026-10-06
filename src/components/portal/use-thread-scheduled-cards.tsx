@@ -4,13 +4,12 @@
  * A conversation's scheduled sends, drawn inline above its timeline — the same pinned "N scheduled" card
  * and per-send cards the Communication thread shows (`InboxScheduledThreadList` / `InboxScheduledCard`).
  * A record's Communication section uses this so "Schedule for later" in its composer lands where the
- * manager can see, edit, send now or cancel it, exactly like the main thread. It reads and writes the same
+ * manager can see, edit or cancel it, exactly like the main thread. It reads and writes the same
  * scheduled-inbox-messages API as the main composer; it never sends anything itself.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { InboxScheduledCard, InboxScheduledThreadList } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
-import { sendAutomationScheduledMessageNow, sendManualScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { readPortalApiError } from "@/lib/portal-api-error";
@@ -19,22 +18,17 @@ import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages
 
 type ScheduledRef = { id: string; source: "manual" | "automation" };
 
-/** A send cannot be faked locally the way a cancel or an edit can, so the sandbox refuses out loud. */
-const DEMO_SEND_NOW_MESSAGE = "Not available in the demo.";
-
 export function useThreadScheduledCards({
   recipientEmail,
   smsAvailable,
   enabled = true,
   refreshKey = 0,
-  onSent,
 }: {
   recipientEmail: string;
   smsAvailable: boolean;
   enabled?: boolean;
   /** Bump to reload (e.g. right after the composer scheduled something). */
   refreshKey?: number;
-  onSent?: () => void;
 }): { scheduledCards: ReactNode; reloadScheduled: () => void } {
   const [manual, setManual] = useState<ScheduledInboxMessageRecord[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -47,8 +41,7 @@ export function useThreadScheduledCards({
   // hook (its section is not showing) must not reach the API through a stale callback either.
   // `patchScheduledMessage` is deliberately NOT gated: it applies any patch locally under `/demo`, so
   // Cancel and Save on a projected demo reminder take effect in the sandbox instead of silently doing
-  // nothing. A send has no local equivalent, so `/demo` says so rather than going quiet. Only a disabled
-  // hook makes these no-ops.
+  // nothing. Only a disabled hook makes these no-ops.
   const live = useCallback(() => enabled && !isDemoModeActive(), [enabled]);
 
   const reloadManual = useCallback(async () => {
@@ -79,7 +72,7 @@ export function useThreadScheduledCards({
   );
 
   /**
-   * Cancel and Send now are fire-and-forget from the card, so a rejection has nowhere to land on its
+   * Cancel is fire-and-forget from the card, so a rejection has nowhere to land on its
    * own: without this the card simply re-enabled and the send stayed scheduled. The message is both
    * toasted and kept above the list, so it survives the toast.
    */
@@ -116,27 +109,6 @@ export function useThreadScheduledCards({
       }
     },
     [enabled, live, reloadScheduled],
-  );
-
-  const sendNow = useCallback(
-    async (item: ScheduledRef) => {
-      if (!enabled) return;
-      if (!live()) {
-        report(null, DEMO_SEND_NOW_MESSAGE);
-        return;
-      }
-      setBusyId(item.id);
-      setFailure(null);
-      try {
-        if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
-        else await sendAutomationScheduledMessageNow(item.id);
-        reloadScheduled();
-        onSent?.();
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [enabled, live, onSent, report, reloadScheduled],
   );
 
   const saveEdit = useCallback(
@@ -211,11 +183,6 @@ export function useThreadScheduledCards({
             onCancel={() => {
               if (item.deliveryStatus !== "sending") {
                 void cancel(item).catch((error) => report(error, "Could not cancel send."));
-              }
-            }}
-            onSendNow={() => {
-              if (item.deliveryStatus !== "sending") {
-                void sendNow(item).catch((error) => report(error, "Could not send that message."));
               }
             }}
             onSaveEdit={item.editable ? (next) => saveEdit(item, next) : undefined}

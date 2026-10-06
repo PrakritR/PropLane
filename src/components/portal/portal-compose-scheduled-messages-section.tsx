@@ -5,8 +5,6 @@ import { Button } from "@/components/ui/button";
 import { InboxScheduledCard, InboxScheduledSubjectRow, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import {
-  sendAutomationScheduledMessageNow,
-  sendManualScheduledMessageNow,
 } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
@@ -18,7 +16,7 @@ import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages
 
 /**
  * Scheduled messages for one recipient — subject rows at the bottom of a compose
- * modal; tap a row to open the full card (edit, send now, cancel).
+ * modal; tap a row to open the full card (edit, cancel).
  */
 export function PortalComposeScheduledMessagesSection({
   recipientEmail,
@@ -107,21 +105,6 @@ export function PortalComposeScheduledMessagesSection({
         } else {
           await patchScheduledMessage(item.id, { cancelled: true });
         }
-        notifyChanged();
-        setEditing(null);
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [notifyChanged],
-  );
-
-  const sendNow = useCallback(
-    async (item: ThreadScheduledItem) => {
-      setBusyId(item.id);
-      try {
-        if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
-        else await sendAutomationScheduledMessageNow(item.id);
         notifyChanged();
         setEditing(null);
       } finally {
@@ -232,7 +215,6 @@ export function PortalComposeScheduledMessagesSection({
             recipient={recipientEmail}
             sendAt={editing.sendAt}
             onCancel={() => { if (editing.deliveryStatus !== "sending") void cancelItem(editing); }}
-            onSendNow={() => { if (editing.deliveryStatus !== "sending") void sendNow(editing); }}
             onSaveEdit={
               editing.editable ? (next) => saveEdit(editing, next) : undefined
             }

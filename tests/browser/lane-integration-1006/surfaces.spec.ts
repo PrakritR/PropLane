@@ -251,10 +251,9 @@ test("the resident lock holds, and fails closed naming no form when the forms re
 
 /**
  * `/demo` never reads or writes real rows through a thread's scheduled sends: the reads are skipped,
- * Cancel takes effect in the sandbox, and Send now — which has no local equivalent — refuses out loud
- * instead of going quiet. The real pathname (`/demo`) is what turns demo mode on here.
+ * Cancel takes effect in the sandbox, and no Send now button is offered. The real pathname (`/demo`) is what turns demo mode on here.
  */
-test("under /demo a thread's scheduled sends act locally, ask the API for nothing, and say so on Send now", async ({
+test("under /demo a thread's scheduled sends act locally and ask the API for nothing", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -280,11 +279,8 @@ test("under /demo a thread's scheduled sends act locally, ask the API for nothin
   expect(rowCount).toBeGreaterThan(0);
   await page.screenshot({ path: path.join(SHOTS, "12-demo-thread-scheduled-sends.png") });
 
-  // Send now has no local equivalent, so the sandbox refuses out loud rather than doing nothing.
-  await bar.locator('[data-attr="inbox-scheduled-bar-send"]').first().click();
-  const refusal = page.locator('[data-attr="thread-scheduled-error"]');
-  await expect(refusal).toHaveText("Not available in the demo.");
-  await page.screenshot({ path: path.join(SHOTS, "13-demo-send-now-refusal.png") });
+  // No Send now button exists on a scheduled row.
+  await expect(bar.locator('[data-attr="inbox-scheduled-bar-send"]')).toHaveCount(0);
 
   // Cancel is applied locally instead: the reminder leaves the bar, with no request behind it.
   await rows.first().click();

@@ -95,8 +95,6 @@ import {
 import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
 import {
   useInboxRowSelection,
-  sendManualScheduledMessageNow,
-  sendAutomationScheduledMessageNow,
 } from "@/components/portal/portal-inbox-selection";
 import { ManagerInboxSchedulePanel } from "@/components/portal/pro-inbox-schedule-panel";
 import {
@@ -1591,7 +1589,7 @@ export const ManagerInbox = forwardRef<
   // ---- Scheduled / automated messages, INLINE in the person's thread --------
   // The old standalone Schedule table is gone; upcoming messages to this person
   // render as "Scheduled · sends <when>" cards at the tail of their conversation,
-  // cancelable / send-now / editable in place.
+  // cancelable / editable in place.
   const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
 
   const threadScheduledItems = useMemo(
@@ -1643,23 +1641,6 @@ export const ManagerInbox = forwardRef<
     [reloadScheduled, showToast],
   );
 
-  const sendScheduledItemNow = useCallback(
-    async (item: { id: string; source: "manual" | "automation" }) => {
-      setScheduledBusyId(item.id);
-      try {
-        if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
-        else await sendAutomationScheduledMessageNow(item.id);
-        showToast("Message sent.");
-        reloadScheduled();
-        reloadInbox();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not send message.");
-      } finally {
-        setScheduledBusyId(null);
-      }
-    },
-    [reloadScheduled, reloadInbox, showToast],
-  );
 
   const saveScheduledEdit = useCallback(
     async (
@@ -2581,7 +2562,6 @@ export const ManagerInbox = forwardRef<
             recipient={activeThread.email}
             sendAt={item.sendAt}
             onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
-            onSendNow={() => { if (item.deliveryStatus !== "sending") void sendScheduledItemNow(item); }}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}

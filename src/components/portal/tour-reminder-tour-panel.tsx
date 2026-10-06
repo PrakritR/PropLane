@@ -267,7 +267,6 @@ export function TourReminderTourPanel({
             recipientPhone={recipientPhone?.trim() || undefined}
             sendAt={editingReminder.sendAt}
             onCancel={() => void toggleCancelled(editingReminder, true).then(() => setEditingReminder(null))}
-            onSendNow={() => {}}
             showSendActions={false}
             onSaveEdit={
               editingReminder.status === "scheduled"

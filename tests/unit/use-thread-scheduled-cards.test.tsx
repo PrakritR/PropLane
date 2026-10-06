@@ -11,13 +11,10 @@ const state = vi.hoisted(() => ({
   source: "manual" as "manual" | "automation",
   cardProps: null as null | {
     onCancel: () => Promise<void> | void;
-    onSendNow: () => Promise<void> | void;
     onSaveEdit?: (next: { subject: string; body: string }) => Promise<void> | void;
   },
   automationReload: vi.fn(),
   patchScheduledMessage: vi.fn(async () => undefined),
-  sendAutomationNow: vi.fn(async () => undefined),
-  sendManualNow: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => state.demo }));
@@ -25,10 +22,6 @@ vi.mock("@/components/providers/app-ui-provider", () => ({ useOptionalAppUi: () 
 vi.mock("@/components/portal/payment-schedule-ui", () => ({
   useScheduledPaymentMessages: () => ({ messages: [], settings: null, reload: state.automationReload }),
   patchScheduledMessage: state.patchScheduledMessage,
-}));
-vi.mock("@/components/portal/portal-inbox-selection", () => ({
-  sendAutomationScheduledMessageNow: state.sendAutomationNow,
-  sendManualScheduledMessageNow: state.sendManualNow,
 }));
 vi.mock("@/lib/inbox-scheduled-thread", () => ({
   automationChannelDefaultsFromSettings: () => ({}),
@@ -40,7 +33,6 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   InboxScheduledThreadList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   InboxScheduledCard: (props: {
     onCancel: () => Promise<void> | void;
-    onSendNow: () => Promise<void> | void;
     onSaveEdit?: (next: { subject: string; body: string }) => Promise<void> | void;
   }) => {
     state.cardProps = props;
@@ -68,8 +60,6 @@ beforeEach(() => {
   state.cardProps = null;
   state.automationReload.mockClear();
   state.patchScheduledMessage.mockClear();
-  state.sendAutomationNow.mockClear();
-  state.sendManualNow.mockClear();
   fetchMock.mockReset();
   fetchMock.mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });
   vi.stubGlobal("fetch", fetchMock);
@@ -110,16 +100,6 @@ describe("useThreadScheduledCards gating", () => {
     await act(async () => { await state.cardProps!.onSaveEdit?.({ subject: "x", body: "y" }); });
     expect(state.patchScheduledMessage).toHaveBeenCalledWith("m1", expect.objectContaining({ customSubject: "x", customBody: "y" }));
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("under /demo Send now refuses out loud instead of going quiet", async () => {
-    state.demo = true;
-    state.source = "automation";
-    const { findByRole } = render(<Harness />);
-    await waitFor(() => expect(state.cardProps).not.toBeNull());
-    await act(async () => { await state.cardProps!.onSendNow(); });
-    expect(state.sendAutomationNow).not.toHaveBeenCalled();
-    expect((await findByRole("alert")).textContent).toContain("Not available in the demo.");
   });
 
   it("makes no request under /demo for a manual card: load, cancel and save are all no-ops", async () => {

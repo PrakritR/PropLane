@@ -2244,7 +2244,6 @@ export type InboxScheduledCardProps = {
   recipientPhone?: string;
   sendAt?: string;
   onCancel: () => void;
-  onSendNow: () => void;
   onSaveEdit?: (next: InboxScheduledSaveEdit) => void | Promise<void>;
   showSendActions?: boolean;
   pinActionsInModalFooter?: boolean;
@@ -2323,7 +2322,6 @@ export function InboxScheduledCard({
   recipientPhone,
   sendAt,
   onCancel,
-  onSendNow,
   onSaveEdit,
   showSendActions = true,
   pinActionsInModalFooter = false,
@@ -2531,7 +2529,6 @@ export function InboxScheduledCard({
     >
       {showSendActions ? (
         <div className="mb-2 flex justify-end gap-1">
-          <PortalIconAction icon={Send} label="Send now" disabled={actionBusy} onClick={onSendNow} />
           <PortalIconAction icon={X} label="Cancel send" disabled={actionBusy} onClick={onCancel} />
         </div>
       ) : null}
@@ -2659,25 +2656,8 @@ export function InboxScheduledThreadList({
       subject?: string;
       sendLabel?: string;
       source?: "manual" | "automation";
-      onSendNow?: () => void;
-      busy?: boolean;
-      showSendActions?: boolean;
     };
     const rowProps = (child: (typeof childArray)[number]) => (child as React.ReactElement<BarRowProps>).props;
-    const sendNowButton = (props: BarRowProps) =>
-      props.onSendNow && props.showSendActions !== false ? (
-        <button
-          type="button"
-          className="mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-full text-primary hover:bg-primary/10 disabled:opacity-40"
-          aria-label="Send now"
-          title="Send now"
-          data-attr="inbox-scheduled-bar-send"
-          disabled={props.busy}
-          onClick={() => props.onSendNow?.()}
-        >
-          <Send className="h-4 w-4" strokeWidth={2} aria-hidden />
-        </button>
-      ) : null;
     // Several sends collapse into ONE Reminder row (next send + "+N more");
     // a click expands the full list in place. Display only — the list, its
     // order and every per-row action are unchanged.
@@ -2731,7 +2711,6 @@ export function InboxScheduledThreadList({
                       </span>
                       <span className="shrink-0 text-[12px] text-muted">{props.sendLabel}</span>
                     </button>
-                    {sendNowButton(props)}
                   </div>
                 );
               })

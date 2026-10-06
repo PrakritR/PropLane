@@ -34,7 +34,6 @@ import {
   useFlushSettingsAutosaveOnUnmount,
   useReportSettingsSaveStatus,
 } from "@/components/portal/settings-save-status-context";
-import { sendAutomationScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import {
   automationChannelDefaultsFromSettings,
   threadScheduledItemFromAutomationMessage,
@@ -531,20 +530,6 @@ export function ChargeRemindersModal({
           recipient={editingMessage.residentEmail}
           sendAt={editingMessage.sendAt}
           onCancel={() => void toggleCancelled(editingMessage, true).then(() => setEditingMessage(null))}
-          onSendNow={() => {
-            if (editingMessage.status !== "scheduled") return;
-            setDetailBusy(true);
-            void sendAutomationScheduledMessageNow(editingMessage.id)
-              .then(() => {
-                showToast("Reminder sent.");
-                onMessageSaved?.();
-                setEditingMessage(null);
-              })
-              .catch((e) => {
-                showToast(e instanceof Error ? e.message : "Could not send reminder.");
-              })
-              .finally(() => setDetailBusy(false));
-          }}
           onSaveEdit={
             editingMessage.status === "scheduled"
               ? async (next) => {
@@ -571,12 +556,10 @@ export function ScheduledMessageEditForm({
   message,
   onClose,
   onSaved,
-  onSendNow,
 }: {
   message: ScheduledPaymentMessage;
   onClose: () => void;
   onSaved: () => void;
-  onSendNow?: () => void | Promise<void>;
 }) {
   const { showToast } = useAppUi();
   const [subject, setSubject] = useState(message.subject);
@@ -699,11 +682,6 @@ export function ScheduledMessageEditForm({
           <Button type="button" variant="primary" className="rounded-full" onClick={() => save()} disabled={busy}>
             Save
           </Button>
-          {message.status === "scheduled" && onSendNow ? (
-            <Button type="button" variant="outline" className="rounded-full" onClick={() => onSendNow()} disabled={busy}>
-              Send now
-            </Button>
-          ) : null}
           {message.status === "cancelled" ? (
             <Button type="button" variant="outline" className="rounded-full" onClick={() => toggleCancelled(false)} disabled={busy}>
               Restore send

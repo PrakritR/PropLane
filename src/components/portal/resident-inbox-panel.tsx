@@ -1390,7 +1390,7 @@ export const ResidentInboxPanel = forwardRef<
   }, [activeThread, activeFolder, pendingSendingThreadIds]);
 
   // Scheduled messages the resident has queued to this conversation's manager —
-  // shown inline as compact cards. Residents may cancel or send now, but not
+  // shown inline as compact cards. Residents may cancel, but not
   // edit content (the resident scheduled-message route only patches status).
   const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
 
@@ -1409,22 +1409,6 @@ export const ResidentInboxPanel = forwardRef<
       }
     },
     [toggleScheduledCancelled],
-  );
-
-  const sendResidentScheduledNow = useCallback(
-    async (id: string) => {
-      setScheduledBusyId(id);
-      try {
-        await sendManualScheduledMessageNow(id, { asResident: true });
-        showToast("Message sent.");
-        void reloadScheduledMessages();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not send message.");
-      } finally {
-        setScheduledBusyId(null);
-      }
-    },
-    [reloadScheduledMessages, showToast],
   );
 
   const residentScheduledCards =
@@ -1451,7 +1435,6 @@ export const ResidentInboxPanel = forwardRef<
                 recipient={activeThread.email}
                 sendAt={item.sendAt}
                 onCancel={() => { if (item.deliveryStatus !== "sending") void cancelResidentScheduled(item.id); }}
-                onSendNow={() => { if (item.deliveryStatus !== "sending") void sendResidentScheduledNow(item.id); }}
               />
             ))}
           </InboxScheduledThreadList>
