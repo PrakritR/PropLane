@@ -25,14 +25,14 @@ import type { MoveInFormAnswer, MoveInFormQuestion, MoveInFormSource } from "@/l
  */
 export function moveInPreviewGroups(questions: readonly MoveInFormQuestion[], answers: MoveInAnswerMap): PreviewGroup<MoveInFormQuestion>[] {
   const named = questions.map((q) => (q.label.trim() ? q : { ...q, label: "Your question" }));
-  const groups: PreviewGroup<MoveInFormQuestion>[] = [];
+  const runs: { title: string; items: MoveInFormQuestion[] }[] = [];
   for (const question of visibleMoveInQuestions(named, answers)) {
     const title = question.section?.trim() ?? "";
-    const last = groups[groups.length - 1];
-    if (last && last.title === title) (last.items as MoveInFormQuestion[]).push(question);
-    else groups.push({ key: `${groups.length}:${title}`, title, items: [question] });
+    const last = runs[runs.length - 1];
+    if (last && last.title === title) last.items.push(question);
+    else runs.push({ title, items: [question] });
   }
-  return groups;
+  return runs.map((run, index) => ({ key: `${index}:${run.title}`, title: run.title, items: run.items }));
 }
 
 /** The preview step that holds a question (an uploaded form's PDF is step 0); -1 when it is not shown. */

@@ -112,7 +112,7 @@ export function PreviewPager<T>({
               {previewStepLabel(at, total, formName)}
             </p>
           )}
-          {total > 0 ? (
+          {total > 1 ? (
             <div className="flex shrink-0 items-center gap-0.5">
               <PortalIconAction icon={ChevronLeft} label="Previous step" disabled={at === 0} onClick={() => go(at - 1)} />
               <PortalIconAction icon={ChevronRight} label="Next step" disabled={at >= total - 1} onClick={() => go(at + 1)} />

@@ -14,7 +14,7 @@ import {
   StepHeading,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ImportFileStrip } from "@/components/portal/listing-wizard-v2/import-upload-step";
-import { ApplicationFormBuilder, ApplicationSectionPreviewPane, applicationPreviewStepOfSection } from "@/components/portal/application-form-builder";
+import { ApplicationFormBuilder, ApplicationSectionPreviewPane, applicationPreviewStepAim } from "@/components/portal/application-form-builder";
 import { ApplicationQuestionsEditor } from "@/components/portal/question-editor/application-questions-editor";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
@@ -679,6 +679,9 @@ export function ManagerApplicationQuestionsEditorModal({
   // the editor list is hidden behind the preview, so the pane walks the form on its own.
   const [previewSectionPick, setPreviewSectionPickRaw] = useState<RentalApplicationSectionId | null>(null);
   const [previewStepPick, setPreviewStepPick] = useState<number | null>(null);
+  // The pane's own typed answers live here, not inside the pane: they decide how the steps pack, so
+  // the step this modal aims the pane at has to be computed from the very same answers.
+  const [previewAnswers, setPreviewAnswers] = useState<Record<string, string>>({});
   /** Opening a section or question re-aims the pane at it (drops a manual arrow step). */
   const setPreviewSectionPick = (id: RentalApplicationSectionId | null) => {
     setPreviewSectionPickRaw(id);
@@ -699,16 +702,17 @@ export function ManagerApplicationQuestionsEditorModal({
     [disabledSectionIds],
   );
 
-  const previewStepIndex = useMemo(() => {
-    if (previewStepPick !== null) return previewStepPick;
-    // The step of the focused section, or of the next section that has questions when it has none.
-    const from = Math.max(visibleQuestionSections.findIndex((section) => section.id === previewSectionId), 0);
-    for (const section of visibleQuestionSections.slice(from)) {
-      const step = applicationPreviewStepOfSection(visibleQuestionSections, applicationFields, section.id);
-      if (step >= 0) return step;
-    }
-    return 0;
-  }, [previewStepPick, previewSectionId, visibleQuestionSections, applicationFields]);
+  const previewStepIndex = useMemo(
+    () =>
+      applicationPreviewStepAim({
+        sections: visibleQuestionSections,
+        fields: applicationFields,
+        answers: previewAnswers,
+        focusedSectionId: previewSectionId,
+        stepPick: previewStepPick,
+      }),
+    [previewStepPick, previewSectionId, visibleQuestionSections, applicationFields, previewAnswers],
+  );
   const previewFormName = templateLabel.trim() || "Application";
 
   const startFromFactLabel = useMemo(() => {
@@ -1515,19 +1519,10 @@ export function ManagerApplicationQuestionsEditorModal({
       </div>
     ) : null;
 
+  // The pager's ‹ › arrows are how the manager walks the form here; there is no second Section
+  // picker to fall out of step with them.
   const previewBody = (
-    <div className="space-y-3">
-      <FieldSingleSelect
-        label="Section"
-        labelClassName={WIZARD_LABEL_CLASS}
-        value={previewSectionId ?? ""}
-        options={RENTAL_APPLICATION_SECTIONS.map((section) => ({
-          value: section.id,
-          label: `${section.title} · ${applicationFields.filter((f) => (f.section ?? "additional") === section.id).length} questions`,
-        }))}
-        onChange={(next) => setPreviewSectionPick(next as RentalApplicationSectionId)}
-        dataAttr="application-preview-section"
-      />
+    <div className="space-y-3" data-attr="application-preview-body">
       <ApplicationSectionPreviewPane
         sections={visibleQuestionSections}
         fields={applicationFields}
@@ -1535,12 +1530,14 @@ export function ManagerApplicationQuestionsEditorModal({
         applicationPreviewPropertyId={applicationPreviewPropertyId}
         index={previewStepIndex}
         onIndexChange={setPreviewStepPick}
+        answers={previewAnswers}
+        onAnswersChange={setPreviewAnswers}
       />
     </div>
   );
 
   // P002: everything the old dedicated "Preview" step showed beyond the
-  // single-section `previewBody` above — the imported-PDF comparison and the
+  // paged `previewBody` above — the imported-PDF comparison and the
   // full embedded applicant wizard preview. Shared by the template editor's
   // "Form" step (tail, P002's 3-step collapse) and the listing-wide editor's
   // still-separate "Preview" step, so neither path duplicates this JSX.
@@ -1575,6 +1572,8 @@ export function ManagerApplicationQuestionsEditorModal({
                 applicationPreviewPropertyId={applicationPreviewPropertyId}
                 index={previewStepIndex}
                 onIndexChange={setPreviewStepPick}
+                answers={previewAnswers}
+                onAnswersChange={setPreviewAnswers}
               />
             </div>
           </div>
@@ -1615,6 +1614,8 @@ export function ManagerApplicationQuestionsEditorModal({
             applicationPreviewPropertyId={applicationPreviewPropertyId}
             index={previewStepIndex}
             onIndexChange={setPreviewStepPick}
+            answers={previewAnswers}
+            onAnswersChange={setPreviewAnswers}
           />
         }
         headerUpload={headerUpload}

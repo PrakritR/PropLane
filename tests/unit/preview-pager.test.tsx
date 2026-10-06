@@ -118,6 +118,14 @@ describe("PreviewPager", () => {
     expect(screen.getByText("a1")).toBeTruthy();
   });
 
+  it("draws no arrows for a form that fits one step", () => {
+    render(pager({ groups: [group("a", 2)] }));
+    expect(screen.getByText("Step 1 of 1 · Lease")).toBeTruthy();
+    expect(screen.getByText("a2")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Previous step" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Next step" })).toBeNull();
+  });
+
   it("with nothing to show, names the form and says so, with no arrows", () => {
     render(pager({ groups: [] }));
     expect(screen.getByText("No questions yet.")).toBeTruthy();
