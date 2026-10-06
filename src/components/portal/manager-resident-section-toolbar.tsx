@@ -18,14 +18,15 @@ export function ManagerResidentSectionToolbar({
   onAction,
   destinationRow,
   search,
-  overflowMenu,
+  extraActions,
   className,
 }: {
   actions: RecordHeaderAction[];
   onAction: (actionId: string) => void;
   destinationRow?: ReactNode;
   search?: { value: string; onChange: (next: string) => void; placeholder?: string; dataAttr?: string };
-  overflowMenu?: ReactNode;
+  /** More icon actions that belong to the whole tab (never a ⋯ menu): Settings, a selection's bulk actions. */
+  extraActions?: ReactNode;
   className?: string;
 }) {
   const primaryIndex = actions.findIndex((a) => a.tone === "primary");
@@ -64,7 +65,7 @@ export function ManagerResidentSectionToolbar({
               onClick={() => onAction(action.id)}
             />
           ))}
-          {overflowMenu}
+          {extraActions}
         </>
       }
       primary={

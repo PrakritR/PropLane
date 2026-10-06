@@ -100,6 +100,8 @@ import {
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { roomHasStayOffer, roomLowestResidentRent, roomResidentPrices, roomStayPricesPerResident, roomStayResidentPrices, roomStoresPerResidentPricing } from "@/lib/room-pricing";
 import { cn } from "@/lib/utils";
+import { PhoneSheetGlyph } from "@/components/ui/phone-bottom-sheet";
+import { PhoneStripOrPicker, PhoneStripPicker, phoneStripFits } from "@/components/ui/phone-strip-picker";
 import { FieldMark } from "@/components/portal/listing-wizard-v2/found-online-card";
 import { prefillMarkFor } from "@/lib/listing-prefill/apply";
 
@@ -1291,22 +1293,51 @@ export function ListingPricingSections({
         </Card>
       ) : (
         <>
-          <div className="mb-3 mt-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist">
-            {tabs.map((t) => {
+          {(() => {
+            const missingFor = (t: (typeof tabs)[number]) => {
               const pricingTerm = listingPricingTabToLeaseTerm(t);
-              const missing = wholePlace
+              return wholePlace
                 ? isBase(pricingTerm) && !(sub.entireHomeMonthlyRent && sub.entireHomeMonthlyRent > 0)
                 : isStayLeaseTerm(pricingTerm)
                   ? rooms.some((r) => !roomHasStayOffer(r))
                   : isBase(pricingTerm) && rooms.some((r) => !(r.monthlyRent > 0));
-              return (
-                <button key={t} type="button" role="tab" aria-selected={t === active} data-attr={`listing-v2-price-tab-${t}`} onClick={() => setTab(t)} className={cn("-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13.5px] font-bold", t === active ? "border-primary text-primary" : "border-transparent text-foreground/70 hover:text-foreground")}>
-                  {t}
-                  {missing ? <span className="h-[7px] w-[7px] rounded-full bg-[var(--status-pending-fg)]" aria-label="Some rooms have no price on this lease type" /> : null}
-                </button>
-              );
-            })}
-          </div>
+            };
+            const strip = (
+              <div className="mb-3 mt-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist">
+                {tabs.map((t) => (
+                  <button key={t} type="button" role="tab" aria-selected={t === active} data-attr={`listing-v2-price-tab-${t}`} onClick={() => setTab(t)} className={cn("-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13.5px] font-bold", t === active ? "border-primary text-primary" : "border-transparent text-foreground/70 hover:text-foreground")}>
+                    {t}
+                    {missingFor(t) ? <span className="h-[7px] w-[7px] rounded-full bg-[var(--status-pending-fg)]" aria-label="Some rooms have no price on this lease type" /> : null}
+                  </button>
+                ))}
+              </div>
+            );
+            // Lease types that cannot share one phone screen are the same dropdown picker as the steps.
+            if (phoneStripFits(tabs.map((t) => ({ label: String(t), glyphs: missingFor(t) ? 1 : 0 })))) return strip;
+            return (
+              <PhoneStripOrPicker
+                strip={strip}
+                picker={
+                  <div className="mb-3 mt-4 sm:hidden">
+                    <PhoneStripPicker
+                      className=""
+                      title="Lease type"
+                      currentLabel={active}
+                      items={tabs.map((t) => ({
+                        id: String(t),
+                        current: t === active,
+                        dataAttr: `listing-v2-price-tab-${t}-picker`,
+                        glyph: <PhoneSheetGlyph kind={t === active ? "current" : missingFor(t) ? "attention" : "todo"} />,
+                        label: String(t),
+                        srHint: missingFor(t) ? "Some rooms have no price on this lease type" : undefined,
+                        onSelect: () => setTab(t),
+                      }))}
+                    />
+                  </div>
+                }
+              />
+            );
+          })()}
           {!stay && !isBase(activeLeaseTerm) && !wholePlace ? (
             <div className="mb-2 px-1">
               <CheckboxOption

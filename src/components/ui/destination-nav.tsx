@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { PhoneSheetGlyph } from "@/components/ui/phone-bottom-sheet";
+import { PhoneStripOrPicker, PhoneStripPicker, usePhoneStripAsPicker } from "@/components/ui/phone-strip-picker";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 import { cn } from "@/lib/utils";
 
@@ -134,7 +136,7 @@ export type DestinationNavItem = {
  * Routed view switcher — every item is a real URL with a visible label.
  * Mobile: horizontal scroll-snap row; desktop: segmented row.
  */
-export function DestinationNav({
+function DestinationNavStrip({
   items,
   activeHref,
   activeId,
@@ -350,7 +352,7 @@ function destinationNavItemClassName({
 }
 
 /** Local-state destination tabs — same chrome as {@link DestinationNav} without routed hrefs. */
-export function LocalDestinationNav({
+function LocalDestinationNavStrip({
   items,
   activeId,
   onChange,
@@ -499,5 +501,95 @@ export function LocalDestinationNav({
         );
       })}
     </nav>
+  );
+}
+
+/** The tab label as it reads on a phone (`shortLabel` is what a phone shows). */
+function phoneTab(item: { label: string; shortLabel?: string; count?: number }, appearance: string) {
+  return { label: item.shortLabel ?? item.label, count: appearance === "command" ? item.count : undefined };
+}
+
+function pickerLabel(item: { label: string; count?: number }) {
+  return item.count != null ? (
+    <span className="inline-flex min-w-0 items-center gap-2">
+      <span className="truncate">{item.label}</span>
+      <span className="rounded-full bg-accent px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted">{item.count}</span>
+    </span>
+  ) : (
+    item.label
+  );
+}
+
+/**
+ * Routed view switcher. Inside a record page or pop-up a command strip that cannot fit a phone
+ * screen is the record's dropdown section picker there (`phone-strip-picker.tsx`).
+ */
+export function DestinationNav(props: ComponentProps<typeof DestinationNavStrip>) {
+  const { items, activeId, activeHref, appearance = "segmented", itemLayout = "auto", ariaLabel = "Section views" } = props;
+  const asPicker = usePhoneStripAsPicker(
+    appearance === "command" && itemLayout === "auto",
+    items.map((item) => phoneTab(item, appearance)),
+  );
+  const strip = <DestinationNavStrip {...props} />;
+  if (!asPicker) return strip;
+  const normalize = (href: string) => href.replace(/\/$/, "");
+  const active =
+    items.find(
+      (item) =>
+        (activeId != null && item.id === activeId) ||
+        (activeHref != null && normalize(activeHref) === normalize(item.href)),
+    ) ?? items[0];
+  return (
+    <PhoneStripOrPicker
+      strip={strip}
+      picker={
+        <PhoneStripPicker
+          title={ariaLabel}
+          currentLabel={active ? pickerLabel(active) : ariaLabel}
+          items={items.map((item) => ({
+            id: item.id,
+            current: item.id === active?.id,
+            href: item.href,
+            dataAttr: item.dataAttr ? `${item.dataAttr}-picker` : undefined,
+            glyph: <PhoneSheetGlyph kind={item.id === active?.id ? "current" : "todo"} />,
+            label: item.label,
+            trailing: item.count != null ? <span className="text-xs font-semibold tabular-nums text-muted">{item.count}</span> : undefined,
+          }))}
+        />
+      }
+    />
+  );
+}
+
+/** Local-state destination tabs: the same chrome and the same phone picker as {@link DestinationNav}. */
+export function LocalDestinationNav(props: ComponentProps<typeof LocalDestinationNavStrip>) {
+  const { items, activeId, onChange, appearance = "segmented", itemLayout = "auto", ariaLabel = "Section views" } = props;
+  const asPicker = usePhoneStripAsPicker(
+    appearance === "command" && itemLayout === "auto",
+    items.map((item) => phoneTab(item, appearance)),
+  );
+  const strip = <LocalDestinationNavStrip {...props} />;
+  if (!asPicker) return strip;
+  const active = items.find((item) => item.id === activeId) ?? items[0];
+  return (
+    <PhoneStripOrPicker
+      strip={strip}
+      picker={
+        <PhoneStripPicker
+          variant="inline"
+          title={ariaLabel}
+          currentLabel={active ? pickerLabel(active) : ariaLabel}
+          items={items.map((item) => ({
+            id: item.id,
+            current: item.id === active?.id,
+            onSelect: () => onChange(item.id),
+            dataAttr: item.dataAttr ? `${item.dataAttr}-picker` : undefined,
+            glyph: <PhoneSheetGlyph kind={item.id === active?.id ? "current" : "todo"} />,
+            label: item.label,
+            trailing: item.count != null ? <span className="text-xs font-semibold tabular-nums text-muted">{item.count}</span> : undefined,
+          }))}
+        />
+      }
+    />
   );
 }

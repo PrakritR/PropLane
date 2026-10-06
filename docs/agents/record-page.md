@@ -30,9 +30,17 @@ its own shell.
 6. Phone: same header and content; the section chips are replaced by
    `PortalRecordSectionPicker` — a dropdown listing the sections, `+` expands
    a section's sub-tabs, a row navigates, Close closes. A property is the
-   exception (`phoneTabs`): its sections are underline command tabs that scroll
-   sideways, and its header is Edit + one ⋯ (Share, Unlist, Duplicate, Delete,
-   Email) so the name keeps one line (`PropertyPhoneHeaderActions`).
+   exception (`phoneTabs`): its sections are underline command tabs, which on a phone (< 640px) are that
+   same dropdown picker because ten of them cannot share one screen, and its header is Edit + one ⋯
+   (Share, Unlist, Duplicate, Delete, Email) so the name keeps one line (`PropertyPhoneHeaderActions`).
+
+   **Any tab strip that does not fit one phone screen is the dropdown picker there** (captain, 2026-10-06):
+   inside a record page or a pop-up (`PhoneStripPickerScope`, provided by `PortalRecordDetailPage`, `Modal`
+   and `AddWorkspace`) every command strip (`DestinationNav` / `LocalDestinationNav`, `appearance="command"`)
+   and the wizard's step tabs (`WizardStepTabs`) draw `PhoneStripPicker` instead of a sideways-scrolling row
+   when `phoneStripFits` says the labels need more than ~336px. A strip that fits stays tabs, the strip
+   stays in the DOM (hidden below `sm`), and from 640px up nothing changes. Not converted: the listing
+   page's in-page section jump bar (`listing-detail-subnav.tsx`), which is scroll-spy navigation, not a tab strip.
 7. Communication inside a record renders the record's thread(s) and a
    composer only. Never the inbox chrome.
 8. Money: Payments on every kind lists the charges whose `recordRef` is this
@@ -93,6 +101,16 @@ Send application is Application's blue +, and Documents has only its own + (Add 
 for resident" is a second door on that pop-up's "Start from a file" card ("Read a filled application
 or lease"), not a header icon of its own.
 
+**A tab header shows only what applies to its open sub-tab, and there is no ⋯ in it (2026-10-06).** An action
+that does not apply is absent, never disabled. Application: Incomplete = Remind · Edit · Send application;
+Pending = Reject · Edit · Download · Approve; Approved = Download · Send lease; Rejected = Download. Lease:
+Draft = Edit · Send lease; Resident signature = Remind; Manager signature = Sign; Signed = Download. Payments:
+Pending / Overdue = Remind · +; Paid = Download. Background check = Run check / Run new check. Tours: the + on
+Scheduled and Upcoming, nothing on Past, and the Settings gear (the one way into tour rules). Forms: the + on Pending only. "Upload completed application" is the
+"Start from a file" card inside the Send application pop-up (`ShareLeadLinkModal`'s
+`onUploadCompletedApplication`), not a menu item. The sets live in `residentSectionHeaderActions`
+(`pro-residents.tsx`).
+
 A tab's own actions are icons in its section header card: `ManagerResidentSectionToolbar` carries
 **no section name** (the rail already says which section is open) — only the tabs as
 `destinationRow` on the left, then icon actions, the blue + last. Application is
@@ -102,8 +120,8 @@ ONE tab, Completed, counting only a report that came back —
 (any conclusion counts, `review` included; a `failed` / `canceled` order never does), and consults
 the derived `backgroundCheckStatus` only when there is no order at all, for a result a manager
 recorded by hand. Never `applicationShowsBackgroundCheck`, which says a check merely APPLIES. Its
-body keeps rendering the panel, so a pending check still shows its true status; Lease keeps
-Download only; Documents
+body keeps rendering the panel, so a pending check still shows its true status; Lease follows its sub-tab
+(above); Documents
 draws its kinds (Application · Lease · Payments · Inspections · Other) as that same header card's
 tabs, never a second control row. Move in's sub-tabs are Placement · Move-in details · Roommates ·
 Inspections, opening on Placement, and an unrecognised sub-tab slug lands there too

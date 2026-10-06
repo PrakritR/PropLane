@@ -51,7 +51,13 @@ export type ApplicationAccessMemo = {
   coManagerPermission(propertyId: string, module: "applications" | "residents", level: CoManagerPermissionLevel): Promise<boolean>;
 };
 
-export function createApplicationAccessMemo(db: ServiceClient, userId: string): ApplicationAccessMemo {
+export function createApplicationAccessMemo(
+  db: ServiceClient,
+  userId: string,
+  /** `strict`: a failed co-manager/link read rejects instead of reading as "no grant" (forms gate). */
+  options?: { strict?: boolean },
+): ApplicationAccessMemo {
+  const strict = options?.strict === true;
   let owned: Promise<Set<string>> | null = null;
   const permissions = new Map<string, Promise<boolean>>();
   return {
@@ -64,7 +70,7 @@ export function createApplicationAccessMemo(db: ServiceClient, userId: string): 
       const key = `${propertyId}\u0000${module}\u0000${level}`;
       let hit = permissions.get(key);
       if (!hit) {
-        hit = managerHasCoManagerPermissionForProperty(db, userId, propertyId, module, level);
+        hit = managerHasCoManagerPermissionForProperty(db, userId, propertyId, module, level, strict ? { strict: true } : undefined);
         permissions.set(key, hit);
       }
       return hit;

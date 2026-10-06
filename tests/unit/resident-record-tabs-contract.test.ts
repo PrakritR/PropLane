@@ -203,12 +203,18 @@ describe("header icons are tab-independent", () => {
   it("every relocated action is reachable from the tab it moved to", () => {
     const section = (tab: string) =>
       recordSections("manager", "resident", { basePath: "/portal" }, tab).headerActions.map((a) => a.id);
-    // Share / Archive are the Overview ⋯; Send invite joins them when there is no login yet.
-    expect(section("overview")).toEqual(["share", "archive"]);
-    expect(residents).toContain('data-attr="resident-overview-more"');
-    expect(residents).toContain('data-attr="resident-overview-setup"');
+    // Overview has no header card (captain, 2026-10-06): no ⋯, no Share, no Archive. Send invite is the
+    // lifecycle card's inline action.
+    expect(section("overview")).toEqual([]);
+    expect(residents).not.toContain('data-attr="resident-overview-more"');
+    expect(residents).not.toContain('data-attr="resident-overview-setup"');
+    expect(read("src/lib/manager-resident-lifecycle.ts")).toContain('{ label: "Send invite", actionId: "send-setup" }');
     // Send application is the Application tab's blue +.
-    expect(residents).toContain('{ id: "send-application", label: "Add application"');
+    expect(read("src/lib/resident-record-section-actions.ts")).toContain('{ id: "send-application", label: "Send application"');
+    // ...and the completed-application upload is a Start-from-a-file card inside that pop-up, not a ⋯ item.
+    expect(residents).toContain("onUploadCompletedApplication=");
+    expect(residents).not.toContain('data-attr="resident-application-more"');
+    expect(residents).not.toContain('data-attr="resident-application-upload-completed"');
     // Lease keeps download only — no bell, no upload, no +.
     expect(section("lease")).toEqual(["download"]);
     // Documents has its own + only; Upload for resident is the Upload icon inside that pop-up.

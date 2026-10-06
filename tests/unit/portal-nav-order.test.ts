@@ -186,7 +186,7 @@ describe("pro portal documents section", () => {
   it("finances tabs are overview, activity and reports in nav", () => {
     const financials = proPortal.sections.find((s) => s.section === "financials");
     expect(financials?.label).toBe("Finances");
-    expect(financials?.tabs.map((t) => t.id)).toEqual(["overview", "activity", "reports"]);
+    expect(financials?.tabs.map((t) => t.id)).toEqual(["overview", "reports"]);
   });
 
   it("services is one list, with vendors its own section right after it", () => {

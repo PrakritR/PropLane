@@ -3,7 +3,7 @@
 import { displayPropertyTitle } from "@/lib/property-title";
 import Link from "next/link";
 import { Heart, Mail, MessageSquareText, Share2 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   ListingDetailCollapsibleSection,
   ListingDetailCollapsibleSimpleSection,
@@ -250,6 +250,31 @@ function PriceCard({
  * and Schedule tour, half the width each. The row that shares its height with
  * the assistant bubble keeps clear of it only when a bubble is on the page.
  */
+/**
+ * The assistant bubble floats ABOVE the sticky action bar, not inside it (captain, 2026-10-06): the
+ * bar publishes its own height as `--listing-sticky-bar-h` and `globals.css` lifts the bubble by it.
+ * Phone only; the bar is `lg:hidden`, so a hidden bar (height 0) publishes nothing.
+ */
+function useStickyBarClearance(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const publish = () => {
+      const height = el.getBoundingClientRect().height;
+      if (height > 0) root.style.setProperty("--listing-sticky-bar-h", `${Math.ceil(height)}px`);
+      else root.style.removeProperty("--listing-sticky-bar-h");
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--listing-sticky-bar-h");
+    };
+  }, [ref]);
+}
+
 function StickyBar({
   property,
   rich,
@@ -268,6 +293,8 @@ function StickyBar({
    */
   slim?: boolean;
 }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  useStickyBarClearance(barRef);
   const from = listingFromPrice(rich);
   const termCtas = listingTermCtas({
     shortStayOffered: propertyAllowsShortTermRental(property.id),
@@ -280,50 +307,83 @@ function StickyBar({
   // icon so the price keeps room. Alone, Email says so in words.
   const emailIconOnly = Boolean(doors.phone && doors.email);
   if (slim) {
-    const slimCta = "!min-h-[40px] !w-auto flex-none !px-4 !py-2";
+    const bothStays = termCtas.length > 1;
+    // With both stays the bar says which application each button opens: Apply, Long term, Short
+    // term, Tour. Four buttons plus the price cannot share one row, so the price gets its own.
+    const slimCta = bothStays ? "!min-h-[40px] !w-auto min-w-0 flex-auto whitespace-nowrap !px-2 !text-[13px]" : "!min-h-[40px] !w-auto flex-none !px-4 !py-2";
+    const applyButtons = (
+      <>
+        {termCtas.map((cta, index) => (
+          <Fragment key={cta.id}>
+            <ProspectListingCta
+              action="apply"
+              propertyId={property.id}
+              data-attr={cta.dataAttr}
+              className={`${secondaryCtaClass} ${slimCta}`}
+              newTab={newTab}
+              applyParams={cta.rentalType === "short_term" ? { rentalType: "short_term" } : undefined}
+            >
+              <span aria-hidden>{cta.rentalType === "short_term" ? "Short term" : "Apply"}</span>
+              <span className="sr-only">{cta.label}</span>
+            </ProspectListingCta>
+            {/* Long term sits next to Short term and opens the long-term application, the way Short term opens its own. */}
+            {bothStays && index === 0 ? (
+              <ProspectListingCta
+                action="apply"
+                propertyId={property.id}
+                data-attr="listing-web-apply-long"
+                className={`${secondaryCtaClass} ${slimCta}`}
+                newTab={newTab}
+                applyParams={{ rentalType: "standard" }}
+              >
+                <span aria-hidden>Long term</span>
+                <span className="sr-only">Apply for the long-term stay</span>
+              </ProspectListingCta>
+            ) : null}
+          </Fragment>
+        ))}
+        <ProspectListingCta
+          action="tour"
+          propertyId={property.id}
+          data-attr="listing-web-tour"
+          className={`${primaryCtaClass} ${slimCta}`}
+          newTab={newTab}
+        >
+          <span aria-hidden>Tour</span>
+          <span className="sr-only">Schedule tour</span>
+        </ProspectListingCta>
+      </>
+    );
     return (
       <div
+        ref={barRef}
         className="sticky bottom-0 z-[40] -mx-4 mt-6 border-t border-border bg-card/95 px-4 py-2 backdrop-blur-md lg:hidden [html[data-native]_&]:pb-[max(0.5rem,env(safe-area-inset-bottom))]"
         data-attr="listing-sticky-bar"
         data-slim=""
       >
-        <div className="flex min-w-0 items-center gap-3 [body:has(.axis-assistant-fab)_&]:pr-[3.25rem]">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p>
-            {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
+        {bothStays ? (
+          <div className="flex min-w-0 flex-col gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p>
+              {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
+            </div>
+            <div className="flex min-w-0 items-center gap-2" data-attr="listing-sticky-actions">{applyButtons}</div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {termCtas.map((cta) => (
-              <ProspectListingCta
-                key={cta.id}
-                action="apply"
-                propertyId={property.id}
-                data-attr={cta.dataAttr}
-                className={`${secondaryCtaClass} ${slimCta}`}
-                newTab={newTab}
-                applyParams={cta.rentalType === "short_term" ? { rentalType: "short_term" } : undefined}
-              >
-                <span aria-hidden>{cta.rentalType === "short_term" ? "Short term" : "Apply"}</span>
-                <span className="sr-only">{cta.label}</span>
-              </ProspectListingCta>
-            ))}
-            <ProspectListingCta
-              action="tour"
-              propertyId={property.id}
-              data-attr="listing-web-tour"
-              className={`${primaryCtaClass} ${slimCta}`}
-              newTab={newTab}
-            >
-              <span aria-hidden>Tour</span>
-              <span className="sr-only">Schedule tour</span>
-            </ProspectListingCta>
+        ) : (
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-bold tracking-tight text-foreground">{from}</p>
+              {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-2" data-attr="listing-sticky-actions">{applyButtons}</div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
   return (
     <div
+      ref={barRef}
       className="sticky bottom-0 z-[40] -mx-4 mt-6 border-t border-border bg-card/95 px-4 pb-3 pt-2.5 backdrop-blur-md lg:hidden [html[data-native]_&]:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       data-attr="listing-sticky-bar"
     >
@@ -356,7 +416,7 @@ function StickyBar({
           </div>
         ) : null}
       </div>
-      <div className="mt-2.5 flex flex-wrap gap-2 [body:has(.axis-assistant-fab)_&]:pr-[3.25rem]">
+      <div className="mt-2.5 flex flex-wrap gap-2">
         {termCtas.map((cta) => (
           <ProspectListingCta
             key={cta.id}

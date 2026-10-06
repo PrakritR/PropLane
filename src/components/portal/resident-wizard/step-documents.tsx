@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef } from "react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { AddFoot, DocumentRow, WizardChip, WizardLine, WizardSection } from "@/components/portal/add-workspace/parts";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
+import { DocumentRow, WizardChip, WizardLine, WizardSection } from "@/components/portal/add-workspace/parts";
 import type { AddPersonForm } from "./state";
+import { RESIDENT_FILE_ACCEPT, RESIDENT_STEP_FILE_CHIPS } from "./step-contact";
 
 export const RESIDENT_DOCUMENT_KINDS = [
   { value: "application", label: "Application" },
@@ -26,22 +27,10 @@ export function DocumentsStep({
   onPickFile: (file: File) => void;
   busy: boolean;
 }) {
-  const fileRef = useRef<HTMLInputElement>(null);
   return (
     <StepColumn>
       <StepHeading title="Documents" />
-      <input
-        ref={fileRef}
-        type="file"
-        accept="application/pdf,image/*"
-        className="sr-only"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onPickFile(file);
-          e.currentTarget.value = "";
-        }}
-        data-attr="residents-wizard-documents-input"
-      />
+      <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} chips={RESIDENT_STEP_FILE_CHIPS} onPick={onPickFile} disabled={busy} dataAttr="residents-wizard-documents-upload" inputDataAttr="residents-wizard-documents-input" />
       <WizardSection title="Attached" chip={<WizardChip>private · you and this resident only</WizardChip>} dataAttr="residents-wizard-documents">
         {form.documents.length === 0 ? (
           <WizardLine label="Nothing attached yet — an application, lease, ID photo or proof of income. PDFs are read to fill the sections; images are kept as evidence." />
@@ -57,7 +46,6 @@ export function DocumentsStep({
             />
           ))
         )}
-        <AddFoot label="+ Add document" onClick={() => !busy && fileRef.current?.click()} dataAttr="residents-wizard-documents-add" />
       </WizardSection>
       <WizardSection title="Where each one goes">
         <WizardLine label={<><b>Application PDF</b> — read, then kept on the application</>} chip={<WizardChip>application documents</WizardChip>} />

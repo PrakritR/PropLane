@@ -552,7 +552,7 @@ assigned to its vendor. Historical paid rows remain readable. New payment
 execution stays unavailable until checkout concurrency and AP settlement are
 safe; a display status must never stand in for money movement.
 
-Finances has Overview, Activity and Reports. `financial-activity` reads recorded
+Finances has Overview and Reports (the Activity tab is gone; `/financials/activity`, `income` and `expenses` redirect to Overview). `financial-activity` reads recorded
 payment/refund ledger rows and expense entries, with chart-of-accounts types
 controlling operating totals and the deposit subledger controlling held funds.
 It does **not** yet reconcile every Stripe/platform movement or supply a running

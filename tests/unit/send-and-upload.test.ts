@@ -264,7 +264,10 @@ describe("Upload for resident: parsed values fill the normal form and create for
     const residents = read("src/components/portal/pro-residents.tsx");
     expect(read("src/lib/portals/record-sections.ts")).not.toContain('id: "upload-for-resident"');
     expect(residents).toContain("onReadForResident");
-    expect(residents).toContain('id: "send-application"');
+    expect(read("src/lib/resident-record-section-actions.ts")).toContain('id: "send-application"');
+    // Upload completed application is a Start-from-a-file card in the Send application pop-up, not a ⋯ item.
+    expect(residents).toContain("onUploadCompletedApplication=");
+    expect(read("src/components/portal/share-lead-link-modal.tsx")).toContain('dataAttr: "share-lead-header-upload"');
     expect(residents).toContain('actionId === "send-lease"');
   });
 });

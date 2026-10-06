@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneStripPickerScope } from "@/components/ui/phone-strip-picker";
 import type { ReactNode } from "react";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
@@ -112,7 +113,9 @@ export function PortalRecordDetailPage({
         titleSingleLine={titleSingleLine}
       />
       </div>
-      <div className={cn(bodyFill && "flex min-h-0 flex-1 flex-col")}>{body}</div>
+      <div className={cn(bodyFill && "flex min-h-0 flex-1 flex-col")}>
+        <PhoneStripPickerScope>{body}</PhoneStripPickerScope>
+      </div>
     </div>
     </PortalTitleActionsProvider>
   );

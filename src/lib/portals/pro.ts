@@ -90,7 +90,6 @@ export const proPortal: PortalDefinition = {
       label: "Finances",
       tabs: [
         { id: "overview", label: "Overview" },
-        { id: "activity", label: "Activity" },
         { id: "reports", label: "Reports" },
       ],
     },

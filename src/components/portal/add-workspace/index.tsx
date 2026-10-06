@@ -26,6 +26,7 @@ import {
   StepRail,
   type StepRailItem,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { PhoneStripPickerScope } from "@/components/ui/phone-strip-picker";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { editorFooterState } from "@/lib/editor-footer-state";
@@ -304,6 +305,7 @@ export function AddWorkspace({
   return (
     <WizardInvalidFields.Provider value={invalidFields}>
     <WorkspaceHeaderUploadPresent.Provider value={Boolean(headerUpload)}>
+    <PhoneStripPickerScope>
     <ListingWizardOverlay ariaLabel={title}>
       <div ref={workspaceRef} data-rail={singleStep ? "none" : undefined} className={cn("relative h-full w-full", singleStep && (sidePanel ? SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS : SINGLE_STEP_NO_RAIL_CLASS))} onInput={(event) => {
         const target = event.target;
@@ -421,6 +423,7 @@ export function AddWorkspace({
       ) : null}
       </div>
     </ListingWizardOverlay>
+    </PhoneStripPickerScope>
     </WorkspaceHeaderUploadPresent.Provider>
     </WizardInvalidFields.Provider>
   );

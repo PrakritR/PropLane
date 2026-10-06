@@ -99,11 +99,19 @@ export async function collectLinkedPropertyIdsForUser(db: ServiceClient, userId:
   return linkedPropertyIds;
 }
 
-/** Per-property co-manager permissions for incoming accepted links. */
+/**
+ * Per-property co-manager permissions for incoming accepted links.
+ *
+ * Default: a failed read is logged and yields an empty map (list reads degrade). `strict: true` is for
+ * gates that must never read a failure as "no grant": a read error throws instead (a missing
+ * `account_link_invites` table still means "no links").
+ */
 export async function collectLinkedPropertyPermissionsForUser(
   db: ServiceClient,
   userId: string,
+  options?: { strict?: boolean },
 ): Promise<Map<string, PropertyCoManagerPermissions>> {
+  const strict = options?.strict === true;
   const byProperty = new Map<string, PropertyCoManagerPermissions>();
   try {
     const { data: linkRows, error } = await db
@@ -112,6 +120,7 @@ export async function collectLinkedPropertyPermissionsForUser(
       .eq("status", "accepted")
       .eq("invitee_user_id", userId);
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
+      if (strict) throw new Error(`Co-manager link permissions lookup failed: ${error.message}`);
       console.error("Co-manager link permissions lookup failed:", { userId, message: error.message });
       return byProperty;
     }
@@ -127,7 +136,8 @@ export async function collectLinkedPropertyPermissionsForUser(
         });
       }
     }
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     /* table may not exist */
   }
   return byProperty;
@@ -139,15 +149,18 @@ export async function managerHasCoManagerPermissionForProperty(
   propertyId: string,
   permission: CoManagerPermissionId,
   level: CoManagerPermissionLevel = "read",
+  options?: { strict?: boolean },
 ): Promise<boolean> {
-  const { data: propertyRow } = await db
+  const { data: propertyRow, error: propertyError } = await db
     .from("manager_property_records")
     .select("manager_user_id")
     .eq("id", propertyId)
     .maybeSingle();
+  // Strict (gate) callers must not read a failed lookup as "not the owner / no grant".
+  if (propertyError && options?.strict) throw new Error(`Property owner lookup failed: ${propertyError.message}`);
   if (propertyRow?.manager_user_id === userId) return true;
 
-  const linked = await collectLinkedPropertyPermissionsForUser(db, userId);
+  const linked = await collectLinkedPropertyPermissionsForUser(db, userId, options);
   if (!linked.has(propertyId)) return false;
   // Assigning a property is NOT itself the grant: the module must be positively
   // granted on it. An assignment carrying no checked permissions used to mean

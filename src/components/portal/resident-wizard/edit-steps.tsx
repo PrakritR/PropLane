@@ -16,10 +16,11 @@
  * (`src/lib/resident-edit-record.ts`), the handlers from the Residents tab.
  */
 
-import { useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { AlertCircle, Check, Circle, FileText, MoreHorizontal } from "lucide-react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { AddFoot, WizardChip, WizardLine, WizardSection, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
+import { WizardChip, WizardLine, WizardSection, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { formatPortalListDate } from "@/lib/portal-display-dates";
 import {
@@ -40,6 +41,7 @@ import {
 } from "@/lib/resident-edit-record";
 import type { ResidentWizardDerived } from "./derived";
 import type { AddPersonForm } from "./state";
+import { RESIDENT_FILE_ACCEPT, RESIDENT_STEP_FILE_CHIPS } from "./step-contact";
 
 function dateLabel(iso: string | null | undefined): string {
   return iso ? formatPortalListDate(iso) : "";
@@ -314,22 +316,12 @@ export function EditDocumentsStep({
   onDownload?: (id: string) => void;
   onRemove?: (id: string) => void;
 }) {
-  const fileRef = useRef<HTMLInputElement>(null);
   return (
     <StepColumn>
       <StepHeading title="Documents" />
-      <input
-        ref={fileRef}
-        type="file"
-        accept="application/pdf,image/*"
-        className="sr-only"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void onUpload?.(file);
-          event.currentTarget.value = "";
-        }}
-        data-attr="residents-wizard-documents-input"
-      />
+      {onUpload ? (
+        <WorkspaceFileCard accept={RESIDENT_FILE_ACCEPT} chips={RESIDENT_STEP_FILE_CHIPS} onPick={(file) => void onUpload(file)} disabled={busy} dataAttr="residents-wizard-documents-upload" inputDataAttr="residents-wizard-documents-input" />
+      ) : null}
       <WizardSection title="Files" chip={<WizardChip>private · you and this resident only</WizardChip>} dataAttr="residents-wizard-documents">
         {record.documents.length === 0 ? (
           <WizardLine label="Nothing attached yet" />
@@ -368,7 +360,6 @@ export function EditDocumentsStep({
             </div>
           ))
         )}
-        <AddFoot label="+ Add document" onClick={() => !busy && fileRef.current?.click()} dataAttr="residents-wizard-documents-add" />
       </WizardSection>
     </StepColumn>
   );

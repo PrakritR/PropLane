@@ -309,10 +309,8 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     sectionActions: {
-      overview: [
-        { id: "share", label: "Share", icon: Share2 },
-        { id: "archive", label: "Archive", icon: Archive },
-      ],
+      // Overview carries no header card at all (captain, 2026-10-06): no Share, no Archive.
+      overview: [],
       application: [
         { id: "approve", label: "Approve", icon: CheckCircle2, tone: "primary" },
         { id: "decline", label: "Decline", icon: XCircle, tone: "danger" },

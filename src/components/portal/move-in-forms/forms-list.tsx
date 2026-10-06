@@ -319,7 +319,8 @@ export function FormsList({
           </PortalFilterSortSheet>
         }
         primary={
-          demo ? undefined : (
+          // A form is sent to be filled in, so on a resident's record the + belongs to Pending only.
+          demo || (scopedToResident && bucket === "completed") ? undefined : (
             <PortalPrimaryIconAction label={portalListAddPrimaryLabel("form")} data-attr="forms-send" onClick={() => setSendOpen(true)} />
           )
         }

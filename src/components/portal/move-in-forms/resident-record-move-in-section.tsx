@@ -237,7 +237,7 @@ export function ResidentRecordMoveInSection({
         onAction={(actionId) => {
           if (actionId === "add-inspection") setAddInspectionRequest((n) => n + 1);
         }}
-        overflowMenu={headerExtras}
+        extraActions={headerExtras}
         destinationRow={
           <LocalDestinationNav
             items={tabItems}

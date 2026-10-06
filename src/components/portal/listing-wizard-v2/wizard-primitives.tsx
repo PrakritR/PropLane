@@ -35,6 +35,8 @@ import { WorkspaceDeleteButton } from "@/components/portal/add-workspace/frame";
 import { editorFooterState } from "@/lib/editor-footer-state";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useTabOverflowFade } from "@/components/ui/destination-nav";
+import { PhoneSheetGlyph } from "@/components/ui/phone-bottom-sheet";
+import { PhoneStripOrPicker, PhoneStripPicker, phoneStripFits } from "@/components/ui/phone-strip-picker";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -587,7 +589,7 @@ export function WizardStepTabs({
   }, [current]);
   // A one-step dialog has nowhere to jump: no tabs, no "Step 1 of 1".
   if (steps.length <= 1) return null;
-  return (
+  const strip = (
     <div
       ref={rowRef}
       role="tablist"
@@ -639,6 +641,46 @@ export function WizardStepTabs({
         );
       })}
     </div>
+  );
+  // Steps that cannot share one phone screen are the section picker (the record page's dropdown),
+  // reaching the same steps by the same rules; a short list stays tabs.
+  const tabs = steps.map((step) => ({
+    label: step.label,
+    glyphs: (step.attention ?? 0) > 0 || step.done || visited?.has(step.id) ? 1 : 0,
+  }));
+  if (phoneStripFits(tabs)) return strip;
+  const active = steps[current];
+  return (
+    <PhoneStripOrPicker
+      strip={strip}
+      picker={
+        <PhoneStripPicker
+          title="Steps"
+          currentLabel={active?.label ?? "Steps"}
+          items={steps.map((step, index) => {
+            const on = index === current;
+            const warn = (step.attention ?? 0) > 0;
+            const done = !on && !warn && (step.done ?? Boolean(visited?.has(step.id)));
+            const locked = Boolean(step.disabled);
+            return {
+              id: step.id,
+              current: on,
+              dataAttr: `workspace-step-${step.id}-picker`,
+              glyph: <PhoneSheetGlyph kind={on ? "current" : warn ? "attention" : done ? "done" : "todo"} />,
+              label: <span className={cn(locked && "opacity-45")}>{step.label}</span>,
+              srHint: warn ? "Needs something" : undefined,
+              onSelect: () => {
+                if (locked) {
+                  if (step.lockedReason) onLockedTap?.(step.lockedReason);
+                  return;
+                }
+                onJump(index);
+              },
+            };
+          })}
+        />
+      }
+    />
   );
 }
 

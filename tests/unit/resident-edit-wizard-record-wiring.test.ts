@@ -28,9 +28,9 @@ describe("Edit resident wizard shows the real record (C2-ER5 / ER7 / ER8)", () =
     }
   });
 
-  it("Documents rows have a ⋯ menu and Add document", () => {
+  it("Documents rows have a ⋯ menu and the step's Start from a file card uploads", () => {
     expect(steps).toContain("residents-wizard-document-menu");
-    expect(steps).toContain("+ Add document");
+    expect(steps).toContain('dataAttr="residents-wizard-documents-upload"');
   });
 
   it("Save writes the Application step's answers back to the application", () => {

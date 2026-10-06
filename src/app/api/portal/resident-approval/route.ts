@@ -115,6 +115,11 @@ export async function PATCH(req: Request) {
       if (requestorEmail !== email) {
         return NextResponse.json({ error: "Residents may only update their own access status." }, { status: 403 });
       }
+      // Approval is a manager decision (and runs the forms gate). A resident can never
+      // grant themselves the post-approval stage; nothing is written.
+      if (approved) {
+        return NextResponse.json({ error: "Only a manager can approve an application." }, { status: 403 });
+      }
     } else if (!actorCanManage) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }

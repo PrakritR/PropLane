@@ -82,12 +82,12 @@ export function ManagerFinancesReports({ basePath }: { basePath: string }) {
   const reportIds: Record<string, string> = { "income-statement": "monthly-profit-loss", "security-deposits": "trust-account-balance", bills: "ap-aging", "owner-distributions": "owner-statement", "bank-reconciliation": "general-ledger" };
   return <div className="divide-y divide-border pb-6" data-attr="finances-reports">{REPORT_GROUPS.flatMap(g => g.reports).map(report => {
     const Icon = report.icon;
-    const href = report.id === "financial-activity" ? `${basePath}/financials/activity` : report.id === "security-deposits" ? `${basePath}/financials/activity?category=deposits` : `${basePath}/financials/${report.id}`;
     const exportId = reportIds[report.id] ?? report.id;
     const download = (format: string) => report.id === "profitability" ? `/api/reports/property-worksheet?format=${format}` : specialPanels.has(report.id) ? `/api/reports/operational-export?kind=${report.id}&format=${format}` : `/api/reports/${exportId}/export?format=${format}`;
+    const href = report.id === "financial-activity" ? download("csv") : `${basePath}/financials/${report.id}`;
     return <div key={report.id} className="flex items-center gap-3 py-4" data-attr={`finances-report-${report.id}`}>
       <Icon className="size-5 text-primary" aria-hidden />
-      <Link href={href} className="min-w-0 flex-1 font-medium">{report.label}</Link>
+      {report.id === "financial-activity" ? <a href={href} className="min-w-0 flex-1 font-medium">{report.label}</a> : <Link href={href} className="min-w-0 flex-1 font-medium">{report.label}</Link>}
       <DropdownMenu modal={false}><DropdownMenuTrigger aria-label={`${report.label} actions`} className="p-3"><MoreHorizontal className="size-5" /></DropdownMenuTrigger><DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => window.location.assign(href)}>View</DropdownMenuItem>
         {["csv", "pdf"].map(format => <DropdownMenuItem key={format} onSelect={() => window.location.assign(download(format))}>Download {format.toUpperCase()}</DropdownMenuItem>)}

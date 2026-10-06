@@ -599,4 +599,22 @@ describe("PATCH /api/portal/resident-approval — a form that blocks approval", 
     console.log(out.join("\n"));
   });
 
+  it("refuses a resident setting their own approved=true (403) and writes nothing", async () => {
+    REQUESTOR = { role: "resident", email: "applicant@example.com", sms_from_number: null };
+    getUser.mockResolvedValue({ data: { user: { id: "res-1" } } });
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(patch({ email: "applicant@example.com", approved: true }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/only a manager/i);
+    expect(PROFILE_UPDATE_CALLS).toBe(0);
+  });
+
+  it("still lets a resident clear their own approved flag (approved=false)", async () => {
+    REQUESTOR = { role: "resident", email: "applicant@example.com", sms_from_number: null };
+    getUser.mockResolvedValue({ data: { user: { id: "res-1" } } });
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(patch({ email: "applicant@example.com", approved: false }));
+    expect(res.status).not.toBe(403);
+  });
+
 });

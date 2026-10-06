@@ -4,7 +4,7 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Bell, CheckCircle2, Download, XCircle, RefreshCw, Settings as SettingsIcon, Pencil, Send } from "lucide-react";
+import { Settings as SettingsIcon } from "lucide-react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -90,7 +90,6 @@ import {
   residentApplicationStatusBucket,
   type ResidentRecordStatusBucketId,
 } from "@/lib/resident-detail-subsection-tabs";
-import { ResidentDetailCommandToolbar } from "@/components/portal/resident-detail-subsection-chrome";
 import {
   ProPortalSettingsModal,
   type ManagerPortalSettingsTab,
@@ -131,6 +130,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoreHorizontal } from "lucide-react";
+import { escapeCsv } from "@/lib/csv";
+import { residentSectionHeaderActions as residentSectionActionsFor } from "@/lib/resident-record-section-actions";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
@@ -1236,19 +1237,6 @@ export function ManagerResidents({
     if (!row || !shouldOfferApplicationCompletionReminder(row)) return null;
     return row;
   }, [singleListSelectedId, hcTick]);
-
-  // C252 (U035): every Potential row that can be chased to finish its
-  // application, keyed by application id (the same id `ManagerResidentListRow`
-  // uses) — lets the list row itself offer the nudge instead of requiring a
-  // checkbox selection first.
-  const nudgeEligibleResidentIds = useMemo(() => {
-    void hcTick;
-    const ids = new Set<string>();
-    for (const row of readManagerApplicationRows()) {
-      if (shouldOfferApplicationCompletionReminder(row)) ids.add(row.id);
-    }
-    return ids;
-  }, [hcTick]);
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
@@ -2967,65 +2955,42 @@ export function ManagerResidents({
       { basePath: portalBase, residentsTab },
       resolvedDetailTab,
     );
-    let actions = sections.headerActions;
-    if (resolvedDetailTab === "application") {
-      // Every application action, as icons: what applies follows the application's state — a
-      // pending one can be approved or rejected, a decided one can be moved back, an unfinished one
-      // can be chased. The blue + sends an application.
-      const row = selectedApplicationRow;
-      const next: RecordHeaderAction[] = [];
-      if (row) {
-        const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
-        if (shouldOfferApplicationCompletionReminder(row)) {
-          next.push({ id: "remind-application", label: "Send reminder", icon: Bell });
-        }
-        if (row.bucket === "pending" && !undecidable) {
-          next.push({ id: "approve", label: "Approve", icon: CheckCircle2 });
-          next.push({ id: "decline", label: "Reject", icon: XCircle, tone: "danger" });
-        }
-        if (row.application) next.push({ id: "edit", label: "Edit", icon: Pencil });
-        next.push({ id: "download", label: "Download PDF", icon: Download });
-      }
-      next.push({ id: "send-application", label: "Add application", icon: Send, tone: "primary" });
-      return next;
-    }
-    if (resolvedDetailTab === "background-check") {
-      if (selectedApplicationRow?.screening) {
-        actions = actions.filter((a) => a.id !== "run-check");
-      }
-      // No check yet: the Run check icon. Pending: nothing to run. Complete (or cancelled): the
-      // same icon becomes "Run new check".
-      const check = selectedApplicationRow?.backgroundCheck;
-      if (check?.status === "pending") {
-        actions = actions.filter((a) => a.id !== "run-check");
-      } else if (check) {
-        actions = actions.map((a) =>
-          a.id === "run-check" ? { id: "run-check", label: "Run new check", icon: RefreshCw } : a,
-        );
-      }
-      // Chase the applicant when they have not authorized a check yet (there is nothing to run).
-      if (
-        selectedApplicationRow &&
-        applicationShowsBackgroundCheck(selectedApplicationRow) &&
-        !selectedApplicationRow.application?.consentCredit &&
-        shouldOfferApplicationCompletionReminder(selectedApplicationRow)
-      ) {
-        actions = [{ id: "remind-application", label: "Send reminder", icon: Bell }, ...actions];
-      }
-    }
-    if (resolvedDetailTab === "payments") {
-      const hasUnpaid = residentLedgerRows.some((r) => r.bucket === "overdue" || r.bucket === "pending");
-      if (!hasUnpaid) {
-        actions = actions.filter((a) => a.id !== "remind-payment");
-      }
-    }
-    return actions;
+    const row = selectedApplicationRow;
+    // A tab header carries only what applies to the sub-tab that is open, and an action that does
+    // not apply is absent, never disabled (captain, 2026-10-06). There is no ⋯ overflow in a header.
+    return residentSectionActionsFor({
+      tab: resolvedDetailTab,
+      registry: sections.headerActions,
+      application: {
+        present: Boolean(row),
+        rowBucket: selectedApplicationBucket,
+        subTab: residentApplicationBucket,
+        hasForm: Boolean(row?.application),
+        undecidable: row ? isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row) : false,
+        remindable: row ? shouldOfferApplicationCompletionReminder(row) : false,
+        screening: Boolean(row?.screening),
+        checkStatus: row?.backgroundCheck?.status,
+        hasCheck: Boolean(row?.backgroundCheck),
+      },
+      lease: { present: Boolean(residentLease), subTab: residentLeasePipelineTab },
+      payments: {
+        bucket: chargeBucket,
+        rowsInBucket: residentLedgerRows.filter((r) => r.bucket === chargeBucket).length,
+      },
+      tourBucket: tourBucketProp,
+    });
   }, [
     portalBase,
     residentsTab,
     resolvedDetailTab,
     selectedApplicationRow,
+    selectedApplicationBucket,
+    residentApplicationBucket,
+    residentLease,
+    residentLeasePipelineTab,
     residentLedgerRows,
+    chargeBucket,
+    tourBucketProp,
   ]);
 
   const residentSections = useMemo(() => {
@@ -3168,6 +3133,17 @@ export function ManagerResidents({
           runApplicationPdfDownload(selectedApplicationRow, showToast);
         } else if (resolvedDetailTab === "lease" && residentLease) {
           runLeaseDownload(residentLease, showToast);
+        } else if (resolvedDetailTab === "payments") {
+          // The paid list as a spreadsheet, the same columns the one-payment download writes.
+          const paid = residentLedgerRows.filter((r) => r.bucket === "paid");
+          const lines = [["Resident", "Charge", "Amount", "Status", "Due date"], ...paid.map((r) => [r.residentName, r.chargeTitle, r.lineAmount, r.statusLabel, r.dueDate])];
+          const csv = lines.map((line) => line.map((v) => escapeCsv(/^[\s]*[=+@-]/.test(v) ? `'${v}` : v)).join(",")).join("\n");
+          const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = "paid-payments.csv";
+          anchor.click();
+          URL.revokeObjectURL(url);
         } else {
           showToast("Download will be available from the document preview.");
         }
@@ -3187,6 +3163,19 @@ export function ManagerResidents({
         return;
       case "send-application":
         setSendApplicationOpen(true);
+        return;
+      case "send-lease":
+        if (residentLease) openLeaseSendPreview(selected, residentLease);
+        else openSendLeaseForApplication(selectedApplicationRow?.id ?? selected.id);
+        return;
+      case "edit-lease":
+        if (residentLease) setEditResidentLeaseId(residentLease.id);
+        return;
+      case "remind-sign":
+        if (residentLease) openLeaseSigningReminderPreview(selected, residentLease);
+        return;
+      case "sign-lease":
+        if (residentLease) signLeaseAsManager(residentLease);
         return;
       default:
         showToast("Coming soon");
@@ -3328,42 +3317,6 @@ export function ManagerResidents({
 
                             {resolvedDetailTab === "overview" ? (
                               <ResidentDetailTabPanel>
-                                <ManagerResidentSectionToolbar
-                                  actions={[]}
-                                  onAction={onResidentSectionHeaderAction}
-                                  overflowMenu={
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <span>
-                                          <PortalIconAction
-                                            icon={MoreHorizontal}
-                                            label="More"
-                                            data-attr="resident-overview-more"
-                                          />
-                                        </span>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        {residentSectionHeaderActions.map((action) => (
-                                          <DropdownMenuItem
-                                            key={action.id}
-                                            data-attr={`resident-overview-${action.id}`}
-                                            onSelect={() => onResidentSectionHeaderAction(action.id)}
-                                          >
-                                            {action.label}
-                                          </DropdownMenuItem>
-                                        ))}
-                                        {selectedHasPortalAccount ? null : (
-                                          <DropdownMenuItem
-                                            data-attr="resident-overview-setup"
-                                            onSelect={() => onResidentSectionHeaderAction("setup")}
-                                          >
-                                            Send invite
-                                          </DropdownMenuItem>
-                                        )}
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  }
-                                />
                                 <ResidentOverviewPanel
                                   resident={{
                                     name: selected.name,
@@ -3552,48 +3505,6 @@ export function ManagerResidents({
                                     className="w-full"
                                   />
                                 }
-                                overflowMenu={
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <span>
-                                        <PortalIconAction
-                                          icon={MoreHorizontal}
-                                          label="More"
-                                          data-attr="resident-application-more"
-                                        />
-                                      </span>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem
-                                        data-attr="resident-application-upload-completed"
-                                        onSelect={() => {
-                                          setResidentUploadKindPreset("application");
-                                          setResidentUploadOpen(true);
-                                        }}
-                                      >
-                                        Upload completed application
-                                      </DropdownMenuItem>
-                                      {selectedApplicationRow &&
-                                      (selectedApplicationRow.bucket === "approved" ||
-                                        selectedApplicationRow.bucket === "rejected") ? (
-                                        <DropdownMenuItem
-                                          data-attr="resident-application-move-pending"
-                                          onSelect={() => void setApplicationBucket(selectedApplicationRow.id, "pending")}
-                                        >
-                                          Move to pending
-                                        </DropdownMenuItem>
-                                      ) : null}
-                                      {selectedApplicationRow?.bucket === "rejected" ? (
-                                        <DropdownMenuItem
-                                          data-attr="resident-application-delete"
-                                          onSelect={() => void deleteApplicationForRow(selectedApplicationRow)}
-                                        >
-                                          Delete
-                                        </DropdownMenuItem>
-                                      ) : null}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                }
                               />
                               {selectedApplicationBucket && residentApplicationBucket !== selectedApplicationBucket ? (
                                 <p className="text-sm text-muted">
@@ -3636,17 +3547,19 @@ export function ManagerResidents({
                                 bucket={tourBucketProp}
                                 tourId={tourIdProp}
                                 propertyIds={managerPortfolioPropertyIds}
-                                sectionToolbar={(destinationRow) => (
+                                sectionToolbar={(destinationRow, toursSearch) => (
                                   <ManagerResidentSectionToolbar
                                     actions={residentSectionHeaderActions}
                                     onAction={onResidentSectionHeaderAction}
                                     destinationRow={destinationRow}
-                                    overflowMenu={
-                                      <ResidentDetailCommandToolbar
-                                        onSettings={() => openResidentDetailSettings("tours")}
-                                        settingsLabel={toursSettingsEntry.label}
-                                        settingsDataAttr={toursSettingsEntry.dataAttr}
-                                        onEdit={() => onResidentSectionHeaderAction("add-tour")}
+                                    search={toursSearch}
+                                    // Tour rules (notice, auto-confirm, reminders) are reachable from here and nowhere else.
+                                    extraActions={
+                                      <PortalIconAction
+                                        icon={SettingsIcon}
+                                        label={toursSettingsEntry.label}
+                                        data-attr={toursSettingsEntry.dataAttr}
+                                        onClick={() => openResidentDetailSettings("tours")}
                                       />
                                     }
                                   />
@@ -3707,23 +3620,9 @@ export function ManagerResidents({
                                       className="w-full"
                                     />
                                   }
-                                  overflowMenu={
-                                    <>
-                                      {/* A selection's bulk actions live in this header card, not in the page's title row. */}
-                                      {embeddedPaymentBulkActions}
-                                      <PortalIconAction
-                                        icon={SettingsIcon}
-                                        label={paymentsSettingsEntry.label}
-                                        data-attr={paymentsSettingsEntry.dataAttr}
-                                        onClick={() => openResidentDetailSettings("payments")}
-                                      />
-                                      <PortalIconAction
-                                        icon={Pencil}
-                                        label="Edit"
-                                        data-attr="resident-detail-edit"
-                                        onClick={() => setResidentPaymentSettingsOpen(true)}
-                                      />
-                                    </>
+                                  extraActions={
+                                    // A selection's bulk actions live in this header card, not in the page's title row.
+                                    embeddedPaymentBulkActions
                                   }
                                 />
                               ) : embeddedPaymentFooterActions ? (
@@ -3731,7 +3630,7 @@ export function ManagerResidents({
                                 <ManagerResidentSectionToolbar
                                   actions={[]}
                                   onAction={onResidentSectionHeaderAction}
-                                  overflowMenu={embeddedPaymentFooterActions}
+                                  extraActions={embeddedPaymentFooterActions}
                                 />
                               ) : null}
                               <PortalPageScrollBody
@@ -3840,7 +3739,7 @@ export function ManagerResidents({
                                   placeholder: "Search services",
                                   dataAttr: "resident-services-search",
                                 }}
-                                overflowMenu={
+                                extraActions={
                                   <PortalIconAction
                                     icon={SettingsIcon}
                                     label={residentsSettingsEntry.label}
@@ -4246,11 +4145,6 @@ export function ManagerResidents({
           selectedIds={selectedIds}
           onToggleSelected={toggleSelected}
           onToggleCluster={(ids) => togglePortalListClusterSelection(setSelectedIds, ids)}
-          nudgeEligibleIds={nudgeEligibleResidentIds}
-          onNudge={(res) => {
-            const row = readManagerApplicationRows().find((app) => app.id === res.id);
-            if (row) void openApplicationCompletionReminderPreview(row);
-          }}
           onOpenResident={(res) =>
             navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
           }
@@ -4549,6 +4443,7 @@ export function ManagerResidents({
         properties={propertyOptions}
         preselectedPropertyId={selected?.propertyId || undefined}
         initialRecipient={{ name: selected?.name, email: selected?.email, phone: selectedApplicationRow?.manualResidentDetails?.phone ?? selectedApplicationRow?.application?.phone }}
+        onUploadCompletedApplication={(file) => handleResidentUploadComplete([file], ["application"])}
       />
 
       <UploadForResidentModal
