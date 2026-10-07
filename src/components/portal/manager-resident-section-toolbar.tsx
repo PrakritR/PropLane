@@ -45,6 +45,7 @@ export function ManagerResidentSectionToolbar({
     <PortalListControlStack
       className={className ?? "rs40 mb-2 max-lg:mb-1.5 plp-header-card"}
       variant="command"
+      controlsInBand
       destinationRow={headerRow}
       search={
         search

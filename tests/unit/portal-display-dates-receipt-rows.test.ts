@@ -40,17 +40,15 @@ describe("portal list dates — rent receipts", () => {
     expect(source).toMatch(/formatDueMeta\(row\.dueDate/);
   });
 
-  it("pro-resident-overview-panel formats ISO due dates in payment preview facts", () => {
+  it("pro-resident-overview-panel has no payment preview left to format", () => {
+    // The Overview's Payments preview card was removed (redesign 1007): Payments is its own tab, whose
+    // rows format their due dates through the shared formatter (guarded above). The panel must not grow a
+    // raw due-date line of its own.
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/pro-resident-overview-panel.tsx"),
       "utf8",
     );
-    expect(source).toContain("formatPortalListDate");
-    // The panel now trims `row.dueDate` into `raw` first, so a stored phrase
-    // ("Before lease signing") can be case-folded into "Due before …"; the ISO
-    // branch still goes through the shared formatter, which is what this guards.
-    expect(source).toMatch(/const raw = \(row\.dueDate \?\? ""\)\.trim\(\)/);
-    expect(source).toMatch(/test\(raw\) \? formatPortalListDate\(raw\) : raw/);
+    expect(source).not.toMatch(/row\.dueDate/);
   });
 
   it("outgoing payment detail uses shared due formatting", () => {

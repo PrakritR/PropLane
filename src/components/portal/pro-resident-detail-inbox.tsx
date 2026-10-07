@@ -1049,6 +1049,7 @@ export function ResidentDirectChatPane({
   return (
     <>
     <InboxThreadView
+      messageLayout="slack"
       title={displayName}
       subtitle={propertyLabel || undefined}
       avatarName={displayName}
@@ -1124,6 +1125,7 @@ export function ResidentDirectChatPane({
             openSignal={askAssistantSignal}
           />
           <InboxComposer
+            appearance="slack"
             value={draft}
             onChange={(next) => {
               updateDraft(next);

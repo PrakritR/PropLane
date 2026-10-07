@@ -330,14 +330,14 @@ export function ResidentOverviewPanel({
       ) : null}
 
       {lifecycle.kpiTiles.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-rt-kpis>
+        <div className="grid gap-3 max-sm:grid-cols-2 sm:grid-cols-2 lg:grid-cols-4" data-rt-kpis>
           {lifecycle.kpiTiles.slice(0, 4).map((tile) => (
             <div
               key={tile.label}
               className="flex min-w-0 flex-col gap-1 rounded-2xl border border-border/80 bg-card px-4 py-3.5 shadow-sm"
             >
               <span className="text-[12.5px] text-muted">{tile.label}</span>
-              <span className="truncate text-lg font-bold tracking-tight max-sm:whitespace-normal max-sm:break-words max-sm:text-base">{tile.value}</span>
+              <span className="truncate text-lg font-bold tracking-tight max-sm:overflow-visible max-sm:whitespace-normal max-sm:break-words max-sm:text-base">{tile.value}</span>
             </div>
           ))}
         </div>

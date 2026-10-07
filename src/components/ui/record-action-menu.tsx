@@ -174,8 +174,12 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
   // a guard living there could skip the destructive handler but never stop
   // the close; a capture-phase listener on the content runs first and can
   // stop the click before it reaches anything, including that close.
+  // A positive decision (Approve, Mark done) shares the group after the divider but is not destructive,
+  // so it takes no settle guard: it must answer the first tap.
   const destructive: ReactElement<ActionLeafProps>[] = destructiveLeaves.map((leaf) =>
-    cloneElement(leaf, { "data-record-action-destructive": "" } as Partial<ActionLeafProps>),
+    (leaf.props as Record<string, unknown>)["data-record-action-tone"] === "positive"
+      ? leaf
+      : cloneElement(leaf, { "data-record-action-destructive": "" } as Partial<ActionLeafProps>),
   );
   return <span className="order-last ml-auto inline-flex shrink-0 self-center" data-portal-row-ignore onClick={(event) => event.stopPropagation()}>
     <DropdownMenu modal={false} open={open} onOpenChange={(next) => {

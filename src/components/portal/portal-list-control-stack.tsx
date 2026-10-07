@@ -191,6 +191,7 @@ export function PortalListControlStack({
   primary,
   embedded = false,
   recordCount,
+  controlsInBand = false,
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
@@ -229,6 +230,11 @@ export function PortalListControlStack({
   embedded?: boolean;
   /** Overrides the "N records" figure the tools line derives from the rows on screen. */
   recordCount?: number;
+  /**
+   * A tab with no tabs and no search keeps its controls in its own band instead of publishing them
+   * into the record header, so a record's constant header icons (Edit, Delete) are never replaced.
+   */
+  controlsInBand?: boolean;
 }) {
   assertPortalListBandContract(filterRow, actions, primary);
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
@@ -261,7 +267,7 @@ export function PortalListControlStack({
    * A tab with no status pills and no search has nothing for a toolbar to
    * hold but its controls; they still get the same card as every other tab.
    */
-  const controlsOnly = variant === "command" && !showDestinations && !search && Boolean(filterRow || actions || primary);
+  const controlsOnly = !controlsInBand && variant === "command" && !showDestinations && !search && Boolean(filterRow || actions || primary);
   /*
    * The list's icon actions and its round + sit on the title row, at the right
    * (approved list anatomy: title, then Filter / Settings icons and the blue +).

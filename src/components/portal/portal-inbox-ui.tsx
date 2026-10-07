@@ -1261,8 +1261,11 @@ export function InboxBubble({
   showChannel = false,
   showAvatar = false,
   alignAssistantStart = false,
+  layout = "bubbles",
 }: {
   message: InboxBubbleMessage;
+  /** `slack`: a left-aligned message row (avatar tile, name + time, text) instead of chat bubbles. */
+  layout?: "bubbles" | "slack";
   showAuthor?: boolean;
   cluster?: InboxBubbleClusterPosition;
   showMeta?: boolean;
@@ -1315,6 +1318,53 @@ export function InboxBubble({
     }
     return message.at;
   })();
+
+  if (layout === "slack") {
+    // Slack-style message row (record Communication): 32px avatar tile, name 14px/650 + time 12px grey, text 14px.
+    const startsRun = cluster === "single" || cluster === "first";
+    const who = message.author || (outbound ? "You" : "?");
+    return (
+      <div
+        className={`flex w-full min-w-0 gap-2.5 px-1 ${startsRun ? "pt-2" : "pt-0"} ${sending ? "opacity-80" : ""}`}
+        data-inbox-bubble-kind={message.direction}
+        data-inbox-message-layout="slack"
+      >
+        {startsRun ? (
+          <InboxAvatar name={who} className="size-8 rounded-lg text-[11px] shadow-none" />
+        ) : (
+          <span className="size-8 shrink-0" aria-hidden />
+        )}
+        <div className="min-w-0 flex-1">
+          {startsRun ? (
+            <p className="flex items-baseline gap-2">
+              <span className="text-[14px] font-[650] text-foreground">{who}</span>
+              {metaCaption ? (
+                <span className={`text-[12px] text-muted ${failed ? "font-medium text-rose-600" : sending ? "italic" : ""}`}>{metaCaption}</span>
+              ) : null}
+              {showChannel && channel ? <InboxChannelTag channel={channel} /> : null}
+            </p>
+          ) : null}
+          {message.subject ? (
+            <p className="break-words text-[14px] font-semibold [overflow-wrap:anywhere]" data-inbox-bubble-subject>{message.subject}</p>
+          ) : null}
+          {assistant ? (
+            <div className="break-words text-[14px] [overflow-wrap:anywhere]">
+              <AssistantMarkdown text={message.body || " "} />
+            </div>
+          ) : (
+            <p className="whitespace-pre-wrap break-words text-[14px] leading-[1.45] text-foreground [overflow-wrap:anywhere]">{message.body || " "}</p>
+          )}
+          {message.attachments?.length ? (
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {message.attachments.map((att) => (
+                <InboxAttachmentChip key={att.url} att={att} outbound={false} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   const fillClass = outbound
     ? "portal-inbox-outbound-bubble text-white"
@@ -1401,10 +1451,12 @@ export function InboxMessageTimeline({
   messages,
   showAuthors = false,
   alignAssistantStart = false,
+  layout = "bubbles",
 }: {
   messages: InboxBubbleMessage[];
   showAuthors?: boolean;
   alignAssistantStart?: boolean;
+  layout?: "bubbles" | "slack";
 }) {
   const items = buildInboxMessageTimeline(messages);
   return (
@@ -1437,6 +1489,7 @@ export function InboxMessageTimeline({
               showChannel={item.showChannel}
               showAvatar={item.showAvatar}
               alignAssistantStart={alignAssistantStart}
+              layout={layout}
             />
           </div>
         ),
@@ -1682,7 +1735,10 @@ export function InboxComposer({
   onAutoSendChange,
   composerRows = 1,
   focusSignal = 0,
+  appearance = "default",
 }: {
+  /** `slack`: a bordered 10px-radius box with the tools in one row and a blue send (record Communication). */
+  appearance?: "default" | "slack";
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
@@ -1734,6 +1790,7 @@ export function InboxComposer({
   return (
     <div
       className="portal-inbox-composer shrink-0 border-t border-border/80 bg-card max-md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] md:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
+      data-inbox-composer-appearance={appearance === "slack" ? "slack" : undefined}
     >
       {channelBar ?? null}
       <form
@@ -2960,6 +3017,7 @@ export function InboxThreadView({
   threadKey,
   /** `pane` scrolls inside the thread body; `page` lets the portal main scroller handle it (embedded resident chat). */
   scrollMode = "pane",
+  messageLayout = "bubbles",
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
@@ -2996,6 +3054,8 @@ export function InboxThreadView({
    */
   threadKey?: string;
   scrollMode?: "pane" | "page";
+  /** `slack` draws the thread as message rows instead of chat bubbles (record Communication). */
+  messageLayout?: "bubbles" | "slack";
 }) {
   const pageScroll = scrollMode === "page";
   const inFullScreenPane = useContext(InboxFullScreenContext) !== null;
@@ -3070,6 +3130,7 @@ export function InboxThreadView({
               messages={messages}
               showAuthors={showAuthors}
               alignAssistantStart={alignAssistantStart}
+              layout={messageLayout}
             />
             {afterMessages}
             <div ref={endRef} />
