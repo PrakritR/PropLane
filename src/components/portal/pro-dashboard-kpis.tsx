@@ -215,6 +215,10 @@ const ROW_GLYPH: Record<string, LucideIcon> = {
   inbox: MessageSquare,
   bids: Wrench,
   payouts: Wallet,
+  // Admin dashboard (server aggregate): feedback, text failures, disputes.
+  feedback: MessageSquare,
+  "sms-failures": Phone,
+  disputes: AlertCircle,
 };
 
 export function PanelShell({
