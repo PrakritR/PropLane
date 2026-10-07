@@ -165,9 +165,31 @@ export function stampTeamRoleOnProperties(
   if (!stamp) return current;
   const next: PropertyCoManagerPermissions = {};
   for (const id of assignedPropertyIds) {
-    next[id] = { ...stamp };
+    if (role === "property_owner") {
+      // The owner keys the manager set per owner stand; an owner with none set
+      // at all starts from the default. "Off" is stored explicitly
+      // (`{ notification: false }`), so a turned-off row is never read as unset.
+      const chosen = onlyOwnerPermissions(normalizeCoManagerPermissions(current[id]));
+      next[id] = Object.keys(chosen).length > 0 ? chosen : { ...stamp };
+    } else {
+      next[id] = { ...stamp };
+    }
   }
   return next;
+}
+
+/**
+ * Final shape of a per-house map for `role`: an owner keeps owner keys only,
+ * every other role loses any owner key. Run on every write path (mint, invite,
+ * edit) so a forged or stale key cannot ride along a role change.
+ */
+export function applyRoleToPropertyPermissions(
+  role: TeamRoleId | null | undefined,
+  perms: PropertyCoManagerPermissions,
+): PropertyCoManagerPermissions {
+  const out: PropertyCoManagerPermissions = {};
+  for (const [id, map] of Object.entries(perms)) out[id] = permissionsForRole(role, normalizeCoManagerPermissions(map));
+  return out;
 }
 
 function grantFingerprint(grant: CoManagerPermissionGrant | undefined): string {
@@ -185,6 +207,12 @@ function grantFingerprint(grant: CoManagerPermissionGrant | undefined): string {
 export function permissionsMatchTeamRole(actual: CoManagerPermissions, role: TeamRoleId): boolean {
   const stamp = stampTeamRolePermissions(role);
   if (!stamp) return false;
+  // A Property owner is edited per owner, so any owner-key combination is still
+  // the role; what it must never hold is a module grant.
+  if (role === "property_owner") {
+    const a = normalizeCoManagerPermissions(actual);
+    return CO_MANAGER_PERMISSION_OPTIONS.every(({ id }) => !a[id]);
+  }
   const a = normalizeCoManagerPermissions(actual);
   const s = normalizeCoManagerPermissions(stamp);
   for (const { id } of [...CO_MANAGER_PERMISSION_OPTIONS, ...OWNER_PERMISSION_OPTIONS]) {
@@ -196,6 +224,9 @@ export function permissionsMatchTeamRole(actual: CoManagerPermissions, role: Tea
 export function inferTeamRoleFromPermissions(grant: CoManagerPermissions): TeamRoleId {
   for (const id of TEAM_ROLE_IDS) {
     if (id === "custom") continue;
+    // Never inferred: an empty or owner-only map is not evidence of an owner.
+    // Property owner exists only as an explicitly stored role.
+    if (id === "property_owner") continue;
     if (permissionsMatchTeamRole(grant, id)) return id;
   }
   return "custom";

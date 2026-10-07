@@ -8,6 +8,7 @@ import {
   prunePropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
 import {
+  applyRoleToPropertyPermissions,
   inferInviteTeamRole,
   parseTeamRole,
   stampTeamRoleOnProperties,
@@ -300,6 +301,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           nextTeamRole = inferInviteTeamRole(nextPropertyPerms);
         }
       }
+      nextPropertyPerms = applyRoleToPropertyPermissions(nextTeamRole, nextPropertyPerms);
       // Workspace rights follow the role; explicit flags survive only on a Custom row.
       const nextWorkspacePermissions =
         nextTeamRole !== "custom"
