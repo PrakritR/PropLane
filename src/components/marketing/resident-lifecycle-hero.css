@@ -13,7 +13,10 @@
   --rlp-h1: clamp(46px, 5vw, 72px);
   --rlp-hero-h: calc(var(--rlp-h1) * 2.12 + 84px);
   /* Where the window's top edge sits inside the track, and on screen while the frame is pinned. */
-  --rlp-stage-offset: calc(16px + var(--rlp-hero-h));
+  /* Breathing room between the buttons and the window at the start of the scroll (captain, Oct 7:
+     "move dashboard lower at start"). */
+  --rlp-stage-gap: 44px;
+  --rlp-stage-offset: calc(16px + var(--rlp-hero-h) + var(--rlp-stage-gap));
   --rlp-stage-top: calc(var(--rlp-hdr) + var(--rlp-stage-offset));
   --rlp-win-h: clamp(520px, calc(100svh - var(--rlp-stage-top) - 12px), 700px);
 }
@@ -39,6 +42,7 @@
 }
 .rlp-page .rlp-grow-stage {
   min-width: 0;
+  margin-top: var(--rlp-stage-gap);
 }
 
 /* The headline block: fixed height (so the window below sits at a known offset), page-centered. */
@@ -82,7 +86,8 @@
     padding-right: calc(304px * var(--rlp-phone-s) + 24px);
   }
   .rlp-page .rlp-story-rail {
-    margin-top: var(--rlp-stage-offset);
+    /* The sticky top (set from the scroll) places the phone, centred on the window, from the first frame. */
+    margin-top: 0;
     z-index: 2;
   }
   .rlp-page .rlp-story-phone-slot {

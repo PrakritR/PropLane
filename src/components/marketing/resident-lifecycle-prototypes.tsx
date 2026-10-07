@@ -193,10 +193,15 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
       const pinnedAt = frameEl ? parseFloat(getComputedStyle(frameEl).top) || 0 : 0;
       const scrolled = Math.max(0, pinnedAt - trackEl.getBoundingClientRect().top);
       const progress = Math.min(1, scrolled / run);
-      stageEl.style.setProperty("--rlp-grow", String(GROW_FROM + (1 - GROW_FROM) * progress));
-      // The phone rests beside the window's top edge while pinned, then rises with the page.
+      const grow = GROW_FROM + (1 - GROW_FROM) * progress;
+      stageEl.style.setProperty("--rlp-grow", String(grow));
+      // The phone sits vertically centred on the window as it grows (captain, Oct 7: "move phone higher up and
+      // keep in middle"), never below the screen's bottom edge, then rises with the page.
       const stageTop = pinnedAt + stageEl.offsetTop;
-      const phoneTop = Math.max(PHONE_REST, stageTop - Math.max(0, scrolled - run));
+      const phoneH = storyEl.querySelector<HTMLElement>(".rlp-story-phone-slot")?.offsetHeight ?? 0;
+      const centred = stageTop + (stageEl.offsetHeight * grow - phoneH) / 2;
+      const onScreen = Math.min(centred, window.innerHeight - phoneH - 16);
+      const phoneTop = Math.max(PHONE_REST, onScreen - Math.max(0, scrolled - run));
       storyEl.style.setProperty("--rlp-phone-top", `${phoneTop}px`);
     };
     const onScroll = () => {
