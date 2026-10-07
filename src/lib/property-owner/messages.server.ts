@@ -3,16 +3,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { grantedHouses, type OwnerGrant } from "@/lib/property-owner/access.server";
+import type { OwnerConversation, OwnerMessage } from "@/lib/property-owner/projection";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const MAX_BODY = 4000;
 
-export type OwnerMessage = { id: string; body: string; at: string; fromMe: boolean };
-export type OwnerConversation = {
-  /** The owner's own membership id: opaque, and only ever resolved against the owner's grants. */
-  conversationId: string;
-  messages: OwnerMessage[];
-};
 
 /** Memberships where Messages is on for at least one granted house. */
 function messagingGrants(grants: OwnerGrant[]): OwnerGrant[] {

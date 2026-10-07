@@ -143,3 +143,11 @@ export function monthEnd(month: string): string {
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   return `${month}-${String(last).padStart(2, "0")}`;
 }
+
+export type OwnerMessage = { id: string; body: string; at: string; fromMe: boolean };
+
+export type OwnerConversation = {
+  /** The owner's own membership id: opaque, and only ever resolved against the owner's grants. */
+  conversationId: string;
+  messages: OwnerMessage[];
+};

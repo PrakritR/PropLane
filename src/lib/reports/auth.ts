@@ -1,3 +1,4 @@
+import { ownerAccessStateFor } from "@/lib/property-owner/access.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerSectionAllowedForTier } from "@/lib/manager-access";
 import { getManagerSubscriptionTier } from "@/lib/manager-access-server";
@@ -71,6 +72,11 @@ export async function getReportsAuthContext(options?: {
   if (admin) {
     return { role: "admin", userId: user.id, email, db };
   }
+
+  // A Property owner holds the manager portal role only so the owner shell can
+  // load. They are not a manager: every manager report, document and finance
+  // route resolves them to no context at all (401), on the server.
+  if ((await ownerAccessStateFor(db, user.id)).ownerOnly) return null;
 
   const preferRole = options?.preferRole;
   if (preferRole === "resident" && hasResidentRole(allRoles)) {

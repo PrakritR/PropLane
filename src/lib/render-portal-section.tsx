@@ -1,4 +1,6 @@
 import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/portal/inspections-panel";
+import { getOwnerAccessState } from "@/lib/property-owner/access.server";
+import { OWNER_HOME_PATH } from "@/lib/property-owner/sections";
 import {
   parseResidentInspectionTypeFilter,
 } from "@/lib/resident-inspections-tabs";
@@ -309,6 +311,15 @@ export async function renderPortalSection(
   tabParts?: string[],
   searchParams?: PortalSearchParams,
 ) {
+  // A Property owner (an owner-only account) is sent to their Overview for
+  // every manager section — runs before anything else can redirect them into
+  // a manager surface. The layout enforces the same rule for the routes that
+  // have their own directory; this is the dynamic-section half.
+  if (kind === "pro" || kind === "manager") {
+    const { user } = await getServerSessionProfile();
+    if (user && (await getOwnerAccessState(user.id)).ownerOnly) redirect(OWNER_HOME_PATH);
+  }
+
   const def = await getPortalDefinition(kind);
 
   // A deferred section is unreachable by URL as well as by nav. The nav lock alone only hides the

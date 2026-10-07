@@ -172,9 +172,14 @@ export async function loadOwnerSummary(
 export async function loadOwnerStatements(
   db: SupabaseClient,
   grants: OwnerGrant[],
-  input: { months?: number } = {},
+  input: { months?: number; propertyId?: string | null } = {},
 ): Promise<OwnerStatements> {
-  const houses = grantedHouses(grants, "statements");
+  let houses = grantedHouses(grants, "statements");
+  const requested = (input.propertyId ?? "").trim();
+  if (requested) {
+    houses = houses.filter((h) => h.propertyId === requested);
+    if (houses.length === 0) throw new OwnerScopeError();
+  }
   if (houses.length === 0) return { rows: [] };
   const count = Math.min(24, Math.max(1, Math.floor(input.months ?? 12)));
   const keys = ownerMonthKeys(new Date().toISOString().slice(0, 7), count);
