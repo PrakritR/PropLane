@@ -11,7 +11,7 @@ import {
   PROPLANE_SERVICE_FEE_LABEL,
   VENDOR_PAY_FEE_BPS,
   VENDOR_SERVICE_FEE_RAILS,
-  VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS,
+  VENDOR_INSTANT_FEE_COLLECTABLE,
 } from "@/lib/platform-fees";
 import {
   residentConnectApplicationFeeCents,
@@ -104,12 +104,12 @@ describe("vendor pay take rate (VENDOR_BANKING_ENABLED)", () => {
     expect(fee).toBeLessThanOrEqual(gross);
   });
 
-  it("Instant-withdraw fee is 1.5% with a 50-cent minimum, only when the flag is on", () => {
+  it("Instant-withdraw fee is $0 while no collect mechanism exists, flag on or off", () => {
     process.env.VENDOR_BANKING_ENABLED = "1";
-    expect(vendorInstantWithdrawFeeCents(10_000)).toBe(150); // 1.5% of $100
-    expect(vendorInstantWithdrawFeeCents(1_000)).toBe(VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS); // 15c -> floors to the 50c minimum
-    expect(vendorInstantWithdrawFeeCents(0)).toBe(0);
-    expect(vendorInstantWithdrawFeeCents(-100)).toBe(0);
+    expect(VENDOR_INSTANT_FEE_COLLECTABLE).toBe(false);
+    for (const cents of [10_000, 1_000, 0, -100]) expect(vendorInstantWithdrawFeeCents(cents)).toBe(0);
+    delete process.env.VENDOR_BANKING_ENABLED;
+    expect(vendorInstantWithdrawFeeCents(10_000)).toBe(0);
   });
 });
 

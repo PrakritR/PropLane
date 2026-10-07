@@ -125,12 +125,12 @@ describe("vendor Balance & payouts", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/financials/balance/po_1");
   });
 
-  it("the Withdraw sheet quotes the Instant fee from the one constant (1.5%, $0.50 minimum)", async () => {
+  it("the Withdraw sheet quotes the Instant fee from the one constant (no fee while none can be collected)", async () => {
     stub({ ...READY, feeBps: 300 }, { banks: { destinations: [{ id: "card_1", kind: "card", label: "Visa", last4: "4242", status: "new", payable: true, instantEligible: true, default: true }] } });
     renderBalance();
     await waitFor(() => expect((q("vendor-balance-withdraw") as HTMLButtonElement | null)?.disabled).toBe(false));
     fireEvent.click(q("vendor-balance-withdraw")!);
-    expect(await screen.findByText(/Instant · 1\.5% fee · \$0\.50 minimum/)).toBeTruthy();
+    expect(await screen.findByText(/Instant · No PropLane fee/)).toBeTruthy();
     expect(screen.queryByText(/Instant · 1% fee/)).toBeNull();
   });
 });
