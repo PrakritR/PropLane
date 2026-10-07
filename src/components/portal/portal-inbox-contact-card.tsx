@@ -38,6 +38,9 @@ export const PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS =
 const ACTION_CLASS =
   "grid h-8 w-8 shrink-0 place-items-center rounded-[10px] border border-primary/30 bg-card text-primary transition-colors hover:bg-primary/[0.08]";
 
+const BOX_ACTION_CLASS =
+  "grid size-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-foreground/[0.06] hover:text-foreground [&_svg]:size-3.5";
+
 function ContactIdentityRow({
   leading,
   value,
@@ -151,9 +154,94 @@ export function PortalInboxContactCard({
   /** `setup` is the empty slot that will hold the live identity. */
   tone?: "identity" | "setup";
   disabled?: boolean;
-  /** `inline` drops the per-row card chrome — stacked manager work identity uses one outer card. */
-  frame?: "card" | "inline";
+  /**
+   * `inline` drops the per-row card chrome — stacked manager work identity uses one outer card.
+   * `box` is the redesigned identity box: a small hairline box (label, then glyph + value) that
+   * sits beside its sibling in a two-column grid. A `secondary` identity becomes the second box.
+   */
+  frame?: "card" | "inline" | "box";
 }) {
+  if (frame === "box") {
+    const boxes = [
+      { leading, value, label, note, noteTone, actions: href ? undefined : actions, dataAttr, primary: true },
+      ...(secondary
+        ? [{ leading: secondary.leading, value: secondary.value, label: secondary.label, note: undefined, noteTone: "muted" as const, actions: secondary.actions, dataAttr: undefined, primary: false }]
+        : []),
+    ];
+    return (
+      <>
+        {boxes.map((box) => {
+          const inner = (
+            <div
+              className={cn(
+                "group/idbox relative min-w-0 rounded-lg border border-border px-2.5 py-1.5",
+                href && !disabled && "transition-colors hover:bg-foreground/[0.03]",
+                disabled && "cursor-not-allowed opacity-60",
+              )}
+              title={box.note && box.noteTone !== "muted" ? `${box.label}: ${box.value} — ${box.note}` : `${box.label}: ${box.value}`}
+            >
+              <p className="truncate text-[13px] font-semibold leading-tight text-foreground">{box.label}</p>
+              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs leading-tight text-muted">
+                {box.leading ? (
+                  <span className="flex shrink-0 items-center [&_svg]:size-3.5 [&_svg]:text-muted">{box.leading}</span>
+                ) : null}
+                <span className="truncate tabular-nums">{box.value}</span>
+                {box.note && box.noteTone === "warn" ? (
+                  <span className="min-w-0 truncate text-[11px] text-[var(--status-pending-fg)]">{box.note}</span>
+                ) : box.note && box.noteTone === "fact" ? (
+                  <span className="min-w-0 truncate text-[11px] text-muted">{box.note}</span>
+                ) : null}
+              </p>
+              {box.actions && box.actions.length > 0 ? (
+                <span className="absolute right-1 top-1 flex items-center gap-0.5 rounded-md bg-card/90 opacity-0 transition-opacity focus-within:opacity-100 group-hover/idbox:opacity-100 max-lg:opacity-100">
+                  {box.actions.map((action) =>
+                    action.href ? (
+                      <a
+                        key={action.key}
+                        href={action.href}
+                        className={BOX_ACTION_CLASS}
+                        aria-label={action.label}
+                        title={action.label}
+                        data-attr={action.dataAttr}
+                      >
+                        {action.icon}
+                      </a>
+                    ) : (
+                      <button
+                        key={action.key}
+                        type="button"
+                        className={BOX_ACTION_CLASS}
+                        aria-label={action.label}
+                        title={action.label}
+                        data-attr={action.dataAttr}
+                        onClick={action.onClick}
+                      >
+                        {action.icon}
+                      </button>
+                    ),
+                  )}
+                </span>
+              ) : null}
+            </div>
+          );
+          return href && !disabled && box.primary ? (
+            <Link
+              key={box.label}
+              href={href}
+              data-attr={box.dataAttr}
+              className="block min-w-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            >
+              {inner}
+            </Link>
+          ) : (
+            <div key={box.label} className="min-w-0" data-attr={box.dataAttr}>
+              {inner}
+            </div>
+          );
+        })}
+      </>
+    );
+  }
   const shell = (
     <div
       className={cn(

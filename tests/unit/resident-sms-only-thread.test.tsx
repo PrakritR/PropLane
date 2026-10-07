@@ -91,7 +91,9 @@ afterEach(() => {
 describe("resident text-only conversation", () => {
   it("titles the thread with the stamped manager and workspace, not a client email match", async () => {
     mount();
-    await screen.findByText("Dana Whitfield");
+    // The name now also heads each of her messages; the title is the thread header's.
+    await screen.findAllByText("Dana Whitfield");
+    expect(document.querySelector(".portal-inbox-thread-header")?.textContent).toContain("Dana Whitfield");
     expect(screen.getByText(/Cascade Lofts Management/)).toBeTruthy();
     expect(screen.queryByText("Property manager")).toBeNull();
   });
@@ -111,7 +113,7 @@ describe("resident text-only conversation", () => {
 
   it("offers no mark-unread or archive on a derived row", async () => {
     mount();
-    await screen.findByText("Dana Whitfield");
+    await screen.findAllByText("Dana Whitfield");
     expect(document.querySelector("[data-attr=inbox-thread-text-manager]")).toBeTruthy();
     expect(document.querySelector("[data-attr=inbox-thread-mark-unread]")).toBeNull();
     expect(document.querySelector("[data-attr=inbox-thread-archive]")).toBeNull();

@@ -62,6 +62,8 @@ import { scopeChargesToManagerPaymentsLedger } from "@/lib/manager-payments-scop
 import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
 import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
 import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
+import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
+import { formatCentsAsUsd, sumMoneyLabelsCents } from "@/lib/money-label-totals";
 import {
   cacheShowUpcomingChargesSetting,
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
@@ -634,6 +636,29 @@ export function ManagerPayments({
     return c;
   }, [outgoingRowsForCounts]);
 
+  /*
+   * The hairline stat cards above the tabs: what each bucket adds up to, summed from the same
+   * rows the tab counts use (an unpaid bucket by what is still owed, Paid by what came in), so
+   * a card can never disagree with the list under its tab.
+   */
+  const bucketStats = useMemo((): PortalStat[] => {
+    return PAY_LABELS.map(({ id, label }) => {
+      const cents =
+        direction === "incoming"
+          ? sumMoneyLabelsCents(
+              rowsForCounts.filter((row) => row.bucket === id).map((row) => (id === "paid" ? row.lineAmount : row.balanceDue)),
+            )
+          : sumMoneyLabelsCents(outgoingRowsForCounts.filter((row) => row.bucket === id).map((row) => row.amountLabel));
+      return {
+        id,
+        label,
+        value: formatCentsAsUsd(cents),
+        dataAttr: `payments-stat-${id}`,
+        tone: id === "overdue" && cents > 0 ? ("danger" as const) : undefined,
+      };
+    });
+  }, [direction, rowsForCounts, outgoingRowsForCounts]);
+
   const outgoingRowsForBucket = useMemo(() => {
     const filtered = outgoingRowsForCounts.filter(
       (row) =>
@@ -993,6 +1018,7 @@ export function ManagerPayments({
           )
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
+        stats={<PortalStatStrip items={bucketStats} dataAttr="payments-stat-strip" />}
       />
       {paymentsPanel}
       {paymentsModals}

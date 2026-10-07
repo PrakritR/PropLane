@@ -331,7 +331,7 @@ describe("manager and vendor inbox reply integrity", () => {
 
     await waitFor(() => {
       const outbound = [
-        ...document.querySelectorAll(".portal-inbox-outbound-bubble"),
+        ...document.querySelectorAll('[data-inbox-bubble-kind="outbound"]'),
       ];
       expect(
         outbound.some((bubble) =>

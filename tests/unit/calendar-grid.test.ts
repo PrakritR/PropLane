@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GRID_DEFAULT_FROM,
+  GRID_HOUR_PX,
   GRID_DEFAULT_TO,
   bandKindsLabel,
   bandPaint,
@@ -124,7 +125,7 @@ describe("drag to add (C2-CALA4)", () => {
 
   it("maps a pointer offset to minutes inside the visible hours", () => {
     expect(minutesAtOffset(0, 480, 1140)).toBe(480);
-    expect(minutesAtOffset(60, 480, 1140)).toBe(540);
+    expect(minutesAtOffset(GRID_HOUR_PX, 480, 1140)).toBe(540);
     expect(minutesAtOffset(100000, 480, 1140)).toBe(1139);
     expect(minutesAtOffset(-50, 480, 1140)).toBe(480);
   });

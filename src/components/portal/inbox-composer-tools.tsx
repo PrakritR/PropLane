@@ -25,9 +25,9 @@ import { cn } from "@/lib/utils";
  */
 
 const TOOL_BTN =
-  "inline-flex h-10 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-0 text-muted outline-none transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 md:h-11";
-const TOOL_BTN_ICON_ONLY = "w-10 md:w-11";
-const TOOL_BTN_ACTIVE = "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15";
+  "inline-flex h-7 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-md border border-transparent bg-transparent px-0 text-foreground/80 outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 max-md:h-9";
+const TOOL_BTN_ICON_ONLY = "w-7 max-md:w-9";
+const TOOL_BTN_ACTIVE = "bg-primary/10 text-primary hover:bg-primary/15";
 
 export function InboxComposerAiMenu({
   onDraft,
@@ -49,10 +49,11 @@ export function InboxComposerAiMenu({
           aria-label="AI"
           title="Draft with PropLane · Ask PropLane"
           disabled={disabled}
-          className={cn(TOOL_BTN, TOOL_BTN_ICON_ONLY, "text-primary")}
+          className={cn(TOOL_BTN, "w-7 text-primary hover:bg-primary/10 hover:text-primary md:w-auto md:px-2 max-md:w-9")}
           data-attr="inbox-composer-ai-menu"
         >
           <AxisAssistantSparkleIcon className="h-4 w-4" />
+          <span className="hidden text-[12.5px] font-semibold md:inline">Prepare reply</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="min-w-[12rem]">
@@ -269,17 +270,17 @@ export function InboxComposerChannelMenu({
           aria-label={`Send via: ${label}`}
           title={identity ?? label}
           disabled={disabled}
-          className={cn(TOOL_BTN, "relative w-10 md:w-auto md:px-3")}
+          className={cn(TOOL_BTN, "relative w-7 max-md:w-9 md:ml-1 md:w-auto md:border-input md:px-2 md:text-muted")}
           data-attr="inbox-reply-send-via"
         >
-          <LeadIcon className="h-4 w-4" strokeWidth={2} aria-hidden />
-          <span className="hidden max-w-[9rem] truncate text-[12.5px] font-semibold text-foreground md:inline">{label}</span>
+          <LeadIcon className="size-3.5" strokeWidth={2} aria-hidden />
+          <span className="hidden max-w-[9rem] truncate text-[12.5px] font-medium md:inline">{label}</span>
           {selectedOptions.length > 1 ? (
             <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground md:hidden">
               {selectedOptions.length}
             </span>
           ) : null}
-          <ChevronDown className="hidden h-3.5 w-3.5 md:inline" aria-hidden />
+          <ChevronDown className="hidden size-3 md:inline" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="min-w-[14rem]" data-attr="inbox-reply-channel-picker">

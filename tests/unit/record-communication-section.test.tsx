@@ -348,8 +348,9 @@ describe("RecordCommunicationSection", () => {
     const field = screen.getByPlaceholderText("Write a reply…");
     const picker = document.querySelector('[data-attr="inbox-reply-send-via"]') as HTMLElement;
     expect(picker).not.toBeNull();
-    // Beside the field: a sibling in the tools row, not a child of the field's own wrapper.
-    expect(field.parentElement?.contains(picker)).toBe(false);
+    // Beside the field: in the tools row under it, never a child of the field itself.
+    expect(field.contains(picker)).toBe(false);
+    expect(field.nextElementSibling?.contains(picker)).toBe(true);
     expect(picker.closest('[data-attr="inbox-composer-tools"]')).not.toBeNull();
     // Nothing is laid over the input, and it reserves no right padding for an overlay.
     expect(picker.closest(".absolute")).toBeNull();

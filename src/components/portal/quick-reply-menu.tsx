@@ -17,7 +17,7 @@ import { useVendorQuickReplies } from "@/lib/use-vendor-quick-replies";
 export const VENDOR_QUICK_REPLIES_SETTINGS_HREF = "/vendor/profile?tab=quick-replies";
 
 const COMPOSER_TOOL_BTN =
-  "inline-flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-xl border border-border bg-secondary text-muted outline-none transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 md:h-11 md:w-11";
+  "inline-flex size-7 shrink-0 touch-manipulation items-center justify-center rounded-md text-foreground/80 outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40 max-md:size-9";
 
 /**
  * ⚡ Quick replies — the vendor's own saved messages in one menu. Picking one

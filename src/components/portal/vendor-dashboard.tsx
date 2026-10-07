@@ -8,6 +8,7 @@ import {
   AttentionPanel,
   KpiCard,
   UpcomingPanel,
+  dayLabel,
   type UpcomingRow,
 } from "@/components/portal/pro-dashboard-kpis";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
@@ -144,6 +145,16 @@ export function VendorDashboard({}: { displayName: string }) {
 
   const jobCards = openWorkOrders.slice(0, 3);
 
+  // The sub-line under "Upcoming visits": when the next one is, from the same
+  // scheduled stamp the Upcoming panel sorts on. Omitted when nothing is booked.
+  const nextVisitMs = upcomingRows[0] ? Math.min(...upcomingRows.map((r) => r.at)) : null;
+  const nextVisitLabel = nextVisitMs
+    ? (() => {
+        const { day, time } = dayLabel(nextVisitMs, nowMs);
+        return `Next: ${day}${time ? ` ${time}` : ""}`;
+      })()
+    : undefined;
+
   return (
     <ManagerPortalPageShell
       title="Dashboard"
@@ -170,6 +181,7 @@ export function VendorDashboard({}: { displayName: string }) {
             <KpiCard
               label="Upcoming visits"
               value={String(upcomingVisits.length)}
+              unit={nextVisitLabel}
               href={`${BASE}/calendar`}
               dataAttr="vendor-dashboard-kpi-visits"
               icon={CalendarDays}
@@ -189,15 +201,15 @@ export function VendorDashboard({}: { displayName: string }) {
               rows={attentionRows}
               hideRowDetail
               emptyCopy="No items need attention."
-              rowClassName="flex items-center gap-3 p-4 min-h-[44px]"
-              actionClassName="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card px-4 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary"
+              rowClassName="flex min-h-[44px] items-center gap-2.5 px-3.5 py-2.5"
+              actionClassName="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-[7px] border border-border bg-card px-3 text-[13px] font-[550] text-foreground transition hover:bg-[var(--secondary)] lg:min-h-8"
             />
             <UpcomingPanel
               rows={upcomingRows}
               nowMs={nowMs}
               calendarHref={`${BASE}/calendar`}
               emptyCopy="No upcoming visits."
-              rowLinkClassName="flex min-h-[44px] items-center gap-3 p-4 transition hover:bg-accent/30"
+              rowLinkClassName="flex min-h-[44px] items-center gap-2.5 px-3.5 py-2.5 transition hover:bg-[var(--secondary)]"
               aside={null}
             />
           </>
@@ -207,7 +219,7 @@ export function VendorDashboard({}: { displayName: string }) {
             <VendorDashboardBalanceCard />
             <section className="space-y-3" data-attr="dashboard-your-jobs">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Services</h2>
+              <h2 className="text-[15px] font-[650] text-foreground">Services</h2>
               <div className="flex flex-wrap items-center gap-2">
                 <PortalPrimaryIconAction
                   label="Add"

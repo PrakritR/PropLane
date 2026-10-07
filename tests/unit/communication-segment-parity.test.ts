@@ -18,14 +18,18 @@ describe("Communication status and action parity", () => {
     for (const role of ["resident", "vendor"]) expect(read(`src/components/portal/${role}-communication.tsx`)).toContain("<CommunicationStatusFilterDraft");
   });
 
-  it("manager Communication list header is one card with embedded command row and slim rows", () => {
+  it("manager Communication list header is one flat block (work boxes, Active|Archived tabs, search line) with slim rows", () => {
     const unified = read("src/components/portal/pro-unified-inbox.tsx");
-    const commandStack = read("src/components/portal/portal-list-control-stack.tsx");
+    const ui = read("src/components/portal/portal-inbox-ui.tsx");
     expect(unified).toContain('data-attr="communication-list-header-card"');
-    expect(unified).toContain("embedded");
-    expect(commandStack).toContain('data-attr="portal-list-command-embedded-row"');
-    expect(unified).toContain('listVariant="manager"');
+    expect(unified).toContain("<ManagerWorkNumberCard />");
+    expect(unified).toContain("<InboxListHeader");
     expect(unified).toContain('layout="inline"');
+    // No outer card around the list header: the three panes sit flat on the page.
+    expect(unified).not.toContain("rounded-2xl border border-border bg-card shadow-sm");
+    expect(unified).toContain('panes="flat"');
+    expect(ui).toContain('data-attr="communication-list-tabs"');
+    expect(unified).toContain('listVariant="manager"');
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*address=\{row\.address\}/);
     expect(unified).not.toMatch(/InboxConversationRow[\s\S]*category=\{row\.category\}/);
   });

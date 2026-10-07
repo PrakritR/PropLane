@@ -1,9 +1,9 @@
 "use client";
 import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { DashboardSkeleton, DashboardLoadError } from "@/components/portal/dashboard-skeleton";
 import {
   PortfolioPropertiesSection,
@@ -11,6 +11,7 @@ import {
 } from "@/components/portal/pro-dashboard-portfolio";
 import {
   AttentionPanel,
+  DashboardGlyphTile,
   KpiCard,
   UpcomingPanel,
   type AttentionRow,
@@ -116,7 +117,7 @@ import {
   isPortalRowClickIgnored,
   usePortalPreviewSlice,
 } from "@/components/portal/portal-data-table";
-import type { DashboardSectionId } from "@/lib/dashboard-preferences";
+import { visibleDashboardSectionIds, type DashboardSectionId } from "@/lib/dashboard-preferences";
 import { loadDocumentExpirationSummary } from "@/lib/manager-document-expiry-client";
 import { DashboardCustomizeModal } from "@/components/portal/dashboard-customize-modal";
 import { useDashboardVisibility } from "@/hooks/use-dashboard-visibility";
@@ -125,8 +126,18 @@ import {
   pendingActionChipContent,
   type PendingActionListItem,
 } from "@/lib/axis-assistant/pending-action-display";
-import { Filter } from "lucide-react";
-import { PORTAL_FILTER_ICON_CLASS } from "@/components/portal/filter-field-lists";
+import {
+  ClipboardList,
+  FileSignature,
+  MapPin,
+  MessageSquare,
+  SlidersHorizontal,
+  Sparkles,
+  Users,
+  Wallet,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -151,16 +162,11 @@ import {
 const BASE = "/portal";
 
 
-/** Semantic status foreground tokens for the leading issue-row dots. */
-const DOT_INFO = "var(--status-approved-fg)";
-const DOT_CONFIRMED = "var(--status-confirmed-fg)";
-
 type PillTone = "pending" | "success" | "danger" | "info";
 
 /**
- * Status accent tokens for a whole "Needs attention" group — the header rail,
- * title colour and count badge all read in the group's status colour.
- * Yellow = pending, red = danger/overdue, green = confirmed/active, blue = info.
+ * Status accent tokens for a row's tile and its status word. Yellow = pending,
+ * red = danger/overdue, green = confirmed/active, blue = info.
  */
 type AttentionTone = PillTone;
 const ATTENTION_TONE: Record<AttentionTone, { fg: string; bg: string }> = {
@@ -170,37 +176,8 @@ const ATTENTION_TONE: Record<AttentionTone, { fg: string; bg: string }> = {
   success: { fg: "var(--status-confirmed-fg)", bg: "var(--status-confirmed-bg)" },
 };
 
-function sectionAccentDot(tone: AttentionTone): string {
-  return ATTENTION_TONE[tone].fg;
-}
-
-/** Consistent circular count in attention group headers (including zero). */
-function AttentionCountBadge({
-  count,
-  tone,
-  isEmpty,
-}: {
-  count: number;
-  tone: AttentionTone;
-  isEmpty: boolean;
-}) {
-  const accent = ATTENTION_TONE[tone];
-  return (
-    <span
-      className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold leading-none tabular-nums [html[data-native]_&]:size-[1.125rem] [html[data-native]_&]:text-[10px]"
-      style={
-        isEmpty
-          ? {
-              color: "color-mix(in srgb, var(--muted) 72%, transparent)",
-              background: "color-mix(in srgb, var(--muted) 14%, var(--card))",
-            }
-          : { background: accent.bg, color: accent.fg }
-      }
-    >
-      {count}
-    </span>
-  );
-}
+/** The glyph every row in one "Everything open" group wears on its tile. */
+const GroupGlyphContext = createContext<LucideIcon>(ClipboardList);
 
 type DashboardServiceAttentionItem = {
   id: string;
@@ -242,21 +219,25 @@ function relativeFromNow(iso: string | undefined | null, nowMs: number): string 
   return suffix(wk, "w");
 }
 
-/** Small theme-aware status pill (light/dark flip via `.portal-badge-*`). */
+/** Status is a plain coloured fact; the row itself carries no badge or chip. */
 function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold portal-badge-${tone} [html[data-native]_&]:text-[9px]`}
+      className="inline-flex items-center whitespace-nowrap text-[12.5px] font-semibold"
+      style={{ color: ATTENTION_TONE[tone].fg }}
     >
       {children}
     </span>
   );
 }
 
-/** Dense Linear "issue" row: status dot · label + subtitle · meta · status pill · chevron. */
+/**
+ * One open item: tinted glyph tile · title + place line · meta · status word.
+ * The tile wears its group's glyph in the row's status tone.
+ */
 function IssueRow({
   href,
-  dot,
+  tone = "info",
   title,
   subtitle,
   meta,
@@ -264,36 +245,27 @@ function IssueRow({
   dataAttr,
 }: {
   href: string;
-  dot?: string;
+  tone?: AttentionTone;
   title: string;
   subtitle?: string;
   meta?: string | null;
   pill?: ReactNode;
   dataAttr?: string;
 }) {
+  const Glyph = useContext(GroupGlyphContext);
   return (
     <Link
       href={href}
       data-attr={dataAttr}
-      className="group flex items-center gap-3 px-3.5 py-3 transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--attn-section-bg)_40%,transparent)] [html[data-native]_&]:gap-2.5 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
+      className="group flex items-center gap-2.5 px-3.5 py-2.5 transition-colors duration-150 hover:bg-[var(--secondary)] [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
     >
-      {dot ? (
-        <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: dot }} />
-      ) : null}
+      <DashboardGlyphTile icon={Glyph} tone={tone} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-foreground [html[data-native]_&]:text-[13px]">
-          {title}
-        </span>
-        {subtitle ? (
-          <span className="mt-0.5 block line-clamp-2 text-xs text-muted [html[data-native]_&]:text-[11px]">
-            {subtitle}
-          </span>
-        ) : null}
+        <span className="block truncate text-sm font-semibold text-foreground">{title}</span>
+        {subtitle ? <span className="block line-clamp-2 text-[12.5px] text-muted">{subtitle}</span> : null}
       </span>
       {meta ? (
-        <span className="hidden shrink-0 whitespace-nowrap text-xs tabular-nums text-muted sm:block">
-          {meta}
-        </span>
+        <span className="hidden shrink-0 whitespace-nowrap text-[12.5px] tabular-nums text-muted sm:block">{meta}</span>
       ) : null}
       {pill ? <span className="shrink-0">{pill}</span> : null}
       <span
@@ -307,19 +279,19 @@ function IssueRow({
 }
 
 /**
- * One "Needs attention" group, now a collapsible card: a clickable header (tiny
- * uppercase label · count · overflow badge · chevron) over a hairline-bordered
- * stack of dense issue rows (preview-sliced so native/mobile row limits +
- * overflow link are preserved).
+ * One group inside the "Everything open" box: a quiet 34px group header
+ * (glyph · title · count · status words · →) over its rows. Tapping the header
+ * folds the group.
  *
- * Collapse behaviour is what makes the dashboard survive a phone: a group opens
- * by default only when it has items, so the wall of "nothing here" empty states
- * collapses to one-line headers. The manager can tap any header to override.
+ * A group opens by default only when it has items, so the wall of "nothing
+ * here" empty states collapses to one-line headers on a phone. The manager can
+ * tap any header to override.
  */
 function AttentionGroup<T>({
   title,
   href,
   sectionId,
+  icon,
   tone,
   order = 0,
   badge,
@@ -332,12 +304,14 @@ function AttentionGroup<T>({
   title: string;
   href: string;
   sectionId: DashboardSectionId;
-  /** Status colour for the whole group (rail + title + count when non-empty). */
+  /** The glyph on the group header and on every row's tile. */
+  icon: LucideIcon;
+  /** Status colour for the group's rows when they do not set their own. */
   tone: AttentionTone;
   /** Stable position for the staggered entrance delay (0-based). */
   order?: number;
   badge?: ReactNode;
-  /** When set, shown in the header circle instead of `items.length`. */
+  /** When set, shown as the header count instead of `items.length`. */
   headerCount?: number;
   items: T[];
   emptyMessage: string;
@@ -347,7 +321,7 @@ function AttentionGroup<T>({
   const { visible } = usePortalPreviewSlice(items);
   const count = headerCount ?? items.length;
   const isEmpty = count === 0;
-  const accent = ATTENTION_TONE[tone];
+  const Icon = icon;
   // null → follow the "open when non-empty" default (reactive to async loads);
   // boolean → the manager's explicit tap wins.
   const [override, setOverride] = useState<boolean | null>(null);
@@ -355,16 +329,8 @@ function AttentionGroup<T>({
 
   return (
     <div
-      className="pl-attn-enter overflow-hidden rounded-xl border border-border bg-card"
-      style={{
-        animationDelay: `${Math.min(order, 8) * 55}ms`,
-        borderLeftWidth: isEmpty ? undefined : 3,
-        borderLeftColor: isEmpty ? undefined : accent.fg,
-        background: isEmpty ? undefined : `color-mix(in srgb, ${accent.bg} 32%, var(--card))`,
-        // Row hover wash matches this section (IssueRow).
-        ["--attn-section-bg" as string]: accent.bg,
-        ["--attn-section-fg" as string]: accent.fg,
-      }}
+      className="pl-attn-enter"
+      style={{ animationDelay: `${Math.min(order, 8) * 55}ms` }}
     >
       <div
         role="button"
@@ -379,45 +345,40 @@ function AttentionGroup<T>({
             setOverride(!open);
           }
         }}
-        className="flex cursor-pointer items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:bg-[color-mix(in_srgb,var(--attn-section-bg)_45%,transparent)] [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
+        className="flex min-h-[34px] cursor-pointer items-center gap-2 border-b border-border bg-[var(--secondary)]/60 px-3.5 text-[13px] font-semibold text-foreground transition-colors hover:bg-[var(--secondary)] [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3"
       >
         <span className="flex shrink-0 items-center self-center">
           <PortalTableExpandChevron expanded={open} />
         </span>
-        <h3
-          className="min-w-0 flex-1 self-center text-sm font-semibold leading-none tracking-[-0.01em] [html[data-native]_&]:text-[13px]"
-          style={{ color: isEmpty ? "var(--muted)" : accent.fg }}
-        >
+        <Icon className="size-3.5 shrink-0 text-muted" aria-hidden />
+        <h3 className="min-w-0 truncate text-[13px] font-semibold leading-none" style={isEmpty ? { color: "var(--muted)" } : undefined}>
           {title}
         </h3>
-        <span className="flex shrink-0 items-center gap-1.5 self-center">
-          <AttentionCountBadge count={count} tone={tone} isEmpty={isEmpty} />
-          {badge ? <span className="inline-flex items-center">{badge}</span> : null}
-        </span>
+        <span className="text-[12.5px] font-medium tabular-nums text-muted/70">{count}</span>
+        {badge ? <span className="inline-flex items-center">{badge}</span> : null}
         <Link
           href={href}
           onClick={(e) => e.stopPropagation()}
           aria-label={`Open ${title}`}
           data-attr="dashboard-attention-link"
-          className="ml-auto inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center whitespace-nowrap px-2 text-xs font-semibold leading-none hover:underline underline-offset-2 [html[data-native]_&]:text-sm"
-          style={{ color: isEmpty ? "var(--muted)" : accent.fg }}
+          className="ml-auto inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center whitespace-nowrap px-2 text-xs font-semibold leading-none text-muted hover:text-primary [html[data-native]_&]:text-sm"
         >
           →
         </Link>
       </div>
       {open ? (
         isEmpty ? (
-          <p className="border-t border-border px-3.5 py-2.5 text-xs text-muted [html[data-native]_&]:px-3 [html[data-native]_&]:py-2">
+          <p className="px-3.5 py-2.5 text-[12.5px] text-muted [html[data-native]_&]:px-3 [html[data-native]_&]:py-2">
             {emptyMessage}
           </p>
         ) : (
-          <div className="border-t border-border">
-            <div className="divide-y divide-border/80">
+          <GroupGlyphContext.Provider value={icon}>
+            <div className="divide-y divide-border">
               {visible.map((item) => (
                 <Fragment key={keyForItem(item)}>{renderRow(item, tone)}</Fragment>
               ))}
             </div>
-          </div>
+          </GroupGlyphContext.Provider>
         )
       ) : null}
     </div>
@@ -425,32 +386,26 @@ function AttentionGroup<T>({
 }
 
 /**
- * The "AI drafts" attention group: assistant-proposed write actions the manager
- * can approve or discard inline. Approve/Discard route through the SAME gated
+ * "Drafts from PropLane": assistant-proposed write actions the manager can
+ * approve or discard inline. Approve/Discard route through the SAME gated
  * confirm path used by the assistant chat (the server's `claimPendingAction`
  * re-validates the stored input and runs the handler) — this row is presentation
  * only. It never executes a write client-side and never bypasses the
- * preview/confirm gate. Collapsible like every other attention group.
+ * preview/confirm gate.
  */
 function AiDraftsGroup({
   items,
-  order = 0,
   resolvingId,
   onResolve,
 }: {
   items: PendingActionListItem[];
-  order?: number;
   resolvingId: string | null;
   onResolve: (
     id: string,
     decision: "confirm" | "deny",
   ) => Promise<{ ok: boolean; error?: string }>;
 }) {
-  const accent = ATTENTION_TONE.info;
-  const [override, setOverride] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const open = override ?? true;
-  const count = items.length;
 
   const handle = async (id: string, decision: "confirm" | "deny") => {
     setError(null);
@@ -459,100 +414,57 @@ function AiDraftsGroup({
   };
 
   return (
-    <div
-      className="pl-attn-enter overflow-hidden rounded-lg border border-border bg-card"
-      style={{
-        animationDelay: `${Math.min(order, 8) * 55}ms`,
-        borderLeftWidth: 3,
-        borderLeftColor: accent.fg,
-      }}
+    <section
+      className="pl-attn-enter overflow-hidden rounded-[10px] border border-border bg-card"
+      data-attr="dashboard-attention-toggle-aiDrafts"
     >
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        data-attr="dashboard-attention-toggle-aiDrafts"
-        onClick={() => setOverride(!open)}
-        onKeyDown={(e) => {
-          if (isPortalRowClickIgnored(e.target)) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setOverride(!open);
-          }
-        }}
-        className="flex cursor-pointer items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:bg-[var(--secondary)] [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
-      >
-        <span className="flex shrink-0 items-center self-center">
-          <PortalTableExpandChevron expanded={open} />
-        </span>
-        <h3
-          className="min-w-0 flex-1 self-center text-sm font-semibold leading-none tracking-[-0.01em] [html[data-native]_&]:text-[13px]"
-          style={{ color: accent.fg }}
-        >
-          AI drafts
-        </h3>
-        <AttentionCountBadge count={count} tone="info" isEmpty={count === 0} />
-        <span className="ml-auto inline-flex shrink-0 items-center self-center gap-1 whitespace-nowrap [html[data-native]_&]:text-xs">
-          <StatusPill tone="info">Pending approval</StatusPill>
-        </span>
+      <div className="flex items-center gap-2 border-b border-border px-3.5 py-[11px]">
+        <h2 className="text-sm font-[650] text-foreground">Drafts from PropLane</h2>
+        <span className="text-[12.5px] font-medium tabular-nums text-muted/70">{items.length}</span>
       </div>
-      {open ? (
-        <div className="border-t border-border">
-          <div className="divide-y divide-border">
-            {items.map((item) => {
-              const { title, subtitle } = pendingActionChipContent(item);
-              const busy = resolvingId === item.id;
-              return (
-                <div
-                  key={item.id}
-                  data-attr="dashboard-attention-ai-draft"
-                  className="flex items-center gap-3 px-3.5 py-2.5 [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
+      <div className="divide-y divide-border">
+        {items.map((item) => {
+          const { title, subtitle } = pendingActionChipContent(item);
+          const busy = resolvingId === item.id;
+          return (
+            <div
+              key={item.id}
+              data-attr="dashboard-attention-ai-draft"
+              className="flex items-center gap-2.5 px-3.5 py-2.5 [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
+            >
+              <DashboardGlyphTile icon={Sparkles} tone="info" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-foreground">{title}</span>
+                <span className="block line-clamp-2 text-[12.5px] text-muted">{subtitle}</span>
+              </span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handle(item.id, "confirm")}
+                  data-attr="dashboard-ai-draft-approve"
+                  className="inline-flex min-h-11 items-center rounded-[7px] border border-border bg-card px-3 text-[13px] font-[550] text-foreground outline-none transition hover:bg-[var(--secondary)] focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50 lg:min-h-8"
                 >
-                  <span
-                    aria-hidden
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ background: DOT_INFO }}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-foreground [html[data-native]_&]:text-[13px]">
-                      {title}
-                    </span>
-                    <span className="mt-0.5 block line-clamp-2 text-xs text-muted [html[data-native]_&]:text-[11px]">
-                      {subtitle}
-                    </span>
-                  </span>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void handle(item.id, "confirm")}
-                      data-attr="dashboard-ai-draft-approve"
-                      className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-white outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
-                    >
-                      {busy ? "…" : "Approve"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void handle(item.id, "deny")}
-                      data-attr="dashboard-ai-draft-discard"
-                      className="rounded-full border border-border px-3 py-1 text-[11px] font-semibold text-muted outline-none transition hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:opacity-50"
-                    >
-                      Discard
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {error ? (
-            <p className="border-t border-border px-3.5 py-2 text-xs text-danger [html[data-native]_&]:px-3">
-              {error}
-            </p>
-          ) : null}
-        </div>
+                  {busy ? "…" : "Approve"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handle(item.id, "deny")}
+                  data-attr="dashboard-ai-draft-discard"
+                  className="inline-flex min-h-11 items-center rounded-[7px] px-3 text-[13px] font-[550] text-muted outline-none transition hover:bg-[var(--secondary)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:opacity-50 lg:min-h-8"
+                >
+                  Discard
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {error ? (
+        <p className="border-t border-border px-3.5 py-2 text-xs text-danger [html[data-native]_&]:px-3">{error}</p>
       ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -1115,11 +1027,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     ? "danger"
     : "pending";
 
-  // Reflect only the sections the manager keeps visible, so the "N open" badge
-  // matches what's actually on their dashboard.
+  // "Everything open" counts only what is in its box, and only the groups the
+  // manager keeps visible, so the number matches what is on their dashboard.
   const showAiDrafts = visibility.aiDrafts && pendingDrafts.length > 0;
   const openCount =
-    (showAiDrafts ? pendingDrafts.length : 0) +
     (visibility.tours ? pendingTours.length : 0) +
     (visibility.applications ? pendingApps.length : 0) +
     (visibility.leases ? pendingLeaseRows.length : 0) +
@@ -1129,7 +1040,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     (visibility.inbox ? inboxCount : 0);
 
   const anyAttentionVisible =
-    visibility.aiDrafts ||
     visibility.tours ||
     visibility.applications ||
     visibility.leases ||
@@ -1204,6 +1114,230 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     }),
   ];
 
+  /*
+   * The customizable sections as nodes, keyed by catalog id. What draws, and in
+   * what order, is `visibleDashboardSectionIds` (the catalog's own order) — the
+   * return below maps through it rather than spelling a second sequence.
+   */
+  const orderedSectionIds = visibleDashboardSectionIds(visibility);
+
+  const standaloneSections: Partial<Record<DashboardSectionId, ReactNode>> = {
+    // Financial trend graphs — payments collected vs. expenses, last 6 months.
+    cashflow: isDemoModeActive() ? (
+      <MonthlyProfitChart points={mergeMonthlyCashflow(paymentsByMonth, expensesByMonth)} />
+    ) : (
+      <FinancialCashflowChart key={userId} userId={userId} />
+    ),
+    aiDrafts: showAiDrafts ? (
+      <AiDraftsGroup items={pendingDrafts} resolvingId={resolvingDraftId} onResolve={resolveDraft} />
+    ) : null,
+  };
+
+  const groupSections: Partial<Record<DashboardSectionId, ReactNode>> = {
+    tours: (
+      <AttentionGroup
+        title="Tour requests"
+        href={`${BASE}/calendar`}
+        sectionId="tours"
+        icon={MapPin}
+        tone="pending"
+        order={0}
+        items={pendingTours}
+        emptyMessage="No pending tour requests right now."
+        keyForItem={(tour) => tour.id}
+        renderRow={(tour, sectionTone) => (
+          <IssueRow
+            href={`${BASE}/calendar`}
+            tone={sectionTone}
+            title={tour.label}
+            subtitle={tour.propertyTitle || "—"}
+            meta={[fmt(tour.start), relativeFromNow(tour.start, nowTick)].filter(Boolean).join(" · ")}
+            pill={<StatusPill tone={sectionTone}>Pending</StatusPill>}
+            dataAttr="dashboard-attention-tour"
+          />
+        )}
+      />
+    ),
+    applications: (
+      <AttentionGroup
+        title="Applications to approve"
+        href={`${BASE}/applications`}
+        sectionId="applications"
+        icon={ClipboardList}
+        tone="pending"
+        order={1}
+        items={pendingApps}
+        emptyMessage="No applications waiting for your review."
+        keyForItem={(app) => app.id}
+        renderRow={(app: DemoApplicantRow, sectionTone) => (
+          <IssueRow
+            href={`${BASE}/applications`}
+            tone={sectionTone}
+            title={app.name || app.email || "Unknown"}
+            subtitle={app.property || "—"}
+            pill={<StatusPill tone={sectionTone}>{app.stage || "To approve"}</StatusPill>}
+            dataAttr="dashboard-attention-application"
+          />
+        )}
+      />
+    ),
+    leases: (
+      <AttentionGroup
+        title="Leases to sign"
+        href={`${BASE}/leases`}
+        sectionId="leases"
+        icon={FileSignature}
+        tone="pending"
+        order={2}
+        items={pendingLeaseRows}
+        emptyMessage="No leases waiting for a signature."
+        keyForItem={(lease) => lease.id}
+        renderRow={(lease: LeasePipelineRow, sectionTone) => {
+          const yourTurn = lease.status === "Manager Signature Pending";
+          return (
+            <IssueRow
+              href={`${BASE}/leases`}
+              tone={sectionTone}
+              title={lease.residentName || lease.residentEmail}
+              subtitle={formatCompactPlacementLine(lease.unit || "—")}
+              meta={lease.signedRentLabel}
+              pill={
+                <StatusPill tone={sectionTone}>
+                  {yourTurn ? "Your signature" : "Resident signing"}
+                </StatusPill>
+              }
+              dataAttr="dashboard-attention-lease"
+            />
+          );
+        }}
+      />
+    ),
+    residents: (
+      <AttentionGroup
+        title="Residents"
+        href={`${BASE}/residents/current`}
+        sectionId="residents"
+        icon={Users}
+        tone={residentsSectionTone}
+        order={3}
+        items={residentAttentionItems}
+        emptyMessage="No current residents yet."
+        keyForItem={(item) => item.lease.id}
+        renderRow={(item: DashboardResidentAttentionItem) => {
+          const rowTone: AttentionTone = item.activated ? "success" : "pending";
+          const lease = item.lease;
+          return (
+            <IssueRow
+              href={`${BASE}/residents/current`}
+              tone={rowTone}
+              title={lease.residentName || lease.residentEmail}
+              subtitle={formatCompactPlacementLine(lease.unit || "—")}
+              meta={lease.signedRentLabel}
+              pill={
+                <StatusPill tone={rowTone}>
+                  {item.activated ? "Activated" : "No account yet"}
+                </StatusPill>
+              }
+              dataAttr="dashboard-attention-resident"
+            />
+          );
+        }}
+      />
+    ),
+    payments: (
+      <AttentionGroup
+        title="Payments"
+        href={`${BASE}/payments`}
+        sectionId="payments"
+        icon={Wallet}
+        tone={paymentsSectionTone}
+        order={4}
+        badge={
+          pendingPaymentCount > 0 || overdueChargeCount > 0 ? (
+            <span className="flex flex-wrap items-center gap-2">
+              {pendingPaymentCount > 0 ? (
+                <StatusPill tone="pending">{pendingPaymentCount} pending</StatusPill>
+              ) : null}
+              {overdueChargeCount > 0 ? (
+                <StatusPill tone="danger">{overdueChargeCount} overdue</StatusPill>
+              ) : null}
+            </span>
+          ) : null
+        }
+        items={pendingCharges}
+        emptyMessage="No pending or overdue payments right now."
+        keyForItem={(charge) => charge.id}
+        renderRow={(charge) => {
+          const overdue = householdChargeManagerBucket(charge) === "overdue";
+          const rowTone: AttentionTone = overdue ? "danger" : "pending";
+          return (
+            <IssueRow
+              href={`${BASE}/payments`}
+              tone={rowTone}
+              title={charge.residentName || charge.residentEmail}
+              subtitle={formatCompactChargeLine(
+                charge.title || "Charge",
+                charge.balanceLabel,
+                chargeDueLabel(charge),
+                { omitBalance: true },
+              )}
+              meta={charge.balanceLabel}
+              pill={<StatusPill tone={rowTone}>{overdue ? "Overdue" : "Pending"}</StatusPill>}
+              dataAttr="dashboard-attention-payment"
+            />
+          );
+        }}
+      />
+    ),
+    services: (
+      <AttentionGroup
+        title="Services needed"
+        href={`${BASE}/services/requests`}
+        sectionId="services"
+        icon={Wrench}
+        tone={servicesSectionTone}
+        order={5}
+        items={serviceItems}
+        emptyMessage="No open or scheduled services right now."
+        keyForItem={(item) => item.id}
+        renderRow={(item: DashboardServiceAttentionItem) => (
+          <IssueRow
+            href={`${BASE}/services/requests`}
+            tone={item.rowTone}
+            title={item.title}
+            subtitle={item.subtitle}
+            pill={<StatusPill tone={item.rowTone}>{item.pillLabel}</StatusPill>}
+            dataAttr="dashboard-attention-service"
+          />
+        )}
+      />
+    ),
+    inbox: (
+      <AttentionGroup
+        title="Unread messages"
+        href={`${BASE}/communication/inbox/unopened`}
+        sectionId="inbox"
+        icon={MessageSquare}
+        tone="danger"
+        order={6}
+        headerCount={inboxCount}
+        items={inboxThreads}
+        emptyMessage="No unread messages. Communication is clear."
+        keyForItem={(thread) => thread.id}
+        renderRow={(thread, sectionTone) => (
+          <IssueRow
+            href={`${BASE}/communication/inbox/unopened`}
+            tone={sectionTone}
+            title={thread.from || "Unknown sender"}
+            subtitle={thread.subject || thread.preview || "—"}
+            pill={<StatusPill tone={sectionTone}>Unread</StatusPill>}
+            dataAttr="dashboard-attention-inbox"
+          />
+        )}
+      />
+    ),
+  };
+
   return (
     <ManagerPortalPageShell title="Dashboard" navigationProvidesTitle>
       {/* Full width: Ask PropLane opens a popup by default, and a
@@ -1239,7 +1373,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           </Link>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-6">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
             label="Occupancy"
             value={kpis?.occupancy.value ?? "0%"}
@@ -1292,7 +1426,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         </div>
 
         {/* What needs a decision now, and what the next fortnight holds. */}
-        <div className="grid items-stretch gap-4 lg:grid-cols-2 lg:gap-6">
+        <div className="grid items-stretch gap-4 lg:grid-cols-2">
           <AttentionPanel rows={attentionShown} />
           <UpcomingPanel rows={upcomingRows} nowMs={nowTick} calendarHref={`${BASE}/calendar`} />
         </div>
@@ -1311,255 +1445,46 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           }
         />
 
-        {/* Financial trend graphs — payments collected vs. expenses, last 6 months. */}
-        {visibility.cashflow ? (
-          isDemoModeActive() ? <MonthlyProfitChart points={mergeMonthlyCashflow(paymentsByMonth, expensesByMonth)} /> : <FinancialCashflowChart key={userId} userId={userId} />
-        ) : null}
+        {/* The customizable sections, drawn in MANAGER_DASHBOARD_SECTIONS order:
+            cash flow and PropLane's drafts stand alone, the rest are the groups
+            inside "Everything open". Each is wrapped in `data-dashboard-section`
+            so the order is observable (and tested). */}
+        {orderedSectionIds
+          .filter((id) => standaloneSections[id])
+          .map((id) => (
+            <div key={id} data-dashboard-section={id}>
+              {standaloneSections[id]}
+            </div>
+          ))}
 
-        {/* Needs attention — a live, colour-coded queue: big all-caps heading over
-            status-railed group cards that stream in with a staggered entrance. */}
-        <div className="space-y-4 lg:space-y-6">
-          <div className="flex items-center gap-2.5">
-            <span aria-hidden className="text-primary text-xl leading-none [html[data-native]_&]:text-lg">
-              ✦
-            </span>
-            <h2 className="min-w-0 truncate text-[14.5px] font-bold leading-tight tracking-[-0.02em] text-foreground md:text-xl">
-              Everything open
-            </h2>
+        <section
+          className="overflow-hidden rounded-[10px] border border-border bg-card"
+          data-attr="dashboard-everything-open"
+        >
+          <div className="flex items-center gap-2 border-b border-border px-3.5 py-[11px]">
+            <h2 className="min-w-0 truncate text-sm font-[650] text-foreground">Everything open</h2>
             {openCount > 0 ? (
-              <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-[var(--secondary)] px-2.5 py-0.5 text-[11px] font-medium text-muted">
-                <span
-                  aria-hidden
-                  className="pl-attn-pulse size-1.5 rounded-full"
-                  style={{ background: DOT_CONFIRMED }}
-                />
-                {openCount} open
-              </span>
+              <span className="text-[12.5px] font-medium tabular-nums text-muted/70">{openCount}</span>
             ) : null}
-            <button
-              type="button"
+            <PortalIconAction
+              icon={SlidersHorizontal}
+              label="Customize"
               onClick={() => setCustomizeOpen(true)}
               data-attr="dashboard-customize-open"
-              className="ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-[11px] font-semibold text-muted transition-colors hover:border-primary/40 hover:text-foreground"
-            >
-              <Filter className={PORTAL_FILTER_ICON_CLASS} aria-hidden />
-              <span className="[html[data-native]_&]:sr-only">Customize</span>
-            </button>
+              className="ml-auto"
+            />
           </div>
 
-          {showAiDrafts ? (
-            <AiDraftsGroup
-              items={pendingDrafts}
-              order={0}
-              resolvingId={resolvingDraftId}
-              onResolve={resolveDraft}
-            />
-          ) : null}
-
-          {visibility.tours ? (
-            <AttentionGroup
-              title="Tour requests"
-              href={`${BASE}/calendar`}
-              sectionId="tours"
-              tone="pending"
-              order={0}
-              items={pendingTours}
-              emptyMessage="No pending tour requests right now."
-              keyForItem={(tour) => tour.id}
-              renderRow={(tour, sectionTone) => (
-                <IssueRow
-                  href={`${BASE}/calendar`}
-                  dot={sectionAccentDot(sectionTone)}
-                  title={tour.label}
-                  subtitle={tour.propertyTitle || "—"}
-                  meta={[fmt(tour.start), relativeFromNow(tour.start, nowTick)].filter(Boolean).join(" · ")}
-                  pill={<StatusPill tone={sectionTone}>Pending</StatusPill>}
-                  dataAttr="dashboard-attention-tour"
-                />
-              )}
-            />
-          ) : null}
-
-          {visibility.applications ? (
-            <AttentionGroup
-              title="Applications to approve"
-              href={`${BASE}/applications`}
-              sectionId="applications"
-              tone="pending"
-              order={1}
-              items={pendingApps}
-              emptyMessage="No applications waiting for your review."
-              keyForItem={(app) => app.id}
-              renderRow={(app: DemoApplicantRow, sectionTone) => (
-                <IssueRow
-                  href={`${BASE}/applications`}
-                  dot={sectionAccentDot(sectionTone)}
-                  title={app.name || app.email || "Unknown"}
-                  subtitle={app.property || "—"}
-                  pill={<StatusPill tone={sectionTone}>{app.stage || "To approve"}</StatusPill>}
-                  dataAttr="dashboard-attention-application"
-                />
-              )}
-            />
-          ) : null}
-
-          {visibility.leases ? (
-            <AttentionGroup
-              title="Leases to sign"
-              href={`${BASE}/leases`}
-              sectionId="leases"
-              tone="pending"
-              order={2}
-              items={pendingLeaseRows}
-              emptyMessage="No leases waiting for a signature."
-              keyForItem={(lease) => lease.id}
-              renderRow={(lease: LeasePipelineRow, sectionTone) => {
-                const yourTurn = lease.status === "Manager Signature Pending";
-                return (
-                  <IssueRow
-                    href={`${BASE}/leases`}
-                    dot={sectionAccentDot(sectionTone)}
-                    title={lease.residentName || lease.residentEmail}
-                    subtitle={formatCompactPlacementLine(lease.unit || "—")}
-                    meta={lease.signedRentLabel}
-                    pill={
-                      <StatusPill tone={sectionTone}>
-                        {yourTurn ? "Your signature" : "Resident signing"}
-                      </StatusPill>
-                    }
-                    dataAttr="dashboard-attention-lease"
-                  />
-                );
-              }}
-            />
-          ) : null}
-
-          {visibility.residents ? (
-            <AttentionGroup
-              title="Residents"
-              href={`${BASE}/residents/current`}
-              sectionId="residents"
-              tone={residentsSectionTone}
-              order={3}
-              items={residentAttentionItems}
-              emptyMessage="No current residents yet."
-              keyForItem={(item) => item.lease.id}
-              renderRow={(item: DashboardResidentAttentionItem) => {
-                const rowTone: AttentionTone = item.activated ? "success" : "pending";
-                const lease = item.lease;
-                return (
-                  <IssueRow
-                    href={`${BASE}/residents/current`}
-                    dot={sectionAccentDot(rowTone)}
-                    title={lease.residentName || lease.residentEmail}
-                    subtitle={formatCompactPlacementLine(lease.unit || "—")}
-                    meta={lease.signedRentLabel}
-                    pill={
-                      <StatusPill tone={rowTone}>
-                        {item.activated ? "Activated" : "No account yet"}
-                      </StatusPill>
-                    }
-                    dataAttr="dashboard-attention-resident"
-                  />
-                );
-              }}
-            />
-          ) : null}
-
-          {visibility.payments ? (
-            <AttentionGroup
-              title="Payments"
-              href={`${BASE}/payments`}
-              sectionId="payments"
-              tone={paymentsSectionTone}
-              order={4}
-              badge={
-                pendingPaymentCount > 0 || overdueChargeCount > 0 ? (
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    {pendingPaymentCount > 0 ? (
-                      <StatusPill tone="pending">{pendingPaymentCount} pending</StatusPill>
-                    ) : null}
-                    {overdueChargeCount > 0 ? (
-                      <StatusPill tone="danger">{overdueChargeCount} overdue</StatusPill>
-                    ) : null}
-                  </span>
-                ) : null
-              }
-              items={pendingCharges}
-              emptyMessage="No pending or overdue payments right now."
-              keyForItem={(charge) => charge.id}
-              renderRow={(charge) => {
-                const overdue = householdChargeManagerBucket(charge) === "overdue";
-                const rowTone: AttentionTone = overdue ? "danger" : "pending";
-                return (
-                  <IssueRow
-                    href={`${BASE}/payments`}
-                    dot={sectionAccentDot(rowTone)}
-                    title={charge.residentName || charge.residentEmail}
-                    subtitle={formatCompactChargeLine(
-                      charge.title || "Charge",
-                      charge.balanceLabel,
-                      chargeDueLabel(charge),
-                      { omitBalance: true },
-                    )}
-                    meta={charge.balanceLabel}
-                    pill={<StatusPill tone={rowTone}>{overdue ? "Overdue" : "Pending"}</StatusPill>}
-                    dataAttr="dashboard-attention-payment"
-                  />
-                );
-              }}
-            />
-          ) : null}
-
-          {visibility.services ? (
-            <AttentionGroup
-              title="Services needed"
-              href={`${BASE}/services/requests`}
-              sectionId="services"
-              tone={servicesSectionTone}
-              order={5}
-              items={serviceItems}
-              emptyMessage="No open or scheduled services right now."
-              keyForItem={(item) => item.id}
-              renderRow={(item: DashboardServiceAttentionItem) => (
-                <IssueRow
-                  href={`${BASE}/services/requests`}
-                  dot={sectionAccentDot(item.rowTone)}
-                  title={item.title}
-                  subtitle={item.subtitle}
-                  pill={<StatusPill tone={item.rowTone}>{item.pillLabel}</StatusPill>}
-                  dataAttr="dashboard-attention-service"
-                />
-              )}
-            />
-          ) : null}
-
-          {visibility.inbox ? (
-            <AttentionGroup
-              title="Unread messages"
-              href={`${BASE}/communication/inbox/unopened`}
-              sectionId="inbox"
-              tone="danger"
-              order={6}
-              headerCount={inboxCount}
-              items={inboxThreads}
-              emptyMessage="No unread messages. Communication is clear."
-              keyForItem={(thread) => thread.id}
-              renderRow={(thread, sectionTone) => (
-                <IssueRow
-                  href={`${BASE}/communication/inbox/unopened`}
-                  dot={sectionAccentDot(sectionTone)}
-                  title={thread.from || "Unknown sender"}
-                  subtitle={thread.subject || thread.preview || "—"}
-                  pill={<StatusPill tone={sectionTone}>Unread</StatusPill>}
-                  dataAttr="dashboard-attention-inbox"
-                />
-              )}
-            />
-          ) : null}
+          {orderedSectionIds
+            .filter((id) => groupSections[id])
+            .map((id) => (
+              <div key={id} data-dashboard-section={id} className="border-b border-border last:border-b-0">
+                {groupSections[id]}
+              </div>
+            ))}
 
           {!anyAttentionVisible ? (
-            <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center">
+            <div className="px-4 py-6 text-center">
               <p className="text-sm text-muted">All attention sections are hidden.</p>
               <button
                 type="button"
@@ -1570,7 +1495,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
               </button>
             </div>
           ) : null}
-        </div>
+        </section>
       </div>
 
       <DashboardCustomizeModal

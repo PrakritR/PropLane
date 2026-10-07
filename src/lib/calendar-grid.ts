@@ -16,7 +16,7 @@ import {
 } from "@/lib/manager-availability-kinds";
 
 /** Pixels per hour of the time grid. */
-export const GRID_HOUR_PX = 60;
+export const GRID_HOUR_PX = 52;
 /** A block is never shorter than this, so time + title + house always fit. */
 export const GRID_MIN_BLOCK_PX = 50;
 /** Default visible window: 8 am to 7 pm. */
@@ -31,9 +31,9 @@ export type CalendarItemKind = "tour" | "service" | "task" | "busy";
 
 /** Type colours (the tab dots are the legend). Hex so they read in light and dark. */
 export const CALENDAR_KIND_COLOR: Record<CalendarItemKind, string> = {
-  tour: "#2a78d6",
-  service: "#eb6834",
-  task: "#1baf7a",
+  tour: "#2863f0",
+  service: "#e8890c",
+  task: "#12805c",
   busy: "#94a3b8",
 };
 

@@ -558,7 +558,7 @@ export function CalendarTimeGrid({
 
   return (
     <div
-      className="cal-card overflow-hidden rounded-[14px] border border-border bg-card"
+      className="cal-card overflow-hidden rounded-[10px] border border-border bg-card"
       data-attr="calendar-time-grid"
       data-view={isDay ? "day" : "week"}
       style={{ ["--cal-gutter" as string]: "56px" }}
@@ -572,7 +572,6 @@ export function CalendarTimeGrid({
             {dates.map((dateStr) => {
               const weekday = weekdayOfDateStr(dateStr);
               const isToday = dateStr === todayDs;
-              const weekend = weekday >= 5;
               const Tag = isDay || !onOpenDay ? "div" : "button";
               return (
                 <Tag
@@ -584,27 +583,17 @@ export function CalendarTimeGrid({
                   data-date={dateStr}
                   aria-label={`${DOW_LONG[weekday]}, ${dayLabel(dateStr, false)}`}
                   className={cn(
-                    "flex min-w-0 flex-col items-center gap-[3px] border-l border-foreground/[0.06] px-0 pb-2 pt-[9px] text-foreground",
+                    "flex min-w-0 items-center justify-center border-l border-border px-0 py-2 text-foreground",
                     Tag === "button" && "cursor-pointer hover:bg-foreground/[0.03]",
-                    weekend && "bg-foreground/[0.03]",
-                    isToday && "bg-primary/[0.07]",
                   )}
                 >
                   <span
                     className={cn(
-                      "text-[10.5px] font-semibold uppercase leading-none tracking-[0.04em] text-muted",
-                      isToday && "font-bold text-primary",
+                      "inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-transparent px-2.5 py-[3px] text-[12.5px] font-semibold leading-none text-muted",
+                      isToday && "border-border bg-card text-primary shadow-[var(--shadow-sm)]",
                     )}
                   >
-                    {DOW_SHORT[weekday]}
-                  </span>
-                  <span
-                    className={cn(
-                      "inline-flex h-[26px] min-w-[26px] items-center justify-center rounded-full px-1 text-sm font-bold leading-none",
-                      isToday && "bg-primary text-primary-foreground",
-                    )}
-                  >
-                    {Number(dateStr.slice(8))}
+                    {DOW_SHORT[weekday]} <span className="tabular-nums">{Number(dateStr.slice(8))}</span>
                   </span>
                 </Tag>
               );
@@ -623,9 +612,7 @@ export function CalendarTimeGrid({
                 <div
                   key={dateStr}
                   className={cn(
-                    "flex min-w-0 flex-col gap-[3px] border-l border-foreground/[0.06] p-1",
-                    dateStr === todayDs && "bg-primary/[0.05]",
-                  )}
+                    "flex min-w-0 flex-col gap-[3px] border-l border-border p-1")}
                 >
                   {allDay
                     .filter((item) => item.dateStr === dateStr)
@@ -640,7 +627,7 @@ export function CalendarTimeGrid({
                           data-cal-kind={item.kind}
                           style={kindStyle(item.kind)}
                           onClick={(event: MouseEvent<HTMLButtonElement>) => onOpenItem(item, event.currentTarget)}
-                          className="flex w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-[7px] border-0 border-l-[3px] border-[color:var(--k)] bg-[color-mix(in_srgb,var(--k)_14%,var(--card))] px-[7px] py-1 text-left text-[11.5px] font-semibold text-foreground"
+                          className="flex w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border-0 border-l-[3px] border-[color:var(--k)] bg-[color-mix(in_srgb,var(--k)_11%,var(--card))] px-[7px] py-1 text-left text-[11.5px] font-semibold text-[color-mix(in_srgb,var(--k)_72%,var(--foreground))]"
                         >
                           <Icon className="size-3 shrink-0 text-[color:var(--k)]" aria-hidden />
                           <span className="truncate">{item.title}</span>
@@ -719,15 +706,13 @@ export function CalendarTimeGrid({
                     data-to={to}
                     data-attr="calendar-day-column"
                     className={cn(
-                      "relative select-none border-l border-foreground/[0.06]",
-                      weekday >= 5 && "bg-foreground/[0.022]",
-                      isToday && "bg-primary/[0.05]",
+                      "relative select-none border-l border-border",
                     )}
                     style={{
                       height: total,
                       backgroundImage:
-                        "linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 7%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 3%, transparent) 1px, transparent 1px)",
-                      backgroundSize: `100% ${GRID_HOUR_PX}px, 100% ${GRID_HOUR_PX / 2}px`,
+                        "linear-gradient(to bottom, var(--border) 1px, transparent 1px)",
+                      backgroundSize: `100% ${GRID_HOUR_PX}px`,
                       WebkitTouchCallout: "none",
                     }}
                   >
@@ -914,10 +899,10 @@ export function CalendarTimeGrid({
                           title={`${item.title}${item.place ? ` · ${item.place}` : ""} · ${when}`}
                           onClick={(event: MouseEvent<HTMLButtonElement>) => onOpenItem(item, event.currentTarget)}
                           className={cn(
-                            "absolute z-[2] box-border flex flex-col gap-px overflow-hidden rounded-lg border-0 px-[7px] py-1 text-left shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(15,23,42,0.18)]",
+                            "absolute z-[2] box-border flex flex-col gap-px overflow-hidden rounded-md border-0 px-1.5 py-[3px] text-left transition hover:brightness-[0.97]",
                             person
                               ? "bg-[color:var(--pc)]"
-                              : "border-l-[3px] border-[color:var(--k)] bg-[color-mix(in_srgb,var(--k)_16%,var(--card))] text-foreground",
+                              : "border-l-[3px] border-[color:var(--k)] bg-[color-mix(in_srgb,var(--k)_11%,var(--card))] text-[color-mix(in_srgb,var(--k)_72%,var(--foreground))]",
                             item.requested && "border-dashed ring-1 ring-inset ring-[color:var(--k)]/40",
                           )}
                           style={{
@@ -933,7 +918,7 @@ export function CalendarTimeGrid({
                           <span
                             className={cn(
                               "flex items-center gap-1 text-[10.5px] font-bold leading-[13px]",
-                              !person && "text-[color-mix(in_srgb,var(--k)_55%,var(--foreground))]",
+                              !person && "text-[color-mix(in_srgb,var(--k)_72%,var(--foreground))]",
                             )}
                           >
                             {person ? (
@@ -944,10 +929,10 @@ export function CalendarTimeGrid({
                             <span>{formatClock(item.startMin)}</span>
                             {item.requested ? <span className="font-semibold opacity-80">· Requested</span> : null}
                           </span>
-                          <span className="truncate text-xs font-semibold leading-[15px]">{item.title}</span>
+                          <span className="truncate text-[11.5px] font-semibold leading-[15px]">{item.title}</span>
                           {item.place ? (
                             <span
-                              className={cn("truncate text-[11px] leading-[14px]", person ? "opacity-85" : "text-muted")}
+                              className="truncate text-[11px] font-[450] leading-[14px] opacity-80"
                             >
                               {item.place}
                             </span>
@@ -1034,14 +1019,14 @@ export function CalendarMonthView({
   const weeks = Math.ceil((daysBetween(gridStart, lastDay) + 1) / 7);
   const cells = Array.from({ length: weeks * 7 }, (_, index) => shiftDateStr(gridStart, index));
   return (
-    <div className="overflow-hidden rounded-[14px] border border-border bg-card" data-attr="calendar-month-view">
+    <div className="overflow-hidden rounded-[10px] border border-border bg-card" data-attr="calendar-month-view">
       {emptyStrip}
-      <div className="grid grid-cols-7 border-b border-border bg-background">
+      <div className="grid grid-cols-7 border-b border-border bg-card">
         {DOW_SHORT.map((label) => (
           <div
             key={label}
             className={cn(
-              "px-2.5 py-[9px] text-[10.5px] font-semibold uppercase tracking-[0.04em] text-muted",
+              "px-2.5 py-2 text-[12px] font-semibold text-muted",
               phone && "px-0.5 text-center",
             )}
           >
@@ -1068,12 +1053,10 @@ export function CalendarMonthView({
               data-attr="calendar-month-day"
               data-date={dateStr}
               className={cn(
-                "flex min-w-0 flex-col gap-1 border-l border-t border-foreground/[0.06] p-1.5 max-sm:p-1",
+                "flex min-w-0 flex-col gap-1 border-l border-t border-border p-1.5 max-sm:p-1",
                 index % 7 === 0 && "border-l-0",
                 index < 7 && "border-t-0",
-                weekday >= 5 && "bg-foreground/[0.022]",
                 !inMonth && "opacity-50",
-                dateStr === todayDs && "bg-primary/[0.05]",
               )}
             >
               <button
@@ -1113,10 +1096,10 @@ export function CalendarMonthView({
                       title={`${item.title}${item.place ? ` · ${item.place}` : ""}`}
                       style={kindStyle(item.kind)}
                       onClick={(event) => onOpenItem(item, event.currentTarget)}
-                      className="flex w-full items-center gap-[5px] overflow-hidden whitespace-nowrap rounded-md border-0 border-l-[3px] border-[color:var(--k)] bg-[color-mix(in_srgb,var(--k)_14%,var(--card))] px-1.5 py-0.5 text-left text-[11px] font-medium text-foreground"
+                      className="flex w-full items-center gap-[5px] overflow-hidden whitespace-nowrap rounded-md border-0 border-l-[3px] border-[color:var(--k)] bg-[color-mix(in_srgb,var(--k)_11%,var(--card))] px-1.5 py-0.5 text-left text-[11px] font-semibold text-[color-mix(in_srgb,var(--k)_72%,var(--foreground))]"
                     >
                       {item.allDay ? null : (
-                        <b className="shrink-0 font-bold text-[color-mix(in_srgb,var(--k)_55%,var(--foreground))]">
+                        <b className="shrink-0 font-bold">
                           {formatClock(item.startMin).replace(":00", "").replace(" ", "")}
                         </b>
                       )}

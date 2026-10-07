@@ -110,7 +110,7 @@ function IdentitySkeleton({ dataAttr }: { dataAttr: string }) {
   // those (night UX sweep).
   return (
     <div
-      className="h-[52px] animate-pulse rounded-2xl bg-accent/50 motion-reduce:animate-none"
+      className="h-[50px] animate-pulse rounded-lg bg-accent/50 motion-reduce:animate-none"
       data-attr={dataAttr}
       aria-hidden
     />
@@ -150,6 +150,7 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
+          frame="box"
           tone="setup"
           dataAttr="manager-work-number-card"
           value="Messaging status unavailable"
@@ -185,7 +186,7 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
-          frame="inline"
+          frame="box"
           leading={<Phone className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.9} aria-hidden />}
           dataAttr="manager-work-number-card"
           value={formatted}
@@ -209,6 +210,7 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
+          frame="box"
           tone="setup"
           dataAttr="manager-work-number-card"
           value="No work number yet"
@@ -223,6 +225,7 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
+          frame="box"
           tone="setup"
           disabled
           dataAttr="messaging-upsell-locked"
@@ -237,6 +240,7 @@ export function ManagerWorkNumberCard() {
     return (
       <PortalInboxContactCard
         padded={false}
+        frame="box"
         tone="setup"
         href={MANAGER_MESSAGING_SETTINGS_HREF}
         dataAttr="manager-work-number-setup"
@@ -255,7 +259,7 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
-          frame="inline"
+          frame="box"
           leading={<Mail className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.9} aria-hidden />}
           dataAttr="manager-work-email-card"
           value={workEmail}
@@ -277,6 +281,7 @@ export function ManagerWorkNumberCard() {
       return (
         <PortalInboxContactCard
           padded={false}
+          frame="box"
           tone="setup"
           dataAttr="manager-work-email-card"
           value="No work email yet"
@@ -290,6 +295,7 @@ export function ManagerWorkNumberCard() {
     return (
       <PortalInboxContactCard
         padded={false}
+        frame="box"
         tone="setup"
         href={MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF}
         dataAttr="manager-work-email-setup"
@@ -302,7 +308,7 @@ export function ManagerWorkNumberCard() {
 
   return (
     <div
-      className="shrink-0 flex flex-col gap-0.5 border-b border-border/60 px-2.5 pb-1 pt-1.5 sm:px-3"
+      className="grid shrink-0 grid-cols-2 gap-2 px-3.5 pb-1 pt-3"
       data-attr="manager-work-identity"
     >
       {numberBox}

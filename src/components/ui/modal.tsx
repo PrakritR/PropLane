@@ -45,7 +45,7 @@ export {
 
 /** Top-right dismiss control — Carbon / Primer / Watson pattern (icon, 44px target). */
 export const MODAL_HEADER_CLOSE_CLASS =
-  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition lg:h-8 lg:w-8 lg:rounded-lg hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /** Sticky footer action row: primary and secondary *actions* only (Save, Delete, Send). */
 export const MODAL_FOOTER_ROW_CLASS =
@@ -378,7 +378,7 @@ function ModalPanelInner({
         data-field-select-host-chrome=""
         className={cn(
           "flex shrink-0 flex-col border-b border-border",
-          "min-h-[68px] justify-center gap-2 px-4 py-3 sm:px-6",
+          "min-h-[56px] justify-center gap-2 px-4 py-2 sm:px-5",
         )}
       >
         <div className="flex items-center justify-between gap-3">
@@ -386,7 +386,7 @@ function ModalPanelInner({
             <h3
               className={cn(
                 "min-w-0 flex-1 font-semibold leading-tight text-foreground",
-                "text-[19px] font-extrabold tracking-tight",
+                "text-[16px] font-[650] tracking-tight",
               )}
             >
               {title}
@@ -423,7 +423,7 @@ function ModalPanelInner({
         )}
       >
         {contextPanel !== null ? (
-        <aside data-popup-context="" className="hidden w-[220px] shrink-0 overflow-y-auto border-r border-border bg-background p-4 xl:w-[264px] lg:block">
+        <aside data-popup-context="" className="hidden w-[190px] shrink-0 overflow-y-auto border-r border-border bg-background px-3.5 py-[18px] lg:block">
           {contextPanel}
           <div className={contextPanel ? "mt-4" : undefined}><PopupFormContext formRef={formRef} hasContext={contextPanel != null} /></div>
         </aside>
@@ -449,14 +449,14 @@ function ModalPanelInner({
                 // content would otherwise be clipped.
                 "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
               : "min-w-0 flex-1 flex-col",
-            "px-4 py-4 sm:px-7 sm:py-6 xl:px-10",
+            "px-4 py-4 sm:px-[22px] sm:py-[18px]",
           )}
         >
           <PhoneStripPickerScope>{children}</PhoneStripPickerScope>
         </div>
         {preview !== null ? (
-          <aside data-popup-preview="" className="hidden w-[320px] shrink-0 overflow-y-auto border-l border-border bg-background p-5 lg:block xl:w-[380px]">
-            <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted">{previewLabel}</div>
+          <aside data-popup-preview="" className="hidden w-[260px] shrink-0 overflow-y-auto border-l border-border bg-[#fafbfc] p-4 lg:block [html[data-theme=dark]_&]:bg-black/20">
+            <div className="mb-2.5 text-xs font-semibold text-muted">{previewLabel}</div>
             {preview ?? <PopupFormSnapshot formRef={formRef} />}
           </aside>
         ) : null}
@@ -484,7 +484,7 @@ function ModalPanelInner({
             // Footer actions sit on the modal canvas; the divider, rather than a
             // second grey surface, separates them from the form above.
             "relative shrink-0 border-t border-border bg-card pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom))]",
-            "px-4 pt-3 sm:px-6",
+            "flex min-h-[56px] flex-col justify-center px-4 py-2 sm:px-4",
           )}
         >
           {footer}

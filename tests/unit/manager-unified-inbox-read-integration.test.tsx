@@ -122,6 +122,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   CommunicationInboxInitialState: () => <div>Loading</div>,
   InboxConversationListAddRow: () => null,
   InboxListSegmentTabs: () => null,
+  InboxListHeader: ({ tabs, search }: { tabs: React.ReactNode; search: { value: string; onChange: (v: string) => void; ariaLabel: string } }) => <div>{tabs}<input type="search" aria-label={search.ariaLabel} value={search.value} onChange={(e) => search.onChange(e.target.value)} /></div>,
   InboxThreadEmpty: ({ title }: { title: string }) => <div>{title}</div>,
   InboxThreadSkeleton: () => <div data-testid="inbox-thread-skeleton">Loading conversation…</div>,
   InboxTwoPane: ({ list, thread }: { list: React.ReactNode; thread: React.ReactNode }) => (

@@ -239,7 +239,6 @@ function PortalCalendarManager({
   );
   const [weekActionsHost, setWeekActionsHost] = useState<HTMLDivElement | null>(null);
   const [weekPrimaryActionHost, setWeekPrimaryActionHost] = useState<HTMLDivElement | null>(null);
-  const [navControlsHost, setNavControlsHost] = useState<HTMLDivElement | null>(null);
 
   const soleCalendarPropertyId = calendarEditingPropertyId;
 
@@ -646,11 +645,10 @@ function PortalCalendarManager({
     };
   }, [portal, authReady, userId, soleCalendarPropertyId]);
 
-  // One band, in order: tabs · search · < Today > range · view · Filter · Availability · Share · + (studio calendar header, C2-CALP1).
+  // One band, in order: tabs · search · Filter · Availability · + ; the Day/Week/Month tabs and the range ride in the toolbar row above the grid.
   const calendarCommandActions =
     portal === "manager" ? (
       <>
-        <div ref={setNavControlsHost} className="flex min-w-0 flex-1 items-center justify-center max-sm:hidden" data-slot="calendar-nav-host" />
         {calendarFilterSheet}
         {calendarSettingsButton}
         <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
@@ -768,7 +766,6 @@ function PortalCalendarManager({
             compactAvailability
             weekActionsHost={weekActionsHost}
             weekPrimaryActionHost={weekPrimaryActionHost}
-            navControlsHost={navControlsHost}
             studioGrid={portal === "manager"}
             calendarTab={schedulingHub ? "tours" : calendarView}
             filteredPropertyId={soleCalendarPropertyId || undefined}

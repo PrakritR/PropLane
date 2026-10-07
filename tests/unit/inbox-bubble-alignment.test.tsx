@@ -32,8 +32,8 @@ afterEach(cleanup);
 const LONG_URL_BODY =
   "Thanks for the question for 5259 Brooklyn Ave NE. I'm pulling the details and the manager has been notified. You can also leave more detail here: https://prop-lane.space/rent/tours-contact?property=5259-brooklyn-ave-ne-seattle";
 
-describe("inbox bubble alignment", () => {
-  it("pins outbound InboxBubble to the end and inbound to the start", () => {
+describe("inbox message rows (Slack-style: every turn on the left, the name says who)", () => {
+  it("marks the viewer's own turn end-side and a counterparty's start-side, both flush left", () => {
     const { rerender } = render(
       <InboxBubble
         message={{
@@ -45,8 +45,10 @@ describe("inbox bubble alignment", () => {
         }}
       />,
     );
-    expect(document.querySelector('[data-inbox-bubble-align="end"]')?.className).toMatch(/ml-auto/);
-    expect(document.querySelector('[data-inbox-bubble-align="end"]')?.className).toMatch(/min-w-0/);
+    const mine = document.querySelector('[data-inbox-bubble-align="end"]');
+    expect(mine?.className).toMatch(/min-w-0/);
+    expect(mine?.className).not.toMatch(/ml-auto|mr-auto/);
+    expect(mine?.textContent).toContain("You");
 
     rerender(
       <InboxBubble
@@ -59,10 +61,12 @@ describe("inbox bubble alignment", () => {
         }}
       />,
     );
-    expect(document.querySelector('[data-inbox-bubble-align="start"]')?.className).toMatch(/mr-auto/);
+    const theirs = document.querySelector('[data-inbox-bubble-align="start"]');
+    expect(theirs?.className).not.toMatch(/ml-auto|mr-auto/);
+    expect(theirs?.textContent).toContain("Akhil");
   });
 
-  it("renders an auto-sent lifecycle turn as a centered system notice, not a bubble", () => {
+  it("renders an auto-sent lifecycle turn as a centered system notice, not a message row", () => {
     render(
       <InboxBubble
         message={{
@@ -77,7 +81,7 @@ describe("inbox bubble alignment", () => {
     const notice = document.querySelector('[data-inbox-bubble-kind="system"]');
     expect(notice).toBeTruthy();
     expect(notice?.textContent).toContain("Lease sent for signature.");
-    // Never a chat bubble — no aligned wrap, no author, no sending/failed chrome.
+    // Never a message row — no aligned wrap, no author, no sending/failed chrome.
     expect(document.querySelector('[data-inbox-bubble-align]')).toBeNull();
   });
 
@@ -105,11 +109,31 @@ describe("inbox bubble alignment", () => {
     const starts = [...document.querySelectorAll('[data-inbox-bubble-align="start"]')];
     expect(ends).toHaveLength(2);
     expect(starts).toHaveLength(2);
-    for (const el of ends) expect(el.className).toMatch(/ml-auto/);
-    for (const el of starts) expect(el.className).toMatch(/mr-auto/);
+    for (const el of [...ends, ...starts]) expect(el.className).toMatch(/min-w-0/);
+    // Four turns, four senders' runs: each run names its sender once.
+    expect([...document.querySelectorAll("[data-inbox-author]")].map((el) => el.textContent)).toEqual([
+      "Akhil",
+      "You",
+      "Akhil",
+      "You",
+    ]);
   });
 
-  it("pins assistant ice bubbles left in the PropLane Assistant conversation", () => {
+  it("names a run's sender once, then shows only the text for the turns that follow", () => {
+    render(
+      <InboxMessageTimeline
+        messages={[
+          { id: "a", author: "Akhil", body: "First", at: "Aug 3, 5:31 PM", direction: "inbound" },
+          { id: "b", author: "Akhil", body: "Second", at: "Aug 3, 5:32 PM", direction: "inbound" },
+        ]}
+      />,
+    );
+    expect(document.querySelectorAll("[data-inbox-author]")).toHaveLength(1);
+    expect(screen.getByText("5:31 PM")).toBeTruthy();
+    expect(screen.getByText("Second")).toBeTruthy();
+  });
+
+  it("shows the assistant's turns without an Assistant label, in the PropLane Assistant conversation", () => {
     const messages: InboxBubbleMessage[] = [
       {
         id: "intro",
@@ -139,16 +163,15 @@ describe("inbox bubble alignment", () => {
     expect(ice).toHaveLength(2);
     expect(you).toHaveLength(1);
     for (const el of ice) {
-      expect(el.className).toMatch(/mr-auto/);
-      expect(el.querySelector(".portal-inbox-assistant-bubble")).toBeTruthy();
+      expect(el.getAttribute("data-inbox-bubble-align")).toBe("start");
       expect(el.textContent).not.toMatch(/Assistant/i);
       expect(el.textContent).toMatch(/2:14 PM/);
     }
-    expect(you[0]?.className).toMatch(/ml-auto/);
-    expect(you[0]?.querySelector(".portal-inbox-outbound-bubble")).toBeTruthy();
+    expect(you[0]?.getAttribute("data-inbox-bubble-align")).toBe("end");
+    expect(you[0]?.textContent).toContain("Jordan");
   });
 
-  it("keeps assistant-authored reminders right in a person thread", () => {
+  it("keeps assistant-authored reminders on the viewer's side in a person thread", () => {
     render(
       <InboxMessageTimeline
         messages={[
@@ -163,7 +186,7 @@ describe("inbox bubble alignment", () => {
       />,
     );
     const ice = document.querySelector('[data-inbox-bubble-kind="assistant"]');
-    expect(ice?.className).toMatch(/ml-auto/);
+    expect(ice?.getAttribute("data-inbox-bubble-align")).toBe("end");
   });
 
   it("renders assistant markdown as formatted headings and lists", () => {
@@ -324,7 +347,7 @@ describe("manager SMS bubble alignment", () => {
     );
   });
 
-  it("keeps manager/AI outbound SMS bubbles on the right even with long URLs", async () => {
+  it("marks the manager's own texts end-side and the prospect's start-side, all flush left, even with long URLs", async () => {
     render(
       <ManagerSmsPanel
         suppressListPane
@@ -338,15 +361,13 @@ describe("manager SMS bubble alignment", () => {
     const inbound = [...document.querySelectorAll('[data-sms-bubble-align="start"]')];
     expect(outbound.length).toBeGreaterThanOrEqual(2);
     expect(inbound.length).toBeGreaterThanOrEqual(2);
-    for (const bubble of outbound) {
-      expect(bubble.className).toMatch(/portal-inbox-outbound-bubble/);
-      const row = bubble.parentElement;
-      expect(row?.className).toMatch(/ml-auto/);
-      expect(row?.className).toMatch(/min-w-0/);
+    for (const text of [...outbound, ...inbound]) {
+      // Slack-style: no filled bubble, no side-pinning margin; the name says who sent it.
+      expect(text.className).not.toMatch(/portal-inbox-outbound-bubble/);
+      expect(text.parentElement?.className).not.toMatch(/ml-auto|mr-auto/);
+      expect(text.parentElement?.className).toMatch(/min-w-0/);
     }
-    for (const bubble of inbound) {
-      expect(bubble.className).not.toMatch(/portal-inbox-outbound-bubble/);
-      expect(bubble.parentElement?.className).toMatch(/mr-auto/);
-    }
+    expect(document.querySelectorAll("[data-inbox-author]").length).toBeGreaterThanOrEqual(4);
+    expect(document.querySelector('[data-inbox-via="sms"]')?.textContent).toContain("Text");
   });
 });

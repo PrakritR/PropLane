@@ -30,10 +30,19 @@ import { useIsClient } from "@/hooks/use-is-client";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
+import {
+  CommunicationDetailsPane,
+  type CommunicationDetails,
+  type CommunicationDetailsRecord,
+} from "@/components/portal/communication-details-pane";
+import { counterpartyRoleLabel } from "@/lib/sms-conversation-identity";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { recordRoutePath } from "@/lib/portals/record-kinds";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
+  InboxListHeader,
   InboxListSegmentTabs,
   InboxThreadEmpty,
   InboxThreadSkeleton,
@@ -1399,19 +1408,33 @@ export function ManagerUnifiedInbox({
     if (listRows.length === 0 && !routeThreadId) setMobileThreadOpen(false);
   }, [initialListReady, listRows, listSegment, routeThreadId, selectedKey, selectedRow, selectionContext]);
 
+  // Filter, the round + and "Delete all archived" are the page's own tools: they sit on the
+  // title row (the shell's slot). With no slot (a test, /demo) they render beside the search.
+  const listControls =
+    canDeleteAllArchived || listActions || listPrimary ? (
+      <div className="flex shrink-0 items-center gap-1 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+        {canDeleteAllArchived ? (
+          <PortalIconAction
+            icon={Trash2}
+            label="Delete all archived"
+            tone="danger"
+            data-attr="unified-inbox-delete-all-archived"
+            onClick={() => void bulk.handleDeleteAllArchived()}
+          />
+        ) : null}
+        {listActions}
+        {listPrimary}
+      </div>
+    ) : null;
+  const listControlsPublished = usePublishTitleActions(listControls, listChrome === "internal" && listControls != null);
+
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <div
-        className="mx-2 mb-2 mt-2 shrink-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:mx-3"
-        data-attr="communication-list-header-card"
-      >
+      <div className="shrink-0" data-attr="communication-list-header-card">
         <ManagerWorkNumberCard />
         {listChrome === "internal" ? (
-          <PortalListControlStack
-            variant="command"
-            embedded
-            className="border-0 bg-transparent px-2 pb-2 pt-0 shadow-none sm:px-2.5"
-            destinationRow={
+          <InboxListHeader
+            tabs={
               <InboxListSegmentTabs
                 commBase={commBase}
                 value={listSegmentProp}
@@ -1424,27 +1447,12 @@ export function ManagerUnifiedInbox({
             search={{
               value: query,
               onChange: setQuery,
-              placeholder: "Search",
+              placeholder: "Search communication",
               ariaLabel: "Search contacts or messages",
               dataAttr: "unified-inbox-search",
             }}
-            actions={
-              canDeleteAllArchived || listActions ? (
-                <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
-                  {canDeleteAllArchived ? (
-                    <PortalIconAction
-                      icon={Trash2}
-                      label="Delete all archived"
-                      tone="danger"
-                      data-attr="unified-inbox-delete-all-archived"
-                      onClick={() => void bulk.handleDeleteAllArchived()}
-                    />
-                  ) : null}
-                  {listActions}
-                </div>
-              ) : undefined
-            }
-            primary={listPrimary}
+            count={initialListReady ? listRows.length : undefined}
+            trailing={listControlsPublished ? null : listControls}
           />
         ) : null}
       </div>
@@ -1488,6 +1496,7 @@ export function ManagerUnifiedInbox({
             <InboxConversationRow
               key={row.key}
               listVariant="manager"
+              appearance="flat"
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
               preview={row.preview}
@@ -1801,10 +1810,54 @@ export function ManagerUnifiedInbox({
       />
     );
 
+  // The right-hand contact column restates what the open conversation already carries; it
+  // fetches nothing (scheduled sends come from the thread pane's own load).
+  const contactDetails = useMemo((): CommunicationDetails | null => {
+    if (!selectedRow && !placeholderContact) return null;
+    if (selectedRow && isAssistantUnifiedInboxRow(selectedRow, emailThreads)) return null;
+    const email = (placeholderContact?.email ?? selectedRow?.personEmail ?? "").trim();
+    const contact =
+      placeholderContact ??
+      (email ? filterContacts?.find((c) => c.email?.trim().toLowerCase() === email.toLowerCase()) ?? null : null);
+    const sms = selectedSmsResidents[0] ?? null;
+    const name = (placeholderContact?.name ?? selectedRow?.name ?? "").trim();
+    if (!name) return null;
+    const role = (() => {
+      if (contact?.role === "resident") {
+        return contact.tenancyStatus === "applicant" ? "Applicant" : contact.tenancyStatus === "past" ? "Past resident" : "Resident";
+      }
+      if (contact?.role === "vendor") return "Vendor";
+      if (contact?.role === "manager") return "Manager";
+      return sms?.counterpartyRole ? counterpartyRoleLabel(sms.counterpartyRole) : undefined;
+    })();
+    const place = selectedRow?.address || contact?.propertyLabel || sms?.propertyLabel || "";
+    const phone = formatSmsPhoneLabel(sms?.phone ?? contact?.phone ?? null);
+    const records: CommunicationDetailsRecord[] = [];
+    const ref = selectedRow?.recordRef;
+    if (ref) {
+      records.push({
+        key: `ref-${ref.kind}-${ref.id}`,
+        label: ref.label,
+        detail: place || undefined,
+        href: recordRoutePath("manager", ref.kind, ref.id),
+      });
+    }
+    if (contact?.propertyId && contact.propertyLabel && !(ref?.kind === "property" && ref.id === contact.propertyId)) {
+      records.push({
+        key: `property-${contact.propertyId}`,
+        label: contact.propertyLabel,
+        detail: contact.roomLabel || undefined,
+        href: recordRoutePath("manager", "property", contact.propertyId),
+      });
+    }
+    return { name, role, phone, email: email || null, records };
+  }, [emailThreads, filterContacts, placeholderContact, selectedRow, selectedSmsResidents]);
+
   return (
     <>
       <InboxTwoPane
-        panes="split"
+        panes="flat"
+        details={contactDetails ? <CommunicationDetailsPane details={contactDetails} /> : undefined}
         heightMode="viewport"
         fillViewport={threadOpen}
         fillParent

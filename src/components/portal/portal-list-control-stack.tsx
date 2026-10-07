@@ -192,6 +192,7 @@ export function PortalListControlStack({
   embedded = false,
   recordCount,
   controlsInBand = false,
+  stats,
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
@@ -235,6 +236,11 @@ export function PortalListControlStack({
    * into the record header, so a record's constant header icons (Edit, Delete) are never replaced.
    */
   controlsInBand?: boolean;
+   * A PortalStatStrip between the tabs and the tools line (money lists: the bucket totals).
+   * A band that carries one scrolls with the page instead of sticking, so the strip never
+   * pins a third of a phone screen.
+   */
+  stats?: ReactNode;
 }) {
   assertPortalListBandContract(filterRow, actions, primary);
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
@@ -398,6 +404,7 @@ export function PortalListControlStack({
           // destination strip — Settings lived outside the old sticky wrapper (PRP-389).
           stickyDestinations &&
             !embedded &&
+            !stats &&
             "sticky z-[38] bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]",
           embedded && "border-t border-border/60",
           className,
@@ -405,7 +412,7 @@ export function PortalListControlStack({
         data-slot="portal-list-control-stack"
         data-variant="command"
         data-embedded={embedded ? "" : undefined}
-        data-sticky={stickyDestinations && !embedded ? "" : undefined}
+        data-sticky={stickyDestinations && !embedded && !stats ? "" : undefined}
       >
         {embedded ? (
           <HorizontalScrollCapture
@@ -449,6 +456,11 @@ export function PortalListControlStack({
                   </div>
                 </HorizontalScrollCapture>
                 {publishedToTitle ? null : <div className="shrink-0 self-center py-1">{inlineControlsNode}</div>}
+              </div>
+            ) : null}
+            {stats ? (
+              <div className="min-w-0 px-[22px] pb-1.5 pt-3.5 max-lg:px-4" data-attr="portal-list-stats">
+                {stats}
               </div>
             ) : null}
             {showToolRow || chipsNode ? (

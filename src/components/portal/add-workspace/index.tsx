@@ -46,7 +46,7 @@ export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-worksp
 const SINGLE_STEP_NO_RAIL_CLASS =
   "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)]";
 const SINGLE_STEP_NO_RAIL_WITH_PANEL_CLASS =
-  "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)_300px] xl:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)_380px]";
+  "[&_nav[aria-label^=Listing]]:hidden [&_div:has(>nav[aria-label^=Listing])]:!grid-rows-[minmax(0,1fr)] lg:[&_div:has(>nav[aria-label^=Listing])]:!grid-cols-[minmax(0,1fr)_260px]";
 
 export type AddWorkspaceStep = StepRailItem & {
   /** True while this step still has something required to fill. Drawn as the red dot. */
@@ -357,7 +357,7 @@ export function AddWorkspace({
                 </button>
               ) : null}
             </div>
-            <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
+            <span className="min-w-0 flex-1 text-center text-[13px] text-muted">
               {validationError?.step === current ? <span role="alert" className="mb-0.5 block text-destructive">{validationError.message}</span> : footerNote ? <span className="mb-0.5 block">{footerNote}</span> : readiness ? <span className="mb-0.5 block">{readiness}</span> : null}
               {hideFooterStepCount || steps.length < 2 ? null : <>Step {current + 1} of {steps.length}</>}
             </span>
@@ -370,7 +370,7 @@ export function AddWorkspace({
                     if (prevPath != null) onJump(prevPath);
                   }}
                   data-attr={`${dataAttrPrefix}-back`}
-                  className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
+                  className="min-h-[44px] rounded-lg border border-[var(--input)] bg-card px-4 text-[13.5px] font-semibold text-foreground disabled:opacity-45 lg:min-h-9"
                 >
                   Back
                 </button>
@@ -381,7 +381,7 @@ export function AddWorkspace({
                   onClick={finish}
                   disabled={lastDisabled || busy}
                   data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
-                  className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+                  className="min-h-[44px] rounded-lg bg-primary px-4 text-[13.5px] font-semibold text-white disabled:opacity-60 lg:min-h-9"
                 >
                   {busy ? "Saving…" : footer.primaryLabel}
                 </button>
@@ -393,7 +393,7 @@ export function AddWorkspace({
                   aria-disabled={nextDisabled || Boolean(readiness) || steps[current]?.incomplete || undefined}
                   data-attr={`${dataAttrPrefix}-next`}
                   aria-label={nextPath != null ? `Next: ${steps[nextPath]!.label}` : "Next"}
-                  className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted"
+                  className="min-h-[44px] rounded-lg bg-primary px-4 text-[13.5px] font-semibold text-white disabled:opacity-45 aria-disabled:bg-border aria-disabled:text-muted lg:min-h-9"
                 >
                   {footer.primaryLabel}
                 </button>
@@ -403,7 +403,7 @@ export function AddWorkspace({
         }
       >
         {/* No bar for a one-step popup, nor for a tab rail (options, not steps). */}
-        {singleStep || tabRail ? null : <div className="mb-5 hidden gap-1 lg:flex" aria-label="Step progress">
+        {singleStep || tabRail ? null : <div className="mb-4 hidden gap-1 lg:flex" aria-label="Step progress">
           {steps.map((step, index) => <span key={step.id} data-step-progress={step.id} data-error={attemptedSteps.has(index) && Boolean(step.incomplete || (index === current && invalidFields.size)) || undefined} className={`h-1 flex-1 rounded-full ${attemptedSteps.has(index) && (step.incomplete || (index === current && invalidFields.size)) ? "bg-destructive" : index <= current ? "bg-primary" : "bg-border"}`} />)}
         </div>}
         {reviewEditLinks && (steps[current]?.id === "review" || steps[current]?.id === "preview") ? <nav aria-label="Edit reviewed sections" className="mb-5 flex flex-wrap gap-x-4 gap-y-2">

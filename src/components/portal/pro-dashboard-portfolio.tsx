@@ -122,7 +122,7 @@ export function PortfolioPropertyCard({
     <Link
       href={href}
       data-attr="dashboard-property-card"
-      className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      className="group flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-border bg-card transition-colors hover:border-foreground/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
     >
       <div className="relative h-[96px] w-full bg-[var(--secondary)]">
         {card.coverUrl ? (
@@ -200,12 +200,12 @@ export function PortfolioPropertiesSection({
   return (
     <section className="space-y-3" data-attr="dashboard-your-properties">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Your properties</h2>
+        <h2 className="text-[15px] font-[650] text-foreground">Your properties</h2>
         <div className="flex flex-wrap items-center gap-2">
           {addPropertyAction}
           <Link
             href={propertyListHref(basePath, "listed")}
-            className="inline-flex min-h-10 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-primary transition hover:bg-accent/70"
+            className="inline-flex min-h-10 items-center px-1 text-[13px] font-[550] text-primary hover:underline"
             data-attr="dashboard-manage-properties"
           >
             Manage properties →
@@ -222,12 +222,12 @@ export function PortfolioPropertiesSection({
           {[0, 1, 2].map((i) => (
             <div
               key={i}
-              className="h-[178px] animate-pulse rounded-2xl border border-border bg-accent/50 motion-reduce:animate-none"
+              className="h-[178px] animate-pulse rounded-[10px] border border-border bg-accent/50 motion-reduce:animate-none"
             />
           ))}
         </div>
       ) : shown.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted">
+        <p className="rounded-[10px] border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted">
           No properties yet. Add your first home to start leasing.
         </p>
       ) : (

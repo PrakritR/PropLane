@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CalendarDays, Clock, Landmark, Plus, Wallet } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalStatStrip } from "@/components/portal/portal-stat-strip";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
@@ -180,6 +181,15 @@ export function ManagerOutgoingInvoicesPanel({
   const filtered = rows.filter(passesFilters);
   const shownPayeePayments = tab === "paid" && !vendorFilter && !propertyFilter ? payeePayments.filter(row => matchesPortalListSearch(search, row.name, row.typeLabel, row.memo)) : [];
   const tabs = (["to-pay", "scheduled", "paid"] as const).map(id => ({ id, label: id === "to-pay" ? "To pay" : id === "paid" ? "Paid" : "Scheduled", count: filtered.filter(row => bucket(row) === id).length + (id === "paid" ? payouts.filter(row => !vendorFilter || row.vendorUserId === vendorFilter).length + (vendorFilter ? 0 : payeePayments.length) : 0) }));
+  // One card per tab, summed from the very rows the tab counts: the vendor bills in that bucket,
+  // plus (Paid only) the payouts and payee payments that tab lists beside them.
+  const bucketCents = (id: Bucket) => filtered.filter(row => bucket(row) === id).reduce((sum, row) => sum + row.totalCents, 0)
+    + (id === "paid"
+      ? payouts.filter(row => !vendorFilter || row.vendorUserId === vendorFilter).reduce((sum, row) => sum + row.amountCents, 0) + (vendorFilter ? 0 : payeePayments.reduce((sum, row) => sum + row.amountCents, 0))
+      : 0);
+  const statStrip = scoped || loading || error ? undefined : (
+    <PortalStatStrip dataAttr="outgoing-stat-strip" items={tabs.map(t => ({ id: t.id, label: t.label, value: money(bucketCents(t.id)), dataAttr: `outgoing-stat-${t.id}` }))} />
+  );
   const inBucket = filtered.filter(row => bucket(row) === tab);
   const shown = inBucket.filter(row => matchesPortalListSearch(search, row.vendorName, row.invoiceNumber, row.serviceTitle, row.propertyName, row.memo));
   const shownPayouts = tab === "paid" && !propertyFilter ? payouts.filter(row => (!vendorFilter || row.vendorUserId === vendorFilter) && matchesPortalListSearch(search, row.vendorName, row.workOrderId)) : [];
@@ -402,6 +412,7 @@ export function ManagerOutgoingInvoicesPanel({
             ),
           }
         : { destinations: tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: `${basePath}/outgoing/${t.id}`, dataAttr: `outgoing-tab-${t.id}` })), activeDestinationId: tab, destinationAriaLabel: "Outgoing payments" })}
+      stats={statStrip}
       search={{ value: search, onChange: setSearch, placeholder: "Search outgoing payments" }}
       actions={scoped ? null : (
         <PortalFilterSortSheet
