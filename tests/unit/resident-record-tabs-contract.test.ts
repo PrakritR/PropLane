@@ -161,7 +161,8 @@ describe("Background check tab: one Completed tab", () => {
   it("the body still renders the check panel, so a pending check is visible with its true status", () => {
     const residents = read("src/components/portal/pro-residents.tsx");
     expect(residents).toContain("<ManagerResidentBackgroundCheckPanel row={selectedApplicationRow} />");
-    expect(residents).toContain("residentBackgroundCheckCompletedCount(selectedApplicationRow)");
+    // The single "Completed" sub-tab is no longer drawn (one card of label/value rows instead).
+    expect(residents).not.toContain("RESIDENT_DETAIL_BACKGROUND_CHECK_TABS");
   });
 
   it("its header offers ordering a check and nothing to upload", () => {

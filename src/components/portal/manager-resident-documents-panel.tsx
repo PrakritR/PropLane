@@ -40,11 +40,15 @@ export function managerResidentDocCounts(
 export function ManagerResidentDocumentsPanel({
   sections,
   tab,
+  query = "",
 }: {
   sections: Partial<Record<ManagerResidentDocTabId, ManagerResidentDocumentRow[]>>;
   tab: ManagerResidentDocTabId;
+  /** The header card's search text; filters the open kind's files by name. */
+  query?: string;
 }) {
-  const rows = sections[tab] ?? [];
+  const needle = query.trim().toLowerCase();
+  const rows = (sections[tab] ?? []).filter((row) => !needle || row.name.toLowerCase().includes(needle));
 
   const emptyLine =
     tab === "application"

@@ -148,10 +148,10 @@ export function ManagerResidentApplicationFactCards({
   );
 
   return (
-    <div className="flex flex-wrap items-start gap-4">
-      <div className="min-w-0 flex-1 basis-[320px] space-y-4">{left}</div>
-      <div className="min-w-0 flex-1 basis-[320px] space-y-4">{right}</div>
-      {custom ? <div className="min-w-0 w-full space-y-4">{custom}</div> : null}
+    <div className="grid items-start gap-4 md:grid-cols-2" data-attr="resident-application-cards">
+      <div className="min-w-0 space-y-4">{left}</div>
+      <div className="min-w-0 space-y-4">{right}</div>
+      {custom ? <div className="min-w-0 space-y-4 md:col-span-2">{custom}</div> : null}
     </div>
   );
 }
