@@ -45,6 +45,8 @@ const REVIEWED: Record<string, string> = {
   // Inviter-side or explicitly checked.
   "lib/manager-property-share-access.ts": "inviter side: the viewer is the inviter",
   "app/api/manager/work-contact/route.ts": "checks team_role in the route",
+  // Admin-only, read-only: the account record lists every accepted link on purpose.
+  "lib/admin/admin-account-detail.server.ts": "admin record shows all accepted links, owner rows included, grants nothing",
   // Owner readers.
   "lib/property-owner/access.server.ts": "the owner readers",
 };

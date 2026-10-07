@@ -224,10 +224,8 @@ function AdminAccountsList() {
   // The match runs on the server (name, email, phone or PropLane ID) so the
   // three tab counts always describe the same query.
   useEffect(() => {
-    if (isDemoModeActive()) {
-      setLoading(false);
-      return;
-    }
+    // The public /demo renders its own panels; this list never loads real accounts there.
+    if (isDemoModeActive()) return;
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
@@ -281,7 +279,7 @@ function AdminAccountsList() {
     };
   }, [kind, reloadTick]);
 
-  const rows = result?.rows ?? [];
+  const rows = useMemo(() => result?.rows ?? [], [result]);
   const tierMatches = useCallback(
     (row: AdminAccountSearchRow) =>
       kind !== "manager" || tierFilter === "all" || (billingById[row.id]?.storedTier ?? "").toLowerCase() === tierFilter,

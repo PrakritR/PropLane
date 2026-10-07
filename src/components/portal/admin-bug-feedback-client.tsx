@@ -17,7 +17,8 @@ import {
   filterSingleSelectSummary,
   useFilterAccordionClose,
 } from "@/components/portal/filter-field-lists";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { Bug, Clock, MessageSquare } from "lucide-react";
+import { PortalEntryRow } from "@/components/portal/portal-entry-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { Button } from "@/components/ui/button";
 import { Select, Textarea } from "@/components/ui/input";
@@ -417,9 +418,16 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
         const open = expandedId === row.id;
         return (
           <div key={row.id}>
-            <PortalServiceRecordRow
+            <PortalEntryRow
+              tile={{ kind: "initials", label: row.reporterName || row.reporterEmail }}
               title={row.title}
-              subtitle={`${roleGroupLabelForFeedback(row.reporterRole)} · ${row.reporterName || row.reporterEmail} · ${formatWhen(row.createdAt)}`}
+              place={`${row.reporterName || row.reporterEmail} · ${roleGroupLabelForFeedback(row.reporterRole)}`}
+              facts={[
+                row.type === "bug"
+                  ? { icon: Bug, label: "Bug", srLabel: "Type" }
+                  : { icon: MessageSquare, label: "Feedback", srLabel: "Type" },
+                { icon: Clock, label: formatWhen(row.createdAt), srLabel: "Submitted" },
+              ]}
               selected={open}
               checked={selectedIds.has(row.id)}
               onSelectedChange={() => toggleSelected(row.id)}

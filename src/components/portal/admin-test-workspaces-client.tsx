@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Settings, ShieldCheck } from "lucide-react";
+import { Settings, ShieldCheck, Users } from "lucide-react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalEntryRow } from "@/components/portal/portal-entry-row";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
@@ -315,15 +315,20 @@ export function AdminTestWorkspacesClient({ detailId }: { detailId?: string } = 
           {visible.map((workspace) => {
             const activeMembers = workspace.members.filter((member) => member.state === "active").length;
             return (
-              <PortalPersonRecordRow
+              <PortalEntryRow
                 key={workspace.id}
-                name={workspace.name}
-                subtitle={`${activeMembers} active of ${workspace.members.length} accounts`}
-                preview="Dedicated test data and captured external effects"
-                meta={workspace.status === "active" ? "Active" : "Suspended"}
+                tile={{ kind: "glyph", icon: ShieldCheck, label: "Test workspace" }}
+                title={workspace.name}
+                facts={[
+                  {
+                    icon: Users,
+                    label: `${activeMembers} active of ${workspace.members.length} accounts`,
+                    srLabel: "Accounts",
+                  },
+                ]}
+                figure={workspace.status === "active" ? undefined : { value: "Suspended", tone: "bad" }}
                 onOpen={() => navigate(`/admin/test-accounts/${encodeURIComponent(workspace.id)}`)}
                 dataAttr="admin-test-workspace-row"
-                trailing={<ShieldCheck className="h-5 w-5 text-primary" aria-hidden />}
               />
             );
           })}
