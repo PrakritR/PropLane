@@ -612,16 +612,13 @@ export async function renderPortalSection(
   if (!meta) notFound();
 
   let managerOwnerSubscriptionTier: "free" | "paid" | null = null;
-  let effectiveWorkspaceUserId: string | null = null;
   if (kind === "manager" || kind === "pro") {
     if (kind === "pro") {
       const proRender = await getProPortalRenderContext();
-      effectiveWorkspaceUserId = proRender.effectiveUserId;
       managerOwnerSubscriptionTier = proRender.subscriptionTier;
     } else {
       const uid = await getEffectiveUserIdForPortal("manager");
       if (!uid) redirect("/admin/dashboard");
-      effectiveWorkspaceUserId = uid;
       managerOwnerSubscriptionTier = await getManagerPortalNavSubscriptionTier(uid);
     }
   }

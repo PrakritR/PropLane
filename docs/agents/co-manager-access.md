@@ -39,7 +39,13 @@ owner, and never remove or demote the last Admin (`canActOnMember`,
 an `all` link either: `mintInviteLink` caps the houses to the ones they hold
 AND stores the link as `selected`, because an `all` row would auto-fill a
 house that joins later from the role stamp with no cap re-applied
-(`tests/unit/mint-invite-link-delegate-house-cap.test.ts`). The pre-migration
+(`tests/unit/mint-invite-link-delegate-house-cap.test.ts`). Editing a membership
+is capped the same way: `PATCH /api/pro/account-links/[inviteId]` re-applies the
+module cap (`capTeamInvitePermissionsForDelegate`) over every house the write
+leaves behind (the ones already on the row as much as the ones it adds, since
+restamping a role rewrites the map for all of them) and refuses (403) a house
+the delegate's own membership does not reach
+(`tests/unit/property-owner-selected-houses-only.test.ts`). The pre-migration
 on-by-default flags were moved to `legacy_workspace_permissions` and shown to
 the owner as a review note on the member row; the next save clears them.
 `workspace_permissions` survives only on a Custom row.
@@ -70,8 +76,10 @@ Model + level helpers live in `src/lib/co-manager-permissions.ts`
 **Team role is a stamp + a label, never authorization.** The invite sheet's
 one access control sets Role and Houses (All houses in this workspace, the
 default, or Only selected) and shows a read-only "Role can" table; the
-13-module grid appears only on Custom. Roles: Viewer, Leasing, Property
-manager, Bookkeeper, Maintenance, Admin, Custom (`TEAM_ROLE_INVITE_OPTIONS`).
+13-module grid appears only on Custom. Roles: Property owner, Viewer, Leasing,
+Property manager, Bookkeeper, Maintenance, Admin, Custom
+(`TEAM_ROLE_INVITE_OPTIONS`). Property owner is the one role the Houses select
+offers no "All houses" for (§ Property owner).
 A named role writes the permission map; Custom keeps the current map. Gates
 still read `property_co_manager_permissions`. A forged `teamRole: "admin"`
 with an empty map grants nothing. Catalog: `src/lib/co-manager-team-roles.ts`.
@@ -652,7 +660,11 @@ rewrites the map for all of them. An owner invite also never starts from
 "All houses": the investor's houses are picked on purpose, and every editor
 coerces the scope through `houseScopeForRoleChange` so a member switched to the
 role carries their current houses over instead of saving a shape the server
-refuses.
+refuses. The server is the one that decides: an explicit `houseScope: "all"` on
+the invite POST, the mint or the PATCH is a 400 (`OWNER_SELECTED_ONLY_ERROR`), a
+defaulted scope is coerced to `selected`, and an owner row with no house is a 400
+(`OWNER_NEEDS_HOUSE_ERROR`). A legacy link stored as `all` redeems as `selected`
+over the houses it names, or refuses when it names none.
 Accepting an owner invite does not rewrite `profiles.role` — an existing
 resident or vendor keeps the role their account was created as.
 
