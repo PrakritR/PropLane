@@ -236,6 +236,7 @@ export function PortalListControlStack({
    * into the record header, so a record's constant header icons (Edit, Delete) are never replaced.
    */
   controlsInBand?: boolean;
+  /**
    * A PortalStatStrip between the tabs and the tools line (money lists: the bucket totals).
    * A band that carries one scrolls with the page instead of sticking, so the strip never
    * pins a third of a phone screen.
