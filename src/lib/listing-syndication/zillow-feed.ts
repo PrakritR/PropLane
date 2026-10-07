@@ -23,7 +23,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import { buildManagerListingUrl } from "@/lib/manager-property-links";
 
-export type ZillowFeedExclusionReason = "no_street_address" | "no_photo";
+export type ZillowFeedExclusionReason = "no_street_address" | "no_photo" | "no_work_number";
 
 export type ZillowFeedExclusion = {
   propertyId: string;
@@ -146,6 +146,9 @@ function buildListingElement(
   const sub = property.listingSubmission;
   const photos = sub ? listingSyndicationPhotoUrls(sub) : [];
   if (photos.length === 0) reasons.push("no_photo");
+  // Zillow receives the workspace work number or nothing: a listing with no work number is held out
+  // of the feed rather than published with no way to reach the manager (or a personal phone).
+  if (!property.contactSmsPhone?.trim()) reasons.push("no_work_number");
   if (reasons.length > 0 || !sub) {
     return { excluded: { propertyId: property.id, reasons: reasons.length > 0 ? reasons : ["no_street_address"] } };
   }

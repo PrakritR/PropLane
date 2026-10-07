@@ -1,6 +1,7 @@
 "use client";
 
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { promotionWorkContactLine } from "@/lib/promotion-default-sync";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -223,7 +224,7 @@ export function ManagerPropertyPromotionPanel({
   const workPhone = useListingContactSmsPhone({ listingId, viewerManagerUserId: userId });
   const autofillOpts = useMemo(
     () => ({
-      managerContact: [workPhone, workEmail].filter(Boolean).join(" · "),
+      managerContact: promotionWorkContactLine(workPhone, workEmail),
       appOrigin: typeof window !== "undefined" ? window.location.origin : "",
     }),
     [workPhone, workEmail],

@@ -1,4 +1,5 @@
 "use client";
+import { promotionWorkContactLine } from "@/lib/promotion-default-sync";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { LISTING_CHANNEL_DEFS } from "@/lib/listing-channels/registry";
@@ -278,7 +279,7 @@ export function ManagerPromotion({
   const workPhone = useListingContactSmsPhone({ viewerManagerUserId: userId });
   const autofillOpts = useMemo(
     () => ({
-      managerContact: [workPhone, workEmail].filter(Boolean).join(" · "),
+      managerContact: promotionWorkContactLine(workPhone, workEmail),
       appOrigin: typeof window !== "undefined" ? window.location.origin : "",
     }),
     [workPhone, workEmail],
