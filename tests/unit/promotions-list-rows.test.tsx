@@ -163,7 +163,11 @@ describe("Promotions card rows", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Cedar Lane — Instagram caption/i }), {
       key: "ArrowDown",
     });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const del = await screen.findByRole("menuitem", { name: "Delete" });
+    // Destructive items ignore a tap inside the settle window after the menu opens (stray iOS taps);
+    // a real user's click lands after it (RECORD_ACTION_DESTRUCTIVE_SETTLE_MS = 150), so the test waits it out.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    fireEvent.click(del);
     // The row keeps its flyer entry, so deleting the text entry updates the
     // row rather than removing it outright.
     await waitFor(() => {
