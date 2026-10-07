@@ -85,6 +85,9 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
   const [index, setIndex] = useState(0);
   /** A sidebar click pins a tab: the window stops following the story and the cursor leaves. */
   const [tabOverride, setTabOverride] = useState<string | null>(null);
+  // Replies a visitor types to the prospect in the demo inbox. Kept here so the thread and the phone both
+  // show them; cleared when the story restarts or the portal changes.
+  const [sampleReplies, setSampleReplies] = useState<string[]>([]);
   const [reduced, setReduced] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -217,9 +220,15 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
     };
   }, [reduced]);
 
+  // The story looping back to its first step starts a fresh thread.
+  useEffect(() => {
+    if (index === 0) setSampleReplies([]);
+  }, [index]);
+
   const switchPortal = (nextPortal: DemoPortal) => {
     setPortal(nextPortal);
     setIndex(0);
+    setSampleReplies([]);
     clicked.current = -1;
     setTabOverride(null);
     // The menu item that was focused is gone; no blur follows its removal.
@@ -235,7 +244,10 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
 
   // The phone: the lines so far from its owner's side, drawn from the other side for the resident portal.
   const meta = PHONE_META[portal];
-  const owned = threadItems(portal, state.shown);
+  const owned = [
+    ...threadItems(portal, state.shown),
+    ...(portal === "manager" ? sampleReplies.map((text) => ({ kind: "in" as const, text })) : []),
+  ];
   const items = meta.mirror ? mirrorItems(owned) : owned;
   const upcoming = typing ? frames[state.shown]?.message.kind : undefined;
   const typingSide = upcoming ? (meta.mirror ? (upcoming === "in" ? "out" : "in") : upcoming) : null;
@@ -297,11 +309,14 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
                   >
                     {isCommunication ? (
                       <ManagerCommunication
-                        messages={managerMessages(state.shown)}
+                        messages={[...managerMessages(state.shown), ...sampleReplies.map((text) => ({ from: "manager" as const, text }))]}
                         typing={typing}
                         draft={state.draft ? DRAFT_REPLY : null}
                         onApprove={approveDraft}
-                        onReply={() => true}
+                        onReply={(text) => {
+                          setSampleReplies((current) => [...current, text]);
+                          return true;
+                        }}
                       />
                     ) : (
                       <div className="rlp-panel-frame" data-demo-panel={`${portal}:${activeTab}`}>
