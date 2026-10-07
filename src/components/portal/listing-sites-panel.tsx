@@ -9,7 +9,6 @@ import {
   Home,
   MapPin,
   Megaphone,
-  Send,
   Share2,
   Sofa,
   Undo2,
@@ -18,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
@@ -310,7 +310,7 @@ export function WorkspaceListingSitesPanel() {
   return (
     <div data-attr="promotion-listing-sites">
       <IntegrationRow
-        icon={Send}
+        icon={ProPlaneMarkIcon}
         tone="text-primary"
         name="Show Listed with PropLane"
         dataAttr="promotion-listed-with-proplane-row"

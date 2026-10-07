@@ -310,7 +310,7 @@ text is reserved for a data-commit (Save) or a destructive confirm. See
 
 # Brand assets (PropLane)
 
-User-visible name is **PropLane**. Mark is the paper-plane glyph, never "AX".
+User-visible name is **PropLane**. Mark is the house mark (rounded house/chevron outline with an X — `public/brand/proplane-mark.svg`), never a paper plane and never "AX".
 Keep `src/app/icon.svg` and `src/app/favicon.ico` in sync. Lockup:
 `src/components/brand/axis-logo.tsx`. iOS assets: `scripts/generate-brand-assets.mjs`.
 
