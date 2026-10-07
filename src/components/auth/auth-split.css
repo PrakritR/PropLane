@@ -129,8 +129,26 @@
     background-color: #fff;
   }
 
+  /* A phone field is a country picker joined to a number input: keep them one 50px control. */
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel input[type="tel"] {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel :is([data-attr="phone-country"], [data-attr$="-country"]) {
+    min-height: 50px;
+    border-radius: 12px 0 0 12px;
+  }
+
+  /* Pill primaries that are not .btn-cobalt (reset password, setup steps) follow the same 12px shape. */
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel button.w-full.rounded-full:not(.auth-oauth-google):not(.auth-oauth-apple) {
+    min-height: 50px;
+    border-radius: 12px;
+    box-shadow: none;
+  }
+
   /* OAuth: full-width outlined buttons (Apple stays the filled one it already is). */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel .auth-oauth-stack > button {
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel :is(.auth-oauth-apple, .auth-oauth-google) {
     min-height: 48px;
     border-radius: 12px;
     font-size: 15px;
