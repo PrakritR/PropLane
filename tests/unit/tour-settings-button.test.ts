@@ -7,7 +7,8 @@ const TOURS = readFileSync(join(process.cwd(), "src/components/portal/pro-tours.
 const RESIDENTS = readFileSync(join(process.cwd(), "src/components/portal/pro-residents.tsx"), "utf8");
 
 /**
- * Tour rules live on a resident's own Tours subsection, and nowhere else.
+ * Tour rules live in Settings -> Automations -> Tours; a resident's own Tours
+ * subsection carries the only gear, and it is a link there (no pop-up).
  *
  * The Calendar used to carry a Settings button opening the very same panel —
  * notice required, auto-confirm, tour reminders. Sitting on the Calendar it read
@@ -30,7 +31,9 @@ describe("tour settings entry point", () => {
     expect(TOURS).not.toContain("toursSettingsEntry");
   });
 
-  it("is reachable from a resident's Tours subsection", () => {
-    expect(RESIDENTS).toContain('openResidentDetailSettings("tours")');
+  it("is reachable from a resident's Tours subsection as a link to Settings -> Automations -> Tours", () => {
+    expect(RESIDENTS).toContain('<ManagerSettingsGear');
+    expect(RESIDENTS).toContain('target="tours"');
+    expect(RESIDENTS).not.toContain("openResidentDetailSettings");
   });
 });

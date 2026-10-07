@@ -28,15 +28,18 @@ export function PortalSettingsSection({
   title,
   action,
   children,
+  id,
 }: {
   title: string;
   action?: ReactNode;
   children: ReactNode;
+  /** Anchor a settings gear links to (`/portal/profile?tab=…#<id>`). */
+  id?: string;
 }) {
   const titleStyle = useContext(PortalSettingsTitleStyleContext);
   return (
     <PortalTitleActionsProvider>
-      <section data-slot="settings-section" className="space-y-2">
+      <section data-slot="settings-section" id={id} className="scroll-mt-4 space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             {titleStyle === "heading" ? (

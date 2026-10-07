@@ -6,7 +6,7 @@ import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-cop
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 
-import { ArrowUpRight, FileCheck2, Filter, Mail, MapPin, MessageSquare, Phone, Settings, ShieldCheck, Star, UserRound, Wrench } from "lucide-react";
+import { ArrowUpRight, FileCheck2, Filter, Mail, MapPin, MessageSquare, Phone, ShieldCheck, Star, UserRound, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -44,7 +44,7 @@ import {
   type ManagerVendorInvitePreview,
   type ManagerVendorRemovalPreview,
 } from "@/lib/manager-vendor-invite-client";
-import { ManagerVendorDefaultsModal } from "@/components/portal/pro-vendor-defaults-modal";
+import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
 import { ManagerVendorFormModal } from "@/components/portal/pro-vendor-form-modal";
 import {
   PortalNotificationPreviewModal,
@@ -69,7 +69,6 @@ import {
 import { type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
 import { catalogVendorMatchesTradeArea, listManagerCatalogVendors } from "@/lib/vendor-catalog-list";
 import { RecordActionContext } from "@/components/ui/record-action-context";
-import { stageManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { findRosterCatalogMatch } from "@/lib/manager-vendor-typical-rates";
 import {
@@ -94,25 +93,13 @@ const vendorsSettingsEntry = getSettingsEntryPoint("vendors");
 
 export type ManagerVendorsPanelHandle = {
   openCatalog: () => void;
-  openDefaults: (trade?: string) => void;
   openAddVendor: (trade?: string) => void;
 };
 
-/** Defaults as a plain icon; "Add vendor" is the bar's filled primary.
+/** Defaults gear links to Settings → Automations → Vendors; "Add vendor" is the bar's filled primary.
  *  Catalog lives in the Add vendor workspace (Who can handle), not a second modal. */
-export function ManagerVendorsToolbar({
-  onDefaults,
-}: {
-  onDefaults: () => void;
-}) {
-  return (
-    <PortalIconAction
-      icon={Settings}
-      label={vendorsSettingsEntry.label}
-      onClick={onDefaults}
-      data-attr={vendorsSettingsEntry.dataAttr}
-    />
-  );
+export function ManagerVendorsToolbar() {
+  return <ManagerSettingsGear target="vendors" label={vendorsSettingsEntry.label} dataAttr={vendorsSettingsEntry.dataAttr} />;
 }
 
 /**
@@ -141,7 +128,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     vendorId: vendorIdProp,
     vendorTab: vendorTabProp,
     listBasePath,
-    smsUiEnabled = false,
   }: {
     /** When true, render inside Services tab shell (no duplicate page header). */
     embedded?: boolean;
@@ -150,8 +136,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     vendorId?: string;
     vendorTab?: string;
     listBasePath?: string;
-    /** `isSmsCommUiEnabled()`: when false the Text actions are hidden, like the New message Text channel. */
-    smsUiEnabled?: boolean;
   },
   ref: React.Ref<ManagerVendorsPanelHandle>,
 ) {
@@ -160,21 +144,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const searchParams = useSearchParams();
   const portalBase = usePaidPortalBasePath();
   const basePath = listBasePath ?? portalBase;
-  /** Open New message on this vendor, by text, from the workspace work number. */
-  const textVendor = useCallback(
-    (vendorRowId: string) => {
-      stageManagerComposePrefill({ subject: "", body: "", vendorRecordId: vendorRowId });
-      navigate(`${portalBase}/communication/active`);
-    },
-    [navigate, portalBase],
-  );
   const { userId, ready: authReady } = useManagerUserId();
   const workspaces = useWorkspaces();
   const workspacePropertyIds = workspaces?.active?.propertyIds ?? NO_WORKSPACE_PROPERTY_IDS;
   const [tick, setTick] = useState(0);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection();
-  const [showDefaults, setShowDefaults] = useState(false);
-  const [defaultsTrade, setDefaultsTrade] = useState<string | undefined>(undefined);
   const [invitePreview, setInvitePreview] = useState<ManagerVendorInvitePreview | null>(null);
   const [invitePreviewBusy, setInvitePreviewBusy] = useState(false);
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview[] | null>(null);
@@ -402,11 +376,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   }, [routeVendor?.id, userId]);
 
 
-  const openDefaultsForm = useCallback((trade?: string) => {
-    setDefaultsTrade(trade);
-    setShowDefaults(true);
-  }, []);
-
   const openAddVendorForm = useCallback((trade?: string, fromCatalog?: AxisCatalogVendor | null) => {
     setVendorFormMode("add");
     setEditingVendor(null);
@@ -438,10 +407,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     ref,
     () => ({
       openCatalog: openAddVendorForm,
-      openDefaults: openDefaultsForm,
       openAddVendor: openAddVendorForm,
     }),
-    [openAddVendorForm, openDefaultsForm],
+    [openAddVendorForm],
   );
 
   function deleteVendorQuiet(id: string): boolean {
@@ -693,15 +661,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           setEditingVendor(null);
         }}
       />
-      <ManagerVendorDefaultsModal
-        open={showDefaults}
-        onClose={() => {
-          setShowDefaults(false);
-          setDefaultsTrade(undefined);
-        }}
-        initialTrade={defaultsTrade}
-        onAddForCategory={(trade) => openAddVendorForm(trade)}
-      />
       <PortalNotificationPreviewModal
         open={invitePreview !== null}
         title="Send vendor invite — notification preview"
@@ -807,11 +766,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         : "overview";
     const baseSections = recordSections("manager", "vendor", { basePath });
     // A vendor who was already invited is re-invited, not invited: the same icon, the honest word.
-    const canTextRouteVendor = smsUiEnabled && Boolean(routeVendor.phone.trim());
     const sections = {
       ...baseSections,
       headerActions: baseSections.headerActions
-        .filter((action) => action.id !== "text" || canTextRouteVendor)
         .map((action) =>
           action.id === "invite" && routeVendor.invitedAt && !routeVendor.vendorUserId
             ? { ...action, label: "Resend invite" }
@@ -821,10 +778,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     const onVendorHeaderAction = (actionId: string) => {
       if (actionId === "message") {
         navigate(vendorDetailHref(basePath, routeVendor.id, "communication"));
-        return;
-      }
-      if (actionId === "text") {
-        textVendor(routeVendor.id);
         return;
       }
       if (actionId === "edit") {
@@ -951,18 +904,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       if (catalogDetail) openAddVendorForm(catalogDetail.trade, catalogDetail);
       return;
     }
-    if (actionId === "email" || actionId === "compose") {
+    if (actionId === "compose") {
       if (catalogDetailId) {
         setCatalogComposeOpen(true);
         navigate(vendorCatalogDetailHref(basePath, catalogDetailId, "communication"));
       }
-      return;
-    }
-    if (actionId === "share" && catalogDetailId) {
-      void navigator.clipboard.writeText(
-        `${window.location.origin}${vendorCatalogDetailHref(basePath, catalogDetailId, catalogDetailTab)}`,
-      );
-      showToast("Vendor link copied.");
       return;
     }
   };
@@ -1076,7 +1022,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         section="vendors"
         title={portalEmptyCopy("vendors.catalog").title}
         workspaceAware
-        actions={[{ label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-catalog-empty-add" }]}
         dataAttr="vendors-catalog-empty"
       />
     ) : directoryTab === "catalog" && visibleCatalogRows.length === 0 ? (
@@ -1149,9 +1094,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         actions={
           bare
             ? [{ label: "Open Vendors", href: vendorListHref(basePath), dataAttr: "settings-vendors-empty-open", icon: null }]
-            : [
-                { label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-empty-add" },
-              ]
+            : []
         }
         dataAttr="vendors-empty"
       />
@@ -1171,23 +1114,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               ? `${reviewAggregate.average?.toFixed(1)} (${reviewAggregate.count})`
               : undefined;
           return (
-            <RecordActionContext.Provider
-              key={row.id}
-              value={
-                smsUiEnabled && phone
-                  ? {
-                      scope: row.id,
-                      clear: () => {},
-                      actions: (
-                        <DropdownMenuItem data-attr="vendor-row-text" onSelect={() => textVendor(row.id)}>
-                          Text
-                        </DropdownMenuItem>
-                      ),
-                    }
-                  : null
-              }
-            >
             <PortalApplicantRecordRow
+              key={row.id}
               name={row.name}
               // C267: "Not set" is the app's one empty-value word (C254);
               // "—" stays only for the unused count/rating/money state.
@@ -1229,7 +1157,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               onOpen={() => openVendorDetail(row)}
               dataAttr="vendor-list-row"
             />
-            </RecordActionContext.Provider>
           );
         })}
       </div>
@@ -1389,7 +1316,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           data-attr="vendor-directory-filter-toggle"
         />
       ) : null}
-      <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
+      <ManagerVendorsToolbar />
     </>
   );
 

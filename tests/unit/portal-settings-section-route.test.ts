@@ -72,9 +72,9 @@ describe("parseManagerSettingsAreaTab", () => {
 });
 
 describe("managerSettingsHubTab", () => {
-  it("folds communication into messaging and automation into reminders", () => {
+  it("folds communication and automation (reminders) into messaging", () => {
     expect(managerSettingsHubTab("communication")).toBe("messaging");
-    expect(managerSettingsHubTab("automation")).toBe("reminders");
+    expect(managerSettingsHubTab("automation")).toBe("messaging");
     expect(managerSettingsHubTab("properties")).toBe("applications");
     expect(managerSettingsHubTab(null)).toBe("applications");
     expect(managerSettingsHubTab("payouts")).toBe("payments");
@@ -87,7 +87,8 @@ describe("resolveSettingsRedirectHubTab", () => {
     expect(resolveSettingsRedirectHubTab("plan")).toBe("billing");
     expect(resolveSettingsRedirectHubTab("payouts")).toBe("payments");
     expect(resolveSettingsRedirectHubTab("communication")).toBe("messaging");
-    expect(resolveSettingsRedirectHubTab("automation")).toBe("reminders");
+    expect(resolveSettingsRedirectHubTab("automation")).toBe("messaging");
+    expect(resolveSettingsRedirectHubTab("reminders")).toBe("messaging");
     expect(resolveSettingsRedirectHubTab("not-a-real-module")).toBeNull();
   });
 });
@@ -96,6 +97,8 @@ describe("managerSettingsProfilePath", () => {
   it("points at the Profile hub", () => {
     expect(managerSettingsProfilePath("payouts")).toBe("/portal/profile?tab=payments");
     expect(managerSettingsProfilePath("communication")).toBe("/portal/profile?tab=messaging");
+    // `?tab=reminders` is a removed Settings tab; the reminder links must never point at it.
+    expect(managerSettingsProfilePath("automation")).toBe("/portal/profile?tab=messaging");
   });
 });
 

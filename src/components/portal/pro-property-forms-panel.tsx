@@ -13,7 +13,7 @@ import { PropertyMoveInFormsPanel } from "@/components/portal/move-in-forms/prop
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
-import { usePropertyMoveInSettings } from "@/components/portal/property-move-in-settings";
+import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
 import type { ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { moveInFormStayTabs } from "@/lib/move-in-forms/stays";
@@ -28,7 +28,6 @@ export function ManagerPropertyFormsPanel({
   canEdit,
   onUpdated,
   showToast,
-  propertyLabel,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: ManagerPropertySaveTarget | null;
@@ -36,12 +35,10 @@ export function ManagerPropertyFormsPanel({
   canEdit: boolean;
   onUpdated: () => void;
   showToast: (message: string) => void;
-  /** For the Settings gear's "Applies to" row. */
   propertyLabel?: string;
 }) {
   const [formStay, setFormStay] = useState<PropertyStay>("long_term");
   const [chooserOpen, setChooserOpen] = useState(false);
-  const settings = usePropertyMoveInSettings({ sub, saveTarget, managerUserId, canEdit, onUpdated, showToast, propertyLabel });
 
   // Each form shows under the stay(s) its "Applies to" names; a form for both is in both tabs. A stay the
   // property does not allow gets no tab unless it still holds a form for that stay alone (nothing is hidden).
@@ -68,14 +65,13 @@ export function ManagerPropertyFormsPanel({
 
   return (
     <PortalPropertyDetailSection>
-      {settings.modal}
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
         destinationRow={stayNav}
         activeDestinationId={openFormStay}
         destinationAriaLabel="Forms"
-        actions={settings.gear}
+        actions={<ManagerSettingsGear target="moveInForms" label="Move-in settings" dataAttr="property-move-in-settings-open" />}
         primary={
           canEdit ? (
             <PortalPrimaryIconAction

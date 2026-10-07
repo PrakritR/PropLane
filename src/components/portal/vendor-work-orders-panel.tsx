@@ -5,14 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, Clock, MessageSquare, Navigation, Send, Settings, Sparkles, type LucideIcon } from "lucide-react";
+import { CalendarDays, Check, Clock, MessageSquare, Navigation, Send, Sparkles, type LucideIcon } from "lucide-react";
 import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
 import { ServiceStageStepper } from "@/components/portal/service-details-section";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { ServiceIntakePhotoPicker } from "@/components/portal/service-intake-form-fields";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
-import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
+import { VendorSettingsGear } from "@/components/portal/vendor-settings-gear";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { VendorEstimateBidSection } from "@/components/portal/vendor-estimate-bid-section";
 import { VendorFindWorkList } from "@/components/portal/vendor-find-work-list";
@@ -189,7 +189,6 @@ export function VendorWorkOrdersPanel({
   const [search, setSearch] = useState("");
   const [propertyFilter, setPropertyFilter] = useState("");
   const answerSubmitRef = useRef<(() => void) | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const isFindWork = tabId === VENDOR_FIND_WORK_TAB;
   // The stage the list filters by; Find work is not a stage, so it never reaches stage code.
   const stageTabId: VendorWorkOrderTab | null = tabId === VENDOR_FIND_WORK_TAB ? null : tabId;
@@ -1161,11 +1160,10 @@ export function VendorWorkOrdersPanel({
                       : []
                 }
               />
-              <PortalIconAction
-                icon={Settings}
+              <VendorSettingsGear
+                section="services"
                 label={servicesSettingsEntry.label}
-                data-attr={servicesSettingsEntry.dataAttr}
-                onClick={() => setSettingsOpen(true)}
+                dataAttr={servicesSettingsEntry.dataAttr}
               />
             </>
           }
@@ -1229,11 +1227,6 @@ export function VendorWorkOrdersPanel({
           setInvoiceListRow(null);
           void loadInvoices();
         }}
-      />
-      <VendorSectionSettingsModal
-        open={settingsOpen}
-        title={servicesSettingsEntry.dialogTitle}
-        onClose={() => setSettingsOpen(false)}
       />
     </ManagerPortalPageShell>
   );

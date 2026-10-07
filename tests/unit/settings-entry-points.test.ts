@@ -110,7 +110,7 @@ describe("settings entry points registry", () => {
 });
 
 /**
- * Old, pre-migration `data-attr` literal for each of the thirteen entry-point
+ * Old, pre-migration `data-attr` literal for each of the remaining entry-point
  * files (see the task brief's inventory table). None of these strings may
  * survive in the file that used to hardcode it — every one now reads its
  * label/data-attr from the shared registry above instead.
@@ -128,7 +128,6 @@ const OLD_DATA_ATTR_BY_FILE: Record<string, string> = {
   "src/components/portal/pro-all-services-panel.tsx": "services-settings-open",
   "src/components/portal/pro-vendors-panel.tsx": "manager-vendor-defaults-open",
   "src/components/portal/pro-residents.tsx": "residents-settings-open",
-  "src/components/portal/resident-detail-subsection-chrome.tsx": "resident-detail-settings",
 };
 
 describe("settings entry-point migration sweep (node:fs)", () => {
