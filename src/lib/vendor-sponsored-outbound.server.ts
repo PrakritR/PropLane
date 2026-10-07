@@ -20,6 +20,7 @@ import {
 import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { touchVendorNumberConversation } from "@/lib/vendor-number-conversations.server";
 
 type Recipient = { userId: string | null; email: string; role: string; phone?: string | null };
 
@@ -252,6 +253,17 @@ export async function sendVendorSponsoredOutbound(
   );
   if (!delivered.ok && !delivered.authorized) return { ok: false, error: "delivery_refused", reason: delivered.reason };
   const delivery = delivered.sent ? "sent" as const : delivered.reason === "provider_outcome_unknown" ? "sending" as const : "failed" as const;
+  // A text the vendor sent through their number keeps that manager's conversation "recent" for reply routing.
+  if (request.channel === "sms" && delivered.sent) {
+    try {
+      const { data: identity } = await db.from("vendor_work_identities").select("id").eq("vendor_user_id", actor.userId).maybeSingle();
+      const identityId = String((identity as { id?: unknown } | null)?.id ?? "");
+      if (identityId) await touchVendorNumberConversation(db, { identityId, vendorUserId: actor.userId, counterpartPhone: deliveryRecipient, direction: "outbound" });
+    } catch (error) {
+      // Best effort: a missed touch only means routing falls back to the prompt, never a failed send.
+      console.error("vendor number conversation touch failed", error);
+    }
+  }
 
   const messageId = `vendor-sponsored:${request.sendId}`;
   if (target) {

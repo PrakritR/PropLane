@@ -8,6 +8,7 @@ import { track } from "@/lib/analytics/posthog";
 import { MANUAL_SMS_UNKNOWN_MESSAGE } from "@/lib/sms/manual-send-attempt";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import { isVendorCategorySettingsRow, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { getActiveVendorNumber } from "@/lib/vendor-work-identity.server";
 import {
   VENDOR_CONVERSATION_PURPOSE,
   VENDOR_TEXT_ATTESTATION_SOURCE,
@@ -442,9 +443,13 @@ export async function readRosterVendorTextStatus(
     !(await hasAcceptedManagerVendorText(db, ownerManagerUserId, rosterPhone));
   const needsAttestation = consent.state === "none";
   const lineId = needsAttestation || awaitingFirst ? await existingVendorThreadLine(db, ownerManagerUserId, rosterPhone) : null;
+  // A vendor with an active PropLane work number is texted AT that number; the
+  // thread header shows it so the manager knows where the text lands.
+  const workNumber = vendorUserId ? await getActiveVendorNumber(db, vendorUserId).then((n) => n?.phoneNumber ?? null, () => null) : null;
   return response({
     ok: true,
     phone: rosterPhone,
+    workNumber,
     needsAttestation,
     optedOut,
     ...(needsAttestation ? { senderLine: await senderLineFor(db, args.actorUserId, lineId ?? (await onlyWorkLineId(db, ownerManagerUserId))) } : {}),

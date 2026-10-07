@@ -418,14 +418,10 @@ const WORK_CONTACT_FIELDS = ["workPhone", "workEmail"] as const;
 /**
  * Merged "Work contact & email" (VD04/VD05) — the vendor's own free-text
  * business phone/email (autosaving), plus the free PropLane-provisioned work
- * email claim. There is no PropLane text number for a vendor (retired Oct 6):
- * managers text the vendor's saved phone from THEIR work number, and the
- * vendor's earlier conversations link once they verify that phone by code
- * (Settings > Messaging, and onboarding). Forward-to-personal
- * toggles from the studio plan are deliberately NOT built here — no
- * forward_to_phone/forward_to_email column or delivery path exists on
- * vendor_work_identities today, and a toggle with nothing behind it would be
- * a fabricated control.
+ * email claim. The PropLane text number, its forwarding toggle and the usage
+ * line are the separate Settings > Work number & email page
+ * (vendor-work-number-settings.tsx); a vendor claims one once their phone is
+ * verified (Settings > Messaging, and onboarding).
  */
 export function VendorWorkIdentitySection({ ctx }: { ctx: Ctx }) {
   const { draft, setDraft, fieldState, fieldError, commit, sectionState } = useBusinessProfileAutosave(

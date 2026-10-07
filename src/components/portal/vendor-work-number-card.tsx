@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * The vendor's work EMAIL card. There is no PropLane text number for a vendor
- * (retired Oct 6): managers text the vendor's own phone from their work number.
- * Business contacts and the sponsored email identity load independently.
+ * The vendor's work EMAIL card. The vendor's PropLane text number (claimed with a
+ * verified phone, Oct 6) lives in Settings > Work number & email; this card is the
+ * email only. Business contacts and the sponsored email identity load independently.
  */
 import { useEffect, useState } from "react";
 import { Copy, Check, RefreshCw } from "lucide-react";

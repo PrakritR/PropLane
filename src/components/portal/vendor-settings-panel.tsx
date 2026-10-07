@@ -7,6 +7,8 @@ import {
   Bell,
   Building2,
   CalendarDays,
+  CalendarSync,
+  MessageSquareText,
   Landmark,
   Lock,
   Mail,
@@ -51,6 +53,8 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, isDemoModeActive } from "@/lib/demo/demo-session";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { VendorAvailabilityEditor } from "@/components/portal/vendor-availability-editor";
+import { VendorIntegrationsSettings } from "@/components/portal/vendor-integrations-settings";
+import { VendorWorkNumberSettings } from "@/components/portal/vendor-work-number-settings";
 
 const SETTINGS_TAB_PARAM = "tab";
 
@@ -62,6 +66,8 @@ type VendorSettingsGroupId =
   | "profile"
   | "capabilities"
   | "availability"
+  | "integrations"
+  | "work-number-email"
   | "messaging"
   | "preferences"
   | "security"
@@ -393,6 +399,13 @@ export function VendorSettingsPanel() {
         group: "Business",
       },
       {
+        id: "integrations",
+        label: "Integrations",
+        description: "Google Calendar, your calendar link, and other platforms.",
+        icon: CalendarSync,
+        group: "Business",
+      },
+      {
         id: "payouts",
         label: "Payouts",
         // Always the vendor's OWN Stripe Connect account — never a workspace's bank.
@@ -405,6 +418,13 @@ export function VendorSettingsPanel() {
         label: "Notifications",
         description: "Which events reach your inbox and phone.",
         icon: Bell,
+        group: "Account",
+      },
+      {
+        id: "work-number-email",
+        label: "Work number & email",
+        description: "Your PropLane number and email for managers.",
+        icon: MessageSquareText,
         group: "Account",
       },
       {
@@ -669,6 +689,10 @@ export function VendorSettingsPanel() {
         // VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT contract. A second,
         // settings-local editor used to live in this file; it has been removed.
         return <VendorAvailabilityEditor dialog={false} />;
+      case "integrations":
+        return <VendorIntegrationsSettings />;
+      case "work-number-email":
+        return <VendorWorkNumberSettings />;
       case "messaging":
         return (
           <>

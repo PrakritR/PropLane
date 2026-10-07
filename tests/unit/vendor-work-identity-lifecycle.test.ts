@@ -20,6 +20,7 @@ function fakeDb() {
     q.select = () => q;
     q.eq = () => q;
     q.in = () => q;
+    q.gte = () => q;
     q.order = () => q;
     q.limit = () => q;
     q.update = (value: unknown) => { writes.push({ table, value }); return q; };
@@ -41,6 +42,7 @@ function fakeProvider(): VendorWorkIdentityProvider {
     smsConfigured: () => true,
     emailDomainReadiness: vi.fn(),
     findSmsByOperation: vi.fn().mockResolvedValue({ phoneNumber: "+12065550111", phoneSid: "PN1" }),
+    purchaseSms: vi.fn(),
     attachSms: vi.fn(),
     inspectSms: vi.fn().mockResolvedValue({ phoneNumber: "+12065550111", attached: true, carrierReady: true }),
   };
@@ -53,6 +55,7 @@ describe("vendor work identity reconciliation", () => {
     const provider = fakeProvider();
     await reconcileVendorWorkIdentity(db, "vendor-1", provider);
     expect(provider.findSmsByOperation).toHaveBeenCalledWith("operation-1");
+    expect(provider.purchaseSms).not.toHaveBeenCalled();
     expect(provider.inspectSms).toHaveBeenCalledWith({ phoneSid: "PN1", messagingServiceSid: expect.any(String) });
     expect(provider.attachSms).not.toHaveBeenCalled();
     expect(writes).toContainEqual(expect.objectContaining({ table: "vendor_work_identities" }));
@@ -79,5 +82,6 @@ describe("vendor work identity reconciliation", () => {
     (provider.findSmsByOperation as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("network timeout"));
     await expect(reconcileVendorWorkIdentity(db, "vendor-1", provider)).rejects.toThrow("network timeout");
     expect(writes).toEqual([]);
+    expect(provider.purchaseSms).not.toHaveBeenCalled();
   });
 });

@@ -272,6 +272,24 @@ verification) and records nothing until that lands.
 Local SMS proof: `SERVICE_LINK_SMS_SANDBOX=1` under `next dev` runs the send inside the SMS test transport, which
 captures the text instead of delivering it; it is inert in any deployed build.
 
+## Settings > Integrations and the Calendar link (Oct 6)
+
+Settings > Business has an **Integrations** page (`VendorIntegrationsSettings`): Google Calendar connect, a private
+revocable iCal **Calendar link** of the vendor's scheduled jobs (addresses only once hired), and Request access rows for
+Jobber, Housecall Pro and Thumbtack. The Calendar band's calendar-sync icon opens it. Token design, privacy and the
+tables: [`google-integrations.md`](google-integrations.md) § Vendor Integrations page and Calendar link.
+
+## Work number & email (Oct 6)
+
+Any vendor with a verified phone (`profiles.phone_verified_at`) can claim a PropLane work number, free: Settings >
+Account > **Work number & email** (`VendorWorkNumberSettings`) shows the number, the sponsored work email, a
+"Forward texts to my phone" toggle (default on), "Texts this month X of 1,000" and "Service fee 3% of payouts through
+PropLane". Managers' texts to that vendor arrive on the number, are kept in the vendor's PropLane Communication and are
+forwarded to the verified phone labelled `[<Workspace>] ...`; the vendor's replies go to the manager they last
+talked to, or get a numbered "Reply to" prompt. A number idle for 60 days is released; the fee is the only cost. The
+routing rules, cap, release and dry run: [`sms-system.md`](sms-system.md) § Vendor work number; the fee:
+[`financials.md`](financials.md) § PropLane service fee.
+
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 
 **Connect account reuses the manager's column.** `profiles.stripe_connect_account_id`

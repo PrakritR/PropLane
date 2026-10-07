@@ -1276,13 +1276,14 @@ actions to `leasing`, application review to `applications`, work-order tasks to
 phone choices remain effective. A resident-signature transition also produces
 an immediate leasing reminder for the manager to countersign.
 
-## Vendor texting (Oct 6): managers text vendors, vendors never own a number
+## Vendor texting (Oct 6): managers text vendors; a vendor may own a work number
 
-Only managers have work numbers. The vendor work identity's **number side is
-retired** (no candidate search, claim token, purchase, Communication card or
-Settings claim, and no `/api/twilio/inbound` branch routing by a vendor-owned
-line; stored `vendor_work_identities` rows and the sponsored work **email**
-identity are untouched).
+Managers text vendors from the manager's work number. A vendor with a **verified
+phone** (`profiles.phone_verified_at`) may also claim a PropLane **work number** (below,
+"Vendor work number"); managers then text that number instead of the vendor's own
+phone. The number machinery retired in commit `375db8e38` (candidate search, signed
+claim token, purchase, the inbound branch) is restored for that: the sponsored work
+**email** identity is unchanged and joins it.
 
 **Outbound.** `POST /api/manager/sms-conversations` with `vendorRecordId`
 (a `manager_vendor_records` id) goes through `sendManagerConversationSms` ->
@@ -1324,7 +1325,89 @@ assistant reply is sent**; otherwise the assistant answers exactly as before.
 
 **Linked history.** See `communication-inbox.md` § A vendor's texts are in their
 conversation. Tests: `vendor-texting-send`, `vendor-texting-inbound`,
-`vendor-conversation`, `vendor-work-identity-retired`, `vendor-texting-compose`.
+`vendor-conversation`, `vendor-texting-compose`, and the vendor-work-number set below.
+
+### Vendor work number (Oct 6, approved studio plan `vendor-work-number-1006`)
+
+**Who.** Any vendor with a verified phone, no card and no plan: the claim
+(`POST /api/vendor/work-identity` `channel: "sms"`) and the area-code search
+(`POST /api/vendor/work-identity/candidates`) both 403 `phone_unverified` otherwise.
+Search offers up to three numbers, each with a short-lived HMAC `claimToken`
+(`vendor-work-number-claim-token.server.ts`); the claim buys exactly that number, US
+local only (`isUsLocalSmsNumber`). The same harness as the manager number: the
+`vendor_work_identity_runtime` kill switch + capacity, `SMS_PROVISIONING_ENABLED`
+(a real purchase never happens with it off), Messaging Service attachment, and
+carrier registration (`sms_send_ready` needs `carrier_ready`; receive does not).
+A number already held, or mid-flight, is never bought again.
+
+**Dry run.** `VENDOR_WORK_NUMBER_DRY_RUN=1` on a non-production box with
+`SMS_PROVISIONING_ENABLED` off (`vendor-work-number-dry-run.server.ts`): search offers
+fictional `+1 <area> 555-0177..`, "purchase" mints a `PNdryrun…` sid, every text is captured
+in memory, and no Twilio client is ever built. `NODE_ENV=production`, `VERCEL` and real
+provisioning each force it off. The claim UI says "Dry run · no real number is bought".
+
+**Manager -> vendor.** `sendRosterVendorText` is unchanged: the outbox row, consent,
+STOP check, footer rule and conversation key all stay on the vendor's own phone. Only the
+provider destination changes: `providerDestinationFor` (owner-sms-dispatcher) sends a
+`vendor_conversation` text to the vendor's active number when they have one (ready,
+attached, receiving), falling back to their own phone on any doubt. The manager's
+thread header shows `Text <number>` (`GET /api/manager/vendor-text-consent` returns
+`workNumber`). The text still spends the manager workspace's credit.
+
+**Inbound on the vendor's number** (`ingestVendorWorkIdentitySms`, after STOP/START/HELP,
+before manager-number ownership; never spends credit; works with the SMS UI flag off):
+- From a manager's work line: stored in the vendor's PropLane inbox (thread named for the
+  workspace), remembered in `vendor_work_number_conversations`, and - forwarding on and the
+  phone verified - forwarded to the vendor's verified phone as `[<Workspace>] <text>`
+  (`forwardedTextBody`; brackets/newlines in a workspace name are stripped). A paused,
+  STOPped or capped forward never loses the text; a retried webhook never forwards twice.
+- From the vendor's verified phone (replying to a forward): routed by
+  `decideVendorReplyRoute`. Exactly one conversation active in 24 hours -> that manager.
+  Two or more active, or none recent -> a numbered prompt back to the vendor's phone,
+  `Reply to: 1) Alder Property Co 2) Green Lake Rentals — reply with the number first.`
+  (stable name order, 30-day lookback, at most 9); the vendor answers `2 Thursday works`.
+  The held message is not kept: they resend with the number first. Nobody has ever texted
+  the number -> a one-line notice. A routed reply leaves the vendor's number for the manager's
+  line and is shown in the vendor's inbox as their own text.
+- From anyone else: stored, never forwarded.
+
+**Vendor -> manager line.** In the manager webhook, a sender that is a vendor's ready
+PropLane number is mapped to the vendor's roster phone for that workspace owner
+(else their verified profile phone) by `resolveVendorNumberSenderPhone` before the receipt
+claim, so the whole pipeline (vendor thread, consent, the 7-day rule, history) sees one
+vendor. A reply typed in PropLane (`sendVendorSponsoredOutbound`) takes the same path and
+refreshes the conversation's recency.
+
+**STOP / consent: unchanged.** STOP from the vendor's phone suppresses it (the control
+receipt runs before any vendor routing); `deliverVendorWorkIdentity` re-reads suppression
+before every forward, and the manager send reads it before queueing. The first-text
+attestation and footer are unchanged.
+
+**Fair use.** Vendor-side texts (forwards, routed replies, prompts) are covered by the
+service fee, capped at **1,000 SMS segments per UTC month** per number
+(`VENDOR_NUMBER_FAIR_USE_SEGMENTS_PER_MONTH`; `vendor_work_identity_runtime.outbound_message_cap`
+is the live knob and the migration seeds it to 1000). Segments are estimated like the carrier
+bills (`estimateSmsSegments`: GSM 160/153, UCS-2 70/67); the same count is made in the
+`claim_vendor_work_identity_outbound` RPC, atomically with the outbox claim. At the cap
+sends are `platform_cap_reached` (forwarding and replies pause), receiving continues, and
+Settings shows the notice. Inbound never counts; emails count separately.
+
+**Release.** Account deletion queues the number (`queue_vendor_work_identity_release`, the
+existing worker). A number with no texts through it for **60 days** is released by
+`releaseIdleVendorWorkNumbers` (daily `/api/cron/release-vendor-work-identities`): conditional
+claim out of `ready`, provider remove, then the number fields reset so the vendor can claim
+again; the work email and history stay. An unconfirmed remove is held in `reconciling`, never
+re-bought. Settings: Account > **Work number & email** (`vendor-work-number-settings.tsx`);
+forwarding is `PATCH /api/vendor/work-identity {forwardToPhone}`.
+
+**Migration** `20261006200000_vendor_work_number.sql` (additive, idempotent): `forward_to_phone`,
+the cap default, the segment/month `claim_vendor_work_identity_outbound`, and
+`vendor_work_number_conversations`. Until it is applied, forwarding reads default on, the
+conversation list reads empty (a vendor's reply gets the "no manager has texted" notice), and
+the cap RPC keeps its old lifetime semantics.
+
+Tests: `vendor-work-number-rules`, `-claim`, `-inbound`, `-webhook`, `-lifecycle`, `-settings`,
+`vendor-work-identity-*`.
 
 ## Approval SMS and durable conversation projection (PRP-446)
 
