@@ -1,9 +1,20 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Filter } from "lucide-react";
+import {
+  ClipboardList,
+  FileSignature,
+  Home,
+  MapPin,
+  MessageSquare,
+  SlidersHorizontal,
+  Wallet,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { DashboardGlyphTile } from "@/components/portal/pro-dashboard-kpis";
 import { DashboardCustomizeModal } from "@/components/portal/dashboard-customize-modal";
 import { DashboardSkeleton } from "@/components/portal/dashboard-skeleton";
 import {
@@ -97,49 +108,14 @@ type AppStatus = "pending" | "approved" | "rejected";
 type PillTone = "pending" | "success" | "danger" | "info" | "neutral";
 
 type AttentionTone = "pending" | "success" | "danger" | "info";
-const ATTENTION_TONE: Record<AttentionTone, { fg: string; bg: string }> = {
-  danger: { fg: "var(--status-overdue-fg)", bg: "var(--status-overdue-bg)" },
-  pending: { fg: "var(--status-pending-fg)", bg: "var(--status-pending-bg)" },
-  info: { fg: "var(--status-approved-fg)", bg: "var(--status-approved-bg)" },
-  success: { fg: "var(--status-confirmed-fg)", bg: "var(--status-confirmed-bg)" },
-};
 
-function sectionAccentDot(tone: AttentionTone): string {
-  return ATTENTION_TONE[tone].fg;
-}
-
-/** Consistent circular count in attention group headers (including zero). */
-function AttentionCountBadge({
-  count,
-  tone,
-  isEmpty,
-}: {
-  count: number;
-  tone: AttentionTone;
-  isEmpty: boolean;
-}) {
-  const accent = ATTENTION_TONE[tone];
-  return (
-    <span
-      className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold leading-none tabular-nums [html[data-native]_&]:size-[1.125rem] [html[data-native]_&]:text-[10px]"
-      style={
-        isEmpty
-          ? {
-              color: "color-mix(in srgb, var(--muted) 72%, transparent)",
-              background: "color-mix(in srgb, var(--muted) 14%, var(--card))",
-            }
-          : { background: accent.fg, color: "#fff" }
-      }
-    >
-      {count}
-    </span>
-  );
-}
+/** The glyph every row in one group wears on its tile. */
+const GroupGlyphContext = createContext<LucideIcon>(ClipboardList);
 
 /**
- * The studio's stat tile: a toned dot beside a bold label and a figure in the
- * same tone (amber when something waits on the resident, red when overdue, ink
- * when there is nothing to do).
+ * The studio's stat card, the same hairline card as the manager's: a muted
+ * label over a 26px figure. The figure is amber when something waits on the
+ * resident, red when overdue, ink when there is nothing to do.
  */
 function ResidentKpiTile({
   label,
@@ -160,14 +136,11 @@ function ResidentKpiTile({
     <Link
       href={href}
       data-attr={dataAttr}
-      className="flex min-h-[5.25rem] min-w-0 w-full flex-col justify-between gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-primary/35 hover:shadow-[0_4px_14px_rgba(15,23,42,0.07)] [html[data-native]_&]:min-h-[4.75rem] [html[data-native]_&]:rounded-xl [html[data-native]_&]:px-3 [html[data-native]_&]:py-2.5"
+      className="flex min-w-0 w-full flex-col rounded-[10px] border border-border bg-card px-4 py-3.5 transition-colors hover:border-foreground/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2.5"
     >
-      <span className="flex items-center gap-1.5 text-[12.5px] font-bold leading-tight text-foreground">
-        <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: color }} />
-        <span className="line-clamp-2">{label}</span>
-      </span>
+      <span className="line-clamp-2 text-[13px] font-[550] text-muted">{label}</span>
       <span
-        className="block whitespace-nowrap text-[1.6rem] font-extrabold leading-none tracking-[-0.02em] [html[data-native]_&]:text-[1.35rem]"
+        className="my-1 block whitespace-nowrap text-[26px] font-[650] leading-[1.15] tracking-[-0.03em] [html[data-native]_&]:text-[22px]"
         style={{ color }}
       >
         {value}
@@ -194,16 +167,16 @@ function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode })
           ? "var(--status-approved-fg)"
           : "var(--status-pending-fg)";
   return (
-    <span className="whitespace-nowrap text-xs font-semibold" style={{ color }}>
+    <span className="whitespace-nowrap text-[12.5px] font-semibold" style={{ color }}>
       {children}
     </span>
   );
 }
 
-/** Dense Linear "issue" row: status dot · label + subtitle · meta · status pill · chevron. */
+/** One item: tinted glyph tile · title + place line · meta · status word. */
 function IssueRow({
   href,
-  dot,
+  tone = "info",
   title,
   subtitle,
   meta,
@@ -211,36 +184,27 @@ function IssueRow({
   dataAttr,
 }: {
   href: string;
-  dot?: string;
+  tone?: AttentionTone;
   title: string;
   subtitle?: string;
   meta?: string | null;
   pill?: ReactNode;
   dataAttr?: string;
 }) {
+  const Glyph = useContext(GroupGlyphContext);
   return (
     <Link
       href={href}
       data-attr={dataAttr}
-      className="group flex items-center gap-3 px-3.5 py-2.5 transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--attn-section-bg)_40%,transparent)] [html[data-native]_&]:gap-2.5 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
+      className="group flex items-center gap-2.5 px-3.5 py-2.5 transition-colors duration-150 hover:bg-[var(--secondary)] [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
     >
-      {dot ? (
-        <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: dot }} />
-      ) : null}
+      <DashboardGlyphTile icon={Glyph} tone={tone} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-foreground [html[data-native]_&]:text-[13px]">
-          {title}
-        </span>
-        {subtitle ? (
-          <span className="mt-0.5 block truncate text-xs text-muted [html[data-native]_&]:text-[11px]">
-            {subtitle}
-          </span>
-        ) : null}
+        <span className="block truncate text-sm font-semibold text-foreground">{title}</span>
+        {subtitle ? <span className="block truncate text-[12.5px] text-muted">{subtitle}</span> : null}
       </span>
       {meta ? (
-        <span className="hidden shrink-0 whitespace-nowrap text-xs tabular-nums text-muted sm:block">
-          {meta}
-        </span>
+        <span className="hidden shrink-0 whitespace-nowrap text-[12.5px] tabular-nums text-muted sm:block">{meta}</span>
       ) : null}
       {pill ? <span className="shrink-0">{pill}</span> : null}
       <span
@@ -254,15 +218,16 @@ function IssueRow({
 }
 
 /**
- * One "Needs attention" group — collapsible card with status rail, matching the
- * manager dashboard. Opens by default only when it has items.
+ * One group inside the "Needs attention" box — a quiet 34px header (glyph ·
+ * title · count · status words · →) over its rows, matching the manager
+ * dashboard. Opens by default only when it has items.
  */
 function AttentionGroup<T>({
   title,
   href,
   sectionId,
+  icon,
   tone,
-  order = 0,
   badge,
   headerCount,
   items,
@@ -273,10 +238,11 @@ function AttentionGroup<T>({
   title: string;
   href: string;
   sectionId: ResidentDashboardSectionId;
+  /** The glyph on the group header and on every row's tile. */
+  icon: LucideIcon;
   tone: AttentionTone;
-  order?: number;
   badge?: ReactNode;
-  /** When set, shown in the header circle instead of `items.length` (e.g. total unread vs preview slice). */
+  /** When set, shown as the header count instead of `items.length` (e.g. total unread vs preview slice). */
   headerCount?: number;
   items: T[];
   emptyMessage: string;
@@ -286,46 +252,32 @@ function AttentionGroup<T>({
   const { visible } = usePortalPreviewSlice(items);
   const count = headerCount ?? items.length;
   const isEmpty = count === 0;
-  const accent = ATTENTION_TONE[tone];
+  const Icon = icon;
   const [override, setOverride] = useState<boolean | null>(null);
   const open = override ?? !isEmpty;
 
   return (
-    // A quiet card whatever the tone: the status is a dot before the title and
-    // the count chip, not a tinted panel with a coloured rail — the old wash
-    // made every group on the page shout at once.
-    <div
-      className="pl-attn-enter overflow-hidden rounded-2xl border border-border bg-card"
-      style={{
-        animationDelay: `${Math.min(order, 8) * 55}ms`,
-        ["--attn-section-bg" as string]: accent.bg,
-        ["--attn-section-fg" as string]: accent.fg,
-      }}
-    >
-      <div className="flex items-center gap-2.5 px-3.5 py-2.5 [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2">
+    <div className="border-b border-border last:border-b-0">
+      <div className="flex min-h-[34px] items-center gap-2 border-b border-border bg-[var(--secondary)]/60 px-3.5 text-[13px] font-semibold text-foreground [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3">
         <button
           type="button"
           aria-expanded={open}
           data-attr={`resident-dashboard-attention-toggle-${sectionId}`}
           onClick={() => setOverride(!open)}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left [html[data-native]_&]:gap-2"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left"
         >
           <span className="flex shrink-0 items-center self-center">
             <PortalTableExpandChevron expanded={open} />
           </span>
-          {isEmpty ? null : (
-            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: accent.fg }} />
-          )}
+          <Icon className="size-3.5 shrink-0 text-muted" aria-hidden />
           <h3
-            className="min-w-0 flex-1 self-center text-[14px] font-bold leading-none tracking-[-0.01em] [html[data-native]_&]:text-[13px]"
-            style={{ color: isEmpty ? "var(--muted)" : "var(--foreground)" }}
+            className="min-w-0 truncate text-[13px] font-semibold leading-none"
+            style={isEmpty ? { color: "var(--muted)" } : undefined}
           >
             {title}
           </h3>
-          <span className="flex shrink-0 items-center gap-1.5 self-center">
-            <AttentionCountBadge count={count} tone={tone} isEmpty={isEmpty} />
-            {badge ? <span className="inline-flex items-center">{badge}</span> : null}
-          </span>
+          <span className="text-[12.5px] font-medium tabular-nums text-muted/70">{count}</span>
+          {badge ? <span className="inline-flex items-center">{badge}</span> : null}
         </button>
         <Link
           href={href}
@@ -338,17 +290,17 @@ function AttentionGroup<T>({
       </div>
       {open ? (
         isEmpty ? (
-          <p className="border-t border-border px-3.5 py-2.5 text-xs text-muted [html[data-native]_&]:px-3 [html[data-native]_&]:py-2">
+          <p className="px-3.5 py-2.5 text-[12.5px] text-muted [html[data-native]_&]:px-3 [html[data-native]_&]:py-2">
             {emptyMessage}
           </p>
         ) : (
-          <div className="border-t border-border">
-            <div className="divide-y divide-border/80">
+          <GroupGlyphContext.Provider value={icon}>
+            <div className="divide-y divide-border">
               {visible.map((item) => (
                 <Fragment key={keyForItem(item)}>{renderRow(item, tone)}</Fragment>
               ))}
             </div>
-          </div>
+          </GroupGlyphContext.Provider>
         )
       ) : null}
     </div>
@@ -447,7 +399,7 @@ export function ResidentJourneyBanner({
       href={action.href}
       data-jr-banner
       data-attr="resident-dashboard-journey"
-      className="flex w-full flex-col gap-3 rounded-2xl border px-4 py-3.5 transition-colors [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
+      className="flex w-full flex-col gap-3 rounded-[10px] border px-4 py-3.5 transition-colors [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
       style={{
         borderColor: action.urgent ? "var(--status-overdue-border, var(--status-overdue-fg))" : "var(--border)",
         background: action.urgent ? "var(--status-overdue-bg)" : "var(--card)",
@@ -846,7 +798,7 @@ export function ResidentDashboard({
           <Link
             href={houseDetailsHref}
             data-attr="resident-dashboard-move-in-hero"
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-accent px-4 py-3.5 transition-colors hover:border-primary/40 [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
+            className="flex w-full items-center justify-between gap-3 rounded-[10px] border border-primary/20 bg-accent px-4 py-3.5 transition-colors hover:border-primary/40 [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
           >
             <span className="min-w-0">
               <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
@@ -923,30 +875,19 @@ export function ResidentDashboard({
         </PortalDashboardKpiRow>
         </div>
 
-        {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}
-        <div className="space-y-4 [html[data-native]_&]:space-y-3">
-          <div className="flex items-center justify-between gap-2.5">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <span aria-hidden className="text-primary text-xl leading-none [html[data-native]_&]:text-lg">
-                ✦
-              </span>
-              <h2 className="text-xl font-bold leading-tight tracking-[-0.02em] text-foreground [html[data-native]_&]:text-lg">
-                Needs attention
-              </h2>
-              {openCount > 0 ? (
-                <span
-                  className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold"
-                  style={{ background: "var(--status-approved-bg)", color: "var(--status-approved-fg)" }}
-                >
-                  {openCount} open
-                </span>
-              ) : null}
-            </div>
+        {/* Needs attention — one hairline box, its groups under quiet headers. */}
+        <section className="overflow-hidden rounded-[10px] border border-border bg-card">
+          <div className="flex items-center gap-2 border-b border-border px-3.5 py-[11px]">
+            <h2 className="min-w-0 truncate text-sm font-[650] text-foreground">Needs attention</h2>
+            {openCount > 0 ? (
+              <span className="text-[12.5px] font-medium tabular-nums text-muted/70">{openCount}</span>
+            ) : null}
             <PortalIconAction
-              icon={Filter}
+              icon={SlidersHorizontal}
               label="Customize"
               onClick={() => setCustomizeOpen(true)}
               data-attr="resident-dashboard-customize-open"
+              className="ml-auto"
             />
           </div>
 
@@ -955,15 +896,15 @@ export function ResidentDashboard({
             title="Tour pending"
             href={residentTourListHref(BASE, "pending")}
             sectionId="tours"
+            icon={MapPin}
             tone="pending"
-            order={0}
             items={pendingTours}
             emptyMessage="No pending tour requests."
             keyForItem={(tour) => tour.inquiryId}
             renderRow={(tour, sectionTone) => (
               <IssueRow
                 href={residentTourDetailHref(BASE, "pending", tour.inquiryId)}
-                dot={sectionAccentDot(sectionTone)}
+                tone={sectionTone}
                 title={stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour")}
                 subtitle={tourWhenLabel(tour)}
                 pill={<StatusPill tone="pending">Pending</StatusPill>}
@@ -978,8 +919,8 @@ export function ResidentDashboard({
             title="Application pending"
             href={`${BASE}/applications`}
             sectionId="applications"
+            icon={ClipboardList}
             tone="pending"
-            order={1}
             items={pendingApplicationRows}
             emptyMessage="No pending applications."
             keyForItem={(row) => row.id}
@@ -988,7 +929,7 @@ export function ResidentDashboard({
               return (
                 <IssueRow
                   href={`${BASE}/applications`}
-                  dot={sectionAccentDot(sectionTone)}
+                  tone={sectionTone}
                   title={applicationRowProperty(row) || row.name?.trim() || "Application"}
                   subtitle={applicationRowProperty(row) ? row.name?.trim() || undefined : undefined}
                   pill={<StatusPill tone={pillToneForBadgeTone(badge.tone)}>{badge.label}</StatusPill>}
@@ -1004,15 +945,15 @@ export function ResidentDashboard({
             title="Lease"
             href={`${BASE}/lease`}
             sectionId="lease"
+            icon={FileSignature}
             tone="info"
-            order={2}
             items={leaseItems}
             emptyMessage={leaseEmptyMessage}
             keyForItem={(row) => row.id}
             renderRow={() => (
               <IssueRow
                 href={`${BASE}/lease`}
-                dot={sectionAccentDot(lease.tone === "emerald" ? "success" : lease.cta ? "info" : "pending")}
+                tone={lease.tone === "emerald" ? "success" : lease.cta ? "info" : "pending"}
                 title={lease.cta ? "Signature needed" : lease.tone === "emerald" ? "Lease active" : "Lease status"}
                 subtitle={appProperty ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}` : undefined}
                 meta={formatResidentRentLabel(leaseRow?.signedRentLabel) || leaseDateRange || leaseRow?.unit || undefined}
@@ -1028,15 +969,15 @@ export function ResidentDashboard({
             title="House details"
             href={`${BASE}/move-in`}
             sectionId="houseDetails"
+            icon={Home}
             tone="info"
-            order={3}
             items={[{ id: "house-details" }]}
             emptyMessage="Open house details for move-in placement and keys."
             keyForItem={(item) => item.id}
             renderRow={() => (
               <IssueRow
                 href={`${BASE}/move-in`}
-                dot={sectionAccentDot("info")}
+                tone="info"
                 title="House details"
                 subtitle={appProperty ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}` : undefined}
                 pill={<StatusPill tone="success">Ready</StatusPill>}
@@ -1051,8 +992,8 @@ export function ResidentDashboard({
             title="Services"
             href={servicesHref}
             sectionId="services"
+            icon={Wrench}
             tone="pending"
-            order={4}
             items={serviceItems}
             emptyMessage="No open services right now."
             keyForItem={(item) => item.id}
@@ -1062,7 +1003,7 @@ export function ResidentDashboard({
                 return (
                   <IssueRow
                     href={servicesHref}
-                    dot={sectionAccentDot(sectionTone)}
+                    tone={sectionTone}
                     title={item.row.offerName?.trim() || "Add-on service"}
                     subtitle={propertyName || undefined}
                     pill={<StatusPill tone="pending">Pending</StatusPill>}
@@ -1073,7 +1014,7 @@ export function ResidentDashboard({
               return (
                 <IssueRow
                   href={`${BASE}/services`}
-                  dot={sectionAccentDot(sectionTone)}
+                  tone={sectionTone}
                   title={item.row.title?.trim() || "Service"}
                   subtitle={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || undefined}
                   pill={<StatusPill tone="pending">Open</StatusPill>}
@@ -1089,8 +1030,8 @@ export function ResidentDashboard({
             title="Pending & overdue payments"
             href={`${BASE}/payments`}
             sectionId="payments"
+            icon={Wallet}
             tone={overdueChargeCount > 0 ? "danger" : "pending"}
-            order={5}
             badge={
               overdueChargeCount > 0 ? (
                 <StatusPill tone="danger">{overdueChargeCount} overdue</StatusPill>
@@ -1111,7 +1052,7 @@ export function ResidentDashboard({
                   // resident-payments-panel.tsx opens the pay confirmation
                   // for this exact charge as soon as the page loads.
                   href={`${BASE}/payments?pay=${encodeURIComponent(charge.id)}`}
-                  dot={sectionAccentDot(sectionTone)}
+                  tone={sectionTone}
                   title={charge.title || "Charge"}
                   subtitle={overdue ? "Overdue" : chargeDueLabel(charge)}
                   meta={charge.balanceLabel}
@@ -1132,8 +1073,8 @@ export function ResidentDashboard({
             title="Communication"
             href={communicationHref}
             sectionId="communication"
+            icon={MessageSquare}
             tone="info"
-            order={6}
             headerCount={inbox}
             items={inboxThreads}
             emptyMessage="No unread messages. Communication is clear."
@@ -1141,7 +1082,7 @@ export function ResidentDashboard({
             renderRow={(thread, sectionTone) => (
               <IssueRow
                 href={communicationHref}
-                dot={sectionAccentDot(sectionTone)}
+                tone={sectionTone}
                 title={thread.subject || thread.from || "Unknown sender"}
                 subtitle={thread.preview || (thread.subject ? thread.from : undefined) || undefined}
                 pill={<StatusPill tone="info">Unread</StatusPill>}
@@ -1150,7 +1091,7 @@ export function ResidentDashboard({
             )}
           />
           ) : null}
-        </div>
+        </section>
         </>
         )}
       </div>
