@@ -6,6 +6,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
+import { NO_STORY } from "@/components/marketing/site/product-mock/world";
+import { ManagerCommunication } from "@/components/marketing/resident-lifecycle-manager";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -70,5 +72,56 @@ describe("vendor Reviews", () => {
     expect(stats.compareDocumentPosition(tab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(tab);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The cursor drives the real controls through `data-demo-target`: each one must exist where the
+ * script clicks it, and the sheet it opens must say what the manager is doing (the story is
+ * causal, so a click has to do the thing its phone line reports).
+ */
+describe("demo cursor targets", () => {
+  const target = (container: HTMLElement, id: string) => container.querySelector<HTMLElement>(`[data-demo-target="${id}"]`);
+
+  it("Applications: Send application opens a sheet whose primary sends, and every row is a target", () => {
+    const { container } = render(<DemoPanel portal="manager" tab="applications" story={NO_STORY} />);
+    expect(target(container, "application-row")).not.toBeNull();
+    fireEvent.click(target(container, "applications-send")!);
+    expect(screen.getByRole("dialog", { name: "Send application" })).toBeInTheDocument();
+    expect(target(container, "sheet-primary")?.textContent).toBe("Send");
+    expect(screen.getByText("Apply for Room 3 \u2014 PropLane")).toBeInTheDocument();
+  });
+
+  it("Leases: a lease in manager review is sent, and one waiting on the manager is countersigned", () => {
+    const story = { ...NO_STORY, applicationApproved: true, leaseStep: 0 as const };
+    const { container, unmount } = render(<DemoPanel portal="manager" tab="leases" story={story} />);
+    fireEvent.click(target(container, "lease-row")!.querySelector("button[data-attr='lease-list-row']")!);
+    expect(target(container, "sheet-primary")?.textContent).toBe("Send lease");
+    unmount();
+    const signed = render(<DemoPanel portal="manager" tab="leases" story={{ ...story, leaseStep: 2 }} />);
+    fireEvent.click(target(signed.container, "lease-row")!.querySelector("button[data-attr='lease-list-row']")!);
+    expect(target(signed.container, "sheet-primary")?.textContent).toBe("Countersign");
+  });
+
+  it("Payments sends a reminder for a pending charge; Services dispatches an open service", () => {
+    const rent = { ...NO_STORY, leaseStep: 3 as const, applicationApproved: true };
+    const payments = render(<DemoPanel portal="manager" tab="payments" story={rent} />);
+    fireEvent.click(target(payments.container, "payment-row")!.querySelector("button[data-attr='payment-list-row']")!);
+    expect(target(payments.container, "sheet-primary")?.textContent).toBe("Send reminder");
+    payments.unmount();
+    const services = render(<DemoPanel portal="manager" tab="services" story={{ ...rent, rentPaid: true, service: "open" }} />);
+    fireEvent.click(target(services.container, "service-row")!.querySelector("button[data-attr='service-list-row']")!);
+    expect(target(services.container, "sheet-primary")?.textContent).toBe("Dispatch vendor");
+  });
+
+  it("Communication: a drafted reply waits for the manager's Approve and nothing sends before", () => {
+    const onApprove = vi.fn();
+    const { container, rerender } = render(<ManagerCommunication messages={[]} draft={null} onApprove={onApprove} onReply={() => true} />);
+    expect(target(container, "comm-approve")).toBeNull();
+    rerender(<ManagerCommunication messages={[]} draft="Yes, it is." onApprove={onApprove} onReply={() => true} />);
+    expect(screen.getByText("PropLane drafted a reply")).toBeInTheDocument();
+    expect(onApprove).not.toHaveBeenCalled();
+    fireEvent.click(target(container, "comm-approve")!);
+    expect(onApprove).toHaveBeenCalledTimes(1);
   });
 });

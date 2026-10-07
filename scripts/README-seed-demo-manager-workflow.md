@@ -68,3 +68,52 @@ now bulk-fetches existing entries once and does batched insert/upsert
 read-time pass was removed entirely — the ledger is write-through only, with the
 admin-gated `POST /api/admin/backfill-ledger` as the sole manual sweep; see
 AGENTS.md, "Financials Phase 0".)
+
+---
+
+# Showcase seed (`seed-showcase.mjs`)
+
+The home page's sample story ("Seattle Homes", Avery Morgan, Jordan Rivera,
+Pacific Plumbing) as real rows on the **dev/test** Supabase project, so a capture
+script can sign in and screenshot every portal page with data on it. It mirrors
+`src/components/marketing/site/product-mock/{world,fixtures}.ts`.
+
+```bash
+npm run seed:showcase           # = node --env-file=.env.local scripts/seed-showcase.mjs
+```
+
+| Login | Password | Portal |
+|---|---|---|
+| `showcase.manager@test.proplane.local` | `ShowcaseManager123!` | manager (Business plan, workspace "Seattle Homes") |
+| `showcase.resident@test.proplane.local` | `ShowcaseResident123!` | resident (Jordan Rivera, Willow Court Room 3, lease signed) |
+| `showcase.vendor@test.proplane.local` | `ShowcaseVendor123!` | vendor (Pacific Plumbing, Marcus Lee) |
+
+**Safety.** It calls `assertTestProjectUrl` and refuses unless the Supabase URL
+is the dev/test project (`emstjswhotsnyksqhqyf`); it never reads
+`.env.production*`. It only touches auth users it created (`user_metadata.showcase`)
+and aborts rather than reset an existing account it did not create, so the
+canonical `manager@` / `manager2@` / `resident@` / `vendor@test.proplane.local`
+accounts and the locked live listings are never written. Every row it writes is
+scoped to the showcase manager (or vendor) and is deleted and recreated each
+run, so re-running never duplicates.
+
+**What it fills.** 4 properties without photos (Willow Court, Alder House, Maple
+Duplex, Fremont Studio), 17 applications (pending, incomplete, approved,
+rejected), 11 leases across Draft / Manager review / Resident signature /
+Manager signature / Signed, charges (paid / pending / overdue) with rent
+profiles, 15 services (Open / Assigned / Scheduled / Completed) plus 3 add-on
+requests, 4 vendors with quotes, invoices, payouts and 6 reviews, tours
+(pending / upcoming / past), tasks, bookings, calendar, Communication threads
+for all three portals, move-in forms, ledger + expenses, documents and
+Promotion assets (built by the app's own default-asset builder).
+
+**Caveats.**
+- `npm run test:seed` prunes every non-canonical auth account on the test
+  project, which deletes these three logins. Re-run `npm run seed:showcase`
+  after a full reseed.
+- Only Jordan has a login. The other residents are rows keyed by the
+  fixtures' `@example.com` emails (some belong to other seeds' accounts, so no
+  auth user is created or touched for them).
+- The dev DB can lag the repo's migrations. The script skips what the dev schema
+  cannot hold and says so (for example the `vendor-documents` storage bucket
+  and the vendor calendar `event` rule kind).

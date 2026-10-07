@@ -1,8 +1,16 @@
 "use client";
 
+import "./lifecycle-frame.css";
 import { ImportReviewPanel } from "@/components/marketing/site/product-mock/panels";
 import { ProductPanelBackdrop } from "@/components/marketing/site/product-mock/shared";
 import { SiteCtaPair, SiteEyebrow, SiteIntro, SiteSection } from "@/components/marketing/site/primitives";
+
+/**
+ * The review window at its desktop width (1100px) is this tall, every property card and the
+ * action row in it, with a little to spare so a font change never makes it scroll. The frame's
+ * height in `lifecycle-frame.css` (`.sw-import-frame`) is the same number as a ratio.
+ */
+const IMPORT_NATIVE_HEIGHT = 860;
 
 type SwitchStep = { eyebrow: string; title: string; body: string };
 
@@ -55,9 +63,12 @@ export function SiteSwitchSteps() {
           ))}
           <SiteCtaPair primaryAttr="home-switch-get-started" secondaryAttr="home-switch-book-demo" className="mt-1" />
         </div>
-        <ProductPanelBackdrop className="h-[340px] sm:h-[440px] lg:h-[500px]">
-          <ImportReviewPanel />
-        </ProductPanelBackdrop>
+        {/* The frame is sized to the whole window (no scroll, no crop), so it ends on the last card. */}
+        <div className="sw-import-slot">
+          <ProductPanelBackdrop className="sw-import-frame">
+            <ImportReviewPanel nativeHeight={IMPORT_NATIVE_HEIGHT} whole />
+          </ProductPanelBackdrop>
+        </div>
       </div>
     </SiteSection>
   );
