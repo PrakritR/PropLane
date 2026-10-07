@@ -23,7 +23,7 @@
 import "./resident-lifecycle-prototypes.css";
 import "./resident-lifecycle-engine.css";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { ArrowRight, Check, RotateCcw } from "lucide-react";
+import { Check, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
 import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
@@ -268,9 +268,9 @@ export function ResidentLifecyclePrototypes() {
         <ResidentLifecycleAtmosphere />
         <div className="rlp-hero-copy">
           <h1 id="rlp-hero-title">
-            From first question
+            Your AI property
             <br />
-            to feeling at home.
+            management assistant.
           </h1>
           <div className="rlp-hero-actions">
             <Link href={GET_STARTED_HREF} data-attr="home-hero-get-started">
@@ -281,21 +281,6 @@ export function ResidentLifecyclePrototypes() {
             </Link>
             <AppStoreBadge tone="dark" size="lg" dataAttr="home-hero-app-store" className="rlp-app-store" />
           </div>
-          <a
-            href={WALKTHROUGH}
-            className="rlp-follow-story"
-            data-attr="resident-lifecycle-explore"
-            onClick={(event) => {
-              setGuideEntered(true);
-              if (isNarrow()) {
-                event.preventDefault();
-                window.history.replaceState(null, "", WALKTHROUGH);
-                sectionRef.current?.scrollIntoView({ behavior: prefersReducedMotion() ? "instant" : "smooth", block: "start" });
-              }
-            }}
-          >
-            Follow the story <ArrowRight aria-hidden />
-          </a>
         </div>
       </section>
       <section id="resident-lifecycle-walkthrough" ref={sectionRef} className="rlp-walkthrough" aria-labelledby="rlp-walkthrough-title">

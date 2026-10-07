@@ -9,8 +9,9 @@ import { SiteSwitchSteps } from "@/components/marketing/site/switch-steps";
 /**
  * Home page order (captain 2026-10-06, replacing the 2026-09-25 order):
  *
- *   1. Akhil's hero ("From first question to feeling at home.") and, right under
- *      it, the guided demo: Manager, Resident and Vendor portals, a tab per stage
+ *   1. Akhil's hero, headline "Your AI property management assistant." with
+ *      Start free, Book a demo and the App Store badge (captain 2026-10-06; no
+ *      "Follow the story" link), and right under it the guided demo: Manager, Resident and Vendor portals, a tab per stage
  *      with autoplay, every sidebar tab opening its real panel. It replaces
  *      `SiteHero`.
  *   2. Replaces strip.
