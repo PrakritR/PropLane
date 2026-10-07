@@ -37,6 +37,7 @@ import {
 } from "@/lib/google-calendar/sync.server";
 import { attachManagerNamesToWorkOrders } from "@/lib/work-order-manager-names.server";
 import { projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
+import { restoreServerPublishState } from "@/lib/service-publish-state";
 
 export const runtime = "nodejs";
 
@@ -515,6 +516,10 @@ export async function POST(req: Request) {
       } else {
         delete rowData.dispatch;
       }
+      // The work-board publish state is server-owned for the same reason: a stale browser copy must
+      // not silently unpublish a service (or republish one the hire just took off), and a client
+      // must not forge a publish ref (`/api/portal/service-publish` is the only writer).
+      restoreServerPublishState(rowData, existing?.row_data ?? null);
     };
 
     /** New resident-filed rows kick off dispatch preparation after the response

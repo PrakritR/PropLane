@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   resolveVendorPortalUserId: vi.fn(),
   setupVendorWorkIdentity: vi.fn(),
   getVendorWorkIdentity: vi.fn(),
+  loadVendorVerifiedPhone: vi.fn(),
+  setVendorForwardToPhone: vi.fn(),
   createSupabaseServiceRoleClient: vi.fn(() => ({})),
 }));
 
@@ -19,6 +21,8 @@ vi.mock("@/lib/auth/vendor-api-access", () => ({
 vi.mock("@/lib/vendor-work-identity.server", () => ({
   setupVendorWorkIdentity: mocks.setupVendorWorkIdentity,
   getVendorWorkIdentity: mocks.getVendorWorkIdentity,
+  loadVendorVerifiedPhone: mocks.loadVendorVerifiedPhone,
+  setVendorForwardToPhone: mocks.setVendorForwardToPhone,
 }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: mocks.createSupabaseServiceRoleClient,
@@ -40,6 +44,7 @@ describe("POST /api/vendor/work-identity — SMS claim requires a valid, matchin
     mocks.setupVendorWorkIdentity.mockReset();
     mocks.resolveVendorPortalUserId.mockResolvedValue({ ok: true, userId: "vendor-1" });
     mocks.setupVendorWorkIdentity.mockResolvedValue({ ok: true, sms: { value: "+12065550101" } });
+    mocks.loadVendorVerifiedPhone.mockResolvedValue({ verified: true, phone: "+12065550142" });
   });
 
   it("refuses a claim with no claimToken at all", async () => {

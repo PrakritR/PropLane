@@ -4,6 +4,7 @@ import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { isVendorCategorySettingsRow, managerVendorCategorySettingsRowId } from "@/lib/manager-vendors-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -88,6 +89,10 @@ export async function GET(req: Request) {
     if (!admin && role !== "manager" && role !== "pro") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
+    // A Property owner carries the manager role row only to host /portal/owner;
+    // the vendor directory (own and shared rows) is not theirs to read or write.
+    const ownerRefusal = await refuseOwnerOnly(db, user.id);
+    if (ownerRefusal) return ownerRefusal;
 
     if (catalogMode) {
       let query = db
@@ -239,6 +244,10 @@ export async function POST(req: Request) {
     if (!admin && role !== "manager" && role !== "pro") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
+    // A Property owner carries the manager role row only to host /portal/owner;
+    // the vendor directory (own and shared rows) is not theirs to read or write.
+    const ownerRefusal = await refuseOwnerOnly(db, user.id);
+    if (ownerRefusal) return ownerRefusal;
 
     const body = (await req.json()) as {
       action?: "upsert" | "delete" | "replace";

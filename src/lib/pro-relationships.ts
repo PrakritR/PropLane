@@ -202,6 +202,8 @@ export function writeProRelationships(userId: string, rows: ProRelationshipRecor
   if (existing && !relationshipsChanged(existing, rows)) return;
   memoryByUser.set(userId, rows);
   window.dispatchEvent(new Event("axis-pro-relationships"));
+  // An empty replace is a no-op server-side; skip the round trip.
+  if (rows.length === 0) return;
   void fetch("/api/portal-pro-relationships", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

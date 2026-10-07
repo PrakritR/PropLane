@@ -95,6 +95,28 @@ export function vendorPayFeeDisplayPercent(): number {
   return vendorPayFeeBps() / 100;
 }
 
+/** The one vendor-facing name for the fee. Every label, statement kind and receipt line reads this. */
+export const PROPLANE_SERVICE_FEE_LABEL = "PropLane service fee";
+
+/** Statement-line description for the fee debit; the percent comes from the rate constant, never a literal. */
+export function vendorServiceFeeDescription(): string {
+  return `${PROPLANE_SERVICE_FEE_LABEL} (${VENDOR_PAY_FEE_BPS / 100}%)`;
+}
+
+/**
+ * The only rails that carry the vendor service fee in this build. The fee is
+ * a Stripe application fee on the manager's Checkout, frozen with the
+ * provider terms at checkout time (`pendingVendorPay.providerTerms` /
+ * `freeze_vendor_invoice_stripe_checkout_terms`) and booked at settlement.
+ *
+ * Offline/manual settles and PropLane-balance payments carry NO service fee
+ * (`platform_fee_cents` stays 0 and no revenue entry is written). The balance
+ * rail is deliberately deferred: taking the fee there needs a
+ * source-classification change in the balance-move SQL, which cannot be
+ * verified without applying a migration. Never infer a fee on those rails.
+ */
+export const VENDOR_SERVICE_FEE_RAILS = ["stripe_checkout"] as const;
+
 // ---------------------------------------------------------------------------
 // Vendor Instant-withdraw fee (VENDOR_BANKING_ENABLED).
 //
@@ -110,11 +132,38 @@ export function vendorPayFeeDisplayPercent(): number {
 export const VENDOR_INSTANT_WITHDRAW_FEE_BPS = 150; // 1.5%
 export const VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS = 50; // $0.50 floor
 
-export function vendorInstantWithdrawFeeCents(amountCents: number): number {
-  if (!vendorBankingEnabled()) return 0;
+/**
+ * The Instant payout is for the NET amount, so the fee would stay inside the vendor's connected
+ * account. Nothing in the codebase moves money from a connected account to the platform for a
+ * fee (the only claw-back is a transfer reversal tied to a specific hold transfer, which would
+ * corrupt refund bookkeeping), so the fee cannot be collected. Until a real collect mechanism
+ * exists this is false: the fee is quoted as $0, charged as $0 and never booked, so the books
+ * can never claim money that did not move. Flip only together with a collect step that runs
+ * (idempotency key tied to the withdrawal id) BEFORE the ledger line is written.
+ */
+export const VENDOR_INSTANT_FEE_COLLECTABLE: boolean = false;
+
+/**
+ * The ONE Instant-withdraw fee formula (1.5%, $0.50 minimum). Pure and flag-free
+ * so the Withdraw sheet quotes exactly what the server charges: the server
+ * (`vendorInstantWithdrawFeeCents`, flag-gated) and every client quote both call
+ * this, and the sheet's label comes from `VENDOR_INSTANT_WITHDRAW_FEE_LABEL`.
+ */
+export function vendorInstantWithdrawFeeQuoteCents(amountCents: number): number {
+  if (!VENDOR_INSTANT_FEE_COLLECTABLE) return 0;
   if (!Number.isFinite(amountCents) || amountCents <= 0) return 0;
   const raw = Math.round((Math.round(amountCents) * VENDOR_INSTANT_WITHDRAW_FEE_BPS) / 10_000);
   return Math.max(VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS, raw);
+}
+
+/** "1.5% fee · $0.50 minimum" — derived from the constants, never typed twice. */
+export const VENDOR_INSTANT_WITHDRAW_FEE_LABEL = VENDOR_INSTANT_FEE_COLLECTABLE
+  ? `${VENDOR_INSTANT_WITHDRAW_FEE_BPS / 100}% fee · $${(VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS / 100).toFixed(2)} minimum`
+  : "No PropLane fee";
+
+export function vendorInstantWithdrawFeeCents(amountCents: number): number {
+  if (!vendorBankingEnabled()) return 0;
+  return vendorInstantWithdrawFeeQuoteCents(amountCents);
 }
 
 /** Short copy for pricing / plan cards. */

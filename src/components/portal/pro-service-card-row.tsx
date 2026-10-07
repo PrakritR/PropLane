@@ -159,6 +159,7 @@ export function VendorServiceCardRow({
   checked = false,
   onSelectedChange,
   onOpen,
+  actions,
   dataAttr = "vendor-service-row",
 }: {
   title: string;
@@ -170,6 +171,8 @@ export function VendorServiceCardRow({
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
+  /** The row's one ⋯ menu, when the list carries its own actions (Find work's three choices). */
+  actions?: ReactNode;
   dataAttr?: string;
 }) {
   return (
@@ -187,6 +190,7 @@ export function VendorServiceCardRow({
       checked={checked}
       onSelectedChange={onSelectedChange}
       onOpen={onOpen}
+      actions={actions}
       dataAttr={dataAttr}
     />
   );

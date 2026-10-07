@@ -181,6 +181,26 @@ describe("redeeming a manager invite link", () => {
   // A row from a redeemed link with an empty flat `co_manager_permissions`
   // read as no access for any house that joined an "all houses" workspace
   // later (see readPropertyPermissionsFromRow / PRP report).
+  it("redeems a legacy all-houses owner link as selected, over its assigned houses only", async () => {
+    link = makeLink({ team_role: "property_owner", house_scope: "all", assigned_property_ids: ["prop-1"] });
+
+    await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
+
+    const invite = inserted.account_link_invites?.[0] as Record<string, unknown>;
+    expect(invite.house_scope).toBe("selected");
+    expect(invite.assigned_property_ids).toEqual(["prop-1"]);
+  });
+
+  it("refuses an owner link that carries no houses", async () => {
+    link = makeLink({ team_role: "property_owner", house_scope: "all", assigned_property_ids: [] });
+
+    const result = await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
+
+    expect(result.ok).toBe(false);
+    expect(inserted.account_link_invites).toBeUndefined();
+    expect(link.used_count).toBe(0);
+  });
+
   it("sets co_manager_permissions from the link's team_role, not left empty", async () => {
     link = makeLink({ team_role: "admin", house_scope: "all" });
 
@@ -275,5 +295,92 @@ describe("redeeming a vendor invite link", () => {
     });
     expect(inserted.manager_vendor_records).toBeUndefined();
     expect(link.used_count).toBe(0);
+  });
+});
+
+describe("redeeming a Property owner invite link", () => {
+  /** A fresh account: no manager role, no purchase, resident-or-nothing. */
+  function ownerOpenerDb() {
+    const db = makeDb();
+    const originalFrom = db.from.bind(db);
+    (db as { from: (name: string) => unknown }).from = (name: string) => {
+      if (name === "profile_roles") {
+        const q: Record<string, unknown> = {};
+        q.select = () => q;
+        q.eq = () => q;
+        q.maybeSingle = async () => ({ data: null, error: null });
+        q.upsert = (payload: unknown) => {
+          (inserted.profile_roles ??= []).push(payload);
+          return { then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(resolve) };
+        };
+        return q;
+      }
+      if (name === "profiles") {
+        const q: Record<string, unknown> = {};
+        q.select = () => q;
+        q.eq = () => q;
+        q.in = () => q;
+        q.maybeSingle = async () => ({
+          data: { id: "peer-1", email: "dana@example.com", full_name: "Dana", role: "resident", axis_id: "AX-1" },
+          error: null,
+        });
+        q.upsert = (payload: unknown) => {
+          (inserted.profiles ??= []).push(payload);
+          return { then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(resolve) };
+        };
+        q.then = (resolve: (v: unknown) => unknown) =>
+          Promise.resolve({ data: [{ id: "owner-1", axis_id: "AX-0", full_name: "Mgr", email: "m@example.com" }], error: null }).then(resolve);
+        return q;
+      }
+      return originalFrom(name);
+    };
+    (db as unknown as { auth: unknown }).auth = {
+      admin: { getUserById: async () => ({ data: { user: { email: "dana@example.com", user_metadata: { full_name: "Dana" } } } }) },
+    };
+    return db;
+  }
+
+  it("needs no manager account: it provisions an owner-only login and joins as an accepted owner member", async () => {
+    link = makeLink({
+      team_role: "property_owner",
+      house_scope: "selected",
+      // A forged map: module grants must never reach the stored membership.
+      property_permissions: { "prop-1": { financials: true, residents: { read: true, edit: true }, ownerStatements: { read: true, notification: true } } },
+    });
+
+    const result = await redeemInviteLink(ownerOpenerDb(), { token: "t", redeemerUserId: "peer-1" });
+
+    expect(result).toMatchObject({ ok: true, kind: "manager", alreadyRedeemed: false });
+    const invite = inserted.account_link_invites?.[0] as Record<string, unknown>;
+    expect(invite.team_role).toBe("property_owner");
+    expect(invite.status).toBe("accepted");
+    expect(invite.assigned_property_ids).toEqual(["prop-1"]);
+    // Owner keys only: the forged module grants are dropped on the way in.
+    expect(invite.property_co_manager_permissions).toEqual({ "prop-1": { ownerStatements: { read: true, notification: true } } });
+    // The login exists with the portal role row, and nothing else: no plan, no purchase, no workspace.
+    expect(inserted.profile_roles).toEqual([{ user_id: "peer-1", role: "manager" }]);
+    // `profiles.role` is the role the account was CREATED as (legacy, singular):
+    // this redeemer signed up as a resident and keeps that, with the manager
+    // portal row above as the actual grant.
+    expect(inserted.profiles?.[0]).toMatchObject({ id: "peer-1", role: "resident" });
+    expect(inserted.manager_purchases).toBeUndefined();
+    expect(inserted.portal_workspaces).toBeUndefined();
+  });
+
+  it("still refuses a manager-role-less opener for every other role", async () => {
+    link = makeLink({ team_role: "viewer" });
+    const result = await redeemInviteLink(ownerOpenerDb(), { token: "t", redeemerUserId: "peer-1" });
+    expect(result).toMatchObject({ ok: false, status: 403, code: "manager_role_required" });
+    expect(inserted.profile_roles).toBeUndefined();
+  });
+
+  it("hands the use back when the owner login cannot be provisioned", async () => {
+    link = makeLink({ team_role: "property_owner" });
+    const db = ownerOpenerDb();
+    (db as unknown as { auth: unknown }).auth = { admin: { getUserById: async () => { throw new Error("boom"); } } };
+    const result = await redeemInviteLink(db, { token: "t", redeemerUserId: "peer-1" });
+    expect(result.ok).toBe(false);
+    expect(link.used_count).toBe(0);
+    expect(inserted.account_link_invites).toBeUndefined();
   });
 });

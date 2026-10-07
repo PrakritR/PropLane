@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { connectAccountReadyForAchPayouts } from "@/lib/stripe-connect";
 import { getStripe } from "@/lib/stripe";
+import { readFrozenDisputeChargeIds } from "@/lib/vendor-banking/disputes.server";
 
 export type HeldSourceRow = {
   id: string;
@@ -142,6 +143,12 @@ export async function releaseVerifiedPlatformHoldsForOwner(
     .eq("owner_user_id", opts.ownerUserId).eq("status", "reserved");
   if (attemptError) throw new Error("Could not load reserved hold transfers.");
   const attemptsByHold = new Map((pendingAttempts ?? []).map((row) => [String(row.hold_id), row as TransferAttempt]));
+  // Money frozen by an open dispute must not leave the platform hold: a NEW release is skipped
+  // (stays visible as held) while its charge is disputed. An already-reserved attempt may still
+  // finish, because its transfer may already exist at Stripe.
+  const frozenChargeIds = holds.some((hold) => hold.owner_role === "vendor")
+    ? await readFrozenDisputeChargeIds(db, opts.ownerUserId)
+    : new Set<string>();
   let newDestination: string | null | undefined;
   let transferred = 0;
   let pending = 0;
@@ -152,6 +159,10 @@ export async function releaseVerifiedPlatformHoldsForOwner(
     }
     const previous = attemptsByHold.get(hold.id);
     if (opts.reservedAttemptOnly && !previous) continue;
+    if (!previous && hold.stripe_charge_id && frozenChargeIds.has(hold.stripe_charge_id)) {
+      pending += 1;
+      continue;
+    }
     await verifyPlatformHoldSourceRefundHistory(db, stripe, hold);
     let destination: string | null;
     if (previous) {

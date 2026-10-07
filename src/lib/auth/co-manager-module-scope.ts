@@ -14,6 +14,7 @@ import { intersectPropertyScopes } from "@/lib/reports/workspace-scope";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadWorkspaces } from "@/lib/workspaces/server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -47,11 +48,11 @@ export async function linkedOwnerForProperty(
 ): Promise<string | null> {
   const pid = (propertyId ?? "").trim();
   if (!pid || !userId) return null;
-  const { data } = await db
+  const { data } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("inviter_user_id, assigned_property_ids")
+    .select("inviter_user_id, assigned_property_ids, team_role")
     .eq("invitee_user_id", userId)
-    .eq("status", "accepted");
+    .eq("status", "accepted"));
   for (const row of data ?? []) {
     const ids = Array.isArray(row.assigned_property_ids) ? row.assigned_property_ids.map(String) : [];
     if (ids.includes(pid) && row.inviter_user_id) return String(row.inviter_user_id);
@@ -102,11 +103,11 @@ export async function linkedOwnerScopeForModule(
     if (viewerError && options.throwOnError) throw viewerError;
     const viewerEmail = String(viewerProfile?.email ?? "").trim();
 
-    const { data: linkRows, error } = await db
+    const { data: linkRows, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
       .select(`inviter_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
-      .eq("invitee_user_id", userId);
+      .eq("invitee_user_id", userId));
     if (error) {
       if (options.throwOnError) throw error;
       return { ownerIds, propertyIds, propertyIdsByOwner };

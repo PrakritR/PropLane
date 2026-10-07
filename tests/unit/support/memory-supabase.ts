@@ -28,6 +28,22 @@ type Op =
   | { kind: "upsert"; rows: Row[]; onConflict: string; ignoreDuplicates: boolean }
   | { kind: "delete" };
 
+/** `row_data->>phone` reads a JSON field as text, like PostgREST; a plain column is read as-is. */
+function cell(row: Row, col: string): unknown {
+  const at = col.indexOf("->>");
+  if (at < 0) return row[col];
+  const outer = row[col.slice(0, at)];
+  return outer && typeof outer === "object" ? (outer as Row)[col.slice(at + 3)] : undefined;
+}
+
+/** `%a%b%` as a case-insensitive-optional LIKE pattern. */
+function likeMatches(value: unknown, pattern: string, caseInsensitive: boolean): boolean {
+  const text = caseInsensitive ? String(value ?? "").toLowerCase() : String(value ?? "");
+  const pat = caseInsensitive ? pattern.toLowerCase() : pattern;
+  const source = pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".");
+  return new RegExp(`^${source}$`).test(text);
+}
+
 interface Builder extends PromiseLike<{ data: Row[] | Row | null; error: null }> {
   select: (..._a: unknown[]) => Builder;
   eq: (col: string, val: unknown) => Builder;
@@ -35,6 +51,10 @@ interface Builder extends PromiseLike<{ data: Row[] | Row | null; error: null }>
   /** Lexicographic compare - ISO timestamps sort correctly as strings. */
   gt: (col: string, val: unknown) => Builder;
   lt: (col: string, val: unknown) => Builder;
+  gte: (col: string, val: unknown) => Builder;
+  lte: (col: string, val: unknown) => Builder;
+  like: (col: string, pattern: string) => Builder;
+  ilike: (col: string, pattern: string) => Builder;
   is: (col: string, val: unknown) => Builder;
   not: (col: string, op: string, val: unknown) => Builder;
   in: (col: string, vals: unknown[]) => Builder;
@@ -124,32 +144,48 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
         return builder;
       },
       eq(col: string, val: unknown) {
-        filters.push((r) => String(r[col] ?? "") === String(val));
+        filters.push((r) => String(cell(r, col) ?? "") === String(val));
         return builder;
       },
       neq(col: string, val: unknown) {
-        filters.push((r) => String(r[col] ?? "") !== String(val));
+        filters.push((r) => String(cell(r, col) ?? "") !== String(val));
         return builder;
       },
       is(col: string, val: unknown) {
-        filters.push((r) => (val === null ? r[col] === null || r[col] === undefined : r[col] === val));
+        filters.push((r) => (val === null ? cell(r, col) === null || cell(r, col) === undefined : cell(r, col) === val));
         return builder;
       },
       not(col: string, _op: string, val: unknown) {
-        filters.push((r) => (val === null ? !(r[col] === null || r[col] === undefined) : r[col] !== val));
+        filters.push((r) => (val === null ? !(cell(r, col) === null || cell(r, col) === undefined) : cell(r, col) !== val));
         return builder;
       },
       gt(col: string, val: unknown) {
-        filters.push((r) => String(r[col] ?? "") > String(val));
+        filters.push((r) => String(cell(r, col) ?? "") > String(val));
         return builder;
       },
       lt(col: string, val: unknown) {
-        filters.push((r) => String(r[col] ?? "") < String(val));
+        filters.push((r) => String(cell(r, col) ?? "") < String(val));
+        return builder;
+      },
+      gte(col: string, val: unknown) {
+        filters.push((r) => String(cell(r, col) ?? "") >= String(val));
+        return builder;
+      },
+      lte(col: string, val: unknown) {
+        filters.push((r) => String(cell(r, col) ?? "") <= String(val));
+        return builder;
+      },
+      like(col: string, pattern: string) {
+        filters.push((r) => likeMatches(cell(r, col), pattern, false));
+        return builder;
+      },
+      ilike(col: string, pattern: string) {
+        filters.push((r) => likeMatches(cell(r, col), pattern, true));
         return builder;
       },
       in(col: string, vals: unknown[]) {
         const set = new Set(vals.map((v) => String(v)));
-        filters.push((r) => set.has(String(r[col] ?? "")));
+        filters.push((r) => set.has(String(cell(r, col) ?? "")));
         return builder;
       },
       or() {
@@ -223,6 +259,13 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
       row.attachment_state = "attaching";
       row.attempts = Number(row.attempts ?? 0) + 1;
       row.last_error = null;
+      return { data: true, error: null };
+    }
+    if (fn === "stamp_sms_projection_conversation") {
+      const row = ensure("sms_projection_conversations").find((r) => r.id === args.p_conversation_id);
+      if (!row) return { data: false, error: null };
+      row.workspace_id = args.p_workspace;
+      row.conversation_key = args.p_key;
       return { data: true, error: null };
     }
     return { data: null, error: { message: `unknown rpc ${fn}` } };

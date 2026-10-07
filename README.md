@@ -9,6 +9,8 @@ Property management software for listing units, screening applicants, signing le
 | **Marketing** | `/`, `/partner`, `/pricing`, `/contact` | Prospective property managers |
 | **Manager workspace** | `/portal` | Property managers (Free, Pro, Business tiers) |
 | **Resident portal** | `/resident` | Tenants linked to a manager |
+| **Vendor portal** | `/vendor` | Contractors a manager invites to services |
+| **Property owner view** | `/portal/owner` | Investors a manager shares a house with |
 | **Admin portal** | `/admin` | Platform operators |
 | **Public apply & tour flows** | `/rent/apply`, `/rent/tours`, `/rent/listings/[id]` | Applicants (manager-shared links) |
 
@@ -27,9 +29,17 @@ Deleting the default passes its label to the oldest remaining workspace.
 Deleting the last empty workspace returns to **Create your first workspace**;
 adding a house with no workspace still creates **My workspace** automatically.
 
+### Property owner view (`/portal/owner`)
+
+A read-only view a manager grants per house from **Settings → Workspaces**, by inviting a member with Role → **Property owner**: Overview and Properties figures, owner statements, documents the manager marked *Share with owners*, and — only when the manager turns it on — a message thread with that manager. It is a team role inside the manager's workspace, not a portal of its own, so an owner never sees residents, applicants or vendors. Contract: [`docs/agents/co-manager-access.md`](docs/agents/co-manager-access.md) § Property owner.
+
 ### Resident portal (`/resident`)
 
 Rent & utility payments (card incl. Apple Pay / Google Pay, or bank/ACH — captured by PropLane on Stripe and paid out to the manager), My home (house info & rules, opt-in housemate sharing, move-in / move-out inspections), services, inbox, lease & receipts. Full workspace unlocks after lease approval.
+
+### Vendor portal (`/vendor`)
+
+The contractor's side of services: the jobs a manager offered or assigned, bids, calendar, communication, Finances (balance & payouts, payments, statements, tax info), documents, reviews with replies, and a free PropLane work number and email for manager and resident contact. Contract: [`docs/agents/vendor-portal.md`](docs/agents/vendor-portal.md).
 
 ### Platform capabilities
 

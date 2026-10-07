@@ -106,4 +106,10 @@ describe("writeProRelationships no-op guard", () => {
     expect(dispatchEvent).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("skips the network POST when there are no rows", () => {
+    const userId = `user-${Math.random().toString(36).slice(2)}`;
+    writeProRelationships(userId, []);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

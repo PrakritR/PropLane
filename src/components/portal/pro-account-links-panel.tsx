@@ -24,6 +24,7 @@ import {
 } from "@/components/portal/workspace-invite-link-strip";
 import {
   WorkspacePermissionsFields,
+  OwnerPermissionsEditor,
   RoleCapabilitiesList,
   CoManagerPermissionsEditor,
   WorkspaceGrantFields,
@@ -39,7 +40,7 @@ import {
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
 import type { PortalWorkspace, WorkspaceMember } from "@/lib/workspaces/types";
-import { memberReachLabel, type HouseScope } from "@/lib/workspaces/membership";
+import { houseScopeForRoleChange, memberReachLabel, type HouseScope } from "@/lib/workspaces/membership";
 import { cn } from "@/lib/utils";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -1344,12 +1345,14 @@ export function ProAccountLinksPanel({
   const findWorkspaceMemberForEntry = useCallback(
     (entry: TeamListEntry): { workspace: PortalWorkspace; member: WorkspaceMember } | null => {
       if (entry.kind !== "remote" || entry.invite.status !== "accepted") return null;
+      // A Property owner reads statements; they are never a manager to promote.
+      if (entry.invite.teamRole === "property_owner") return null;
       const workspace = (workspaces?.workspaces ?? []).find((w) => w.id === entry.invite.workspaceId);
       if (!workspace || !workspace.owned) return null;
       const member =
         (workspace.members ?? []).find((m) => m.linkId === entry.invite.id) ??
         (workspace.members ?? []).find((m) => m.userId === entry.invite.linkedUserId);
-      if (!member) return null;
+      if (!member || member.role === "property_owner") return null;
       return { workspace, member };
     },
     [workspaces],
@@ -1739,16 +1742,25 @@ export function ProAccountLinksPanel({
               other.workspaceId !== inv.workspaceId,
           );
           const applyRole = (teamRole: TeamRoleId) => {
+            // Property owner is selected-houses-only on every server path, so the
+            // role change carries the member's current houses over in the SAME
+            // draft — a second update would race this one's 300 ms save.
+            const scoped = houseScopeForRoleChange(teamRole, {
+              houseScope: draft.houseScope,
+              selectedHouseIds: draft.assignedPropertyIds,
+            });
             const stamp = stampTeamRolePermissions(teamRole);
             const nextPerms = stamp
               ? normalizePropertyCoManagerPermissions(
-                  Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, stamp])),
-                  draft.assignedPropertyIds,
+                  Object.fromEntries(scoped.selectedHouseIds.map((id) => [id, stamp])),
+                  scoped.selectedHouseIds,
                 )
               : draft.propertyCoManagerPermissions;
             queueDraft({
               ...draft,
               teamRole,
+              houseScope: scoped.houseScope,
+              assignedPropertyIds: scoped.selectedHouseIds,
               workspaceDefaultPermissions: stamp ?? draft.workspaceDefaultPermissions,
               propertyCoManagerPermissions: nextPerms,
               // A named role carries its own workspace rights.
@@ -1799,7 +1811,24 @@ export function ProAccountLinksPanel({
                 workspace={memberWorkspace ? { name: memberWorkspace.name, houseCount: memberWorkspace.propertyIds.length } : null}
                 houseOptions={workspaceHouseOptions}
               />
-              {draft.teamRole === "custom" ? (
+              {draft.teamRole === "property_owner" ? (
+                <OwnerPermissionsEditor
+                  value={draft.workspaceDefaultPermissions}
+                  disabled={readOnly}
+                  onChange={(next) => {
+                    // The role stays Property owner whatever the four rows say; it is never re-inferred.
+                    queueDraft({
+                      ...draft,
+                      workspaceDefaultPermissions: next,
+                      propertyCoManagerPermissions: normalizePropertyCoManagerPermissions(
+                        Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, next])),
+                        draft.assignedPropertyIds,
+                      ),
+                    });
+                  }}
+                  onReset={() => applyRole("property_owner")}
+                />
+              ) : draft.teamRole === "custom" ? (
                 <>
                   <CoManagerPermissionsEditor
                     hideRole

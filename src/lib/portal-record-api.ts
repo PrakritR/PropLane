@@ -236,6 +236,9 @@ export function createJsonRecordRoute(config: RecordConfig) {
         }
 
         const rows = body.action === "replace" ? body.rows ?? [] : body.row ? [body.row] : [];
+        // "replace" only upserts the rows it is given (it never deletes absent
+        // ones), so an empty replace is a no-op, not an error.
+        if (rows.length === 0 && body.action === "replace") return NextResponse.json({ ok: true, upserted: 0 });
         if (rows.length === 0) return NextResponse.json({ error: "row required" }, { status: 400 });
         const records = rows.map((row) => {
           const normalized = config.normalize ? config.normalize(row) : row;

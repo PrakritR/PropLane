@@ -28,6 +28,12 @@ export type VendorPaymentRow = {
   currency: string;
   /** Set for an income row with a matching `vendor_payouts` row — the row's own View target. */
   payoutId: string | null;
+  /** The manager the money comes from, when the row's job (or the vendor's only linked manager) names one. */
+  managerLabel: string | null;
+  /** The invoice number, kept for search when `title` is the service's own title. */
+  reference: string | null;
+  /** The invoice's payment due date (yyyy-mm-dd) from the manager's bill; null when none is set. */
+  dueIso: string | null;
   /** The row's own source record — the extension point for fee/net work. */
   income: VendorIncomeRow | null;
   invoice: VendorInvoice | null;
@@ -55,7 +61,11 @@ function jobPropertyLabel(job: DemoManagerWorkOrderRow | undefined): { id: strin
   return { id: job.propertyId ?? job.assignedPropertyId ?? "", label: label || null };
 }
 
-export function vendorPaymentRowFromIncome(row: VendorIncomeRow, payout?: VendorPayout): VendorPaymentRow {
+export function vendorPaymentRowFromIncome(
+  row: VendorIncomeRow,
+  payout?: VendorPayout,
+  managerLabel: string | null = null,
+): VendorPaymentRow {
   return {
     id: `income:${row.id}`,
     kind: "income",
@@ -68,6 +78,9 @@ export function vendorPaymentRowFromIncome(row: VendorIncomeRow, payout?: Vendor
     amountCents: row.totalCents,
     currency: "usd",
     payoutId: payout?.id ?? null,
+    managerLabel,
+    reference: null,
+    dueIso: null,
     income: row,
     invoice: null,
     payout: payout ?? null,
@@ -83,13 +96,16 @@ export function vendorPaymentRowFromInvoice(
   invoice: VendorInvoice,
   jobsById: Record<string, DemoManagerWorkOrderRow>,
   payout?: VendorPayout,
+  defaultManagerLabel: string | null = null,
 ): VendorPaymentRow {
   const job = invoice.workOrderId ? jobsById[invoice.workOrderId] : undefined;
   const property = jobPropertyLabel(job);
+  const reference = invoice.invoiceNumber?.trim() || null;
   return {
     id: `invoice:${invoice.id}`,
     kind: "invoice",
-    title: invoice.invoiceNumber || "Invoice",
+    // The service the invoice bills for; a bare invoice (no job) reads by its number.
+    title: job?.title?.trim() || reference || "Invoice",
     propertyId: property.id,
     propertyLabel: property.label,
     dateIso: invoice.submittedAt,
@@ -98,6 +114,9 @@ export function vendorPaymentRowFromInvoice(
     amountCents: invoice.totalCents,
     currency: invoice.currency,
     payoutId: payout?.id ?? null,
+    managerLabel: job?.managerName?.trim() || defaultManagerLabel,
+    reference,
+    dueIso: invoice.dueDate?.slice(0, 10) || null,
     income: null,
     invoice,
     payout: payout ?? null,
@@ -110,10 +129,20 @@ export function buildVendorPaymentRows(
   jobsById: Record<string, DemoManagerWorkOrderRow>,
   payoutsByWorkOrderId: Record<string, VendorPayout>,
   payoutsByInvoiceId: Record<string, VendorPayout> = {},
+  /** Names the manager on an invoice with no job — the vendor's only linked manager, when there is exactly one. */
+  defaultManagerLabel: string | null = null,
 ): VendorPaymentRow[] {
   const rows = [
-    ...incomeRows.map((row) => vendorPaymentRowFromIncome(row, payoutsByWorkOrderId[row.workOrderId])),
-    ...invoices.map((invoice) => vendorPaymentRowFromInvoice(invoice, jobsById, payoutsByInvoiceId[invoice.id])),
+    ...incomeRows.map((row) =>
+      vendorPaymentRowFromIncome(
+        row,
+        payoutsByWorkOrderId[row.workOrderId],
+        jobsById[row.workOrderId]?.managerName?.trim() || defaultManagerLabel,
+      ),
+    ),
+    ...invoices.map((invoice) =>
+      vendorPaymentRowFromInvoice(invoice, jobsById, payoutsByInvoiceId[invoice.id], defaultManagerLabel),
+    ),
   ];
   // Newest first — the merge's whole point (VD11).
   return rows.sort((a, b) => (a.dateIso < b.dateIso ? 1 : a.dateIso > b.dateIso ? -1 : 0));
@@ -276,9 +305,35 @@ export function filterVendorPaymentRows(rows: VendorPaymentRow[], filters: Vendo
     if (filters.statusIds.length > 0 && !filters.statusIds.includes(row.statusId)) return false;
     if (filters.propertyIds.length > 0 && !filters.propertyIds.includes(row.propertyId)) return false;
     if (query) {
-      const haystack = `${row.title} ${row.propertyLabel ?? ""}`.toLowerCase();
+      const haystack = `${row.title} ${row.reference ?? ""} ${row.managerLabel ?? ""} ${row.propertyLabel ?? ""}`.toLowerCase();
       if (!haystack.includes(query)) return false;
     }
     return inDateRange(row.dateIso, filters.from, filters.to);
   });
+}
+
+/**
+ * Payments tabs (vendor-portal-redesign-1006): Pending · Paid · Overdue.
+ * Overdue is an invoice past its due date and still unpaid; "past" is a
+ * calendar-day comparison against `today` (yyyy-mm-dd), so a payment due today
+ * is still pending. An invoice with no due date can never be overdue.
+ */
+export type VendorPaymentBucket = "pending" | "paid" | "overdue";
+
+export const VENDOR_PAYMENT_BUCKETS: { id: VendorPaymentBucket; label: string }[] = [
+  { id: "pending", label: "Pending" },
+  { id: "paid", label: "Paid" },
+  { id: "overdue", label: "Overdue" },
+];
+
+export function vendorPaymentBucket(row: VendorPaymentRow, today: string): VendorPaymentBucket {
+  if (row.statusId === "income:paid" || row.statusId === "invoice:paid") return "paid";
+  if (row.kind === "invoice" && row.statusId !== "invoice:rejected" && row.dueIso && row.dueIso < today) return "overdue";
+  return "pending";
+}
+
+export function vendorPaymentBucketCounts(rows: VendorPaymentRow[], today: string): Record<VendorPaymentBucket, number> {
+  const counts: Record<VendorPaymentBucket, number> = { pending: 0, paid: 0, overdue: 0 };
+  for (const row of rows) counts[vendorPaymentBucket(row, today)] += 1;
+  return counts;
 }

@@ -50,6 +50,23 @@ export type ManagerVendorRow = {
   typicalRates?: ManagerVendorTypicalRate[];
   /** Sent-invite bookkeeping for the Invited pill: when the portal invite last went out. */
   invitedAt?: string;
+  /**
+   * How the vendor reached this roster (vendor-work-share-1006), written by the server: "service_link" =
+   * they opened a texted link, "work_board" = they requested a published service. Absent for a vendor the
+   * manager added.
+   */
+  origin?: "service_link" | "work_board";
+  /** Server-held: a link / board vendor has no phone or email on the row until they submit a bid. */
+  contactHeldUntilBid?: boolean;
+  /**
+   * The number the manager TEXTED a service link to. Unverified by definition -
+   * a forwarded link is redeemed by whoever opens it - so it is kept here and
+   * never in `phone` until the redeemer proves they hold it, at which point it
+   * is promoted. Display only; it never identifies anyone (`rosterPhoneIdentifiesVendor`).
+   */
+  linkPhone?: string;
+  /** True once the vendor proved they hold the phone on this row (service-link rows only). */
+  phoneVerified?: boolean;
   /** Synthetic settings row only — default vendor id per trade category. */
   categoryDefaults?: Record<string, string>;
   createdAt?: string;
@@ -62,6 +79,22 @@ export type ManagerVendorTypicalRate = {
   hourlyCents: number;
   serviceCents: number;
 };
+
+/**
+ * May this roster row's `phone` be used to say WHO an inbound text is from?
+ *
+ * Only when the number was not simply typed by the manager into a service link.
+ * A texted link can be forwarded, so the redeemer may be someone else entirely;
+ * writing the recipient's number onto their row would file the real recipient's
+ * texts under the wrong vendor account (and map that vendor's outbound to the
+ * victim's number). A service-link row qualifies once `phoneVerified` is true.
+ */
+export function rosterPhoneIdentifiesVendor(
+  row: Pick<ManagerVendorRow, "origin" | "phoneVerified"> | null | undefined,
+): boolean {
+  if (!row) return false;
+  return row.origin !== "service_link" || row.phoneVerified === true;
+}
 
 export const MANAGER_VENDORS_EVENT = "axis:manager-vendors";
 const MANAGER_VENDOR_CATEGORY_SETTINGS_ID_PREFIX = "axis:vendor-category-settings";

@@ -4,35 +4,48 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
-  Bell,
   Building2,
   CalendarDays,
+  CalendarSync,
+  ChevronLeft,
+  FileText,
   Landmark,
   Lock,
   Mail,
+  MessageSquareText,
   Phone,
   Settings,
+  ShieldCheck,
   UserRound,
   Wrench,
+  Zap,
 } from "lucide-react";
 import {
   useVendorBusinessProfile,
   SectionSaveBadge,
   VendorBusinessProfilePane,
+  VendorLicensesInsurancePane,
   VendorNotificationsPane,
+  VendorTradesServiceAreaPane,
   VendorWorkIdentitySection,
-  VendorWorkNumberStatusNote,
   worstSaveState,
 } from "@/components/portal/vendor-business-settings";
+import { VendorQuickRepliesSettings } from "@/components/portal/vendor-quick-replies-settings";
+import { VendorInvoicingSettings } from "@/components/portal/vendor-invoicing-settings";
+import {
+  VENDOR_SETTINGS_RAIL,
+  resolveVendorSettingsTab,
+  type VendorSettingsPageId,
+  type VendorSettingsRailGroup,
+} from "@/lib/portals/vendor-settings-pages";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import {
   PortalSettingsAutosaveField,
   PortalSettingsField,
   PortalSettingsFormBody,
   PortalSettingsGroup,
+  PortalSettingsLinkRow,
   PortalSettingsProfileHeader,
   PortalSettingsSection,
   PortalSettingsSections,
@@ -41,7 +54,6 @@ import {
 } from "@/components/portal/portal-settings-ui";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
 import { PortalPayoutsSettingsPage } from "@/components/portal/portal-payouts-settings-page";
-import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
@@ -52,52 +64,37 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, isDemoModeActive } from "@/lib/demo/demo-session";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { VendorAvailabilityEditor } from "@/components/portal/vendor-availability-editor";
+import { VendorIntegrationsSettings } from "@/components/portal/vendor-integrations-settings";
+import { VendorWorkNumberSettings } from "@/components/portal/vendor-work-number-settings";
 
 const SETTINGS_TAB_PARAM = "tab";
 
-type VendorSettingsGroupId =
-  | "business"
-  | "work"
-  | "payouts"
-  | "notifications"
-  | "profile"
-  | "capabilities"
-  | "availability"
-  | "messaging"
-  | "preferences"
-  | "security"
-  | "feedback"
-  | "account";
-
-/**
- * Legacy tab ids that must keep resolving after the VD01/VD66 regroup —
- * Work contacts / Work number / Work email folded into one "work" section,
- * and Workspace access (studio VD66) was removed outright, so its old deep
- * link now lands on Business profile rather than 404ing.
- */
-const VENDOR_SETTINGS_TAB_ALIASES: Record<string, VendorSettingsGroupId> = {
-  "work-contacts": "work",
-  "work-number": "work",
-  "work-email": "work",
-  workspaces: "business",
-  "workspace-access": "business",
-};
+type VendorSettingsGroupId = VendorSettingsPageId;
 
 type VendorSettingsGroup = {
   id: VendorSettingsGroupId;
   label: string;
-  description?: string;
   icon: ComponentType<{ className?: string }>;
-  /**
-   * Two top-level cards (captain, 2026-09-27 studio VD01/VD66) — never a flat
-   * list of every sub-item. Workspace access was removed and Payouts moved
-   * into Account, leaving no third "money" group.
-   */
-  group: "Business" | "Account";
+  group: VendorSettingsRailGroup["label"];
 };
 
-/** Top-level card order for the vendor Settings accordion. */
-const VENDOR_SETTINGS_TOP_GROUPS = ["Business", "Account"] as const;
+const VENDOR_SETTINGS_PAGE_ICONS: Record<VendorSettingsPageId, ComponentType<{ className?: string }>> = {
+  profile: UserRound,
+  security: Lock,
+  preferences: Settings,
+  feedback: Mail,
+  account: Settings,
+  business: Building2,
+  capabilities: Wrench,
+  licenses: ShieldCheck,
+  availability: CalendarDays,
+  integrations: CalendarSync,
+  payouts: Landmark,
+  invoicing: FileText,
+  messaging: Phone,
+  "quick-replies": Zap,
+  "work-number-email": MessageSquareText,
+};
 
 type VendorProfileDraft = {
   name: string;
@@ -335,13 +332,6 @@ export function VendorSettingsPanel() {
     }
   }
 
-  function toggleTrade(trade: string, on: boolean) {
-    const set = new Set(trades);
-    if (on) set.add(trade);
-    else set.delete(trade);
-    void commitTrades([...set]);
-  }
-
   // Both writable panes are dead until a manager links the account, so the
   // banner rides with them rather than sitting once at the top of a scroll the
   // vendor may never reach.
@@ -357,107 +347,22 @@ export function VendorSettingsPanel() {
   ) : null;
 
   const groups = useMemo<VendorSettingsGroup[]>(
-    () => [
-      {
-        id: "business",
-        label: "Business profile",
-        description: "Your business name, contact, and service area — yours, no manager link needed.",
-        icon: Building2,
-        group: "Business",
-      },
-      {
-        id: "work",
-        label: "Work number & email",
-        description: "Your business phone/email, plus a free PropLane-provided work number and email.",
-        icon: Phone,
-        group: "Business",
-      },
-      {
-        id: "profile",
-        label: "Directory listing",
-        description: "Language, texting consent, and payment methods on your manager directory entry.",
-        icon: UserRound,
-        group: "Business",
-      },
-      {
-        id: "capabilities",
-        label: "Work capabilities",
-        description: "The trades managers can match you with.",
-        icon: Wrench,
-        group: "Business",
-      },
-      {
-        id: "availability",
-        label: "Availability",
-        description: "Weekly hours, one-off open dates, and blocked dates.",
-        icon: CalendarDays,
-        group: "Business",
-      },
-      {
-        id: "payouts",
-        label: "Payouts",
-        // Always the vendor's OWN Stripe Connect account — never a workspace's bank.
-        description: "Your balance, bank accounts, and how you withdraw what you're owed.",
-        icon: Landmark,
-        group: "Account",
-      },
-      {
-        id: "notifications",
-        label: "Notifications",
-        description: "Which events reach your inbox and phone.",
-        icon: Bell,
-        group: "Account",
-      },
-      {
-        id: "messaging",
-        label: "Messaging",
-        description: "Verify your phone for job texts.",
-        icon: Phone,
-        group: "Account",
-      },
-      {
-        id: "preferences",
-        label: "Preferences",
-        description: "Assistant and device options.",
-        icon: Settings,
-        group: "Account",
-      },
-      {
-        id: "security",
-        label: "Login & security",
-        description: "Password and sign-in options.",
-        icon: Lock,
-        group: "Account",
-      },
-      {
-        id: "feedback",
-        label: "Feedback",
-        description: "Report issues or share product feedback.",
-        icon: Mail,
-        group: "Account",
-      },
-      {
-        id: "account",
-        label: "Account",
-        description: "Switch portals, sign out, or delete your account.",
-        icon: Settings,
-        group: "Account",
-      },
-    ],
+    () =>
+      VENDOR_SETTINGS_RAIL.flatMap((railGroup) =>
+        railGroup.pages.map((page) => ({
+          id: page.id,
+          label: page.label,
+          icon: VENDOR_SETTINGS_PAGE_ICONS[page.id],
+          group: railGroup.label,
+        })),
+      ),
     [],
   );
 
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
-  const normalizedTab = rawTab ? (VENDOR_SETTINGS_TAB_ALIASES[rawTab] ?? rawTab) : rawTab;
+  const normalizedTab = resolveVendorSettingsTab(rawTab);
   const activeGroup = groups.find((g) => g.id === normalizedTab) ?? null;
   const paneGroup = activeGroup ?? groups[0];
-
-  // Exactly 3 cards visible at the top level (C159) — a card auto-opens once
-  // its own sub-item becomes the active pane, but otherwise starts closed.
-  const [openTopGroups, setOpenTopGroups] = useState<Set<string>>(() => new Set([paneGroup.group]));
-  useEffect(() => {
-    setOpenTopGroups((cur) => (cur.has(paneGroup.group) ? cur : new Set(cur).add(paneGroup.group)));
-  }, [paneGroup.group]);
 
   const pushedDepthRef = useRef(0);
   const backInFlightRef = useRef(false);
@@ -519,18 +424,26 @@ export function VendorSettingsPanel() {
   const renderPane = (id: VendorSettingsGroupId): ReactNode => {
     switch (id) {
       case "business":
-        return <VendorBusinessProfilePane ctx={business} />;
-      case "work":
-        return <VendorWorkIdentitySection ctx={business} />;
+        // Business details: who you are (name, contact) plus the work phone/email and PropLane work email.
+        return (
+          <>
+            <VendorBusinessProfilePane ctx={business} />
+            <VendorWorkIdentitySection ctx={business} />
+          </>
+        );
+      case "licenses":
+        return <VendorLicensesInsurancePane ctx={business} />;
+      case "invoicing":
+        return <VendorInvoicingSettings />;
+      case "quick-replies":
+        return <VendorQuickRepliesSettings />;
       case "payouts":
         return <PortalPayoutsSettingsPage portal="vendor" />;
-      case "notifications":
-        return <VendorNotificationsPane ctx={business} />;
       case "profile":
         return (
           <>
             {unlinkedBanner}
-            <PortalSettingsSection title="Directory listing" action={<SectionSaveBadge state={directorySectionState} />}>
+            <PortalSettingsSection title="Profile" action={<SectionSaveBadge state={directorySectionState} />}>
               <PortalSettingsGroup>
                 {profileLoading ? (
                   <div className="px-4 py-4">
@@ -629,35 +542,14 @@ export function VendorSettingsPanel() {
         return (
           <>
             {unlinkedBanner}
-            <PortalSettingsSection title="Work capabilities" action={<SectionSaveBadge state={capabilitiesState} />}>
-              <PortalSettingsGroup>
-                {profileLoading ? (
-                  <div className="px-4 py-4">
-                    <ListSkeleton rows={2} showLeading={false} />
-                  </div>
-                ) : (
-                  <PortalSettingsFormBody>
-                    <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-3" data-vs-trades>
-                      {VENDOR_TRADE_OPTIONS.map((option) => {
-                        const on = trades.includes(option);
-                        return (
-                          <label key={option} className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-border"
-                              checked={on}
-                              onChange={(e) => toggleTrade(option, e.target.checked)}
-                              data-attr={`vendor-capability-${option.toLowerCase().replace(/\s+/g, "-")}`}
-                            />
-                            <span className="font-medium text-foreground">{option}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </PortalSettingsFormBody>
-                )}
-              </PortalSettingsGroup>
-            </PortalSettingsSection>
+            <VendorTradesServiceAreaPane
+              ctx={business}
+              trades={trades}
+              tradeOptions={VENDOR_TRADE_OPTIONS}
+              onTradesChange={(next) => void commitTrades(next)}
+              tradesState={capabilitiesState}
+              loading={profileLoading}
+            />
           </>
         );
       case "availability":
@@ -670,11 +562,16 @@ export function VendorSettingsPanel() {
         // VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT contract. A second,
         // settings-local editor used to live in this file; it has been removed.
         return <VendorAvailabilityEditor dialog={false} />;
+      case "integrations":
+        return <VendorIntegrationsSettings />;
+      case "work-number-email":
+        return <VendorWorkNumberSettings />;
       case "messaging":
+        // Phone & notifications: verify the phone job texts come to, then what reaches the inbox and phone.
         return (
           <>
-            <VendorWorkNumberStatusNote />
-            <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} />
+            <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} title="Verify your phone" />
+            <VendorNotificationsPane ctx={business} />
           </>
         );
       case "preferences":
@@ -715,96 +612,95 @@ export function VendorSettingsPanel() {
     }
   };
 
-  // C159: exactly 3 top-level cards ("Company profile" / "Payout" / "Settings"),
-  // each an accordion disclosing its own real sub-items — never a flat list of
-  // every one of the 15 underlying items at once. Shared between the desktop
-  // sidebar and the mobile root screen so both stay in lockstep.
-  const renderTopGroupCards = () =>
-    VENDOR_SETTINGS_TOP_GROUPS.map((groupLabel) => {
-      const groupItems = groups.filter((item) => item.group === groupLabel);
-      if (groupItems.length === 0) return null;
-      const expanded = openTopGroups.has(groupLabel);
-      return (
-        <PortalCollapsibleSection
-          key={groupLabel}
-          title={groupLabel}
-          expanded={expanded}
-          onExpandedChange={(next) =>
-            setOpenTopGroups((cur) => {
-              const nextSet = new Set(cur);
-              if (next) nextSet.add(groupLabel);
-              else nextSet.delete(groupLabel);
-              return nextSet;
-            })
-          }
-          toggleDataAttr={`vendor-settings-group-${groupLabel.toLowerCase().replace(/\s+/g, "-")}`}
-        >
-          <PortalSettingsGroup className="rounded-none border-0">
-            {groupItems.map((g) => {
-              const active = g.id === paneGroup.id;
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => openGroup(g.id)}
-                  aria-current={active ? "page" : undefined}
-                  data-attr={`settings-nav-${g.id}`}
-                  className={cn(
-                    "flex w-full items-center gap-2.5 border-b border-border px-4 py-3 text-left text-sm font-medium transition-colors last:border-0",
-                    active ? "bg-primary/10 text-foreground" : "text-muted hover:bg-accent/40 hover:text-foreground",
-                  )}
-                >
-                  <g.icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "opacity-80")} />
-                  <span className="min-w-0 flex-1 truncate">{g.label}</span>
-                </button>
-              );
-            })}
-          </PortalSettingsGroup>
-        </PortalCollapsibleSection>
-      );
-    });
+  // Manager-settings layout (approved plan vendor-portal-redesign-1006): on desktop a
+  // rail of uppercase-labelled groups on the left and the page on the right; on a
+  // phone the same groups as link-row cards, each page opening with a back arrow.
+  const groupLabelClass = "px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-muted";
+  const navButton = (g: VendorSettingsGroup) => (
+    <button
+      key={g.id}
+      type="button"
+      onClick={() => openGroup(g.id)}
+      aria-current={g.id === paneGroup.id ? "page" : undefined}
+      data-attr={`settings-nav-${g.id}`}
+      className={cn(
+        "flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm",
+        g.id === paneGroup.id ? "bg-primary/10 text-primary" : "text-muted hover:bg-accent/40",
+      )}
+    >
+      <g.icon className="h-4 w-4" />
+      <span className="flex-1">{g.label}</span>
+    </button>
+  );
+  const homeVisible = activeGroup === null;
 
   return (
-    <ManagerPortalPageShell
-      title="Settings"
-      hideTitleOnMobileNav
-    >
-      <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
-        <aside className="hidden w-72 shrink-0 flex-col gap-3 lg:flex lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:self-stretch">
-          <PortalSettingsProfileHeader
-            name={profileDraft.name || DEMO_VENDOR_NAME}
-            email={profileDraft.email || DEMO_VENDOR_EMAIL}
-          />
-          {renderTopGroupCards()}
-        </aside>
+    <ManagerPortalPageShell title="Settings" hideTitleOnMobileNav>
+      <div ref={layoutTopRef} data-attr="settings-layout" className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
+        <nav aria-label="Settings sections" className="hidden w-[216px] shrink-0 space-y-1 lg:block">
+          {VENDOR_SETTINGS_RAIL.map((railGroup, index) => (
+            <div key={railGroup.label}>
+              <p
+                className={cn(groupLabelClass, index === 0 && "pt-0")}
+                data-attr={`settings-group-${railGroup.label.toLowerCase()}`}
+              >
+                {railGroup.label}
+              </p>
+              {groups.filter((g) => g.group === railGroup.label).map(navButton)}
+            </div>
+          ))}
+        </nav>
         <div
           ref={contentColRef}
-          className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
+          className="min-w-0 flex-1 lg:min-h-0 lg:max-w-[720px] lg:overflow-y-auto lg:overscroll-contain"
         >
-          {activeGroup === null ? (
-            <div className="space-y-3 lg:hidden">
+          {homeVisible ? (
+            <div className="space-y-6 lg:hidden" data-attr="settings-home">
               <PortalSettingsProfileHeader
                 name={profileDraft.name || DEMO_VENDOR_NAME}
                 email={profileDraft.email || DEMO_VENDOR_EMAIL}
               />
-              {renderTopGroupCards()}
+              {VENDOR_SETTINGS_RAIL.map((railGroup) => (
+                <div key={railGroup.label} className="space-y-2">
+                  <p className={cn(groupLabelClass, "pt-0")}>{railGroup.label}</p>
+                  <PortalSettingsGroup>
+                    {groups
+                      .filter((g) => g.group === railGroup.label)
+                      .map((g) => (
+                        <PortalSettingsLinkRow
+                          key={g.id}
+                          icon={<g.icon className="h-4 w-4" />}
+                          label={g.label}
+                          onClick={() => openGroup(g.id)}
+                          dataAttr={`settings-open-${g.id}`}
+                        />
+                      ))}
+                  </PortalSettingsGroup>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="mb-4 lg:hidden">
-              <PortalDetailHeader
-                title={activeGroup.label}
-                onBack={backToRoot}
-                backLabel="Settings"
-                bare
-                dataAttrBack="settings-back-to-root"
-              />
+            <div className="sticky top-0 z-20 mb-4 flex h-[52px] items-center justify-center bg-background/95 backdrop-blur lg:hidden">
+              <button
+                type="button"
+                onClick={backToRoot}
+                aria-label="Back"
+                data-attr="settings-back-to-root"
+                className="absolute left-0 grid h-11 w-11 place-items-center"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <h2 className="max-w-[70%] truncate text-[17px] font-semibold">{activeGroup.label}</h2>
             </div>
           )}
-          <PortalSettingsTitleStyleContext.Provider value="heading">
-            <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-              {renderPane(paneGroup.id)}
-            </PortalSettingsSections>
-          </PortalSettingsTitleStyleContext.Provider>
+          <div className={homeVisible ? "max-lg:hidden" : undefined}>
+            <h1 className="mb-6 hidden text-2xl font-semibold tracking-tight lg:block" data-attr="settings-page-title">
+              {paneGroup.label}
+            </h1>
+            <PortalSettingsTitleStyleContext.Provider value="heading">
+              <PortalSettingsSections>{renderPane(paneGroup.id)}</PortalSettingsSections>
+            </PortalSettingsTitleStyleContext.Provider>
+          </div>
         </div>
       </div>
     </ManagerPortalPageShell>

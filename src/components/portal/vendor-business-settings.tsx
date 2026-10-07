@@ -10,18 +10,19 @@
 
 import { VendorNotificationSettingsPane } from "@/components/portal/vendor-notification-settings-pane";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Building2, Check, Copy, Mail, Phone } from "lucide-react";
+import { Building2, Check, Copy, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   PortalSettingsAutosaveField,
   PortalSettingsFormBody,
   PortalSettingsGroup,
+  PortalSettingsRow,
   PortalSettingsSection,
   type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
@@ -56,6 +57,11 @@ export type VendorBusinessProfileView = {
   notifyNewOffers: boolean;
   notifyScheduleChanges: boolean;
   notifyPayments: boolean;
+  licenseNumber: string;
+  insuranceProvider: string;
+  insurancePolicyNumber: string;
+  /** ISO date (yyyy-mm-dd), or "" when none. */
+  insuranceExpiresAt: string;
 };
 
 export type VendorWorkspaceAccessView = {
@@ -76,6 +82,10 @@ const EMPTY: VendorBusinessProfileView = {
   notifyNewOffers: true,
   notifyScheduleChanges: true,
   notifyPayments: true,
+  licenseNumber: "",
+  insuranceProvider: "",
+  insurancePolicyNumber: "",
+  insuranceExpiresAt: "",
 };
 
 export function useVendorBusinessProfile(enabled: boolean) {
@@ -197,7 +207,7 @@ function useBusinessProfileAutosave<K extends keyof VendorBusinessProfileView>(c
   return { draft, setDraft, fieldState, fieldError, commit, sectionState };
 }
 
-const BUSINESS_PROFILE_FIELDS = ["businessName", "contactName", "serviceArea"] as const;
+const BUSINESS_PROFILE_FIELDS = ["businessName", "contactName"] as const;
 
 export function VendorBusinessProfilePane({ ctx }: { ctx: Ctx }) {
   const { draft, setDraft, fieldState, fieldError, commit, sectionState } = useBusinessProfileAutosave(
@@ -253,27 +263,149 @@ export function VendorBusinessProfilePane({ ctx }: { ctx: Ctx }) {
                 data-attr="vendor-business-contact-name"
               />
             </PortalSettingsAutosaveField>
-            <PortalSettingsAutosaveField
-              label="Service area"
-              htmlFor="vendor-business-service-area"
-              state={fieldState.serviceArea}
-              error={fieldError.serviceArea}
-              onRetry={() => void commit("serviceArea")}
-            >
-              <Input
-                id="vendor-business-service-area"
-                value={draft.serviceArea}
-                maxLength={200}
-                placeholder="Seattle · Plumbing and property maintenance"
-                onChange={(e) => setDraft({ ...draft, serviceArea: e.target.value })}
-                onBlur={() => void commit("serviceArea")}
-                data-attr="vendor-business-service-area"
-              />
-            </PortalSettingsAutosaveField>
           </PortalSettingsFormBody>
         )}
       </PortalSettingsGroup>
     </PortalSettingsSection>
+  );
+}
+
+const SERVICE_AREA_FIELDS = ["serviceArea"] as const;
+
+/**
+ * Settings → Trades & service area: ONE card of two rows in the settings kit —
+ * Service area (the existing free-text field, saved on blur) and Trades (a
+ * multi-select dropdown with an Other entry, saved on pick through the same
+ * `PATCH /api/vendor/profile { trades }`). No section subheads, no subtext.
+ */
+export function VendorTradesServiceAreaPane({
+  ctx,
+  trades,
+  tradeOptions,
+  onTradesChange,
+  tradesState,
+  loading,
+}: {
+  ctx: Ctx;
+  trades: string[];
+  tradeOptions: readonly string[];
+  onTradesChange: (next: string[]) => void;
+  tradesState: PortalSettingsSaveState;
+  loading: boolean;
+}) {
+  const { draft, setDraft, fieldState, fieldError, commit } = useBusinessProfileAutosave(ctx, SERVICE_AREA_FIELDS);
+  const areaState = fieldState.serviceArea;
+  const status = (state: PortalSettingsSaveState, error?: string) =>
+    state === "saving" ? (
+      <span className="text-xs text-muted">Saving…</span>
+    ) : state === "saved" ? (
+      <span className="text-xs font-semibold text-[var(--status-confirmed-fg,#15803d)]">Saved</span>
+    ) : state === "error" ? (
+      <span className="text-xs font-semibold text-red-600" role="alert">
+        {error ?? "Could not save."}
+      </span>
+    ) : null;
+  return (
+    <PortalSettingsGroup>
+      {ctx.loading || loading ? (
+        <div className="px-4 py-4">
+          <ListSkeleton rows={2} showLeading={false} />
+        </div>
+      ) : (
+        <>
+          <PortalSettingsRow label="Service area">
+            <div className="flex items-center justify-end gap-3">
+              {status(areaState, fieldError.serviceArea)}
+              <Input
+                id="vendor-business-service-area"
+                aria-label="Service area"
+                className="w-64 max-w-full"
+                value={draft.serviceArea}
+                maxLength={200}
+                placeholder="Seattle"
+                onChange={(e) => setDraft({ ...draft, serviceArea: e.target.value })}
+                onBlur={() => void commit("serviceArea")}
+                data-attr="vendor-business-service-area"
+              />
+            </div>
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Trades">
+            <div className="flex items-center justify-end gap-3">
+              {status(tradesState)}
+              <div className="w-64 max-w-full text-left" data-vs-trades>
+                <CheckboxMultiSelect
+                  label="Trades"
+                  hideLabel
+                  options={tradeOptions.map((option) => ({ value: option, label: option }))}
+                  selected={trades}
+                  onChange={onTradesChange}
+                  emptyLabel="Select trades"
+                  dataAttr="vendor-trades-select"
+                />
+              </div>
+            </div>
+          </PortalSettingsRow>
+        </>
+      )}
+    </PortalSettingsGroup>
+  );
+}
+
+const LICENSE_FIELDS = ["licenseNumber", "insuranceProvider", "insurancePolicyNumber", "insuranceExpiresAt"] as const;
+
+/** Settings → Licenses & insurance: the vendor's own license and coverage record (certificates upload from Documents). */
+export function VendorLicensesInsurancePane({ ctx }: { ctx: Ctx }) {
+  const { draft, setDraft, fieldState, fieldError, commit, sectionState } = useBusinessProfileAutosave(ctx, LICENSE_FIELDS);
+  const text = (field: (typeof LICENSE_FIELDS)[number], label: string, id: string, type: "text" | "date" = "text") => (
+    <PortalSettingsAutosaveField
+      label={label}
+      htmlFor={id}
+      state={fieldState[field]}
+      error={fieldError[field]}
+      onRetry={() => void commit(field)}
+    >
+      <Input
+        id={id}
+        type={type}
+        value={draft[field] ?? ""}
+        maxLength={type === "date" ? undefined : 120}
+        onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
+        onBlur={() => void commit(field)}
+        data-attr={id}
+      />
+    </PortalSettingsAutosaveField>
+  );
+  return (
+    <>
+      <PortalSettingsSection title="License" action={<SectionSaveBadge state={sectionState} />}>
+        <PortalSettingsGroup>
+          {ctx.loading ? (
+            <div className="px-4 py-4">
+              <ListSkeleton rows={1} showLeading={false} />
+            </div>
+          ) : (
+            <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
+              {text("licenseNumber", "License number", "vendor-license-number")}
+            </PortalSettingsFormBody>
+          )}
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Insurance">
+        <PortalSettingsGroup>
+          {ctx.loading ? (
+            <div className="px-4 py-4">
+              <ListSkeleton rows={3} showLeading={false} />
+            </div>
+          ) : (
+            <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
+              {text("insuranceProvider", "Provider", "vendor-insurance-provider")}
+              {text("insurancePolicyNumber", "Policy number", "vendor-insurance-policy")}
+              {text("insuranceExpiresAt", "Expires", "vendor-insurance-expires", "date")}
+            </PortalSettingsFormBody>
+          )}
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    </>
   );
 }
 
@@ -310,196 +442,6 @@ export function useVendorWorkIdentity() {
     void reload();
   }, [reload]);
   return { identity, setIdentity, load, reload };
-}
-
-type SmsCandidate = { phoneNumber: string; claimToken: string };
-type SmsClaimState = {
-  step: "code" | "pick";
-  areaCode: string;
-  candidates: SmsCandidate[];
-  selected: SmsCandidate | null;
-  busy: boolean;
-  error: string | null;
-};
-const SMS_CLAIM_IDLE: SmsClaimState = { step: "code", areaCode: "", candidates: [], selected: null, busy: false, error: null };
-
-/**
- * The real, free, PropLane-provisioned work number — area code -> pick one of
- * 3 -> claim (VD04). Distinct from the free-text "Business contact info"
- * phone above: this is a platform-owned Twilio line, never purchased in a
- * test (the search/claim calls are the only Twilio-touching paths, and both
- * are mocked at the server-module boundary in tests).
- */
-function VendorWorkNumberClaim({
-  identity,
-  load,
-  reload,
-}: {
-  identity: VendorWorkIdentityResponse | null;
-  load: "loading" | "ready" | "failed";
-  reload: () => void;
-}) {
-  const [claim, setClaim] = useState<SmsClaimState>(SMS_CLAIM_IDLE);
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1600);
-    return () => clearTimeout(t);
-  }, [copied]);
-  const value = identity?.sms;
-
-  async function searchNumbers() {
-    const digits = claim.areaCode.replace(/\D/g, "").slice(0, 3);
-    if (!/^[2-9]\d{2}$/.test(digits)) {
-      setClaim((c) => ({ ...c, error: "Enter a valid 3-digit area code." }));
-      return;
-    }
-    setClaim((c) => ({ ...c, busy: true, error: null }));
-    try {
-      const res = await fetch("/api/vendor/work-identity/candidates", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ areaCode: digits }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; candidates?: SmsCandidate[]; error?: string };
-      if (!res.ok || !body.candidates?.length) {
-        setClaim((c) => ({ ...c, busy: false, error: body.error ?? "No numbers available in that area code — try another." }));
-        return;
-      }
-      setClaim({ step: "pick", areaCode: digits, candidates: body.candidates, selected: body.candidates[0] ?? null, busy: false, error: null });
-    } catch {
-      setClaim((c) => ({ ...c, busy: false, error: "Could not search numbers right now." }));
-    }
-  }
-
-  async function claimNumber() {
-    if (!claim.selected) return;
-    setClaim((c) => ({ ...c, busy: true, error: null }));
-    try {
-      const res = await fetch("/api/vendor/work-identity", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          channel: "sms",
-          idempotencyKey: crypto.randomUUID(),
-          phoneNumber: claim.selected.phoneNumber,
-          claimToken: claim.selected.claimToken,
-        }),
-      });
-      if (!res.ok) throw new Error("unavailable");
-      setClaim(SMS_CLAIM_IDLE);
-      reload();
-    } catch {
-      setClaim((c) => ({ ...c, busy: false, error: "Could not claim that number. Try again." }));
-    }
-  }
-
-  if (load === "loading") {
-    return (
-      <div className="px-4 py-4" role="status" aria-label="Loading work number">
-        <ListSkeleton rows={1} showLeading={false} />
-      </div>
-    );
-  }
-  if (load === "failed") {
-    return (
-      <p className="px-4 py-4 text-sm text-danger" role="alert">
-        Could not load{" "}
-        <button type="button" className="font-semibold underline" onClick={reload}>
-          Retry
-        </button>
-      </p>
-    );
-  }
-  if (value?.value) {
-    const display = formatSmsPhoneLabel(value.value) || value.value;
-    return (
-      <div className="space-y-2 px-4 py-4" data-attr="vs-claimed-number">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-[15px] font-bold text-foreground">{display}</span>
-          <button
-            type="button"
-            className="grid size-9 place-items-center rounded-lg text-muted hover:bg-accent/40 hover:text-foreground"
-            aria-label="Copy work number"
-            onClick={() => void copyTextToClipboard(display).then((ok) => ok && setCopied(true))}
-          >
-            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-          </button>
-        </div>
-        <p className="text-sm text-muted">{value.sendReady && value.receiveReady ? "Calls & texts on" : `${identityStatusLabel(value)} · calls and texts turn on once carrier registration completes`}</p>
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <span>Cost</span>
-          <span className="font-medium">Free · covered by PropLane</span>
-        </div>
-      </div>
-    );
-  }
-  if (!value?.canSetup) {
-    return (
-      <p className="px-4 py-4 text-sm text-muted" data-attr="vs-work-number-blocked">
-        {identityStatusLabel(value)}
-      </p>
-    );
-  }
-  if (claim.step === "code") {
-    return (
-      <div className="space-y-3 px-4 py-4" data-attr="vs-claimflow-number">
-        <p className="text-[12.5px] text-muted">Choose an area code for your free PropLane work number.</p>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-[11.5px] font-medium text-muted">
-            Area code
-            <Input
-              className="w-[110px]"
-              inputMode="numeric"
-              maxLength={3}
-              placeholder="206"
-              value={claim.areaCode}
-              onChange={(e) => setClaim((c) => ({ ...c, areaCode: e.target.value.replace(/\D/g, "").slice(0, 3) }))}
-              data-attr="vendor-work-number-area-code"
-            />
-          </label>
-          <Button variant="primary" disabled={claim.busy} onClick={() => void searchNumbers()} data-attr="vendor-work-number-see-numbers">
-            {claim.busy ? "Searching…" : "See numbers"}
-          </Button>
-        </div>
-        {claim.error ? <p className="text-[12.5px] text-danger">{claim.error}</p> : null}
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-3 px-4 py-4" data-attr="vs-numcards">
-      <p className="text-[12.5px] text-muted">Pick a number in the {claim.areaCode} area code.</p>
-      <div className="flex flex-col gap-2">
-        {claim.candidates.map((candidate) => {
-          const active = candidate.phoneNumber === claim.selected?.phoneNumber;
-          return (
-            <button
-              key={candidate.phoneNumber}
-              type="button"
-              onClick={() => setClaim((c) => ({ ...c, selected: candidate }))}
-              data-attr="vendor-work-number-candidate"
-              aria-pressed={active}
-              className={`flex items-center justify-between rounded-lg border px-3.5 py-3 text-left text-sm font-bold ${active ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-foreground"}`}
-            >
-              <span>{formatSmsPhoneLabel(candidate.phoneNumber) || candidate.phoneNumber}</span>
-              {active ? <Check className="size-4" /> : null}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex flex-wrap gap-3">
-        <Button variant="outline" disabled={claim.busy} onClick={() => setClaim(SMS_CLAIM_IDLE)} data-attr="vendor-work-number-change-area-code">
-          Different area code
-        </Button>
-        <Button variant="primary" disabled={claim.busy || !claim.selected} onClick={() => void claimNumber()} data-attr="vendor-work-number-claim">
-          {claim.busy ? "Claiming…" : `Claim ${claim.selected ? formatSmsPhoneLabel(claim.selected.phoneNumber) || claim.selected.phoneNumber : "number"}`}
-        </Button>
-      </div>
-      {claim.error ? <p className="text-[12.5px] text-danger">{claim.error}</p> : null}
-    </div>
-  );
 }
 
 /**
@@ -604,42 +546,15 @@ function VendorWorkEmailClaim({
   );
 }
 
-/**
- * Read-only "your PropLane work number" line for the Messaging tab (VD69) —
- * states plainly that it is free, with no claim UI of its own (that lives in
- * the Work number & email section). Real data only: no SMS-credit/upsell copy
- * exists to remove here because none was ever added for the sponsored vendor
- * number (only the manager-side messaging panel has plan-gated copy).
- */
-export function VendorWorkNumberStatusNote() {
-  const { identity, load } = useVendorWorkIdentity();
-  if (load === "loading") return null;
-  const value = identity?.sms;
-  return (
-    <PortalSettingsSection title="Work number">
-      <PortalSettingsGroup>
-        <div className="flex items-center justify-between gap-3 px-4 py-3.5">
-          <span className="text-sm font-medium text-foreground">
-            {value?.value ? formatSmsPhoneLabel(value.value) || value.value : identityStatusLabel(value)}
-          </span>
-          <span className="text-sm text-muted">Free · covered by PropLane</span>
-        </div>
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
-  );
-}
-
 const WORK_CONTACT_FIELDS = ["workPhone", "workEmail"] as const;
 
 /**
- * Merged "Work number & email" (VD04/VD05) — every field the old Work
- * contacts / Work number / Work email trio had, in one section: the vendor's
- * own free-text business phone/email (autosaving), plus the real, free
- * PropLane-provisioned number and email claim flows. Forward-to-personal
- * toggles from the studio plan are deliberately NOT built here — no
- * forward_to_phone/forward_to_email column or delivery path exists on
- * vendor_work_identities today, and a toggle with nothing behind it would be
- * a fabricated control.
+ * Merged "Work contact & email" (VD04/VD05) — the vendor's own free-text
+ * business phone/email (autosaving), plus the free PropLane-provisioned work
+ * email claim. The PropLane text number, its forwarding toggle and the usage
+ * line are the separate Settings > Work number & email page
+ * (vendor-work-number-settings.tsx); a vendor claims one once their phone is
+ * verified (Settings > Messaging, and onboarding).
  */
 export function VendorWorkIdentitySection({ ctx }: { ctx: Ctx }) {
   const { draft, setDraft, fieldState, fieldError, commit, sectionState } = useBusinessProfileAutosave(
@@ -648,7 +563,7 @@ export function VendorWorkIdentitySection({ ctx }: { ctx: Ctx }) {
   );
   const { identity, load, reload } = useVendorWorkIdentity();
   return (
-    <PortalSettingsSection title="Work number & email" action={<SectionSaveBadge state={sectionState} />}>
+    <PortalSettingsSection title="Work contact & email" action={<SectionSaveBadge state={sectionState} />}>
       <PortalSettingsGroup>
         <div className="border-b border-border px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-[0.08em] text-muted">
           Business contact info
@@ -660,7 +575,7 @@ export function VendorWorkIdentitySection({ ctx }: { ctx: Ctx }) {
         ) : (
           <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
             <PortalSettingsAutosaveField
-              label="Work number"
+              label="Business phone"
               htmlFor="vendor-work-phone"
               state={fieldState.workPhone}
               error={fieldError.workPhone}
@@ -695,19 +610,11 @@ export function VendorWorkIdentitySection({ ctx }: { ctx: Ctx }) {
             </PortalSettingsAutosaveField>
           </PortalSettingsFormBody>
         )}
-        <div className="grid gap-0 border-t border-border sm:grid-cols-2 sm:divide-x sm:divide-border">
-          <div>
-            <div className="flex items-center gap-1.5 px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-[0.08em] text-muted">
-              <Phone className="size-3.5" aria-hidden /> PropLane work number
-            </div>
-            <VendorWorkNumberClaim identity={identity} load={load} reload={reload} />
+        <div className="border-t border-border">
+          <div className="flex items-center gap-1.5 px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-[0.08em] text-muted">
+            <Mail className="size-3.5" aria-hidden /> PropLane work email
           </div>
-          <div>
-            <div className="flex items-center gap-1.5 border-t border-border px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-[0.08em] text-muted sm:border-t-0">
-              <Mail className="size-3.5" aria-hidden /> PropLane work email
-            </div>
-            <VendorWorkEmailClaim identity={identity} load={load} reload={reload} />
-          </div>
+          <VendorWorkEmailClaim identity={identity} load={load} reload={reload} />
         </div>
       </PortalSettingsGroup>
     </PortalSettingsSection>

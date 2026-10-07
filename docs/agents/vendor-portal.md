@@ -194,7 +194,7 @@ vendor does on a service — including the vendor's own `VendorEstimateBidSectio
 and the four Services tabs it answers under. Only the vendor-portal side lives
 below.
 
-**Jobs board retired (C152/C153 superseded).** A standalone `/vendor/jobs`
+**Jobs board retired (C152/C153 superseded) - then partly reversed Oct 6, see "The work board is back" below.** A standalone `/vendor/jobs`
 section with Invited/Open tabs and a cross-workspace open-marketplace browse
 (`work_order_open_listings`, `openListingId` on `work_order_bids`,
 `resolveVendorWorkOrderAccess`'s `"open_listing"` access kind) previously
@@ -211,6 +211,98 @@ table and its migration are untouched in the database (no drop migration) but
 no code path reads or writes it any more. Bid submission stays rate-limited
 per vendor (`work-order-bid-submit:<vendorUserId>`, 20/hour) as a general
 anti-spam guard.
+
+## The work board is back, scoped to published services (vendor-work-share-1006, Oct 6)
+
+**This reverses the Sep 26 cut above, deliberately and narrowly.** The retired board browsed every open job of every
+workspace (`work_order_open_listings`). The new one shows ONLY a service a manager explicitly published, and the
+old table stays dead: the flag is `row_data.published` on the service itself. The standing rule "a vendor never
+browses another workspace's jobs" now reads: **never beyond what a manager published, and only through the
+allowlist below.**
+
+- **Find work** is the fifth Services tab (`/vendor/work-orders/find-work`), beside Open - Assigned - Scheduled -
+  Completed, which stay the one service vocabulary (the fifth is not a stage, `VENDOR_FIND_WORK_LIST_TAB`).
+  Signed-in vendors only (Decide #1): `GET /api/vendor/work-board` answers 401/403 otherwise; there is no public
+  board page.
+- **Who can request (Decide #2):** any ONBOARDED vendor with a trade and a service area
+  (`vendorIsOnboardedForBoard`, `work-order-marketplace-match.server.ts`). A license or insurance is not required;
+  the manager sees what the vendor has on file when deciding on a bid. The manager's own "send to nearby PropLane
+  vendors" broadcast keeps its stricter licensed + insured rule.
+- **What a vendor sees before hire is `publicServiceProjection`** (`src/lib/public-service-projection.ts`): title,
+  trade, general area (`workOrderGeneralArea`), description, preferred dates, "up to" budget, photos only when the
+  manager ticked Share photos, the manager's display name, and an opaque `ref`. It is an ALLOWLIST with a build-time
+  key list (`as const satisfies readonly (keyof ...)[]`) and a leak test (`tests/unit/public-service-projection.test.ts`):
+  no address, unit, resident, entry notes, cost, work order id or manager id. A new `DemoManagerWorkOrderRow` field is
+  private until someone adds it there. Do NOT reuse `projectWorkOrderForOfferedVendor` (a deny-list) for a stranger.
+- **Requesting a job** (`POST /api/vendor/work-board`) is the same thing a manager's Send job makes: a roster row on
+  the manager's workspace and a `sent` row in `work_order_vendor_offers`, written service-role only
+  (`requestBoardJob`). Then offer -> estimate / bid -> approve runs unchanged: only a submitted bid is approvable, one
+  accepted bid, the accepted amount immutable, vendors scoped by `vendor_user_id`. The ref is re-checked against the
+  vendor's trade and area, so a ref is not a way around the list. A service leaves the board the moment it is hired
+  (`acceptWorkOrderBid` clears `published`), completed, cancelled or unpublished; a vendor the manager removed
+  (`withdrawn` offer) cannot ask again.
+- **Throttles:** `BOARD_REQUESTS_PER_VENDOR_PER_HOUR` per vendor, `MAX_BOARD_REQUESTS_PER_SERVICE` per service.
+- **Contact is held until they bid (Decide #3).** The roster row made for a board or link vendor carries
+  `origin` and `contactHeldUntilBid: true` with a blank phone and email (a texted vendor's phone is the one the
+  manager typed). `submitWorkOrderBid` calls `revealHeldVendorContact`, which writes the vendor's own business-profile
+  contact onto that row. An estimate or a message does not release it. The address is never shown before hire.
+- **Three options wherever a vendor sees a job** (the public page, Find work, their own Open services,
+  `src/lib/vendor-job-choice.ts` + `VendorJobChoiceBar`): **Needs an estimate visit** (the existing Estimate & bid
+  section on Book visit), **Bid now** (the same section on Submit bid) and **Message the manager** (the service's own
+  Communication tab, the in-app thread whose `recordRef` is the service). All three first make the vendor's offer;
+  none is a new bid path.
+
+### The texted service link
+
+A manager texts a service to a phone from the service header (Send to phone) with
+`POST /api/portal/service-share-link/send`: ownership is re-derived from the row, the phone is normalized, "I work
+with this vendor" is required on the first text to a number (`GET /api/manager/vendor-text-consent?phone=` tells the
+pop-up whether to show the box), the number joins the Vendors list, and the text goes out through the SAME vendor-texting
+path as the manager compose (`sendManagerConversationSms` for a roster vendor: attestation, the identification + STOP
+footer on the first text, `vendor_conversation` consent evidence, credit reservation, the vendor-thread projection;
+STOP always wins). The link is `/s/<token>`: `service_share_links` stores only the SHA-256 of
+the token (`token_hash`), 14-day expiry, revocable, access count, a per-manager daily text cap, and per-IP / per-token
+limits on the public page. `/s/<token>` is `noindex`, no-store, and answers one neutral 404 for an unknown, expired or
+revoked token. A link never creates an account, an offer or a bid by itself.
+
+Sign-up from the link: the page parks `{token, choice}` in the `pl_svc_link` cookie and sends the visitor to
+`/auth/create-account?mode=create&role=vendor` (or sign-in); the vendor portal layout mounts
+`PendingServiceLinkRedeemer`, which calls `POST /api/vendor/service-link/redeem` once signed in (email or Google).
+Redeem makes the roster row (with the texted phone) and the `sent` offer and opens bidding. A link is bound to its
+FIRST redeemer. **Phone verification is a hook point** (`serviceLinkPhoneVerificationHook`, vendor texting owns the
+verification) and records nothing until that lands.
+
+Local SMS proof: `SERVICE_LINK_SMS_SANDBOX=1` under `next dev` queues the text for real (so it reaches the vendor
+thread) and captures only the carrier hand-off in the SMS test transport; an account with no ready work line falls back
+to capturing the whole send. It is inert in any deployed build.
+
+### The vendor Services list and service record (vendor-portal-redesign-1006)
+
+Every Services tab (Open · Assigned · Scheduled · Completed · Find work) is the shared row; stage actions live only in
+the row's ⋯ (`vendorServiceActions`: Open Submit bid · Book visit · Decline; Assigned Schedule · Message the manager;
+Scheduled Reschedule (asks the manager) · Complete; Completed Send invoice). There is no bulk selection. The service
+record uses the resident-record anatomy: header Message the manager · the primary next step · ⋯ (the other stage
+actions), the stepper under it, rail Job (Overview · Estimate & bid · Schedule), Money (Invoice · Payments), Records
+(Communication · Documents). Estimate & bid answers are underline tabs (`vendorBidTabs`: Bid · Estimate · Estimate
+visit · Decline) with the commit button in the card footer. Guard: `tests/unit/vendor-services-anatomy.test.ts`.
+
+## Settings > Integrations and the Calendar link (Oct 6)
+
+Settings > Business has an **Integrations** page (`VendorIntegrationsSettings`): Google Calendar connect, a private
+revocable iCal **Calendar link** of the vendor's scheduled jobs (addresses only once hired), and Request access rows for
+Jobber, Housecall Pro and Thumbtack. The Calendar band's calendar-sync icon opens it. Token design, privacy and the
+tables: [`google-integrations.md`](google-integrations.md) § Vendor Integrations page and Calendar link.
+
+## Work number & email (Oct 6)
+
+Any vendor with a verified phone (`profiles.phone_verified_at`) can claim a PropLane work number, free: Settings >
+Account > **Work number & email** (`VendorWorkNumberSettings`) shows the number, the sponsored work email, a
+"Forward texts to my phone" toggle (default on), "Texts this month X of 1,000" and "Service fee 3% of payouts through
+PropLane". Managers' texts to that vendor arrive on the number, are kept in the vendor's PropLane Communication and are
+forwarded to the verified phone labelled `[<Workspace>] ...`; the vendor's replies go to the manager they last
+talked to, or get a numbered "Reply to" prompt. A number idle for 60 days is released; the fee is the only cost. The
+routing rules, cap, release and dry run: [`sms-system.md`](sms-system.md) § Vendor work number; the fee:
+[`financials.md`](financials.md) § PropLane service fee.
 
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 
@@ -319,7 +411,7 @@ manager's invoice, or a `VP409` / `P0001` raise from `claim_vendor_invoice_payme
 a manager "already handled" when PropLane simply broke is the one answer that stops them retrying
 a payment that never happened.
 
-**Every rail claims before it charges.** Approve + pay claims (`claimWorkOrderPayout`), the
+**Every rail claims before it charges.** Approve + pay claims (`claim_work_order_vendor_payment`), the
 offline and balance invoice rails claim (`claim_vendor_invoice_payment`), and the Stripe direct
 invoice rail claims too, at the moment the embedded checkout opens — a job-linked invoice reserves
 the payout before the card is touched, so Approve + pay and the other invoice rails are refused by
@@ -408,8 +500,11 @@ review dialog picks among those services. The reviewer may change their own revi
 `VENDOR_REVIEW_EDIT_WINDOW_DAYS` = **14 days** — `canEditVendorReview` is the one decision behind
 the Edit review menu item, the dialog and the PATCH route, and the route additionally filters on
 `vendorReviewEditWindowFloorIso()` so the window holds in the database too; an unreadable
-`created_at` fails closed. Nobody but the reviewer ever edits one, and the vendor
-may reply once. `vendor_reviews`
+`created_at` fails closed. Nobody but the reviewer ever edits one. The vendor replies
+through POST (first reply only, 409 over an existing one) and edits that reply through
+PATCH (`/api/vendor/reviews/<id>/reply`, scoped to their own review and to one that already
+has a reply) — Reviews ⋯ offers **Reply** / **Reply with a quick reply** until a reply
+exists, then **Edit reply**. `vendor_reviews`
 (`supabase/migrations/20260925000000_vendor_reviews.sql`), unique on
 `work_order_id`, keyed by `vendor_user_id` rather than
 `manager_vendor_records.id` — same reason as `vendor_invoices`/`vendor_payouts`
@@ -446,3 +541,154 @@ vendor's own quiet hours (default 8pm–7am; an emergency texts through only if 
 text me anytime" on), and the in-app message is never gated by any of it. Vendor texts go through
 `enqueueOwnerSms` with `purpose: "vendor_conversation"` (the same ledger as the vendor assistant),
 not the resident path that used to refuse them with `managed_sender_scope_required`.
+
+
+## Vendors text through the manager's number (Oct 6)
+
+A vendor has **no PropLane number** (the work-number claim, candidate search and
+Communication card are retired; the sponsored work email stays). Managers text the
+vendor's own saved phone from their workspace work number (`sms-system.md` § Vendor
+texting). What the vendor does:
+
+- **Verify the phone** with a 6-digit code (the user-generic `/api/manager/phone`,
+  shown by `PortalTextNotificationsBlock`): Settings > Messaging, the onboarding
+  page, and the portal-wide notice (`VendorMessagingSetupBanner`, cleared by
+  `profiles.phone_verified_at`, never by a typed phone).
+- Verifying links the history: every conversation a manager had with that number
+  appears in their Communication, one per manager workspace, earlier texts included
+  (`communication-inbox.md` § A vendor's texts are in their conversation). A number a
+  second account also verified links to neither.
+- They answer by text to that manager's work number or in the app; the manager sees
+  one conversation either way. STOP stops every text from that manager's workspace.
+
+# Vendor portal redesign: Reviews, Payments, Settings and quick replies (approved plan vendor-portal-redesign-1006)
+
+The vendor lists now follow the manager list anatomy (`ui-page-structure.md` § 2): one header card
+(tabs with counts · search · icon utilities · the round blue + where the list has a create), shared
+rows (tile · title · place line · glyph facts · figure · one ⋯), no pills and no button rows under a
+row. `tests/unit/vendor-redesign-row-anatomy.test.ts` guards it.
+
+**Reviews** (`vendor-reviews-panel.tsx`). A stats strip over the header card — Average rating,
+Reviews, Needs reply, Response rate, every figure derived from the rows — then tabs All · Needs
+reply · Replied, rows `★ tile · reviewer · the review · date · ✓ Replied · ⋯`. The reviewer reads
+**"A PropLane manager"** and no service or area is shown: the vendor-safe projection
+(`VENDOR_REVIEW_PUBLIC_SELECT`) deliberately carries no manager, workspace, property or work-order
+link, and the redesign did not reverse that. Reply opens a small pop-up with the review for context,
+a ⚡ quick-reply menu and **Save reply** in the footer.
+
+**Payments** (`/vendor/financials/income`, `VendorFinancesPanel`) is one tab of Finances (below) and carries no
+balance card; refunds live on Finances → Refunds, and the per-payment Refund on a payout record page stays hidden until the
+Payments tab wires `VendorRefundModal` — the route is off by default (`VENDOR_REFUNDS_ENABLED`) and answers 409
+`VENDOR_REFUND_PAUSED`; the refund itself runs on the central refund rail, see `financials.md` § Vendor refunds. Tabs are **Pending · Paid · Overdue**
+(`vendorPaymentBucket`, `src/lib/vendor-payments.ts`): Paid = a paid invoice or payout; Overdue = an
+**unpaid, non-rejected invoice whose due date is before today** (a payment due today is still
+Pending; an invoice with no due date can never be overdue); everything else Pending (rejected
+invoices and failed payouts stay there because the vendor must act on them). The due date is the
+manager's bill's `due_date` for the invoice (`vendor_invoices.bill_id` → `manager_bills`); the GET
+`/api/vendor/invoices` route projects only that one date as `dueDate`, never the bill. Row ⋯:
+View invoice (View payment on an income row) · Edit · Retract invoice (a submitted invoice; named so it is never read as withdrawing money) · Download ·
+**Refund** · Message the manager (opens Communication with New message, `?compose=1`). Refund shows only when
+`isVendorPaymentRefundable` (a settled payment with gross left) AND `VENDOR_REFUNDS_ENABLED` is on — the flag reaches
+the client as `refundsEnabled` on the one balance snapshot, never a client guess — and opens the Refund a payment
+pop-up (`VendorRefundModal`, owned by the refund path) on that payment. The payout record page's header still hides Refund.
+
+## Finances: Balance & payouts · Payments · Refunds · Statements · Tax info (vendor-banking-1006, Oct 7)
+
+One vendor nav section, id `financials` (so every old URL keeps resolving), label **Finances**, five routed tabs
+(`vendor.ts`): `balance`, `income` (Payments — the id never changed), `refunds`, `statements`, `tax`. The sidebar
+nests them under the one Finances row (`portal-sidebar.tsx`, like manager Payments); the phone More sheet nests
+them too. `invoices` and `payouts` are **detail-only** ids (an invoice / a payment record page); bare
+`/financials` opens Balance, bare `/financials/invoices` → Payments, bare `/financials/payouts` → Balance,
+`/vendor/payments` → Payments. Settings › Payouts keeps only **Bank accounts + Schedule** and links to Finances;
+the balance, withdraw, payout history, fee rate and W-9 rows moved out of it.
+
+**One server snapshot feeds every number**: `GET /api/vendor/payouts/balance`. `deriveVendorFinancesFigures`
+(`src/lib/vendor-banking/finances.ts`, pure) turns it into **Available · Pending · Held (with its reason: until you
+add a bank / until identity is verified / being released) · On the way · Owed to PropLane** (provider deficit plus
+outstanding recovery); `deriveVendorFinancesBanner` names the exact reason money cannot move and the one fix (Add
+bank, Reconnect on a 409 `needsRelink`); `vendorWithdrawDisabledReason` is why Withdraw is disabled — a disabled
+button always says why (it is in the icon's name). Header icons on the card: **Bank · Withdraw only**.
+
+- **Payout history** (`vendor-finances-balance.tsx`): rows from the snapshot's history; a row opens
+  `/vendor/financials/balance/<payoutId>` (amounts, destination, dates, status) whose Receipt opens
+  `/print/vendor-withdrawal/<id>` (scoped to the signed-in vendor's own `stripe_payouts` row; Print → Save as PDF).
+- **Withdraw sheet** quotes the Instant fee from **one constant**: `VENDOR_INSTANT_WITHDRAW_FEE_BPS` (1.5%) and
+  `…_MIN_CENTS` ($0.50) in `platform-fees.ts`; `vendorInstantWithdrawFeeQuoteCents` is the flag-free formula the
+  server (`vendorInstantWithdrawFeeCents`) and the sheet both call, and the label is derived
+  (`VENDOR_INSTANT_WITHDRAW_FEE_LABEL`). Standard is free. The sheet's submit is guarded by a ref so a double click
+  cannot create two payouts (the server's pending-claim index is the real guard).
+- **Ledger**: `POST /api/vendor/payouts/create` writes the withdrawal to the vendor ledger
+  (`recordVendorWithdrawalLedger`, idempotent on the payout id): a `withdrawal` debit for what the bank receives
+  and, for Instant, a `platform_fee` debit with source `withdrawal`. The Instant fee is quoted, shown and booked;
+  collecting it to the platform account is not wired (the payout request is for the net amount).
+- **Statements** (`vendor-statements-panel.tsx`, `vendor-statement-modal.tsx`): one row per month with activity —
+  opening, closing, Matches Stripe — opening the month's lines (`GET /api/vendor/payouts/statement?month=`), PDF
+  (`/print/vendor-statement/<yyyy-mm>`) and CSV (`?format=csv`, formula-safe). Every ledger line carries an event type
+  from `vendorStatementEventType` (`statement-events.ts`): charge · fee · hold · transfer · withdrawal · instant fee ·
+  refund · dispute · hold expiry · adjustment, derived from `kind` + `source` (a dispute is an `adjustment` whose
+  description starts "Dispute"; no ledger constraint was widened). A read failure is an error with Try again, never
+  "No activity yet". Opening balance = everything before the month.
+- **Tax info** (`vendor-tax-panel.tsx`, `/api/vendor/finances/tax`): one W-9 per vendor **account** in
+  `vendor_account_tax_profiles` (PK `vendor_user_id`, RLS on, no client grant; migration
+  `20261007010000_vendor_tax_profiles.sql`). The TIN is AES-256-GCM ciphertext (`tin-crypto.ts`,
+  `FINANCIALS_TIN_ENCRYPTION_KEY`; the route answers 503 without the key, never stores plaintext) plus last four —
+  only the last four ever leaves the server. Editing without retyping the TIN keeps the stored one. The save mirrors
+  the same ciphertext into the legacy per-manager `vendor_tax_profiles` rows the manager's 1099 export reads. The tax-year
+  summary (earnings, fees, refunds) comes from the ledger; the 1099 line uses `threshold1099Cents` ($600 before 2026,
+  $2,000 from 2026) on earnings less refunds.
+- **Refunds** tab mounts `VendorRefundsPanel` (`vendor-refunds-panel.tsx`), owned by the refund path.
+
+Coverage: `tests/unit/vendor-finances-*.test.ts(x)`, `tests/unit/vendor-banking/{finances,statement-events,tax,withdrawal-ledger}.test.ts`,
+`tests/unit/vendor-payments-refund-item.test.tsx`.
+
+**Gear in every vendor list band** opens the matching Settings page, never a pop-up
+(`vendor-settings-pages.ts`, `VendorSettingsGear`): Services → Trades & service area, Payments →
+Payouts, Reviews → Profile, Communication → Quick replies. `VendorSectionSettingsModal` survives as a
+redirect shim so the Services panel's existing gear lands on Trades & service area until that panel
+renders `VendorSettingsGear` itself.
+
+**Vendor Settings** (`/vendor/profile?tab=<page>`, `vendor-settings-panel.tsx`) uses the manager
+Settings layout: a rail (desktop) / link-row cards (phone) grouped **Profile** (Profile, Login &
+security, Preferences, Feedback, Account) · **Business** (Business details, Trades & service area,
+Licenses & insurance, Availability) · **Money** (Payouts, Invoicing) · **Communication** (Phone &
+notifications, Quick replies). Existing content moved, not copied: Business details = the old
+Business profile + Work contact & email; Trades & service area = the old Work capabilities + the
+service-area field; Phone & notifications = Verify your phone + Notifications; Profile = the old
+Directory listing. `payouts` and `messaging` keep their ids (setup banners and emails link to them);
+`work*`, `workspace*` and `notifications` alias forward (`VENDOR_SETTINGS_TAB_ALIASES`). Licenses &
+insurance edits the profile's license and coverage fields (certificates still upload from
+Documents); Invoicing shows the W-9 on file read-only — there was no prior vendor invoicing setting.
+
+**Quick replies.** Each vendor's own saved messages, a starter set until they save a list of their
+own ("On my way", "Running 15 minutes late", "Need photos of the issue", "Can I come by for an
+estimate?", "Job complete — invoice sent"). Stored on the vendor account in
+`notification_preferences.row_data.vendorQuickReplies` (the per-user JSON row vendor notification
+settings already use — **no migration**; `saveNotificationPreferences` preserves the key beside
+`resident` and `vendor`). `GET/PUT /api/vendor/quick-replies` resolves the vendor from the session
+(`resolveVendorPortalUserId`) and never reads an id from the request; PUT replaces the whole list
+(add, edit, delete and reorder all save as one write; max 20 replies, 500 characters each; an empty
+saved list stays empty rather than reverting to the starters). Settings → Quick replies manages them
+through the row ⋯ (Edit · Move up · Move down · Delete). **`QuickReplyMenu`**
+(`quick-reply-menu.tsx`) is the reusable ⚡ picker: `onPick(text)` hands the text to the caller, which
+inserts it with `insertQuickReplyText` so it stays editable. It is mounted in the Communication
+composer (`variant="composer"`) and the review reply; the bid note can drop it in with
+`<QuickReplyMenu onPick={...} />`. Coverage: `vendor-quick-replies*.test.ts(x)`.
+
+## Refunds, disputes and money notifications (vendor-banking-1006 part B)
+
+**Refunds tab** (`VendorRefundsPanel`, `src/components/portal/vendor-refunds-panel.tsx`, mounted by the Finances section by
+`basePath`): the vendor's refund requests (`GET /api/vendor/refunds`, scoped to `vendor_user_id`), pending · succeeded ·
+failed as glyph facts on the shared record row, the round + opening **Refund a payment**
+(`VendorRefundModal`): full or partial amount, a reason dropdown, and the preview *Manager gets back · PropLane fee
+returned to you · From your balance*. The cap and refusals (already withdrawn, frozen by a dispute, fully refunded) come
+from `GET /api/vendor/payouts/[id]/refund`; `POST` takes only the gross amount and reason and requires an
+`Idempotency-Key`. The server recomputes every figure — the modal's preview never decides anything. Rules and books:
+[`financials.md`](financials.md) § Vendor refunds, disputes and notifications.
+
+**A refund the vendor cannot cover is refused, not shorted.** Released money already withdrawn is not recoverable, so the
+central path refuses it (the legacy destination-charge path still records a shortfall drawn from the next payments).
+
+**Disputes**: a dispute on a charge one of the vendor's payments settled on freezes that amount (it cannot be refunded;
+the balance snapshot must subtract `readVendorFrozenDisputeCents` from what can be withdrawn), and is released when won or
+debited when lost. Both the vendor and the manager are told. **Notifications** for payouts, bank, account and money held
+use the automated-communication spine under the vendor's Settings → Notifications → Payments topic.

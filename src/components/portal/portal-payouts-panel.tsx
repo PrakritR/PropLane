@@ -67,6 +67,8 @@ export type PortalPayoutBalance = {
   recoveryOutstandingCents?: number;
   recoveryReservedCents?: number;
   withdrawableCents?: number;
+  /** Cents frozen by an open dispute (server-read). Already subtracted from `availableCents`, never from `withdrawableCents`. */
+  frozenDisputeCents?: number;
   availableNote?: string;
   bank: PortalPayoutBank | null;
   schedule: {
@@ -81,6 +83,8 @@ export type PortalPayoutBalance = {
   needsRelink?: boolean;
   /** VENDOR_BANKING_ENABLED — present (and > 0) only once the vendor take rate is on. */
   feeBps?: number;
+  /** Vendor refund path live (`VENDOR_REFUNDS_ENABLED`) — gates the Payments row's Refund item. */
+  refundsEnabled?: boolean;
 };
 
 /** Money actions require a complete current provider snapshot, including the signed provider balance. */

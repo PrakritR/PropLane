@@ -1,17 +1,21 @@
 "use client";
 
 import { vendorEntryPermissionLabel } from "@/lib/work-order-entry";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Check, Clock, MessageSquare, Navigation, Send, Settings, Sparkles, type LucideIcon } from "lucide-react";
+import { ManagerResidentSectionToolbar } from "@/components/portal/manager-resident-section-toolbar";
+import { ServiceStageStepper } from "@/components/portal/service-details-section";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { ServiceIntakePhotoPicker } from "@/components/portal/service-intake-form-fields";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { VendorEstimateBidSection } from "@/components/portal/vendor-estimate-bid-section";
+import { VendorFindWorkList } from "@/components/portal/vendor-find-work-list";
 import { RecordBandFilter, RecordTabBand } from "@/components/portal/record-list-band";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -22,10 +26,6 @@ import {
   ManagerPortalPageShell,
 
 } from "@/components/portal/portal-metrics";
-import {
-  PORTAL_DETAIL_BTN,
-  PortalTableDetailActions,
-} from "@/components/portal/portal-data-table";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { VendorServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { formatPortalRowDate } from "@/lib/portal-display-dates";
@@ -37,7 +37,6 @@ import { PortalRecordSectionChrome } from "@/components/portal/portal-record-sec
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -46,6 +45,17 @@ import { fetchWorkOrderBidsResult, type WorkOrderBid } from "@/lib/work-order-bi
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
 import { vendorPayoutTimeline } from "@/lib/vendor-payout-timeline";
 import { VendorPayoutTimeline } from "@/components/portal/vendor-payout-timeline";
+import { fetchBoardServices, requestBoardJob } from "@/lib/service-work-share-client";
+import type { PublicBoardServiceView } from "@/lib/public-service-projection";
+import {
+  VENDOR_FIND_WORK_TAB,
+  VENDOR_JOB_CHOICE_PARAM,
+  parseVendorJobChoice,
+  replyForVendorJobChoice,
+  vendorJobChoiceHref,
+  type VendorJobChoiceId,
+} from "@/lib/vendor-job-choice";
+import { FIND_WORK_DISTANCE_OPTIONS, FIND_WORK_TRADE_OPTIONS, findWorkRadiusMi } from "@/lib/vendor-find-work";
 import { WORK_ORDER_BIDS_EVENT } from "@/lib/work-order-bids-storage";
 import {
   declineWorkOrderVendorOffer,
@@ -56,10 +66,14 @@ import {
   vendorDefaultReply,
   vendorEffectiveReply,
   vendorNextStep,
+  vendorServiceActions,
   vendorServiceFact,
   vendorServiceStage,
+  vendorServiceStageItems,
+  type VendorServiceActionId,
   vendorShortWhen as vendorShortWhenLabel,
   VENDOR_WORK_ORDER_TABS,
+  vendorAnswerChoices,
   type VendorWorkOrderTab,
 } from "@/lib/vendor-work-order-tabs";
 import type { VendorReplyChoice } from "@/lib/work-order-bid-cycle";
@@ -73,6 +87,9 @@ import {
 } from "@/lib/work-order-vendor-privacy";
 import { VENDOR_SERVICE_ACTION_LABEL } from "@/lib/service-lifecycle";
 import type { VendorInvoice } from "@/lib/vendor-invoices";
+
+/** `?reply=decline|visit-done` on Estimate & bid: preselects that tab (a row's ⋯ links here). */
+const VENDOR_REPLY_PARAM = "reply";
 
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
   const unit = row.unit?.trim();
@@ -137,7 +154,8 @@ export function VendorWorkOrdersPanel({
   workOrderId,
   workOrderDetailTab,
 }: {
-  tabId?: VendorWorkOrderTab;
+  /** The four service stages, or the Find work board (a fifth tab that is not a stage). */
+  tabId?: VendorWorkOrderTab | typeof VENDOR_FIND_WORK_TAB;
   /** A vendor job RECORD id (docs/agents/record-page.md); set only when routed to /work-orders/<id>/<tab>. */
   workOrderId?: string;
   workOrderDetailTab?: VendorJobDetailTabId;
@@ -151,7 +169,6 @@ export function VendorWorkOrdersPanel({
   const [bidsByWorkOrderId, setBidsByWorkOrderId] = useState<Record<string, WorkOrderBid>>({});
   const [offersByWorkOrderId, setOffersByWorkOrderId] = useState<Record<string, WorkOrderVendorOffer>>({});
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [draftById, setDraftById] = useState<Record<string, BidDraft>>({});
   const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
   const [doneNoteById, setDoneNoteById] = useState<Record<string, string>>({});
@@ -165,12 +182,64 @@ export function VendorWorkOrdersPanel({
   const [payoutsSyncFailed, setPayoutsSyncFailed] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  // Send invoice from a Completed row's ⋯ (the record has its own `invoiceOpen`).
+  const [invoiceListRow, setInvoiceListRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [replyChoice, setReplyChoice] = useState<VendorReplyChoice | null>(null);
   const [invoicedIds, setInvoicedIds] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState("");
   const [propertyFilter, setPropertyFilter] = useState("");
   const answerSubmitRef = useRef<(() => void) | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const isFindWork = tabId === VENDOR_FIND_WORK_TAB;
+  // The stage the list filters by; Find work is not a stage, so it never reaches stage code.
+  const stageTabId: VendorWorkOrderTab | null = tabId === VENDOR_FIND_WORK_TAB ? null : tabId;
+  const [boardServices, setBoardServices] = useState<PublicBoardServiceView[] | null>(null);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const [boardError, setBoardError] = useState("");
+  const [boardReload, setBoardReload] = useState(0);
+  const [tradeFilter, setTradeFilter] = useState("");
+  const [distanceFilter, setDistanceFilter] = useState("");
+  const [boardBusy, setBoardBusy] = useState<{ ref: string; choice: VendorJobChoiceId } | null>(null);
+  const appliedChoiceRef = useRef<string | null>(null);
+
+  // Find work loads only while its tab is the active one list.
+  useEffect(() => {
+    if (!isFindWork || workOrderId) return;
+    let cancelled = false;
+    setBoardLoading(true);
+    setBoardError("");
+    void fetchBoardServices({ trade: tradeFilter || undefined, radiusMi: findWorkRadiusMi(distanceFilter) }).then((result) => {
+      if (cancelled) return;
+      setBoardLoading(false);
+      if (result.ok) setBoardServices(result.services);
+      else setBoardError(result.error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isFindWork, workOrderId, tradeFilter, distanceFilter, boardReload]);
+
+  // Arriving on Estimate & bid from a job choice (?choice=estimate|bid) preselects that reply, once.
+  useEffect(() => {
+    if (!workOrderId || workOrderDetailTab !== "bid") return;
+    const key = `${workOrderId}:${window.location.search}`;
+    if (appliedChoiceRef.current === key) return;
+    const target = rows.find((r) => r.id === workOrderId);
+    if (!target) return;
+    const params = new URLSearchParams(window.location.search);
+    const choice = parseVendorJobChoice(params.get(VENDOR_JOB_CHOICE_PARAM));
+    let wanted = choice ? replyForVendorJobChoice(choice) : null;
+    // A row's ⋯ (Decline · Visit done) lands here with ?reply=: the same tabs, preselected, once.
+    const reply = params.get(VENDOR_REPLY_PARAM);
+    if (reply === "decline") wanted = bidsByWorkOrderId[workOrderId] ? "cant_do_it" : "decline";
+    else if (reply === "visit-done") wanted = "complete_estimate_visit";
+    if (!wanted) return;
+    const allowed = vendorAnswerChoices(bidsByWorkOrderId[workOrderId], offersByWorkOrderId[workOrderId]);
+    // Not allowed yet (offers and bids load after the row): wait for them rather than spending the one apply.
+    if (!allowed.some((c) => c.value === wanted)) return;
+    appliedChoiceRef.current = key;
+    setReplyChoice(wanted);
+  }, [workOrderId, workOrderDetailTab, rows, bidsByWorkOrderId, offersByWorkOrderId]);
 
   const loadBids = useCallback(async () => {
     const result = await fetchWorkOrderBidsResult();
@@ -266,9 +335,18 @@ export function VendorWorkOrdersPanel({
     return c;
   }, [sorted, stageOf]);
 
+  // The four stages, then Find work: appended here only, so VENDOR_WORK_ORDER_TABS stays the stage vocabulary.
   const tabs = useMemo(
-    () => VENDOR_WORK_ORDER_TABS.map(({ id, label }) => ({ id, label, count: tabCounts[id], href: vendorWorkOrderListHref("/vendor", id) })),
-    [tabCounts],
+    () => [
+      ...VENDOR_WORK_ORDER_TABS.map(({ id, label }) => ({ id: id as string, label, count: tabCounts[id] as number | undefined, href: vendorWorkOrderListHref("/vendor", id) })),
+      {
+        id: VENDOR_FIND_WORK_TAB as string,
+        label: "Find work",
+        count: boardServices?.length,
+        href: vendorWorkOrderListHref("/vendor", VENDOR_FIND_WORK_TAB),
+      },
+    ],
+    [tabCounts, boardServices],
   );
 
   useEffect(() => {
@@ -290,15 +368,15 @@ export function VendorWorkOrdersPanel({
     () =>
       sorted.filter(
         (row) =>
-          stageOf(row) === tabId &&
+          stageOf(row) === stageTabId &&
           (!propertyFilter || row.propertyName === propertyFilter) &&
           matchesPortalListSearch(search, row.title, row.propertyName, row.unit),
       ),
-    [sorted, tabId, stageOf, propertyFilter, search],
+    [sorted, stageTabId, stageOf, propertyFilter, search],
   );
 
   const { nearYouRows, otherOpenRows } = useMemo(() => {
-    if (tabId !== "open") return { nearYouRows: [] as DemoManagerWorkOrderRow[], otherOpenRows: visible };
+    if (stageTabId !== "open") return { nearYouRows: [] as DemoManagerWorkOrderRow[], otherOpenRows: visible };
     const near: DemoManagerWorkOrderRow[] = [];
     const rest: DemoManagerWorkOrderRow[] = [];
     for (const row of visible) {
@@ -307,7 +385,7 @@ export function VendorWorkOrdersPanel({
       else rest.push(row);
     }
     return { nearYouRows: near, otherOpenRows: rest };
-  }, [visible, tabId, offersByWorkOrderId, bidsByWorkOrderId]);
+  }, [visible, stageTabId, offersByWorkOrderId, bidsByWorkOrderId]);
 
   const wizardJobs = useMemo(() => sorted.filter((row) => stageOf(row) === "open"), [sorted, stageOf]);
 
@@ -355,33 +433,6 @@ export function VendorWorkOrdersPanel({
       setSavingPriceId(null);
     }
   };
-
-  /**
-   * A job can be handed back to the manager in bulk only while it is scheduled
-   * and no automation has already moved it — the same condition the row's own
-   * "Complete" button uses, read from one place so the dock and the row can
-   * never disagree about what is actionable.
-   */
-  const canBulkMarkDone = (row: DemoManagerWorkOrderRow) =>
-    row.bucket === "scheduled" && !row.automationStatus;
-
-  /** Selection only ever holds rows the dock can act on. */
-  const selectedDoneable = visible.filter((row) => selectedIds.has(row.id) && canBulkMarkDone(row));
-
-  const markSelectedDone = async () => {
-    for (const row of selectedDoneable) {
-      await markDone(row);
-    }
-    setSelectedIds(new Set());
-  };
-
-  const toggleSelected = (id: string) =>
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   const fileToDataUrl = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -524,19 +575,17 @@ export function VendorWorkOrdersPanel({
     }
   };
 
-  const renderInvoice = (row: DemoManagerWorkOrderRow) => {
+  /** Cost lines for the Invoice section: what the job earned, labor + materials. */
+  const renderCost = (row: DemoManagerWorkOrderRow) => {
     const bid = bidsByWorkOrderId[row.id];
     // Fall back to the accepted bid when the row's own cents weren't mirrored,
     // so a completed job always shows what it earned.
     const laborCents = row.vendorCostCents || bid?.amountCents || 0;
     const materialsCents = row.materialsCostCents || bid?.materialsCents || 0;
     const totalCents = laborCents + materialsCents;
-    const payout = payoutsByWorkOrderId[row.id];
-
     return (
-      <div className="mt-3 border-t border-border pt-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted">Cost</p>
-        <p className="mt-1.5 text-sm">
+      <div className="rounded-2xl border border-border bg-card px-4 py-3" data-attr="vendor-job-cost">
+        <p className="text-sm">
           <span className="font-semibold text-foreground">${(totalCents / 100).toFixed(2)}</span>
           {materialsCents > 0 ? (
             <span className="text-xs text-muted">
@@ -545,10 +594,19 @@ export function VendorWorkOrdersPanel({
             </span>
           ) : null}
         </p>
+      </div>
+    );
+  };
+
+  /** The Payments section: approval, then the payout's own timeline. */
+  const renderPayout = (row: DemoManagerWorkOrderRow) => {
+    const payout = payoutsByWorkOrderId[row.id];
+    return (
+      <div className="rounded-2xl border border-border bg-card px-4 py-3" data-attr="vendor-job-payout">
         {row.automationStatus !== "paid" ? (
-          <p className="mt-1 text-xs text-muted">Awaiting manager approval and payment.</p>
+          <p className="text-sm text-foreground">Awaiting manager approval and payment.</p>
         ) : payout ? (
-          <div className="mt-2">
+          <div>
             <VendorPayoutTimeline
               steps={vendorPayoutTimeline({ payout, workOrder: { paidAt: row.paidAt } })}
               dataAttr="vendor-work-order-payout-timeline"
@@ -564,7 +622,7 @@ export function VendorWorkOrdersPanel({
             ) : null}
           </div>
         ) : (
-          <p className="mt-1 text-xs text-muted">
+          <p className="text-sm text-foreground">
             Paid by the manager.{" "}
             <Link href="/vendor/financials/payouts" className="font-medium text-foreground underline underline-offset-2">
               Connect Stripe
@@ -575,6 +633,26 @@ export function VendorWorkOrdersPanel({
       </div>
     );
   };
+
+  /** One section header card: a single underline tab and the section's icon actions (never a button row). */
+  const renderSectionHeader = (id: string, label: string, actions?: ReactNode) => (
+    <ManagerResidentSectionToolbar
+      actions={[]}
+      onAction={() => undefined}
+      className="rs40 plp-header-card"
+      destinationRow={
+        <LocalDestinationNav
+          items={[{ id, label, dataAttr: `vendor-job-section-${id}` }]}
+          activeId={id}
+          onChange={() => undefined}
+          ariaLabel={label}
+          appearance="command"
+          className="w-full"
+        />
+      }
+      extraActions={actions}
+    />
+  );
 
   /** Schedule's completion form: price, a note and the required completion photo, then Complete. */
   const renderCompleteForm = (row: DemoManagerWorkOrderRow) => {
@@ -646,30 +724,50 @@ export function VendorWorkOrdersPanel({
             </div>
           ) : null}
         </div>
-        <PortalTableDetailActions>
+        <div className="flex justify-end border-t border-border/70 pt-3" data-attr="vendor-job-schedule-footer">
           <Button
             type="button"
             variant="outline"
-            className={`${PORTAL_DETAIL_BTN} rounded-full`}
             data-attr="vendor-save-scheduled-price"
-            disabled={savingPriceId === row.id}
+            loading={savingPriceId === row.id}
             onClick={() => saveScheduledPrice(row)}
           >
-            {savingPriceId === row.id ? "Saving…" : "Save price"}
+            Save price
           </Button>
-          <Button
-            type="button"
-            variant="primary"
-            data-attr="vendor-mark-done"
-            className={`${PORTAL_DETAIL_BTN} rounded-full`}
-            disabled={markingDoneId === row.id || (donePhotosById[row.id] ?? []).length === 0}
-            onClick={() => markDone(row)}
-          >
-            {markingDoneId === row.id ? "Completing…" : VENDOR_SERVICE_ACTION_LABEL.complete}
-          </Button>
-        </PortalTableDetailActions>
+        </div>
       </div>
     );
+  };
+
+  /** A stage action from a row's ⋯ (or the record's header ⋯): every one lands on an existing section or flow. */
+  const runServiceAction = (row: DemoManagerWorkOrderRow, id: VendorServiceActionId) => {
+    const detail = (tab: VendorJobDetailTabId, query = "") => navigate(`${vendorJobDetailHref("/vendor", row.id, tab)}${query}`);
+    switch (id) {
+      case "submit_bid":
+        navigate(vendorJobChoiceHref("/vendor", row.id, "bid"));
+        return;
+      case "book_visit":
+        navigate(vendorJobChoiceHref("/vendor", row.id, "estimate"));
+        return;
+      case "visit_done":
+        detail("bid", `?${VENDOR_REPLY_PARAM}=visit-done`);
+        return;
+      case "decline":
+        detail("bid", `?${VENDOR_REPLY_PARAM}=decline`);
+        return;
+      case "schedule":
+      case "mark_done":
+        detail("schedule");
+        return;
+      case "reschedule":
+      case "message":
+        detail("communication");
+        return;
+      case "send_invoice":
+        if (workOrderId) setInvoiceOpen(true);
+        else setInvoiceListRow(row);
+        return;
+    }
   };
 
   if (workOrderId) {
@@ -688,7 +786,6 @@ export function VendorWorkOrdersPanel({
     const sections = recordSections("vendor", "job", { basePath: "/vendor" });
     const hasSite = vendorCanSeeFullWorkOrderSite(row, bid);
     const placeLine = vendorPlaceLine(row, bid);
-    const declinable = stage === "open" && (offer?.status === "sent" || bid?.status === "submitted");
     const goTo = (section: VendorJobDetailTabId) => navigate(vendorJobDetailHref("/vendor", row.id, section));
 
     // ONE primary: the next step. On Estimate & bid it submits the form below under the same label.
@@ -711,10 +808,34 @@ export function VendorWorkOrdersPanel({
       }
       goTo(next.section);
     };
-    const onDecline = () => {
-      setReplyChoice(bid ? "cant_do_it" : "decline");
-      goTo("bid");
-    };
+
+    // The header ⋯: every stage action the primary is not (Book visit · Decline · Reschedule ...). The
+    // old three-option strip lives here and in the Estimate & bid tabs, never as loose buttons.
+    const headerMenu = vendorServiceActions({ row, bid, offer, invoiceSent })
+      .filter((action) => action.id !== next?.id && action.id !== "message")
+      .map((action) => ({
+        id: action.id,
+        label: action.label,
+        danger: action.id === "decline",
+        dataAttr: action.id === "decline" ? "vendor-job-decline" : `vendor-job-action-${action.id}`,
+        onSelect: () => {
+          if (action.id === "decline") {
+            setReplyChoice(bid ? "cant_do_it" : "decline");
+            goTo("bid");
+          } else if (action.id === "book_visit") {
+            setReplyChoice("book_estimate_visit");
+            goTo("bid");
+          } else if (action.id === "submit_bid") {
+            setReplyChoice("submit_bid");
+            goTo("bid");
+          } else if (action.id === "visit_done") {
+            setReplyChoice("complete_estimate_visit");
+            goTo("bid");
+          } else if (action.id === "mark_done") goTo("schedule");
+          else if (action.id === "reschedule") goTo("communication");
+          else runServiceAction(row, action.id);
+        },
+      }));
 
     const factRows: Array<{ label: string; value: string }> = [
       { label: "Service", value: row.title },
@@ -731,7 +852,14 @@ export function VendorWorkOrdersPanel({
 
     const canComplete = stage === "scheduled" && !row.automationStatus;
     const hasVisit = Boolean(row.scheduled && row.scheduled !== "—") || Boolean(row.scheduledAtIso);
-    const invoiceOwed = stage === "completed" && !invoiceSent && row.automationStatus !== "paid" && !(bid?.status === "declined" || offer?.status === "declined");
+    const declinedJob = bid?.status === "declined" || offer?.status === "declined";
+    const invoiceOwed = stage === "completed" && !invoiceSent && row.automationStatus !== "paid" && !declinedJob;
+    // Trim once, here: testing `src.trim()` and then rendering a second
+    // `src.trim()` left the value that reaches the attribute untested, so the
+    // allowlist was no barrier at all (CodeQL js/xss-through-dom).
+    const photos = (hasSite || row.offerSharePhotos === true ? (row.photoDataUrls ?? []) : [])
+      .map((src) => src.trim())
+      .filter((src) => SAFE_PHOTO_HREF_RE.test(src));
 
     const ownContent =
       activeTab === "bid" ? (
@@ -753,7 +881,21 @@ export function VendorWorkOrdersPanel({
           onWithdraw={() => withdrawBid(row)}
         />
       ) : activeTab === "schedule" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-schedule">
+        <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="vendor-job-schedule">
+          {renderSectionHeader(
+            "visit",
+            "Visit",
+            canComplete ? (
+              <PortalIconAction
+                icon={Check}
+                label={VENDOR_SERVICE_ACTION_LABEL.complete}
+                tone="primary"
+                data-attr="vendor-mark-done"
+                disabled={markingDoneId === row.id}
+                onClick={() => void markDone(row)}
+              />
+            ) : null,
+          )}
           {hasVisit ? (
             <p className="text-sm text-foreground">
               Visit <span className="font-medium">{row.scheduledAtIso ? vendorShortWhenLabel(row.scheduledAtIso) : row.scheduled}</span>
@@ -762,7 +904,7 @@ export function VendorWorkOrdersPanel({
             <PortalListEmptyCard title="Not yet scheduled" workspaceAware={false} dataAttr="vendor-job-schedule-empty" />
           )}
           {row.entryPermission && hasSite ? (
-            <p className="mt-2 text-xs text-muted">
+            <p className="text-xs text-muted">
               Entry: {vendorEntryPermissionLabel(row.entryPermission)}
               {row.entryNotes ? ` (${row.entryNotes})` : ""}
             </p>
@@ -770,23 +912,38 @@ export function VendorWorkOrdersPanel({
           {canComplete ? renderCompleteForm(row) : null}
         </div>
       ) : activeTab === "invoice" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-bid-invoice">
-          {stage === "completed" && !(bid?.status === "declined" || offer?.status === "declined") ? (
+        <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="vendor-job-bid-invoice">
+          {renderSectionHeader(
+            "invoice",
+            "Invoice",
+            invoiceOwed ? (
+              <PortalIconAction
+                icon={Send}
+                label={VENDOR_SERVICE_ACTION_LABEL.sendInvoice}
+                tone="primary"
+                data-attr="vendor-send-invoice"
+                onClick={() => setInvoiceOpen(true)}
+              />
+            ) : null,
+          )}
+          {stage === "completed" && !declinedJob ? (
             <>
-              {renderInvoice(row)}
+              {renderCost(row)}
               {invoiceSent ? (
-                <p className="mt-3 text-sm font-medium text-foreground" data-attr="vendor-job-invoice-sent">Invoice sent</p>
-              ) : null}
-              {invoiceOwed ? (
-                <div className="mt-3">
-                  <Button type="button" variant="primary" className={`${PORTAL_DETAIL_BTN} rounded-full`} data-attr="vendor-send-invoice" onClick={() => setInvoiceOpen(true)}>
-                    {VENDOR_SERVICE_ACTION_LABEL.sendInvoice}
-                  </Button>
-                </div>
+                <p className="text-sm font-medium text-foreground" data-attr="vendor-job-invoice-sent">Invoice sent</p>
               ) : null}
             </>
           ) : (
             <PortalListEmptyCard title="No invoice yet" workspaceAware={false} dataAttr="vendor-job-invoice-empty" />
+          )}
+        </div>
+      ) : activeTab === "payments" ? (
+        <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="vendor-job-payments">
+          {renderSectionHeader("payments", "Payout")}
+          {stage === "completed" && !declinedJob ? (
+            renderPayout(row)
+          ) : (
+            <PortalListEmptyCard title="No payments yet" workspaceAware={false} dataAttr="vendor-job-payments-empty" />
           )}
         </div>
       ) : activeTab === "communication" ? (
@@ -798,6 +955,31 @@ export function VendorWorkOrdersPanel({
           recordLabel: row.title,
           contactName: row.managerName?.trim() || undefined,
         })
+      ) : activeTab === "documents" ? (
+        <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="vendor-job-photos">
+          {renderSectionHeader("photos", "Photos")}
+          {/* The server already withholds these from an un-hired vendor unless the manager
+              ticked "Share photos" (`projectWorkOrderForOfferedVendor`); the same gate here
+              keeps a locally-held row from drawing what a served one would not carry. */}
+          {photos.length > 0 ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {/* The allowlist is re-tested on the exact value that reaches
+                  <a href> / <img src>, so it sits directly on the sinks: no
+                  other-scheme string can be drawn even if `photos` is ever
+                  rebuilt from somewhere else. */}
+              {photos.map((src, i) =>
+                SAFE_PHOTO_HREF_RE.test(src) ? (
+                  <a key={i} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
+                  </a>
+                ) : null,
+              )}
+            </div>
+          ) : (
+            <PortalListEmptyCard title="No documents yet" workspaceAware={false} dataAttr="vendor-job-documents-empty" />
+          )}
+        </div>
       ) : (
         <>
           {renderRecordSection("overview", {
@@ -824,26 +1006,6 @@ export function VendorWorkOrdersPanel({
               }
             />
           </div>
-          {/* The server already withholds these from an un-hired vendor unless the manager
-              ticked "Share photos" (`projectWorkOrderForOfferedVendor`); the same gate here
-              keeps a locally-held row from drawing what a served one would not carry. */}
-          {(hasSite || row.offerSharePhotos === true) && row.photoDataUrls?.length ? (
-            <div className="px-3 pb-4 sm:px-4" data-attr="vendor-job-photos">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Photos</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {row.photoDataUrls.map((src, i) => {
-                  const trimmed = src.trim();
-                  if (!SAFE_PHOTO_HREF_RE.test(trimmed)) return null;
-                  return (
-                    <a key={i} href={trimmed} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={trimmed} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
         </>
       );
     return (
@@ -862,17 +1024,12 @@ export function VendorWorkOrdersPanel({
         >
           <PortalRecordActions>
             <div className="flex items-center justify-end gap-1">
-              {/* Message · ⋯ (Decline) · the ONE primary next step. */}
-              <PortalIconAction icon={MessageSquare} label="Message" data-attr="vendor-job-message" onClick={() => goTo("communication")} />
-              {declinable ? (
-                <RowActionsMenu
-                  label="More"
-                  items={[{ id: "decline", label: VENDOR_SERVICE_ACTION_LABEL.decline, onSelect: onDecline, dataAttr: "vendor-job-decline" }]}
-                />
-              ) : null}
+              {/* Message the manager · the ONE primary next step · ⋯ (the other stage actions). */}
+              <PortalIconAction icon={MessageSquare} label="Message the manager" data-attr="vendor-job-message" onClick={() => goTo("communication")} />
               {next && primaryLabel ? (
                 <PortalPrimaryIconAction icon={PrimaryIcon} label={primaryLabel} data-attr="vendor-job-primary" onClick={onPrimary} />
               ) : null}
+              {headerMenu.length > 0 ? <RowActionsMenu label="More" items={headerMenu} /> : null}
             </div>
           </PortalRecordActions>
           <PortalRecordSectionChrome
@@ -885,6 +1042,11 @@ export function VendorWorkOrdersPanel({
             backLabel="All services"
             ariaLabel="Service sections"
           >
+            {activeTab === "communication" ? null : (
+              <div className="px-3 pb-3 pt-1 sm:px-4">
+                <ServiceStageStepper stages={vendorServiceStageItems(stage)} />
+              </div>
+            )}
             {ownContent}
           </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
@@ -904,13 +1066,40 @@ export function VendorWorkOrdersPanel({
   }
 
   const emptyCopy = portalEmptyCopy(`work-orders.${tabId}`);
-  const noMatchTitle = search.trim() || propertyFilter ? portalEmptyNoMatchTitle("services", search.trim()) : null;
+  const boardVisible = (boardServices ?? []).filter((service) =>
+    matchesPortalListSearch(search, service.title, service.area, service.trade, service.postedBy),
+  );
+  const noMatchTitle = isFindWork
+    ? search.trim() || tradeFilter || distanceFilter
+      ? portalEmptyNoMatchTitle("services", search.trim())
+      : null
+    : search.trim() || propertyFilter
+      ? portalEmptyNoMatchTitle("services", search.trim())
+      : null;
+
+  const chooseBoardJob = async (service: PublicBoardServiceView, choice: VendorJobChoiceId) => {
+    if (boardBusy) return;
+    setBoardBusy({ ref: service.ref, choice });
+    try {
+      const result = await requestBoardJob(service.ref, choice);
+      if (result.ok) {
+        navigate(vendorJobChoiceHref("/vendor", result.workOrderId, choice));
+        return;
+      }
+      // Gone (404): another vendor was hired or the manager unpublished it; drop the row.
+      if (result.status === 404) setBoardServices((prev) => (prev ? prev.filter((s) => s.ref !== service.ref) : prev));
+      showToast(result.error);
+    } finally {
+      setBoardBusy(null);
+    }
+  };
 
   const renderRow = (row: DemoManagerWorkOrderRow, near = false) => {
     const bid = bidsByWorkOrderId[row.id];
     const offer = offersByWorkOrderId[row.id];
     const stage = vendorServiceStage(row, bid, offer);
     const fact = vendorServiceFact({ row, bid, offer, invoiceSent: invoicedIds.has(row.id) });
+    const actionItems = vendorServiceActions({ row, bid, offer, invoiceSent: invoicedIds.has(row.id) });
     const budgetCents = near ? (row.marketplacePublish?.budgetCents ?? 0) : 0;
     const factIcon = stage === "scheduled" ? CalendarDays : stage === "completed" ? Check : near && !bid ? Sparkles : Clock;
     return (
@@ -921,11 +1110,21 @@ export function VendorWorkOrdersPanel({
           dateText={fact}
           icon={factIcon}
           figure={budgetCents > 0 ? `${formatBudget(budgetCents)} budget` : vendorJobFigure(row, bid)}
-          checked={selectedIds.has(row.id)}
-          // Only a scheduled job can be completed in bulk, so only those rows offer a checkbox.
-          // A checkbox that selects a row nothing can act on is a promise the dock cannot keep.
-          onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
           onOpen={() => navigate(vendorJobDetailHref("/vendor", row.id))}
+          actions={
+            actionItems.length > 0 ? (
+              <RowActionsMenu
+                label={row.title}
+                items={actionItems.map((action) => ({
+                  id: action.id,
+                  label: action.label,
+                  danger: action.id === "decline",
+                  dataAttr: `vendor-service-action-${action.id}`,
+                  onSelect: () => runServiceAction(row, action.id),
+                }))}
+              />
+            ) : undefined
+          }
           dataAttr="vendor-service-row"
         />
       </div>
@@ -945,16 +1144,21 @@ export function VendorWorkOrdersPanel({
           ariaLabel="Service status"
           tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, count: tab.count }))}
           activeId={tabId}
-          onChange={(id) => navigate(vendorWorkOrderListHref("/vendor", id as VendorWorkOrderTab))}
+          onChange={(id) => navigate(vendorWorkOrderListHref("/vendor", id as VendorWorkOrderTab | typeof VENDOR_FIND_WORK_TAB))}
           search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
           actions={
             <>
               <RecordBandFilter
                 dataAttr="vendor-services-band"
                 fields={
-                  propertyOptions.length > 0
-                    ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
-                    : []
+                  isFindWork
+                    ? [
+                        { id: "trade", label: "Trade", anyLabel: "Any trade", value: tradeFilter, options: FIND_WORK_TRADE_OPTIONS, onChange: setTradeFilter },
+                        { id: "distance", label: "Distance", anyLabel: "Any distance", value: distanceFilter, options: FIND_WORK_DISTANCE_OPTIONS, onChange: setDistanceFilter },
+                      ]
+                    : propertyOptions.length > 0
+                      ? [{ id: "property", label: "Property", anyLabel: "Any property", value: propertyFilter, options: propertyOptions, onChange: setPropertyFilter }]
+                      : []
                 }
               />
               <PortalIconAction
@@ -973,6 +1177,22 @@ export function VendorWorkOrdersPanel({
           Couldn&apos;t refresh the latest bidding/payout status. This may be out of date. Retrying automatically.
         </p>
       ) : null}
+      {isFindWork ? (
+        <PortalRecordListSurface
+          isEmpty={boardVisible.length === 0}
+          loading={boardLoading}
+          loadError={boardError || undefined}
+          onRetry={() => setBoardReload((n) => n + 1)}
+          emptyCard={{
+            title: noMatchTitle ?? emptyCopy.title,
+            section: emptyCopy.section,
+            sibling: noMatchTitle ? undefined : portalEmptySibling(tabs, tabId),
+          }}
+          dataAttr="vendor-find-work-list"
+        >
+          <VendorFindWorkList services={boardVisible} busy={boardBusy} onChoose={chooseBoardJob} />
+        </PortalRecordListSurface>
+      ) : (
       <PortalRecordListSurface
         isEmpty={visible.length === 0}
         emptyCard={{
@@ -980,32 +1200,15 @@ export function VendorWorkOrdersPanel({
           section: emptyCopy.section,
           sibling: noMatchTitle ? undefined : portalEmptySibling(tabs, tabId),
         }}
-        onBulkClear={() => setSelectedIds(new Set())}
-        bulkCount={selectedDoneable.length}
-        bulkActions={
-          selectedDoneable.length > 0 ? (
-            <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                disabled={Boolean(markingDoneId)}
-                data-attr="vendor-wo-bulk-mark-done"
-                onClick={() => void markSelectedDone()}
-              >
-                {VENDOR_SERVICE_ACTION_LABEL.complete}
-              </Button>
-            </div>
-          ) : null
-        }
         dataAttr="vendor-services-list"
       >
         {nearYouRows.length > 0 ? (
           <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted">Near you</p>
         ) : null}
         {nearYouRows.map((row) => renderRow(row, true))}
-        {(tabId === "open" ? otherOpenRows : visible).map((row) => renderRow(row))}
+        {(stageTabId === "open" ? otherOpenRows : visible).map((row) => renderRow(row))}
       </PortalRecordListSurface>
+      )}
       <VendorQuoteWizard
         open={quoteOpen}
         door="quote"
@@ -1014,6 +1217,17 @@ export function VendorWorkOrdersPanel({
         onSubmitted={() => {
           setQuoteOpen(false);
           void loadBids();
+        }}
+      />
+      <VendorQuoteWizard
+        open={invoiceListRow !== null}
+        door="invoice"
+        jobs={invoiceListRow ? [invoiceListRow] : []}
+        initialJobId={invoiceListRow?.id}
+        onClose={() => setInvoiceListRow(null)}
+        onSubmitted={() => {
+          setInvoiceListRow(null);
+          void loadInvoices();
         }}
       />
       <VendorSectionSettingsModal

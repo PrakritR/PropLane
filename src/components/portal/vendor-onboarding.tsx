@@ -9,6 +9,8 @@ import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
+import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
+import { VendorWorkNumberSettings } from "@/components/portal/vendor-work-number-settings";
 
 type OnboardingProfile = {
   businessName: string;
@@ -325,6 +327,14 @@ export function VendorOnboardingFlow() {
             ) : null}
           </label>
         </div>
+      </section>
+
+      <section data-attr="vendor-onboarding-verify-phone">
+        <PortalTextNotificationsBlock dataAttrPrefix="vendor-onboarding" title="Verify your phone" />
+      </section>
+
+      <section data-attr="vendor-onboarding-work-number">
+        <VendorWorkNumberSettings />
       </section>
 
       <section className="rounded-2xl border border-border bg-card p-4" data-attr="vendor-onboarding-directory">

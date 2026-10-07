@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../registry";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 /**
  * Accepted co-manager account link (account_link_invites). Mirrors the fields
@@ -30,13 +31,13 @@ export const listCoManagersTool = defineTool({
   inputSchema: z.object({}).strict(),
   handler: async (ctx) => {
     // Accepted account links where this landlord is either side of the link.
-    const { data, error } = await ctx.db
+    const { data, error } = withoutOwnerLinks(await ctx.db
       .from("account_link_invites")
       .select(
-        "id, inviter_user_id, invitee_user_id, inviter_display_name, invitee_display_name, assigned_property_ids, created_at, responded_at",
+        "id, inviter_user_id, invitee_user_id, inviter_display_name, invitee_display_name, assigned_property_ids, created_at, responded_at, team_role",
       )
       .eq("status", "accepted")
-      .or(`inviter_user_id.eq.${ctx.landlordId},invitee_user_id.eq.${ctx.landlordId}`);
+      .or(`inviter_user_id.eq.${ctx.landlordId},invitee_user_id.eq.${ctx.landlordId}`));
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as AccountLinkRow[];
 

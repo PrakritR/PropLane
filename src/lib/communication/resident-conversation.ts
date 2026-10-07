@@ -48,6 +48,8 @@ export function isResidentAssistantRow(row: PersistedInboxThread): boolean {
 export const PROJECTED_SMS_TURN_PREFIX = "sms-proj:";
 /** Row ids the server derives for a text-only conversation; a client never creates them. */
 export const RESIDENT_SMS_ROW_PREFIX = "resident_sms_";
+/** The same, for a vendor's text-only conversation with a manager workspace. */
+export const VENDOR_SMS_ROW_PREFIX = "vendor_sms_";
 
 export type ResidentSmsRole = "prospect" | "applicant" | "resident";
 const RESIDENT_SMS_ROLES: ReadonlySet<string> = new Set<ResidentSmsRole>(["prospect", "applicant", "resident"]);
@@ -200,11 +202,15 @@ function withTurns(
 }
 
 /** A text-only conversation: the resident has texted this workspace but holds no stored row for it. */
-export function smsOnlyResidentRow(conversation: ResidentSmsConversation, residentName: string): PersistedInboxThread | null {
+export function smsOnlyResidentRow(
+  conversation: ResidentSmsConversation,
+  residentName: string,
+  rowIdPrefix: string = RESIDENT_SMS_ROW_PREFIX,
+): PersistedInboxThread | null {
   if (conversation.turns.length === 0) return null;
   const all = conversation.turns.map((turn) => smsMessage(turn, conversation.counterparty, residentName));
   const base: PersistedInboxThread = {
-    id: `${RESIDENT_SMS_ROW_PREFIX}${conversation.workspaceId}`,
+    id: `${rowIdPrefix}${conversation.workspaceId}`,
     folder: "inbox",
     from: conversation.counterparty.name,
     // Never the manager's login address: a text-only conversation has no
@@ -273,6 +279,7 @@ export function mergeResidentSmsConversations(
   rows: PersistedInboxThread[],
   conversations: readonly ResidentSmsConversation[],
   residentName: string,
+  options: { rowIdPrefix?: string } = {},
 ): PersistedInboxThread[] {
   const out = [...rows];
   for (const conversation of conversations) {
@@ -284,7 +291,7 @@ export function mergeResidentSmsConversations(
       out[index] = mergeSmsTurnsIntoRow(out[index]!, conversation, residentName);
       continue;
     }
-    const only = smsOnlyResidentRow(conversation, residentName);
+    const only = smsOnlyResidentRow(conversation, residentName, options.rowIdPrefix);
     if (only) out.push(only);
   }
   return out;

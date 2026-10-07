@@ -23,6 +23,24 @@ Numbers held by Free accounts from the earlier every-plan policy are released on
 environment after the deploy: `POST /api/admin/release-free-work-numbers` (admin-gated;
 `{ "dryRun": false }` to release, default is a dry run that lists them).
 
+## Vendor work number (Oct 6): covered by the service fee, not a wallet
+
+A vendor's PropLane number (and work email) is never a subscription and never touches a
+manager wallet. A vendor with a verified phone claims one free; PropLane keeps the
+**service fee on payouts** instead (the 3% `VENDOR_PAY_FEE_BPS`, label "PropLane service fee";
+see [financials.md](financials.md) § PropLane service fee). Two meters stay separate:
+
+- **Manager side:** a manager's text *to* a vendor still reserves the sending workspace's
+  credit exactly as before (`providerDestinationFor` only changes where the provider
+  delivers; the outbox row, credit key and consent are the manager's).
+- **Vendor side:** forwards to the vendor's phone, routed replies and "Reply to" prompts leave
+  the vendor's number through `deliverVendorWorkIdentity`, which "knows nothing about manager
+  billing". They are capped at **1,000 SMS segments per Pacific calendar month** per number (fair use),
+  reserved atomically in `claim_vendor_work_identity_outbound`; at the cap forwarding and
+  replies pause with a notice in Settings while inbound keeps arriving in PropLane.
+
+Details and the routing rules: [sms-system.md](sms-system.md) § Vendor work number.
+
 ## Add-ons
 
 Past the bundle a paying account adds units from Settings → Billing & plan
@@ -337,3 +355,9 @@ covered by a dedicated Postgres integration suite the way the legacy wallet is
 — that is the natural next addition once the flag is closer to shipping; until
 then, verify a schema or function change with a rolled-back transaction against
 a real database, the same way this migration itself was checked before landing.
+
+**Vendor texting (Oct 6) is billed like every other manager text.** A manager's text
+to a roster vendor reserves workspace credit per segment on the workspace that owns
+the line it leaves on, and a vendor's reply is metered as inbound; no credit means the
+send is refused with the ordinary message and nothing leaves. The sender line and STOP
+footer on a first text count toward its segments. Vendors have no wallet and no number.

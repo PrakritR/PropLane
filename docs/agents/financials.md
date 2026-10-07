@@ -394,6 +394,40 @@ job, vendor refund route, and balance/statement/reconciliation surface — is
 `false` / `off`) in an environment to fall back to the pre-feature behavior
 (no `vendor_banking_*` row is written, fee/schedule math returns 0).
 
+**PropLane service fee (Oct 6)** — the vendor take rate is one rate and one name.
+Rate: `VENDOR_PAY_FEE_BPS = 300` (3%), taken from the vendor out of a manager's
+payment, derived at pay time (`vendorPayFeeCents`) and never written to the
+accepted bid, whose `amount_cents` stays immutable. Label: every vendor-facing
+surface and statement line reads `PROPLANE_SERVICE_FEE_LABEL` ("PropLane service
+fee", `src/lib/platform-fees.ts`); the ledger description is
+`vendorServiceFeeDescription()`, so no `3%` is typed anywhere
+(`tests/unit/vendor-service-fee-label.test.ts`). Rails (`VENDOR_SERVICE_FEE_RAILS`):
+
+| Rail | Fee |
+| --- | --- |
+| Stripe Checkout (service approve-and-pay, invoice pay) | 3%, an `application_fee_amount` frozen in the provider terms (`pendingVendorPay.providerTerms` / `freeze_vendor_invoice_stripe_checkout_terms`); settlement books the frozen amount, never a re-derived one, so a later rate or flag change cannot move a settled fee |
+| PropLane balance (`pay-from-balance`, `paymentChannel: "balance"`) | none, `platform_fee_cents` 0. Deferred on purpose: taking it needs a source-classification change in the balance-move SQL that cannot be verified without applying a migration |
+| Offline / manual (`outgoing` action `offline`) | none |
+
+Write-through: beside the vendor statement debit (`vendor_banking_ledger_entries`
+`platform_fee`), settlement appends PropLane's own revenue to
+`platform_revenue_entries` (`recordVendorServiceFeeRevenue`, idempotent on
+`vendor_service_fee:<source>:<id>`); a refund or an expired hold appends the
+negative `vendor_service_fee_reversal` (`recordVendorServiceFeeRevenueReversal`).
+Both are failure-isolated (an unapplied table logs and the payment still
+settles) and are not gated on the flag at settlement, only on a frozen fee > 0.
+The table has no foreign keys by design and is retained across account
+deletion (`ACCOUNT_PURGE_RETAINED`). Migration
+`20261006220000_platform_revenue_vendor_service_fee.sql`.
+
+**Vendor refunds, disputes and notifications (vendor-banking-1006 part B, migration `20261007020000_vendor_refunds_disputes.sql`).**
+
+- **A vendor refund is the central rail's, never a fourth path.** `submitVendorRefund` (`src/lib/vendor-banking/central-refund.server.ts`) reads the payout scoped to `vendor_user_id = auth.uid()`, then calls `runReservedPlatformMoneyRefund` with `ownerUserId` (the vendor), `holdId`, `payoutId` and a **stable attempt key** `vendor-refund:<payoutId>:<Idempotency-Key>` (required header; the modal mints one per payment+amount). A retry or double-submit replays the same reservation; the same key with another amount is a 409. The Stripe webhook settles a pending refund (`handleStripeRefund` hands a reservation carrying a `payout_id` to `settleVendorRefundFromWebhook`, so it never reaches the household ledger poster). `destination_charge` payments (no central hold) keep the direct reverse-transfer path in `refund.server.ts`, wrapped so the request row and manager books are the same. Behind `VENDOR_REFUNDS_ENABLED` (default off until Stripe TEST proof).
+- **The cap is what is recoverable, recomputed on the server** (`refund-cap.ts`, `readVendorRefundFunds`): cash still held on the hold, plus released money that is still in the vendor's connected account (transfers created minus reversal legs, bounded by the account's available balance), minus any open dispute freeze. A payment whose released money was withdrawn is **refused** (409 `REFUND_WITHDRAWN`) before any Stripe call; a partial cap answers 422. The fee returned is the rail SQL's own cumulative-proportional share, so partials sum to the whole fee. One refund per payment in flight.
+- **Books on success** (`settleVendorRefundBooks`, idempotent step by step, `books_settled_at` last): vendor statement `refund` line for the gross and an `adjustment` line returning the fee share (net = what left the vendor), `vendor_service_fee_reversal` revenue, the manager's `manager_expense_reversals` row plus a balanced `postGlVendorRefundReversal` entry (DR operating cash, CR the bill's expense category; `source_type 'refund'`, `vendor-refund:<attempt key>`), and `refunded_cents` on the `vendor_invoices` row and its `manager_bills` row (the payout's own absolute refunded figure, never incremented). Both parties are notified. Known gap: the legacy destination-charge path (`refundVendorPayout`) writes `-(gross - fee)` then `+fee` on the statement, which double-counts the fee return by one fee share; the central path writes `-gross` and `+fee`.
+- **Disputes** (`disputes.server.ts`, `charge.dispute.*` for a charge a `vendor_payouts` row settled on, tried before the manager rent-dispute handler): open freezes `min(dispute, payment)` on `vendor_banking_disputes.frozen_cents`. A freeze is **not a ledger line** (the statement tracks Stripe's real balance, which a freeze does not move; reconciliation would break). It is subtracted from what is refundable, and `readVendorFrozenDisputeCents` is the figure a withdrawal/balance snapshot must subtract. Closed **won** clears the freeze; closed **lost** writes one `dispute` statement debit (net of the fee share) and records the same amount as a shortfall drawn from the vendor's next payments. A closed dispute never reopens on a late `updated`. Both sides are notified once.
+- **Notifications** ride the action-event spine (`domain: "vendor_banking"`, `vendor-banking/events.server.ts`, filed under the vendor's Payments topic): payout paid / failed / returned, bank removed, bank needs verification, account restricted, refund sent (vendor) / received (manager), dispute opened / closed, money held with no bank. Idempotent on a deterministic event id; never throws into a money path. Vendor-only moments are sent as the vendor's latest paying manager.
+
 **Withdraw-only manager payouts (`MANUAL_PAYOUT_POLICY_ENABLED`, `src/lib/manual-payout-policy-flag.ts`)** is a separate, **default OFF** flag whose own doc comment is the contract. On, a new manager Connect account is created on manual payouts and the hourly `/api/cron/manual-payout-policy` job converts the existing ones in bounded, resumable batches (`ensureManualPayoutPolicy` is withdraw-only: it never touches a bank destination, skips test workspaces, and re-running it leaves an already-manual account alone), and both schedule routes (`/api/stripe/payouts/schedule`, `/api/vendor/payouts/schedule`) answer **422** "Payouts are withdrawal-only." to anything but `manual`. Off keeps today's split - vendors on manual, managers on weekly Friday deposits.
 
 # Financials Phase 5: AP bills, budgets, owner statements

@@ -21,11 +21,44 @@ export const CO_MANAGER_PERMISSION_OPTIONS = [
   { id: "teams", label: "Team" },
 ] as const;
 
+/**
+ * Keys that exist ONLY for the Property owner role. They are deliberately not
+ * in `CO_MANAGER_PERMISSION_OPTIONS`: every module loop (stamps, bulk presets,
+ * the module editor, workspace module lists) iterates that list, so no other
+ * role can ever be stamped with, or show, an owner key. An owner member holds
+ * these four and nothing from the module list.
+ */
+export const OWNER_PERMISSION_OPTIONS = [
+  { id: "ownerPerformance", label: "Performance" },
+  { id: "ownerStatements", label: "Statements" },
+  { id: "ownerDocuments", label: "Documents" },
+  { id: "ownerMessages", label: "Messages" },
+] as const;
+
+export type OwnerPermissionId = (typeof OWNER_PERMISSION_OPTIONS)[number]["id"];
+
+/**
+ * The module a teammate must hold to hand an OWNER key out on a house.
+ *
+ * Owner keys are not module grants, so the delegate cap
+ * (`coManagerPermissionsExceedGrant` / `intersectCoManagerPermissions`) neither
+ * checks nor carries them. Without this map a co-manager with nothing but
+ * `teams: edit` could invite an investor and switch the house's books on for
+ * them - access the delegate does not have themselves.
+ */
+export const OWNER_PERMISSION_SOURCE_MODULE: Record<OwnerPermissionId, CoManagerPermissionId> = {
+  ownerPerformance: "financials",
+  ownerStatements: "financials",
+  ownerDocuments: "documents",
+  ownerMessages: "inbox",
+};
+
 /** Legacy ids still accepted when reading stored rows. */
 const LEGACY_CO_MANAGER_PERMISSION_IDS = ["editListings"] as const;
 
 export type CoManagerPermissionId =
   | (typeof CO_MANAGER_PERMISSION_OPTIONS)[number]["id"]
+  | OwnerPermissionId
   | (typeof LEGACY_CO_MANAGER_PERMISSION_IDS)[number];
 
 /** Access dimensions per module (granular RBAC). */
@@ -148,6 +181,19 @@ export function coManagerPermissionsExceedGrant(
   return false;
 }
 
+/** Owner keys the actor cannot hand out, because they lack the module it reads from. */
+export function ownerPermissionsExceedGrant(
+  actor: CoManagerPermissions | undefined,
+  requested: CoManagerPermissions | undefined,
+): boolean {
+  for (const { id } of OWNER_PERMISSION_OPTIONS) {
+    const req = requested?.[id];
+    if (!req || !grantAllows(req, "read")) continue;
+    if (!grantAllows(actor?.[OWNER_PERMISSION_SOURCE_MODULE[id]], "read")) return true;
+  }
+  return false;
+}
+
 /** Per-module intersection — delegated invites may not exceed the actor's own grant. */
 export function intersectCoManagerPermissions(
   actor: CoManagerPermissions | undefined,
@@ -169,6 +215,7 @@ export const EMPTY_CO_MANAGER_PERMISSIONS: CoManagerPermissions = {};
 
 const CO_MANAGER_PERMISSION_ID_SET = new Set<string>([
   ...CO_MANAGER_PERMISSION_OPTIONS.map(({ id }) => id),
+  ...OWNER_PERMISSION_OPTIONS.map(({ id }) => id),
   ...LEGACY_CO_MANAGER_PERMISSION_IDS,
 ]);
 
@@ -182,6 +229,10 @@ export function normalizeCoManagerPermissions(raw: unknown): CoManagerPermission
   if (!raw || typeof raw !== "object") return {};
   const out: CoManagerPermissions = {};
   for (const { id } of CO_MANAGER_PERMISSION_OPTIONS) {
+    const grant = normalizeGrant((raw as Record<string, unknown>)[id]);
+    if (grant !== undefined) out[id] = grant;
+  }
+  for (const { id } of OWNER_PERMISSION_OPTIONS) {
     const grant = normalizeGrant((raw as Record<string, unknown>)[id]);
     if (grant !== undefined) out[id] = grant;
   }
@@ -370,6 +421,19 @@ export function countCoManagerPermissions(permissions: CoManagerPermissions | un
   return CO_MANAGER_PERMISSION_OPTIONS.filter(({ id }) => hasCoManagerPermission(permissions, id)).length;
 }
 
+/**
+ * Drop everything but the owner keys. A Property owner map is ONLY these; a
+ * stored or forged module grant on an owner row must never survive a write.
+ */
+export function onlyOwnerPermissions(permissions: CoManagerPermissions | undefined): CoManagerPermissions {
+  const out: CoManagerPermissions = {};
+  for (const { id } of OWNER_PERMISSION_OPTIONS) {
+    const grant = permissions?.[id];
+    if (grant !== undefined) out[id] = grant;
+  }
+  return out;
+}
+
 /** Portal nav sections that co-managers may always open (no grant required). */
 export const CO_MANAGER_ALWAYS_ALLOWED_SECTIONS = new Set([
   "dashboard",
@@ -409,7 +473,7 @@ export function mergeCoManagerPermissions(
 ): CoManagerPermissions {
   const merged: CoManagerPermissions = {};
   for (const row of rows) {
-    for (const { id } of CO_MANAGER_PERMISSION_OPTIONS) {
+    for (const { id } of [...CO_MANAGER_PERMISSION_OPTIONS, ...OWNER_PERMISSION_OPTIONS]) {
       const next = unionGrants(merged[id], row.coManagerPermissions?.[id]);
       if (next !== undefined) merged[id] = next;
     }

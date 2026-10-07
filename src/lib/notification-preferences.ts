@@ -148,14 +148,14 @@ export async function saveNotificationPreferences(
 ): Promise<NotificationPreferences> {
   const normalized = normalizeNotificationPreferences(prefs);
   // The same row also carries `resident` (text settings) and `vendor`
-  // (PLAN-0915); a category save must not wipe them.
+  // (PLAN-0915), and the vendor's `vendorQuickReplies`; a category save must not wipe them.
   const { data: existing } = await db.from("notification_preferences").select("row_data").eq("user_id", userId).maybeSingle();
   const current =
     existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
       ? (existing.row_data as Record<string, unknown>)
       : {};
   const siblings: Record<string, unknown> = {};
-  for (const key of ["resident", "vendor"]) if (current[key] !== undefined) siblings[key] = current[key];
+  for (const key of ["resident", "vendor", "vendorQuickReplies"]) if (current[key] !== undefined) siblings[key] = current[key];
   const { error } = await db.from("notification_preferences").upsert(
     {
       user_id: userId,

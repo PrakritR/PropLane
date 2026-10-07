@@ -11,6 +11,8 @@ import {
   type VendorBankingPayoutRow,
 } from "@/lib/vendor-banking/payouts.server";
 import { recordVendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.server";
+import { recordVendorServiceFeeRevenueReversal } from "@/lib/vendor-banking/platform-revenue.server";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { recordVendorBankingShortfall } from "@/lib/vendor-banking/shortfall.server";
 
 export type VendorRefundPreview = {
@@ -156,7 +158,9 @@ export async function refundVendorPayout(
     vendorUserId: opts.vendorUserId,
     managerUserId: payout.managerUserId,
     kind: "refund",
-    amountCents: -preview.netDebitCents,
+    // The GROSS leaves the statement; the fee share comes back as its own +line below, so
+    // gross - fee nets to the vendor's real debit (same shape as the central refund rail).
+    amountCents: -preview.requestedGrossCents,
     source: "refund",
     sourceId: payout.id,
     description: opts.reason?.trim() ? `Refund — ${opts.reason.trim()}` : "Refund",
@@ -171,9 +175,17 @@ export async function refundVendorPayout(
       amountCents: preview.feeShareCents,
       source: "refund",
       sourceId: payout.id,
-      description: "PropLane fee refunded proportionally",
+      description: `${PROPLANE_SERVICE_FEE_LABEL} refunded proportionally`,
       stripeObjectId: payout.stripeChargeId,
       idempotencyKey: `${idk}:ledger_fee_reversal`,
+    });
+    await recordVendorServiceFeeRevenueReversal(db, {
+      vendorUserId: opts.vendorUserId,
+      managerUserId: payout.managerUserId,
+      feeCents: preview.feeShareCents,
+      source: "refund",
+      sourceId: payout.id,
+      reversalId: idk,
     });
   }
   if (shortfallCents > 0) {

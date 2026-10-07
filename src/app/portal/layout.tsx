@@ -15,6 +15,12 @@ import { PortalHorizontalScrollRoot } from "@/components/portal/portal-horizonta
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { OwnerPortalShell } from "@/components/owner/owner-portal-shell";
+import { getOwnerAccessState, type OwnerAccessState } from "@/lib/property-owner/access.server";
+import { PortalAccessUnavailable } from "@/components/portal/portal-access-unavailable";
+import { OWNER_HOME_PATH, ownerRedirectFor } from "@/lib/property-owner/sections";
 import { assertPropertyPortalAccess } from "@/lib/auth/portal-access";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import {
@@ -36,6 +42,31 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
   // A production admin (founder/ops) identity must not cross into the property
   // portal even by typing the URL — hiding the switch is not access control.
   await assertPropertyPortalAccess();
+
+  // An owner-only account (a Property owner with no houses, plan or team seat
+  // of their own) gets the owner shell and nothing else under /portal. Any
+  // other path, typed or followed from an old link, lands on their Overview.
+  // The menu is not the boundary (the manager APIs refuse them on the server);
+  // this is the page half of the same rule.
+  const session = await getServerSessionProfile();
+  if (session.user) {
+    let owner: OwnerAccessState;
+    try {
+      owner = await getOwnerAccessState(session.user.id);
+    } catch {
+      return <PortalAccessUnavailable />;
+    }
+    if (owner.ownerOnly) {
+      const pathname = (await headers()).get("x-pathname") ?? "";
+      // No path to judge means we cannot say this page is one of theirs, so the
+      // requested manager page must not render inside the owner chrome: send
+      // them to their Overview instead (middleware stamps the header on every
+      // matched request, so this is the never-happens branch failing closed).
+      const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn) : OWNER_HOME_PATH;
+      if (target) redirect(target);
+      return <OwnerPortalShell messagesOn={owner.messagesOn}>{children}</OwnerPortalShell>;
+    }
+  }
 
   const [nav, { profile, user }, sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
     buildProPortalDefinition(),

@@ -6,6 +6,7 @@ import { encryptSensitiveValue, decryptSensitiveValue } from "@/lib/security/dat
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
   actorCanManageInviteLink,
+  capOwnerKeysForDelegate,
   capTeamInvitePermissionsForDelegate,
   resolveTeamInviteDelegate,
   teamInviteOwnerIdsForActor,
@@ -30,15 +31,16 @@ import {
   normalizeWorkspacePermissions,
   type WorkspaceCoManagerGrant,
 } from "@/lib/workspace-co-manager-permissions";
-import { parseTeamRole, stampTeamRoleOnProperties, type TeamRoleId } from "@/lib/co-manager-team-roles";
+import { applyRoleToPropertyPermissions, parseTeamRole, stampTeamRoleOnProperties, type TeamRoleId } from "@/lib/co-manager-team-roles";
+import { provisionOwnerOnlyAccess } from "@/lib/property-owner/provision.server";
 
 function storedTeamRole(raw: unknown): TeamRoleId | null {
   const parsed = parseTeamRole(raw);
   return parsed.ok ? parsed.role : null;
 }
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
-import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
+import { OWNER_NEEDS_HOUSE_ERROR, OWNER_SELECTED_ONLY_ERROR, parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
+import { flatTeamRoleGrant, stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
@@ -223,6 +225,17 @@ export async function mintInviteLink(
   // resident included.
   let ownerUserId: string;
   const requestedWorkspaceId = input.workspaceId?.trim() ?? "";
+  if (kind === "manager") {
+    const roleAsked = parseTeamRole(input.teamRole);
+    if (roleAsked.ok && roleAsked.role === "property_owner") {
+      // An owner link is for selected houses only, never "every house, now and later".
+      if (parseHouseScope(input.houseScope) === "all") {
+        return { ok: false, status: 400, error: OWNER_SELECTED_ONLY_ERROR };
+      }
+      houseScope = "selected";
+      if (propertyIds.length === 0) return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
+    }
+  }
   if (kind === "manager" && requestedWorkspaceId) {
     const standing = await actorWorkspaceStanding(db, actorUserId, requestedWorkspaceId);
     if (!standing) return { ok: false, status: 403, error: "That workspace is not yours to invite into." };
@@ -332,6 +345,19 @@ export async function mintInviteLink(
       return { ok: false, status: cappedPermissions.status, error: cappedPermissions.error };
     }
     permissions = cappedPermissions.permissions;
+    if (parsedRole.role === "property_owner") {
+      // Owner keys are not module grants, so the delegate cap strips them. The
+      // role carries no module access to cap; re-derive from what was asked —
+      // then cap the owner keys themselves by the module each one reads from, so
+      // the re-derive cannot hand out access the acting delegate lacks.
+      permissions = stampTeamRoleOnProperties(parsedRole.role, propertyIds, requested);
+      const ownerCapped = await capOwnerKeysForDelegate(db, actorUserId, ownerUserId, propertyIds, permissions);
+      if (!ownerCapped.ok) {
+        return { ok: false, status: ownerCapped.status, error: ownerCapped.error };
+      }
+      permissions = ownerCapped.permissions;
+    }
+    permissions = applyRoleToPropertyPermissions(parsedRole.role, permissions);
     if (parsedRole.role === "custom") {
       workspacePermissions = normalizeWorkspacePermissions(input.workspacePermissions);
     }
@@ -767,7 +793,9 @@ export async function previewInviteLink(
     houseScope: kind === "manager" ? parseHouseScope(link.house_scope) : "selected",
     houseCount: (link.assigned_property_ids ?? []).length,
     canDo:
-      kind === "manager"
+      kind === "manager" && storedTeamRole(link.team_role) === "property_owner"
+        ? "See income, expenses, occupancy and statements for the houses shared with you, and open documents shared with owners. Nothing can be changed."
+        : kind === "manager"
         ? describeCoManagerPermissions(
             stampTeamRolePermissions(storedTeamRole(link.team_role) ?? "custom") ??
               flatCoManagerPermissionsFromProperty(
@@ -999,7 +1027,11 @@ export async function redeemInviteLink(
 
   // Share-link Join needs a manager portal. Resident-only accounts are told to
   // create one (client routes to create-account) rather than silently stamped.
-  if (!(await userHasManagerPortalRole(db, redeemerUserId))) {
+  // A Property owner invite creates an owner-only account instead: the opener
+  // needs no manager account, plan or workspace (provisioned after the use is
+  // spent, below). Every other role still requires a manager portal.
+  const isOwnerInvite = storedTeamRole(link.team_role) === "property_owner";
+  if (!isOwnerInvite && !(await userHasManagerPortalRole(db, redeemerUserId))) {
     return {
       ok: false,
       status: 403,
@@ -1026,6 +1058,17 @@ export async function redeemInviteLink(
 
   const ownershipOk = await verifyOwnershipStillHolds();
   if (!ownershipOk.ok) return ownershipOk;
+
+  // A legacy owner link stored with "all" must not mint a membership that follows
+  // every later-added house: it redeems as "selected" over its assigned houses,
+  // or not at all when it has none.
+  const redeemOwnerLink = storedTeamRole(link.team_role) === "property_owner";
+  const redeemAssigned: string[] = Array.isArray(link.assigned_property_ids)
+    ? link.assigned_property_ids.map((id: unknown) => String(id ?? "").trim()).filter(Boolean)
+    : [];
+  if (redeemOwnerLink && redeemAssigned.length === 0) {
+    return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
+  }
 
   // Owner pays for co-manager seats. A Free invitee may join a Pro owner's
   // workspace; their own owned workspaces stay on their own SKU.
@@ -1059,6 +1102,27 @@ export async function redeemInviteLink(
   }
   const recordedRedemption = !existingRedemption && !redemptionError;
 
+  if (isOwnerInvite && !(await userHasManagerPortalRole(db, redeemerUserId))) {
+    try {
+      const { data: authUser } = await db.auth.admin.getUserById(redeemerUserId);
+      await provisionOwnerOnlyAccess(db, {
+        id: redeemerUserId,
+        email: authUser?.user?.email ?? null,
+        fullName: typeof authUser?.user?.user_metadata?.full_name === "string" ? authUser.user.user_metadata.full_name : null,
+      });
+    } catch {
+      if (recordedRedemption) {
+        await db
+          .from("manager_invite_link_redemptions")
+          .delete()
+          .eq("link_id", link.id)
+          .eq("redeemed_by_user_id", redeemerUserId);
+      }
+      await releaseSpentUse();
+      return { ok: false, status: 500, error: "Could not set up your owner account. Try again." };
+    }
+  }
+
   if (existingInvite) {
     const accepted = await acceptPendingMembership(db, String(existingInvite.id));
     if (!accepted.ok) {
@@ -1090,11 +1154,11 @@ export async function redeemInviteLink(
     db.from("profiles").select("axis_id, full_name").eq("id", redeemerUserId).maybeSingle(),
   ]);
 
-  const normalizedPropertyMap = normalizePropertyCoManagerPermissions(
-    link.property_permissions,
-    link.assigned_property_ids ?? [],
-  );
   const redeemedRole = storedTeamRole(link.team_role);
+  const normalizedPropertyMap = applyRoleToPropertyPermissions(
+    redeemedRole,
+    normalizePropertyCoManagerPermissions(link.property_permissions, link.assigned_property_ids ?? []),
+  );
   const nowIso = new Date().toISOString();
   const workspaceId = String(link.workspace_id ?? "").trim() || null;
   const { data: invite, error: inviteError } = await db
@@ -1113,19 +1177,19 @@ export async function redeemInviteLink(
       // in the invitee's switcher immediately.
       status: "accepted",
       responded_at: nowIso,
-      assigned_property_ids: link.assigned_property_ids ?? [],
+      assigned_property_ids: redeemOwnerLink ? redeemAssigned : (link.assigned_property_ids ?? []),
       property_co_manager_permissions: normalizedPropertyMap,
       // The flat grant an "all houses" row falls back to for a house that
       // joins later (see `readPropertyPermissionsFromRow`). Leaving this
       // empty made every later-joined house read as no access.
       co_manager_permissions:
-        (redeemedRole ? stampTeamRolePermissions(redeemedRole) : null) ??
+        flatTeamRoleGrant(redeemedRole, normalizedPropertyMap) ??
         flatCoManagerPermissionsFromProperty(normalizedPropertyMap),
       workspace_id: workspaceId,
       // Workspace rights follow the role now; nothing is switched on by default.
       workspace_permissions: {},
       team_role: redeemedRole,
-      house_scope: parseHouseScope(link.house_scope),
+      house_scope: redeemOwnerLink ? "selected" : parseHouseScope(link.house_scope),
     })
     .select("id, workspace_id")
     .maybeSingle();

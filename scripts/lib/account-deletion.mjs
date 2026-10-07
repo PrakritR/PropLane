@@ -104,6 +104,7 @@ export const DELETE_ORDER = [
   "application_fee_waiver_redemptions",
   "document_share_links",
   "portal_record_share_links",
+  "service_share_links",
   "manager_house_public_links",
   "manager_syndication_feeds",
   "listing_channel_posts",
@@ -117,6 +118,11 @@ export const DELETE_ORDER = [
   "work_order_reference_counters",
   // References portal_work_order_records (cascade), same as vendor_invoices/vendor_payouts.
   "vendor_reviews",
+  // vendor-banking-1006: refund requests, disputes and expense reversals reference vendor_payouts /
+  // vendor_invoices, so they go first.
+  "vendor_payout_refunds",
+  "vendor_banking_disputes",
+  "manager_expense_reversals",
   "vendor_invoices",
   // Source arbitration children precede both their payout and held-charge
   // parents. The source refund evidence table has only opaque Stripe ids and
@@ -137,8 +143,11 @@ export const DELETE_ORDER = [
   "vendor_banking_reconciliation",
   "vendor_banking_shortfalls",
   "vendor_tax_profiles",
+  "vendor_account_tax_profiles",
   "vendor_business_profiles",
   "vendor_availability_rules",
+  "vendor_calendar_feeds",
+  "vendor_integration_access_requests",
   "vendor_invites",
   "vendor_work_identities",
   "action_event_deliveries",

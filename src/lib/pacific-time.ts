@@ -2,6 +2,29 @@ import { zonedWallTimeMs } from "@/lib/tour-slot-math";
 
 const PACIFIC_TIME_ZONE = "America/Los_Angeles";
 
+/**
+ * `Intl.DateTimeFormat` construction costs far more than a format call, and
+ * these run per ledger row on the statement and tax paths (whole-ledger reads,
+ * no row cap). One formatter per distinct option set, built once.
+ */
+const FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
+
+function pacificFormatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = JSON.stringify(options);
+  let formatter = FORMATTER_CACHE.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone: PACIFIC_TIME_ZONE, ...options });
+    FORMATTER_CACHE.set(key, formatter);
+  }
+  return formatter;
+}
+
+const YMD_FORMATTER_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+};
+
 /** Parse a date-only string that may be YYYY-MM-DD or M/D/YYYY without mangling it. */
 function parseDateOnlyString(raw: string): Date {
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
@@ -14,10 +37,7 @@ export function formatPacificDate(date: Date | string | number, options: Intl.Da
   try {
     const d = typeof date === "string" && !/[T Z]/.test(date) ? parseDateOnlyString(date) : new Date(date);
     if (Number.isNaN(d.getTime())) return "—";
-    return new Intl.DateTimeFormat("en-US", {
-      timeZone: PACIFIC_TIME_ZONE,
-      ...options,
-    }).format(d);
+    return pacificFormatter(options).format(d);
   } catch {
     return "—";
   }
@@ -41,16 +61,29 @@ export function safeFormatDateTime(value: string | undefined | null, fallback = 
 
 /** Today's calendar date in Pacific time as YYYY-MM-DD. */
 export function pacificCalendarDateYmd(now: Date | number = Date.now()): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: PACIFIC_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(now));
+  const parts = pacificFormatter(YMD_FORMATTER_OPTIONS).formatToParts(new Date(now));
   const year = parts.find((part) => part.type === "year")?.value ?? "0000";
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * The Pacific calendar month (`"YYYY-MM"`) an instant falls in. Money the
+ * product books by month — a statement, a monthly cap — buckets on this, not on
+ * UTC: a payment settled Dec 31 at 4pm PT belongs to December, which is the
+ * month the vendor saw it in.
+ */
+export function pacificCalendarMonthKey(value: Date | string | number): string {
+  const ms = typeof value === "string" ? Date.parse(value) : new Date(value).getTime();
+  if (!Number.isFinite(ms)) return "";
+  return pacificCalendarDateYmd(ms).slice(0, 7);
+}
+
+/** The Pacific calendar year an instant falls in, or NaN when the value is unusable. */
+export function pacificCalendarYear(value: Date | string | number): number {
+  const key = pacificCalendarMonthKey(value);
+  return key ? Number(key.slice(0, 4)) : Number.NaN;
 }
 
 /**

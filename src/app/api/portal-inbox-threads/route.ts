@@ -1,3 +1,4 @@
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { smsNoticeMembers, storedSmsNoticeIdentity, updateSmsNoticeMailboxState } from "@/lib/sms-inbox-state.server";
 import { createHash } from "node:crypto";
 import { visibleManagerSmsProjectionIds } from "@/lib/sms/sms-projection-inbox.server";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/communication/shared-thread-merge";
 import { threadHouseIds } from "@/lib/communication/conversation-house-filter";
 import { applyResidentConversationExtras } from "@/lib/communication/resident-conversations.server";
+import { applyVendorConversationExtras } from "@/lib/communication/vendor-conversations.server";
 import {
   ADMIN_INBOX_SCOPE,
   applyPortalInboxThreadScope,
@@ -172,6 +174,10 @@ export async function GET(request: Request) {
     const scopeParam = url.searchParams.get("scope") ?? "";
     const ctx = await resolveInboxScopeUser(scopeParam);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (ctx.user.role !== "admin" && scopeParam === MANAGER_INBOX_SCOPE) {
+      const ownerRefusal = await refuseOwnerOnly(ctx.db, ctx.user.id);
+      if (ownerRefusal) return ownerRefusal;
+    }
 
     // Make sure a resident always has their assistant conversation before the
     // list is read, so it simply appears in Communication with no extra call
@@ -377,6 +383,27 @@ export async function GET(request: Request) {
       }
     }
 
+    // A vendor's list is the same: each workspace-keyed row names the manager and
+    // the texts linked to the vendor (verified phone / resolved account) fold in.
+    // Not behind SMS_COMM_UI_ENABLED - that flag hides the manager's text compose,
+    // never a vendor's own earlier conversation. Best-effort, like the resident's.
+    if (scopeParam === VENDOR_INBOX_SCOPE) {
+      try {
+        const extras = await applyVendorConversationExtras(
+          ctx.db,
+          {
+            id: ctx.user.id,
+            name: ctx.user.name,
+            mayReadVendorTexts: await callerMayWriteInboxScope(ctx.db, ctx.user, VENDOR_INBOX_SCOPE),
+          },
+          collapsed,
+        );
+        return NextResponse.json({ rows: extras.rows, vendorPhone: extras.phone });
+      } catch (e) {
+        console.error("vendor conversation extras failed", e instanceof Error ? e.message : "unknown");
+      }
+    }
+
     return NextResponse.json({
       rows:
         scopeParam === MANAGER_INBOX_SCOPE
@@ -415,6 +442,10 @@ export async function POST(req: Request) {
 
     const ctx = await resolveInboxScopeUser(scopeKey);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (ctx.user.role !== "admin" && scopeKey === MANAGER_INBOX_SCOPE) {
+      const ownerRefusal = await refuseOwnerOnly(ctx.db, ctx.user.id);
+      if (ownerRefusal) return ownerRefusal;
+    }
 
     if (body.action === "markRead") {
       if (scopeKey !== MANAGER_INBOX_SCOPE) return NextResponse.json({ error: "Unsupported scope." }, { status: 400 });

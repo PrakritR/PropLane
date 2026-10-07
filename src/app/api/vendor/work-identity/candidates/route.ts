@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
-import { searchVendorWorkNumberCandidates } from "@/lib/vendor-work-identity.server";
+import { loadVendorVerifiedPhone, searchVendorWorkNumberCandidates } from "@/lib/vendor-work-identity.server";
+import { isVendorNumberDryRun } from "@/lib/vendor-work-number-dry-run.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { signVendorWorkNumberClaim } from "@/lib/vendor-work-number-claim-token.server";
 
 export const runtime = "nodejs";
@@ -31,12 +33,15 @@ export async function POST(req: Request) {
   if (!AREA_CODE_RE.test(areaCode)) return invalid("Enter a valid 3-digit area code.");
 
   try {
+    if (!(await loadVendorVerifiedPhone(createSupabaseServiceRoleClient(), resolved.userId)).verified) {
+      return NextResponse.json({ ok: false, code: "phone_unverified", error: "Verify your phone to get a work number." }, { status: 403 });
+    }
     const numbers = await searchVendorWorkNumberCandidates(areaCode);
     const candidates = numbers.map((phoneNumber) => ({
       phoneNumber,
       claimToken: signVendorWorkNumberClaim({ vendorUserId: resolved.userId, phoneNumber }),
     }));
-    return NextResponse.json({ ok: true, candidates });
+    return NextResponse.json({ ok: true, candidates, ...(isVendorNumberDryRun() ? { dryRun: true } : {}) });
   } catch {
     return NextResponse.json({ ok: false, error: "Could not search numbers right now." }, { status: 503 });
   }

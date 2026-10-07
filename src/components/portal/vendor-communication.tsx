@@ -5,14 +5,15 @@ import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/comp
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PenSquare, Settings } from "lucide-react";
+import { PenSquare } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { Input } from "@/components/ui/input";
 import { VendorWorkNumberCard } from "@/components/portal/vendor-work-number-card";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
-import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
+import { VendorSettingsGear } from "@/components/portal/vendor-settings-gear";
 
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { VendorInboxPanel, type VendorInboxPanelHandle } from "@/components/portal/vendor-inbox-panel";
@@ -165,7 +166,11 @@ function VendorUnifiedInbox({
         const res = await fetch("/api/vendor/sms-conversations", { credentials: "include", cache: "no-store" });
         if (!res.ok) return;
         const body = await res.json();
-        setSmsMessages(normalizeRoleSmsPayload(body).messages);
+        // A vendor whose texts are linked (verified phone / resolved account) sees them
+        // INSIDE each manager's conversation row; the standalone "Text messages" row is
+        // only for the work-order assistant's own turns when nothing is linked yet.
+        const linked = Array.isArray(body?.conversations) && body.conversations.length > 0;
+        setSmsMessages(linked ? [] : normalizeRoleSmsPayload(body).messages);
       } catch {
         /* keep */
       }
@@ -512,6 +517,20 @@ export function VendorCommunication({
   const commBase = "/vendor/communication";
   const communicationSettingsEntry = getSettingsEntryPoint("vendorCommunication");
   const inboxRef = useRef<VendorInboxPanelHandle>(null);
+  // `?compose=1` (a "Message the manager" ⋯ elsewhere in the portal) opens New message once the inbox mounts.
+  const wantsCompose = useSearchParams()?.get("compose") === "1";
+  useEffect(() => {
+    if (!wantsCompose) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (inboxRef.current || tries > 20) {
+        inboxRef.current?.openCompose();
+        clearInterval(timer);
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, [wantsCompose]);
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   // Client-tracked segment (PLAN B1, mirrored from the manager unified inbox):
   // a plain-click Active/Archived tab switch updates this via
@@ -546,7 +565,6 @@ export function VendorCommunication({
     [commBase, setActiveThreadId, setListSegment],
   );
   const [searchQuery, setSearchQuery] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   // The "About" record-kind filter (PLAN-0920-1058 area 1c) — local UI state,
   // merged onto whatever `threadFilters` the caller already scoped this list
   // to (a single record's own Communication section passes `recordRefs`).
@@ -607,11 +625,10 @@ export function VendorCommunication({
           dataAttr="vendor-communication-filter-about"
         />
       </PortalFilterSortSheet>
-      <PortalIconAction
-        icon={Settings}
+      <VendorSettingsGear
+        section="communication"
         label={communicationSettingsEntry.label}
-        data-attr={communicationSettingsEntry.dataAttr}
-        onClick={() => setSettingsOpen(true)}
+        dataAttr={communicationSettingsEntry.dataAttr}
       />
       <PortalPrimaryIconAction
         icon={PenSquare}
@@ -631,11 +648,6 @@ export function VendorCommunication({
       mobileThreadReading={threadOpen}
       threadSelected={threadSelected}
     >
-      <VendorSectionSettingsModal
-        open={settingsOpen}
-        title={communicationSettingsEntry.dialogTitle}
-        onClose={() => setSettingsOpen(false)}
-      />
       <VendorUnifiedInbox
         inboxRef={inboxRef}
         smsUiEnabled={smsUiEnabled}

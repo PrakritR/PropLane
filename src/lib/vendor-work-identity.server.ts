@@ -10,6 +10,11 @@ import type {
   VendorWorkIdentityResponse,
   VendorWorkIdentityState,
 } from "@/lib/vendor-work-identity";
+import { normalizeE164, formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { rosterPhoneIdentifiesVendor, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { isUsLocalSmsNumber } from "@/lib/vendor-work-number-claim-token.server";
+import { vendorNumberMonthStart } from "@/lib/vendor-work-number";
+import { createDryRunVendorWorkIdentityProvider, isVendorNumberDryRun } from "@/lib/vendor-work-number-dry-run.server";
 
 type IdentityRow = {
   id: string;
@@ -100,8 +105,17 @@ function isTimeout(error: unknown): boolean {
   return /timeout|timed out|abort|network|socket|econn/i.test(text);
 }
 
-/** The live adapter is intentionally used only after both runtime gates pass. */
+/**
+ * The live adapter is intentionally used only after both runtime gates pass.
+ * In a dry run (`VENDOR_WORK_NUMBER_DRY_RUN=1` on a non-production box with
+ * real provisioning off) the number side never reaches Twilio.
+ */
 export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
+  const live = createLiveVendorWorkIdentityProvider();
+  return isVendorNumberDryRun() ? createDryRunVendorWorkIdentityProvider(live) : live;
+}
+
+function createLiveVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
   return {
     emailConfigured() {
       return Boolean(
@@ -238,7 +252,21 @@ async function loadIdentity(db: SupabaseClient, vendorUserId: string): Promise<I
   return (data as IdentityRow | null) ?? null;
 }
 
-export function responseFor(input: { identity: IdentityRow | null; runtime: RuntimeRow | null; emailConfigured: boolean; smsConfigured: boolean; outboundUsed: number }): VendorWorkIdentityResponse {
+export function responseFor(input: {
+  identity: IdentityRow | null;
+  runtime: RuntimeRow | null;
+  emailConfigured: boolean;
+  smsConfigured: boolean;
+  outboundUsed: number;
+  /** This Pacific calendar month's SMS segments / emails. Default to `outboundUsed` (callers that only know one total). */
+  smsSegmentsUsed?: number;
+  emailUsed?: number;
+  /** Whether the vendor's profile phone is verified. Omitted = not gating (older callers/fixtures). */
+  phoneVerified?: boolean;
+  verifiedPhone?: string | null;
+  forwardToPhone?: boolean;
+  dryRun?: boolean;
+}): VendorWorkIdentityResponse {
   const { identity, runtime } = input;
   const state = identity?.lifecycle_state ?? "not_started";
   const channelBlock = (channelState: VendorWorkIdentityState, configured: boolean): VendorWorkIdentityResponse["email"]["blockedReason"] => {
@@ -251,15 +279,21 @@ export function responseFor(input: { identity: IdentityRow | null; runtime: Runt
   const emailState = identity?.email_state ?? state;
   const smsState = identity?.sms_state ?? state;
   const emailBlocked = channelBlock(emailState, input.emailConfigured);
-  const smsBlocked = channelBlock(smsState, input.smsConfigured);
+  let smsBlocked = channelBlock(smsState, input.smsConfigured);
+  // A number is for a vendor whose phone is verified. The gate only blocks a CLAIM:
+  // an already-ready number keeps working if the verification later lapses.
+  if (smsBlocked === "none" && input.phoneVerified === false && smsState !== "ready") smsBlocked = "phone_unverified";
   const cap = runtime?.outbound_message_cap ?? 0;
-  const capped = cap <= input.outboundUsed;
+  const smsUsed = input.smsSegmentsUsed ?? input.outboundUsed;
+  const emailUsed = input.emailUsed ?? input.outboundUsed;
+  const smsCapped = cap <= smsUsed;
+  const emailCapped = cap <= emailUsed;
   const emailLifecycleReady = emailState === "ready";
   const smsLifecycleReady = smsState === "ready";
   const emailReceiveReady = emailLifecycleReady && input.emailConfigured && Boolean(identity?.email_receive_ready);
   const smsReceiveReady = smsLifecycleReady && input.smsConfigured && Boolean(identity?.sms_receive_ready);
-  const emailSendReady = emailLifecycleReady && input.emailConfigured && Boolean(runtime?.enabled) && !capped && Boolean(identity?.email_send_ready);
-  const smsSendReady = smsLifecycleReady && input.smsConfigured && Boolean(runtime?.enabled) && !capped && Boolean(identity?.sms_send_ready);
+  const emailSendReady = emailLifecycleReady && input.emailConfigured && Boolean(runtime?.enabled) && !emailCapped && Boolean(identity?.email_send_ready);
+  const smsSendReady = smsLifecycleReady && input.smsConfigured && Boolean(runtime?.enabled) && !smsCapped && Boolean(identity?.sms_send_ready);
   return {
     sponsoredBy: "proplane",
     email: {
@@ -281,8 +315,117 @@ export function responseFor(input: { identity: IdentityRow | null; runtime: Runt
     inboundAvailable: { email: emailReceiveReady, sms: smsReceiveReady },
     // UI visibility never controls the owned number's inbound routing/storage.
     smsUiEnabled: isSmsCommUiEnabled(),
-    usage: { outboundUsed: input.outboundUsed, outboundCap: cap, capState: cap <= 0 ? "unconfigured" : capped ? "exhausted" : "available" },
+    usage: {
+      outboundUsed: input.outboundUsed,
+      outboundCap: cap,
+      capState: cap <= 0 ? "unconfigured" : smsCapped ? "exhausted" : "available",
+      smsSegmentsUsed: smsUsed,
+    },
+    ...(input.phoneVerified === undefined
+      ? {}
+      : { eligibility: { phoneVerified: input.phoneVerified, verifiedPhoneLabel: input.verifiedPhone ? formatSmsPhoneLabel(input.verifiedPhone) : null } }),
+    ...(input.forwardToPhone === undefined ? {} : { forwardToPhone: input.forwardToPhone }),
+    ...(input.dryRun ? { dryRun: true } : {}),
   };
+}
+
+/** The vendor's verified personal phone: the claim gate and the forwarding destination. */
+export async function loadVendorVerifiedPhone(db: SupabaseClient, vendorUserId: string): Promise<{ verified: boolean; phone: string | null }> {
+  const { data, error } = await db.from("profiles").select("phone, phone_verified_at").eq("id", vendorUserId).maybeSingle();
+  if (error || !data) return { verified: false, phone: null };
+  const row = data as { phone?: unknown; phone_verified_at?: unknown };
+  const phone = normalizeE164(String(row.phone ?? ""));
+  return { verified: Boolean(row.phone_verified_at) && Boolean(phone), phone };
+}
+
+/**
+ * The forwarding preference lives in its own column (migration 20261006200000).
+ * Read it separately so a database that has not applied that migration yet still
+ * answers - forwarding then defaults on, the approved default.
+ */
+export async function readVendorForwardToPhone(db: SupabaseClient, vendorUserId: string): Promise<boolean> {
+  const { data, error } = await db.from("vendor_work_identities").select("forward_to_phone").eq("vendor_user_id", vendorUserId).maybeSingle();
+  if (error || !data) return true;
+  return (data as { forward_to_phone?: unknown }).forward_to_phone !== false;
+}
+
+export async function setVendorForwardToPhone(db: SupabaseClient, vendorUserId: string, forward: boolean): Promise<boolean> {
+  const { data, error } = await db.from("vendor_work_identities")
+    .update({ forward_to_phone: forward, updated_at: new Date().toISOString() })
+    .eq("vendor_user_id", vendorUserId).select("id").maybeSingle();
+  return !error && Boolean(data);
+}
+
+/** A vendor's number that can receive today: ready, attached and receiving. */
+export type ActiveVendorNumber = {
+  identityId: string;
+  vendorUserId: string;
+  phoneNumber: string;
+  sendReady: boolean;
+  forwardToPhone: boolean;
+};
+
+const ACTIVE_NUMBER_SELECT = "id,vendor_user_id,phone_number,sms_state,sms_receive_ready,sms_send_ready,attachment_state";
+
+function activeFrom(row: Record<string, unknown> | null, forwardToPhone: boolean): ActiveVendorNumber | null {
+  if (!row) return null;
+  const phoneNumber = normalizeE164(String(row.phone_number ?? ""));
+  if (!phoneNumber || row.sms_state !== "ready" || row.sms_receive_ready !== true || row.attachment_state !== "attached") return null;
+  return { identityId: String(row.id), vendorUserId: String(row.vendor_user_id), phoneNumber, sendReady: row.sms_send_ready === true, forwardToPhone };
+}
+
+/** The vendor's active PropLane number, or null (never claimed, released, quarantined, not receiving). */
+export async function getActiveVendorNumber(db: SupabaseClient, vendorUserId: string): Promise<ActiveVendorNumber | null> {
+  const { data, error } = await db.from("vendor_work_identities").select(ACTIVE_NUMBER_SELECT).eq("vendor_user_id", vendorUserId).maybeSingle();
+  if (error) throw new Error("Vendor number lookup unavailable.");
+  const active = activeFrom(data as Record<string, unknown> | null, true);
+  if (!active) return null;
+  return { ...active, forwardToPhone: await readVendorForwardToPhone(db, vendorUserId) };
+}
+
+/**
+ * A vendor texting a manager's work line from their PropLane number is the same
+ * person the manager already has on their Vendors list. Map the sender back to
+ * the phone that roster row (or, failing that, the vendor's verified profile)
+ * carries, so the manager's whole inbound pipeline - the vendor thread, consent,
+ * the 7-day rule, history - sees one vendor, not an unknown number. Null when
+ * the sender is not a vendor's active number.
+ */
+export async function resolveVendorNumberSenderPhone(
+  db: SupabaseClient,
+  input: { fromPhone: string; ownerManagerUserId: string },
+): Promise<string | null> {
+  const from = normalizeE164(input.fromPhone);
+  if (!from) return null;
+  const { data: identity, error } = await db.from("vendor_work_identities")
+    .select("vendor_user_id,sms_state").eq("phone_number", from).maybeSingle();
+  if (error) throw new Error("Vendor number lookup unavailable.");
+  const vendorUserId = String((identity as { vendor_user_id?: unknown } | null)?.vendor_user_id ?? "").trim();
+  if (!vendorUserId || (identity as { sms_state?: unknown }).sms_state !== "ready") return null;
+  const { data: rows } = await db.from("manager_vendor_records")
+    .select("id, row_data").eq("manager_user_id", input.ownerManagerUserId).eq("vendor_user_id", vendorUserId)
+    // Deterministic across calls, and an unverified service-link phone is the
+    // number the MANAGER typed, not this vendor's: mapping their PropLane-number
+    // texts onto it would send the thread to whoever that really is.
+    .order("id", { ascending: true }).limit(5);
+  for (const row of (rows ?? []) as { row_data?: ManagerVendorRow | null }[]) {
+    if (row.row_data?.active === false) continue;
+    if (!rosterPhoneIdentifiesVendor(row.row_data)) continue;
+    const phone = normalizeE164(String(row.row_data?.phone ?? "").trim());
+    if (phone) return phone;
+  }
+  return (await loadVendorVerifiedPhone(db, vendorUserId)).phone;
+}
+
+/** Which vendor owns this dialed number? Used by the inbound webhook before manager-number ownership. */
+export async function findActiveVendorNumberByPhone(db: SupabaseClient, toPhone: string): Promise<ActiveVendorNumber | null> {
+  const to = normalizeE164(toPhone);
+  if (!to) return null;
+  const { data, error } = await db.from("vendor_work_identities").select(ACTIVE_NUMBER_SELECT).eq("phone_number", to).maybeSingle();
+  if (error) throw new Error("Vendor number lookup unavailable.");
+  const active = activeFrom(data as Record<string, unknown> | null, true);
+  if (!active) return null;
+  return { ...active, forwardToPhone: await readVendorForwardToPhone(db, active.vendorUserId) };
 }
 
 /**
@@ -295,21 +438,35 @@ export async function searchVendorWorkNumberCandidates(
   areaCode: string,
   provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider(),
 ): Promise<string[]> {
-  if (!provider.smsConfigured() || !isProvisioningEnabled(process.env)) return [];
+  if (!provider.smsConfigured()) return [];
+  if (!isVendorNumberDryRun() && !isProvisioningEnabled(process.env)) return [];
   const candidates = await provider.searchSmsCandidates({ areaCode, count: 3 });
   return candidates.map((c) => c.phoneNumber);
 }
 
 export async function getVendorWorkIdentity(db: SupabaseClient, vendorUserId: string, provider: VendorWorkIdentityProvider = createVendorWorkIdentityProvider()): Promise<VendorWorkIdentityResponse> {
-  const [runtime, identity] = await Promise.all([loadRuntime(db), loadIdentity(db, vendorUserId)]);
-  let outboundUsed = 0;
+  const [runtime, identity, verified] = await Promise.all([loadRuntime(db), loadIdentity(db, vendorUserId), loadVendorVerifiedPhone(db, vendorUserId)]);
+  let smsSegmentsUsed = 0;
+  let emailUsed = 0;
   if (identity) {
-    const { data, error } = await db.from("vendor_work_identity_usage_events").select("quantity")
-      .eq("identity_id", identity.id).in("meter", ["outbound_email", "outbound_sms"]);
+    // The fair-use cap is per Pacific calendar month: only this month's events count.
+    const { data, error } = await db.from("vendor_work_identity_usage_events").select("meter,quantity")
+      .eq("identity_id", identity.id).in("meter", ["outbound_email", "outbound_sms"])
+      .gte("created_at", vendorNumberMonthStart().toISOString());
     if (error) throw new Error(error.message);
-    outboundUsed = (data ?? []).reduce((sum, row) => sum + Number((row as { quantity?: unknown }).quantity ?? 0), 0);
+    for (const row of (data ?? []) as { meter?: unknown; quantity?: unknown }[]) {
+      const quantity = Number(row.quantity ?? 0);
+      if (row.meter === "outbound_sms") smsSegmentsUsed += quantity;
+      else emailUsed += quantity;
+    }
   }
-  return responseFor({ identity, runtime, emailConfigured: provider.emailConfigured(), smsConfigured: provider.smsConfigured(), outboundUsed });
+  return responseFor({
+    identity, runtime, emailConfigured: provider.emailConfigured(), smsConfigured: provider.smsConfigured(),
+    outboundUsed: smsSegmentsUsed + emailUsed, smsSegmentsUsed, emailUsed,
+    phoneVerified: verified.verified, verifiedPhone: verified.phone,
+    forwardToPhone: identity ? await readVendorForwardToPhone(db, vendorUserId) : true,
+    dryRun: isVendorNumberDryRun(),
+  });
 }
 
 async function setReconcileState(db: SupabaseClient, identityId: string, operationId: string, channel: "email" | "sms", error: unknown): Promise<void> {
@@ -341,7 +498,11 @@ export async function setupVendorWorkIdentity(
   if (!runtime?.enabled || (channel === "email" ? !provider.emailConfigured() : !provider.smsConfigured())) return getVendorWorkIdentity(db, vendorUserId, provider);
   // Sponsored numbers are still real provider purchases. The platform-wide
   // provisioning kill switch governs them just as it governs manager lines.
-  if (channel === "sms" && !isProvisioningEnabled(process.env)) return getVendorWorkIdentity(db, vendorUserId, provider);
+  if (channel === "sms" && !isVendorNumberDryRun() && !isProvisioningEnabled(process.env)) return getVendorWorkIdentity(db, vendorUserId, provider);
+  // Eligibility: a verified phone, nothing else (no card, no plan). The verified
+  // phone is also where forwarded texts go, so an unverified one has no purpose here.
+  if (channel === "sms" && !(await loadVendorVerifiedPhone(db, vendorUserId)).verified) return getVendorWorkIdentity(db, vendorUserId, provider);
+  if (channel === "sms" && selectedPhoneNumber !== undefined && !isUsLocalSmsNumber(selectedPhoneNumber)) return getVendorWorkIdentity(db, vendorUserId, provider);
   // Never a second real purchase. `claim_vendor_work_identity_operation`'s
   // idempotency guard only protects against REPLAYING the same key — a
   // fresh idempotency key with channel "sms" would otherwise sail straight
@@ -395,14 +556,16 @@ export async function setupVendorWorkIdentity(
       if (emailOperationReadyError) throw new Error(emailOperationReadyError.message);
       return getVendorWorkIdentity(db, vendorUserId, provider);
     }
-    const webhookUrl = smsWebhookUrl();
-    const callbackUrl = smsStatusCallbackUrl();
+    const dryRun = isVendorNumberDryRun();
+    const webhookUrl = smsWebhookUrl() ?? (dryRun ? "https://dry-run.invalid/api/twilio/inbound" : null);
+    const callbackUrl = smsStatusCallbackUrl() ?? (dryRun ? "https://dry-run.invalid/api/twilio/events" : null);
     if (!webhookUrl || !callbackUrl) throw new Error("SMS webhook configuration is unavailable");
     // Recover an interrupted purchase by its durable friendlyName before any
     // purchase attempt.  A missing result is the only case allowed to buy.
     const prior = await provider.findSmsByOperation(claim.operation_id);
     const purchased = prior ?? await provider.purchaseSms({ operationId: claim.operation_id, webhookUrl, statusCallbackUrl: callbackUrl, phoneNumber: selectedPhoneNumber });
-    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID!.trim();
+    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() || (dryRun ? "MGdryrun00000000000000000000000000" : "");
+    if (!messagingServiceSid) throw new Error("Messaging Service is not configured");
     // Persist the externally allocated SID before attempting attachment.  An
     // attachment timeout can then be inspected/reconciled without another buy.
     const { error: identityPersistError } = await db.from("vendor_work_identities").update({

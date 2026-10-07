@@ -237,6 +237,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Hashed-token links to one service, texted to a vendor (vendor-work-share-1006). The manager
+    // owns the row; the vendor who redeemed it is a second owner, so both purges clear it.
+    table: "service_share_links",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    vendor: { ids: ["redeemed_by_user_id"] },
+  },
+  {
     table: "manager_house_public_links",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -383,6 +391,33 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
   },
   {
+    // The vendor's own W-9 (one per account). Personal tax identifiers go with
+    // the account (the FK cascades from auth.users too).
+    table: "vendor_account_tax_profiles",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
+    // vendor-banking-1006: a vendor's refund request and a dispute on their charge are
+    // financial history (the money moved on the central rail), preserved like the ledger.
+    table: "vendor_payout_refunds",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
+    table: "vendor_banking_disputes",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
+    // The manager's expense reversal for a vendor refund: books history, kept with the GL.
+    table: "manager_expense_reversals",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+  },
+  {
     table: "vendor_tax_profiles",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -390,6 +425,18 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   },
   {
     table: "vendor_availability_rules",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
+    // Both rows belong to the vendor alone; the auth-user cascade would remove them anyway, but the
+    // manifest is what the coverage test and the purge path read.
+    table: "vendor_calendar_feeds",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
+    table: "vendor_integration_access_requests",
     phase: 1,
     vendor: { ids: ["vendor_user_id"] },
   },
@@ -1149,8 +1196,10 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   vendor_work_identity_delivery_attempts: "Child of vendor_work_identity_outbox; removed by outbox cascade.",
   vendor_work_identity_usage_events: "Child of vendor_work_identities; removed by identity cascade and never used for billing.",
   vendor_work_identity_reply_bindings: "Child of vendor_work_identities; service-role reply authorization facts are removed by identity cascade after release is queued.",
+  vendor_work_number_conversations: "Child of vendor_work_identities and auth.users; the vendor's own conversation list for reply routing is removed by cascade when the account is deleted (release is queued first). manager_user_id names the manager line the vendor texted, no personal data.",
   vendor_work_identity_release_queue: "Retained provider-release work with copied external IDs; it must survive account deletion until reconciled.",
   listing_prefill_cache: "Provider answers keyed by normalized street address; holds no account data.",
+  platform_revenue_entries: "PropLane's own revenue ledger for the vendor service fee; vendor_user_id and manager_user_id are opaque UUIDs with no foreign key by design, carry no name, email or other personal data, and the financial history must outlive the accounts that produced it.",
   payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",
   payment_reminder_channel_coverage: "Child of payment_reminder_occurrences; deleted by cascade.",
   comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",

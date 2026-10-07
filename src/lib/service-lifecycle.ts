@@ -18,7 +18,7 @@
  *
  * Retired words (guarded by tests/unit/service-vocabulary.test.ts): Pending / Active / Current /
  * Potential / Past / Done as a service state, "quote", "Vendor & schedule", "Mark done",
- * "Publish to vendors", "Compare quotes".
+ * "Compare quotes". ("Publish to vendors" is back as a header action label.)
  *
  * This module owns ids and labels only. The stage of a maintenance row is derived from
  * `deriveServiceStages` and of an add-on from `deriveAddOnStages` (work-order-bid-cycle.ts), so the

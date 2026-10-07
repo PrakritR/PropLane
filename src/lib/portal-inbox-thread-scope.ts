@@ -1,3 +1,4 @@
+import { withholdManagerSurface } from "@/lib/property-owner/access.server";
 import { getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -94,6 +95,8 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
   if ((await resolveAuthenticatedBusinessAccess(authUser.id, db)).kind === "denied") return null;
   const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", authUser.id).maybeSingle();
   const admin = await isAdminUser(authUser.id);
+
+  if (!admin && scope === MANAGER_INBOX_SCOPE && (await withholdManagerSurface(db, authUser.id))) return null;
 
   let actorId = authUser.id;
   let actorEmail = (profile?.email ?? authUser.email ?? "").trim().toLowerCase() || null;

@@ -225,6 +225,43 @@ describe("completeVendorInvoicePaymentFromStripeSession", () => {
     const feeLine = db._inserts.find((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "platform_fee");
     expect(chargeLine?.row.amount_cents).toBe(10_000);
     expect(feeLine?.row.amount_cents).toBe(-300);
+    expect(feeLine?.row.description).toBe("PropLane service fee (3%)");
+    // PropLane's own revenue is written through beside the vendor statement line.
+    const revenue = db._inserts.filter((i) => i.table === "platform_revenue_entries");
+    expect(revenue).toHaveLength(1);
+    expect(revenue[0]!.row).toMatchObject({
+      kind: "vendor_service_fee",
+      amount_cents: 300,
+      vendor_user_id: "vendor_1",
+      manager_user_id: "manager_1",
+      source: "invoice",
+      source_id: "inv_1",
+      idempotency_key: "vendor_service_fee:invoice:inv_1",
+    });
+  });
+
+  it("a zero-fee settle (offline/balance-style terms) writes no fee line and no revenue entry", async () => {
+    flagState.enabled = true;
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow()], vendor_payouts: [] });
+    await completeVendorInvoicePaymentFromStripeSession(db as never, makeSession({ platform_fee_cents: "0" }));
+    expect(db._inserts.some((i) => i.table === "platform_revenue_entries")).toBe(false);
+    expect(db._inserts.some((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "platform_fee")).toBe(false);
+    expect(db._tables.vendor_payouts![0]).toMatchObject({ platform_fee_cents: 0 });
+  });
+
+  it("a missing platform_revenue_entries table (migration unapplied) never blocks settlement", async () => {
+    flagState.enabled = true;
+    const db = makeFakeDb({ vendor_invoices: [invoiceRow()], vendor_payouts: [] });
+    const realFrom = db.from.bind(db);
+    db.from = ((table: string) => {
+      if (table === "platform_revenue_entries") throw new Error('relation "platform_revenue_entries" does not exist');
+      return realFrom(table);
+    }) as typeof db.from;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await completeVendorInvoicePaymentFromStripeSession(db as never, makeSession({ platform_fee_cents: "300" }));
+    errSpy.mockRestore();
+    expect(db._tables.vendor_invoices![0]!.status).toBe("paid");
+    expect(db._tables.vendor_payouts![0]).toMatchObject({ status: "paid", platform_fee_cents: 300 });
   });
 
   it("is idempotent — a redelivered webhook for an already-paid invoice writes no second payout row", async () => {

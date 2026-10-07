@@ -136,15 +136,18 @@ describe("record-sections registry", () => {
   it("vendor job href lives under /work-orders", () => {
     const sections = recordSections("vendor", "job", { basePath: "/vendor" });
     expect(sections.groups.flatMap((group) => group.items.map((item) => item.label))).toEqual([
-      "Service",
+      "Overview",
       "Estimate & bid",
       "Schedule",
       "Invoice",
+      "Payments",
       "Communication",
+      "Documents",
     ]);
+    expect(sections.groups.map((group) => group.label)).toEqual(["Job", "Money", "Records"]);
     const service = sections.groups[0]!.items.find((item) => item.id === "service")!;
     const bid = sections.groups[0]!.items.find((item) => item.id === "bid")!;
-    const invoice = sections.groups[0]!.items.find((item) => item.id === "invoice")!;
+    const invoice = sections.groups[1]!.items.find((item) => item.id === "invoice")!;
     expect(service.href("wo-1")).toBe("/vendor/work-orders/wo-1");
     expect(bid.href("wo-1")).toBe("/vendor/work-orders/wo-1/bid");
     expect(invoice.href("wo-1")).toBe("/vendor/work-orders/wo-1/invoice");

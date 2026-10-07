@@ -121,7 +121,7 @@ describe("vendor job record page", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/work-orders/wo-1");
   });
 
-  it("the rail is Service, Estimate & bid, Schedule, Invoice, Communication, with one primary next step", async () => {
+  it("the rail is Job, Money and Records, with one primary next step", async () => {
     render(
       <AppUiProvider>
         <VendorWorkOrdersPanel tabId="scheduled" workOrderId="wo-1" />
@@ -132,11 +132,13 @@ describe("vendor job record page", () => {
     const rail = screen.getByRole("navigation", { name: "Service sections" });
     const links = within(rail).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual([
-      "Service",
+      "Overview",
       "Estimate & bid",
       "Schedule",
       "Invoice",
+      "Payments",
       "Communication",
+      "Documents",
     ]);
 
     // A scheduled job's one primary is Complete; Message is the only other icon.
@@ -210,7 +212,7 @@ describe("vendor payout record page", () => {
     expect(screen.queryByRole("button", { name: "Refund" })).toBeNull();
   });
 
-  it("shows Receipt and Refund once VENDOR_BANKING_ENABLED is on, and Receipt opens the print route (never a Stripe redirect)", async () => {
+  it("shows Receipt (never Refund — the vendor refund route is paused) once VENDOR_BANKING_ENABLED is on, and Receipt opens the print route (never a Stripe redirect)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -232,7 +234,7 @@ describe("vendor payout record page", () => {
     await screen.findAllByText("Replace water heater");
 
     await screen.findByRole("button", { name: "Receipt" });
-    expect(screen.getByRole("button", { name: "Refund" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Refund" })).toBeNull();
 
     // The Receipt button appears as soon as `feeBps` lands, but the payout row it
     // prints is still resolving; clicking on that first paint did nothing and made

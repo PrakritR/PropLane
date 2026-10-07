@@ -9,6 +9,7 @@ import {
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
+import { applyOwnerMessageInboxScope } from "@/lib/property-owner/access.server";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { loadThreadConversation, propertyLabelFor, replyRecipientsMatchThread } from "@/lib/communication/conversation-key.server";
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
@@ -75,6 +76,7 @@ import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 export const runtime = "nodejs";
 
@@ -133,11 +135,11 @@ async function resolveBroadcastRecipients(
     if (managerIds.length === 0) return;
     // Accepted account links only: `portal_pro_relationship_records` is a
     // client-writable mirror that can name any email.
-    const { data: links } = await db
+    const { data: links } = withoutOwnerLinks(await db
       .from("account_link_invites")
-      .select("invitee_user_id")
+      .select("invitee_user_id, team_role")
       .eq("status", "accepted")
-      .in("inviter_user_id", managerIds);
+      .in("inviter_user_id", managerIds));
     const inviteeIds = [...new Set((links ?? []).map((row) => String(row.invitee_user_id ?? "").trim()).filter(Boolean))];
     if (inviteeIds.length === 0) return;
     const { data: profiles } = await db.from("profiles").select("id, email").in("id", inviteeIds);
@@ -557,6 +559,12 @@ export async function POST(req: Request) {
       }
       recipients = allowed;
     }
+
+    // A Property owner's copy belongs in the scope their Messages page reads,
+    // which `scopeForRole` cannot know: the legacy singular `profiles.role` of
+    // an owner who first signed up as a resident still says "resident". The
+    // membership decides, and only for that one recipient.
+    recipients = await applyOwnerMessageInboxScope(db, { userId: user.id, role: senderRole }, recipients);
 
     // One more gate before anything is written: the thread being replied into
     // must belong to the person being messaged. Without it a reply could be

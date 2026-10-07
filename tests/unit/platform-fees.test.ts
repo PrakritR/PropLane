@@ -7,7 +7,11 @@ import {
   vendorPayFeeBps,
   vendorPayFeeCents,
   vendorPayFeeDisplayPercent,
-  VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS,
+  vendorServiceFeeDescription,
+  PROPLANE_SERVICE_FEE_LABEL,
+  VENDOR_PAY_FEE_BPS,
+  VENDOR_SERVICE_FEE_RAILS,
+  VENDOR_INSTANT_FEE_COLLECTABLE,
 } from "@/lib/platform-fees";
 import {
   residentConnectApplicationFeeCents,
@@ -100,12 +104,44 @@ describe("vendor pay take rate (VENDOR_BANKING_ENABLED)", () => {
     expect(fee).toBeLessThanOrEqual(gross);
   });
 
-  it("Instant-withdraw fee is 1.5% with a 50-cent minimum, only when the flag is on", () => {
+  it("Instant-withdraw fee is $0 while no collect mechanism exists, flag on or off", () => {
     process.env.VENDOR_BANKING_ENABLED = "1";
-    expect(vendorInstantWithdrawFeeCents(10_000)).toBe(150); // 1.5% of $100
-    expect(vendorInstantWithdrawFeeCents(1_000)).toBe(VENDOR_INSTANT_WITHDRAW_FEE_MIN_CENTS); // 15c -> floors to the 50c minimum
-    expect(vendorInstantWithdrawFeeCents(0)).toBe(0);
-    expect(vendorInstantWithdrawFeeCents(-100)).toBe(0);
+    expect(VENDOR_INSTANT_FEE_COLLECTABLE).toBe(false);
+    for (const cents of [10_000, 1_000, 0, -100]) expect(vendorInstantWithdrawFeeCents(cents)).toBe(0);
+    delete process.env.VENDOR_BANKING_ENABLED;
+    expect(vendorInstantWithdrawFeeCents(10_000)).toBe(0);
+  });
+});
+
+describe("PropLane service fee naming and rails", () => {
+  const PREV = process.env.VENDOR_BANKING_ENABLED;
+  beforeEach(() => {
+    process.env.VENDOR_BANKING_ENABLED = "1";
+  });
+  afterEach(() => {
+    if (PREV === undefined) delete process.env.VENDOR_BANKING_ENABLED;
+    else process.env.VENDOR_BANKING_ENABLED = PREV;
+  });
+
+  it("has one vendor-facing label, and the description derives its percent from the rate constant", () => {
+    expect(PROPLANE_SERVICE_FEE_LABEL).toBe("PropLane service fee");
+    expect(VENDOR_PAY_FEE_BPS).toBe(300);
+    expect(vendorServiceFeeDescription()).toBe("PropLane service fee (3%)");
+  });
+
+  it("the description is the frozen rate, not the live flag (a flag flip never relabels a settled fee)", () => {
+    process.env.VENDOR_BANKING_ENABLED = "0";
+    expect(vendorServiceFeeDescription()).toBe("PropLane service fee (3%)");
+  });
+
+  it("only the Stripe checkout rail carries the fee; offline and PropLane-balance are explicitly exempt", () => {
+    expect([...VENDOR_SERVICE_FEE_RAILS]).toEqual(["stripe_checkout"]);
+  });
+
+  it("fee math is a pure function of the gross: it never mutates an accepted bid object", () => {
+    const bid = Object.freeze({ amountCents: 12_500 });
+    expect(vendorPayFeeCents(bid.amountCents)).toBe(375);
+    expect(bid.amountCents).toBe(12_500);
   });
 });
 

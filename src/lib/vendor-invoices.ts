@@ -87,6 +87,8 @@ export type VendorInvoice = {
   /** Which rail settled the invoice. `null`/`"stripe"` reads as the historical ACH Checkout path (night/vendor-pay). */
   paidFrom: "stripe" | "balance" | null;
   scheduledFor?: string | null;
+  /** Payment due date (yyyy-mm-dd) from the manager's bill for this invoice; absent until a bill carries one. */
+  dueDate?: string | null;
   offlineMethod?: string | null;
   managerEntered?: boolean;
 };

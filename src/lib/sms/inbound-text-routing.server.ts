@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164, formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { sealApplicantRow } from "@/lib/security/applicant-identity";
-import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { profilePhoneVariants } from "@/lib/sms-consent";
+import { rosterPhoneIdentifiesVendor, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import {
   classifyInboundText,
   guessTradeFromInboundText,
@@ -40,7 +41,7 @@ export type InboundTextRouting =
   | { kind: "stop" }
   /** Already a resident / potential resident with this phone; nothing created. */
   | { kind: "known-resident"; applicationId: string }
-  | { kind: "vendor"; vendorId: string; vendorUserId: string | null; name: string; created: boolean }
+  | { kind: "vendor"; vendorId: string | null; vendorUserId: string | null; name: string; created: boolean }
   | { kind: "potential"; applicationId: string; name: string; created: boolean };
 
 /** Plain-JSON phones an application-shaped row can carry (none are sealed fields). */
@@ -54,6 +55,9 @@ function phonesOnRow(rowData: unknown): string[] {
     .map((value) => (typeof value === "string" ? normalizeE164(value) : null))
     .filter((value): value is string => Boolean(value));
 }
+
+/** STOP / START / HELP are control keywords: they create or route nothing here. */
+const STOP_ONLY_RE = /^\s*(stop|stopall|unsubscribe|end|quit|start|unstop|yes|help)\s*[.!]?\s*$/i;
 
 function shortHash(...parts: string[]): string {
   return createHash("sha256").update(parts.join("|")).digest("hex").toUpperCase();
@@ -73,23 +77,102 @@ function placeholderLeadEmail(applicationId: string): string {
   return `sms.${applicationId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}@import.proplane.local`;
 }
 
+/**
+ * The one account that VERIFIED this number (`profiles.phone_verified_at`), or
+ * null when nobody did or more than one account did - an ambiguous number
+ * identifies nobody. A self-typed phone is never evidence.
+ */
+async function soleVerifiedPhoneOwner(db: Db, phoneE164: string): Promise<string | null> {
+  const { data, error } = await db
+    .from("profiles")
+    .select("id,phone,phone_verified_at")
+    .in("phone", profilePhoneVariants(phoneE164))
+    .not("phone_verified_at", "is", null)
+    .limit(5);
+  if (error) throw new Error(`Vendor lookup unavailable: ${error.message}`);
+  const owners = [
+    ...new Set(
+      ((data ?? []) as { id: string; phone: unknown }[])
+        .filter((row) => normalizeE164(row.phone) === phoneE164)
+        .map((row) => String(row.id)),
+    ),
+  ];
+  return owners.length === 1 ? owners[0]! : null;
+}
+
 async function findVendorByPhone(
   db: Db,
   managerUserId: string,
   phoneE164: string,
-): Promise<{ id: string; row: ManagerVendorRow } | null> {
+): Promise<{ id: string; row: ManagerVendorRow; vendorUserId: string | null } | null> {
   const { data, error } = await db
     .from("manager_vendor_records")
-    .select("id,row_data")
+    .select("id,row_data,vendor_user_id")
     .eq("manager_user_id", managerUserId)
+    // Deterministic: two rows carrying the same number must always answer with
+    // the same vendor, never with whatever the planner happened to return first.
+    .order("id", { ascending: true })
     .limit(2000);
   if (error) throw new Error(`Vendor lookup unavailable: ${error.message}`);
-  for (const record of (data ?? []) as { id: string; row_data: unknown }[]) {
+  const records = (data ?? []) as { id: string; row_data: unknown; vendor_user_id?: string | null }[];
+  const live = (record: { row_data: unknown }) => {
     const row = record.row_data as ManagerVendorRow | null;
-    if (!row || row.active === false) continue;
-    if (normalizeE164(row.phone) === phoneE164) return { id: record.id, row };
+    return row && row.active !== false ? row : null;
+  };
+  for (const record of records) {
+    const row = live(record);
+    // A phone the manager only TYPED into a service link is not identity: a
+    // forwarded link puts the real recipient's number on a stranger's row, and
+    // matching on it would file the recipient's texts under that account.
+    if (row && !rosterPhoneIdentifiesVendor(row)) continue;
+    if (row && normalizeE164(row.phone) === phoneE164) {
+      return { id: record.id, row, vendorUserId: record.vendor_user_id ?? row.vendorUserId ?? null };
+    }
+  }
+  // A linked vendor account that VERIFIED this number is the vendor too, even
+  // when the roster row carries a different phone.
+  const owner = await soleVerifiedPhoneOwner(db, phoneE164);
+  if (owner) {
+    for (const record of records) {
+      const row = live(record);
+      if (row && (record.vendor_user_id ?? row.vendorUserId) === owner) {
+        return { id: record.id, row, vendorUserId: owner };
+      }
+    }
   }
   return null;
+}
+
+/** How far back a manager's own text makes an unknown number "their" vendor. */
+export const MANAGER_TEXTED_VENDOR_WINDOW_DAYS = 90;
+/** How long a manager's conversation with a vendor outranks the job assistant. */
+export const MANAGER_CONVERSATION_WINS_DAYS = 7;
+
+const ACCEPTED_OUTBOUND_STATUSES = ["queued", "claimed", "deferred", "submitting", "submitted", "sent", "delivered", "unknown"];
+
+/**
+ * Did THIS workspace owner text this number recently, as a person (the manual
+ * send's `manager:` dedupe key - the job assistant's own texts never count)?
+ * `vendorOnly` narrows it to texts that went to a vendor thread.
+ */
+export async function managerTextedPhoneWithin(
+  db: Db,
+  input: { managerUserId: string; phoneE164: string; days: number; vendorOnly?: boolean; now?: Date },
+): Promise<{ texted: boolean; recipientUserId: string | null }> {
+  const since = new Date((input.now ?? new Date()).getTime() - input.days * 86_400_000).toISOString();
+  let query = db
+    .from("sms_outbox")
+    .select("recipient_user_id,counterparty_role,created_at")
+    .eq("manager_user_id", input.managerUserId)
+    .eq("recipient_phone", input.phoneE164)
+    .like("dedupe_key", "manager:%")
+    .in("status", ACCEPTED_OUTBOUND_STATUSES)
+    .gte("created_at", since);
+  if (input.vendorOnly) query = query.eq("counterparty_role", "vendor");
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(1);
+  if (error) throw new Error(`Outbound lookup unavailable: ${error.message}`);
+  const row = ((data ?? []) as { recipient_user_id?: string | null }[])[0];
+  return { texted: Boolean(row), recipientUserId: row?.recipient_user_id ?? null };
 }
 
 async function findResidentApplicationByPhone(
@@ -149,6 +232,26 @@ export async function routeUnrecognizedInboundText(
     findResidentApplicationByPhone(db, managerUserId, phone, leadId),
   ]);
 
+  // A number the manager texted as a vendor in the last 90 days answers in
+  // THAT thread, whatever it says: it is never a Potential resident or a new vendor.
+  const texted = vendor || application
+    ? null
+    : await managerTextedPhoneWithin(db, {
+        managerUserId,
+        phoneE164: phone,
+        days: MANAGER_TEXTED_VENDOR_WINDOW_DAYS,
+        vendorOnly: true,
+      });
+  if (texted?.texted && !STOP_ONLY_RE.test(input.body || "")) {
+    return {
+      kind: "vendor",
+      vendorId: null,
+      vendorUserId: texted.recipientUserId,
+      name: formatSmsPhoneLabel(phone) ?? phone,
+      created: false,
+    };
+  }
+
   const classification: InboundTextClassification = classifyInboundText({
     direction: "in",
     body: input.body,
@@ -167,7 +270,7 @@ export async function routeUnrecognizedInboundText(
       return {
         kind: "vendor",
         vendorId: vendor!.id,
-        vendorUserId: vendor!.row.vendorUserId ?? null,
+        vendorUserId: vendor!.vendorUserId,
         name: vendor!.row.name,
         created: false,
       };
@@ -189,11 +292,12 @@ export async function routeUnrecognizedInboundText(
 
 async function createVendor(
   db: Db,
-  input: { managerUserId: string; phone: string; body: string },
+  input: { managerUserId: string; phone: string; body: string; name?: string; trade?: string },
 ): Promise<InboundTextRouting> {
   const id = smsLeadVendorId(input.managerUserId, input.phone);
-  const trade = guessTradeFromInboundText(input.body);
-  const name = parseNameFromInboundText(input.body) || `${trade} · ${formatSmsPhoneLabel(input.phone) ?? input.phone}`;
+  const trade = input.trade?.trim() || guessTradeFromInboundText(input.body);
+  const name =
+    input.name?.trim() || parseNameFromInboundText(input.body) || `${trade} · ${formatSmsPhoneLabel(input.phone) ?? input.phone}`;
   const now = new Date().toISOString();
   const row: ManagerVendorRow = {
     id,
@@ -290,7 +394,7 @@ async function accountVerifiedPhone(db: Db, userId: string, phone: string): Prom
  */
 export async function ensureVendorForOutboundText(
   db: Db,
-  input: { managerUserId: string; toPhone: string; body: string; markedVendor: boolean },
+  input: { managerUserId: string; toPhone: string; body: string; markedVendor: boolean; name?: string; trade?: string },
 ): Promise<OutboundVendorResult | null> {
   const managerUserId = input.managerUserId.trim();
   const phone = normalizeE164(input.toPhone);
@@ -370,6 +474,6 @@ export async function ensureVendorForOutboundText(
   }
 
   if (!input.markedVendor) return null;
-  const created = await createVendor(db, { managerUserId, phone, body: input.body });
-  return created.kind === "vendor" ? { vendorId: created.vendorId, name: created.name, created: created.created } : null;
+  const created = await createVendor(db, { managerUserId, phone, body: input.body, name: input.name, trade: input.trade });
+  return created.kind === "vendor" && created.vendorId ? { vendorId: created.vendorId, name: created.name, created: created.created } : null;
 }

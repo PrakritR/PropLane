@@ -12,6 +12,7 @@ import { effectiveHouseIds, workspaceRightsForMembership, type HouseScope, type 
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import {
   CO_MANAGER_PERMISSION_OPTIONS,
+  OWNER_PERMISSION_OPTIONS,
   hasCoManagerPermission,
   mergeCoManagerPermissions,
   type PropertyCoManagerPermissions,
@@ -199,6 +200,10 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
             for (const id of reach) {
               for (const { id: module, label } of CO_MANAGER_PERMISSION_OPTIONS) {
                 if (hasCoManagerPermission(map[id], module)) modules.add(label);
+              }
+              // A Property owner holds the four owner keys instead of modules.
+              for (const { id: key, label } of OWNER_PERMISSION_OPTIONS) {
+                if (hasCoManagerPermission(map[id], key)) modules.add(label);
               }
             }
             const profile = inviteeById.get(inviteeId);

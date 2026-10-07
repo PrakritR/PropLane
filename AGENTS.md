@@ -77,9 +77,10 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 for Akhil after his explicit ship request: his prompt branch → `main`. QA on
 `staging` by default; Akhil's releases skip it under the standing policy above. Live from
 `production`.**
-Prakrit keeps six standing agent branches and the captain integration worktree
-open. His roster and integration authorization live in
-[`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md).
+Prakrit keeps a fixed set of standing agent lanes plus the captain integration
+worktree open. The lane count, the roster and integration authorization live in
+[`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) § Standing
+branches, lanes, and the promote ladder.
 Do not create a branch per prompt or delete a standing keeper after integration.
 Commit and push the assigned keeper (fast-forward only, never force). Open a PR only on request.
 If a push is not a fast-forward, stop.
@@ -429,6 +430,7 @@ answer. Fail closed to `true`.
 | Demo / sandbox | `docs/agents/demo-sandbox.md` | `/demo` never writes real rows; snapshot ships empty |
 | Studio Live mode | `docs/agents/studio-live.md` | Frame-ancestors relaxation and `/api/dev/studio-sign-in` are dev-only (`NODE_ENV==="development"` + localhost + dev/test project); production/preview headers stay byte-identical |
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
+| Property owner | `docs/agents/co-manager-access.md` § Property owner | A team role, not a portal: four owner keys, no module key; owner rows are filtered out of every teammate-style reader (`withoutOwnerLinks`); the numbers are an allowlist projection of the manager's own reports, never names; the house and manager come from the membership, never the request |
 | SMS / phone | `docs/agents/sms-system.md` | Outbound from the work number only; conversation id is not the phone pair |
 | Communication credit | `docs/agents/comms-billing.md` | Reserve credit before provider/model work; a saved card never authorizes a charge |
 | Vendor dispatch agent | `docs/agents/vendor-dispatch-agent.md` | Answer-only + `escalate_to_manager`; `row_data.dispatch` is server-owned |

@@ -29,8 +29,38 @@ export type WorkspaceRights = {
   houses: boolean;
 };
 
+/** A Property owner is an investor: only ever the houses somebody chose. */
+export const OWNER_SELECTED_ONLY_ERROR = "A property owner is invited to selected houses only.";
+export const OWNER_NEEDS_HOUSE_ERROR = "Choose at least one house for a property owner.";
+
 export function parseHouseScope(raw: unknown): HouseScope {
   return raw === "all" ? "all" : "selected";
+}
+
+/**
+ * House scope and houses after an editor picks `role`.
+ *
+ * A Property owner is selected-houses-only on every server path, and the role
+ * select hides "All houses" for it, so an editor that left `houseScope: "all"`
+ * on the row would save a shape the server refuses with
+ * `OWNER_SELECTED_ONLY_ERROR` and show a scope field with nothing chosen.
+ * Switching an "all houses" row to Property owner therefore drops to "selected"
+ * carrying the houses that row already names — the member's current pick, which
+ * is empty for a brand-new invite because an investor's houses are chosen on
+ * purpose. Switching AWAY from the role leaves the scope and pick alone.
+ *
+ * Every editor (invite sheet, member edit, Edit permissions) applies this in the
+ * single state update its role change makes, so the three cannot disagree.
+ */
+export function houseScopeForRoleChange(
+  role: TeamRoleId,
+  current: { houseScope: HouseScope; selectedHouseIds: readonly string[] },
+): { houseScope: HouseScope; selectedHouseIds: string[] } {
+  const selectedHouseIds = [...current.selectedHouseIds];
+  if (role !== "property_owner" || current.houseScope !== "all") {
+    return { houseScope: current.houseScope, selectedHouseIds };
+  }
+  return { houseScope: "selected", selectedHouseIds };
 }
 
 /**
@@ -48,6 +78,9 @@ export function workspaceRightsForRole(role: WorkspaceRole | null | undefined): 
       return { members: true, houses: true };
     case "property_manager":
       return { members: false, houses: true };
+    case "property_owner":
+      // Explicit, not the default branch: an investor never runs a workspace.
+      return { members: false, houses: false };
     default:
       return { members: false, houses: false };
   }

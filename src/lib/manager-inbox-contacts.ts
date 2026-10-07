@@ -6,19 +6,27 @@ import { readProRelationships } from "@/lib/pro-relationships";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { trimmedText } from "@/lib/trimmed-text";
 
-/** Merge contact lists by email — first occurrence wins. */
+/** Merge contact lists by email (a text-only vendor, which has none, by id) — first occurrence wins. */
 export function mergeInboxScopedContacts(...lists: InboxScopedContact[][]): InboxScopedContact[] {
   const out: InboxScopedContact[] = [];
-  const seen = new Set<string>();
+  const indexByKey = new Map<string, number>();
   for (const list of lists) {
     for (const contact of list) {
-      const key = trimmedText(contact?.email).toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
+      const email = trimmedText(contact?.email).toLowerCase();
+      const key = email || (contact?.textOnly && contact.id ? `text:${contact.id}` : "");
+      if (!key) continue;
+      const existing = indexByKey.get(key);
+      if (existing !== undefined) {
+        // A later copy of the same person may know the vendor's saved phone the first did not.
+        const kept = out[existing]!;
+        if (kept.role === "vendor" && !kept.phone && contact.phone) out[existing] = { ...kept, phone: contact.phone };
+        continue;
+      }
+      indexByKey.set(key, out.length);
       out.push({
         ...contact,
         name: trimmedText(contact.name) || key,
-        email: key,
+        email,
       });
     }
   }
@@ -34,7 +42,16 @@ function todayIsoDate(): string {
 }
 
 /** Approved residents + pending applicants + linked co-managers + vendors for Communication. */
-export function buildManagerInboxLiveContacts(userId: string | null | undefined): InboxScopedContact[] {
+export function buildManagerInboxLiveContacts(
+  userId: string | null | undefined,
+  options: {
+    /**
+     * Add roster vendors that have a phone but no email, marked `textOnly`. Only the New message
+     * modal asks for them: every other consumer (filters, schedule picker) keys on an email.
+     */
+    textOnlyVendors?: boolean;
+  } = {},
+): InboxScopedContact[] {
   const out: InboxScopedContact[] = [];
   const seen = new Set<string>();
 
@@ -93,13 +110,28 @@ export function buildManagerInboxLiveContacts(userId: string | null | undefined)
     for (const vendor of readOwnActiveManagerVendorRows(userId)) {
       if (isVendorCategorySettingsRow(vendor)) continue;
       const email = trimmedText(vendor.email);
-      if (!email || seen.has(email.toLowerCase())) continue;
+      const phone = trimmedText(vendor.phone);
+      if (!email) {
+        // A roster vendor with only a phone is still reachable: by Text, from the work number.
+        if (!phone || !options.textOnlyVendors) continue;
+        out.push({
+          id: `ven-${vendor.id}`,
+          name: trimmedText(vendor.name) || phone,
+          email: "",
+          role: "vendor",
+          phone,
+          textOnly: true,
+        });
+        continue;
+      }
+      if (seen.has(email.toLowerCase())) continue;
       seen.add(email.toLowerCase());
       out.push({
         id: `ven-${vendor.id}`,
         name: trimmedText(vendor.name) || email,
         email,
         role: "vendor",
+        ...(phone ? { phone } : {}),
       });
     }
   }

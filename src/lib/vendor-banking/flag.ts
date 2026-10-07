@@ -17,3 +17,14 @@ export function vendorBankingEnabled(): boolean {
   const raw = process.env.VENDOR_BANKING_ENABLED?.trim().toLowerCase();
   return raw !== "0" && raw !== "false" && raw !== "off";
 }
+
+/**
+ * Vendor-initiated refunds to a manager. Default OFF. The refund now runs on the central
+ * rail (`runReservedPlatformMoneyRefund`, `central-refund.server.ts`): a stable attempt key,
+ * a recoverable-funds cap, the webhook settling the refund. It stays off until that path is
+ * proven against Stripe TEST; `VENDOR_REFUNDS_ENABLED=1` turns it on for that path only.
+ */
+export function vendorRefundsEnabled(): boolean {
+  const raw = process.env.VENDOR_REFUNDS_ENABLED?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "on";
+}

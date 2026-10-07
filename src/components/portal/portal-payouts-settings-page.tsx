@@ -25,7 +25,7 @@ import { ProplaneBalanceCard } from "@/components/portal/proplane-balance-card";
 import { AddBankFlow } from "@/components/portal/add-bank-flow";
 import { isPayoutDestinationSummary, type PayoutDestinationSummary } from "@/components/portal/payout-bank-sheet";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
-import { VendorPayoutsSettingsExtra } from "@/components/portal/vendor-payouts-settings-extra";
+import Link from "next/link";
 import { track } from "@/lib/analytics/track-client";
 import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -334,7 +334,18 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
         dataAttr="payouts-settings-bank-remove-confirm"
       />
 
-      <PortalSettingsSection title="PropLane balance" action={<PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="payouts-settings-withdraw" disabled={!ready || !hasBank || balance.payoutReconciliationPending || withdrawableCents <= 0} onClick={() => { track("payout_withdraw_started", { portal }); setWithdrawOpen(true); }} />}>
+      {portal === "vendor" ? (
+        <PortalSettingsSection title="Balance & payouts">
+          <PortalSettingsGroup>
+            <PortalSettingsRow label="Balance, payouts and statements">
+              <Link href="/vendor/financials/balance" className="text-sm font-medium text-primary hover:underline" data-attr="payouts-settings-finances-link">
+                Open Finances
+              </Link>
+            </PortalSettingsRow>
+          </PortalSettingsGroup>
+        </PortalSettingsSection>
+      ) : null}
+      {portal === "manager" ? <PortalSettingsSection title="PropLane balance" action={<PortalIconAction icon={ArrowUpFromLine} label="Withdraw" data-attr="payouts-settings-withdraw" disabled={!ready || !hasBank || balance.payoutReconciliationPending || withdrawableCents <= 0} onClick={() => { track("payout_withdraw_started", { portal }); setWithdrawOpen(true); }} />}>
         <PortalSettingsGroup>
           <PortalSettingsRow label="Available to withdraw"><span data-attr="payouts-settings-available">{formatMoney(withdrawableCents, balance.currency)}</span></PortalSettingsRow>
           {(balance.heldCents ?? 0) > 0 ? <PortalSettingsRow label="Held pending bank"><span data-attr="payouts-settings-held">{formatMoney(balance.heldCents ?? 0, balance.currency)}</span></PortalSettingsRow> : null}
@@ -348,7 +359,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
 
           {balance.availableNote ? <PortalSettingsRow label="Funds status"><span data-attr="payouts-settings-available-note">{balance.availableNote}</span></PortalSettingsRow> : null}
         </PortalSettingsGroup>
-      </PortalSettingsSection>
+      </PortalSettingsSection> : null}
 
       {portal === "manager" ? <PortalSettingsSection title="Paying vendors and bills"><PortalSettingsGroup>
         <PortalSettingsRow label="Default payment method"><FieldSingleSelect label="Default payment method" hideLabel variant="cell" value={defaultMethod} disabled={!methodLoaded || methodBusy || !workspace?.owned} onChange={value => void saveMethod(value)} options={[...(balanceMethodEnabled ? [{ value: "balance", label: "PropLane balance" }] : []), { value: "ach", label: "Bank account" }]} /></PortalSettingsRow>
@@ -422,7 +433,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
         }}
       /> : null}
 
-      {/* History */}
+      {/* History — the vendor's payout history lives in Finances → Balance & payouts. */}
       {portal === "manager" ? <PortalSettingsSection title="Payouts"><PortalSettingsGroup>
           {hasBank ? <PortalSettingsRow label="Withdraw to"><FieldSingleSelect label="Withdraw to" hideLabel variant="cell" value={withdrawToSelectedId} disabled={effectiveBankRows.length < 2} onChange={id => setWithdrawToId(id)} options={effectiveBankRows.map(row => ({ value: row.id, label: `${row.label} ····${row.last4}`, disabled: !row.payable }))} /></PortalSettingsRow> : null}
         {balance.history.length ? balance.history.map(row => <PortalSettingsRow key={row.id} label={payoutHistoryTitle(row)}>
@@ -437,28 +448,13 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
             </BankRowMenu> : null}
           </div>
         </PortalSettingsRow>) : <PortalSettingsRow label="No payouts yet" />}
-      </PortalSettingsGroup></PortalSettingsSection> : <HistorySection
-        rows={balance.history}
-        currency={balance.currency}
-        search=""
-        onClearSearch={() => {}}
-        portal={portal}
-        retryDisabled={balance.payoutReconciliationPending}
-        onRetry={(row) => {
-          if (balance.payoutReconciliationPending) return;
-          // Same as portal-payouts-panel.tsx's own Retry — route through the
-          // SAME confirmation sheet a fresh Withdraw uses, prefilled with the
-          // failed row's own (gross) amount/method, never a one-click resend.
-          track("payout_withdraw_started", { portal, retry: true });
-          setRetryRow(row);
-          setWithdrawOpen(true);
-        }}
-      />}
+      </PortalSettingsGroup></PortalSettingsSection> : null}
 
       {portal === "manager" && creditPurchases.length ? <PortalSettingsSection title="Payments activity"><PortalSettingsGroup>
         {creditPurchases.map(purchase => <PortalSettingsRow key={purchase.id} label="Messaging credit"><span className="text-sm text-muted">{formatDate(purchase.createdAt)} · Card · {purchase.status === "paid" ? "Paid" : purchase.status.replaceAll("_", " ")}</span><span >{formatMoney(purchase.creditCents, "usd")}</span></PortalSettingsRow>)}
       </PortalSettingsGroup></PortalSettingsSection> : null}
 
+      {portal === "manager" ? (
       <PayoutWithdrawSheet
         open={withdrawOpen}
         onClose={closeWithdraw}
@@ -475,11 +471,7 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
           void loadBalance(true);
         }}
       />
-
-      {/* VD55/VD68 — vendor-only, inert (renders null) until VENDOR_BANKING_ENABLED
-          is on. Owned by night/vendor-banking; touches only this appended
-          section, never the Payouts card above it. */}
-      {portal === "vendor" ? <VendorPayoutsSettingsExtra balance={balance} /> : null}
+      ) : null}
     </div>
   );
 }

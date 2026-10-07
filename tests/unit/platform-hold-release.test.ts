@@ -23,7 +23,8 @@ function fixture(
   activeAttempt: typeof reserved | null = reserved,
   options?: { holdRow?: typeof hold; refundAttempts?: Array<Record<string, unknown>>;
     settledConsumption?: Array<{ source_net_cents: number }>;
-    reserveError?: { code: string; message: string } },
+    reserveError?: { code: string; message: string };
+    disputes?: Array<{ stripe_charge_id: string }> },
 ) {
   const holdRow = options?.holdRow ?? hold;
   const profileRead = vi.fn(async () => ({ data: { stripe_connect_account_id: "acct_new" }, error: null }));
@@ -39,6 +40,8 @@ function fixture(
           ? { data: activeAttempt ? [activeAttempt] : [], error: null }
           : table === "platform_hold_refund_attempts"
             ? { data: options?.refundAttempts ?? [], error: null }
+            : table === "vendor_banking_disputes"
+              ? { data: options?.disputes ?? [], error: null }
             : table === "platform_source_consumption_legs"
               ? { data: options?.settledConsumption ?? [], error: null }
             : null;
@@ -47,6 +50,7 @@ function fixture(
       }
       const query: Record<string, unknown> = { then: (resolve: (value: unknown) => void) => resolve(result) };
       query.eq = vi.fn().mockReturnValue(query);
+      query.gt = vi.fn().mockReturnValue(query);
       query.order = vi.fn().mockReturnValue(query);
       query.limit = vi.fn().mockReturnValue(query);
       return { select: () => query };
@@ -81,6 +85,22 @@ describe("source-backed platform hold release", () => {
     expect(f.rpc).toHaveBeenCalledWith("finish_platform_hold_transfer", expect.objectContaining({
       p_attempt: reserved.attempt_key, p_transfer: "tr_original",
     }));
+  });
+
+  it("does not release a NEW transfer for a vendor hold whose charge is frozen by an open dispute", async () => {
+    const vendorHold = { ...hold, owner_role: "vendor" };
+    const f = fixture(null, { holdRow: vendorHold, disputes: [{ stripe_charge_id: "ch_paid" }] });
+    const result = await releaseVerifiedPlatformHoldsForOwner(f.db as never, { ownerUserId: owner, stripe: f.stripe as never });
+    expect(result).toEqual({ transferred: 0, pending: 1 });
+    expect(f.rpc).not.toHaveBeenCalledWith("reserve_platform_hold_transfer", expect.anything());
+    expect(f.stripe.transfers.create).not.toHaveBeenCalled();
+  });
+
+  it("still releases a vendor hold whose charge has no open dispute", async () => {
+    const vendorHold = { ...hold, owner_role: "vendor" };
+    const f = fixture(reserved, { holdRow: vendorHold, disputes: [{ stripe_charge_id: "ch_other" }] });
+    const result = await releaseVerifiedPlatformHoldsForOwner(f.db as never, { ownerUserId: owner, stripe: f.stripe as never });
+    expect(result).toEqual({ transferred: 1, pending: 0 });
   });
 
   it("daily reconciliation replays only a persisted reserved transfer", async () => {
