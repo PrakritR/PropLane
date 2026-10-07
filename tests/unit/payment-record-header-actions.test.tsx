@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// C2-PAY1/PAY3: header icons (take payment, mark paid offline sheet, send
+// C2-PAY1/PAY3: header icons (payment settings, mark paid offline sheet, send
 // reminder, edit, download, delete on unpaid; refund on paid. Settled cash has
 // no accounting-safe Move to pending action.
 import { afterEach, describe, expect, it, vi } from "vitest";

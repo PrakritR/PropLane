@@ -392,10 +392,10 @@ test("payment record page: C2-PAY header actions; Mark paid offline is server-co
 
   await expect(page.getByText(`Utilities — ${labels.thisMonthName}`).first()).toBeVisible();
   await expect(page.getByText("Maya Chen").first()).toBeVisible();
-  // C2-PAY (58d9a59d8): take payment, mark paid offline, send reminder, edit,
+  // C2-PAY (58d9a59d8): payment settings, mark paid offline, send reminder, edit,
   // download, delete. The header renders for desktop and phone, so CSS hides
   // one copy of each — assert the visible one.
-  for (const label of ["Take payment", "Mark paid offline", "Send reminder", "Edit", "Download", "Delete"]) {
+  for (const label of ["Payment settings", "Mark paid offline", "Send reminder", "Edit", "Download", "Delete"]) {
     await expect(page.locator(`[aria-label="${label}"]`).filter({ visible: true }).first()).toBeVisible();
   }
   await shot(page, "09-payment-record-header-actions");

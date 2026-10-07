@@ -207,7 +207,6 @@ describe("Send via on an automated reminder", () => {
         recipient="marcus.chen@test.proplane.local"
         editable
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
         onSaveEdit={vi.fn()}
       />,
     );
@@ -238,7 +237,6 @@ describe("Send via on an automated reminder", () => {
         recipient="marcus.chen@test.proplane.local"
         editable
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
         onSaveEdit={onSaveEdit}
       />,
     );
@@ -274,7 +272,6 @@ describe("Send via on an automated reminder", () => {
         recipient="marcus.chen@test.proplane.local"
         editable
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
         onSaveEdit={onSaveEdit}
       />,
     );
@@ -308,7 +305,6 @@ describe("Send via on an automated reminder", () => {
         recipient="marcus.chen@test.proplane.local"
         editable
         onCancel={vi.fn()}
-        onSendNow={vi.fn()}
         onSaveEdit={onSaveEdit}
       />,
     );

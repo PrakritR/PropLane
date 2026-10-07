@@ -239,10 +239,16 @@ conversations) plus the archive toggle. Invariants:
   `tests/unit/inbox-initial-loading-readiness.test.tsx`.
 - **Scheduled messages sit in a bar under the conversation name**, above the
   messages (`InboxScheduledThreadList` `placement="bar"` on `InboxThreadView`'s
-  `underHeader`). Each row is clock · kind · subject · time, plus a send icon
-  that sends that row now. Tapping the row opens the detail card (body, Send now,
-  Cancel, Save). The subject, body, send time and In-app/Email/Text choices
-  save through `onSaveEdit`; an unchanged channel choice emits no override.
+  `underHeader`). Each row is clock · kind · subject · time — no send
+  icon; a row's only job is to open its detail pop-up. That pop-up carries one
+  footer: **Cancel send** on the left (danger, behind a confirm) and **Send now**
+  · **Save** on the right, with no inner close X. Cancel send and Send now
+  render only while the message is still pending — a surface that can open a
+  sent, cancelled or failed row passes `scheduled={false}` so a destructive
+  confirm never fronts a no-op (the Schedule panel and the payment-reminder
+  pop-up both do). `showSendActions={false}` hides both (tour reminders);
+  resident views pass no `onSendNow`, so they get Cancel send only. The subject,
+  body, send time and In-app/Email/Text choices save through `onSaveEdit`; an unchanged channel choice emits no override.
   In-app is persisted as `deliverViaInbox` for manual sends and
   `customDeliverViaInbox` for payment-reminder overrides. Bar selection uses
   message identity, so removal of an earlier row never changes the editor. The

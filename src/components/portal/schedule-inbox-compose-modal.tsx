@@ -58,7 +58,6 @@ export function ScheduleInboxComposeForm({
   editMessage,
   initial,
   onToggleCancelled,
-  onSendNow,
   showHeading = true,
 }: {
   onClose: () => void;
@@ -72,7 +71,6 @@ export function ScheduleInboxComposeForm({
    */
   initial?: { subject?: string; body?: string; recipientEmail?: string };
   onToggleCancelled?: (cancelled: boolean) => void | Promise<void>;
-  onSendNow?: () => void | Promise<void>;
   showHeading?: boolean;
 }) {
   const { showToast } = useAppUi();
@@ -298,17 +296,6 @@ export function ScheduleInboxComposeForm({
           >
             {busy ? "Saving…" : editMessage ? "Save changes" : "Schedule message"}
           </Button>
-          {editMessage && editMessage.status === "scheduled" && onSendNow ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
-              disabled={busy}
-              onClick={() => onSendNow()}
-            >
-              Send now
-            </Button>
-          ) : null}
           {editMessage && onToggleCancelled && editMessage.status !== "sent" ? (
             editMessage.status === "cancelled" ? (
               <Button

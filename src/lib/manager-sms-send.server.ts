@@ -19,6 +19,7 @@ import {
 } from "@/lib/sms/vendor-conversation-consent.server";
 
 type SendResult = { body: Record<string, unknown>; status: number };
+type DispatchRunner = <T>(run: () => Promise<T>) => Promise<T>;
 function response(body: Record<string, unknown>, init?: { status: number }): SendResult {
   return { body, status: init?.status ?? 200 };
 }
@@ -43,6 +44,8 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
    */
   vendorRecordId?: string | null;
   attestVendorRelationship?: boolean;
+  /** Server-only seam: runs the carrier hand-off (the dispatch) - the local SMS sandbox captures it here. */
+  runDispatch?: DispatchRunner;
 }): Promise<SendResult> {
   const body = args;
   if (args.scopeManagerIds && !args.scopeManagerIds.length) {
@@ -191,7 +194,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     dedupeKey,
   });
 
-  return finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result);
+  return finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result, args.runDispatch);
 }
 
 type EnqueueResult = Awaited<ReturnType<typeof enqueueOwnerSms>>;
@@ -201,6 +204,7 @@ async function finishEnqueuedSend(
   actorUserId: string,
   ownerManagerUserId: string,
   result: EnqueueResult,
+  runDispatch?: DispatchRunner,
 ): Promise<SendResult> {
   if (!result.ok) {
     const userMessage =
@@ -221,13 +225,15 @@ async function finishEnqueuedSend(
     );
   }
 
-  const dispatch = await dispatchOwnerSmsOutbox(
-    {
-      workerId: `manager-route-${actorUserId}`,
-      outboxId: result.outboxId,
-    },
-    db,
-  );
+  const dispatchNow = () =>
+    dispatchOwnerSmsOutbox(
+      {
+        workerId: `manager-route-${actorUserId}`,
+        outboxId: result.outboxId,
+      },
+      db,
+    );
+  const dispatch = await (runDispatch ? runDispatch(dispatchNow) : dispatchNow());
   const { data: outbox } = await db
     .from("sms_outbox")
     .select("status, blocked_reason")
@@ -451,6 +457,37 @@ export async function readRosterVendorTextStatus(
   });
 }
 
+/**
+ * The same answer for a number with no roster vendor yet (Send to phone on a service): consent is read by
+ * phone alone, so a number that already texted STOP shows as opted out before anything is minted.
+ */
+export async function readPhoneVendorTextStatus(
+  db: SupabaseClient,
+  args: { actorUserId: string; phone: string },
+): Promise<SendResult> {
+  const phone = normalizeE164(args.phone);
+  if (!phone) return response({ error: "Enter a valid phone number." }, { status: 400 });
+  const consent = await readVendorTextConsent(db, { managerUserId: args.actorUserId, vendorUserId: null, phone });
+  if (!consent.ok) return response({ error: "Could not read consent." }, { status: 503 });
+  const optedOut = consent.state === "opted_out" || consent.state === "revoked";
+  const needsAttestation = consent.state === "none";
+  return response({
+    ok: true,
+    phone,
+    needsAttestation,
+    optedOut,
+    ...(needsAttestation
+      ? {
+          senderLine: await senderLineFor(
+            db,
+            args.actorUserId,
+            (await existingVendorThreadLine(db, args.actorUserId, phone)) ?? (await onlyWorkLineId(db, args.actorUserId)),
+          ),
+        }
+      : {}),
+  });
+}
+
 async function onlyWorkLineId(db: SupabaseClient, ownerManagerUserId: string): Promise<string | null> {
   const line = await resolveConversationSendLine(db, ownerManagerUserId, { propertyId: null });
   return line.ok ? line.numberId : null;
@@ -471,6 +508,7 @@ async function sendRosterVendorText(
     scopeManagerIds?: string[];
     vendorRecordId?: string | null;
     attestVendorRelationship?: boolean;
+    runDispatch?: DispatchRunner;
   },
   input: { text: string; toPhone: string },
 ): Promise<SendResult> {
@@ -562,5 +600,5 @@ async function sendRosterVendorText(
     recipientUserId: vendorUserId,
     dedupeKey,
   });
-  return finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result);
+  return finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result, args.runDispatch);
 }

@@ -11,24 +11,21 @@ const state = vi.hoisted(() => ({
   source: "manual" as "manual" | "automation",
   cardProps: null as null | {
     onCancel: () => Promise<void> | void;
-    onSendNow: () => Promise<void> | void;
+    onSendNow?: () => Promise<void> | void;
     onSaveEdit?: (next: { subject: string; body: string }) => Promise<void> | void;
   },
   automationReload: vi.fn(),
   patchScheduledMessage: vi.fn(async () => undefined),
-  sendAutomationNow: vi.fn(async () => undefined),
-  sendManualNow: vi.fn(async () => undefined),
 }));
 
-vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => state.demo }));
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
+  isDemoModeActive: () => state.demo,
+}));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useOptionalAppUi: () => null }));
 vi.mock("@/components/portal/payment-schedule-ui", () => ({
   useScheduledPaymentMessages: () => ({ messages: [], settings: null, reload: state.automationReload }),
   patchScheduledMessage: state.patchScheduledMessage,
-}));
-vi.mock("@/components/portal/portal-inbox-selection", () => ({
-  sendAutomationScheduledMessageNow: state.sendAutomationNow,
-  sendManualScheduledMessageNow: state.sendManualNow,
 }));
 vi.mock("@/lib/inbox-scheduled-thread", () => ({
   automationChannelDefaultsFromSettings: () => ({}),
@@ -40,7 +37,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   InboxScheduledThreadList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   InboxScheduledCard: (props: {
     onCancel: () => Promise<void> | void;
-    onSendNow: () => Promise<void> | void;
+    onSendNow?: () => Promise<void> | void;
     onSaveEdit?: (next: { subject: string; body: string }) => Promise<void> | void;
   }) => {
     state.cardProps = props;
@@ -68,8 +65,6 @@ beforeEach(() => {
   state.cardProps = null;
   state.automationReload.mockClear();
   state.patchScheduledMessage.mockClear();
-  state.sendAutomationNow.mockClear();
-  state.sendManualNow.mockClear();
   fetchMock.mockReset();
   fetchMock.mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) });
   vi.stubGlobal("fetch", fetchMock);
@@ -112,23 +107,38 @@ describe("useThreadScheduledCards gating", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("under /demo Send now refuses out loud instead of going quiet", async () => {
+  it("under /demo Send now refuses out loud (the pop-up shows it) instead of going quiet", async () => {
     state.demo = true;
     state.source = "automation";
-    const { findByRole } = render(<Harness />);
+    render(<Harness />);
     await waitFor(() => expect(state.cardProps).not.toBeNull());
-    await act(async () => { await state.cardProps!.onSendNow(); });
-    expect(state.sendAutomationNow).not.toHaveBeenCalled();
-    expect((await findByRole("alert")).textContent).toContain("Not available in the demo.");
+    await expect(state.cardProps!.onSendNow!()).rejects.toThrow("Not available in the demo.");
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/send-now"), expect.anything());
   });
 
-  it("makes no request under /demo for a manual card: load, cancel and save are all no-ops", async () => {
+  it("Send now posts to the manual and automation send-now routes", async () => {
+    render(<Harness />);
+    await waitFor(() => expect(state.cardProps).not.toBeNull());
+    await act(async () => { await state.cardProps!.onSendNow!(); });
+    expect(fetchMock).toHaveBeenCalledWith("/api/portal/scheduled-inbox-messages/m1/send-now", expect.objectContaining({ method: "POST" }));
+    cleanup();
+    state.source = "automation";
+    fetchMock.mockClear();
+    render(<Harness />);
+    await waitFor(() => expect(state.cardProps).not.toBeNull());
+    await act(async () => { await state.cardProps!.onSendNow!(); });
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/portal/scheduled-messages/"), expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/send-now$/), expect.anything());
+  });
+
+  it("under /demo a manual card loads nothing and refuses cancel and save out loud", async () => {
     state.demo = true;
     render(<Harness />);
     await act(async () => { handle.reload?.(); });
     expect(fetchMock).not.toHaveBeenCalled();
     await waitFor(() => expect(state.cardProps).not.toBeNull());
-    await act(async () => { await state.cardProps!.onCancel(); await state.cardProps!.onSaveEdit?.({ subject: "x", body: "y" }); });
+    await expect(state.cardProps!.onCancel()).rejects.toThrow("Not available in the demo.");
+    await expect(state.cardProps!.onSaveEdit!({ subject: "x", body: "y" })).rejects.toThrow("Not available in the demo.");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(state.patchScheduledMessage).not.toHaveBeenCalled();
   });

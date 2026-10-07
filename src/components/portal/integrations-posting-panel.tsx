@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building, Copy, Home, Share2 } from "lucide-react";
+import { Building, Camera, Copy, Home, Share2, Unlink } from "lucide-react";
 
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -10,14 +10,15 @@ import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
-import { resolveBuiltinTextCopy } from "@/lib/property-promotion-builtin";
+import { useListingChannels } from "@/hooks/use-listing-channels";
+import { listingHoldFact } from "@/lib/listing-channels/post-text";
+import { listingChannelDef } from "@/lib/listing-channels/registry";
 
 /** Where Facebook's own rental composer lives; there is no API to post for the manager (D11). */
-export const FACEBOOK_MARKETPLACE_CREATE_URL = "https://www.facebook.com/marketplace/create/rental";
+export const FACEBOOK_MARKETPLACE_CREATE_URL = listingChannelDef("facebook_marketplace")?.createUrl ?? "https://www.facebook.com/marketplace/create/rental";
 
 /** "N of M listings posting" from each listing's own Zillow opt-in (`submission.syndication.zillow`). */
 export function zillowPostingCounts(propertyIds: readonly string[]): { posting: number; total: number } {
@@ -30,16 +31,6 @@ export function zillowPostingCounts(propertyIds: readonly string[]): { posting: 
     if (property.listingSubmission?.syndication?.zillow?.enabled === true) posting += 1;
   }
   return { posting, total };
-}
-
-/**
- * The Facebook post for one listing: the `facebook_post` text from
- * promotion-text.ts, built from the listing's own facts.
- */
-export function buildFacebookMarketplacePost(propertyId: string, appOrigin?: string): string {
-  const property = getPropertyById(propertyId);
-  if (!property) return "";
-  return resolveBuiltinTextCopy(property, "facebook_post", null, undefined, { appOrigin }).plain.trim();
 }
 
 /** Zillow's feed is one link per workspace, registered once; GET creates it on first read. */
@@ -100,21 +91,21 @@ function ZillowFeedRow({ propertyIds }: { propertyIds: readonly string[] }) {
   );
 }
 
-/** Facebook has no rental-posting API for us: build the post, copy it, open Facebook's composer. */
+/**
+ * Facebook has no rental-posting API for us: copy the post (built on the server from the listing's
+ * public facts plus the workspace work number and email), then open Facebook's composer.
+ */
 function FacebookMarketplaceRow({ options }: { options: { value: string; label: string }[] }) {
   const { showToast } = useAppUi();
   const [listingId, setListingId] = useState("");
   const chosen = options.some((o) => o.value === listingId) ? listingId : (options[0]?.value ?? "");
+  const { status } = useListingChannels(chosen || undefined);
+  const holdReasons = status?.property?.holdReasons ?? [];
+  const text = status?.property?.id === chosen ? status.property.postTexts.facebook_marketplace : undefined;
 
   const copyPost = async () => {
-    // The post is published publicly, so the listing link is the canonical app origin - never the
-    // preview or lane host the manager happens to be on.
-    const text = buildFacebookMarketplacePost(
-      chosen,
-      typeof window !== "undefined" ? resolveShareableAppOrigin(window.location.origin) : undefined,
-    );
     if (!text) {
-      showToast("Pick a listing first.");
+      showToast(holdReasons.length > 0 ? `${listingHoldFact(holdReasons)}.` : "Pick a listing first.");
       return;
     }
     const ok = await copyTextToClipboard(text);
@@ -141,12 +132,86 @@ function FacebookMarketplaceRow({ options }: { options: { value: string; label: 
               onChange={setListingId}
             />
           </div>
-          <Button variant="ghost" disabled={!chosen} data-attr="settings-facebook-copy-post" onClick={() => void copyPost()}>
+          <Button variant="ghost" disabled={!chosen || !text} data-attr="settings-facebook-copy-post" onClick={() => void copyPost()}>
             Copy post
           </Button>
         </>
       }
     />
+  );
+}
+
+const META_CONNECT_URL = `/api/integrations/meta/connect?returnTo=${encodeURIComponent("/portal/profile?tab=spreadsheets")}`;
+
+/** Facebook Page + Instagram post for the manager through Meta's official API once the app is approved. */
+function MetaPostingRows() {
+  const { showToast } = useAppUi();
+  const { status, refresh } = useListingChannels();
+  const live = (id: "facebook_page" | "instagram") => status?.channels.find((c) => c.id === id)?.availability === "live";
+  const meta = status?.meta;
+  const canManage = status?.canManage ?? false;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const flag = params.get("meta");
+    if (flag === "connected") showToast("Facebook connected.");
+    else if (flag === "error") showToast(params.get("reason") ?? "Could not connect Facebook.");
+  }, [showToast]);
+
+  const disconnect = async () => {
+    const res = await fetch("/api/integrations/meta/disconnect", { method: "POST", credentials: "include" });
+    showToast(res.ok ? "Facebook disconnected." : "Could not disconnect Facebook.");
+    await refresh();
+  };
+
+  const pageRow = !live("facebook_page") ? (
+    <IntegrationRow icon={Share2} tone="text-sky-600" name="Facebook Page" comingSoon dataAttr="settings-facebook-page-row" />
+  ) : meta?.connected ? (
+    <IntegrationRow
+      icon={Share2}
+      tone="text-sky-600"
+      name="Facebook Page"
+      fact={`Connected as ${meta.pageName ?? "your Page"}`}
+      factDataAttr="settings-facebook-page-fact"
+      dataAttr="settings-facebook-page-row"
+      action={canManage ? <PortalIconAction icon={Unlink} label="Disconnect Facebook" data-attr="settings-facebook-page-disconnect" onClick={() => void disconnect()} /> : undefined}
+    />
+  ) : (
+    <IntegrationRow
+      icon={Share2}
+      tone="text-sky-600"
+      name="Facebook Page"
+      fact={meta?.revoked ? "Reconnect Facebook" : "Not connected"}
+      factDataAttr="settings-facebook-page-fact"
+      dataAttr="settings-facebook-page-row"
+      action={
+        canManage ? (
+          <Button variant="ghost" data-attr="settings-facebook-page-connect" onClick={() => (window.location.href = META_CONNECT_URL)}>
+            Connect Facebook
+          </Button>
+        ) : undefined
+      }
+    />
+  );
+
+  const instagramRow = !live("instagram") ? (
+    <IntegrationRow icon={Camera} tone="text-pink-600" name="Instagram" comingSoon dataAttr="settings-instagram-row" />
+  ) : (
+    <IntegrationRow
+      icon={Camera}
+      tone="text-pink-600"
+      name="Instagram"
+      fact={meta?.connected ? (meta.igUsername ? `Connected as @${meta.igUsername}` : "No Instagram account linked to the Page") : "Not connected"}
+      factDataAttr="settings-instagram-fact"
+      dataAttr="settings-instagram-row"
+    />
+  );
+
+  return (
+    <>
+      {pageRow}
+      {instagramRow}
+    </>
   );
 }
 
@@ -163,6 +228,7 @@ export function ManagerPostingPanel() {
   return (
     <PortalSettingsGroup>
       <ZillowFeedRow propertyIds={propertyIds} />
+      <MetaPostingRows />
       <FacebookMarketplaceRow options={options} />
       <IntegrationRow icon={Building} name="Apartments.com" comingSoon dataAttr="settings-apartments-row" />
     </PortalSettingsGroup>

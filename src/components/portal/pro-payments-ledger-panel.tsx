@@ -4,7 +4,6 @@ import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import Link from "next/link";
-import { ManagerTakePaymentDialog } from "@/components/portal/manager-take-payment-dialog";
 import { downloadCsv, toSafeCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,7 +39,7 @@ import {
   RecordStatTiles,
   StatTile,
 } from "@/components/portal/portal-record-overview-kit";
-import { Ban, Bell, BadgeCheck, CalendarDays, HandCoins, RotateCcw, Trash2, Pencil, Download, ArrowUpRight } from "lucide-react";
+import { Ban, Bell, BadgeCheck, CalendarDays, RotateCcw, Settings, Trash2, Pencil, Download, ArrowUpRight } from "lucide-react";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   leaseIdForLeaseFeeCharge,
@@ -337,7 +336,6 @@ export function ManagerPaymentsLedgerPanel({
     [scheduledMessages],
   );
   const [paymentToday] = useState(() => new Date().setHours(0, 0, 0, 0));
-  const [takePaymentRow, setTakePaymentRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [offlineRow, setOfflineRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [offlineRows, setOfflineRows] = useState<DemoManagerPaymentLedgerRow[]>([]);
   // Lease fee waiver: the row being waived (or restored) and the reason the manager types.
@@ -1312,7 +1310,7 @@ export function ManagerPaymentsLedgerPanel({
       }
       if (!paid) {
         if (row.householdChargeId) {
-          actions.push({ id: "take-payment", label: "Take payment", icon: HandCoins });
+          actions.push({ id: "payment-settings", label: "Payment settings", icon: Settings });
         }
         if (isMarkableAsPaid(row)) {
           actions.push({ id: "mark-paid", label: "Mark paid offline", icon: BadgeCheck });
@@ -2256,7 +2254,6 @@ export function ManagerPaymentsLedgerPanel({
         onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}
       />
     ) : null}
-      {takePaymentRow?.householdChargeId ? <ManagerTakePaymentDialog key={takePaymentRow.householdChargeId} chargeId={takePaymentRow.householdChargeId} onClose={() => setTakePaymentRow(null)} onSubmitted={() => { setTakePaymentRow(null); onRowsChanged?.(); showToast("Payment submitted. Status updates when confirmed."); }} /> : null}
       <PortalDialog
         open={Boolean(waiveRow)}
         title={waiveRow?.restore ? "Restore lease fee" : "Waive lease fee"}
@@ -2400,7 +2397,7 @@ export function ManagerPaymentsLedgerPanel({
             }
             if (actionId === "waive-lease-fee") { setWaiveReason(""); setWaiveRow({ row: detailRow, restore: false }); return; }
             if (actionId === "restore-lease-fee") { setWaiveRow({ row: detailRow, restore: true }); return; }
-            if (actionId === "take-payment") { setTakePaymentRow(detailRow); return; }
+            if (actionId === "payment-settings") { navigate(`${listBasePath ?? "/portal"}/profile?tab=payments`); return; }
             if (actionId === "mark-paid") { setOfflineRows([]); setOfflineRow(detailRow); return; }
             if (actionId === "edit") { startEdit(detailRow); return; }
             if (actionId === "move-pending") { void moveToPending(detailRow); return; }

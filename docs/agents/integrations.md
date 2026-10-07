@@ -95,11 +95,19 @@ Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
   [`listing-syndication.md`](listing-syndication.md). Do not describe the feed's
   contents here.
 - **Facebook Marketplace is Copy post only.** There is no rental-posting API for
-  us (D11), so the row picks a listing, copies the `facebook_post` text built
-  from that listing's own facts, and opens Facebook's own composer
-  (`FACEBOOK_MARKETPLACE_CREATE_URL`). The post is published publicly, so its
-  listing link uses `resolveShareableAppOrigin` — never the preview or lane host
-  the manager happens to be on. Do not add a "post for me" action.
+  us (D11), so the row picks a listing, copies the post, and opens Facebook's own
+  composer (`FACEBOOK_MARKETPLACE_CREATE_URL`). The post text comes from the one
+  listing-site builder (`GET /api/manager/listing-channels?propertyId=`): the
+  listing's public facts plus the workspace **work number and work email**. The
+  post is published publicly, so its listing link is the canonical origin. Do not
+  add a "post for me" action.
+- **Facebook Page auto-post** and **Instagram** are the two Meta rows. They read
+  "Coming soon" (plain text, no control) until the Meta app is live
+  (`META_APP_LIVE=1`, see [`listing-syndication.md`](listing-syndication.md)).
+  Live: **Connect Facebook** (one OAuth per workspace, owner only), then
+  "Connected as <Page>" with a disconnect icon; Instagram reads "Connected as
+  @<name>" from the Page's linked account. Where each listing posts is switched
+  on the listing's Promotion › Listing sites tab, not here.
 
 ## Google
 

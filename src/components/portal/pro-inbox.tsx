@@ -95,8 +95,7 @@ import {
 import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
 import {
   useInboxRowSelection,
-  sendManualScheduledMessageNow,
-  sendAutomationScheduledMessageNow,
+  sendScheduledItemNow,
 } from "@/components/portal/portal-inbox-selection";
 import { ManagerInboxSchedulePanel } from "@/components/portal/pro-inbox-schedule-panel";
 import {
@@ -1591,7 +1590,7 @@ export const ManagerInbox = forwardRef<
   // ---- Scheduled / automated messages, INLINE in the person's thread --------
   // The old standalone Schedule table is gone; upcoming messages to this person
   // render as "Scheduled · sends <when>" cards at the tail of their conversation,
-  // cancelable / send-now / editable in place.
+  // cancelable / editable in place.
   const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
 
   const threadScheduledItems = useMemo(
@@ -1634,8 +1633,6 @@ export const ManagerInbox = forwardRef<
         }
         showToast("Scheduled send cancelled.");
         reloadScheduled();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not cancel send.");
       } finally {
         setScheduledBusyId(null);
       }
@@ -1643,17 +1640,15 @@ export const ManagerInbox = forwardRef<
     [reloadScheduled, showToast],
   );
 
-  const sendScheduledItemNow = useCallback(
+
+  const sendScheduledNow = useCallback(
     async (item: { id: string; source: "manual" | "automation" }) => {
       setScheduledBusyId(item.id);
       try {
-        if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
-        else await sendAutomationScheduledMessageNow(item.id);
+        await sendScheduledItemNow(item);
         showToast("Message sent.");
         reloadScheduled();
         reloadInbox();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not send message.");
       } finally {
         setScheduledBusyId(null);
       }
@@ -2576,12 +2571,13 @@ export const ManagerInbox = forwardRef<
             smsAvailable={activeSmsAvailable}
             channelEditable={item.editable}
             source={item.source}
+            deliveryStatus={item.deliveryStatus}
             editable={item.editable}
-            busy={scheduledBusyId === item.id || item.deliveryStatus === "sending"}
+            busy={scheduledBusyId === item.id}
             recipient={activeThread.email}
             sendAt={item.sendAt}
-            onCancel={() => { if (item.deliveryStatus !== "sending") void cancelScheduledItem(item); }}
-            onSendNow={() => { if (item.deliveryStatus !== "sending") void sendScheduledItemNow(item); }}
+            onCancel={() => cancelScheduledItem(item)}
+            onSendNow={item.editable ? () => sendScheduledNow(item) : undefined}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
           />
         ))}

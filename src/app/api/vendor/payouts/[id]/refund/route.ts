@@ -4,7 +4,7 @@ import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
-import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
+import { vendorBankingEnabled, vendorRefundsEnabled } from "@/lib/vendor-banking/flag";
 import { refundVendorPayout } from "@/lib/vendor-banking/refund.server";
 import { track } from "@/lib/analytics/posthog";
 
@@ -21,6 +21,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     if (!vendorBankingEnabled()) {
       return NextResponse.json({ error: "Vendor banking is not enabled." }, { status: 404 });
+    }
+    // Paused until the refund is rebuilt on the central refund rail
+    // (runReservedPlatformMoneyRefund): this direct path refunds a central
+    // 'hold' capture without platform_refund_attempt metadata, which the
+    // webhook refuses and which wedges the hold (financials.md: no fourth
+    // refund path). Fail closed before any Stripe call.
+    if (!vendorRefundsEnabled()) {
+      return NextResponse.json(
+        { code: "VENDOR_REFUND_PAUSED", error: "Refunds to managers are being upgraded. Message the manager for now." },
+        { status: 409 },
+      );
     }
     const access = await requireVendorApiAccess();
     if (!access.ok) {

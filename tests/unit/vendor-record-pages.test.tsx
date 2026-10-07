@@ -121,7 +121,7 @@ describe("vendor job record page", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/work-orders/wo-1");
   });
 
-  it("the rail is Service, Estimate & bid, Schedule, Invoice, Communication, with one primary next step", async () => {
+  it("the rail is Job, Money and Records, with one primary next step", async () => {
     render(
       <AppUiProvider>
         <VendorWorkOrdersPanel tabId="scheduled" workOrderId="wo-1" />
@@ -132,11 +132,13 @@ describe("vendor job record page", () => {
     const rail = screen.getByRole("navigation", { name: "Service sections" });
     const links = within(rail).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual([
-      "Service",
+      "Overview",
       "Estimate & bid",
       "Schedule",
       "Invoice",
+      "Payments",
       "Communication",
+      "Documents",
     ]);
 
     // A scheduled job's one primary is Complete; Message is the only other icon.

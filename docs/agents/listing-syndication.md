@@ -1,9 +1,14 @@
 > Moved out of AGENTS.md to keep every-session context lean. This file is the
 > source of truth for its area — READ IT BEFORE changing code in this area.
 
-# Listing syndication: Zillow Rental Network
+# Listing syndication: listing sites
 
-**Scope: Zillow Rental Network only (Zillow · Trulia · HotPads), one feed per
+> **Scope widened (2026-10-06): official APIs and feeds only, never scraping.**
+> The Zillow feed below is one channel of the "Listing sites" registry
+> (§ Listing sites: the channel registry). Everything below that section about
+> the Zillow feed is unchanged.
+
+**The Zillow Rental Network channel (Zillow · Trulia · HotPads), one feed per
 WORKSPACE, registered once with Zillow (W013).** Each listing opts in
 individually from its Review step. There is no Apartments.com feed, no lead
 ingestion (leads already arrive through tour requests + the inbox, same as
@@ -132,3 +137,94 @@ last-known status/reasons. There is no write tool — per AGENTS.md's AI Agent
 & Tool Layer contract, listing edits stay out of the agent until charge
 generation and listing normalization move server-side, and toggling
 syndication is a listing edit.
+
+## Listing sites: the channel registry
+
+`src/lib/listing-channels/` is the one registry of where a listing can be
+advertised. A channel is one of three kinds, and the UI shows exactly those
+three groups (property **Promotion › Listing sites** and the overall
+**Promotion › Listing sites** view; there is no rail tab):
+
+| Group | Channels | How it works |
+| --- | --- | --- |
+| Automatic | Zillow Rental Network (feed), Facebook Page, Instagram (Meta Graph API) | PropLane posts for the manager. Per-listing switch, default ON for a connected live channel. |
+| One-click | Facebook Marketplace, Facebook Groups, Roomster, Roomies, Furnished Finder, Craigslist | The site forbids automation. "Copy & open" copies the built post and opens the site's own create page; the manager can mark it "Posted by me". |
+| Request access | Zumper and PadMapper, Apartments.com, Apartment List, SpareRoom, Nextdoor, Google Business Profile, LinkedIn | Coming soon. The button opens a mail draft to support. Nothing posts. |
+
+**Never scraping, never headless or browser-driven posting, anywhere.** A site
+with no official API or feed is one-click or request-access, full stop.
+
+### One post builder
+
+`buildListingPostText` (`post-text.ts`) is the only place post text is made. It
+reads **`publicListingProjection` output only** (headline, address, price, beds,
+baths, rooms, a few quick facts, the first sentences of the overview, the
+public listing link) plus the workspace **work number and work email**
+(`resolveActiveManagerSendNumber` / `resolveActiveManagerWorkEmail`, server
+side, never the stored blob's copy). **No work number: nothing is built**, the
+row says "Set up work number". Each channel trims the body to its own limit and
+never cuts the link or contact lines.
+
+### Eligibility: held with a reason, never a placeholder
+
+`listingChannelEligibility` holds a listing with no street address or no real
+(https) photo. The row says "Held: no photo" / "Held: no street address".
+Instagram cannot publish without a photo, so the same rule covers it.
+
+### State and the queue: `listing_channel_posts`
+
+One row per (property, channel) (`20261006120000_listing_channel_posts.sql`):
+`enabled`, `state` (`pending | posting | posted | held | failed | off |
+posted_by_me`), `pending_action` (`publish | update | unpublish`),
+`external_id`, `last_error`, `content_hash`, `attempts`, `next_attempt_at`.
+The row is both the record and the queue.
+
+* **RLS:** client roles may only `SELECT` their own rows
+  (`manager_user_id = auth.uid()`). Every write is a server route on the
+  service role, owner-of-workspace only, with the property re-derived from the
+  stored record (`propertyInWorkspace`); an id in a body is never authorization.
+* `listing_channel_connections` holds the long-lived Meta Page token,
+  `data-encryption` envelope (same pattern as the Google calendar tokens),
+  service-role only (no client grant at all).
+* **Triggers:** `POST /api/property-records` (save, publish, unpublish, delete)
+  calls `scheduleListingChannelSync` after the write: it queues publish /
+  update (the content hash changed, e.g. a price change) / unpublish, then
+  drains the queue off the request path. `GET /api/cron/listing-channel-posts`
+  (every 5 minutes) retries with exponential backoff and gives up after 5
+  tries. A failure there never fails the save.
+* **Facebook Page:** photo post (`POST /{page-id}/photos`, caption = the built
+  text). Update = delete + repost (a photo post's caption is not editable).
+  Unpublish = `DELETE /{post-id}`.
+* **Instagram:** media container + `media_publish`; needs a photo. The API
+  cannot edit or remove a post, so update and unpublish record that and say so
+  on the row.
+* A token Meta rejects (code 190) marks the connection revoked and the row says
+  "Reconnect Facebook"; it does not retry.
+
+### Meta availability and env
+
+Facebook Page and Instagram are **Coming soon** unless `META_APP_ID` and
+`META_APP_SECRET` are set **and** `META_APP_LIVE=1`. A development-mode Meta app
+works only for the app's own admins, so a dev server may set the flag to test
+with its own Page; production leaves it unset until Meta's Business Verification
+and App Review approve PropLane.
+
+| Env | Meaning |
+| --- | --- |
+| `META_APP_ID`, `META_APP_SECRET` | The Meta app. Also key the signed OAuth state and the data-deletion `signed_request`. |
+| `META_APP_LIVE` | `1` turns the channels on. |
+| `META_GRAPH_VERSION` | Optional, default `v21.0`. |
+| `META_REDIRECT_ORIGIN` | Optional: the origin registered as the OAuth redirect (local dev). |
+
+Routes: `GET /api/integrations/meta/connect` (OAuth dialog, scopes
+`pages_manage_posts pages_read_engagement pages_show_list instagram_basic
+instagram_content_publish`), `GET /api/integrations/meta/callback` (signed
+state, 15 minutes, same signed-in manager, owned workspace),
+`POST /api/integrations/meta/disconnect`, and Meta's required
+`POST /api/integrations/meta/data-deletion` (verifies `signed_request` with the
+app secret, deletes that Meta user's tokens and posting rows, answers `{ url,
+confirmation_code }`; the status page is `/integrations/meta/data-deletion`).
+Register those two URLs in the Meta app. Coverage:
+`tests/unit/listing-channels-*.test.ts`, `meta-oauth-state.test.ts`,
+`meta-data-deletion.test.ts`, `listing-channel-posts-rls.test.ts`,
+`listing-sites-panel.test.tsx`.

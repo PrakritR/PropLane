@@ -76,7 +76,7 @@ import {
   PortalTableDetailActions,
   createPortalRowExpandClick,
 } from "@/components/portal/portal-data-table";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import type { TabItem } from "@/components/ui/tabs";
 import type { InboxThreadMessage } from "@/lib/portal-inbox-storage";
 import {
@@ -2182,25 +2182,52 @@ function scheduledSendAtToLocalInput(iso: string): string {
 function ScheduledMessageComposeFooter({
   busy,
   canSave,
+  showSave = true,
   onSave,
+  onCancelSend,
+  onSendNow,
 }: {
   busy?: boolean;
   canSave: boolean;
+  showSave?: boolean;
   onSave: () => void | Promise<void>;
+  onCancelSend?: () => void | Promise<void>;
+  onSendNow?: () => void | Promise<void>;
 }) {
   return (
-    <Button
-      type="button"
-      variant="primary"
-      className="rounded-full"
-      onClick={onSave}
-      disabled={busy || !canSave}
-      data-attr="inbox-scheduled-save"
-    >
-      {busy ? "Saving…" : "Save"}
-    </Button>
+    <div className="flex w-full items-center justify-between gap-2">
+      <div>
+        {onCancelSend ? (
+          <Button type="button" variant="danger" disabled={busy} onClick={() => onCancelSend()} data-attr="inbox-scheduled-cancel-send">
+            Cancel send
+          </Button>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        {onSendNow ? (
+          <Button type="button" variant="secondary" className="rounded-full" disabled={busy} onClick={() => onSendNow()} data-attr="inbox-scheduled-send-now">
+            Send now
+          </Button>
+        ) : null}
+        {showSave ? (
+          <Button
+            type="button"
+            variant="primary"
+            className="rounded-full"
+            onClick={() => onSave()}
+            disabled={busy || !canSave}
+            data-attr="inbox-scheduled-save"
+          >
+            Save
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
+
+/** Lets a card nested in {@link ScheduledMessageDetailModal} close its host after Cancel send / Send now. */
+const ScheduledDetailCloseContext = createContext<(() => void) | null>(null);
 
 function enhanceInboxScheduledCardFooter(
   node: ReactNode,
@@ -2230,6 +2257,12 @@ export type InboxScheduledCardProps = {
   deliverViaEmail?: boolean;
   deliverViaSms?: boolean;
   source: "manual" | "automation";
+  /**
+   * Where this send is in its life. A `sending` row is already with the
+   * dispatcher, so nothing on the card may act on it — the surfaces each used to
+   * fold that into `busy` themselves and two of them forgot.
+   */
+  deliveryStatus?: "scheduled" | "sending";
   emailAvailable?: boolean;
   smsAvailable?: boolean;
   smsDisabledReason?: string;
@@ -2243,9 +2276,16 @@ export type InboxScheduledCardProps = {
   recipient?: string;
   recipientPhone?: string;
   sendAt?: string;
-  onCancel: () => void;
-  onSendNow: () => void;
+  onCancel: () => void | Promise<void>;
+  /** Sends the scheduled message immediately; omit where a send-now is not offered. */
+  onSendNow?: () => void | Promise<void>;
   onSaveEdit?: (next: InboxScheduledSaveEdit) => void | Promise<void>;
+  /**
+   * Whether this send is still pending. Cancel send / Send now only act on a
+   * still-scheduled message, so a surface that can open a sent, cancelled or
+   * failed row must say so rather than offer a destructive confirm that no-ops.
+   */
+  scheduled?: boolean;
   showSendActions?: boolean;
   pinActionsInModalFooter?: boolean;
   onModalFooterChange?: (footer: ReactNode | null) => void;
@@ -2290,7 +2330,9 @@ export function ScheduledMessageDetailModal({
       dataAttr={dataAttr}
       footer={footer ? <ModalFooter className="w-full justify-end gap-2">{footer}</ModalFooter> : undefined}
     >
-      {enhanceInboxScheduledCardFooter(children, setFooter)}
+      <ScheduledDetailCloseContext.Provider value={onClose}>
+        {enhanceInboxScheduledCardFooter(children, setFooter)}
+      </ScheduledDetailCloseContext.Provider>
     </Modal>
   );
 }
@@ -2309,6 +2351,7 @@ export function InboxScheduledCard({
   deliverViaEmail,
   deliverViaSms,
   source: _source,
+  deliveryStatus,
   emailAvailable = true,
   smsAvailable = false,
   smsDisabledReason,
@@ -2325,6 +2368,7 @@ export function InboxScheduledCard({
   onCancel,
   onSendNow,
   onSaveEdit,
+  scheduled = true,
   showSendActions = true,
   pinActionsInModalFooter = false,
   onModalFooterChange,
@@ -2343,6 +2387,8 @@ export function InboxScheduledCard({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const canCompose = Boolean(editable && onSaveEdit);
+  const confirm = useConfirm();
+  const closeHost = useContext(ScheduledDetailCloseContext);
 
   const viewSendVia = useMemo(
     () => deliverViaEmail !== undefined || deliverViaSms !== undefined || deliverViaInbox !== undefined
@@ -2423,38 +2469,79 @@ export function InboxScheduledCard({
   };
 
   const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
-  const actionBusy = busy || saving;
+  const midSend = deliveryStatus === "sending";
+  const actionBusy = busy || saving || midSend;
   const canSave = Boolean(draftBody.trim() && draftChannelsOk);
+  const cancelEnabled = showSendActions && scheduled;
+  const sendNowEnabled = showSendActions && scheduled && Boolean(onSendNow);
+
+  /** Cancel send / Send now: run, close the pop-up on success, keep it open with the reason on failure. */
+  const runAndClose = async (action: () => void | Promise<void>, fallback: string) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await action();
+      if (presentation === "compact") closeModal();
+      else closeHost?.();
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error && e.message ? e.message : fallback);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancelSend = async () => {
+    const ok = await confirm({
+      title: "Cancel send",
+      description: "Cancel this scheduled message? It will not be sent.",
+      confirmLabel: "Cancel send",
+      note: null,
+      guard: "tap",
+    });
+    if (!ok) return;
+    await runAndClose(onCancel, "Could not cancel send.");
+  };
+
+  const sendNow = async () => {
+    if (!onSendNow) return;
+    await runAndClose(onSendNow, "Could not send that message.");
+  };
 
   // Read only from the footer's onClick, never during render, so the latest-ref
   // effect keeps it current without writing to a ref while rendering.
-  const saveEditRef = useRef(saveEdit);
+  const actionsRef = useRef({ saveEdit, cancelSend, sendNow });
   useEffect(() => {
-    saveEditRef.current = saveEdit;
+    actionsRef.current = { saveEdit, cancelSend, sendNow };
   });
+
+  const hasFooter = canCompose || cancelEnabled || sendNowEnabled;
 
   useEffect(() => {
     if (!pinActionsInModalFooter || !onModalFooterChange) return;
     onModalFooterChange(
-      canCompose ? (
+      hasFooter ? (
         <ScheduledMessageComposeFooter
           busy={actionBusy}
           canSave={canSave}
-          onSave={() => {
-            return saveEditRef.current();
-          }}
+          showSave={canCompose}
+          onSave={() => actionsRef.current.saveEdit()}
+          onCancelSend={cancelEnabled ? () => actionsRef.current.cancelSend() : undefined}
+          onSendNow={sendNowEnabled ? () => actionsRef.current.sendNow() : undefined}
         />
       ) : null,
     );
     return () => onModalFooterChange(null);
-  }, [pinActionsInModalFooter, onModalFooterChange, canCompose, actionBusy, canSave]);
+  }, [pinActionsInModalFooter, onModalFooterChange, hasFooter, canCompose, cancelEnabled, sendNowEnabled, actionBusy, canSave]);
 
-  const actionFooter = canCompose
+  const actionFooter = hasFooter
     ? (
         <ScheduledMessageComposeFooter
           busy={actionBusy}
           canSave={canSave}
+          showSave={canCompose}
           onSave={saveEdit}
+          onCancelSend={cancelEnabled ? cancelSend : undefined}
+          onSendNow={sendNowEnabled ? sendNow : undefined}
         />
       )
     : null;
@@ -2529,15 +2616,9 @@ export function InboxScheduledCard({
       }
       data-attr="inbox-scheduled-card"
     >
-      {showSendActions ? (
-        <div className="mb-2 flex justify-end gap-1">
-          <PortalIconAction icon={Send} label="Send now" disabled={actionBusy} onClick={onSendNow} />
-          <PortalIconAction icon={X} label="Cancel send" disabled={actionBusy} onClick={onCancel} />
-        </div>
-      ) : null}
       {composeBody}
       {!pinFooterActions && actionFooter ? (
-        <div className="mt-2.5 flex justify-end">{actionFooter}</div>
+        <div className="mt-2.5 flex w-full justify-end">{actionFooter}</div>
       ) : null}
     </div>
   );
@@ -2659,25 +2740,8 @@ export function InboxScheduledThreadList({
       subject?: string;
       sendLabel?: string;
       source?: "manual" | "automation";
-      onSendNow?: () => void;
-      busy?: boolean;
-      showSendActions?: boolean;
     };
     const rowProps = (child: (typeof childArray)[number]) => (child as React.ReactElement<BarRowProps>).props;
-    const sendNowButton = (props: BarRowProps) =>
-      props.onSendNow && props.showSendActions !== false ? (
-        <button
-          type="button"
-          className="mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-full text-primary hover:bg-primary/10 disabled:opacity-40"
-          aria-label="Send now"
-          title="Send now"
-          data-attr="inbox-scheduled-bar-send"
-          disabled={props.busy}
-          onClick={() => props.onSendNow?.()}
-        >
-          <Send className="h-4 w-4" strokeWidth={2} aria-hidden />
-        </button>
-      ) : null;
     // Several sends collapse into ONE Reminder row (next send + "+N more");
     // a click expands the full list in place. Display only — the list, its
     // order and every per-row action are unchanged.
@@ -2731,7 +2795,6 @@ export function InboxScheduledThreadList({
                       </span>
                       <span className="shrink-0 text-[12px] text-muted">{props.sendLabel}</span>
                     </button>
-                    {sendNowButton(props)}
                   </div>
                 );
               })
