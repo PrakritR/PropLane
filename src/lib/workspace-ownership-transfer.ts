@@ -80,7 +80,7 @@ export async function transferWorkspaceOwnership(
 
   const { data: memberRow, error: memberErr } = await db
     .from("account_link_invites")
-    .select("id")
+    .select("id, team_role")
     .eq("inviter_user_id", currentOwnerUserId)
     .eq("invitee_user_id", newOwnerUserId)
     .eq("workspace_id", workspaceId)
@@ -89,6 +89,11 @@ export async function transferWorkspaceOwnership(
   if (memberErr) return { ok: false, error: memberErr.message, status: 500 };
   if (!memberRow?.id) {
     return { ok: false, error: "That person isn't a member of this workspace.", status: 404 };
+  }
+
+  // A Property owner is a read-only statements reader, never a manager.
+  if ((memberRow as { team_role?: unknown }).team_role === "property_owner") {
+    return { ok: false, error: "A Property owner can't take over a workspace.", status: 409 };
   }
 
   const [{ data: currentOwnerProfile }, { data: newOwnerProfile }] = await Promise.all([

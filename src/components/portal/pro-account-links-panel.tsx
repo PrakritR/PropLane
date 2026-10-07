@@ -1345,12 +1345,14 @@ export function ProAccountLinksPanel({
   const findWorkspaceMemberForEntry = useCallback(
     (entry: TeamListEntry): { workspace: PortalWorkspace; member: WorkspaceMember } | null => {
       if (entry.kind !== "remote" || entry.invite.status !== "accepted") return null;
+      // A Property owner reads statements; they are never a manager to promote.
+      if (entry.invite.teamRole === "property_owner") return null;
       const workspace = (workspaces?.workspaces ?? []).find((w) => w.id === entry.invite.workspaceId);
       if (!workspace || !workspace.owned) return null;
       const member =
         (workspace.members ?? []).find((m) => m.linkId === entry.invite.id) ??
         (workspace.members ?? []).find((m) => m.userId === entry.invite.linkedUserId);
-      if (!member) return null;
+      if (!member || member.role === "property_owner") return null;
       return { workspace, member };
     },
     [workspaces],

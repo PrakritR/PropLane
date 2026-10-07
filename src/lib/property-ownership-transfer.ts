@@ -118,6 +118,10 @@ export async function transferPropertyOwnership(
     return { ok: false, error: "That manager must be a linked co-manager first.", status: 400 };
   }
 
+  if ((linkRow as { team_role?: unknown }).team_role === "property_owner") {
+    return { ok: false, error: "A Property owner can't take over a property.", status: 409 };
+  }
+
   const assigned = asStringArray(linkRow.assigned_property_ids);
   if (!assigned.includes(propertyId)) {
     return { ok: false, error: "That co-manager is not assigned to this property.", status: 400 };
