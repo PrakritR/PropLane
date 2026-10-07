@@ -154,7 +154,7 @@ const PROPERTIES = [
   {
     id: "mgr-ngt-ravenna",
     name: "Ravenna Craftsman",
-    address: "5412 17th Ave NE, Seattle, WA 98105",
+    address: "5412 17th Ave NE, Seattle, WA",
     zip: "98105",
     neighborhood: "Ravenna",
     tagline: "Sunny craftsman a few blocks from Green Lake.",
@@ -171,7 +171,7 @@ const PROPERTIES = [
   {
     id: "mgr-ngt-ballard",
     name: "Ballard Bungalow",
-    address: "6718 24th Ave NW, Seattle, WA 98117",
+    address: "6718 24th Ave NW, Seattle, WA",
     zip: "98117",
     neighborhood: "Ballard",
     tagline: "Bungalow near the Ballard Locks.",
@@ -188,7 +188,7 @@ const PROPERTIES = [
   {
     id: "mgr-ngt-fremont",
     name: "Fremont Flats",
-    address: "3614 Phinney Ave N, Seattle, WA 98103",
+    address: "3614 Phinney Ave N, Seattle, WA",
     zip: "98103",
     neighborhood: "Fremont",
     tagline: "Two-room flat steps from the Fremont canal.",
@@ -201,7 +201,7 @@ const PROPERTIES = [
   {
     id: "mgr-ngt-beacon",
     name: "Beacon Hill House",
-    address: "2915 15th Ave S, Seattle, WA 98144",
+    address: "2915 15th Ave S, Seattle, WA",
     zip: "98144",
     neighborhood: "Beacon Hill",
     tagline: "Light-rail house with a big shared kitchen.",
@@ -218,7 +218,7 @@ const PROPERTIES = [
   {
     id: "mgr-ngt-capitol",
     name: "Capitol Hill Loft",
-    address: "1420 E Union St, Seattle, WA 98122",
+    address: "1420 E Union St, Seattle, WA",
     zip: "98122",
     neighborhood: "Capitol Hill",
     tagline: "Top-floor loft on Capitol Hill.",
@@ -231,7 +231,7 @@ const PROPERTIES = [
   {
     id: "mgr-ngt-columbia",
     name: "Columbia City Duplex",
-    address: "4807 Rainier Ave S, Seattle, WA 98118",
+    address: "4807 Rainier Ave S, Seattle, WA",
     zip: "98118",
     neighborhood: "Columbia City",
     tagline: "Duplex on Rainier Ave, near the light rail.",
