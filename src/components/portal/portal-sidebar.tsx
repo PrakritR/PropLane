@@ -184,12 +184,12 @@ function portalBrandCopy(kind: PortalKind): { subtitle: string; ariaLabel: strin
 
 function navLinkClass(active: boolean, locked?: boolean) {
   return [
-    "group relative flex min-h-8 items-center justify-between gap-2 rounded-[8px] px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.01em] transition-colors duration-150",
+    "group relative flex min-h-8 items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[14.5px] font-medium leading-5 tracking-[-0.01em] transition-colors duration-150",
     active
-      ? "bg-[var(--secondary)] text-foreground"
+      ? "bg-[var(--portal-active-bg,var(--secondary))] font-semibold text-primary"
       : locked
-        ? "text-muted/70 hover:bg-[var(--secondary)]/60 hover:text-muted"
-        : "text-muted hover:bg-[var(--secondary)]/60 hover:text-foreground",
+        ? "text-muted/70 hover:bg-[var(--portal-active-bg,var(--secondary))]/70 hover:text-muted"
+        : "text-muted hover:bg-[var(--portal-active-bg,var(--secondary))]/70 hover:text-primary",
   ].join(" ");
 }
 
@@ -645,7 +645,7 @@ export function PortalSidebar({
           inert ? "cursor-not-allowed " : ""
         }${
           active
-            ? "bg-[var(--glass-fill)] text-foreground shadow-[inset_0_0_0_1px_var(--glass-border)] ring-1 ring-primary/20 [html[data-theme=light]_&]:bg-card [html[data-theme=light]_&]:shadow-[var(--shadow-sm)]"
+            ? "bg-[var(--glass-fill)] text-foreground shadow-[inset_0_0_0_1px_var(--glass-border)] ring-1 ring-primary/20 [html[data-theme=light]_&]:bg-[var(--portal-active-bg,var(--card))] [html[data-theme=light]_&]:font-bold [html[data-theme=light]_&]:text-primary [html[data-theme=light]_&]:shadow-none"
             : locked
               ? "bg-accent/35 text-muted ring-1 ring-transparent [html[data-theme=dark]_&]:text-white/55"
               : "bg-accent/50 text-muted ring-1 ring-transparent hover:bg-accent hover:text-foreground [html[data-theme=dark]_&]:text-white/78"
@@ -838,7 +838,7 @@ export function PortalSidebar({
     const railClass = cn(
       "relative grid h-9 w-9 place-items-center rounded-[8px] transition-colors duration-150",
       active
-        ? "bg-[var(--secondary)] text-primary"
+        ? "bg-[var(--portal-active-bg,var(--secondary))] text-primary"
         : locked
           ? "cursor-not-allowed text-muted/60"
           : "text-muted hover:bg-[var(--secondary)]/60 hover:text-foreground",
@@ -904,7 +904,7 @@ export function PortalSidebar({
   const desktopAside = (
     <aside
       className={cn(
-        "relative z-40 hidden h-full min-h-0 shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-background glass-nav lg:flex",
+        "relative z-40 hidden h-full min-h-0 shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg,var(--background))] glass-nav lg:flex",
         collapsed ? "w-[58px]" : "w-[224px]",
       )}
     >
@@ -951,9 +951,9 @@ export function PortalSidebar({
           >
             <AxisLogoMark size="compact" />
             <span className="min-w-0 leading-tight">
-              <span className="block text-[14px] font-semibold tracking-[-0.02em] text-foreground">PropLane</span>
-              <span className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-[var(--secondary)] px-1.5 py-[2px] text-[9.5px] font-semibold uppercase tracking-[0.11em] text-muted">
-                <span className="h-1 w-1 shrink-0 rounded-full bg-primary" aria-hidden />
+              <span className="block text-[15px] font-bold tracking-[-0.03em] text-foreground">PropLane</span>
+              <span className="mt-0.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-muted">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#23936c]" aria-hidden />
                 {headerSubtitle}
               </span>
             </span>
@@ -993,7 +993,7 @@ export function PortalSidebar({
               )}
             >
               {group.label ? (
-                <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted/60">
+                <p className="px-2.5 pb-1 pt-3 text-[11px] font-extrabold uppercase leading-[15px] tracking-[0.09em] text-muted">
                   {group.label}
                 </p>
               ) : null}
@@ -1026,7 +1026,7 @@ export function PortalSidebar({
         <HelpCircle className="h-[19px] w-[19px] shrink-0 lg:mt-0.5" aria-hidden />
         {collapsed ? null : (
           <span className="min-w-0">
-            <span className="block text-[13px] font-semibold text-foreground">Need help?</span>
+            <span className="block text-[13.5px] font-semibold text-foreground">Need help?</span>
             <span className="block text-[12px]">Help center and feedback</span>
           </span>
         )}

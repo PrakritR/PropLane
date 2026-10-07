@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 /** Compact portal page header — title scrolls on mobile; not a fixed chrome bar. */
 export const PAGE_HEADER_TITLE_CLASS =
-  "min-w-0 truncate text-lg font-semibold tracking-[-0.02em] text-foreground sm:text-xl lg:text-[1.35rem]";
+  "min-w-0 truncate text-xl font-normal tracking-[-0.035em] text-foreground sm:text-2xl lg:text-[1.75rem]";
 
 export const PAGE_HEADER_COUNT_CLASS =
   "shrink-0 rounded-full bg-accent px-2 py-0.5 text-xs font-semibold tabular-nums text-muted";

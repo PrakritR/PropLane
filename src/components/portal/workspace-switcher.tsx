@@ -96,7 +96,7 @@ export function WorkspaceSwitcher({
   // label beside it and in the switcher menu below.
   const avatar = (
     <span
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10"
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-[var(--portal-active-bg,rgba(40,99,240,0.1))]"
       aria-hidden
     >
       <AxisLogoGlyph size="micro" />
@@ -138,8 +138,8 @@ export function WorkspaceSwitcher({
       <button
         type="button"
         className={cn(
-          "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1.5 text-left outline-none transition",
-          "hover:bg-[var(--secondary)]/70 focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-70",
+          "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-[10px] border border-border bg-card px-1.5 py-1.5 text-left outline-none transition",
+          "hover:border-primary/30 hover:bg-[var(--portal-active-bg,var(--secondary))]/50 focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-70",
         )}
         aria-label={`Switch workspace: ${name}`}
         disabled={ctx.loading}
@@ -153,9 +153,9 @@ export function WorkspaceSwitcher({
               aria-hidden
             />
           ) : (
-            <span className="block truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">{name}</span>
+            <span className="block truncate text-[14px] font-semibold tracking-[-0.03em] text-foreground">{name}</span>
           )}
-          {meta ? <span className="block truncate text-[10.5px] text-muted">{meta}</span> : null}
+          {meta ? <span className="block truncate text-[11px] text-muted">{meta}</span> : null}
         </span>
         <ChevronDown className="size-3.5 shrink-0 text-muted" aria-hidden />
       </button>
