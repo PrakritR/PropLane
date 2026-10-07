@@ -11,6 +11,7 @@ import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import { managerMayMessageOwner, ownerInviteeIdsForManagers } from "@/lib/property-owner/access.server";
 
 /** Shared singleton holding every manager's tour inquiries (see tour-inquiry.server). */
 const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
@@ -481,11 +482,15 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
     // Authoritative sources only (accepted account links, linked vendors,
     // applications / leases / tours the resident or system wrote), narrowed to
     // the active workspace and the houses this sender is granted.
-    const [coManagerIds, pendingInviteeIds, inviterIdsForInvitee, linkedVendors] = await Promise.all([
+    const [coManagerIds, pendingInviteeIds, inviterIdsForInvitee, linkedVendors, ownerInviteeIds] = await Promise.all([
       accountLinkCoManagerIdsForManagers(db, [sender.id], reach?.activeWorkspaceId ?? null),
       pendingAccountLinkInviteeIdsForManagers(db, [sender.id]),
       coManagerInviterIdsForInvitee(db, sender.id),
       linkedVendorsForManagers(db, [sender.id]),
+      // A Property owner is not a teammate (`withoutOwnerLinks` strips the row
+      // everywhere above), so answering the thread they opened needs its own
+      // allowance: candidates here, each one decided by the membership below.
+      ownerInviteeIdsForManagers(db, [sender.id]),
     ]);
     const coManagers = new Set<string>();
     if (coManagerIds.size > 0) {
@@ -501,6 +506,15 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
         if (recipient.userId && pendingInviteeIds.has(recipient.userId)) return true;
         if (recipient.userId && inviterIdsForInvitee.has(recipient.userId)) return true;
         if (recipient.userId && linkedVendors.userIds.has(recipient.userId)) return true;
+        // Only while the owner's OWN membership has Messages on for a house of
+        // this manager's - the mirror of the owner's send, resolved server-side.
+        if (
+          recipient.userId &&
+          ownerInviteeIds.has(recipient.userId) &&
+          (await managerMayMessageOwner(db, sender.id, recipient.userId))
+        ) {
+          return true;
+        }
         const email = recipient.email.trim().toLowerCase();
         if (!email) return false;
         if (email === ADMIN_EMAIL) return true;

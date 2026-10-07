@@ -88,8 +88,10 @@ async function managerMayUseWorkspace(db: Db, managerUserId: string, workspaceOw
     .eq("invitee_user_id", managerUserId)
     .eq("inviter_user_id", workspaceOwnerId)
     .eq("status", "accepted")
-    .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
-    .limit(1));
+    .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`));
+  // No `.limit`: the Property owner rows are dropped from the result in JS (so
+  // a legacy NULL `team_role` row still passes), and a limit of 1 could be
+  // spent on an owner row - answering "not a member" for a real co-manager.
   return !error && Array.isArray(data) && data.length > 0;
 }
 

@@ -301,11 +301,20 @@ describe("a texted link", () => {
     expect((await resolvePublicServiceByToken(asDb(), token))?.state).toBe("closed");
   });
 
-  it("sign-up via the token creates the roster row (with the texted phone) and a sent offer, and opens bidding", async () => {
+  it("sign-up via the token creates the roster row (texted phone held as linkPhone) and a sent offer, and opens bidding", async () => {
     const { token } = await mint("+14252240508");
     const result = await redeemServiceShareLink(asDb(), { userId: VENDOR, role: "vendor" }, { token, choice: "bid" });
     expect(result).toMatchObject({ ok: true, workOrderId: "wo-1", choice: "bid", alreadyHeld: false });
-    expect(db.tables.manager_vendor_records![0]!.row_data).toMatchObject({ origin: "service_link", phone: "+14252240508", email: "", contactHeldUntilBid: true });
+    // The texted number is the manager's typing, and a link can be forwarded:
+    // it is shown back as `linkPhone` and is not identity until verified.
+    expect(db.tables.manager_vendor_records![0]!.row_data).toMatchObject({
+      origin: "service_link",
+      phone: "",
+      linkPhone: "+14252240508",
+      phoneVerified: false,
+      email: "",
+      contactHeldUntilBid: true,
+    });
     expect(db.tables.work_order_vendor_offers![0]).toMatchObject({ work_order_id: "wo-1", vendor_user_id: VENDOR, status: "sent" });
     expect((db.tables.portal_work_order_records![0]!.row_data as Row).biddingOpen).toBe(true);
     expect(db.tables.service_share_links![0]).toMatchObject({ redeemed_by_user_id: VENDOR });

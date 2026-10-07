@@ -313,6 +313,13 @@ stranger may read) is in [`vendor-portal.md`](vendor-portal.md) § The work boar
   text link** or **From the work board**, and **Contact shown after they bid** until the vendor's first submitted bid
   releases it (`contactHeldUntilBid` on the roster row, `revealHeldVendorContact`). Estimates and messages do not.
   The manager removes a request like any other (`remove_request`); a removed vendor cannot ask again.
+- **The texted number never becomes the redeemer's phone.** A link can be forwarded, so whoever redeems it has not been
+  shown to hold the number the manager typed: the roster row stores it as `row_data.linkPhone` with
+  `phoneVerified: false`, and only `serviceLinkPhoneVerificationHook` returning true promotes it to `row_data.phone`.
+  That matters because `phone` is identity to the inbound pipeline - `findVendorByPhone` and
+  `resolveVendorNumberSenderPhone` skip any `origin: "service_link"` row that is not `phoneVerified`
+  (`rosterPhoneIdentifiesVendor`) and read in a deterministic order, so a forwarded link cannot file the real
+  recipient's texts under someone else's vendor account (`tests/unit/service-link-phone-binding.test.ts`).
 - **Never public:** the street address, unit, resident, entry notes and any cost. The public page, the text itself and
   the board all read `publicServiceProjection` (an allowlist; `tests/unit/public-service-projection.test.ts`). The address
   reaches a vendor only after hire, through the existing hired-vendor row.

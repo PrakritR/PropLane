@@ -18,6 +18,12 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
  * `getOwnerAccessState` and the owner membership, not by this role row.
  *
  * Idempotent. The user id comes from the authenticated redeemer, never a body.
+ *
+ * `profiles.role` is the role the account was CREATED as (a legacy, singular
+ * column - authorization reads `profile_roles`), so an existing resident or
+ * vendor keeps theirs: accepting an owner invite must not rewrite a resident
+ * account into a "manager" one. Only a brand-new profile is stamped, and only
+ * so legacy readers that still consult the column can find the portal shell.
  */
 export async function provisionOwnerOnlyAccess(
   db: SupabaseClient,
@@ -29,11 +35,12 @@ export async function provisionOwnerOnlyAccess(
     .eq("id", user.id)
     .maybeSingle();
   const email = (user.email ?? "").trim().toLowerCase();
+  const existingRole = String((existing?.role as string | undefined) ?? "").trim();
   const { error } = await db.from("profiles").upsert(
     {
       id: user.id,
       ...(email ? { email } : {}),
-      role: primaryRoleWhenAddingManager(existing?.role as string | undefined),
+      role: existingRole || primaryRoleWhenAddingManager(null),
       full_name: (existing?.full_name as string | null)?.trim() || user.fullName?.trim() || null,
       application_approved: existing?.application_approved ?? true,
     },

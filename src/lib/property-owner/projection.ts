@@ -76,7 +76,10 @@ export type OwnerStatementRow = {
   distributionCents: number;
 };
 
-export type OwnerStatements = { rows: OwnerStatementRow[] };
+/** A house the owner may see statements for: the Statements page's own tab list. */
+export type OwnerStatementHouse = { propertyId: string; label: string };
+
+export type OwnerStatements = { rows: OwnerStatementRow[]; houses: OwnerStatementHouse[] };
 
 export type OwnerDocumentRow = {
   id: string;

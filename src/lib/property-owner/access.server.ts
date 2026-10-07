@@ -118,6 +118,51 @@ export function grantedHouses(
   return out;
 }
 
+/**
+ * Accepted Property owner memberships this manager granted, as invitee user
+ * ids. A candidate list only: `managerMayMessageOwner` decides each one.
+ */
+export async function ownerInviteeIdsForManagers(db: SupabaseClient, managerIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const inviters = [...new Set(managerIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+  if (inviters.length === 0) return out;
+  const { data, error } = await db
+    .from("account_link_invites")
+    .select("invitee_user_id, team_role")
+    .in("inviter_user_id", inviters)
+    .eq("status", "accepted")
+    .eq("team_role", "property_owner");
+  if (error) return out;
+  for (const row of (data ?? []) as { invitee_user_id?: unknown }[]) {
+    const id = String(row.invitee_user_id ?? "").trim();
+    if (id) out.add(id);
+  }
+  return out;
+}
+
+/**
+ * May this manager write to this Property owner's thread? Only when the owner's
+ * OWN membership has Messages on for a house of this manager's. Resolved from
+ * the membership (`loadOwnerGrants`), never from the request: it is the mirror
+ * of `sendOwnerMessage`, so the thread the owner opened can be answered and
+ * nothing else about the owner is reachable.
+ */
+export async function managerMayMessageOwner(
+  db: SupabaseClient,
+  managerUserId: string,
+  ownerUserId: string,
+): Promise<boolean> {
+  const manager = managerUserId.trim();
+  const owner = ownerUserId.trim();
+  if (!manager || !owner) return false;
+  try {
+    const grants = await loadOwnerGrants(db, owner);
+    return grantedHouses(grants, "messages").some((house) => house.managerUserId === manager);
+  } catch {
+    return false;
+  }
+}
+
 export type OwnerAccessState = {
   /** Has at least one accepted (not revoked) Property owner membership. */
   hasOwnerAccess: boolean;
@@ -133,6 +178,14 @@ export type OwnerAccessState = {
 
 const NONE: OwnerAccessState = { hasOwnerAccess: false, ownerOnly: false, messagesOn: false };
 
+/** The owner membership could not be read, so nothing may be decided from it. */
+export class OwnerAccessUnavailableError extends Error {
+  constructor() {
+    super("Could not verify your account.");
+    this.name = "OwnerAccessUnavailableError";
+  }
+}
+
 async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Promise<OwnerAccessState> {
   const uid = userId.trim();
   if (!uid) return NONE;
@@ -147,7 +200,11 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
     .eq("invitee_user_id", uid)
     .eq("team_role", "property_owner")
     .in("status", ["accepted", "cancelled"]);
-  if (error || !ownerRows || ownerRows.length === 0) return NONE;
+  // A read error is not "no owner row": answering NONE would hand an owner-only
+  // account the manager shell and let `refuseOwnerOnly` wave it through. The
+  // callers turn this into a denial (503 / no manager context), never access.
+  if (error) throw new OwnerAccessUnavailableError();
+  if (!ownerRows || ownerRows.length === 0) return NONE;
   const hasActiveOwner = ownerRows.some((r) => r.status === "accepted");
 
   const [own, teammate, purchase, roles] = await Promise.all([

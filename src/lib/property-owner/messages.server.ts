@@ -37,25 +37,33 @@ export async function loadOwnerConversations(
   const allowed = messagingGrants(grants);
   if (allowed.length === 0) return out;
   const me = await emailOf(db, ownerUserId);
+  // The owner's own inbox rows, read ONCE: the query never depended on the
+  // membership (only on the owner), and the per-manager narrowing below is the
+  // counterparty comparison.
+  const { data, error } = await db
+    .from("portal_inbox_thread_records")
+    .select("row_data, participant_email, created_at")
+    .eq("scope", MANAGER_INBOX_SCOPE)
+    .eq("owner_user_id", ownerUserId)
+    .limit(200);
+  if (error) throw new Error("Could not load messages.");
+  // Rows oldest first; within a row the root comes before its later turns.
+  // (Turn `at` labels are display strings, so they are never sorted on.)
+  const rows = [...(data ?? [])].sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
   for (const grant of allowed) {
     const manager = await emailOf(db, grant.managerUserId);
     const messages: OwnerMessage[] = [];
     if (manager.email) {
-      const { data, error } = await db
-        .from("portal_inbox_thread_records")
-        .select("row_data, participant_email, created_at")
-        .eq("scope", MANAGER_INBOX_SCOPE)
-        .eq("owner_user_id", ownerUserId)
-        .limit(200);
-      if (error) throw new Error("Could not load messages.");
-      // Rows oldest first; within a row the root comes before its later turns.
-      // (Turn `at` labels are display strings, so they are never sorted on.)
-      const rows = [...(data ?? [])].sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
       for (const row of rows) {
         const rowData = (row.row_data ?? {}) as { messages?: unknown; email?: unknown; body?: unknown; folder?: unknown; id?: unknown };
-        // Only the counterparty is this manager: the thread's participant, or (a
-        // one-message row the inbox writes per send) the address on the row.
-        const counterparty = String(row.participant_email ?? rowData.email ?? "").trim().toLowerCase();
+        // Only the counterparty is this manager. `row_data.email` is the person
+        // the thread is WITH on BOTH copies; `participant_email` is the owner's
+        // own address on a received row, so it is a fallback only and never
+        // when it is the owner themselves (that is what hid the manager's
+        // replies from the owner's own thread).
+        const onRow = String(rowData.email ?? "").trim().toLowerCase();
+        const participant = String(row.participant_email ?? "").trim().toLowerCase();
+        const counterparty = onRow || (participant && participant !== me.email ? participant : "");
         if (counterparty !== manager.email) continue;
         // The row's own body is the first turn (`folder` says which side wrote
         // it); later turns of the same conversation append to `messages`.

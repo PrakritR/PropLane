@@ -7,16 +7,22 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { formatOwnerUsd, ownerMonthLabel, useOwnerFetch } from "@/components/owner/owner-data";
 import { OwnerBand, OwnerEmpty, OwnerError, OwnerLoading, OwnerPageTitle } from "@/components/owner/owner-ui";
-import type { OwnerStatements, OwnerSummary } from "@/lib/property-owner/projection";
+import type { OwnerStatementHouse, OwnerStatements } from "@/lib/property-owner/projection";
 import { cn } from "@/lib/utils";
 
 /** Screen 5: Statements — one row per month, the PDF behind a Download icon. */
 export function OwnerStatementsPage() {
   const [propertyId, setPropertyId] = useState<string>("");
-  const houses = useOwnerFetch<OwnerSummary>("/api/owner/summary");
-  const url = propertyId ? `/api/owner/statements?propertyId=${encodeURIComponent(propertyId)}` : "/api/owner/statements";
-  const { data, loading, error, reload } = useOwnerFetch<OwnerStatements>(url);
-  const tabs = houses.data?.properties ?? [];
+  // The whole-portfolio response is both the "All houses" rows and the tab list:
+  // the houses come from the STATEMENTS grant, so a house granted Performance
+  // but not Statements never shows a tab that 404s, and an owner with
+  // Statements and no Performance still gets a per-house filter.
+  const all = useOwnerFetch<OwnerStatements>("/api/owner/statements");
+  const filtered = useOwnerFetch<OwnerStatements>(
+    propertyId ? `/api/owner/statements?propertyId=${encodeURIComponent(propertyId)}` : null,
+  );
+  const { data, loading, error, reload } = propertyId ? filtered : all;
+  const tabs: OwnerStatementHouse[] = all.data?.houses ?? [];
   const download = (month: string) => {
     const q = new URLSearchParams({ month });
     if (propertyId) q.set("propertyId", propertyId);

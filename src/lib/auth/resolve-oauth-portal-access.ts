@@ -173,7 +173,12 @@ export async function resolveOAuthPortalRedirect(
     // An owner-only account (Property owner invite, no plan of its own) has the
     // `manager` role row only as the host for /portal/owner. Never send it to
     // the plan chooser: a generic sign-in lands on the owner Overview.
-    if (isGenericOAuthContinuePath(safeIntended) && (await ownerAccessStateFor(supabase, user.id)).ownerOnly) {
+    // Destination only, so a membership that cannot be read keeps the normal
+    // manager routing; the portal layout is what actually withholds the shell.
+    const ownerOnly = await ownerAccessStateFor(supabase, user.id)
+      .then((state) => state.ownerOnly)
+      .catch(() => false);
+    if (isGenericOAuthContinuePath(safeIntended) && ownerOnly) {
       return finish("/portal/owner");
     }
     if (await managerNeedsPricingSelection(supabase, user.id, email)) {

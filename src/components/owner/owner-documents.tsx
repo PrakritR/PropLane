@@ -7,6 +7,7 @@ import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useOwnerFetch } from "@/components/owner/owner-data";
 import { OwnerEmpty, OwnerError, OwnerLoading, OwnerPageTitle } from "@/components/owner/owner-ui";
+import { formatPacificDate } from "@/lib/pacific-time";
 import type { OwnerDocumentRow } from "@/lib/property-owner/projection";
 
 function formatBytes(bytes: number): string {
@@ -55,7 +56,7 @@ export function OwnerDocumentsPage() {
               facts={
                 <span>
                   {doc.mimeType === "application/pdf" ? "PDF" : "File"} · {formatBytes(doc.sizeBytes)} ·{" "}
-                  {new Date(doc.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  {formatPacificDate(doc.createdAt, { month: "short", day: "numeric", year: "numeric" })}
                 </span>
               }
               onOpen={() => void open(doc)}

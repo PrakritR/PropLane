@@ -19,7 +19,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { OwnerPortalShell } from "@/components/owner/owner-portal-shell";
 import { getOwnerAccessState } from "@/lib/property-owner/access.server";
-import { ownerRedirectFor } from "@/lib/property-owner/sections";
+import { OWNER_HOME_PATH, ownerRedirectFor } from "@/lib/property-owner/sections";
 import { assertPropertyPortalAccess } from "@/lib/auth/portal-access";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import {
@@ -52,7 +52,11 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
     const owner = await getOwnerAccessState(session.user.id);
     if (owner.ownerOnly) {
       const pathname = (await headers()).get("x-pathname") ?? "";
-      const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn) : null;
+      // No path to judge means we cannot say this page is one of theirs, so the
+      // requested manager page must not render inside the owner chrome: send
+      // them to their Overview instead (middleware stamps the header on every
+      // matched request, so this is the never-happens branch failing closed).
+      const target = pathname ? ownerRedirectFor(pathname, owner.messagesOn) : OWNER_HOME_PATH;
       if (target) redirect(target);
       return <OwnerPortalShell messagesOn={owner.messagesOn}>{children}</OwnerPortalShell>;
     }

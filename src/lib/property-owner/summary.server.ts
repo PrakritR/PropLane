@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { pacificCalendarMonthKey } from "@/lib/pacific-time";
 import { grantedHouses, type OwnerGrant } from "@/lib/property-owner/access.server";
 import {
   monthEnd,
@@ -107,7 +108,9 @@ export async function loadOwnerSummary(
   grants: OwnerGrant[],
   input: { period: string | null; propertyId?: string | null },
 ): Promise<OwnerSummary> {
-  const today = new Date().toISOString().slice(0, 7);
+  // The product buckets money by PACIFIC calendar month, and the owner's net
+  // must line up with the manager's Profitability report for the same month.
+  const today = pacificCalendarMonthKey(Date.now());
   const period = input.period == null || input.period === "" ? today : parseOwnerPeriod(input.period);
   if (!period) throw new OwnerScopeError("Choose a month like 2026-10.");
 
@@ -180,22 +183,36 @@ export async function loadOwnerStatements(
     houses = houses.filter((h) => h.propertyId === requested);
     if (houses.length === 0) throw new OwnerScopeError();
   }
-  if (houses.length === 0) return { rows: [] };
+  if (houses.length === 0) return { rows: [], houses: [] };
   const count = Math.min(24, Math.max(1, Math.floor(input.months ?? 12)));
-  const keys = ownerMonthKeys(new Date().toISOString().slice(0, 7), count);
+  const keys = ownerMonthKeys(pacificCalendarMonthKey(Date.now()), count);
   const byManager = groupByManager(houses);
-  const rows: OwnerStatementRow[] = [];
-  for (const month of keys) {
-    let cents = 0;
-    for (const [managerUserId, propertyIds] of byManager) {
-      const report = await queryOwnerStatement(db, managerUserId, {
-        from: monthStart(month),
-        to: monthEnd(month),
-        workspacePropertyIds: propertyIds,
-      });
-      cents += dollarsToCents(String(report.meta?.distribution ?? "$0.00"));
-    }
-    rows.push({ month, houses: houses.length, distributionCents: cents });
-  }
-  return { rows: rows.reverse() };
+  // One statement query per month per manager, all in flight at once: a dozen
+  // months used to run as a dozen serial round trips of three reads each.
+  const months = await Promise.all(
+    keys.map(async (month) => {
+      const perManager = await Promise.all(
+        [...byManager].map(async ([managerUserId, propertyIds]) => {
+          const report = await queryOwnerStatement(db, managerUserId, {
+            from: monthStart(month),
+            to: monthEnd(month),
+            workspacePropertyIds: propertyIds,
+          });
+          return dollarsToCents(String(report.meta?.distribution ?? "$0.00"));
+        }),
+      );
+      return { month, houses: houses.length, distributionCents: perManager.reduce((sum, c) => sum + c, 0) };
+    }),
+  );
+  const rows: OwnerStatementRow[] = months.reverse();
+  // The house filter on the Statements page is built from THIS grant, never
+  // from the performance-scoped summary: a house the owner may see statements
+  // for is exactly a tab here, and nothing else is.
+  const labels = await Promise.all(
+    [...byManager].map(async ([managerUserId, propertyIds]) => {
+      const display = await loadManagerReportDisplayContext(db, managerUserId);
+      return propertyIds.map((propertyId) => ({ propertyId, label: display.propertyLabel(propertyId) }));
+    }),
+  );
+  return { rows, houses: labels.flat() };
 }

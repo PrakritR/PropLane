@@ -1,15 +1,75 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 // An owner-only account holds the manager role row only to host /portal/owner.
-// Every manager-surface route must either refuse it (403) or be listed here as
-// a conscious exemption. A new manager route that does neither is a leak.
+// A manager-surface route must refuse it (403). Almost all of them inherit that
+// from their auth helper, so the enumeration below walks `src/app/api/**` and
+// fails a route that authenticates through a manager helper which is NOT
+// owner-aware unless the route refuses on its own or is listed as exempt.
 const read = (p: string) => readFileSync(p, "utf8");
 
+const API_ROOT = path.resolve(__dirname, "../../src/app/api");
+
+/** Every manager auth entry point a route may use, and whether IT refuses an owner-only account. */
+const MANAGER_AUTH_HELPERS: { name: string; ownerAware: boolean; provenBy: string }[] = [
+  { name: "requireManagerRouteUser", ownerAware: true, provenBy: "src/lib/manager-route-guard.server.ts" },
+  { name: "getReportsAuthContext", ownerAware: true, provenBy: "src/lib/reports/auth.ts" },
+  { name: "resolveAgentContext", ownerAware: true, provenBy: "src/lib/tools/context.ts" },
+  { name: "resolvePortalInboxThreadScope", ownerAware: true, provenBy: "src/lib/portal-inbox-thread-scope.ts" },
+];
+
+/** Routes that authenticate some other way and were reviewed, with the reason. */
+const EXEMPT: Record<string, string> = {
+  "pro/account-links/redeem/route.ts": "joining a team is how an owner-only account stops being one",
+};
+
+function routeFiles(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (statSync(full).isDirectory()) routeFiles(full, out);
+    else if (name === "route.ts" || name === "route.tsx") out.push(full);
+  }
+  return out;
+}
+
 describe("manager routes refuse an owner-only account", () => {
-  it("the shared helper answers 403", () => {
+  it("the shared helper answers 403, and 503 when the membership cannot be read", () => {
     const src = read("src/lib/property-owner/route-auth.server.ts");
     expect(src).toMatch(/export async function refuseOwnerOnly[\s\S]*status: 403/);
+    expect(src).toMatch(/export async function refuseOwnerOnly[\s\S]*status: 503/);
+  });
+
+  it("every manager auth helper this enumeration trusts still refuses an owner-only account", () => {
+    for (const helper of MANAGER_AUTH_HELPERS.filter((h) => h.ownerAware)) {
+      expect(read(helper.provenBy), helper.name).toMatch(/ownerAccessStateFor|refuseOwnerOnly/);
+    }
+  });
+
+  it("every API route using a manager auth helper refuses, inherits a refusal, or is listed exempt", () => {
+    const files = routeFiles(API_ROOT);
+    expect(files.length).toBeGreaterThan(300);
+    const gaps: string[] = [];
+    for (const file of files) {
+      const rel = path.relative(API_ROOT, file).split(path.sep).join("/");
+      const src = readFileSync(file, "utf8");
+      const used = MANAGER_AUTH_HELPERS.filter((helper) => src.includes(`${helper.name}(`));
+      if (used.length === 0) continue;
+      if (used.some((helper) => helper.ownerAware)) continue;
+      if (src.includes("refuseOwnerOnly") || src.includes("ownerAccessStateFor")) continue;
+      if (rel in EXEMPT) continue;
+      gaps.push(rel);
+    }
+    expect(
+      gaps,
+      "Call refuseOwnerOnly() (src/lib/property-owner/route-auth.server.ts), authenticate through an owner-aware helper, or review the route and list it in EXEMPT with a reason.",
+    ).toEqual([]);
+  });
+
+  it("an exemption is not stale", () => {
+    for (const rel of Object.keys(EXEMPT)) {
+      expect(() => statSync(path.join(API_ROOT, rel)), rel).not.toThrow();
+    }
   });
 
   it("/api/agent/chat: every verb denies through the owner-aware path", () => {

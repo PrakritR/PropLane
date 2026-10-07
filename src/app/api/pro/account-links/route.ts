@@ -7,7 +7,12 @@ import {
   type AccountLinksPayload,
 } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
-import { actorCanManageInviteLink, capTeamInvitePermissionsForDelegate, resolveTeamInviteDelegate } from "@/lib/auth/co-manager-team-invite.server";
+import {
+  actorCanManageInviteLink,
+  capOwnerKeysForDelegate,
+  capTeamInvitePermissionsForDelegate,
+  resolveTeamInviteDelegate,
+} from "@/lib/auth/co-manager-team-invite.server";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
@@ -390,6 +395,19 @@ export async function POST(req: Request) {
           assignedPropertyIds,
         ),
       );
+      // ...but re-deriving must not step over the cap: an owner key is capped by
+      // the module it reads from, so a delegate cannot share books they cannot see.
+      const ownerCapped = await capOwnerKeysForDelegate(
+        svc,
+        user.id,
+        inviterUserId,
+        assignedPropertyIds,
+        propertyCoManagerPermissions,
+      );
+      if (!ownerCapped.ok) {
+        return NextResponse.json({ error: ownerCapped.error }, { status: ownerCapped.status });
+      }
+      propertyCoManagerPermissions = ownerCapped.permissions;
     }
     propertyCoManagerPermissions = applyRoleToPropertyPermissions(teamRole, propertyCoManagerPermissions);
     if (teamRole !== "custom") {

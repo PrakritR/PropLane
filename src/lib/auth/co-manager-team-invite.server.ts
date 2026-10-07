@@ -11,6 +11,7 @@ import {
   coManagerPermissionsExceedGrant,
   intersectCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
+  ownerPermissionsExceedGrant,
   permissionsForProperty,
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
@@ -162,4 +163,40 @@ export async function capTeamInvitePermissionsForDelegate(
   }
 
   return { ok: true, permissions: capped };
+}
+
+/**
+ * The same cap for a PROPERTY OWNER invite's keys.
+ *
+ * `capTeamInvitePermissionsForDelegate` works on modules, and owner keys are
+ * not modules, so both write paths (`POST /api/pro/account-links` and the mint
+ * in `invite-links.server.ts`) re-derive the owner map from the request after
+ * capping. Run this on that re-derived map: a delegate may only switch on what
+ * they can see themselves on that house (Performance / Statements need
+ * Finances, Documents needs Documents, Messages needs Communication), so a
+ * co-manager with nothing but `teams: edit` cannot hand an investor the books.
+ * The workspace owner passes through unchanged.
+ */
+export async function capOwnerKeysForDelegate(
+  db: ServiceClient,
+  actorUserId: string,
+  ownerUserId: string,
+  propertyIds: string[],
+  requested: PropertyCoManagerPermissions,
+): Promise<TeamInvitePermissionsCapResult> {
+  if (actorUserId.trim() === ownerUserId.trim()) {
+    return { ok: true, permissions: requested };
+  }
+  const linked = await collectLinkedPropertyPermissionsForUser(db, actorUserId);
+  for (const propertyId of propertyIds) {
+    const actorFlat = permissionsForProperty(linked.get(propertyId), propertyId);
+    if (ownerPermissionsExceedGrant(actorFlat, requested[propertyId] ?? {})) {
+      return {
+        ok: false,
+        status: 403,
+        error: "You cannot share owner access you do not have on one or more selected properties.",
+      };
+    }
+  }
+  return { ok: true, permissions: requested };
 }

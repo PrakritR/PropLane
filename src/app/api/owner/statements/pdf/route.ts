@@ -9,22 +9,20 @@ import { queryOwnerStatement } from "@/lib/reports/queries/ap-reports";
 
 export const runtime = "nodejs";
 
+/**
+ * Who the statement is FROM, in the owner's copy: the manager's legal name and
+ * nothing else. The manager's own export prints the `manager_tax_profiles`
+ * street address (a W-9 address, often their home) because the manager chose to
+ * send that document; this route hands the PDF straight to the owner, and an
+ * address is not in what an owner may read (`src/lib/property-owner/projection.ts`).
+ */
 async function loadAgentIdentity(db: SupabaseClient, managerUserId: string) {
   const { data } = await db
     .from("manager_tax_profiles")
-    .select("legal_name, address_line1, address_line2, city, state, zip")
+    .select("legal_name")
     .eq("manager_user_id", managerUserId)
     .maybeSingle();
-  const name = data?.legal_name?.trim() || "Property manager";
-  const address =
-    [
-      data?.address_line1?.trim(),
-      data?.address_line2?.trim(),
-      [data?.city, data?.state, data?.zip].filter(Boolean).join(", ").trim(),
-    ]
-      .filter(Boolean)
-      .join("\n") || "—";
-  return { name, address };
+  return { name: data?.legal_name?.trim() || "Property manager", address: "—" };
 }
 
 /**

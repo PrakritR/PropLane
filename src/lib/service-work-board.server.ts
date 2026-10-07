@@ -265,8 +265,12 @@ export async function listBoardServices(
 /**
  * Roster row for a vendor the manager did not pick. Built from the vendor's OWN business profile
  * and never from the service's private fields. Contact is HELD: phone / email stay blank on the
- * manager's roster until the vendor's first submitted bid (`revealHeldVendorContact`), except the
- * phone a manager texted a link to, which they already have.
+ * manager's roster until the vendor's first submitted bid (`revealHeldVendorContact`).
+ *
+ * The phone a manager texted a link to is shown back to them as `linkPhone`, NOT as `phone`: the
+ * link can be forwarded, so whoever redeemed it has not been shown to hold that number. It is
+ * promoted to `phone` only once the verification hook says so, because `phone` is what the inbound
+ * SMS pipeline uses to decide WHO a text is from.
  */
 async function ensureHeldVendorRosterRow(
   db: Db,
@@ -289,7 +293,8 @@ async function ensureHeldVendorRosterRow(
     name: input.profile.business_name?.trim() || "PropLane vendor",
     trade: trades[0] ?? "",
     trades: trades.length ? trades : undefined,
-    phone: input.knownPhone?.trim() ?? "",
+    phone: "",
+    ...(input.knownPhone?.trim() ? { linkPhone: input.knownPhone.trim(), phoneVerified: false } : {}),
     email: "",
     notes: "",
     active: true,
@@ -590,9 +595,19 @@ export async function redeemServiceShareLink(
   if (verification.verified) {
     const { data: roster } = await db.from("manager_vendor_records").select("row_data").eq("id", directoryId).maybeSingle();
     if (roster?.row_data) {
+      const current = roster.row_data as Record<string, unknown>;
+      // Verified: only now does the texted number become the row's `phone`, the
+      // field the inbound pipeline reads as identity.
+      const linkPhone = String(current.linkPhone ?? link.recipientPhone ?? "").trim();
       await db
         .from("manager_vendor_records")
-        .update({ row_data: { ...(roster.row_data as Record<string, unknown>), phoneVerified: true } })
+        .update({
+          row_data: {
+            ...current,
+            phoneVerified: true,
+            ...(linkPhone ? { phone: linkPhone, linkPhone } : {}),
+          },
+        })
         .eq("id", directoryId);
     }
   }

@@ -95,8 +95,10 @@ export function OwnerPropertyRow({ property, onOpen }: { property: OwnerProperty
 export function OwnerOverview() {
   const router = useRouter();
   const { data, loading, error, reload } = useOwnerFetch<OwnerSummary>("/api/owner/summary");
+  // The empty state is for "no houses are shared with you". A house with rent
+  // charged but nothing collected yet is real data: the tiles and the property
+  // rows stay, and the chart simply draws zero bars.
   const empty = !loading && !error && data !== null && data.properties.length === 0;
-  const quiet = data !== null && data.properties.length > 0 && data.chart.every((p) => p.incomeCents === 0 && p.expensesCents === 0);
   return (
     <div data-attr="owner-overview">
       <OwnerPageTitle>Overview</OwnerPageTitle>
@@ -106,7 +108,7 @@ export function OwnerOverview() {
         <OwnerEmpty title="No properties are shared with you" />
       ) : error ? (
         <OwnerError message="Couldn't load your properties." onRetry={reload} />
-      ) : empty || quiet || !data ? (
+      ) : empty || !data ? (
         <OwnerEmpty />
       ) : (
         <>

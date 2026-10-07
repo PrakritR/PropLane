@@ -11,6 +11,7 @@ import type {
   VendorWorkIdentityState,
 } from "@/lib/vendor-work-identity";
 import { normalizeE164, formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { rosterPhoneIdentifiesVendor, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { isUsLocalSmsNumber } from "@/lib/vendor-work-number-claim-token.server";
 import { vendorNumberMonthStart } from "@/lib/vendor-work-number";
 import { createDryRunVendorWorkIdentityProvider, isVendorNumberDryRun } from "@/lib/vendor-work-number-dry-run.server";
@@ -402,9 +403,14 @@ export async function resolveVendorNumberSenderPhone(
   const vendorUserId = String((identity as { vendor_user_id?: unknown } | null)?.vendor_user_id ?? "").trim();
   if (!vendorUserId || (identity as { sms_state?: unknown }).sms_state !== "ready") return null;
   const { data: rows } = await db.from("manager_vendor_records")
-    .select("row_data").eq("manager_user_id", input.ownerManagerUserId).eq("vendor_user_id", vendorUserId).limit(5);
-  for (const row of (rows ?? []) as { row_data?: { phone?: unknown; active?: unknown } | null }[]) {
+    .select("id, row_data").eq("manager_user_id", input.ownerManagerUserId).eq("vendor_user_id", vendorUserId)
+    // Deterministic across calls, and an unverified service-link phone is the
+    // number the MANAGER typed, not this vendor's: mapping their PropLane-number
+    // texts onto it would send the thread to whoever that really is.
+    .order("id", { ascending: true }).limit(5);
+  for (const row of (rows ?? []) as { row_data?: ManagerVendorRow | null }[]) {
     if (row.row_data?.active === false) continue;
+    if (!rosterPhoneIdentifiesVendor(row.row_data)) continue;
     const phone = normalizeE164(String(row.row_data?.phone ?? "").trim());
     if (phone) return phone;
   }

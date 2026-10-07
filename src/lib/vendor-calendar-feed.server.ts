@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { featureSigningSecret } from "@/lib/feature-signing-secret.server";
 
 /**
  * The vendor's private iCal "Calendar link". The token is NOT stored: it is
@@ -11,7 +12,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * recompute to something else and 404. `revoked_at` switches the feed off outright.
  *
  * Same secret convention as `vendor-work-number-claim-token.server.ts`: the service
- * role key every real deployment already requires, with a test-only fallback.
+ * role key every real deployment already requires (`featureSigningSecret`,
+ * which refuses to sign at all when it is missing rather than falling back to a
+ * literal anyone could read out of this file).
  */
 export type VendorCalendarFeedState = { version: number; revoked: boolean };
 
@@ -24,7 +27,7 @@ export function isVendorCalendarFeedVendorId(value: string): boolean {
 }
 
 function feedSecret(): string {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY ?? "test-only-vendor-calendar-feed-secret";
+  return featureSigningSecret("vendor-calendar-feed");
 }
 
 export function vendorCalendarFeedToken(vendorUserId: string, version: number): string {

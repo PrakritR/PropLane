@@ -63,11 +63,15 @@ export async function mintOwnerDocumentUrl(
   if (!UUID_PATTERN.test(documentId)) return null;
   const { data: row, error } = await db
     .from("manager_documents")
-    .select("manager_user_id, property_id, storage_path, display_name, original_filename, mime_type, shared_with_owners, deleted_at")
+    .select(
+      "manager_user_id, property_id, storage_path, display_name, original_filename, mime_type, shared_with_owners, deleted_at, superseded_by_document_id",
+    )
     .eq("id", documentId)
     .maybeSingle();
   if (error || !row) return null;
-  if (row.deleted_at || row.shared_with_owners !== true || !row.property_id) return null;
+  // Same four tests the list applies, including the superseded one: a replaced
+  // version is off the list, so its id must not keep minting bytes either.
+  if (row.deleted_at || row.superseded_by_document_id || row.shared_with_owners !== true || !row.property_id) return null;
   const allowed = grantedHouses(grants, "documents").some(
     (h) => h.propertyId === row.property_id && h.managerUserId === row.manager_user_id,
   );

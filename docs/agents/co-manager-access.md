@@ -594,9 +594,39 @@ house and month because it is read back from the same rows
 (`queryProfitability` with `groupBy: "month"`). Statements use `queryOwnerStatement`
 and the formal PDF builder, without the unpaid-bills line. Documents list only
 `manager_documents.shared_with_owners` files on granted houses and serve bytes
-through server-minted signed URLs. Messages (when on) are the owner's own thread
-with the manager of their own membership; the recipient is never taken from the
-request.
+through server-minted signed URLs (a deleted OR superseded version mints
+nothing). The Statements house filter is built from the Statements grant itself —
+the unfiltered response's `houses` — never from the performance-scoped summary.
+Months default to the PACIFIC calendar month, like every other money view. The
+owner's copy of the statement PDF names the manager but carries no street
+address: `manager_tax_profiles` holds a W-9 address and an address is not in the
+allowlist.
+
+Messages (when on) are the owner's own thread with the manager of their own
+membership; the recipient is never taken from the request. It is TWO-WAY: because
+`withoutOwnerLinks` removes the owner from every teammate source, the manager's
+reply has its own allowance in `filterRecipientsBySenderScope`
+(`ownerInviteeIdsForManagers` + `managerMayMessageOwner`), which holds only while
+that owner's membership has Messages on for a house of that manager's. The
+owner's reader takes the counterparty from `row_data.email` (the person the
+thread is WITH on both copies), not from `participant_email`, which is the
+owner's own address on a received row.
+
+**A membership that cannot be read denies.** `getOwnerAccessState` throws
+`OwnerAccessUnavailableError` rather than answering "no owner row": that answer
+would hand an owner-only account the manager shell and wave it past
+`refuseOwnerOnly`, which turns the error into a 503. The portal layout redirects
+to `/portal/owner` when it cannot see the requested path at all.
+
+**A delegate may not share what they cannot see.** Owner keys are not module
+grants, so the module cap carries neither a check nor a value for them and both
+write paths re-derive them from the request. `capOwnerKeysForDelegate` caps that
+re-derive by the module each key reads from (Performance / Statements ←
+Finances, Documents ← Documents, Messages ← Communication), so a co-manager with
+nothing but `teams: edit` cannot hand an investor the books. An owner invite also
+never starts from "All houses": the investor's houses are picked on purpose.
+Accepting an owner invite does not rewrite `profiles.role` — an existing
+resident or vendor keeps the role their account was created as.
 
 **Manager side.** Documents row ⋯ menu: *Share with owners* / *Stop sharing*
 (`PATCH /api/manager-documents/[id] { sharedWithOwners }`, owner-only like every

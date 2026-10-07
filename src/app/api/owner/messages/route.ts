@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { loadOwnerConversations, OwnerMessageError, sendOwnerMessage } from "@/lib/property-owner/messages.server";
 import { requireOwnerRoute } from "@/lib/property-owner/route-auth.server";
 
@@ -21,6 +22,14 @@ export async function GET() {
 export async function POST(req: Request) {
   const ctx = await requireOwnerRoute();
   if (ctx instanceof NextResponse) return ctx;
+  // Same shape as the portal's own send: a per-account and a per-IP bucket, so
+  // one owner cannot flood their manager's inbox (or the delivery pipeline).
+  if (
+    !(await rateLimit(`owner-message:user:${ctx.userId}`, 30, 60_000)).ok ||
+    !(await rateLimit(`owner-message:ip:${clientIpFrom(req)}`, 60, 60_000)).ok
+  ) {
+    return NextResponse.json({ error: "Too many messages - try again in a bit." }, { status: 429 });
+  }
   const body = (await req.json().catch(() => ({}))) as { conversationId?: unknown; body?: unknown };
   try {
     await sendOwnerMessage(ctx.db, ctx.userId, ctx.grants, {

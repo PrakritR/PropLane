@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164, formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { profilePhoneVariants } from "@/lib/sms-consent";
-import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { rosterPhoneIdentifiesVendor, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import {
   classifyInboundText,
   guessTradeFromInboundText,
@@ -109,6 +109,9 @@ async function findVendorByPhone(
     .from("manager_vendor_records")
     .select("id,row_data,vendor_user_id")
     .eq("manager_user_id", managerUserId)
+    // Deterministic: two rows carrying the same number must always answer with
+    // the same vendor, never with whatever the planner happened to return first.
+    .order("id", { ascending: true })
     .limit(2000);
   if (error) throw new Error(`Vendor lookup unavailable: ${error.message}`);
   const records = (data ?? []) as { id: string; row_data: unknown; vendor_user_id?: string | null }[];
@@ -118,6 +121,10 @@ async function findVendorByPhone(
   };
   for (const record of records) {
     const row = live(record);
+    // A phone the manager only TYPED into a service link is not identity: a
+    // forwarded link puts the real recipient's number on a stranger's row, and
+    // matching on it would file the recipient's texts under that account.
+    if (row && !rosterPhoneIdentifiesVendor(row)) continue;
     if (row && normalizeE164(row.phone) === phoneE164) {
       return { id: record.id, row, vendorUserId: record.vendor_user_id ?? row.vendorUserId ?? null };
     }

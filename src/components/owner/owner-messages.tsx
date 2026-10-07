@@ -81,7 +81,7 @@ export function OwnerMessagesPage() {
                 maxLength={4000}
                 data-attr="owner-message-input"
               />
-              <Button type="submit" onClick={() => send(conversation.conversationId)} data-attr="owner-message-send">
+              <Button type="submit" loading={busy === conversation.conversationId} data-attr="owner-message-send">
                 Send
               </Button>
             </form>

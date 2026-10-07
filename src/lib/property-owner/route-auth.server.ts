@@ -42,14 +42,27 @@ export async function requireOwnerRoute(): Promise<OwnerRouteContext | NextRespo
 }
 
 /**
- * The opt-out every MANAGER route takes: an owner-only account holds the
+ * The opt-out a MANAGER route takes directly: an owner-only account holds the
  * manager role row only to host `/portal/owner`, so it gets 403 from any
- * manager-surface handler. Returns the 403 response, or null to continue.
- * `tests/unit/owner-only-manager-routes.test.ts` fails a manager route that
- * neither calls this nor is listed there as consciously exempt.
+ * manager-surface handler. Returns the 403 response, or null to continue. A
+ * membership that cannot be read is a 503, never a pass.
+ *
+ * Most manager routes reach the same answer through their auth helper
+ * (`requireManagerRouteUser`, `getReportsAuthContext`, `resolveAgentContext`),
+ * each of which refuses an owner-only account itself.
+ * `tests/unit/owner-only-manager-routes.test.ts` walks `src/app/api/**` and
+ * fails a route that authenticates through a manager helper which is NOT
+ * owner-aware unless the route calls this or is listed there as exempt; it
+ * does not (and cannot) prove that every manager route is covered.
  */
 export async function refuseOwnerOnly(db: SupabaseClient, userId: string): Promise<NextResponse | null> {
-  if ((await ownerAccessStateFor(db, userId)).ownerOnly) {
+  let state: Awaited<ReturnType<typeof ownerAccessStateFor>>;
+  try {
+    state = await ownerAccessStateFor(db, userId);
+  } catch {
+    return NextResponse.json({ error: "Could not verify your account. Try again." }, { status: 503 });
+  }
+  if (state.ownerOnly) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
   return null;

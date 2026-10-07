@@ -6,6 +6,7 @@ import { encryptSensitiveValue, decryptSensitiveValue } from "@/lib/security/dat
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
   actorCanManageInviteLink,
+  capOwnerKeysForDelegate,
   capTeamInvitePermissionsForDelegate,
   resolveTeamInviteDelegate,
   teamInviteOwnerIdsForActor,
@@ -335,8 +336,15 @@ export async function mintInviteLink(
     permissions = cappedPermissions.permissions;
     if (parsedRole.role === "property_owner") {
       // Owner keys are not module grants, so the delegate cap strips them. The
-      // role carries no module access to cap; re-derive from what was asked.
+      // role carries no module access to cap; re-derive from what was asked —
+      // then cap the owner keys themselves by the module each one reads from, so
+      // the re-derive cannot hand out access the acting delegate lacks.
       permissions = stampTeamRoleOnProperties(parsedRole.role, propertyIds, requested);
+      const ownerCapped = await capOwnerKeysForDelegate(db, actorUserId, ownerUserId, propertyIds, permissions);
+      if (!ownerCapped.ok) {
+        return { ok: false, status: ownerCapped.status, error: ownerCapped.error };
+      }
+      permissions = ownerCapped.permissions;
     }
     permissions = applyRoleToPropertyPermissions(parsedRole.role, permissions);
     if (parsedRole.role === "custom") {

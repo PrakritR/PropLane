@@ -37,6 +37,22 @@ export const OWNER_PERMISSION_OPTIONS = [
 
 export type OwnerPermissionId = (typeof OWNER_PERMISSION_OPTIONS)[number]["id"];
 
+/**
+ * The module a teammate must hold to hand an OWNER key out on a house.
+ *
+ * Owner keys are not module grants, so the delegate cap
+ * (`coManagerPermissionsExceedGrant` / `intersectCoManagerPermissions`) neither
+ * checks nor carries them. Without this map a co-manager with nothing but
+ * `teams: edit` could invite an investor and switch the house's books on for
+ * them - access the delegate does not have themselves.
+ */
+export const OWNER_PERMISSION_SOURCE_MODULE: Record<OwnerPermissionId, CoManagerPermissionId> = {
+  ownerPerformance: "financials",
+  ownerStatements: "financials",
+  ownerDocuments: "documents",
+  ownerMessages: "inbox",
+};
+
 /** Legacy ids still accepted when reading stored rows. */
 const LEGACY_CO_MANAGER_PERMISSION_IDS = ["editListings"] as const;
 
@@ -161,6 +177,19 @@ export function coManagerPermissionsExceedGrant(
     for (const level of ["read", "edit", "delete", "notification"] as const) {
       if (grantAllows(req, level) && !grantAllows(actor?.[id], level)) return true;
     }
+  }
+  return false;
+}
+
+/** Owner keys the actor cannot hand out, because they lack the module it reads from. */
+export function ownerPermissionsExceedGrant(
+  actor: CoManagerPermissions | undefined,
+  requested: CoManagerPermissions | undefined,
+): boolean {
+  for (const { id } of OWNER_PERMISSION_OPTIONS) {
+    const req = requested?.[id];
+    if (!req || !grantAllows(req, "read")) continue;
+    if (!grantAllows(actor?.[OWNER_PERMISSION_SOURCE_MODULE[id]], "read")) return true;
   }
   return false;
 }
