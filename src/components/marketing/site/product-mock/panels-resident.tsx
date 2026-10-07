@@ -3,7 +3,7 @@
 /**
  * The resident portal's tabs for the home page demo — My home, Applications,
  * Lease, Payments, Services, Forms, Communication — drawn for one resident
- * (Jordan Rivera, Willow Court · Room 3) from the shared "Seattle Homes"
+ * (Jordan, Willow Court · Room 3) from the shared "Seattle Homes"
  * fixtures and the story's progress (`world.ts`). Each mirrors its real screen's tab names, command bar and row
  * anatomy (`resident-move-in-panel.tsx`, `resident-applications-panel.tsx`,
  * `resident-lease-list.tsx`, `resident-payments-panel.tsx`,
@@ -22,6 +22,7 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   RESIDENT_HOME,
   RESIDENT_NAME,
+  RESIDENT_SELF,
   type CommConversationFixture,
   type ResidentFormFixture,
 } from "@/components/marketing/site/product-mock/fixtures";
@@ -536,5 +537,5 @@ export function ResidentFormsPanel({ story }: { story?: DemoStory } = {}) {
 /* ───────────────────────────── Communication ───────────────────────────── */
 
 export function ResidentCommunicationPanel({ conversations }: { conversations: CommConversationFixture[] }) {
-  return <FixtureInboxScreen path="/resident/communication/active" conversations={conversations} selfName={RESIDENT_NAME} />;
+  return <FixtureInboxScreen path="/resident/communication/active" conversations={conversations} selfName={RESIDENT_SELF} />;
 }

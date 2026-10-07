@@ -40,8 +40,9 @@ import { cn } from "@/lib/utils";
  * draws its own window frame and sidebar, so inside `BarePanelChrome` a
  * `ProductWindow` is just a relative, full-width content well (the sheet and
  * toast overlays still anchor to it) and `PortalSidebarFixture` renders
- * nothing. Outside the provider both behave exactly as the lifecycle rows
- * always drew them.
+ * nothing. The well takes its content's height and the demo window's screen
+ * scrolls around it (the window is a fixed size and never grows). Outside the
+ * provider both behave exactly as the lifecycle rows always drew them.
  */
 const BarePanelChromeContext = createContext(false);
 
@@ -110,7 +111,7 @@ export function ProductWindow({
   const bare = useContext(BarePanelChromeContext);
   if (bare) {
     return (
-      <div className="relative flex h-full min-h-[520px] w-full min-w-0 overflow-hidden bg-card" data-demo-panel>
+      <div className="relative flex min-w-0 flex-1 overflow-x-clip bg-card" data-demo-panel>
         {children}
       </div>
     );
