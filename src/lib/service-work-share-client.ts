@@ -7,7 +7,7 @@ import { syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-stora
  * Browser-side callers for the vendor work share routes (vendor-work-share-1006). Each returns
  * `{ ok, ... }` with a plain error string - never throws - so a component can toast the message.
  */
-type Fail = { ok: false; status: number; error: string };
+type Fail = { ok: false; status: number; error: string; code?: string };
 
 async function postJson<T extends object>(url: string, body: unknown): Promise<({ ok: true } & T) | Fail> {
   try {
@@ -17,8 +17,8 @@ async function postJson<T extends object>(url: string, body: unknown): Promise<(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-    if (!res.ok) return { ok: false, status: res.status, error: data.error ?? "Something went wrong." };
+    const data = (await res.json().catch(() => ({}))) as T & { error?: string; code?: string };
+    if (!res.ok) return { ok: false, status: res.status, error: data.error ?? "Something went wrong.", ...(data.code ? { code: data.code } : {}) };
     return { ok: true, ...(data as T) };
   } catch {
     return { ok: false, status: 0, error: "Could not reach PropLane. Check your connection." };
@@ -45,12 +45,31 @@ export function sendServiceToPhone(input: {
   phone: string;
   recipientName?: string;
   sharePhotos?: boolean;
-  attestWorksWithVendor: boolean;
+  /** Needed only on the first text to a number; the server says so (409 `vendor_attestation_required`) otherwise. */
+  attestWorksWithVendor?: boolean;
 }) {
   return postJson<{ expiresAt: string; sandbox?: { to: string; text: string; link: string; captured: number } }>(
     "/api/portal/service-share-link/send",
     input,
   );
+}
+
+export type PhoneTextStatus = { needsAttestation: boolean; optedOut: boolean; senderLine?: string };
+
+/** Manager: does the first text to this number still need the "I work with this vendor" attestation? */
+export async function fetchPhoneTextStatus(phone: string): Promise<PhoneTextStatus | null> {
+  try {
+    const res = await fetch(`/api/manager/vendor-text-consent?phone=${encodeURIComponent(phone)}`, { credentials: "include", cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<PhoneTextStatus>;
+    return {
+      needsAttestation: data.needsAttestation === true,
+      optedOut: data.optedOut === true,
+      ...(data.senderLine ? { senderLine: data.senderLine } : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Manager: kill every live link on a service. */

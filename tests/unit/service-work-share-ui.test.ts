@@ -10,6 +10,12 @@ describe("service work share UI helpers", () => {
     expect(canSendToPhone({ phone: "425", attestWorksWithVendor: true })).toBe(false);
   });
 
+  it("needs the attestation only while the first text to the number still does, and never for an opted-out number", () => {
+    expect(canSendToPhone({ phone: "+14255550123", attestWorksWithVendor: false, attestationNeeded: false })).toBe(true);
+    expect(canSendToPhone({ phone: "+14255550123", attestWorksWithVendor: false, attestationNeeded: true })).toBe(false);
+    expect(canSendToPhone({ phone: "+14255550123", attestWorksWithVendor: true, attestationNeeded: false, optedOut: true })).toBe(false);
+  });
+
   it("parses the optional budget to cents", () => {
     expect(publishBudgetCents("")).toBeNull();
     expect(publishBudgetCents("0")).toBeNull();

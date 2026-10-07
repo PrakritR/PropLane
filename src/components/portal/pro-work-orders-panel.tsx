@@ -1842,6 +1842,10 @@ export function ManagerWorkOrdersPanel({
             const target = sendPhoneRow;
             if (!target) return false;
             const res = await sendServiceToPhone({ workOrderId: target.id, ...input });
+            if (!res.ok && res.code === "vendor_attestation_required") {
+              showToast(res.error);
+              return "attest";
+            }
             showToast(res.ok ? sendToPhoneToast(res) : res.error);
             return res.ok;
           }}

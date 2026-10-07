@@ -17,5 +17,5 @@ export function serviceShareSmsText(params: {
   const trade = params.trade.trim().toLowerCase() || "maintenance";
   const where = params.area.trim() && params.area.trim() !== "Nearby" ? ` in ${params.area.trim()}` : "";
   const what = params.title.trim() ? ` (${params.title.trim().slice(0, 60)})` : "";
-  return `${greeting}${who} has a ${trade} job${where}${what}. Details and bid: ${params.linkUrl} - Reply STOP to opt out.`;
+  return `${greeting}${who} has a ${trade} job${where}${what}. Details and bid: ${params.linkUrl}`;
 }
