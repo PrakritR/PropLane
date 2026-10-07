@@ -579,7 +579,7 @@ a ⚡ quick-reply menu and **Save reply** in the footer.
 **Payments** (`/vendor/financials/income`, `VendorFinancesPanel`). The balance card sits above the
 band: Available now (with "$X on the way") and Bank · Withdraw as the only header icons (the captain removed the
 balance card's Refund and Statement icons; refunds live on Finances → Refunds, and the per-payment Refund on
-a payout record page is shown only when `VENDOR_REFUNDS_ENABLED` is on — the route is off by default and answers 409
+a payout record page stays hidden until the Finances Payments tab wires `VendorRefundModal` — the route is off by default (`VENDOR_REFUNDS_ENABLED`) and answers 409
 `VENDOR_REFUND_PAUSED`; the refund itself runs on the central refund rail, see `financials.md` § Vendor refunds). The band keeps
 its single Download). Tabs are **Pending · Paid · Overdue**
 (`vendorPaymentBucket`, `src/lib/vendor-payments.ts`): Paid = a paid invoice or payout; Overdue = an
