@@ -43,7 +43,7 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 
 const route = await import("@/app/api/admin/preview/route");
 
-function useDb(opts: FakeDbOptions = {}) {
+function seedDb(opts: FakeDbOptions = {}) {
   const fake = makeFakeDb({ tables: standardTables(), authUsers: standardAuthUsers(), ...opts });
   state.db = fake.db;
   return fake;
@@ -72,12 +72,12 @@ beforeEach(() => {
   state.isAdmin = true;
   state.cookieValue = undefined;
   state.testClassification = { kind: "normal" };
-  useDb();
+  seedDb();
 });
 
 describe("POST /api/admin/preview (start)", () => {
   it("starts a session: audit row first, then ONE signed httpOnly cookie", async () => {
-    const fake = useDb();
+    const fake = seedDb();
     const res = await route.POST(post(valid));
     expect(res.status).toBe(200);
     expect((await res.json()).redirectTo).toBe("/portal/dashboard");
@@ -105,6 +105,31 @@ describe("POST /api/admin/preview (start)", () => {
     expect(setCookieOf(res, "axis_admin_preview_portal")).toBeUndefined();
   });
 
+  it("closes the trail for an earlier session that timed out without an End", async () => {
+    const tables = standardTables();
+    const startedAt = new Date(Date.now() - 3 * 3600_000);
+    tables.audit_log = [
+      {
+        actor_user_id: UUID.admin,
+        landlord_id: UUID.resident,
+        action: "admin_view_as_started",
+        dedupe_key: "view_as_started:old-1",
+        input_summary: {
+          sid: "old-1",
+          portal: "resident",
+          startedAt: startedAt.toISOString(),
+          expiresAt: new Date(startedAt.getTime() + VIEW_AS_TTL_SECONDS * 1000).toISOString(),
+        },
+      },
+    ];
+    const fake = seedDb({ tables });
+    expect((await route.POST(post(valid))).status).toBe(200);
+    const ended = fake.audit.find((r) => r.action === "admin_view_as_ended");
+    expect(ended).toMatchObject({ actor_user_id: UUID.admin, landlord_id: UUID.resident, dedupe_key: "view_as_ended:old-1" });
+    expect((ended!.input_summary as { how: string; durationSeconds: number })).toMatchObject({ how: "expired", durationSeconds: VIEW_AS_TTL_SECONDS });
+    expect(fake.audit.filter((r) => r.action === "admin_view_as_started")).toHaveLength(1);
+  });
+
   it("works for resident and vendor portals", async () => {
     for (const [targetUserId, portal, to] of [
       [UUID.resident, "resident", "/resident"],
@@ -118,7 +143,7 @@ describe("POST /api/admin/preview (start)", () => {
 
   it("refuses a non-admin", async () => {
     state.isAdmin = false;
-    const fake = useDb();
+    const fake = seedDb();
     const res = await route.POST(post(valid));
     expect(res.status).toBe(403);
     expect(setCookieOf(res)).toBeUndefined();
@@ -141,7 +166,7 @@ describe("POST /api/admin/preview (start)", () => {
 
   it("fails closed when the signing secret is unset or too short", async () => {
     delete process.env.PROPLANE_VIEW_AS_SECRET;
-    const fake = useDb();
+    const fake = seedDb();
     const res = await route.POST(post(valid));
     expect(res.status).toBe(503);
     expect(setCookieOf(res)).toBeUndefined();
@@ -162,7 +187,7 @@ describe("POST /api/admin/preview (start)", () => {
 
   it("requires a reason of 3 to 300 characters", async () => {
     for (const reason of [undefined, "", "  ", "ab", "x".repeat(301), 5]) {
-      const fake = useDb();
+      const fake = seedDb();
       const res = await route.POST(post({ ...valid, reason }));
       expect(res.status, String(reason)).toBe(400);
       expect(setCookieOf(res)).toBeUndefined();
@@ -179,7 +204,7 @@ describe("POST /api/admin/preview (start)", () => {
   });
 
   it("refuses a target that does not hold the requested portal (profile_roles, not profiles.role)", async () => {
-    const fake = useDb();
+    const fake = seedDb();
     const res = await route.POST(post({ ...valid, portal: "vendor" }));
     expect(res.status).toBe(400);
     expect(setCookieOf(res)).toBeUndefined();
@@ -188,7 +213,7 @@ describe("POST /api/admin/preview (start)", () => {
     // A legacy profiles.role alone, with no profile_roles row, still counts (same rule as portal-access).
     const tables = standardTables();
     tables.profile_roles = tables.profile_roles!.filter((r) => r.user_id !== UUID.manager);
-    useDb({ tables });
+    seedDb({ tables });
     expect((await route.POST(post(valid))).status).toBe(200);
   });
 
@@ -200,15 +225,15 @@ describe("POST /api/admin/preview (start)", () => {
   it("refuses a disabled or purged account", async () => {
     const tables = standardTables();
     tables.profiles = tables.profiles!.map((p) => (p.id === UUID.manager ? { ...p, application_approved: false } : p));
-    useDb({ tables });
+    seedDb({ tables });
     expect((await route.POST(post(valid))).status).toBe(400);
 
     const authUsers = standardAuthUsers();
     delete authUsers[UUID.resident];
-    useDb({ authUsers });
+    seedDb({ authUsers });
     expect((await route.POST(post({ targetUserId: UUID.resident, portal: "resident", reason: "Support ticket" }))).status).toBe(400);
 
-    useDb({ authUsers: { ...standardAuthUsers(), [UUID.vendor]: { banned_until: new Date(Date.now() + 86_400_000).toISOString() } } });
+    seedDb({ authUsers: { ...standardAuthUsers(), [UUID.vendor]: { banned_until: new Date(Date.now() + 86_400_000).toISOString() } } });
     expect((await route.POST(post({ targetUserId: UUID.vendor, portal: "vendor", reason: "Support ticket" }))).status).toBe(400);
   });
 
@@ -221,7 +246,7 @@ describe("POST /api/admin/preview (start)", () => {
   });
 
   it("fails closed when the audit insert fails: no cookie, no session", async () => {
-    const fake = useDb({ auditError: { message: "db down" } });
+    const fake = seedDb({ auditError: { message: "db down" } });
     const res = await route.POST(post(valid));
     expect(res.status).toBe(500);
     expect(setCookieOf(res)).toBeUndefined();
@@ -229,10 +254,11 @@ describe("POST /api/admin/preview (start)", () => {
   });
 
   it("never notifies the viewed account: the only side effect is the audit row", async () => {
-    const fake = useDb();
+    const fake = seedDb();
     await route.POST(post(valid));
     const touched = fake.db.from.mock.calls.map((c) => c[0]);
-    expect(touched.filter((t) => t === "audit_log")).toHaveLength(1);
+    expect(fake.audit).toHaveLength(1);
+    expect([...new Set(touched)].sort()).toEqual(["audit_log", "profile_roles", "profiles"]);
     expect(touched.some((t) => /notif|message|inbox|email|sms/i.test(String(t)))).toBe(false);
   });
 });
@@ -259,7 +285,7 @@ describe("DELETE /api/admin/preview (end)", () => {
     });
 
   it("writes the ended row (with duration) and clears the cookie", async () => {
-    const fake = useDb();
+    const fake = seedDb();
     state.cookieValue = (await liveCookie()).token;
     const res = await route.DELETE(del());
     expect(res.status).toBe(200);
@@ -272,7 +298,7 @@ describe("DELETE /api/admin/preview (end)", () => {
   });
 
   it("is idempotent per session: a second End writes no second row", async () => {
-    const fake = useDb();
+    const fake = seedDb();
     state.cookieValue = (await liveCookie()).token;
     await route.DELETE(del());
     const again = await route.DELETE(del());
@@ -281,7 +307,7 @@ describe("DELETE /api/admin/preview (end)", () => {
   });
 
   it("closes an EXPIRED session as expired, capping the duration at the 30 minute window", async () => {
-    const fake = useDb();
+    const fake = seedDb();
     const past = Math.floor(Date.now() / 1000) - 3 * 3600;
     state.cookieValue = (await liveCookie({ iat: past, exp: past + VIEW_AS_TTL_SECONDS })).token;
     const res = await route.DELETE(del());
@@ -293,7 +319,7 @@ describe("DELETE /api/admin/preview (end)", () => {
 
   it("clears the cookie even when the audit write fails, or the cookie is junk, or nobody is signed in", async () => {
     state.cookieValue = (await liveCookie()).token;
-    useDb({ auditError: { message: "db down" } });
+    seedDb({ auditError: { message: "db down" } });
     const failed = await route.DELETE(del());
     expect(failed.status).toBe(200);
     expect(setCookieOf(failed)).toMatch(/Max-Age=0/);
@@ -307,7 +333,7 @@ describe("DELETE /api/admin/preview (end)", () => {
   });
 
   it("does not write an ended row for a cookie that belongs to a different operator", async () => {
-    const fake = useDb();
+    const fake = seedDb();
     state.realUser = { id: UUID.admin2 };
     state.cookieValue = (await liveCookie()).token;
     const res = await route.DELETE(del());

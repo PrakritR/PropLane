@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { AdminViewAsAction } from "@/components/portal/admin-view-as-dialog";
+import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
 import { Button } from "@/components/ui/button";
 import { formatPacificDate } from "@/lib/pacific-time";
@@ -178,6 +179,13 @@ export function AdminAccountRecordPage({
       avatarName={row.fullName || row.email}
       backHref={backHref}
       backLabel="Accounts"
+      iconTitleActions
+      actions={
+        <PortalRecordActions>
+          {/* Shown only to an allowlisted operator, and only for portals this account holds. */}
+          <AdminViewAsAction targetUserId={row.id} targetName={row.fullName || row.email} preferredPortal={row.kind} />
+        </PortalRecordActions>
+      }
     >
       <div className="flex flex-col gap-4 px-4 py-4 sm:px-6">
         <RecordFactCard title="Overview" dataAttr="admin-account-overview">

@@ -428,6 +428,7 @@ answer. Fail closed to `true`.
 | Documents | `docs/agents/documents-module.md` | Private bucket; bytes only via server-minted signed URLs |
 | Public listing payload | `docs/agents/lease-generation.md` | Explicit allowlist (`publicListingProjection`) for both anonymous readers |
 | Demo / sandbox | `docs/agents/demo-sandbox.md` | `/demo` never writes real rows; snapshot ships empty |
+| View as | `docs/agents/view-as.md` | Read-only, 30 minutes, reason required, allowlisted operators only; audit row BEFORE the cookie; the cookie is signed and bound to the signed-in operator; the middleware refuses every non-read request; a GET that heals on read checks `isViewAsSessionOpen()` |
 | Studio Live mode | `docs/agents/studio-live.md` | Frame-ancestors relaxation and `/api/dev/studio-sign-in` are dev-only (`NODE_ENV==="development"` + localhost + dev/test project); production/preview headers stay byte-identical |
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
 | Property owner | `docs/agents/co-manager-access.md` § Property owner | A team role, not a portal: four owner keys, no module key; owner rows are filtered out of every teammate-style reader (`withoutOwnerLinks`); the numbers are an allowlist projection of the manager's own reports, never names; the house and manager come from the membership, never the request |

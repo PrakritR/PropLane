@@ -34,6 +34,8 @@ export function makeFakeDb(options: FakeDbOptions = {}) {
       filters.push((r) => vs.includes(r[k]));
       return q;
     };
+    q.order = () => q;
+    q.limit = () => q;
     q.ilike = (k: string, v: string) => {
       filters.push((r) => String(r[k] ?? "").toLowerCase() === v.toLowerCase());
       return q;
@@ -46,6 +48,7 @@ export function makeFakeDb(options: FakeDbOptions = {}) {
       if (key && seenDedupe.has(key)) return { error: { code: "23505", message: "duplicate" } };
       if (key) seenDedupe.add(key);
       audit.push(row);
+      (tables.audit_log ??= []).push(row);
       return { error: null };
     };
     q.then = (resolve: (v: unknown) => unknown) => resolve({ data: rows(), error: null });

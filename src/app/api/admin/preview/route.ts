@@ -16,6 +16,7 @@ import {
 } from "@/lib/auth/view-as-token";
 import {
   readViewAsCookieValue,
+  reconcileExpiredViewAsSessions,
   recordViewAsEnded,
   recordViewAsStarted,
   viewAsCookieOptions,
@@ -142,6 +143,9 @@ export async function POST(req: Request) {
       exp: nowSec + VIEW_AS_TTL_SECONDS,
       sid: crypto.randomUUID(),
     };
+
+    // Sessions this operator left to time out (tab closed) get their ended row now.
+    await reconcileExpiredViewAsSessions(db, operator.id);
 
     // Audit FIRST. If the trail cannot be written, there is no session.
     const recorded = await recordViewAsStarted(db, {
