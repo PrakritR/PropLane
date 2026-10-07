@@ -10,6 +10,8 @@ import {
   isPricingPendingBid,
   parseVendorWorkOrderTab,
   vendorAnswerChoices,
+  vendorBidTabs,
+  vendorServiceActions,
   vendorDefaultReply,
   vendorEffectiveReply,
   vendorNextStep,
@@ -128,7 +130,7 @@ describe("legacy URL ids never fall home", () => {
 
   it("service page section ids keep their old aliases", () => {
     expect(parseVendorJobDetailTab("overview")).toBe("service");
-    expect(parseVendorJobDetailTab("scope-photos")).toBe("service");
+    expect(parseVendorJobDetailTab("scope-photos")).toBe("documents");
     expect(parseVendorJobDetailTab("bid-invoice")).toBe("invoice");
     expect(parseVendorJobDetailTab("quote")).toBe("bid");
     expect(parseVendorJobDetailTab("schedule")).toBe("schedule");
@@ -213,5 +215,44 @@ describe("reply-choice labels equal the button labels", () => {
     expect(vendorAnswerChoices(undefined, undefined).map((c) => c.label)).toEqual(["Give estimate", "Book visit", "Submit bid"]);
     expect(vendorAnswerChoices(undefined, { id: "o1", status: "sent" } as WorkOrderVendorOffer).map((c) => c.label)).toEqual(["Give estimate", "Book visit", "Submit bid", "Decline"]);
     expect(vendorAnswerChoices(estimateOnly).map((c) => c.label)).toEqual(["Submit bid", "Book visit", "Decline"]);
+  });
+});
+
+describe("stage actions live in the row's ⋯ (no button rows)", () => {
+  const open = row({ biddingOpen: true });
+  const sent: WorkOrderVendorOffer = { id: "o1", workOrderId: "wo-1", status: "sent" } as WorkOrderVendorOffer;
+  const ids = (input: Parameters<typeof vendorServiceActions>[0]) => vendorServiceActions(input).map((a) => a.label);
+
+  it("Open: Submit bid · Book visit · Decline", () => {
+    expect(ids({ row: open, offer: sent })).toEqual(["Submit bid", "Book visit", "Decline"]);
+  });
+  it("Open with a bid waiting on the manager keeps only Decline (withdraw)", () => {
+    expect(ids({ row: open, bid: bidSent })).toEqual(["Decline"]);
+  });
+  it("Open with a booked visit offers Visit done", () => {
+    expect(ids({ row: open, bid: visitBooked })[0]).toBe("Visit done");
+  });
+  it("Assigned: Schedule · Message the manager", () => {
+    expect(ids({ row: row({ biddingOpen: true }), bid: approved })).toEqual(["Schedule", "Message the manager"]);
+  });
+  it("Scheduled: Reschedule · Complete", () => {
+    expect(ids({ row: row({ bucket: "scheduled", scheduledAtIso: VISIT }), bid: approved })).toEqual(["Reschedule", "Complete"]);
+  });
+  it("Completed: Send invoice only while one is owed", () => {
+    const done = row({ bucket: "completed" });
+    expect(ids({ row: done })).toEqual(["Send invoice"]);
+    expect(ids({ row: done, invoiceSent: true })).toEqual([]);
+    expect(ids({ row: row({ bucket: "completed", automationStatus: "paid" }) })).toEqual([]);
+  });
+});
+
+describe("Estimate & bid tabs: Bid · Estimate visit · Decline", () => {
+  it("a fresh request shows Bid, Estimate, Estimate visit, Decline in that order", () => {
+    expect(vendorBidTabs(undefined, { status: "sent" } as WorkOrderVendorOffer).map((t) => t.label)).toEqual(["Bid", "Estimate", "Estimate visit", "Decline"]);
+  });
+  it("a booked visit adds Visit done; the submit label is still the action vocabulary's", () => {
+    const tabs = vendorBidTabs(visitBooked);
+    expect(tabs.map((t) => t.label)).toEqual(["Bid", "Visit done", "Decline"]);
+    expect(tabs.find((t) => t.value === "submit_bid")?.submitLabel).toBe(VENDOR_SERVICE_ACTION_LABEL.submitBid);
   });
 });

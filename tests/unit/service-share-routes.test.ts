@@ -4,7 +4,7 @@ import { createFakeDb, type Row } from "../helpers/fake-table-db";
 const h = vi.hoisted(() => ({
   user: { id: "mgr-1" } as { id: string } | null,
   vendorAccess: { ok: false, status: 401 } as { ok: true; actor: { userId: string } } | { ok: false; status: number },
-  sendResult: { ok: true } as { ok: boolean; error?: string },
+  sendResult: { status: 200, body: { ok: true } } as { status: number; body: Record<string, unknown> },
   send: vi.fn(),
   db: null as unknown,
 }));
@@ -18,9 +18,13 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://proplane.test" }));
-vi.mock("@/lib/twilio-provisioning", () => ({ resolveManagerWorkNumber: vi.fn(async () => "+12065550100") }));
-vi.mock("@/lib/proplane-sms-transport.server", () => ({
-  sendFromManagerWorkNumber: (args: unknown) => {
+// The vendor-texting path itself is covered by service-share-vendor-texting.test.ts and vendor-texting-send.test.ts.
+vi.mock("@/lib/sms/inbound-text-routing.server", () => ({
+  ensureVendorForOutboundText: vi.fn(async () => ({ vendorId: "vendor-1", name: "Dima Handyman", created: true })),
+}));
+vi.mock("@/lib/manager-sms-send.server", () => ({
+  readRosterVendorTextStatus: vi.fn(async () => ({ status: 200, body: { ok: true, needsAttestation: false, optedOut: false } })),
+  sendManagerConversationSms: (_db: unknown, args: unknown) => {
     h.send(args);
     return Promise.resolve(h.sendResult);
   },
@@ -70,7 +74,7 @@ const json = (body: unknown, url = "http://localhost/x") =>
 beforeEach(() => {
   h.db = createFakeDb(seed());
   h.user = { id: "mgr-1" };
-  h.sendResult = { ok: true };
+  h.sendResult = { status: 200, body: { ok: true } };
   h.send.mockReset();
   h.vendorAccess = { ok: false, status: 401 };
   vi.stubEnv("NODE_ENV", "test");
@@ -90,21 +94,21 @@ describe("POST /api/portal/service-share-link/send", () => {
     expect(h.send).not.toHaveBeenCalled();
   });
 
-  it("requires a valid phone and the 'I work with this vendor' attestation", async () => {
+  it("requires a valid phone", async () => {
     expect((await sendRoute(json({ ...sendBody, phone: "nope" }))).status).toBe(400);
-    expect((await sendRoute(json({ ...sendBody, attestWorksWithVendor: false }))).status).toBe(400);
     expect(table("service_share_links")).toHaveLength(0);
     expect(h.send).not.toHaveBeenCalled();
   });
 
-  it("mints a hashed link, texts it from the work number, and the text carries no address", async () => {
+  it("mints a hashed link, texts it through vendor texting, and the text carries no address", async () => {
     const res = await sendRoute(json(sendBody));
     expect(res.status).toBe(200);
     expect(h.send).toHaveBeenCalledTimes(1);
-    const sent = h.send.mock.calls[0]![0] as { to: string; text: string; managerUserId: string; fromNumber: string };
-    expect(sent).toMatchObject({ to: "+14252240508", managerUserId: "mgr-1", fromNumber: "+12065550100" });
+    const sent = h.send.mock.calls[0]![0] as { toPhone: string; text: string; actorUserId: string; vendorRecordId: string };
+    expect(sent).toMatchObject({ toPhone: "+14252240508", actorUserId: "mgr-1", vendorRecordId: "vendor-1" });
     expect(sent.text).toMatch(/^Hi Dima - Alder Property Co has a plumbing job in Seattle/);
-    expect(sent.text).toMatch(/https:\/\/proplane\.test\/s\/[A-Za-z0-9_-]{32} - Reply STOP/);
+    // The identification + STOP line is the vendor-texting path's to add, on the first text only.
+    expect(sent.text).toMatch(/Details and bid: https:\/\/proplane\.test\/s\/[A-Za-z0-9_-]{32}$/);
     expect(sent.text).not.toMatch(/1420|Alder St|98115|4B/);
     const token = /\/s\/([A-Za-z0-9_-]{32})/.exec(sent.text)![1]!;
     const stored = table("service_share_links")[0]!;
@@ -115,7 +119,7 @@ describe("POST /api/portal/service-share-link/send", () => {
   });
 
   it("revokes the link when the text could not be sent, and says so plainly for an opted-out number", async () => {
-    h.sendResult = { ok: false, error: "recipient_opted_out" };
+    h.sendResult = { status: 409, body: { error: "That number has opted out of texts." } };
     const res = await sendRoute(json(sendBody));
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toMatch(/opted out/);

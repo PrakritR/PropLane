@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { WizardField, WizardLine } from "@/components/portal/add-workspace/parts";
 import { MoneyInput, StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { fetchPhoneTextStatus, type PhoneTextStatus } from "@/lib/service-work-share-client";
 import { canSendToPhone, publishBudgetCents } from "@/lib/service-work-share-ui";
 
 const SEND_STEPS: AddWorkspaceStep[] = [{ id: "send", label: "Send to phone" }];
@@ -26,26 +27,48 @@ export function ServiceSendToPhonePopup({
 }: {
   open: boolean;
   onClose: () => void;
-  onSend: (input: SendToPhoneInput) => Promise<boolean>;
+  onSend: (input: SendToPhoneInput) => Promise<boolean | "attest">;
 }) {
   // Mounted only while open, so every open starts blank.
   return open ? <SendToPhoneBody onClose={onClose} onSend={onSend} /> : null;
 }
 
-function SendToPhoneBody({ onClose, onSend }: { onClose: () => void; onSend: (input: SendToPhoneInput) => Promise<boolean> }) {
+function SendToPhoneBody({ onClose, onSend }: { onClose: () => void; onSend: (input: SendToPhoneInput) => Promise<boolean | "attest"> }) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [sharePhotos, setSharePhotos] = useState(false);
   const [attest, setAttest] = useState(false);
   const [sending, setSending] = useState(false);
-  const ready = canSendToPhone({ phone, attestWorksWithVendor: attest });
+  // The "I work with this vendor" box exists only while the first text to this number still needs it.
+  const [status, setStatus] = useState<PhoneTextStatus | null>(null);
+  const [forceAttest, setForceAttest] = useState(false);
+  const phoneDigits = phone.replace(/\D/g, "");
+  const phoneKey = phoneDigits.length >= 10 ? phoneDigits : "";
+  useEffect(() => {
+    setStatus(null);
+    if (!phoneKey) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void fetchPhoneTextStatus(phoneKey).then((next) => {
+        if (active) setStatus(next);
+      });
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [phoneKey]);
+  const attestationNeeded = forceAttest || status === null || status.needsAttestation;
+  const optedOut = status?.optedOut === true;
+  const ready = canSendToPhone({ phone, attestWorksWithVendor: attest, attestationNeeded, optedOut });
 
   const send = async () => {
     if (!ready || sending) return;
     setSending(true);
     try {
-      const sent = await onSend({ phone, recipientName: name.trim(), sharePhotos, attestWorksWithVendor: attest });
-      if (sent) onClose();
+      const sent = await onSend({ phone, recipientName: name.trim(), sharePhotos, attestWorksWithVendor: attestationNeeded && attest });
+      if (sent === "attest") setForceAttest(true);
+      else if (sent) onClose();
     } finally {
       setSending(false);
     }
@@ -89,10 +112,12 @@ function SendToPhoneBody({ onClose, onSend }: { onClose: () => void; onSend: (in
           label="Share photos"
           control={<PortalSettingsToggle checked={sharePhotos} onChange={setSharePhotos} label="Share photos" disabled={sending} dataAttr="service-send-to-phone-photos" />}
         />
-        <WizardLine
-          label="I work with this vendor"
-          control={<PortalSettingsToggle checked={attest} onChange={setAttest} label="I work with this vendor" disabled={sending} dataAttr="service-send-to-phone-attest" />}
-        />
+        {attestationNeeded ? (
+          <WizardLine
+            label="I work with this vendor"
+            control={<PortalSettingsToggle checked={attest} onChange={setAttest} label="I work with this vendor" disabled={sending} dataAttr="service-send-to-phone-attest" />}
+          />
+        ) : null}
       </StepColumn>
     </AddWorkspace>
   );

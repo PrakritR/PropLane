@@ -256,8 +256,11 @@ allowlist below.**
 
 A manager texts a service to a phone from the service header (Send to phone) with
 `POST /api/portal/service-share-link/send`: ownership is re-derived from the row, the phone is normalized, "I work
-with this vendor" is required, and the text goes out through the existing `sendFromManagerWorkNumber` (consent, quiet
-hours and STOP are that path's, untouched). The link is `/s/<token>`: `service_share_links` stores only the SHA-256 of
+with this vendor" is required on the first text to a number (`GET /api/manager/vendor-text-consent?phone=` tells the
+pop-up whether to show the box), the number joins the Vendors list, and the text goes out through the SAME vendor-texting
+path as the manager compose (`sendManagerConversationSms` for a roster vendor: attestation, the identification + STOP
+footer on the first text, `vendor_conversation` consent evidence, credit reservation, the vendor-thread projection;
+STOP always wins). The link is `/s/<token>`: `service_share_links` stores only the SHA-256 of
 the token (`token_hash`), 14-day expiry, revocable, access count, a per-manager daily text cap, and per-IP / per-token
 limits on the public page. `/s/<token>` is `noindex`, no-store, and answers one neutral 404 for an unknown, expired or
 revoked token. A link never creates an account, an offer or a bid by itself.
@@ -269,8 +272,19 @@ Redeem makes the roster row (with the texted phone) and the `sent` offer and ope
 FIRST redeemer. **Phone verification is a hook point** (`serviceLinkPhoneVerificationHook`, vendor texting owns the
 verification) and records nothing until that lands.
 
-Local SMS proof: `SERVICE_LINK_SMS_SANDBOX=1` under `next dev` runs the send inside the SMS test transport, which
-captures the text instead of delivering it; it is inert in any deployed build.
+Local SMS proof: `SERVICE_LINK_SMS_SANDBOX=1` under `next dev` queues the text for real (so it reaches the vendor
+thread) and captures only the carrier hand-off in the SMS test transport; an account with no ready work line falls back
+to capturing the whole send. It is inert in any deployed build.
+
+### The vendor Services list and service record (vendor-portal-redesign-1006)
+
+Every Services tab (Open · Assigned · Scheduled · Completed · Find work) is the shared row; stage actions live only in
+the row's ⋯ (`vendorServiceActions`: Open Submit bid · Book visit · Decline; Assigned Schedule · Message the manager;
+Scheduled Reschedule (asks the manager) · Complete; Completed Send invoice). There is no bulk selection. The service
+record uses the resident-record anatomy: header Message the manager · the primary next step · ⋯ (the other stage
+actions), the stepper under it, rail Job (Overview · Estimate & bid · Schedule), Money (Invoice · Payments), Records
+(Communication · Documents). Estimate & bid answers are underline tabs (`vendorBidTabs`: Bid · Estimate · Estimate
+visit · Decline) with the commit button in the card footer. Guard: `tests/unit/vendor-services-anatomy.test.ts`.
 
 ## Settings > Integrations and the Calendar link (Oct 6)
 
