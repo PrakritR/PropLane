@@ -176,4 +176,25 @@ describe("Send to phone uses vendor texting", () => {
     expect(res.status).toBe(503);
     expect(table("service_share_links")[0]!.revoked_at).toBeTruthy();
   });
+
+  it("sandbox: the text is queued for real (so it reaches the vendor thread) and only the carrier hand-off is captured", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SERVICE_LINK_SMS_SANDBOX", "1");
+    const res = await post({ attestWorksWithVendor: true });
+    const out = (await res.json()) as { sandbox?: { to: string; text: string } };
+    expect(res.status).toBe(200);
+    expect(out.sandbox?.to).toBe(PHONE);
+    expect(h.enqueue).toHaveBeenCalledOnce();
+    expect(h.enqueue.mock.calls[0]![0]).toMatchObject({ purpose: "vendor_conversation", counterpartyRole: "vendor" });
+    expect(h.dispatch).toHaveBeenCalledOnce();
+  });
+
+  it("sandbox: an account with no ready work line falls back to capturing the whole send", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SERVICE_LINK_SMS_SANDBOX", "1");
+    h.enqueue.mockResolvedValueOnce({ ok: false, error: "number_not_ready" });
+    const res = await post({ attestWorksWithVendor: true });
+    expect(res.status).toBe(200);
+    expect(h.enqueue).toHaveBeenCalledTimes(2);
+  });
 });

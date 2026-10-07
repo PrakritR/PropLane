@@ -768,22 +768,24 @@ export function vendorWorkOrderListHref(
 }
 
 /**
- * Vendor service page rail: Service · Estimate & bid · Schedule · Invoice · Communication. The old
- * ids (overview, scope-photos, bid-invoice, quote ...) stay as aliases so saved links keep working.
+ * Vendor service record rail: Job (Overview · Estimate & bid · Schedule), Money (Invoice · Payments),
+ * Records (Communication · Documents). `service` is the Overview id; the old ids (overview,
+ * scope-photos, bid-invoice, quote ...) stay as aliases so saved links keep working.
  */
 export const VENDOR_JOB_DETAIL_TABS = [
   "service",
   "bid",
   "schedule",
   "invoice",
+  "payments",
   "communication",
+  "documents",
 ] as const;
 export type VendorJobDetailTabId = (typeof VENDOR_JOB_DETAIL_TABS)[number];
 
 const VENDOR_JOB_DETAIL_TAB_ALIASES: Record<string, VendorJobDetailTabId> = {
   overview: "service",
-  "scope-photos": "service",
-  documents: "service",
+  "scope-photos": "documents",
   "bid-invoice": "invoice",
   quote: "bid",
   estimate: "bid",

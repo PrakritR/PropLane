@@ -141,17 +141,36 @@ export async function POST(req: Request) {
       linkUrl,
     });
 
-    const send = () =>
+    const send = (runDispatch?: Parameters<typeof sendManagerConversationSms>[1]["runDispatch"]) =>
       sendManagerConversationSms(db, {
         actorUserId: user.id,
         toPhone: phone,
         text,
         vendorRecordId: vendor.vendorId,
         attestVendorRelationship: attested,
+        runDispatch,
       });
-    const outcome = sandbox
-      ? await runWithSmsTestTransport({ actorUserId: user.id, managerUserId: user.id, appOrigin: resolveEmailLinkBaseUrl() }, send)
-      : { result: await send(), effects: [] };
+    let outcome: { result: Awaited<ReturnType<typeof send>>; effects: unknown[] };
+    if (sandbox) {
+      // The text is queued for real (so it lands in the manager's vendor thread) but the carrier hand-off
+      // is captured: nothing is delivered.
+      const identity = { actorUserId: user.id, managerUserId: user.id, appOrigin: resolveEmailLinkBaseUrl() };
+      const effects: unknown[] = [];
+      let result = await send(async (run) => {
+        const captured = await runWithSmsTestTransport(identity, run);
+        effects.push(...captured.effects);
+        return captured.result;
+      });
+      // A dev account with no ready work line cannot queue for real: capture the whole send instead.
+      if (result.status < 200 || result.status >= 300) {
+        const captured = await runWithSmsTestTransport(identity, () => send());
+        result = captured.result;
+        effects.push(...captured.effects);
+      }
+      outcome = { result, effects };
+    } else {
+      outcome = { result: await send(), effects: [] };
+    }
 
     if (outcome.result.status < 200 || outcome.result.status >= 300) {
       // Nothing reached the vendor, so the link must not stay live.

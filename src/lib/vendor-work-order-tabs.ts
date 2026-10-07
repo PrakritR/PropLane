@@ -149,8 +149,11 @@ export function vendorWorkOrderPhaseLabel(row: DemoManagerWorkOrderRow, bid?: Wo
 
 /* ------------------------------- the service page ------------------------------- */
 
-/** The vendor service page's rail: Service · Estimate & bid · Schedule · Invoice · Communication. */
-export type VendorServiceSection = "service" | "bid" | "schedule" | "invoice" | "communication";
+/**
+ * The vendor service record's rail: Job (Overview · Estimate & bid · Schedule), Money (Invoice ·
+ * Payments), Records (Communication · Documents). "service" is the Overview id.
+ */
+export type VendorServiceSection = "service" | "bid" | "schedule" | "invoice" | "payments" | "communication" | "documents";
 
 export type VendorNextStepId = "submit_bid" | "visit_done" | "schedule" | "complete" | "send_invoice";
 export type VendorNextStep = { id: VendorNextStepId; label: string; section: VendorServiceSection };
@@ -207,4 +210,76 @@ export function vendorEffectiveReply(
   const choices = vendorAnswerChoices(bid, offer);
   const wanted = selected ?? vendorDefaultReply(bid);
   return choices.find((c) => c.value === wanted) ?? choices[0] ?? null;
+}
+
+/* ------------------------------- stage actions (⋯) ------------------------------- */
+
+export type VendorServiceActionId =
+  | "submit_bid"
+  | "book_visit"
+  | "visit_done"
+  | "decline"
+  | "schedule"
+  | "reschedule"
+  | "mark_done"
+  | "send_invoice"
+  | "message";
+
+export type VendorServiceAction = { id: VendorServiceActionId; label: string };
+
+/**
+ * What a vendor can do to a service from a row's or the record header's ⋯, by stage - the one place
+ * the Services tabs and the record agree (no button rows under rows):
+ *  Open       Submit bid · Book visit · Decline (a bid already waiting on the manager keeps only Decline)
+ *  Assigned   Schedule · Message the manager
+ *  Scheduled  Reschedule (asks the manager, who owns the calendar) · Complete
+ *  Completed  Send invoice (only while one is owed)
+ */
+export function vendorServiceActions(input: VendorServiceFacts): VendorServiceAction[] {
+  const { row, bid, offer } = input;
+  const stage = vendorServiceStage(row, bid, offer);
+  const out: VendorServiceAction[] = [];
+  if (stage === "open") {
+    if (!bid) {
+      out.push({ id: "submit_bid", label: VENDOR_SERVICE_ACTION_LABEL.submitBid });
+      out.push({ id: "book_visit", label: VENDOR_SERVICE_ACTION_LABEL.bookVisit });
+    } else if (bid.consultationVisitAt && !bid.estimateVisitDoneAt) {
+      out.push({ id: "visit_done", label: VENDOR_SERVICE_ACTION_LABEL.completeVisit });
+    } else if (isPricingPendingBid(bid)) {
+      out.push({ id: "submit_bid", label: VENDOR_SERVICE_ACTION_LABEL.submitBid });
+    }
+    if (offer?.status === "sent" || bid?.status === "submitted") out.push({ id: "decline", label: VENDOR_SERVICE_ACTION_LABEL.decline });
+  } else if (stage === "assigned") {
+    out.push({ id: "schedule", label: "Schedule" }, { id: "message", label: "Message the manager" });
+  } else if (stage === "scheduled") {
+    out.push({ id: "reschedule", label: "Reschedule" });
+    if (!row.automationStatus) out.push({ id: "mark_done", label: VENDOR_SERVICE_ACTION_LABEL.complete });
+  } else if (!isDeclined({ bid, offer }) && row.automationStatus !== "paid" && !input.invoiceSent) {
+    out.push({ id: "send_invoice", label: VENDOR_SERVICE_ACTION_LABEL.sendInvoice });
+  }
+  return out;
+}
+
+/**
+ * The Estimate & bid section's underline tabs: Bid · Estimate visit · Decline, drawn from exactly the
+ * answers `vendorAnswerChoices` allows (Estimate and Visit done appear only when they apply). The
+ * submit label stays the choice's own `VENDOR_SERVICE_ACTION_LABEL` text.
+ */
+const BID_TAB_LABEL: Record<VendorReplyChoice, string> = {
+  submit_bid: "Bid",
+  give_estimate: "Estimate",
+  book_estimate_visit: "Estimate visit",
+  complete_estimate_visit: "Visit done",
+  decline: "Decline",
+  cant_do_it: "Decline",
+};
+const BID_TAB_ORDER: readonly VendorReplyChoice[] = ["submit_bid", "give_estimate", "book_estimate_visit", "complete_estimate_visit", "decline", "cant_do_it"];
+
+export function vendorBidTabs(
+  bid: WorkOrderBid | undefined,
+  offer?: WorkOrderVendorOffer,
+): Array<{ value: VendorReplyChoice; label: string; submitLabel: string }> {
+  return vendorAnswerChoices(bid, offer)
+    .map((choice) => ({ value: choice.value, label: BID_TAB_LABEL[choice.value], submitLabel: choice.label }))
+    .sort((a, b) => BID_TAB_ORDER.indexOf(a.value) - BID_TAB_ORDER.indexOf(b.value));
 }

@@ -66,7 +66,8 @@ describe("Find work is a fifth tab, not a fifth stage", () => {
 
   it("the panel appends Find work itself; the board's three choices live in each row's ⋯ menu, not a button strip", () => {
     const panel = read("src/components/portal/vendor-work-orders-panel.tsx");
-    expect(panel).toContain("VendorJobChoiceBar");
+    // The strip is gone from the service record: its choices live in the header ⋯ and the Estimate & bid tabs.
+    expect(panel).not.toContain("VendorJobChoiceBar");
     expect(panel).toContain('label: "Find work"');
     expect(panel).toContain("VENDOR_FIND_WORK_TAB");
     expect(panel).toContain("vendorJobChoiceHref");
