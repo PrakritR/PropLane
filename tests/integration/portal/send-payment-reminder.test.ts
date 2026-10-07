@@ -37,6 +37,14 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
   resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
 }));
 
+// `requireManagerRouteUser` withholds the manager surface from a Property
+// owner. The membership read behind it spans four tables this file's charge
+// fixture does not model; the refusal itself is proven in
+// `tests/unit/owner-manager-route-refusals-behavior.test.ts`.
+vi.mock("@/lib/property-owner/access.server", () => ({
+  withholdManagerSurface: async () => false,
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";

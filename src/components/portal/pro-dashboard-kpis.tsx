@@ -328,7 +328,13 @@ export function UpcomingPanel({
             const { day, time } = dayLabel(row.at, nowMs);
             return (
               <li key={row.id}>
-                <Link href={row.href} className={rowLinkClassName} data-attr={`dashboard-upcoming-${row.id}`}>
+                {/* The analytics name is the fixed kebab name every funnel joins
+                    on, never `row.id`: those ids carry a stored record key
+                    (`tour-<uuid>`, `visit-<uuid>`), which both explodes
+                    autocapture cardinality and walks locally stored row text
+                    into a rendered DOM attribute (CodeQL `js/xss-through-dom`).
+                    The row's href already says which record was opened. */}
+                <Link href={row.href} className={rowLinkClassName} data-attr="dashboard-upcoming-row">
                   <span className="w-[76px] shrink-0 leading-tight">
                     <span className="block text-[12.5px] font-semibold text-foreground">{day}</span>
                     <span className="block text-[11.5px] text-muted">{time || "All day"}</span>

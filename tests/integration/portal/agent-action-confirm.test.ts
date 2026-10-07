@@ -1,5 +1,8 @@
 vi.mock("@/lib/property-owner/access.server", () => ({
   ownerAccessStateFor: async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false }),
+  // `resolveAgentContext` asks this (not `ownerAccessStateFor`) before it hands
+  // back a manager context; without it the mock throws and every case 500s.
+  withholdManagerSurface: async () => false,
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

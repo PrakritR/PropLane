@@ -1,0 +1,14 @@
+name: "PropLane CodeQL config"
+
+# The gate scans shipped code. Test code is excluded because a taint path that
+# starts in a fixture is not a product vulnerability, and CodeQL's sensitive-data
+# heuristics fire on fixtures constantly: a unit test that round-trips a signed
+# value through its own signer (`tests/unit/meta-oauth-state.test.ts`, which
+# feeds `signMetaOAuthState(state, SECRET)` straight back into
+# `verifyMetaOAuthState`) is reported as `js/insufficient-password-hash` on the
+# library's HMAC, because the heuristic reads the minted state as a password.
+# HMAC-SHA256 over a machine-generated app secret is the right primitive there,
+# and nothing in this product hashes a user password at all - Supabase Auth owns
+# credentials. Every query stays enabled for `src/` and `scripts/`.
+paths-ignore:
+  - tests
