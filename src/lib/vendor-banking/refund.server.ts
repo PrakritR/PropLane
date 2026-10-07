@@ -158,7 +158,9 @@ export async function refundVendorPayout(
     vendorUserId: opts.vendorUserId,
     managerUserId: payout.managerUserId,
     kind: "refund",
-    amountCents: -preview.netDebitCents,
+    // The GROSS leaves the statement; the fee share comes back as its own +line below, so
+    // gross - fee nets to the vendor's real debit (same shape as the central refund rail).
+    amountCents: -preview.requestedGrossCents,
     source: "refund",
     sourceId: payout.id,
     description: opts.reason?.trim() ? `Refund — ${opts.reason.trim()}` : "Refund",

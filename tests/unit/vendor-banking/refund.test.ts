@@ -81,9 +81,11 @@ describe("refundVendorPayout — partial math (destination charge)", () => {
     expect(payoutRow.status).toBe("partially_refunded");
 
     const refundLine = db._inserts.find((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "refund");
-    expect(refundLine?.row.amount_cents).toBe(-3_880);
+    expect(refundLine?.row.amount_cents).toBe(-4_000); // gross, never net: the +fee line below returns the fee share
     const feeLine = db._inserts.find((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "adjustment" && (i.row.description as string).includes("fee refunded"));
     expect(feeLine?.row.amount_cents).toBe(120);
+    // Statement net = -gross + fee = the vendor's real net debit (no double-counted fee return).
+    expect((refundLine?.row.amount_cents as number) + (feeLine?.row.amount_cents as number)).toBe(-3_880);
     expect(feeLine?.row.description).toBe("PropLane service fee refunded proportionally");
     // PropLane's own revenue gives the same share back, keyed on this refund request.
     const reversal = db._inserts.find((i) => i.table === "platform_revenue_entries");
