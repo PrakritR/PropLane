@@ -147,3 +147,158 @@
     max-width: 14ch;
   }
 }
+
+/* ── Legacy `lp-*` pages (about, support, contact, app, start) in the same look ── */
+.site-page.lp-root {
+  background: transparent;
+  overflow-x: clip;
+  margin-top: 0;
+  --lp-blue: #1769bd;
+  --lp-ink: var(--site-ink);
+  --lp-muted: #3f526c;
+  --lp-line: #cfdceb;
+  --lp-card: rgba(255, 255, 255, 0.82);
+  --lp-surface-2: rgba(255, 255, 255, 0.7);
+}
+
+.site-page .lp-page-hero {
+  text-align: center;
+  padding: clamp(52px, 7vw, 96px) 0 clamp(32px, 4.5vw, 60px);
+}
+
+.site-page .lp-page-hero--start {
+  text-align: center;
+}
+
+.site-page .lp-page-eyebrow {
+  margin: 0 0 18px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--site-accent);
+}
+
+.site-page .lp-page-eyebrow-dot {
+  display: none;
+}
+
+.site-page .lp-page-title {
+  max-width: 17ch;
+  color: var(--site-ink);
+  font-size: clamp(2.7rem, 6.3vw, 5.4rem);
+  font-weight: 730;
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+  text-shadow: 0 2px 22px #f7fbffb8;
+}
+
+.site-page .lp-page-hero--start .lp-page-title,
+.site-page .lp-page-title.lp-page-title-wide {
+  margin-inline: auto;
+  margin-top: 0;
+  max-width: 21ch;
+}
+
+.site-page .lp-page-title.lp-page-title-tight {
+  max-width: 14ch;
+}
+
+.site-page .lp-page-lede {
+  max-width: 54ch;
+  margin: 22px auto 0;
+  color: #3a4d68;
+  font-size: clamp(16px, 1.5vw, 19px);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.site-page .lp-page-hero--start .lp-page-lede {
+  margin-inline: auto;
+}
+
+.site-page .lp-page-hero .lp-cta-row {
+  margin-top: 34px;
+  gap: 14px;
+}
+
+.site-page .lp-page-section {
+  border-top: 0;
+  padding: clamp(40px, 5vw, 64px) 0;
+}
+
+.site-page .lp-page-section h2 {
+  font-size: clamp(1.9rem, 3.6vw, 3rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.032em;
+  text-wrap: balance;
+}
+
+.site-page .lp-page-kicker {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--site-accent);
+}
+
+.site-page .lp-page-card {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: var(--site-line);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px -30px rgba(19, 43, 71, 0.3);
+}
+
+.site-page .lp-page-card h3 {
+  color: var(--site-ink);
+}
+
+.site-page .lp-page-card p,
+.site-page .lp-page-list li {
+  color: #3f526c;
+}
+
+.site-page .lp-page-field input,
+.site-page .lp-page-field select,
+.site-page .lp-page-field textarea {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: #c3d4e6;
+}
+
+/* The home button set on the legacy `lp-btn` buttons. */
+.site-page .lp-btn.lp-lg,
+.site-page a.lp-btn.lp-lg {
+  height: 52px;
+  padding-inline: 22px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.site-page .lp-btn-blue,
+.site-page a.lp-btn-blue {
+  background: #1769bd;
+  border-color: #1769bd;
+  color: #fff;
+  box-shadow: 0 12px 22px #1769bd24;
+}
+
+.site-page .lp-btn-blue:hover,
+.site-page a.lp-btn-blue:hover {
+  background: #0f5aa8;
+  filter: none;
+}
+
+.site-page .lp-btn-ghost,
+.site-page a.lp-btn-ghost {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: #b7cce3;
+  color: #285887;
+}
+
+.site-page .lp-btn-ghost:hover,
+.site-page a.lp-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: #8fb0d4;
+  filter: none;
+}

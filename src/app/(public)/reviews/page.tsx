@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BOOK_DEMO_HREF, PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
-import { SITE_MEASURE, SiteEyebrow, SiteHeading, SiteSection } from "@/components/marketing/site/primitives";
+import { SitePageHero, SiteSection } from "@/components/marketing/site/primitives";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 export const metadata: Metadata = {
   title: "Reviews",
@@ -35,17 +36,17 @@ const TRUE_CLAIMS = [
 
 export default function ReviewsPage() {
   return (
-    <div className="relative min-h-0 flex-1">
-      <section className="border-b border-border/70 pb-14 pt-14 sm:pt-16 lg:pb-20 lg:pt-20" aria-labelledby="reviews-title">
-        <div className={`${SITE_MEASURE} max-w-[860px]`}>
-          <SiteEyebrow className="mb-4">Reviews</SiteEyebrow>
-          <SiteHeading as="h1" id="reviews-title">
+    <SitePage>
+      <SitePageHero
+        eyebrow="Reviews"
+        id="reviews-title"
+        title={
+          <>
             Early access.
-            <br />
-            <span className="text-primary">Real words only.</span>
-          </SiteHeading>
-        </div>
-      </section>
+            <span className="site-accent">Real words only.</span>
+          </>
+        }
+      />
 
       <SiteSection ariaLabel="What we can promise">
         <div className="grid gap-4 md:grid-cols-3">
@@ -90,6 +91,6 @@ export default function ReviewsPage() {
         secondaryLabel="Start free"
         secondaryHref="/auth/create-account"
       />
-    </div>
+    </SitePage>
   );
 }

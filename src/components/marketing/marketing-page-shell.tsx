@@ -1,4 +1,5 @@
 import "@/components/marketing/landing-proplane.css";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 type ShellProps = {
   children: React.ReactNode;
@@ -7,10 +8,12 @@ type ShellProps = {
 
 /**
  * Wraps public marketing pages in the same PropLane token surface as the homepage
- * (`lp-root` → cool white / near-black, light=blue / dark=purple brand).
+ * (`lp-root` → cool white / near-black, light=blue / dark=purple brand), inside
+ * `SitePage`, so the wavy atmosphere and the display heading face run behind it
+ * (`site-display.css` restyles the `lp-page-*` classes under `.site-page`).
  */
 export function MarketingPageShell({ children, className = "" }: ShellProps) {
-  return <div className={`lp-root lp-page ${className}`.trim()}>{children}</div>;
+  return <SitePage className={`lp-root lp-page ${className}`.trim()}>{children}</SitePage>;
 }
 
 type SectionProps = {
