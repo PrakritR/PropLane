@@ -15,7 +15,6 @@ import {
   PortalTableExpandChevron,
   usePortalPreviewSlice,
 } from "@/components/portal/portal-data-table";
-import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { useResidentDashboardVisibility } from "@/hooks/use-resident-dashboard-visibility";
 import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
 import { RESIDENT_DASHBOARD_SECTIONS, type ResidentDashboardSectionId } from "@/lib/resident-dashboard-preferences";
@@ -284,8 +283,7 @@ function AttentionGroup<T>({
   keyForItem: (item: T) => string;
   renderRow: (item: T, sectionTone: AttentionTone) => ReactNode;
 }) {
-  const { visible, overflow } = usePortalPreviewSlice(items);
-  const { isNative } = useIsNativeApp();
+  const { visible } = usePortalPreviewSlice(items);
   const count = headerCount ?? items.length;
   const isEmpty = count === 0;
   const accent = ATTENTION_TONE[tone];
@@ -350,18 +348,6 @@ function AttentionGroup<T>({
                 <Fragment key={keyForItem(item)}>{renderRow(item, tone)}</Fragment>
               ))}
             </div>
-            {overflow > 0 ? (
-              <div className="border-t border-border/80 px-3.5 py-2 [html[data-native]_&]:px-3">
-                <Link
-                  href={href}
-                  data-attr="dashboard-attention-view-all"
-                  className="inline-flex min-h-11 items-center text-xs font-semibold hover:underline underline-offset-2"
-                  style={{ color: accent.fg }}
-                >
-                  {isNative ? `View all (${count}) →` : `View all ${count} →`}
-                </Link>
-              </div>
-            ) : null}
           </div>
         )
       ) : null}

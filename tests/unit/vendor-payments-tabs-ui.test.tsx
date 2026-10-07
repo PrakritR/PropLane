@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Vendor Payments (vendor-portal-redesign-1006): Pending · Paid · Overdue tabs
-// with counts and the shared row with ⋯ View invoice · Download · Message the manager.
+// with counts and the shared row with ⋯ View invoice · Download.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
@@ -112,16 +112,15 @@ describe("vendor Payments tabs", () => {
     expect(screen.queryByText("INV-2")).toBeNull();
   });
 
-  it("the row ⋯ carries View invoice, Download (paid) and Message the manager", async () => {
+  it("the row ⋯ carries View invoice and Download (paid), and no Message the manager", async () => {
     renderPanel();
     await waitFor(() => expect(tab("paid")).toBeTruthy());
     fireEvent.click(tab("paid"));
     await screen.findByText("INV-3");
     fireEvent.pointerDown(document.querySelector('[data-attr="vendor-payment-row-menu"]') as HTMLElement, { button: 0, ctrlKey: false });
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["View invoice", "Download", "Message the manager"]);
-    fireEvent.click(within(menu).getByText("Message the manager"));
-    expect(navigate).toHaveBeenCalledWith("/vendor/communication/active?compose=1");
+    expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["View invoice", "Download"]);
+    expect(within(menu).queryByText("Message the manager")).toBeNull();
   });
 
   it("the Payments tab carries no balance card (it moved to Balance & payouts); the band keeps its single Download", async () => {

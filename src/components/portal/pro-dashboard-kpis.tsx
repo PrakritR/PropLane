@@ -305,7 +305,7 @@ export function UpcomingPanel({
   calendarHref: string;
   /** Surface-specific, factual empty state; manager copy remains the default. */
   emptyCopy?: string;
-  /** Replaces the default text Calendar link while preserving shared row behavior. */
+  /** Replaces the default text Calendar link while preserving shared row behavior; `null` draws none. */
   aside?: React.ReactNode;
   rowLinkClassName?: string;
 }) {
@@ -313,7 +313,7 @@ export function UpcomingPanel({
   return (
     <PanelShell
       title="Upcoming"
-      aside={aside ?? (
+      aside={aside !== undefined ? aside : (
         <Link href={calendarHref} className="text-[12.5px] font-semibold text-primary hover:underline">
           Calendar →
         </Link>

@@ -34,7 +34,6 @@ import { loadInspectionList } from "@/lib/inspections/client";
 import { inspectionRoomLabel, type InspectionResidency } from "@/lib/inspections/model";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import {
   getPartnerInquiryWindows,
   readPartnerInquiries,
@@ -345,8 +344,7 @@ function AttentionGroup<T>({
   keyForItem: (item: T) => string;
   renderRow: (item: T, sectionTone: AttentionTone) => ReactNode;
 }) {
-  const { visible, overflow } = usePortalPreviewSlice(items);
-  const { isNative } = useIsNativeApp();
+  const { visible } = usePortalPreviewSlice(items);
   const count = headerCount ?? items.length;
   const isEmpty = count === 0;
   const accent = ATTENTION_TONE[tone];
@@ -419,18 +417,6 @@ function AttentionGroup<T>({
                 <Fragment key={keyForItem(item)}>{renderRow(item, tone)}</Fragment>
               ))}
             </div>
-            {overflow > 0 ? (
-              <div className="border-t border-border/80 px-3.5 py-2 [html[data-native]_&]:px-3">
-                <Link
-                  href={href}
-                  data-attr="dashboard-attention-view-all"
-                  className="inline-flex min-h-11 items-center text-xs font-semibold hover:underline underline-offset-2"
-                  style={{ color: accent.fg }}
-                >
-                  {isNative ? `View all (${count}) →` : `View all ${count} →`}
-                </Link>
-              </div>
-            ) : null}
           </div>
         )
       ) : null}
@@ -842,7 +828,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       .filter((l) => l.status === "Manager Signature Pending" || l.status === "Resident Signature Pending")
       .sort((a, b) => new Date(b.updatedAtIso).getTime() - new Date(a.updatedAtIso).getTime());
 
-    // Scoped exactly like /portal/payments — this group's "View all N →" links
+    // Scoped exactly like /portal/payments — this group's header → links
     // straight there, so the two must count the same rows (F-PAY-1).
     const charges = readManagerPaymentsLedgerCharges(userId);
     const pendingCharges = unpaidManagerPaymentCharges(charges).sort((a, b) => {

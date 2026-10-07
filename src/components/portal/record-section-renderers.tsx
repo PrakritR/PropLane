@@ -76,7 +76,6 @@ export type RecordSectionRendererProps = {
   recordLabel?: string;
   /** The existing documents list for this record's property/contact, when one exists. */
   documents?: RecordSectionDocument[];
-  onAddDocument?: () => void;
   /** The record's existing status/event history, when it has one. */
   activity?: RecordSectionActivityEvent[];
   /** Narrow the record's Communication to this property / these contacts when the panel knows them. */
@@ -114,7 +113,7 @@ export function renderRecordSection(id: string, props: RecordSectionRendererProp
   return createElement(Component, props);
 }
 
-function DocumentsSection({ documents, onAddDocument }: RecordSectionRendererProps) {
+function DocumentsSection({ documents }: RecordSectionRendererProps) {
   if (documents && documents.length > 0) {
     return (
       <ul className="divide-y divide-border rounded-xl border border-border bg-card" data-attr="record-documents-list">
@@ -138,7 +137,6 @@ function DocumentsSection({ documents, onAddDocument }: RecordSectionRendererPro
       icon={<FileText className="size-[22px]" strokeWidth={1.6} aria-hidden />}
       dataAttr="record-documents-empty"
       workspaceAware={false}
-      actions={onAddDocument ? [{ label: "Add document", onClick: onAddDocument, dataAttr: "record-documents-add" }] : []}
     />
   );
 }

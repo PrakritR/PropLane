@@ -11,12 +11,12 @@ import {
   type UpcomingRow,
 } from "@/components/portal/pro-dashboard-kpis";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { VendorDashboardBalanceCard } from "@/components/portal/vendor-dashboard-balance-card";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { CalendarDays, Clock, LayoutGrid, Wrench, FileText, Mail } from "lucide-react";
+import { CalendarDays, Clock, Wrench, FileText, Mail } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -198,7 +198,7 @@ export function VendorDashboard({}: { displayName: string }) {
               calendarHref={`${BASE}/calendar`}
               emptyCopy="No upcoming visits."
               rowLinkClassName="flex min-h-[44px] items-center gap-3 p-4 transition hover:bg-accent/30"
-              aside={<PortalIconAction icon={CalendarDays} label="Open calendar" onClick={() => router.push(`${BASE}/calendar`)} data-attr="vendor-dashboard-calendar-open" />}
+              aside={null}
             />
           </>
         }
@@ -213,12 +213,6 @@ export function VendorDashboard({}: { displayName: string }) {
                   label="Add"
                   data-attr="vendor-dashboard-add"
                   onClick={() => router.push(`${vendorWorkOrderListHref(BASE, "open")}?add=1`)}
-                />
-                <PortalIconAction
-                  icon={LayoutGrid}
-                  label="Manage services"
-                  data-attr="vendor-dashboard-manage-jobs"
-                  onClick={() => router.push(vendorWorkOrderListHref(BASE, "open"))}
                 />
               </div>
             </div>

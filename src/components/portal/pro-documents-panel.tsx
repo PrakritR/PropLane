@@ -601,14 +601,12 @@ export function ManagerDocumentsPanel({
                 basePath={basePath}
                 propertyFilter={leasingPropertyFilter}
                 onClearFilter={resetLeasingFilters}
-                onUpload={openDocumentUpload}
               />
             ) : (
               <ManagerLeaseDocumentsTab
                 userId={userId ?? null}
                 propertyFilter={leasingPropertyFilter}
                 onClearFilter={resetLeasingFilters}
-                onUpload={openDocumentUpload}
               />
             )}
             <ManagerDocumentLibrary ref={libraryRef} userId={userId ?? null} listHidden hideFilterChrome />

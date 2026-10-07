@@ -77,9 +77,9 @@ describe("Bookings → Settings", () => {
     );
     await settle();
 
-    fireEvent.pointerDown(view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')!, { button: 0, ctrlKey: false });
-    await settle();
-    const linkCalendars = Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent?.includes("Link calendars"));
+    // The command bar's Calendars dropdown is gone; an empty Upcoming list offers Link calendars.
+    expect(view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).toBeNull();
+    const linkCalendars = view.container.querySelector('[data-attr="bookings-empty-link-airbnb"]');
     expect(linkCalendars).toBeTruthy();
     fireEvent.click(linkCalendars!);
     await settle();

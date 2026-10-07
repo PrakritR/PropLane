@@ -13,7 +13,6 @@ import {
 import { MODAL_TALL_PANEL_CLASS, MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import { LeaseAiReviewAcknowledgment } from "@/components/portal/lease-ai-review-acknowledgment";
-import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import {
   PropertyLeaseDocumentNotice,
   propertyLeaseNeedsAssistantReview,
@@ -63,7 +62,6 @@ type ManagerPipelineLeaseEditModalProps = {
   onAttachFromLibrary?: () => void;
   showDelete?: boolean;
   onDelete?: () => void;
-  showShare?: boolean;
   showRegenerate?: boolean;
   /** @deprecated Prefer `managerUserId` — regenerate runs inside this editor without opening another modal. */
   onRegenerate?: (templateId: string | null) => void;
@@ -90,7 +88,6 @@ export function ManagerPipelineLeaseEditModal({
   onAttachFromLibrary,
   showDelete = false,
   onDelete,
-  showShare = false,
   showRegenerate = false,
   onRegenerate,
   regenerateLabel = "Regenerate",
@@ -292,7 +289,6 @@ export function ManagerPipelineLeaseEditModal({
     showDownload ||
     showUpload ||
     showDelete ||
-    showShare ||
     showRegenerate ||
     autoSaveState !== "idle";
   const footerBtnClass = cn(RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN, "rounded-full");
@@ -374,15 +370,6 @@ export function ManagerPipelineLeaseEditModal({
                 >
                   From library
                 </Button>
-              ) : null}
-              {showShare ? (
-                <PortalRecordShareLinkButton
-                  kind="lease"
-                  recordId={row.id}
-                  className={footerBtnClass}
-                  dataAttr="resident-lease-share"
-                  recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-                />
               ) : null}
               {showRegenerate ? (
                 <Button

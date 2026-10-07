@@ -235,11 +235,6 @@ function VendorPaymentsTable({
           const refundPayoutId = row.payout.id;
           items.push({ id: "refund", label: "Refund", onSelect: () => onRefund(refundPayoutId) });
         }
-        items.push({
-          id: "message",
-          label: "Message the manager",
-          onSelect: () => navigate(`${basePath}/communication/active?compose=1`),
-        });
         // VD43 — a paid row shows Gross and Fee as glyph facts (never a pill),
         // with the bold figure switched to Net. Only ever true once
         // VENDOR_BANKING_ENABLED actually took a fee on this specific payment

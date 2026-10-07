@@ -1054,7 +1054,6 @@ export function ManagerPromotion({
                   activeKind,
                 ) ?? undefined
               }
-              actions={[{ label: portalListAddPrimaryLabel("promotion"), onClick: () => openNewPromotion(), dataAttr: "promotion-list-add" }]}
             />
           )
         ) : (

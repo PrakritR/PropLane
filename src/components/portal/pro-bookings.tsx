@@ -13,7 +13,7 @@ import { ManagerBookingsListView } from "@/components/portal/manager-bookings-li
 import { BookingsDayPage } from "@/components/portal/bookings-day-page";
 import { BookingsRecordPage } from "@/components/portal/bookings-record-page";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { CalendarSync } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -21,8 +21,7 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { BookingsCalendarKey } from "@/components/portal/bookings-portfolio-timeline";
+import { BookingsCalendarLegend } from "@/components/portal/bookings-portfolio-timeline";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerBookingEntries } from "@/hooks/use-manager-booking-entries";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -402,17 +401,6 @@ function useBookingsWorkspace({
         <>
           {propertyFilterSheet}
           {roomFilterSheet}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <PortalIconAction icon={CalendarSync} label="Calendars" data-attr="portfolio-bookings-link-airbnb" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem disabled={linkDisabled} onSelect={() => setCalendarsOpen(true)}>
-                <CalendarSync aria-hidden /> Link calendars
-              </DropdownMenuItem>
-              <BookingsCalendarKey />
-            </DropdownMenuContent>
-          </DropdownMenu>
         </>
       }
       primary={
@@ -429,6 +417,7 @@ function useBookingsWorkspace({
 
   const content =
     bucket === "calendar" ? (
+      <>
       <ManagerPortfolioBookingsCalendar
         propertyIds={scopedPropertyIds}
         showToast={showToast}
@@ -447,6 +436,8 @@ function useBookingsWorkspace({
         selectedDayKey={selectedDayKey}
         searchQuery={listSearch}
       />
+      <BookingsCalendarLegend />
+      </>
     ) : (
       <ManagerBookingsListView
         entries={listEntries}

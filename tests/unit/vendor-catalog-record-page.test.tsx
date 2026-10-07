@@ -2,7 +2,7 @@
 // The catalog vendor record page (PLAN-0920-1058, area 1a follow-up) moves off
 // a hand-built PortalRecordSectionChrome (items/groups/description) onto the
 // record-sections registry's own "vendorCatalog" kind, and its own icon-only
-// header (Add to your vendors / Email / Share, or Open when already added)
+// header (Add to your vendors, or Open when already added; Email and Share were removed)
 // instead of a single labeled "Add"/"Added" Button. Mounting the whole
 // ManagerVendorsPanel needs a large storage/workspace mock surface it already
 // carries in other suites (vendor-list-sections.test.tsx), so this suite
@@ -37,7 +37,7 @@ const VENDOR: AxisCatalogVendor = {
 };
 
 describe("vendorCatalog record-sections registry entry", () => {
-  it("has the Vendor/Work own groups and an icon-only add/email/share header", () => {
+  it("has the Vendor/Work own groups and an icon-only add header (no Email, no Share)", () => {
     const sections = recordSections("manager", "vendorCatalog", { basePath: "/portal" });
     const ownGroupLabels = sections.groups.map((g) => g.label).filter(Boolean);
     expect(ownGroupLabels).toEqual(["Vendor", "Work"]);
@@ -45,8 +45,8 @@ describe("vendorCatalog record-sections registry entry", () => {
     expect(railIds).toContain("overview");
     expect(railIds).not.toContain("profile");
     expect(railIds).toContain("communication");
-    expect(sections.headerActions.map((a) => a.id)).toEqual(["add", "email", "share"]);
-    expect(sections.headerActions.map((a) => a.label)).toEqual(["Add to your vendors", "Email", "Share"]);
+    expect(sections.headerActions.map((a) => a.id)).toEqual(["add"]);
+    expect(sections.headerActions.map((a) => a.label)).toEqual(["Add to your vendors"]);
   });
 
   it("resolves a catalog id's tab hrefs under /vendors (query-string routed)", () => {
@@ -61,16 +61,16 @@ describe("vendorCatalog record-sections registry entry", () => {
 });
 
 describe("catalog record header icons", () => {
-  it("renders Email, Share, Add to your vendors — primary last — by accessible name", () => {
+  it("renders only Add to your vendors by accessible name (no Email, no Share)", () => {
     const sections = recordSections("manager", "vendorCatalog", { basePath: "/portal" });
     const onAction = vi.fn();
     render(<PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onAction} />);
     const buttons = screen.getAllByRole("button");
-    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Email", "Share", "Add to your vendors"]);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Add to your vendors"]);
+    expect(screen.queryByRole("button", { name: "Email" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add to your vendors" }));
     expect(onAction).toHaveBeenCalledWith("add");
-    fireEvent.click(screen.getByRole("button", { name: "Share" }));
-    expect(onAction).toHaveBeenCalledWith("share");
   });
 
   it("swaps the primary icon to Open when the catalog vendor is already on the roster", () => {
@@ -82,9 +82,9 @@ describe("catalog record header icons", () => {
     );
     render(<PortalRecordHeaderIconActions actions={withRosterMatch} onAction={() => {}} />);
     const buttons = screen.getAllByRole("button");
-    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Email", "Share", "Open"]);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Open"]);
     // The registry's own array is untouched by the panel's derived swap.
-    expect(sections.headerActions.map((a) => a.id)).toEqual(["add", "email", "share"]);
+    expect(sections.headerActions.map((a) => a.id)).toEqual(["add"]);
   });
 });
 
@@ -94,12 +94,13 @@ describe("catalog record header wiring in the panel (source-verified)", () => {
     expect(panelSource).toContain('navigate(vendorDetailHref(basePath, catalogRosterMatch.id, "overview"))');
   });
 
-  it("Email opens catalog Communication and Share copies the catalog link and toasts", () => {
+  it("catalog Communication opens from the Communication tab; the header has no Email or Share wiring", () => {
     expect(panelSource).not.toContain("window.location.assign(`mailto:${catalogDetail.email}`)");
     expect(panelSource).toContain('vendorCatalogDetailHref(basePath, catalogDetailId, "communication")');
     expect(panelSource).toContain("RecordCommunicationSection");
-    expect(panelSource).toContain("navigator.clipboard.writeText(");
-    expect(panelSource).toContain("showToast(\"Vendor link copied.\")");
+    expect(panelSource).not.toContain("navigator.clipboard.writeText(");
+    expect(panelSource).not.toContain("Vendor link copied.");
+    expect(panelSource).not.toMatch(/actionId === "(email|share)"/);
   });
 
   it("no longer hand-builds the rail from VENDOR_RAIL_GROUPS", () => {

@@ -89,11 +89,13 @@ describe("Outgoing payment record page", () => {
     renderPanel({ paymentId: "inv-vendor" });
     await waitFor(() => expect(screen.getByText("Billed by")).toBeTruthy());
     const labels = screen.getAllByRole("button").map((b) => b.getAttribute("aria-label")).filter(Boolean);
-    expect(labels).toEqual(expect.arrayContaining(["View invoice", "Schedule payment", "Message vendor", "Mark paid", "Pay now"]));
+    expect(labels).toEqual(expect.arrayContaining(["View invoice", "Schedule payment", "Mark paid", "Pay now"]));
+    // Message lives in the record's Communication tab; the header carries no second door to it.
+    expect(labels).not.toContain("Message vendor");
     expect(labels).not.toContain("Delete bill");
     expect(labels).not.toContain("Dispute / Request change");
     expect(labels).not.toContain("Void request");
-    const header = labels.filter((l) => ["View invoice", "Schedule payment", "Message vendor", "Mark paid", "Pay now"].includes(l!));
+    const header = labels.filter((l) => ["View invoice", "Schedule payment", "Mark paid", "Pay now"].includes(l!));
     expect(header[header.length - 1]).toBe("Pay now");
     expect(screen.getAllByText("Payment").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Communication").length).toBeGreaterThan(0);
