@@ -10,6 +10,7 @@
  * (`resident-context.ts`, `vendor-context.ts`) with their own scope keys, so a
  * manager tool cannot even typecheck into a role registry.
  */
+import { ownerAccessStateFor } from "@/lib/property-owner/access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -136,6 +137,9 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
   const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
   const isManagerOrOwner = roles.some((r) => r === "manager" || r === "owner");
   if (!isAdmin && !isManagerOrOwner) return null;
+  // A Property owner holds the manager role row only to host /portal/owner;
+  // the manager assistant is not theirs.
+  if (!isAdmin && (await ownerAccessStateFor(db, user.id)).ownerOnly) return null;
 
   // The same access decision the SMS and email assistants make, so a manager's reach cannot
   // differ depending on which surface they asked from. For a manager with no incoming

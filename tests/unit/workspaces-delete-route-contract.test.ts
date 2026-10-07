@@ -1,3 +1,6 @@
+vi.mock("@/lib/property-owner/access.server", () => ({
+  ownerAccessStateFor: async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false }),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**

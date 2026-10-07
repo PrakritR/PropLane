@@ -1,3 +1,4 @@
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -66,6 +67,8 @@ export async function POST(request: Request) {
     const failure = actorFailureResponse(ctx);
     if (failure) return failure;
     if (!ctx || ctx.kind !== "authorized") return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const ownerRefusal = await refuseOwnerOnly(ctx.db, ctx.user.id);
+    if (ownerRefusal) return ownerRefusal;
     const body = await request.json();
     const { user, db } = ctx;
     if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid request." }, { status: 400 });

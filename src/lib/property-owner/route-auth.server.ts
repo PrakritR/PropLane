@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadOwnerGrants, type OwnerGrant } from "@/lib/property-owner/access.server";
+import { loadOwnerGrants, ownerAccessStateFor, type OwnerGrant } from "@/lib/property-owner/access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -39,4 +39,18 @@ export async function requireOwnerRoute(): Promise<OwnerRouteContext | NextRespo
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
   return { db, userId: user.id, grants };
+}
+
+/**
+ * The opt-out every MANAGER route takes: an owner-only account holds the
+ * manager role row only to host `/portal/owner`, so it gets 403 from any
+ * manager-surface handler. Returns the 403 response, or null to continue.
+ * `tests/unit/owner-only-manager-routes.test.ts` fails a manager route that
+ * neither calls this nor is listed there as consciously exempt.
+ */
+export async function refuseOwnerOnly(db: SupabaseClient, userId: string): Promise<NextResponse | null> {
+  if ((await ownerAccessStateFor(db, userId)).ownerOnly) {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  }
+  return null;
 }

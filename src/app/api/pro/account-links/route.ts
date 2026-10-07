@@ -1,3 +1,4 @@
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -242,6 +243,8 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const ownerRefusal = await refuseOwnerOnly(createSupabaseServiceRoleClient(), user.id);
+    if (ownerRefusal) return ownerRefusal;
 
     const body = (await req.json().catch(() => null)) as {
       inviteeAxisId?: string;
