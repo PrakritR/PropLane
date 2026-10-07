@@ -4,12 +4,16 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { isStripeConnectAccountAccessError, resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { readPayoutSnapshot, snapshotWithPlatformHolds, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
-import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
+import { vendorBankingEnabled, vendorRefundsEnabled } from "@/lib/vendor-banking/flag";
 import { vendorPayFeeBps } from "@/lib/platform-fees";
 
-/** Additive: the vendor pay fee rate (0 with the flag off), for the Balance card / Settings > Payouts row. */
+/**
+ * Additive: the vendor pay fee rate (0 with the flag off) and whether the refund
+ * path is live. The Payments tab shows a row's Refund only when `refundsEnabled`
+ * is true — the server flag reaches the client through this one snapshot.
+ */
 function vendorBankingExtras() {
-  return vendorBankingEnabled() ? { feeBps: vendorPayFeeBps() } : {};
+  return vendorBankingEnabled() ? { feeBps: vendorPayFeeBps(), refundsEnabled: vendorRefundsEnabled() } : {};
 }
 
 export const runtime = "nodejs";

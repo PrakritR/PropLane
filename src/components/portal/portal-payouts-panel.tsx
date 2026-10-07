@@ -81,6 +81,8 @@ export type PortalPayoutBalance = {
   needsRelink?: boolean;
   /** VENDOR_BANKING_ENABLED — present (and > 0) only once the vendor take rate is on. */
   feeBps?: number;
+  /** Vendor refund path live (`VENDOR_REFUNDS_ENABLED`) — gates the Payments row's Refund item. */
+  refundsEnabled?: boolean;
 };
 
 /** Money actions require a complete current provider snapshot, including the signed provider balance. */

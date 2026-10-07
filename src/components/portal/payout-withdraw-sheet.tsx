@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PreviewPanel } from "@/components/portal/add-workspace/parts";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
@@ -43,6 +43,7 @@ export function PayoutWithdrawSheet({
   onSuccess,
   initialAmountCents,
   initialMethod,
+  instantFee,
 }: {
   open: boolean;
   onClose: () => void;
@@ -57,11 +58,20 @@ export function PayoutWithdrawSheet({
   /** Prefills the amount/speed — used to route a failed payout's Retry through this same sheet. */
   initialAmountCents?: number;
   initialMethod?: "standard" | "instant";
+  /**
+   * The Instant fee this surface is actually charged. Omitted, the shared 1%
+   * Stripe-cost fee (managers). Vendors pass their one quote so the sheet shows
+   * what the server takes — never a second, drifting number.
+   */
+  instantFee?: { label: string; quoteCents: (amountCents: number) => number };
 }) {
   const [amountInput, setAmountInput] = useState("");
   const [method, setMethod] = useState<"standard" | "instant">("standard");
   const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Double-submit guard: a ref (not state) so two clicks in one frame cannot both pass.
+  const submitting = useRef(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!open) return;
     const prefillCents = initialAmountCents ?? availableCents;
@@ -71,6 +81,8 @@ export function PayoutWithdrawSheet({
     if (initialMethod === "instant" && first?.kind === "card" && first.instantEligible) setMethod("instant");
     setAccountId(first?.id ?? "");
     setError(null);
+    submitting.current = false;
+    setBusy(false);
     // Re-derive only when the sheet (re)opens or the prefill itself changes —
     // `availableCents` ticking on an unrelated balance refresh must not blow
     // away what the user is mid-typing.
@@ -79,7 +91,9 @@ export function PayoutWithdrawSheet({
 
   const amountCents = parseDollarsToCents(amountInput);
   const account = accounts.find((a) => a.id === accountId) ?? accounts[0] ?? null;
-  const previewFeeCents = method === "instant" ? computeInstantPayoutFeeCents(amountCents) : 0;
+  const quoteInstantFee = instantFee?.quoteCents ?? computeInstantPayoutFeeCents;
+  const previewFeeCents = method === "instant" ? quoteInstantFee(amountCents) : 0;
+  const instantFeeLabel = instantFee?.label ?? "1% fee";
   const netCents = Math.max(amountCents - previewFeeCents, 0);
 
   const belowMinimum = amountCents > 0 && amountCents < 100;
@@ -97,7 +111,9 @@ export function PayoutWithdrawSheet({
     (method === "instant" && Boolean(instantDisabledReason));
 
   async function confirmWithdrawal() {
-    if (continueDisabled || !account?.id) return;
+    if (continueDisabled || !account?.id || submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
     setError(null);
     try {
       const res = await fetch(`${apiBase}/payouts/create`, {
@@ -123,6 +139,9 @@ export function PayoutWithdrawSheet({
       });
     } catch {
       setError("Could not withdraw.");
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
   }
 
@@ -149,7 +168,7 @@ export function PayoutWithdrawSheet({
           ]}
         />
       }
-      primaryAction={{ label: `Withdraw ${formatMoney(amountCents, currency)}`, onClick: confirmWithdrawal, disabled: continueDisabled || !account, dataAttr: "withdraw-confirm" }}>
+      primaryAction={{ label: `Withdraw ${formatMoney(amountCents, currency)}`, onClick: confirmWithdrawal, disabled: continueDisabled || !account || busy, dataAttr: "withdraw-confirm" }}>
       <div className="space-y-4">
         <label className="block text-sm font-medium">Amount
           <Input inputMode="decimal" value={amountInput} onChange={(event) => setAmountInput(event.target.value)} aria-label="Amount" data-attr="withdraw-amount-input" className="mt-1 block w-full rounded-lg border border-border bg-card px-3 py-2" />
@@ -162,7 +181,7 @@ export function PayoutWithdrawSheet({
           setMethod(next.kind === "card" ? "instant" : "standard");
         }} options={accounts.map((item) => ({ value: item.id, label: `${item.label} ····${item.last4}` }))} />
         <label className="flex items-center gap-2 text-sm"><input type="radio" name="withdraw-speed" checked={method === "standard"} disabled={!standardAllowed} onChange={() => setMethod("standard")} />Standard · free</label>
-        <label className="flex items-center gap-2 text-sm"><input type="radio" name="withdraw-speed" checked={method === "instant"} disabled={Boolean(instantDisabledReason)} onChange={() => setMethod("instant")} />Instant · 1% fee</label>
+        <label className="flex items-center gap-2 text-sm"><input type="radio" name="withdraw-speed" checked={method === "instant"} disabled={Boolean(instantDisabledReason)} onChange={() => setMethod("instant")} />Instant · {instantFeeLabel}</label>
         {instantDisabledReason ? <p className="text-sm text-muted">{instantDisabledReason}</p> : null}
         <div className="flex justify-between text-sm"><span>Arrives</span><span>{method === "instant" ? "Within 30 minutes" : "1–2 business days"}</span></div>
         {method === "instant" ? <><div className="flex justify-between text-sm"><span>Fee</span><span>{formatMoney(previewFeeCents, currency)}</span></div><div className="flex justify-between text-sm"><span>Bank receives</span><span>{formatMoney(netCents, currency)}</span></div></> : null}

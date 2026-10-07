@@ -7,6 +7,7 @@ import { createInAppPayout, stripePayoutErrorResponse } from "@/lib/stripe-payou
 import { validateCreatePayoutRequestBody, type PayoutMethod } from "@/lib/stripe-payouts";
 import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { vendorInstantWithdrawFeeCents } from "@/lib/platform-fees";
+import { recordVendorWithdrawalLedger } from "@/lib/vendor-banking/withdrawal-ledger.server";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,20 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: result.error }, { status: result.status });
       }
       const { payoutId, amountCents, feeCents, netCents, arrivalDate, method } = result;
+      if (vendorBankingEnabled()) {
+        try {
+          await recordVendorWithdrawalLedger(db, {
+            vendorUserId: access.actor.userId,
+            payoutId,
+            amountCents,
+            feeCents,
+            method,
+          });
+        } catch (ledgerError) {
+          // The withdrawal already happened; never turn it into an error response.
+          console.error("[vendor/payouts/create] withdrawal ledger write failed", ledgerError instanceof Error ? ledgerError.message : ledgerError);
+        }
+      }
       return NextResponse.json({ payoutId, amountCents, feeCents, netCents, arrivalDate, method });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
