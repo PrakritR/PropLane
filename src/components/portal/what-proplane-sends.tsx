@@ -103,7 +103,7 @@ export function WhatProplaneSends() {
     finally { setBusy(false); }
   };
   const ready = Boolean(events && reminders && !error);
-  return <section className="space-y-3" data-attr="what-proplane-sends">
+  return <section id="what-proplane-sends" className="scroll-mt-4 space-y-3" data-attr="what-proplane-sends">
     <h2 className="text-xl font-semibold">What PropLane sends</h2>
     {error ? <p role="alert" className="text-sm text-danger">{error} <button onClick={() => setReload((v) => v + 1)}>Retry</button></p> : !ready ? <p role="status" className="text-sm text-muted">Loading…</p> : null}
     {SETTINGS_MESSAGE_GROUPS.map((group) => {

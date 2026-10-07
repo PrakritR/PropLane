@@ -92,15 +92,15 @@ describe("Bookings page chrome stays pinned while the list scrolls", () => {
 
   it("renders the Link Airbnb control in the pinned chrome", async () => {
     const view = await renderBookings();
-    // Add booking is the filled primary ("Add <noun>"); Link calendars is a
-    // plain icon beside it. Both stay outside the scroller.
+    // Add booking is the filled primary ("Add <noun>"); it stays outside the scroller.
+    // The Calendars dropdown is gone (its colour key is a legend row in the page body).
     const scroller = view.container.querySelector(`.${PORTAL_PAGE_SCROLL_BODY_CLASS}`)!;
     expect(view.container.querySelector('[data-slot="portal-page-headline"]')).toBeNull();
     const actions = view.container.querySelector('[data-attr="portal-list-command-actions"]')!;
     expect(actions.querySelector('[data-attr="bookings-block-dates-open"]')?.getAttribute("aria-label")).toBe(
       "Add booking",
     );
-    expect(actions.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
+    expect(actions.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).toBeNull();
     expect(scroller.contains(actions)).toBe(false);
   });
 

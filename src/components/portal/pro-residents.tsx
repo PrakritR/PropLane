@@ -4,7 +4,6 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Settings as SettingsIcon } from "lucide-react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -90,15 +89,9 @@ import {
   residentApplicationStatusBucket,
   type ResidentRecordStatusBucketId,
 } from "@/lib/resident-detail-subsection-tabs";
-import {
-  ProPortalSettingsModal,
-  type ManagerPortalSettingsTab,
-} from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  getSettingsEntryPointForTab,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
+import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
+import { managerSettingsGearHref } from "@/lib/portal-settings-section";
 import { PortalServiceRecordRow, PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -333,7 +326,6 @@ import {
   managerServiceRequestPricingSummary,
 } from "@/components/portal/pro-service-request-detail";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import type { ManagerServiceResidentOption } from "@/components/portal/pro-create-service-request-modal";
@@ -348,10 +340,6 @@ import {
   shortTermStayNightCount,
 } from "@/lib/short-term-stay-pricing";
 
-const residentsSettingsEntry = getSettingsEntryPoint("residents");
-const leasesSettingsEntry = getSettingsEntryPoint("leases");
-const applicationsSettingsEntry = getSettingsEntryPoint("applications");
-const paymentsSettingsEntry = getSettingsEntryPoint("payments");
 const toursSettingsEntry = getSettingsEntryPoint("tours");
 
 /**
@@ -598,7 +586,6 @@ export function ManagerResidents({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_LIST_DEFAULT_GROUP_MODE);
   const residentsTab = parseResidentsTab(tabIdProp);
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
-  const [residentPaymentSettingsOpen, setResidentPaymentSettingsOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
   const [bulkDeletePreview, setBulkDeletePreview] = useState<ResidentDeletePreviewState>(
@@ -665,9 +652,6 @@ export function ManagerResidents({
   const [residentApplicationBucket, setResidentApplicationBucket] =
     useState<ResidentRecordStatusBucketId>("pending");
   const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<LeaseListTabId>("draft");
-  const [residentDetailSettingsOpen, setResidentDetailSettingsOpen] = useState(false);
-  const [residentDetailSettingsTab, setResidentDetailSettingsTab] =
-    useState<ManagerPortalSettingsTab>("applications");
   const [addResidentPaymentOpen, setAddResidentPaymentOpen] = useState(false);
   const [addResidentServiceOpen, setAddResidentServiceOpen] = useState(false);
   const [embeddedPaymentFooterActions, setEmbeddedPaymentFooterActions] = useState<ReactNode>(null);
@@ -1396,11 +1380,6 @@ export function ManagerResidents({
   useEffect(() => {
     setResidentApplicationBucket(selectedApplicationBucket ?? "pending");
   }, [selectedApplicationBucket, selectedApplicationRow?.id]);
-
-  const openResidentDetailSettings = useCallback((tab: ManagerPortalSettingsTab) => {
-    setResidentDetailSettingsTab(tab);
-    setResidentDetailSettingsOpen(true);
-  }, []);
 
   const activeCosignerIndexParam = searchParams.get("cosigner");
   const activeCosignerIndex =
@@ -2481,16 +2460,6 @@ export function ManagerResidents({
       .finally(() => setErSaving(false));
   }
 
-  function openResidentPaymentSettings() {
-    if (!selected) return;
-    const propId = selected.propertyId.trim();
-    if (!propId) {
-      showToast("This resident isn't linked to a property yet.");
-      return;
-    }
-    setResidentPaymentSettingsOpen(true);
-  }
-
   /**
    * Whether this resident exists ONLY in the browser — absent from the manager's
    * own server-scoped applications list. A read failure answers `false`, so an
@@ -3549,13 +3518,12 @@ export function ManagerResidents({
                                     onAction={onResidentSectionHeaderAction}
                                     destinationRow={destinationRow}
                                     search={toursSearch}
-                                    // Tour rules (notice, auto-confirm, reminders) are reachable from here and nowhere else.
+                                    // The gear links to Settings → Automations → Tours (notice, auto-confirm, tour times).
                                     extraActions={
-                                      <PortalIconAction
-                                        icon={SettingsIcon}
+                                      <ManagerSettingsGear
+                                        target="tours"
                                         label={toursSettingsEntry.label}
-                                        data-attr={toursSettingsEntry.dataAttr}
-                                        onClick={() => openResidentDetailSettings("tours")}
+                                        dataAttr={toursSettingsEntry.dataAttr}
                                       />
                                     }
                                   />
@@ -3639,7 +3607,7 @@ export function ManagerResidents({
                                   scheduledMessages={scheduledPaymentMessages}
                                   reminderScheduleSummary={residentReminderScheduleSummary}
                                   reminderAutomationSettings={residentReminderSettings}
-                                  onOpenReminderSettings={() => setResidentPaymentSettingsOpen(true)}
+                                  onOpenReminderSettings={() => navigate(managerSettingsGearHref("reminders", portalBase))}
                                   onScheduleChanged={() => void reloadResidentPaymentSchedule()}
                                   onRowsChanged={() => {
                                     setHcTick((n) => n + 1);
@@ -3735,14 +3703,6 @@ export function ManagerResidents({
                                   placeholder: "Search services",
                                   dataAttr: "resident-services-search",
                                 }}
-                                extraActions={
-                                  <PortalIconAction
-                                    icon={SettingsIcon}
-                                    label={residentsSettingsEntry.label}
-                                    data-attr={residentsSettingsEntry.dataAttr}
-                                    onClick={() => openResidentDetailSettings("resident")}
-                                  />
-                                }
                               />
                               {!residentServicesHasRows ? (
                                 <p className="text-sm text-muted">No services for this resident.</p>
@@ -4230,13 +4190,6 @@ export function ManagerResidents({
           </>
         }
       />
-      <ManagerPortalSettingsModal
-        open={residentPaymentSettingsOpen}
-        onClose={() => setResidentPaymentSettingsOpen(false)}
-        initialTab="payments"
-        scopedTitle={settingsDialogTitlePrefix(paymentsSettingsEntry)}
-        paymentsMode="incoming"
-      />
 
       {addResidentOpen ? (
         <AddResidentWizard
@@ -4518,23 +4471,6 @@ export function ManagerResidents({
           if (!applicationReminderPreview) return;
           void sendApplicationCompletionReminder(applicationReminderPreview.row, channels, draft);
         }}
-      />
-
-      {/*
-        Shared by every resident-detail Settings gear that routes through
-        `openResidentDetailSettings` (lease, applications, resident, and the
-        embedded tours subsection) — one dialog instance, so its title is
-        resolved per-tab from the same registry the triggering button's own
-        label (where we control it) comes from, instead of a fixed string.
-      */}
-      <ProPortalSettingsModal
-        open={residentDetailSettingsOpen}
-        onClose={() => setResidentDetailSettingsOpen(false)}
-        initialTab={residentDetailSettingsTab}
-        scoped
-        scopedTitle={settingsDialogTitlePrefix(getSettingsEntryPointForTab(residentDetailSettingsTab))}
-        propertyOptions={propertyOptions}
-        initialPropertyId={selected?.propertyId?.trim() || propertyOptions[0]?.id}
       />
 
       <ManagerResidentUploadModal

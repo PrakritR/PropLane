@@ -1,13 +1,11 @@
 "use client";
 
-import type { ServiceFeePayer } from "@/lib/payment-policy";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { activeWorkspaceIdentity } from "@/lib/workspaces/selection";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
-import { PropertyPricingSettingsModal } from "@/components/portal/property-pricing-settings-modal";
 import {
   PropertyRoomPricingWorkspace,
   type PropertyPricingSubject,
@@ -44,8 +42,7 @@ import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } 
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { House, Layers, MoreHorizontal, PanelsTopLeft, ScrollText, ShieldCheck, type LucideIcon } from "lucide-react";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { Settings } from "lucide-react";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 
 type PricingTab = "rooms" | "bundles" | "whole";
 
@@ -83,9 +80,6 @@ export function PropertyPricingPanel({
   const [workspacePricingDefaults, setWorkspacePricingDefaults] = useState<WorkspacePricingDefaults>(
     () => normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp ?? {}),
   );
-  const [workspacePayment, setWorkspacePayment] = useState<{ serviceFeePayer?: ServiceFeePayer | null } | null>(
-    null,
-  );
 
   const loadWorkspace = useCallback(async () => {
     const wsId = activeWorkspaceIdentity()?.id;
@@ -97,7 +91,6 @@ export function PropertyPricingPanel({
     const data = await res.json();
     const row = data.workspacePaymentSettings?.[wsId];
     if (row?.pricingDefaults) setWorkspacePricingDefaults(normalizeWorkspacePricingDefaults(row.pricingDefaults));
-    if (row) setWorkspacePayment({ serviceFeePayer: row.serviceFeePayer });
   }, []);
 
   useEffect(() => {
@@ -111,7 +104,6 @@ export function PropertyPricingPanel({
   const sub = useMemo(() => normalizeManagerListingSubmissionV1(submission), [submission]);
   const [tab, setTab] = useState<PricingTab>("rooms");
   const [query, setQuery] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [subject, setSubject] = useState<PropertyPricingSubject | null>(null);
 
@@ -211,14 +203,6 @@ export function PropertyPricingPanel({
           ariaLabel: "Search pricing",
           dataAttr: "property-pricing-search",
         }}
-        actions={
-          <PortalIconAction
-            icon={Settings}
-            label="Payment settings"
-            data-attr="ps40-settings"
-            onClick={() => setSettingsOpen(true)}
-          />
-        }
         primary={
           <PortalPrimaryIconAction label={addLabel} data-attr="property-pricing-add" onClick={addForTab} />
         }
@@ -334,18 +318,6 @@ export function PropertyPricingPanel({
           />
         ) : null}
       </PortalRecordListSurface>
-
-      <PropertyPricingSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        sub={sub}
-        saveTarget={saveTarget}
-        managerUserId={managerUserId}
-        propertyLabel={propertyLabel}
-        onSaved={onUpdated}
-        showToast={showToast}
-        workspacePayment={workspacePayment}
-      />
 
       {subject ? (
         <PropertyRoomPricingWorkspace

@@ -40,7 +40,7 @@ vi.mock("@/components/portal/pro-plan", () => ({ ManagerPlan: () => <div data-te
 vi.mock("@/components/portal/portal-change-password-panel", () => ({ PortalChangePasswordPanel: () => <div /> }));
 vi.mock("@/components/portal/pro-api-keys-panel", () => ({ ManagerApiKeysPanel: () => <div /> }));
 vi.mock("@/components/portal/pro-messaging-settings-panel", () => ({ ManagerMessagingSettingsPanel: () => <div /> }));
-vi.mock("@/components/portal/pro-portal-settings-panels", () => ({ CommunicationSettingsPanel: () => <div /> }));
+vi.mock("@/components/portal/pro-portal-settings-panels", () => ({ CommunicationSettingsPanel: () => <div />, TourSettingsPanel: () => <div /> }));
 vi.mock("@/components/portal/settings-module-page", () => ({ SettingsModulePage: ({ tab }: { tab: string }) => <div data-testid={`pane-module-${tab}`} /> }));
 vi.mock("@/components/portal/manager-sheet-link-panel", () => ({ ManagerSheetLinkPanel: () => <div /> }));
 vi.mock("@/components/portal/portal-settings-extras", () => ({ PortalSettingsExtras: () => <div /> }));

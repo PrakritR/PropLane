@@ -13,11 +13,10 @@ import {
 } from "@/lib/portal-list-grouping";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import type { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Settings } from "lucide-react";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
@@ -40,11 +39,10 @@ import { convertLapsedRolloverLeasesToMonthToMonth } from "@/lib/lease-rollover-
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getPaymentsSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
+import { managerSettingsGearHref } from "@/lib/portal-settings-section";
+import { getPaymentsSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import {
   MANAGER_APPLICATIONS_EVENT,
@@ -290,6 +288,7 @@ export function ManagerPayments({
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
   const portalBase = usePaidPortalBasePath();
+  const navigate = usePortalNavigate();
   const paymentsBase = `${basePath}/payments`;
   const [hcTick, setHcTick] = useState(0);
   const [outgoingTick, setOutgoingTick] = useState(0);
@@ -299,7 +298,6 @@ export function ManagerPayments({
   const [residentFilters, setResidentFilters] = useState<string[]>([]);
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
-  const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
   const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
   // The command-bar search box (AGENTS.md → Portal UI system: every list tab
@@ -753,11 +751,10 @@ export function ManagerPayments({
   */
   const paymentsSettingsEntry = getPaymentsSettingsEntryPoint(direction);
   const paymentsSettingsMenu = (
-    <PortalIconAction
-      icon={Settings}
+    <ManagerSettingsGear
+      target={direction === "outgoing" ? "reminders" : "payments"}
       label={paymentsSettingsEntry.label}
-      data-attr={paymentsSettingsEntry.dataAttr}
-      onClick={() => setPaymentSettingsOpen(true)}
+      dataAttr={paymentsSettingsEntry.dataAttr}
     />
   );
 
@@ -893,7 +890,7 @@ export function ManagerPayments({
         reminderScheduleSummary={reminderScheduleSummary}
         reminderAutomationSettings={reminderSettings}
         showUpcomingCharges={showUpcomingCharges}
-        onOpenReminderSettings={() => setPaymentSettingsOpen(true)}
+        onOpenReminderSettings={() => navigate(managerSettingsGearHref("reminders", portalBase))}
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}
         paymentId={paymentId}
@@ -928,13 +925,6 @@ export function ManagerPayments({
 
   const paymentsModals = (
     <>
-      <ManagerPortalSettingsModal
-        open={paymentSettingsOpen}
-        onClose={() => setPaymentSettingsOpen(false)}
-        initialTab="payments"
-        scopedTitle={settingsDialogTitlePrefix(paymentsSettingsEntry)}
-        paymentsMode={direction === "outgoing" ? "outgoing" : "incoming"}
-      />
       <ManagerAddPaymentModal
         open={addOpen}
         onClose={() => setAddOpen(false)}

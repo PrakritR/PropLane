@@ -89,7 +89,9 @@ describe("portfolio bookings buckets", () => {
   it("portfolio bookings page has no pinned footer bar", () => {
     const bookings = read("src/components/portal/pro-bookings.tsx");
     expect(bookings).not.toContain("BookingsCalendarFooterBar");
-    expect(bookings).toContain("portfolio-bookings-link-airbnb");
+    // The Calendars dropdown is gone; the colour key is a legend row under the calendar.
+    expect(bookings).not.toContain("portfolio-bookings-link-airbnb");
+    expect(bookings).toContain("BookingsCalendarLegend");
   });
 });
 

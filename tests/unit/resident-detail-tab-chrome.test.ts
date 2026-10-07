@@ -84,36 +84,7 @@ describe("resident detail tab chrome", () => {
     ).toContain("RESIDENT_TOUR_TABS");
   });
 
-  it("shared subsection chrome uses equal-width destination nav", () => {
-    const src = readFileSync(
-      `${process.cwd()}/src/components/portal/resident-detail-subsection-chrome.tsx`,
-      "utf8",
-    );
-    expect(src).toContain('itemLayout="equal"');
-    expect(src).toContain("ResidentDetailCommandToolbar");
-  });
-
-  it("command toolbar always ships Filter · Settings · Edit (PRP-395)", () => {
-    const chrome = readFileSync(
-      `${process.cwd()}/src/components/portal/resident-detail-subsection-chrome.tsx`,
-      "utf8",
-    );
-    // The strip's three actions keep their stable data-attrs, however the
-    // buttons are drawn (they are icon buttons with a label from md up).
-    expect(chrome).toContain('"resident-detail-filter"');
-    expect(chrome).toContain('"resident-detail-edit"');
-    expect(chrome).toContain("Status filters are the tabs in this card");
-    // Settings' data-attr moved out of a literal in this component and into the
-    // shared settings-entry-points registry, so the source grep above can no
-    // longer see its value. Grepping for the import name instead would only
-    // prove the module is imported, not that the attribute is still stable --
-    // and stability is the entire point of these three assertions, because
-    // data-attr is an analytics and QA selector.
-    //
-    // So pin the resolved VALUE at its source. Renaming it still fails a test.
-    expect(chrome).toContain("DEFAULT_SETTINGS_ENTRY");
-    expect(MANAGER_SETTINGS_ENTRY_POINTS.residentDetail.dataAttr).toBe("settings-open-resident-detail");
-
+  it("resident record sections carry their toolbar through ManagerResidentSectionToolbar (PRP-395)", () => {
     const residents = readFileSync(
       `${process.cwd()}/src/components/portal/pro-residents.tsx`,
       "utf8",

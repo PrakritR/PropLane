@@ -8,11 +8,8 @@ import {
   CheckCircle2,
   CreditCard,
   FileText,
-  MessageSquare,
-  Smartphone,
   Wallet,
   Download,
-  Settings,
   FileSignature,
   Lock,
   Shield,
@@ -351,10 +348,8 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     basePathDefault: "/portal",
     ownGroups: [{ label: "", ids: [{ id: "overview", label: "Payment" }] }],
     headerActions: [
-      { id: "payment-settings", label: "Payment settings", icon: Settings },
       { id: "mark-paid", label: "Mark paid offline", icon: CheckCircle2 },
       { id: "send-reminder", label: "Send reminder", icon: Bell },
-      { id: "download", label: "Download", icon: Download },
       { id: "delete", label: "Delete", icon: Trash2, tone: "danger" },
     ],
     hasDocuments: false,
@@ -399,7 +394,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     headerActions: [
       { id: "view-invoice", label: "View invoice", icon: FileText },
       { id: "schedule", label: "Schedule payment", icon: Calendar },
-      { id: "message", label: "Message vendor", icon: MessageSquare },
       { id: "mark-paid", label: "Mark paid", icon: CheckCircle2 },
       { id: "delete", label: "Delete bill", icon: Trash2, tone: "danger" },
       { id: "pay-now", label: "Pay now", icon: Wallet, tone: "primary" },
@@ -594,9 +588,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     headerActions: [
       { id: "edit", label: "Edit vendor", icon: Pencil },
       { id: "invite", label: "Invite to PropLane", icon: UserPlus },
-      // Text goes from the workspace work number to the vendor's own saved phone; the vendor page
-      // drops it when the vendor has no phone or texting is off.
-      { id: "text", label: "Text", icon: Smartphone },
       { id: "message", label: "Message", icon: Send, tone: "primary" },
       { id: "remove", label: "Remove vendor", icon: Trash2, tone: "danger" },
     ],
@@ -621,8 +612,6 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     ],
     headerActions: [
       { id: "add", label: "Add to your vendors", icon: UserPlus },
-      { id: "email", label: "Email", icon: Mail },
-      { id: "share", label: "Share", icon: Share2 },
     ],
     sectionActions: {
       communication: [{ id: "compose", label: "New message", icon: Mail }],
@@ -710,12 +699,10 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
 const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
   payment: {
     basePathDefault: "/resident",
-    // PLAN-0921-1029, area 2: Overview · Communication. "Receipt" folds into
-    // the existing "Download receipt" header action.
+    // PLAN-0921-1029, area 2: Overview · Communication.
     ownGroups: [{ label: "Payment", ids: [{ id: "overview", label: "Overview" }] }],
     headerActions: [
       { id: "pay", label: "Pay", icon: CreditCard },
-      { id: "download-receipt", label: "Download receipt", icon: Download },
     ],
     sectionActions: {
       communication: [{ id: "compose", label: "New message", icon: Mail }],
@@ -747,11 +734,9 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
       "lease-document": [
         { id: "sign", label: "Sign this lease", icon: FileSignature },
         { id: "download", label: "Download", icon: Download },
-        { id: "ask", label: "Ask a question", icon: Mail },
       ],
       payments: [
         { id: "pay", label: "Pay", icon: CreditCard },
-        { id: "receipts", label: "Receipts", icon: Download },
       ],
       communication: [{ id: "compose", label: "New message", icon: Mail }],
     },
@@ -774,7 +759,6 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
     headerActions: [
       { id: "sign-lease", label: "Sign your lease", icon: Send },
       { id: "download", label: "Download", icon: Download },
-      { id: "message", label: "Message manager", icon: Mail },
     ],
     sectionActions: {
       "application-form": [

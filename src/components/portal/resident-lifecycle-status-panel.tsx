@@ -66,13 +66,6 @@ export function ResidentLifecycleStatusPanel({
           <Button asChild variant="primary">
             <Link href={allDone ? `${base}/move-in` : action.href}>{allDone ? "Open my home" : action.ctaLabel}</Link>
           </Button>
-          {allDone ? null : (
-            <Button asChild variant="outline">
-              <Link href={`${base}/communication`}>
-                {workspaceName?.trim() ? `Message ${workspaceName.trim()}` : "Message manager"}
-              </Link>
-            </Button>
-          )}
         </div>
       </section>
 

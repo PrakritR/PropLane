@@ -54,8 +54,9 @@ export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[
   if (!seen.size) seen.set("", { id: "", label: "Whole home", rent: "" });
   return [...seen.values()];
 }
-export function BookingsCalendarKey() {
-  return <div className="grid gap-2 p-3">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <div key={status} className="flex items-center gap-2 text-xs"><span className={`h-3 w-6 rounded ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</div>)}</div>;
+/** The calendar's colour key: one quiet row, colour dot + name, drawn under the calendar itself. */
+export function BookingsCalendarLegend() {
+  return <ul className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 px-1 pt-2 text-xs text-muted" data-attr="bookings-calendar-legend" aria-label="Calendar colours">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <li key={status} className="flex items-center gap-1.5"><span aria-hidden className={`h-2.5 w-2.5 rounded-full ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</li>)}</ul>;
 }
 function BookingBar({ entry, today, children, className, style, onEdit }: { entry: PropertyBookingEntry; today: string; children?: ReactNode; className?: string; style?: React.CSSProperties; onEdit?: (entry: PropertyBookingEntry) => void }) {
   const status = calendarStatus(entry, today);

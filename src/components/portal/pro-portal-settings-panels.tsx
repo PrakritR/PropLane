@@ -1086,11 +1086,14 @@ export function TourSettingsPanel({
   onFooterReady,
   formRef,
   propertyOptions = [],
+  bare = false,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   formRef?: React.Ref<TourSettingsHandle>;
   propertyOptions?: { id: string; label: string }[];
+  /** Draw only the rows: the host (Settings → Automations → Tours) owns the section title. */
+  bare?: boolean;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -1315,48 +1318,56 @@ export function TourSettingsPanel({
   const tourTimesLabel = `${formatTourSlotClock(tourSettings.defaultTourStartSlot ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourStartSlot!)}–${formatTourSlotClock(tourSettings.defaultTourEndSlotExclusive ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourEndSlotExclusive!)}`;
   const availabilityPropertyLabel = propertyOptions.find((option) => option.id === scopePropertyId)?.label;
 
+  const tourRows = (
+    <PortalSettingsGroup>
+      <PortalSettingsRow
+        label="Notice required"
+      >
+        <TourNoticeStepper
+          value={noticeDays}
+          disabled={disabled}
+          dataAttr="manager-tour-notice-days"
+          onChange={(next) => setTourSettings((prev) => ({ ...prev, tourNoticeDays: next }))}
+        />
+      </PortalSettingsRow>
+      <PortalSettingsRow
+        label="Auto confirm tours"
+      >
+        <PortalSettingsToggle
+          checked={automation.proposeTourConfirmations}
+          onChange={(next) => setAutomation((prev) => ({ ...prev, proposeTourConfirmations: next }))}
+          label="Auto confirm tours"
+          disabled={disabled}
+          dataAttr="manager-tour-auto-confirm-proposals"
+        />
+      </PortalSettingsRow>
+      <PortalSettingsRow label="Tour times">
+        <button
+          type="button"
+          className="text-sm font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+          data-attr="manager-tour-times-edit"
+          disabled={disabled}
+          onClick={() => setAvailabilityOpen(true)}
+        >
+          {tourTimesLabel} ›
+        </button>
+      </PortalSettingsRow>
+    </PortalSettingsGroup>
+  );
+
   return (
     <>
       <div className="space-y-6">
-        <PortalSettingsSection
-          title="Booking"
-          action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scopePropertyIds.length)}</PortalSettingsScopeTag> : null}
-        >
-          <PortalSettingsGroup>
-            <PortalSettingsRow
-              label="Notice required"
-            >
-              <TourNoticeStepper
-                value={noticeDays}
-                disabled={disabled}
-                dataAttr="manager-tour-notice-days"
-                onChange={(next) => setTourSettings((prev) => ({ ...prev, tourNoticeDays: next }))}
-              />
-            </PortalSettingsRow>
-            <PortalSettingsRow
-              label="Auto confirm tours"
-            >
-              <PortalSettingsToggle
-                checked={automation.proposeTourConfirmations}
-                onChange={(next) => setAutomation((prev) => ({ ...prev, proposeTourConfirmations: next }))}
-                label="Auto confirm tours"
-                disabled={disabled}
-                dataAttr="manager-tour-auto-confirm-proposals"
-              />
-            </PortalSettingsRow>
-            <PortalSettingsRow label="Tour times">
-              <button
-                type="button"
-                className="text-sm font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
-                data-attr="manager-tour-times-edit"
-                disabled={disabled}
-                onClick={() => setAvailabilityOpen(true)}
-              >
-                {tourTimesLabel} ›
-              </button>
-            </PortalSettingsRow>
-          </PortalSettingsGroup>
-        </PortalSettingsSection>
+        {bare ? (
+          tourRows
+        ) : (
+          <PortalSettingsSection
+            title="Booking"
+            action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scopePropertyIds.length)}</PortalSettingsScopeTag> : null}
+          >
+            {tourRows}
+          </PortalSettingsSection>
+        )}
       </div>
 
       <ManagerTourAvailabilityModal

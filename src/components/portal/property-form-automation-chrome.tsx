@@ -1,8 +1,8 @@
 "use client";
 
-import { Settings, type LucideIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 import { LocalDestinationNav, type LocalDestinationNavItem } from "@/components/ui/destination-nav";
@@ -16,16 +16,13 @@ const PANES: { id: FormAutomationPane; label: string }[] = [
 
 /**
  * Bookings-style command bar for a property Application / Lease page:
- * Form | Automation, optional filter, gear, and the filled +.
+ * Form | Automation, optional filter, and the filled +. It carries no settings
+ * gear: Settings is a page (Settings → Automations), never a pop-up.
  */
 export function PropertyFormAutomationCommandBar({
   pane,
   onPaneChange,
   filter,
-  onSettings,
-  settingsLabel,
-  settingsDataAttr,
-  settingsDisabled,
   onAdd,
   addLabel,
   addDataAttr,
@@ -45,10 +42,6 @@ export function PropertyFormAutomationCommandBar({
     placeholder: string;
     dataAttr: string;
   };
-  onSettings?: () => void;
-  settingsLabel?: string;
-  settingsDataAttr?: string;
-  settingsDisabled?: boolean;
   onAdd: () => void;
   addLabel: string;
   addDataAttr: string;
@@ -108,18 +101,7 @@ export function PropertyFormAutomationCommandBar({
       destinationAriaLabel={stayTabs?.ariaLabel ?? "Form or automation"}
       search={search}
       actions={
-        <>
-          {filter}
-          {onSettings && settingsLabel && settingsDataAttr ? (
-            <PortalIconAction
-              icon={Settings}
-              label={settingsLabel}
-              data-attr={settingsDataAttr}
-              disabled={settingsDisabled}
-              onClick={onSettings}
-            />
-          ) : null}
-        </>
+        filter
       }
       primary={
         <PortalPrimaryIconAction

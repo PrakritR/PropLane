@@ -4,7 +4,6 @@ import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import Link from "next/link";
-import { downloadCsv, toSafeCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -39,7 +38,7 @@ import {
   RecordStatTiles,
   StatTile,
 } from "@/components/portal/portal-record-overview-kit";
-import { Ban, Bell, BadgeCheck, CalendarDays, RotateCcw, Settings, Trash2, Pencil, Download, ArrowUpRight } from "lucide-react";
+import { Ban, Bell, BadgeCheck, CalendarDays, RotateCcw, Settings, Trash2, Pencil, ArrowUpRight } from "lucide-react";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   leaseIdForLeaseFeeCharge,
@@ -81,6 +80,7 @@ import {
   patchScheduledMessage,
 } from "@/components/portal/payment-schedule-ui";
 import type { ManagerAutomationSettings } from "@/lib/payment-automation-settings";
+import { managerSettingsGearHref } from "@/lib/portal-settings-section";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { summariseScheduledSends } from "@/lib/scheduled-send-summary";
@@ -1327,7 +1327,6 @@ export function ManagerPaymentsLedgerPanel({
         }
         if (!row.householdChargeId) actions.push({ id: "move-pending", label: "Move to pending", icon: CalendarDays });
       }
-      actions.push({ id: "download", label: "Download", icon: Download });
       if (rowDeletable(row)) {
         actions.push({ id: "delete", label: "Delete", icon: Trash2, tone: "danger" });
       }
@@ -2397,16 +2396,10 @@ export function ManagerPaymentsLedgerPanel({
             }
             if (actionId === "waive-lease-fee") { setWaiveReason(""); setWaiveRow({ row: detailRow, restore: false }); return; }
             if (actionId === "restore-lease-fee") { setWaiveRow({ row: detailRow, restore: true }); return; }
-            if (actionId === "payment-settings") { navigate(`${listBasePath ?? "/portal"}/profile?tab=payments`); return; }
+            if (actionId === "payment-settings") { navigate(managerSettingsGearHref("payments", listBasePath ?? "/portal")); return; }
             if (actionId === "mark-paid") { setOfflineRows([]); setOfflineRow(detailRow); return; }
             if (actionId === "edit") { startEdit(detailRow); return; }
             if (actionId === "move-pending") { void moveToPending(detailRow); return; }
-            if (actionId === "download") {
-              const fields = ["Resident", "Charge", "Amount", "Status", "Due date"];
-              const values = [detailRow.residentName, detailRow.chargeTitle, detailRow.lineAmount, detailRow.statusLabel, detailRow.dueDate];
-              downloadCsv("payment.csv", toSafeCsv([fields, values]));
-              return;
-            }
             if (actionId === "delete") {
               void removePayment(detailRow);
               return;

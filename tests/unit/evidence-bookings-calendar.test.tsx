@@ -5,7 +5,7 @@
  * the "Link Airbnb" modal, and dumps the markup for screenshotting.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 // PARTIAL mock: every export the calendar's import chain reaches must be
@@ -155,6 +155,10 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
     expect(bars.some(bar => bar.textContent?.includes("Cv Ponce"))).toBe(true);
     expect(bars.some(bar => bar.getAttribute("aria-label")?.includes("Airbnb"))).toBe(true);
     expect(document.querySelector('[title="100% occupied"]')).toBeTruthy();
+    // The colour key is a quiet legend row under the calendar, not a dropdown.
+    const legend = document.querySelector('[data-attr="bookings-calendar-legend"]');
+    expect(legend?.textContent).toContain("Confirmed");
+    expect(legend?.textContent).toContain("Airbnb / Booking.com");
     const airbnbDay = document.querySelector('[data-attr="portfolio-booking-day-2026-08-18"]');
     expect(airbnbDay).toBeTruthy();
     expect(airbnbDay?.textContent).not.toContain("1/1");
@@ -173,15 +177,7 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
       view.container.innerHTML,
     );
 
-    fireEvent.keyDown(document.querySelector('button[data-attr="portfolio-bookings-link-airbnb"]')!, { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Link calendars" }));
-    await act(async () => {
-      await Promise.resolve();
-    });
-    writeShot(
-      "bookings-link-airbnb",
-      "J · The 'Link Airbnb' modal on the same panel.",
-      document.body.innerHTML,
-    );
+    // The Calendars dropdown is gone from the command bar (Link calendars lives on Settings > Integrations).
+    expect(document.querySelector('button[data-attr="portfolio-bookings-link-airbnb"]')).toBeNull();
   });
 });

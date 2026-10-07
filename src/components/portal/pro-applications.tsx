@@ -9,7 +9,6 @@ import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-act
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
-import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { UploadForResidentModal } from "@/components/portal/upload-for-resident-modal";
@@ -44,7 +43,6 @@ import { ApplicationHoldingFeeToggle } from "@/components/portal/application-hol
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
-import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import {
@@ -617,7 +615,6 @@ export function ManagerApplications({
     setApplicationsFilterOpen(false);
     setInviteModalOpen(true);
   }, []);
-  const [screeningModalOpen, setScreeningModalOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [checkrScreeningCosignerId, setCheckrScreeningCosignerId] = useState<string | null>(null);
   const [cosignerSubmissionsTick, setCosignerSubmissionsTick] = useState(0);
@@ -1372,9 +1369,8 @@ export function ManagerApplications({
 
   const renderApplicationRowActions = (row: DemoApplicantRow) => {
     const showCompletionReminder = showCompletionReminderForRow(row);
-    const recordTitle = row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim();
 
-    // Approve · Remind · Download · Decline are the record's four; Share, Move to pending and Delete
+    // Approve · Remind · Download · Decline are the record's four; Move to pending and Delete
     // follow in the overflow, the red ones last.
     const actions = [];
     if (isApprovableApplicationRow(row)) actions.push(portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "application-approve", onClick: () => beginApprovalPreview(row) }));
@@ -1391,10 +1387,6 @@ export function ManagerApplications({
       dataAttr: "application-send-reminder", disabled: reminderPreviewBusyId !== null || reminderBusyId !== null, onClick: () => openReminderPreview(row) }));
     actions.push(portalIconActionSpec({ id: "upload-for-resident", label: "Upload for resident", icon: Upload, dataAttr: "application-upload-for-resident", onClick: () => setUploadForResidentFor(row.id) }));
     actions.push(portalIconActionSpec({ id: "download", label: "Download", icon: Download, dataAttr: "application-pdf-download", onClick: () => runApplicationPdfDownload(row, showToast) }));
-    actions.push({ id: "share",
-      node: <PortalRecordShareLinkButton kind="application" recordId={row.id} icon dataAttr="application-share" recordTitle={recordTitle} />,
-      menuItem: <PortalRecordShareLinkButton kind="application" recordId={row.id} menuItem dataAttr="application-share" recordTitle={recordTitle} />,
-    });
     if (applicationRowCanMoveToPending(row)) actions.push(portalIconActionSpec({ id: "pending", label: "Move to pending", icon: Undo2, dataAttr: "application-move-pending", onClick: () => setRowBucket(row.id, "pending") }));
     if (row.bucket !== "rejected") actions.push(portalIconActionSpec({ id: "reject", label: "Decline", icon: X, tone: "danger", dataAttr: "application-decline", onClick: () => void declineApplication(row) }));
     actions.push(portalIconActionSpec({ id: "delete", label: "Delete", icon: Trash2, tone: "danger", dataAttr: "application-delete", onClick: () => deleteApplication(row.id) }));
@@ -1901,7 +1893,6 @@ export function ManagerApplications({
         }
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
-      <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
       {checkrScreeningModal}
         <PortalRecordListSurface
           loading={rows.length === 0 && (!authReady || (initialReadErrorUserId !== userId && initialReadUserId !== userId))}
@@ -1940,7 +1931,7 @@ export function ManagerApplications({
                     bucket,
                   ),
                   // Incomplete and Pending: the pill matches the header + (add
-                  // an applicant). Share-a-link stays on the header share glyph.
+                  // an applicant).
                   actions:
                     bucket === "pending"
                       ? [

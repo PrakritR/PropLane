@@ -1,6 +1,13 @@
 "use client";
 
 import { WorkspaceApplicationsLeasesSettings } from "@/components/portal/workspace-applications-leases-settings";
+import {
+  MoveInFormsSettingsSection,
+  ScreeningSettingsSection,
+  ToursSettingsSection,
+  VendorDefaultsSettingsSection,
+} from "@/components/portal/automations-settings-sections";
+import { RentAndFeesSettingsSection } from "@/components/portal/rent-and-fees-settings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
@@ -725,6 +732,26 @@ export function PortalProfileClient({
     layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [activeGroup?.id]);
 
+  // A settings gear links to a section (`/portal/profile?tab=…#<section id>`): once the
+  // pane has mounted that section, bring it into view. Sections render synchronously, but
+  // a few poll briefly in case the pane is still swapping in.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const anchor = window.location.hash.replace(/^#/, "");
+    if (!anchor) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+      const target = document.getElementById(anchor);
+      if (target) {
+        target.scrollIntoView({ block: "start", behavior: "auto" });
+        clearInterval(timer);
+      } else if (++tries >= 20) {
+        clearInterval(timer);
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, [activeGroup?.id, searchParams]);
+
   const renderPane = (id: SettingsGroupId): ReactNode => {
     switch (id) {
       case "workspaces":
@@ -732,7 +759,12 @@ export function PortalProfileClient({
       case "profile":
         return personalInfoSection;
       case "payments":
-        return <HubSettingsModulePane tab="payments" />;
+        return (
+          <>
+            <HubSettingsModulePane tab="payments" />
+            <RentAndFeesSettingsSection />
+          </>
+        );
       case "billing":
         // Billing is a complete operational surface (PLAN-0920-1400): `ManagerPlan`
         // owns the whole page — Plan, Usage, Extra usage, Add-ons, Payment,
@@ -775,7 +807,15 @@ export function PortalProfileClient({
       case "spreadsheets":
         return variant === "manager" && !demo ? <ManagerIntegrationsPanel onOpenCommunication={() => openGroup("messaging")} /> : null;
       case "applicationsLeases":
-        return variant === "manager" ? <WorkspaceApplicationsLeasesSettings /> : null;
+        return variant === "manager" ? (
+          <>
+            <WorkspaceApplicationsLeasesSettings />
+            <ToursSettingsSection />
+            <MoveInFormsSettingsSection />
+            <ScreeningSettingsSection />
+            <VendorDefaultsSettingsSection />
+          </>
+        ) : null;
       case "applicationForm":
         // Kept per the S014 correction (captain, 06:47): the Applications
         // list-page gear was removed by another worker on the assumption

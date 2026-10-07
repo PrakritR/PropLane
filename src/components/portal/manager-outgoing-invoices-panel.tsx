@@ -207,7 +207,6 @@ export function ManagerOutgoingInvoicesPanel({
     if (!(await mutate(row, "delete"))) { showToast("Could not delete bill."); return false; }
     return true;
   };
-  const messageVendor = (row: OutgoingInvoice) => navigate(outgoingPaymentRecordHref(basePath, row.id, "communication"));
 
   const dialogs = <>
     <PortalDialog primaryAction={view && view.status !== "paid" ? { label: "Pay now", onClick: () => { setPay(view); setView(null); } } : null} open={Boolean(view)} onClose={() => setView(null)} title="Invoice">
@@ -301,13 +300,12 @@ export function ManagerOutgoingInvoicesPanel({
     const available: Record<string, { run: () => void; show: boolean }> = {
       "view-invoice": { show: Boolean(invoice), run: () => setView(invoice) },
       schedule: { show: Boolean(invoice) && state !== "paid", run: () => invoice && openSchedule(invoice) },
-      message: { show: true, run: () => navigate(outgoingPaymentRecordHref(basePath, paymentId, "communication")) },
       "mark-paid": { show: Boolean(invoice) && state !== "paid", run: () => invoice && openMarkPaid(invoice) },
       delete: { show: Boolean(invoice?.managerEntered) && state !== "paid", run: () => { if (invoice) void deleteBill(invoice).then((gone) => { if (gone) navigate(backHref); }); } },
       "pay-now": { show: Boolean(invoice) && state !== "paid", run: () => invoice && setPay(invoice) },
     };
-    // Header order: View invoice · Schedule / Change date · Message vendor · Mark paid · red Delete bill · blue Pay now (right-most).
-    const headerActions = ["view-invoice", "schedule", "message", "mark-paid", "delete", "pay-now"]
+    // Header order: View invoice · Schedule / Change date · Mark paid · red Delete bill · blue Pay now (right-most).
+    const headerActions = ["view-invoice", "schedule", "mark-paid", "delete", "pay-now"]
       .map((id) => sections.headerActions.find((a) => a.id === id))
       .filter((a): a is NonNullable<typeof a> => Boolean(a) && available[a!.id]!.show)
       .map((a) => a.id === "schedule" && state === "scheduled" ? { ...a, label: "Change date" } : a);
@@ -428,7 +426,6 @@ export function ManagerOutgoingInvoicesPanel({
           {planned ? <DropdownMenuItem onSelect={() => openSchedule(row)}>{row.status === "scheduled" ? "Change date" : "Schedule payment"}</DropdownMenuItem> : null}
           <DropdownMenuItem onSelect={() => setView(row)}>View invoice</DropdownMenuItem>
           {scoped && row.workOrderId ? <DropdownMenuItem onSelect={() => navigate(workOrderDetailHref(basePath, "open", row.workOrderId!))}>Open service</DropdownMenuItem> : null}
-          <DropdownMenuItem onSelect={() => messageVendor(row)}>Message vendor</DropdownMenuItem>
           {planned ? <DropdownMenuItem onSelect={() => openMarkPaid(row)}>Mark paid</DropdownMenuItem> : null}
           {row.managerEntered && planned ? <DropdownMenuItem className="text-[var(--status-overdue-fg)] focus:text-[var(--status-overdue-fg)]" onSelect={() => void deleteBill(row)}>Delete bill</DropdownMenuItem> : null}
         </> }}><PortalApplicantRecordRow
