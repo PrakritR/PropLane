@@ -132,13 +132,13 @@ function AskPropLaneButton() {
         aria-label={assistantOpen ? "Close PropLane Assistant" : "Ask PropLane"}
         aria-expanded={assistantVisible}
         aria-keyshortcuts="Meta+K Control+K"
-        className="group flex items-center gap-2 rounded-full border border-border bg-card py-1.5 pl-2.5 pr-2 text-[13px] font-medium text-muted outline-none transition hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="group flex items-center gap-2 rounded-[10px] border border-border bg-card py-1.5 pl-2.5 pr-2 text-[14px] font-medium text-muted outline-none transition hover:border-primary/30 hover:bg-[var(--portal-active-bg,var(--accent))]/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
       >
-        <span aria-hidden className="text-[13px] leading-none text-primary">
+        <span aria-hidden className="text-[14px] leading-none text-primary">
           ✦
         </span>
         <span className="tracking-[-0.01em]">Ask PropLane</span>
-        <kbd className="ml-0.5 hidden items-center rounded-md border border-border bg-[var(--secondary)] px-1.5 py-0.5 text-[10.5px] font-medium leading-none text-muted lg:inline-flex">
+        <kbd className="ml-0.5 hidden items-center rounded-[5px] border border-border bg-[var(--secondary)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted lg:inline-flex">
           ⌘K
         </kbd>
       </button>
@@ -165,15 +165,15 @@ export function PortalTopBar({
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
   return (
-    <header className="hidden h-14 shrink-0 items-center justify-end gap-3 border-b border-border bg-background px-4 sm:px-5 lg:flex">
+    <header className="hidden h-14 shrink-0 items-center justify-end gap-3 border-b border-border bg-background/90 px-4 backdrop-blur sm:px-5 lg:flex">
       {kind === "resident" ? null : <AskPropLaneButton />}
 
       <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
         <DropdownMenuTrigger
-          className="hidden items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-2.5 text-foreground outline-none transition hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-primary/40 md:flex"
+          className="hidden items-center gap-2 rounded-[10px] border border-border bg-card py-1 pl-1 pr-2.5 text-foreground outline-none transition hover:border-primary/30 hover:bg-[var(--portal-active-bg,var(--accent))]/60 focus-visible:ring-2 focus-visible:ring-primary/40 md:flex"
           aria-label="Account menu"
         >
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-primary to-[var(--cobalt-deep,#16233f)] text-[12px] font-bold text-white">
+          <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[var(--portal-avatar-bg,var(--primary))] text-[12px] font-extrabold text-[var(--portal-avatar-fg,#fff)]">
             {initials(name, email)}
           </span>
           <ChevronDown className="h-4 w-4 text-muted" aria-hidden />

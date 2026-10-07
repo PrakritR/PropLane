@@ -140,7 +140,7 @@ export function PortalMobileNavBar({
           <DropdownMenuTrigger
             data-attr="portal-mobile-profile-menu"
             aria-label="Account menu"
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-primary to-[var(--cobalt-deep,#16233f)] text-[12px] font-bold text-white outline-none transition focus-visible:ring-2 focus-visible:ring-primary/40"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[var(--portal-avatar-bg,var(--primary))] text-[13px] font-extrabold text-[var(--portal-avatar-fg,#fff)] outline-none transition focus-visible:ring-2 focus-visible:ring-primary/40"
           >
             {initials(name, email)}
           </DropdownMenuTrigger>
