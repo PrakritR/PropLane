@@ -1,5 +1,5 @@
 /**
- * Vendors is its own section under Operations. It used to live under Services,
+ * Vendors is its own section (sidebar group: People, between Residents and Services). It used to live under Services,
  * then as a Teams tab; both retired paths must still resolve so bookmarks and
  * sent links keep working. The Teams page itself is gone — co-managers live
  * under Settings → Workspaces (PLAN-0923-1934).
@@ -18,8 +18,8 @@ describe("Vendors section (Teams page removed)", () => {
     expect(vendors?.tabs ?? []).toEqual([]);
     const ids = proPortal.sections.map((s) => s.section);
     expect(ids.indexOf("vendors")).toBe(ids.indexOf("services") + 1);
-    const ops = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations");
-    expect(ops?.sections[0]).toBe("vendors");
+    const people = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "people");
+    expect(people?.sections).toEqual(["residents", "vendors", "services"]);
   });
 
   it("Teams is not a manager nav section — team is Settings → Workspaces", () => {
@@ -45,9 +45,11 @@ describe("Vendors section (Teams page removed)", () => {
 });
 
 describe("Calendar and Bookings are separate sidebar entries", () => {
-  it("lists Calendar and Bookings under Operations", () => {
-    const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations");
-    expect(group?.sections).toEqual(["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"]);
+  it("lists Calendar (home group) and Bookings (Portfolio) as separate entries", () => {
+    const home = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "home");
+    const portfolio = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "portfolio");
+    expect(home?.sections).toEqual(["dashboard", "tasks", "calendar", "communication"]);
+    expect(portfolio?.sections).toEqual(["properties", "bookings", "promotion"]);
   });
 
   it("Calendar is schedule-only — no in-page tabs", () => {
