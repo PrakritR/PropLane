@@ -101,6 +101,7 @@ export function resolveSettingsRedirectHubTab(raw: string | null | undefined): s
 export const MANAGER_SETTINGS_GEAR_TARGETS = {
   payments: { tab: "payments", anchor: "rent-and-fees" },
   reminders: { tab: "messaging", anchor: "what-proplane-sends" },
+  leases: { tab: "applicationsLeases", anchor: "leases" },
   tours: { tab: "applicationsLeases", anchor: "tours" },
   moveInForms: { tab: "applicationsLeases", anchor: "move-in-forms" },
   screening: { tab: "applicationsLeases", anchor: "screening" },
