@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from "react";
 import { Download, CheckCircle2 } from "lucide-react";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Select } from "@/components/ui/input";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -29,7 +30,7 @@ type Statement = {
 
 const KIND_LABEL: Record<string, string> = {
   charge: "Charge",
-  platform_fee: "PropLane fee",
+  platform_fee: PROPLANE_SERVICE_FEE_LABEL,
   hold: "Held",
   transfer: "Transfer",
   withdrawal: "Withdrawal",

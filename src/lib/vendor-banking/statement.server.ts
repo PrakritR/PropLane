@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { listVendorBankingLedgerEntries, type VendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.server";
 
 export type VendorStatementLine = VendorBankingLedgerEntry & { runningBalanceCents: number };
@@ -60,7 +61,7 @@ export async function buildVendorStatement(
 
 const KIND_LABEL: Record<VendorBankingLedgerEntry["kind"], string> = {
   charge: "Charge",
-  platform_fee: "PropLane fee",
+  platform_fee: PROPLANE_SERVICE_FEE_LABEL,
   hold: "Held",
   transfer: "Transfer",
   withdrawal: "Withdrawal",

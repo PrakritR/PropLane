@@ -16,6 +16,9 @@ vi.mock("@/lib/stripe-vendor-payout", () => ({
 vi.mock("@/lib/vendor-banking/ledger.server", () => ({
   recordVendorBankingChargeAndFee: vi.fn(async () => { calls.push("fee"); }),
 }));
+vi.mock("@/lib/vendor-banking/platform-revenue.server", () => ({
+  recordVendorServiceFeeRevenue: vi.fn(async () => { calls.push("revenue"); return { ok: true, recorded: true }; }),
+}));
 vi.mock("@/lib/platform-hold-release.server", () => ({
   releaseVerifiedPlatformHoldsForOwner: vi.fn(async () => { calls.push("release"); }),
 }));
@@ -26,6 +29,8 @@ vi.mock("@/lib/stripe-platform-hold.server", () => ({
 import { completeVendorPayFromStripeSession } from "@/lib/work-order-approve-pay.server";
 import { creditVerifiedVendorCheckoutSource } from "@/lib/vendor-captured-source.server";
 import { recordVendorPayoutSettled } from "@/lib/stripe-vendor-payout";
+import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
+import { recordVendorServiceFeeRevenue } from "@/lib/vendor-banking/platform-revenue.server";
 
 const frozen = {
   managerUserId: "manager", vendorUserId: "vendor", invoiceCents: 10000,
@@ -67,7 +72,10 @@ describe("marked service Checkout settlement", () => {
 
   it("verifies captured source before binding the payout, fee, and residual release", async () => {
     await completeVendorPayFromStripeSession(dbWithPending() as never, session as never);
-    expect(calls).toEqual(["source", "payout", "fee", "release"]);
+    expect(calls).toEqual(["source", "payout", "fee", "revenue", "release"]);
+    expect(vi.mocked(recordVendorServiceFeeRevenue)).toHaveBeenCalledWith(expect.anything(), {
+      vendorUserId: "vendor", managerUserId: "manager", feeCents: 300, source: "work_order", sourceId: "wo_1",
+    });
     expect(vi.mocked(recordVendorPayoutSettled)).toHaveBeenCalledWith(expect.anything(),
       expect.objectContaining({ platformHoldId: "hold_1", stripeChargeId: "ch_1",
         destination: "hold", platformFeeCents: 300 }));
@@ -78,5 +86,29 @@ describe("marked service Checkout settlement", () => {
       .rejects.toThrow("frozen provider claim");
     expect(vi.mocked(creditVerifiedVendorCheckoutSource)).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
+  });
+
+  it("settles the fee frozen with the terms even if the flag is flipped off after checkout", async () => {
+    const prior = process.env.VENDOR_BANKING_ENABLED;
+    process.env.VENDOR_BANKING_ENABLED = "0";
+    try {
+      await completeVendorPayFromStripeSession(dbWithPending() as never, session as never);
+    } finally {
+      if (prior === undefined) delete process.env.VENDOR_BANKING_ENABLED;
+      else process.env.VENDOR_BANKING_ENABLED = prior;
+    }
+    expect(vi.mocked(recordVendorPayoutSettled)).toHaveBeenCalledWith(expect.anything(),
+      expect.objectContaining({ platformFeeCents: 300 }));
+    expect(vi.mocked(recordVendorBankingChargeAndFee)).toHaveBeenCalledWith(expect.anything(),
+      expect.objectContaining({ grossCents: 10000, feeCents: 300 }));
+    expect(vi.mocked(recordVendorServiceFeeRevenue)).toHaveBeenCalledWith(expect.anything(),
+      expect.objectContaining({ feeCents: 300 }));
+  });
+
+  it("a settle whose frozen fee is not the one on the session is rejected, never re-priced", async () => {
+    const tampered = { ...frozen, platformFeeCents: 450 };
+    await expect(completeVendorPayFromStripeSession(dbWithPending(tampered) as never, session as never))
+      .rejects.toThrow("frozen provider claim");
+    expect(vi.mocked(recordVendorServiceFeeRevenue)).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { track } from "@/lib/analytics/track-client";
 import type { VendorPayout } from "@/lib/vendor-payouts";
 
@@ -179,7 +180,7 @@ export function VendorRefundModal({
               </div>
               {feeBps > 0 ? (
                 <div className="flex justify-between py-0.5">
-                  <span className="text-muted">PropLane fee refunded</span>
+                  <span className="text-muted">{PROPLANE_SERVICE_FEE_LABEL} refunded</span>
                   <span className="font-medium text-foreground">{formatUsd(preview.feeShare)}</span>
                 </div>
               ) : null}

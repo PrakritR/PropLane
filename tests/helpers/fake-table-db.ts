@@ -94,6 +94,8 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       is: (column: string, value: unknown) => (filters.push((row) => (readPath(row, column) ?? null) === value), builder),
       in: (column: string, values: unknown[]) => (filters.push((row) => values.includes(readPath(row, column))), builder),
       gt: (column: string, value: unknown) => (filters.push((row) => String(readPath(row, column) ?? "") > String(value)), builder),
+      gte: (column: string, value: unknown) => (filters.push((row) => String(readPath(row, column) ?? "") >= String(value)), builder),
+      lt: (column: string, value: unknown) => (filters.push((row) => readPath(row, column) != null && String(readPath(row, column)) < String(value)), builder),
       not: (column: string, op: string, value: unknown) => {
         if (op === "is") filters.push((row) => (readPath(row, column) ?? null) !== value);
         return builder;

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { vendorServiceFeeDescription } from "@/lib/platform-fees";
 
 /**
  * Every statement line kind vendor banking ever writes. `charge` and
@@ -159,7 +160,7 @@ export async function recordVendorBankingChargeAndFee(
       amountCents: -Math.abs(opts.feeCents),
       source: opts.source,
       sourceId: opts.sourceId,
-      description: "PropLane fee (3%)",
+      description: vendorServiceFeeDescription(),
       stripeObjectId: opts.stripeObjectId,
       idempotencyKey: `${opts.source}:${opts.sourceId}:platform_fee`,
     });

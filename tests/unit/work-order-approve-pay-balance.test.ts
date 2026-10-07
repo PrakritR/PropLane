@@ -48,6 +48,11 @@ vi.mock("@/lib/proplane-balance/ledger.server", () => ({
   payVendorFromBalance: (...args: unknown[]) => payVendorFromBalance(...args),
 }));
 
+const recordVendorServiceFeeRevenue = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/vendor-banking/platform-revenue.server", () => ({
+  recordVendorServiceFeeRevenue: (...args: unknown[]) => recordVendorServiceFeeRevenue(...args),
+}));
+
 const authState: { ctx: unknown } = { ctx: null };
 vi.mock("@/lib/reports/auth", () => ({
   getReportsAuthContext: vi.fn(async () => authState.ctx),
@@ -168,6 +173,7 @@ describe("approve-pay — PropLane balance payment source", () => {
     flagState.enabled = false;
     payVendorFromBalance.mockReset();
     vi.mocked(recordVendorPayoutSettled).mockClear();
+    recordVendorServiceFeeRevenue.mockClear();
     createCheckout.mockReset();
     createCheckout.mockImplementation(async (_stripe: unknown, req: { fixedFeeBreakdown: { totalCents: number; residentAddedFeeCents: number } }) => ({
       mode: "embedded",
@@ -215,6 +221,13 @@ describe("approve-pay — PropLane balance payment source", () => {
       db,
       expect.objectContaining({ workOrderId: WORK_ORDER, managerUserId: MANAGER, vendorUserId: VENDOR, amountCents: 12_500, stripeTransferId: null }),
     );
+    // The PropLane-balance rail carries NO service fee in this build: platform_fee_cents stays 0
+    // (the payout call never passes one), and no revenue entry or vendor statement fee is written.
+    const settleArgs = vi.mocked(recordVendorPayoutSettled).mock.calls[0]![1] as Record<string, unknown>;
+    expect(settleArgs.platformFeeCents ?? 0).toBe(0);
+    expect(recordVendorServiceFeeRevenue).not.toHaveBeenCalled();
+    expect(db.log.inserts.filter((i) => i.table === "platform_revenue_entries" || i.table === "vendor_banking_ledger_entries")).toEqual([]);
+    expect(db.log.upserts.filter((i) => i.table === "platform_revenue_entries" || i.table === "vendor_banking_ledger_entries")).toEqual([]);
     // No Checkout redirect for a balance payment.
     expect(body).not.toHaveProperty("checkoutUrl");
     expect(body).not.toHaveProperty("clientSecret");

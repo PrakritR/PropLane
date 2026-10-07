@@ -74,6 +74,7 @@ import { VendorStatementModal } from "@/components/portal/vendor-statement-modal
 import { vendorPaymentDetailBreakdown, vendorPaymentFeeBreakdown, vendorPaymentStatusTimeline } from "@/lib/vendor-payments";
 import { VendorPaymentStatusTimeline } from "@/components/portal/vendor-payment-status-timeline";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 
 type VendorLinkedManagerOption = {
   managerUserId: string;
@@ -407,7 +408,7 @@ function VendorPaymentsTable({
                       <>
                         <span>{dateAndStatus}</span>
                         <PortalRowFact icon={DollarSign}>Gross {formatMoney(breakdown.grossCents, row.currency)}</PortalRowFact>
-                        <PortalRowFact icon={Undo2}>Fee {formatMoney(breakdown.feeCents, row.currency)}</PortalRowFact>
+                        <PortalRowFact icon={Undo2}>{PROPLANE_SERVICE_FEE_LABEL} {formatMoney(breakdown.feeCents, row.currency)}</PortalRowFact>
                       </>
                     ) : (
                       dateAndStatus
@@ -978,7 +979,7 @@ function VendorPayoutRecordPage({
               <dd className="font-medium text-foreground tabular-nums">{formatInvoiceMoney(breakdown.grossCents)}</dd>
             </div>
             <div className="flex items-center justify-between px-3 py-2">
-              <dt className="text-muted">PropLane fee</dt>
+              <dt className="text-muted">{PROPLANE_SERVICE_FEE_LABEL}</dt>
               <dd className="tabular-nums text-foreground">−{formatInvoiceMoney(breakdown.feeCents)}</dd>
             </div>
             <div className="flex items-center justify-between px-3 py-2">

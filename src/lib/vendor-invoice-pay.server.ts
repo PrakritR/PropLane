@@ -14,6 +14,7 @@ import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { vendorPayFeeCents } from "@/lib/platform-fees";
 import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
+import { recordVendorServiceFeeRevenue } from "@/lib/vendor-banking/platform-revenue.server";
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
 import { assertNoCrossRailPayout, authorizeOutgoingInvoice, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
 import { isVendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
@@ -325,6 +326,14 @@ export async function completeVendorInvoicePaymentFromStripeSession(
         sourceId: invoiceId,
         description: "Payment for invoice",
         stripeObjectId: stripeChargeId ?? session.id,
+      });
+      // PropLane's own revenue, written through beside the vendor statement fee line. Never throws.
+      await recordVendorServiceFeeRevenue(db, {
+        vendorUserId,
+        managerUserId,
+        feeCents: platformFeeCents,
+        source: "invoice",
+        sourceId: invoiceId,
       });
   }
   if (verifiedHoldId) await releaseVerifiedPlatformHoldsForOwner(db, {

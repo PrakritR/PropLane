@@ -12,6 +12,7 @@
  */
 import { useEffect, useState } from "react";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { Badge } from "@/components/ui/badge";
 import type { PortalPayoutBalance } from "@/components/portal/portal-payouts-panel";
 
@@ -37,9 +38,9 @@ export function VendorPayoutsSettingsExtra({ balance }: { balance: PortalPayoutB
 
   return (
     <div className="vbank-payouts-extra" data-attr="vendor-payouts-settings-extra">
-      <PortalSettingsSection title="PropLane fee & filing">
+      <PortalSettingsSection title={`${PROPLANE_SERVICE_FEE_LABEL} & filing`}>
         <PortalSettingsGroup>
-          <PortalSettingsRow label="PropLane fee">
+          <PortalSettingsRow label={PROPLANE_SERVICE_FEE_LABEL}>
             <span className="text-sm font-medium text-foreground">{(balance.feeBps / 100).toFixed(0)}% of each payment</span>
           </PortalSettingsRow>
           <PortalSettingsRow label="Instant payout eligibility">
