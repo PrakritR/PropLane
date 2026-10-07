@@ -6,6 +6,8 @@ import { refundPlatformHold } from "@/lib/stripe-platform-hold.server";
 import type { PlatformHoldRow } from "@/lib/stripe-platform-hold";
 import { directInvoiceIdFromHoldSourceId } from "@/lib/stripe-platform-hold";
 import { recordVendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.server";
+import { recordVendorServiceFeeRevenueReversal } from "@/lib/vendor-banking/platform-revenue.server";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 
 export const HOLD_EXPIRY_DAYS = 90;
@@ -148,9 +150,17 @@ export async function expireVendorHolds(stripe: Stripe, db: SupabaseClient, now:
           amountCents: feeCents, // gives back PropLane's own fee on a payment that was never actually delivered
           source: "hold_expiry",
           sourceId: hold.sourceId,
-          description: "PropLane fee reversed — payment returned unclaimed",
+          description: `${PROPLANE_SERVICE_FEE_LABEL} reversed — payment returned unclaimed`,
           stripeObjectId: hold.stripeChargeId,
           idempotencyKey: `hold_expiry:${hold.id}:fee_reversal`,
+        });
+        await recordVendorServiceFeeRevenueReversal(db, {
+          vendorUserId: hold.ownerUserId,
+          managerUserId,
+          feeCents,
+          source: "hold_expiry",
+          sourceId: hold.sourceId,
+          reversalId: hold.id,
         });
       }
 

@@ -402,6 +402,18 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"] },
   },
   {
+    // Both rows belong to the vendor alone; the auth-user cascade would remove them anyway, but the
+    // manifest is what the coverage test and the purge path read.
+    table: "vendor_calendar_feeds",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
+    table: "vendor_integration_access_requests",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
     table: "vendor_invites",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -1157,8 +1169,10 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   vendor_work_identity_delivery_attempts: "Child of vendor_work_identity_outbox; removed by outbox cascade.",
   vendor_work_identity_usage_events: "Child of vendor_work_identities; removed by identity cascade and never used for billing.",
   vendor_work_identity_reply_bindings: "Child of vendor_work_identities; service-role reply authorization facts are removed by identity cascade after release is queued.",
+  vendor_work_number_conversations: "Child of vendor_work_identities and auth.users; the vendor's own conversation list for reply routing is removed by cascade when the account is deleted (release is queued first). manager_user_id names the manager line the vendor texted, no personal data.",
   vendor_work_identity_release_queue: "Retained provider-release work with copied external IDs; it must survive account deletion until reconciled.",
   listing_prefill_cache: "Provider answers keyed by normalized street address; holds no account data.",
+  platform_revenue_entries: "PropLane's own revenue ledger for the vendor service fee; vendor_user_id and manager_user_id are opaque UUIDs with no foreign key by design, carry no name, email or other personal data, and the financial history must outlive the accounts that produced it.",
   payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",
   payment_reminder_channel_coverage: "Child of payment_reminder_occurrences; deleted by cascade.",
   comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",

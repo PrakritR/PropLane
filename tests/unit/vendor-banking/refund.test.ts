@@ -84,6 +84,18 @@ describe("refundVendorPayout — partial math (destination charge)", () => {
     expect(refundLine?.row.amount_cents).toBe(-3_880);
     const feeLine = db._inserts.find((i) => i.table === "vendor_banking_ledger_entries" && i.row.kind === "adjustment" && (i.row.description as string).includes("fee refunded"));
     expect(feeLine?.row.amount_cents).toBe(120);
+    expect(feeLine?.row.description).toBe("PropLane service fee refunded proportionally");
+    // PropLane's own revenue gives the same share back, keyed on this refund request.
+    const reversal = db._inserts.find((i) => i.table === "platform_revenue_entries");
+    expect(reversal?.row).toMatchObject({
+      kind: "vendor_service_fee_reversal",
+      amount_cents: -120,
+      vendor_user_id: "vendor_1",
+      manager_user_id: "manager_1",
+      source: "refund",
+      source_id: "payout_1",
+      idempotency_key: "vendor_service_fee_reversal:refund:idem_2",
+    });
   });
 
   it("a full refund flips status to refunded", async () => {

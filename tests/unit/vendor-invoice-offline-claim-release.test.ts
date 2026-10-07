@@ -15,6 +15,11 @@ vi.mock("@/lib/vendor-invoice-settlement.server", () => ({
   authorizeOutgoingInvoice,
 }));
 
+const recordVendorServiceFeeRevenue = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/vendor-banking/platform-revenue.server", () => ({
+  recordVendorServiceFeeRevenue: (...a: unknown[]) => recordVendorServiceFeeRevenue(...a),
+}));
+
 const releaseInvoicePaymentClaim = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("@/lib/vendor-invoice-claim.server", () => ({ releaseInvoicePaymentClaim }));
 vi.mock("@/lib/reports/gl-posting", () => ({ postGlBillVoided: vi.fn() }));
@@ -50,6 +55,9 @@ describe("offline invoice payment", () => {
     expect(res.status).toBe(200);
     expect(settleInvoicePayment).toHaveBeenCalledOnce();
     expect(releaseInvoicePaymentClaim).not.toHaveBeenCalled();
+    // Offline/manual settles carry NO service fee: nothing is booked as PropLane revenue.
+    expect(recordVendorServiceFeeRevenue).not.toHaveBeenCalled();
+    expect(settleInvoicePayment.mock.calls[0]).toEqual([expect.anything(), "manager_1", "inv_1", "offline", expect.any(String), "Check"]);
   });
 
   it("releases the claim when settle REFUSES, and still answers 409", async () => {

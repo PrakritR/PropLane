@@ -16,6 +16,8 @@ import {
   type InboundPayload,
 } from "@/lib/sms/inbound-pipeline.server";
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
+import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.server";
+import { resolveVendorNumberSenderPhone } from "@/lib/vendor-work-identity.server";
 
 export const runtime = "nodejs";
 // ponytail: room for the QStash-outage fallback (quiet window + agent turn) in after().
@@ -154,10 +156,18 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
     return twimlOk();
   }
 
-  // Vendors never own a number (retired Oct 6): a vendor's text arrives on a
-  // MANAGER's work number and is routed by the sender's phone below (vendor
-  // roster, vendor job session, or a number that manager texted), never by a
-  // vendor-owned line.
+  // Vendor identities are resolved before manager-only work-number ownership.
+  // Inbound never consumes a manager credit/cap and remains visible with the
+  // SMS UI feature flag off.
+  if (messageSid) {
+    try {
+      const vendorInbound = await ingestVendorWorkIdentitySms(db, { toPhone, fromPhone, text: body, messageSid });
+      if (vendorInbound.handled) return twimlOk();
+    } catch (error) {
+      console.error("vendor inbound SMS ingest failed", messageSid, error);
+      return NextResponse.json({ error: "Vendor inbox unavailable." }, { status: 503 });
+    }
+  }
 
   mark("controls");
   // Pooled proxy lines are retired. Only owned work numbers route replies.
@@ -203,7 +213,16 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   if (!messageSid) {
     return NextResponse.json({ error: "MessageSid is required." }, { status: 400 });
   }
-  const inboundPhoneKey = normalizeConsentPhone(fromPhone);
+  // A vendor texting this line from their PropLane work number is the vendor on
+  // the owner's list: the sender becomes the phone that roster row carries, so
+  // the whole pipeline below (thread, consent, history) sees one vendor.
+  let senderPhone = fromPhone;
+  try {
+    senderPhone = (await resolveVendorNumberSenderPhone(db, { fromPhone, ownerManagerUserId: managerId })) ?? fromPhone;
+  } catch {
+    return NextResponse.json({ error: "Vendor number lookup unavailable." }, { status: 503 });
+  }
+  const inboundPhoneKey = normalizeConsentPhone(senderPhone);
   if (!inboundPhoneKey) {
     return NextResponse.json({ error: "Invalid sender phone." }, { status: 400 });
   }
@@ -217,7 +236,7 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
     return NextResponse.json({ error: "Inbound replay state unavailable." }, { status: 503 });
   }
   if (!replayBeforeClaim.receipt) {
-    const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
+    const limit = await rateLimit(`twilio-inbound:${senderPhone}`, 20, 60_000);
     if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
     if (!limit.ok) return twimlOk();
   }
@@ -225,7 +244,7 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   const inboundWorkerId = `inbound-${randomUUID()}`;
   // Stored atomically with the claim so the recovery sweeper can always rerun it.
   const payload: InboundPayload = {
-    fromPhone, toPhone, body,
+    fromPhone: senderPhone, toPhone, body,
     workspaceId: ownedNumber?.workspaceId ?? null,
     media: inboundMediaParams(params),
     runtime: inboundRuntime(),

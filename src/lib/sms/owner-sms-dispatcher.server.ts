@@ -23,6 +23,8 @@ import {
 import { unitPriceCentsForMeter } from "@/lib/comms-billing/rates";
 import { commsPlanBudget, reserveCommsCredit, finishCommsCredit } from "@/lib/comms-billing/wallet.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
+import { VENDOR_CONVERSATION_PURPOSE } from "@/lib/sms/vendor-conversation-consent.server";
+import { getActiveVendorNumber } from "@/lib/vendor-work-identity.server";
 
 const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
   "tour_request_received",
@@ -518,6 +520,30 @@ export function validatedOutboxConversationKey(row: Pick<ClaimedOutboxRow,
 >): string | null {
   const resolved = resolveOutboxConversationKey(row);
   return resolved.kind === "valid" ? resolved.conversationKey : null;
+}
+
+/**
+ * Where the provider actually delivers a queued text. Everything recorded about
+ * the message (outbox row, consent, conversation, STOP checks) stays on the
+ * recipient's own phone; only the provider destination changes. A vendor with
+ * an active PropLane work number is texted AT that number (Oct 6) - their
+ * forwarding setting then relays it to their verified phone - so the manager's
+ * text and the vendor's replies live on one line. Any lookup trouble falls back
+ * to the vendor's own phone, never to a different recipient.
+ */
+export async function providerDestinationFor(
+  db: SupabaseClient,
+  row: Pick<ClaimedOutboxRow, "counterparty_role" | "purpose" | "recipient_user_id" | "recipient_phone">,
+): Promise<string> {
+  if (row.counterparty_role !== "vendor" || row.purpose !== VENDOR_CONVERSATION_PURPOSE) return row.recipient_phone;
+  const vendorUserId = String(row.recipient_user_id ?? "").trim();
+  if (!vendorUserId) return row.recipient_phone;
+  try {
+    const number = await getActiveVendorNumber(db, vendorUserId);
+    return number?.phoneNumber ?? row.recipient_phone;
+  } catch {
+    return row.recipient_phone;
+  }
 }
 
 async function persistSubmittedConversationLog(
@@ -1088,7 +1114,7 @@ export async function dispatchOwnerSmsOutbox(
       }
     }
 
-    const sent = await sendSms(row.recipient_phone, row.body, policy.fromNumber, { skipOptOutCheck: true, creditReservationKey: creditKey });
+    const sent = await sendSms(await providerDestinationFor(db, row), row.body, policy.fromNumber, { skipOptOutCheck: true, creditReservationKey: creditKey });
     if (!sent.sent && sent.providerAttempted === false) {
       await finishCommsCredit(db, row.manager_user_id, creditKey, true);
       await db.from("sms_outbox").update({ status: "blocked", blocked_reason: sent.error ?? "provider_unavailable",

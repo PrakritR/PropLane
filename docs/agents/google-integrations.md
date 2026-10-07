@@ -278,3 +278,39 @@ touch the existing read path.
   the write calendar. Acceptable for now (mirrors the existing precedent and
   its documented rationale — Testing-mode OAuth apps cannot always take live
   push on an unverified webhook domain), but a future pass could add one.
+
+## Vendor Integrations page and Calendar link (Oct 6)
+
+Vendor Settings > Business > **Integrations** (`VendorIntegrationsSettings`,
+tab `integrations`) holds Google Calendar (the existing vendor connect,
+`GoogleCalendarConnectPanel` with `apiBase="/api/vendor/google-calendar"`), a
+private iCal **Calendar link**, and Request access rows. The vendor Calendar
+band's calendar-sync icon (`VendorCalendarIntegrationsAction`, same green/amber
+connection dot) now navigates there instead of opening a dialog.
+
+- **Token, never stored.** The link is
+  `/api/calendar/vendor/<vendorUserId>/<token>.ics` with
+  `token = base64url(HMAC-SHA256(SUPABASE_SERVICE_ROLE_KEY, "vendor-calendar-feed:<vendorUserId>:<version>"))`
+  (`src/lib/vendor-calendar-feed.server.ts`). Only `version` is stored
+  (`vendor_calendar_feeds`); an absent row, or a table not yet migrated, reads as
+  version 1. The public route is token-authenticated (no cookie), compares with
+  `timingSafeEqual`, rate limits per IP, and answers **404 with no detail** for a
+  wrong, other-vendor, stale or revoked token.
+- **Revoke = Reset link.** `POST /api/vendor/calendar-feed {action:"reset"}`
+  upserts `version + 1`, so every earlier URL recomputes to a different token and
+  404s. A failed reset is a 503 the UI shows; it never claims success.
+  `revoked_at` switches the feed off outright.
+- **Privacy of addresses.** The feed lists only services assigned to the vendor
+  (`portal_work_order_records.vendor_user_id`) with a scheduled time, not
+  completed. LOCATION is the full address only when
+  `vendorCanSeeFullWorkOrderSite` is true; otherwise it is the general area
+  (`workOrderGeneralArea`), and the description is dropped. The serializer
+  (`src/lib/ical/serialize.ts`) prints no LOCATION for an event without one.
+  Resident names and entry notes never go in the feed.
+- **Request access.** Jobber, Housecall Pro and Thumbtack read "Coming soon ·
+  Request access". The action upserts one row per vendor and provider into
+  `vendor_integration_access_requests` (`/api/vendor/integration-requests`,
+  allowlisted, idempotent, 400 for anything else, 503 when the table is
+  missing) and the row then reads "Requested". Nobody is emailed or notified.
+- Both tables are service-role only and classified in
+  `account-purge-manifest.ts` (migration `20261006210000_vendor_integrations.sql`).

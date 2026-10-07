@@ -94,7 +94,7 @@ describe("vendor portal matches manager chrome", () => {
     expect(calendar).toContain("vendorViewer");
     expect(calendar).toContain("onVendorAvailabilityEdit");
     expect(calendar).toContain("hideViewModeControl");
-    expect(calendar).toContain("GoogleCalendarConnectDialog");
+    expect(calendar).toContain("VendorCalendarIntegrationsAction");
     // Set-availability edits and removal both go through the one canonical
     // editor — clicking a painted block re-opens it rather than a bespoke
     // grid-level delete.

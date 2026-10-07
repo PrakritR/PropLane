@@ -5,6 +5,7 @@ import { isShieldedRecipient } from "@/lib/protected-accounts.server";
 import { normalizeE164 } from "@/lib/twilio";
 import { quietHoursBlocks, type SmsSendClass } from "@/lib/sms/number-registration-policy";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
+import { createDryRunVendorDeliveryProvider, isVendorNumberDryRun } from "@/lib/vendor-work-number-dry-run.server";
 
 export type VendorIdentityChannel = "email" | "sms";
 export type VendorDeliveryProvider = {
@@ -19,6 +20,8 @@ export type VendorDeliveryProvider = {
  * neither a manager entitlement nor a manager-funded communication.
  */
 export function createVendorWorkIdentityDeliveryProvider(): VendorDeliveryProvider {
+  // A dry run (non-production, real provisioning off) captures every text in memory.
+  if (isVendorNumberDryRun()) return createDryRunVendorDeliveryProvider();
   return {
     configured(channel) {
       if (process.env.VENDOR_WORK_IDENTITY_PROVIDER_ENABLED !== "1") return false;

@@ -394,6 +394,32 @@ job, vendor refund route, and balance/statement/reconciliation surface — is
 `false` / `off`) in an environment to fall back to the pre-feature behavior
 (no `vendor_banking_*` row is written, fee/schedule math returns 0).
 
+**PropLane service fee (Oct 6)** — the vendor take rate is one rate and one name.
+Rate: `VENDOR_PAY_FEE_BPS = 300` (3%), taken from the vendor out of a manager's
+payment, derived at pay time (`vendorPayFeeCents`) and never written to the
+accepted bid, whose `amount_cents` stays immutable. Label: every vendor-facing
+surface and statement line reads `PROPLANE_SERVICE_FEE_LABEL` ("PropLane service
+fee", `src/lib/platform-fees.ts`); the ledger description is
+`vendorServiceFeeDescription()`, so no `3%` is typed anywhere
+(`tests/unit/vendor-service-fee-label.test.ts`). Rails (`VENDOR_SERVICE_FEE_RAILS`):
+
+| Rail | Fee |
+| --- | --- |
+| Stripe Checkout (service approve-and-pay, invoice pay) | 3%, an `application_fee_amount` frozen in the provider terms (`pendingVendorPay.providerTerms` / `freeze_vendor_invoice_stripe_checkout_terms`); settlement books the frozen amount, never a re-derived one, so a later rate or flag change cannot move a settled fee |
+| PropLane balance (`pay-from-balance`, `paymentChannel: "balance"`) | none, `platform_fee_cents` 0. Deferred on purpose: taking it needs a source-classification change in the balance-move SQL that cannot be verified without applying a migration |
+| Offline / manual (`outgoing` action `offline`) | none |
+
+Write-through: beside the vendor statement debit (`vendor_banking_ledger_entries`
+`platform_fee`), settlement appends PropLane's own revenue to
+`platform_revenue_entries` (`recordVendorServiceFeeRevenue`, idempotent on
+`vendor_service_fee:<source>:<id>`); a refund or an expired hold appends the
+negative `vendor_service_fee_reversal` (`recordVendorServiceFeeRevenueReversal`).
+Both are failure-isolated (an unapplied table logs and the payment still
+settles) and are not gated on the flag at settlement, only on a frozen fee > 0.
+The table has no foreign keys by design and is retained across account
+deletion (`ACCOUNT_PURGE_RETAINED`). Migration
+`20261006220000_platform_revenue_vendor_service_fee.sql`.
+
 **Withdraw-only manager payouts (`MANUAL_PAYOUT_POLICY_ENABLED`, `src/lib/manual-payout-policy-flag.ts`)** is a separate, **default OFF** flag whose own doc comment is the contract. On, a new manager Connect account is created on manual payouts and the hourly `/api/cron/manual-payout-policy` job converts the existing ones in bounded, resumable batches (`ensureManualPayoutPolicy` is withdraw-only: it never touches a bank destination, skips test workspaces, and re-running it leaves an already-manual account alone), and both schedule routes (`/api/stripe/payouts/schedule`, `/api/vendor/payouts/schedule`) answer **422** "Payouts are withdrawal-only." to anything but `manual`. Off keeps today's split - vendors on manual, managers on weekly Friday deposits.
 
 # Financials Phase 5: AP bills, budgets, owner statements

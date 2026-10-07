@@ -2383,6 +2383,21 @@ export const ManagerInbox = forwardRef<
     return () => { cancelled = true; };
   }, [managerRelationshipId]);
   const relatedWorkContact = managerWorkContact?.relationshipId === managerRelationshipId ? managerWorkContact : null;
+  // A vendor with an active PropLane work number is texted at that number: the header shows it.
+  const vendorRecordId = activeThreadContact?.role === "vendor" && activeThreadContact.id.startsWith("ven-") ? activeThreadContact.id.slice(4) : null;
+  const [vendorWorkNumber, setVendorWorkNumber] = useState<{ recordId: string; number: string | null } | null>(null);
+  useEffect(() => {
+    if (!vendorRecordId) return;
+    let cancelled = false;
+    void fetch(`/api/manager/vendor-text-consent?vendorRecordId=${encodeURIComponent(vendorRecordId)}`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { workNumber?: string | null } | null) => {
+        if (!cancelled && data) setVendorWorkNumber({ recordId: vendorRecordId, number: data.workNumber ?? null });
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [vendorRecordId]);
+  const activeVendorWorkNumber = vendorWorkNumber?.recordId === vendorRecordId ? vendorWorkNumber?.number ?? null : null;
   const activeThreadPhone = activeThreadContact?.role === "manager" ? relatedWorkContact?.phone ?? "" : activeSmsTarget?.phone?.trim() || "";
   const activeThreadDisplayEmail = activeThreadContact?.role === "manager" ? relatedWorkContact?.email ?? "" : activeThread?.email?.trim() || "";
 
@@ -2411,7 +2426,9 @@ export const ManagerInbox = forwardRef<
     const parts = [
       role,
       place,
-      activeThreadPhone ? formatTourContactPhoneDisplay(activeThreadPhone) : null,
+      activeVendorWorkNumber
+        ? `Text ${formatTourContactPhoneDisplay(activeVendorWorkNumber)}`
+        : activeThreadPhone ? formatTourContactPhoneDisplay(activeThreadPhone) : null,
       activeThreadDisplayEmail || null,
     ].filter(Boolean) as string[];
     if (parts.length > 0) return parts.join(" · ");

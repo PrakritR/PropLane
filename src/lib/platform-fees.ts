@@ -95,6 +95,28 @@ export function vendorPayFeeDisplayPercent(): number {
   return vendorPayFeeBps() / 100;
 }
 
+/** The one vendor-facing name for the fee. Every label, statement kind and receipt line reads this. */
+export const PROPLANE_SERVICE_FEE_LABEL = "PropLane service fee";
+
+/** Statement-line description for the fee debit; the percent comes from the rate constant, never a literal. */
+export function vendorServiceFeeDescription(): string {
+  return `${PROPLANE_SERVICE_FEE_LABEL} (${VENDOR_PAY_FEE_BPS / 100}%)`;
+}
+
+/**
+ * The only rails that carry the vendor service fee in this build. The fee is
+ * a Stripe application fee on the manager's Checkout, frozen with the
+ * provider terms at checkout time (`pendingVendorPay.providerTerms` /
+ * `freeze_vendor_invoice_stripe_checkout_terms`) and booked at settlement.
+ *
+ * Offline/manual settles and PropLane-balance payments carry NO service fee
+ * (`platform_fee_cents` stays 0 and no revenue entry is written). The balance
+ * rail is deliberately deferred: taking the fee there needs a
+ * source-classification change in the balance-move SQL, which cannot be
+ * verified without applying a migration. Never infer a fee on those rails.
+ */
+export const VENDOR_SERVICE_FEE_RAILS = ["stripe_checkout"] as const;
+
 // ---------------------------------------------------------------------------
 // Vendor Instant-withdraw fee (VENDOR_BANKING_ENABLED).
 //

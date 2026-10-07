@@ -18,10 +18,20 @@ function makeDb(opts: {
 }) {
   const updates: Row[] = [];
   const inserts: Row[] = [];
+  const revenue: Row[] = [];
   return {
     _updates: updates,
     _inserts: inserts,
+    _revenue: revenue,
     from(table: string) {
+      if (table === "platform_revenue_entries") {
+        return {
+          insert(row: Row) {
+            revenue.push(row);
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
       if (table === "platform_payment_holds") {
         return {
           select() {
@@ -186,6 +196,50 @@ describe("expireVendorHolds", () => {
     expect(refundLine?.row.amount_cents).toBe(-10_000); // exact original gross, reversed
     const feeReversalLine = db._inserts.find((i) => i.row.kind === "adjustment");
     expect(feeReversalLine?.row.amount_cents).toBe(375); // exact original fee, reversed
+    expect(feeReversalLine?.row.description).toBe("PropLane service fee reversed — payment returned unclaimed");
+
+    // PropLane's own revenue gives the same fee back, keyed on the hold id.
+    expect(db._revenue).toHaveLength(1);
+    expect(db._revenue[0]).toMatchObject({
+      kind: "vendor_service_fee_reversal",
+      amount_cents: -375,
+      vendor_user_id: "vendor_1",
+      manager_user_id: "manager_1",
+      source: "hold_expiry",
+      source_id: "wo_1",
+      idempotency_key: "vendor_service_fee_reversal:hold_expiry:hold_1",
+    });
+  });
+
+  it("a revenue-table failure never blocks the hold return", async () => {
+    const hold = {
+      id: "hold_rev",
+      source: "vendor_invoice",
+      status: "held",
+      created_at: daysAgo(91),
+      owner_user_id: "vendor_1",
+      owner_role: "vendor",
+      amount_cents: 9_625,
+      source_id: "wo_9",
+      stripe_charge_id: "ch_rev",
+    };
+    const db = makeDb({
+      holds: [hold],
+      workOrders: [{ id: "wo_9", manager_user_id: "manager_1", row_data: { title: "Fix" } }],
+      ledgerEntries: [
+        { vendor_user_id: "vendor_1", source_id: "wo_9", kind: "charge", amount_cents: 10_000 },
+        { vendor_user_id: "vendor_1", source_id: "wo_9", kind: "platform_fee", amount_cents: -375 },
+      ],
+    });
+    const realFrom = db.from.bind(db);
+    db.from = ((table: string) => {
+      if (table === "platform_revenue_entries") throw new Error('relation "platform_revenue_entries" does not exist');
+      return realFrom(table);
+    }) as typeof db.from;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await expireVendorHolds(stripe, db as never, new Date());
+    errSpy.mockRestore();
+    expect(result).toEqual({ checked: 1, returned: 1, failed: 0, errors: [] });
   });
 
   it("skips a hold missing its stripe_charge_id and records the failure rather than guessing", async () => {

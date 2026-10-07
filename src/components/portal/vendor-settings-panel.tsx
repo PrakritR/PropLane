@@ -6,11 +6,13 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   Building2,
   CalendarDays,
+  CalendarSync,
   ChevronLeft,
   FileText,
   Landmark,
   Lock,
   Mail,
+  MessageSquareText,
   Phone,
   Settings,
   ShieldCheck,
@@ -62,6 +64,8 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, isDemoModeActive } from "@/lib/demo/demo-session";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { VendorAvailabilityEditor } from "@/components/portal/vendor-availability-editor";
+import { VendorIntegrationsSettings } from "@/components/portal/vendor-integrations-settings";
+import { VendorWorkNumberSettings } from "@/components/portal/vendor-work-number-settings";
 
 const SETTINGS_TAB_PARAM = "tab";
 
@@ -84,10 +88,12 @@ const VENDOR_SETTINGS_PAGE_ICONS: Record<VendorSettingsPageId, ComponentType<{ c
   capabilities: Wrench,
   licenses: ShieldCheck,
   availability: CalendarDays,
+  integrations: CalendarSync,
   payouts: Landmark,
   invoicing: FileText,
   messaging: Phone,
   "quick-replies": Zap,
+  "work-number-email": MessageSquareText,
 };
 
 type VendorProfileDraft = {
@@ -556,6 +562,10 @@ export function VendorSettingsPanel() {
         // VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT contract. A second,
         // settings-local editor used to live in this file; it has been removed.
         return <VendorAvailabilityEditor dialog={false} />;
+      case "integrations":
+        return <VendorIntegrationsSettings />;
+      case "work-number-email":
+        return <VendorWorkNumberSettings />;
       case "messaging":
         // Phone & notifications: verify the phone job texts come to, then what reaches the inbox and phone.
         return (

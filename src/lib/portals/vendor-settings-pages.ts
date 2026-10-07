@@ -13,10 +13,12 @@ export type VendorSettingsPageId =
   | "capabilities"
   | "licenses"
   | "availability"
+  | "integrations"
   | "payouts"
   | "invoicing"
   | "messaging"
   | "quick-replies"
+  | "work-number-email"
   | "preferences"
   | "feedback"
   | "account";
@@ -44,6 +46,7 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
       { id: "capabilities", label: "Trades & service area" },
       { id: "licenses", label: "Licenses & insurance" },
       { id: "availability", label: "Availability" },
+      { id: "integrations", label: "Integrations" },
     ],
   },
   {
@@ -58,6 +61,7 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
     pages: [
       { id: "messaging", label: "Phone & notifications" },
       { id: "quick-replies", label: "Quick replies" },
+      { id: "work-number-email", label: "Work number & email" },
     ],
   },
 ] as const;
