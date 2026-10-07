@@ -7,7 +7,7 @@
  * the More sheet, or typed into the address bar, ends up on Overview.
  *
  * The menu is NOT the security boundary: the manager APIs refuse an owner on
- * the server (`getOwnerAccessState`, the module readers' `NOT_PROPERTY_OWNER_LINK_FILTER`).
+ * the server (`getOwnerAccessState`, the module readers' `withoutOwnerLinks`).
  */
 
 export const OWNER_BASE_PATH = "/portal/owner";

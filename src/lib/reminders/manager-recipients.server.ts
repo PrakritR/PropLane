@@ -10,7 +10,7 @@ import {
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
-import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 export type ManagerReminderRecipient = {
   email: string;
@@ -90,12 +90,11 @@ export async function loadTeamReminderRecipients(
     { assignedPropertyIds: string[]; permissions: PropertyCoManagerPermissions | undefined }
   >();
   try {
-    const { data: links, error } = await db
+    const { data: links, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
       .select(`invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
-      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
-      .eq("inviter_user_id", ownerId);
+      .eq("inviter_user_id", ownerId));
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
       throw error;
     }

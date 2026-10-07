@@ -10,7 +10,7 @@ import {
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
-import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -57,12 +57,11 @@ export async function collectLinkedPropertyIdsForUser(db: ServiceClient, userId:
     const { data: viewerProfile } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
     const viewerEmail = String(viewerProfile?.email ?? "").trim();
 
-    const { data: linkRows, error } = await db
+    const { data: linkRows, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
-      .select("inviter_user_id, assigned_property_ids")
+      .select("inviter_user_id, assigned_property_ids, team_role")
       .eq("status", "accepted")
-      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
-      .eq("invitee_user_id", userId);
+      .eq("invitee_user_id", userId));
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
       // Contract unchanged (still the empty set = no linked access), but a real
       // read failure is otherwise indistinguishable from "this user has no links".
@@ -116,12 +115,11 @@ export async function collectLinkedPropertyPermissionsForUser(
   const strict = options?.strict === true;
   const byProperty = new Map<string, PropertyCoManagerPermissions>();
   try {
-    const { data: linkRows, error } = await db
+    const { data: linkRows, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
       .select(`inviter_user_id, invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
-      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
-      .eq("invitee_user_id", userId);
+      .eq("invitee_user_id", userId));
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
       if (strict) throw new Error(`Co-manager link permissions lookup failed: ${error.message}`);
       console.error("Co-manager link permissions lookup failed:", { userId, message: error.message });

@@ -21,7 +21,7 @@ import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-deliver
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { touchVendorNumberConversation } from "@/lib/vendor-number-conversations.server";
-import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 type Recipient = { userId: string | null; email: string; role: string; phone?: string | null };
 
@@ -127,13 +127,12 @@ async function vendorMayReachManager(db: SupabaseClient, vendorUserId: string, r
   if (ownerIds.length === 0) return false;
   // Accepted account links are the authoritative co-manager relationship. The
   // portal mirror carries convenience fields and must not authorize a sender.
-  const { data: coManagerRows } = await db
+  const { data: coManagerRows } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("invitee_user_id")
+    .select("invitee_user_id, team_role")
     .eq("status", "accepted")
-    .or(NOT_PROPERTY_OWNER_LINK_FILTER)
     .in("inviter_user_id", ownerIds)
-    .eq("invitee_user_id", recipientUserId);
+    .eq("invitee_user_id", recipientUserId));
   return (coManagerRows ?? []).some((row) => String(row.invitee_user_id ?? "").trim() === recipientUserId);
 }
 

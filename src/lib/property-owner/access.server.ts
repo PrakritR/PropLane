@@ -4,7 +4,7 @@ import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { hasCoManagerPermissionLevel, type OwnerPermissionId } from "@/lib/co-manager-permissions";
-import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { parseHouseScope, effectiveHouseIds } from "@/lib/workspaces/membership";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -147,13 +147,14 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
 
   const [own, teammate, purchase, roles] = await Promise.all([
     db.from("manager_property_records").select("id").eq("manager_user_id", uid).limit(1),
+    // No `.limit`: the owner rows are filtered out of the result, so a limit of 1
+    // could be spent on one of them and hide a real teammate row behind it.
     db
       .from("account_link_invites")
-      .select("id")
+      .select("id, team_role")
       .eq("invitee_user_id", uid)
       .eq("status", "accepted")
-      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
-      .limit(1),
+      .then((r) => withoutOwnerLinks(r)),
     db.from("manager_purchases").select("id").eq("user_id", uid).limit(1),
     db.from("profile_roles").select("role").eq("user_id", uid),
   ]);

@@ -9,7 +9,7 @@ import {
   type ManagerTeammate,
   type PayeeInput,
 } from "@/lib/manager-payees";
-import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 /**
  * Server side of saved payees. Every function takes the authenticated manager's id (re-derived by
@@ -60,23 +60,21 @@ export async function findOwnedPayee(db: Db, managerUserId: string, payeeId: str
  */
 export async function listTeammates(db: Db, managerUserId: string): Promise<ManagerTeammate[]> {
   const rows: Array<{ user: string; role: string | null; fallbackName: string | null }> = [];
-  const asInviter = await db
+  const asInviter = withoutOwnerLinks(await db
     .from("account_link_invites")
     .select("invitee_user_id, invitee_display_name, team_role")
     .eq("inviter_user_id", managerUserId)
-    .eq("status", "accepted")
-    .or(NOT_PROPERTY_OWNER_LINK_FILTER);
+    .eq("status", "accepted"));
   if (asInviter.error) throw new Error(asInviter.error.message);
   for (const row of asInviter.data ?? []) {
     const user = String((row as Record<string, unknown>).invitee_user_id ?? "").trim();
     if (user) rows.push({ user, role: textOrNull((row as Record<string, unknown>).team_role), fallbackName: textOrNull((row as Record<string, unknown>).invitee_display_name) });
   }
-  const asInvitee = await db
+  const asInvitee = withoutOwnerLinks(await db
     .from("account_link_invites")
     .select("inviter_user_id, inviter_display_name, team_role")
     .eq("invitee_user_id", managerUserId)
-    .eq("status", "accepted")
-    .or(NOT_PROPERTY_OWNER_LINK_FILTER);
+    .eq("status", "accepted"));
   if (asInvitee.error) throw new Error(asInvitee.error.message);
   for (const row of asInvitee.data ?? []) {
     const user = String((row as Record<string, unknown>).inviter_user_id ?? "").trim();

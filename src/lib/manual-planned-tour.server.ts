@@ -12,7 +12,7 @@ import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assi
 import { isActivePlannedTourEvent, slotKeyForInstant } from "@/lib/tour-slot-math";
 import { PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
 import { assertPropertyInActiveWorkspace } from "@/lib/workspaces/scope.server";
-import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -76,12 +76,11 @@ async function managerCanScheduleTourOnProperty(
     return { ok: true, propertyTitle: fallbackTitle };
   }
 
-  const { data: linkRows } = await db
+  const { data: linkRows } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("assigned_property_ids")
+    .select("assigned_property_ids, team_role")
     .eq("status", "accepted")
-    .or(NOT_PROPERTY_OWNER_LINK_FILTER)
-    .or(`inviter_user_id.eq.${managerUserId},invitee_user_id.eq.${managerUserId}`);
+    .or(`inviter_user_id.eq.${managerUserId},invitee_user_id.eq.${managerUserId}`));
   for (const row of (linkRows ?? []) as { assigned_property_ids?: unknown }[]) {
     if (!Array.isArray(row.assigned_property_ids)) continue;
     for (const pid of row.assigned_property_ids) {

@@ -259,15 +259,22 @@ export function teamRoleListLabel(role: TeamRoleId | string | null | undefined):
 }
 
 /**
- * PostgREST `.or()` filter that keeps every membership row EXCEPT a Property
- * owner's. `neq` alone would also drop legacy rows whose `team_role` is NULL,
- * so the NULL branch is explicit.
+ * Drop a Property owner's rows from a result of `account_link_invites`.
  *
- * Every reader that treats an accepted `account_link_invites` row as "this
- * person is a teammate of the inviter" (recipients, SMS/email access, tier
- * inheritance, linked houses…) applies this. An owner is an investor reading
- * their own houses' results, never a teammate; the owner readers
- * (`src/lib/property-owner/*`) are the only code that look at those rows.
+ * Every reader that treats an accepted membership row as "this person is a
+ * teammate of the inviter" (recipients, SMS and email access, tier inheritance,
+ * linked houses, payout access…) wraps its read in this, and selects
+ * `team_role`. An owner is an investor reading their own houses' results, never
+ * a teammate; the owner readers (`src/lib/property-owner/*`) are the only code
+ * that look at those rows. The filter is applied to the rows rather than as a
+ * query predicate so a legacy row whose `team_role` is NULL still passes.
  * `tests/unit/property-owner-link-readers.test.ts` fails a reader that forgets it.
  */
-export const NOT_PROPERTY_OWNER_LINK_FILTER = "team_role.is.null,team_role.neq.property_owner";
+export function withoutOwnerLinks<R extends { data: unknown }>(result: R): R {
+  const rows = result.data;
+  if (!Array.isArray(rows)) return result;
+  return {
+    ...result,
+    data: rows.filter((row) => (row as { team_role?: unknown } | null)?.team_role !== "property_owner"),
+  };
+}

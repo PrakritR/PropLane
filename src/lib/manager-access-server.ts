@@ -16,7 +16,7 @@ import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import { resolveServiceFeePayerFor, type ServiceFeePayer } from "@/lib/payment-policy";
 import { track } from "@/lib/analytics/posthog";
-import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 /**
  * Server-only manager_purchases reads/writes (service role). Split out of
@@ -216,12 +216,11 @@ const getManagerPortalNavSubscriptionTierCached = cache(
       const hasOwnedProperties = Boolean(ownedRow?.id);
       if (hasOwnedProperties) return ownTier;
 
-      const { data: links } = await supabase
+      const { data: links } = withoutOwnerLinks(await supabase
         .from("account_link_invites")
-        .select("inviter_user_id")
+        .select("inviter_user_id, team_role")
         .eq("invitee_user_id", userId)
-        .eq("status", "accepted")
-        .or(NOT_PROPERTY_OWNER_LINK_FILTER);
+        .eq("status", "accepted"));
       const inviterIds = [
         ...new Set(
           (links ?? [])
