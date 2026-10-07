@@ -92,7 +92,19 @@ export const MANAGER_DASHBOARD_SECTIONS: readonly DashboardSectionDef[] = [
   },
 ] as const;
 
-const SECTION_BY_ID = new Map(MANAGER_DASHBOARD_SECTIONS.map((s) => [s.id, s]));
+/**
+ * The ids the dashboard draws, in catalog order, minus the ones the manager
+ * hid. The dashboard maps its section nodes through this list, so the order on
+ * screen is always `MANAGER_DASHBOARD_SECTIONS` and never a second hand-kept
+ * sequence.
+ */
+export function visibleDashboardSectionIds(
+  visibility: Readonly<Record<DashboardSectionId, boolean>>,
+): DashboardSectionId[] {
+  return MANAGER_DASHBOARD_SECTIONS.filter((section) => visibility[section.id]).map((section) => section.id);
+}
+
+const SECTION_BY_ID =new Map(MANAGER_DASHBOARD_SECTIONS.map((s) => [s.id, s]));
 const VALID_IDS = new Set(MANAGER_DASHBOARD_SECTIONS.map((s) => s.id));
 
 const STORAGE_KEY_PREFIX = "axis:manager-dashboard-prefs:v1";
