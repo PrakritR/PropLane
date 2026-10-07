@@ -1,0 +1,115 @@
+/* Lifecycle row frame: Akhil's workspace window on his atmospheric stage. */
+.rlp-page.lrf-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(14px, 3vw, 28px);
+  border: 1px solid #cfe0ef;
+  border-radius: 28px;
+  background: #e5f0fa;
+}
+.lrf-stage .rlp-atmosphere {
+  z-index: 0;
+}
+.lrf-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  min-width: 0;
+}
+.lrf-window-slot,
+.lrf-phone-slot {
+  min-width: 0;
+}
+.lrf-phone {
+  display: flex;
+  justify-content: center;
+}
+/* The window keeps Akhil's dual-view look but is one child, not a grid. */
+.lrf-window.rlp-dual-view {
+  display: block;
+  max-width: none;
+  margin: 0;
+}
+.lrf-window .rlp-workspace {
+  margin: 0;
+  min-height: 0;
+  box-shadow: 0 24px 55px rgba(38, 72, 116, 0.16);
+}
+.lrf-window.rlp-dual-view > :last-child {
+  margin-top: 0;
+  align-self: auto;
+}
+.lrf-phone .rl-phone-wrap {
+  width: min(304px, 100%);
+  min-width: 0;
+}
+.lrf-phone .rl-phone-screen {
+  height: 600px;
+  min-height: 0;
+}
+
+/* Under lg: natural width, scrolling inside the frame. */
+@media (max-width: 1023px) {
+  .lrf-window .rlp-workspace {
+    max-height: 560px;
+  }
+  .lrf-window .rlp-canvas {
+    max-height: 440px;
+    overflow: auto;
+  }
+  .lrf-window .rlp-panel-frame {
+    min-height: 0;
+    overflow: auto;
+  }
+}
+@media (max-width: 640px) {
+  .lrf-window .rlp-canvas {
+    max-height: 400px;
+  }
+}
+
+/* lg and up: a fixed desktop window scaled to the column, phone beside it. */
+@media (min-width: 1024px) {
+  .lrf-body {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 22px;
+  }
+  .lrf-window-slot {
+    flex: 0 0 auto;
+    width: calc(1000px * var(--lrf-s, 0.62));
+    height: calc(660px * var(--lrf-s, 0.62));
+  }
+  .lrf-window {
+    width: 1000px;
+    height: 660px;
+    transform: scale(var(--lrf-s, 0.62));
+    transform-origin: top left;
+  }
+  .lrf-window .rlp-workspace {
+    height: 100%;
+    max-height: none;
+  }
+  .lrf-window .rlp-main {
+    min-height: 0;
+  }
+  .lrf-window .rlp-canvas-panel {
+    min-height: 0;
+    overflow: auto;
+  }
+  .lrf-phone-slot {
+    flex: 0 0 auto;
+    width: calc(304px * var(--lrf-s, 0.62));
+    height: calc(655px * var(--lrf-s, 0.62));
+  }
+  .lrf-phone {
+    width: 304px;
+    transform: scale(var(--lrf-s, 0.62));
+    transform-origin: top left;
+  }
+}
