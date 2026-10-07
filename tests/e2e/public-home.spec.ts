@@ -41,9 +41,9 @@ test.describe("Public home", () => {
     await expect(demo.getByRole("button", { name: "Dashboard", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(demo.getByText("Welcome back")).toBeInViewport();
     // The sidebar's group label comes before the item it labels.
-    const label = await demo.getByText("WORKSPACE", { exact: true }).boundingBox();
-    const dashboard = await demo.getByRole("button", { name: "Dashboard", exact: true }).boundingBox();
-    expect(label!.y).toBeLessThan(dashboard!.y);
+    const label = await demo.getByRole("button", { name: "Leasing group", exact: true }).boundingBox();
+    const tours = await demo.getByRole("button", { name: "Tours", exact: true }).boundingBox();
+    expect(label!.y).toBeLessThan(tours!.y);
     // The phone is on the first screen too, captioned by role.
     await expect(page.getByText("Resident's phone", { exact: true })).toBeInViewport();
   });
@@ -62,6 +62,43 @@ test.describe("Public home", () => {
     // Below the large-screen breakpoint the phone is inline, right under the window, not pinned.
     expect(phone!.y).toBeGreaterThanOrEqual(window!.y + window!.height - 1);
     await expect(page.locator(".rlp-story-phone-slot")).toHaveCSS("position", "static");
+    await context.close();
+  });
+
+  test("the hero pins the headline while the window grows with the scroll, then the page scrolls on", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goHome(page);
+    const scale = () => page.locator(".rlp-hero-stage").evaluate((node) => new DOMMatrix(getComputedStyle(node).transform).a);
+    const headingTop = () => page.locator(".rlp-hero h1").evaluate((node) => Math.round(node.getBoundingClientRect().top));
+    const scrollTo = async (y: number) => {
+      await page.evaluate((to) => window.scrollTo(0, to), y);
+      await page.waitForTimeout(350);
+    };
+    const start = await scale();
+    const top = await headingTop();
+    expect(start).toBeLessThan(0.8);
+    // Mid-run: the headline has not moved and the window is bigger than it was.
+    await scrollTo(900 * 0.3);
+    const mid = await scale();
+    expect(mid).toBeGreaterThan(start + 0.02);
+    expect(mid).toBeLessThan(1);
+    expect(await headingTop()).toBe(top);
+    // At the end of the run the window is full size and the headline is still pinned.
+    await scrollTo(900 * 0.7);
+    expect(await scale()).toBeCloseTo(1, 2);
+    expect(await headingTop()).toBe(top);
+    // Past it the page scrolls on normally: the headline leaves with the frame.
+    await scrollTo(900 * 0.7 + 420);
+    expect(await headingTop()).toBeLessThan(top - 300);
+    expect(await scale()).toBeCloseTo(1, 2);
+  });
+
+  test("on a phone the hero is static: the window is full size at the top and nothing is pinned", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    await goHome(page);
+    await expect(page.locator(".rlp-hero-stage")).toHaveCSS("transform", "none");
+    await expect(page.locator(".rlp-grow-frame")).toHaveCSS("position", "static");
     await context.close();
   });
 
@@ -126,10 +163,10 @@ test.describe("Public home", () => {
     const portals: Record<string, { label: string; sidebar: string[] }> = {
       manager: {
         label: "Manager portal",
-        sidebar: ["Dashboard", "Properties", "Tours", "Applications", "Leases", "Residents", "Payments", "Services", "Calendar", "Communication", "Vendors"],
+        sidebar: ["Dashboard", "Calendar", "Communication", "Properties", "Tours", "Application", "Leases", "Residents", "Vendors", "Services", "Incoming payments"],
       },
-      resident: { label: "Resident portal", sidebar: ["My home", "Applications", "Lease", "Payments", "Services", "Forms", "Communication"] },
-      vendor: { label: "Vendor portal", sidebar: ["Services", "Calendar", "Payments", "Reviews", "Communication"] },
+      resident: { label: "Resident portal", sidebar: ["My home", "Lease", "Forms", "Services", "Applications", "Payments", "Communication"] },
+      vendor: { label: "Vendor portal", sidebar: ["Services", "Reviews", "Calendar", "Communication", "Finances"] },
     };
 
     test("no stage chrome: no portal switcher, stage tabs, guide line or activity row", async ({ page }) => {
@@ -155,7 +192,7 @@ test.describe("Public home", () => {
       const menuItem = (name: string) => section.getByRole("menuitem", { name });
 
       // The menu mirrors the real portal's account menu: the other portals, never the current one.
-      await topBar.getByRole("button", { name: "Account menu" }).click();
+      await section.getByRole("button", { name: "Account menu" }).click();
       await expect(section.getByRole("menu", { name: "Account" })).toBeVisible();
       await expect(menuItem("Switch to Resident portal")).toBeVisible();
       await expect(menuItem("Switch to Vendor portal")).toBeVisible();
@@ -171,7 +208,7 @@ test.describe("Public home", () => {
       ] as const;
       for (const [portal, via] of order) {
         if (via) {
-          await topBar.getByRole("button", { name: "Account menu" }).click();
+          await section.getByRole("button", { name: "Account menu" }).click();
           await menuItem(via).click();
         }
         const { label, sidebar } = portals[portal]!;
@@ -223,7 +260,7 @@ test.describe("Public home", () => {
       // Beat 1: the prospect texts and the manager approves the reply in Communication; beat 2: Applications.
       await expect(current).toHaveAttribute("aria-label", "Communication", { timeout: 20_000 });
       await expect(demo).toHaveAttribute("data-demo-beat", "0");
-      await expect(current).toHaveAttribute("aria-label", "Applications", { timeout: 30_000 });
+      await expect(current).toHaveAttribute("aria-label", "Application", { timeout: 30_000 });
       await expect(demo).toHaveAttribute("data-demo-beat", "1");
       // Hovering the window pauses the story.
       await demo.hover();
@@ -327,14 +364,13 @@ test.describe("Public home", () => {
       const height = () => demo.locator(".rlp-workspace").evaluate((node) => Math.round(node.getBoundingClientRect().height));
       const fixed = await height();
       await page.mouse.move(2, 2);
-      const topBar = demo.locator(".rlp-topbar");
       for (const [via, tabs] of [
         [null, ["Dashboard", "Properties", "Communication", "Leases"]],
         ["Switch to Resident portal", ["My home", "Payments", "Communication"]],
         ["Switch to Vendor portal", ["Services", "Calendar"]],
       ] as const) {
         if (via) {
-          await topBar.getByRole("button", { name: "Account menu" }).click();
+          await demo.getByRole("button", { name: "Account menu" }).click();
           await page.getByRole("menuitem", { name: via }).click();
         }
         for (const tab of tabs) {
@@ -343,7 +379,7 @@ test.describe("Public home", () => {
         }
       }
       // The screen scrolls inside the window when it is longer than the window.
-      await topBar.getByRole("button", { name: "Account menu" }).click();
+      await demo.getByRole("button", { name: "Account menu" }).click();
       await page.getByRole("menuitem", { name: /Switch to Property portal/ }).click();
       await demo.getByRole("button", { name: "Dashboard", exact: true }).click();
       const scrolls = await demo.locator(".rlp-canvas-panel").evaluate((node) =>
@@ -473,7 +509,7 @@ test.describe("Public home", () => {
       await goHome(page);
       const demo = page.locator("#rlp-demo-stage");
       await demo.scrollIntoViewIfNeeded();
-      await demo.getByRole("button", { name: "Applications", exact: true }).click();
+      await demo.getByRole("button", { name: "Application", exact: true }).click();
       const main = demo.locator(".rlp-main");
       await expect(main).toHaveAttribute("data-scroll", /more|end/);
       const fade = async () => Number(await main.evaluate((node) => getComputedStyle(node, "::after").opacity));

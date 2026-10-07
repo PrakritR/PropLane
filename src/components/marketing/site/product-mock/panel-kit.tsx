@@ -19,7 +19,7 @@ import { InboxComposer, InboxConversationRow, InboxThreadView, InboxTwoPane } fr
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import type { CommConversationFixture } from "@/components/marketing/site/product-mock/fixtures";
-import { ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { DEMO_PAGE_CLASS, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
 
 export function matchesSearch(query: string, ...haystack: Array<string | undefined>): boolean {
   const q = query.trim().toLowerCase();
@@ -98,7 +98,7 @@ export function FixtureListScreen({
   return (
     <ProductWindow path={path}>
       {sidebar}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title={title}>
           {above}
           <PortalListControlStack
@@ -199,7 +199,7 @@ export function FixtureInboxScreen({
   return (
     <ProductWindow path={path}>
       {sidebar}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Communication" viewportFillBody>
           <InboxTwoPane
             threadOpen={wide || opened}

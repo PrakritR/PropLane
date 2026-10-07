@@ -34,7 +34,7 @@ import {
   type DemoStory,
 } from "@/components/marketing/site/product-mock/world";
 import { countBy, FixtureInboxScreen, FixtureListScreen, FixtureMenuItems, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
-import { FixtureField, FixtureSheet, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { DEMO_PAGE_CLASS, FixtureField, FixtureSheet, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
 
 const CARD = "rounded-xl border border-border bg-card";
 
@@ -95,7 +95,7 @@ export function ResidentHomePanel({ story }: { story?: DemoStory } = {}) {
 
   return (
     <ProductWindow path="/resident/move-in">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="My home">
           <PortalListControlStack
             variant="command"

@@ -44,6 +44,13 @@ import { cn } from "@/lib/utils";
  * scrolls around it (the window is a fixed size and never grows). Outside the
  * provider both behave exactly as the lifecycle rows always drew them.
  */
+/**
+ * The page rhythm the real portal's main column gives every page (`PORTAL_MAIN_CONTENT_CLASS`: 16px on a phone, 32px
+ * from `lg`, 32px above). The page shell draws its header band with negative side margins that bleed into that
+ * padding, so a demo page needs the same padding around it and nothing that clips it.
+ */
+export const DEMO_PAGE_CLASS = "flex min-h-0 min-w-0 flex-1 flex-col px-4 pt-4 pb-7 lg:px-8 lg:pt-8";
+
 const BarePanelChromeContext = createContext(false);
 
 export function BarePanelChrome({ children }: { children: ReactNode }) {

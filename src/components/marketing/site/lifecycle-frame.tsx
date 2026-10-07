@@ -19,9 +19,10 @@ import "@/components/marketing/resident-lifecycle-prototypes.css";
 import "./lifecycle-frame.css";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
+import { worldFor } from "@/components/marketing/site/product-mock/world";
 import { ResidentLifecycleWorkspace } from "@/components/marketing/resident-lifecycle-workspace";
 
-const WINDOW_WIDTH = 1000;
+const WINDOW_WIDTH = 1120;
 
 export function LifecycleFrame({
   portal,
@@ -56,7 +57,14 @@ export function LifecycleFrame({
       <div ref={bodyRef} className="lrf-body" style={{ "--lrf-s": scale } as CSSProperties}>
         <div className="lrf-window-slot">
           <div className="lrf-window rlp-dual-view" data-lifecycle-frame={`${portal}:${active}`}>
-            <ResidentLifecycleWorkspace portal={portal} tabs={DEMO_TABS[portal]} active={active} onSelect={setActive} panel>
+            <ResidentLifecycleWorkspace
+              portal={portal}
+              tabs={DEMO_TABS[portal]}
+              active={active}
+              needs={portal === "manager" ? worldFor().dashboard.attention : undefined}
+              onSelect={setActive}
+              panel
+            >
               <div className="rlp-panel-frame">
                 <DemoPanel key={`${portal}-${active}`} portal={portal} tab={active} />
               </div>

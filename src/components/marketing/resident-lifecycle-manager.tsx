@@ -14,8 +14,8 @@ import { COMMUNICATION_THREADS, type SampleMessage } from "./resident-lifecycle-
 
 export type { SampleMessage };
 
-const iconAction = (label: string, icon: React.ReactNode, onClick: () => void) => (
-  <button type="button" className="rlp-icon-button" aria-label={label} title={label} onClick={onClick}>
+const iconAction = (label: string, icon: React.ReactNode, onClick: () => void, primary = false) => (
+  <button type="button" className={primary ? "rlp-icon-button rlp-icon-primary" : "rlp-icon-button"} aria-label={label} title={label} onClick={onClick}>
     {icon}
   </button>
 );
@@ -87,10 +87,7 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
   return (
     <>
       <div className="rlp-page-header">
-        <div>
-          <span className="rlp-context-label">Manager workspace</span>
-          <h2>Communication</h2>
-        </div>
+        <h2>Communication</h2>
         <div className="rlp-header-actions">
           {iconAction("Search communication", <Search aria-hidden />, () => setSearchOpen((current) => !current))}
           {iconAction("New message", <Plus aria-hidden />, () =>
@@ -99,6 +96,7 @@ export function ManagerCommunication({ messages, typing = false, draft: proposed
               { label: "Channel", value: "SMS" },
               { label: "Message", value: `Hello ${PROSPECT},` },
             ]),
+            true,
           )}
         </div>
       </div>

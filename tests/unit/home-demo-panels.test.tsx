@@ -29,27 +29,27 @@ describe("DEMO_TABS contract", () => {
   it("lists the planned tabs per portal", () => {
     expect(DEMO_TABS.manager.map((t) => t.id)).toEqual([
       "dashboard",
+      "calendar",
+      "communication",
       "properties",
       "tours",
       "applications",
       "leases",
       "residents",
-      "payments",
-      "services",
-      "calendar",
-      "communication",
       "vendors",
+      "services",
+      "payments",
     ]);
     expect(DEMO_TABS.resident.map((t) => t.id)).toEqual([
       "home",
-      "applications",
       "lease",
-      "payments",
-      "services",
       "forms",
+      "services",
+      "applications",
+      "payments",
       "communication",
     ]);
-    expect(DEMO_TABS.vendor.map((t) => t.id)).toEqual(["services", "calendar", "payments", "reviews", "communication"]);
+    expect(DEMO_TABS.vendor.map((t) => t.id)).toEqual(["services", "reviews", "calendar", "communication", "payments"]);
   });
 });
 

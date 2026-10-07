@@ -26,12 +26,21 @@
  *
  * The clock pauses while the pointer or focus is inside the window and while the account
  * menu is open, and never runs under prefers-reduced-motion (the first beat shows, still,
- * with no cursor). The window also grows from about 88% to full size as the page scrolls
- * through the first 60% of the viewport (transform only; off under reduced motion).
+ * with no cursor).
+ *
+ * The hero is scroll-driven (captain 2026-10-07, portal redesign): a sticky frame pins the
+ * headline and the window while the window GROWS from GROW_FROM to full size over GROW_RUN of the
+ * viewport height of scrolling, then the frame releases and the page scrolls on. The growth is
+ * `transform: scale` only (the track is always as tall as frame + run), so nothing in the layout
+ * moves and there is no jump at the release. The phone beside the window pins with it and then
+ * glides up with the page to its usual place. From `md` down, and under prefers-reduced-motion,
+ * the hero is static at full size. The progress is a rAF-throttled scroll listener writing CSS
+ * custom properties (the pattern this page already used), not a scroll-timeline.
  */
 
 import "./resident-lifecycle-prototypes.css";
 import "./resident-lifecycle-engine.css";
+import "./resident-lifecycle-hero.css";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
@@ -57,9 +66,13 @@ import {
   timelineFor,
 } from "./resident-lifecycle-script";
 
-/** The hero window starts at GROW_FROM of its size and reaches full size after GROW_OVER of the viewport height. */
-const GROW_FROM = 0.88;
-const GROW_OVER = 0.6;
+/** The hero window starts at GROW_FROM of its size and reaches full size after GROW_RUN of the viewport height of scrolling. */
+const GROW_FROM = 0.72;
+const GROW_RUN = 0.7;
+/** Below this width the hero is static (a phone gets the full-size window, no pin). */
+const STATIC_BELOW = 768;
+/** Where the sticky phone rests once the window has scrolled away. */
+const PHONE_REST = 76;
 
 /** The role the cursor wears. Only the manager's window has one (the resident and vendor windows are told by the phone). */
 const CURSOR_LABEL = "Manager";
@@ -77,6 +90,8 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
   const [focused, setFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  const storyRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<DemoCursorApi>(null);
   /** The click step whose real click already happened (a pause and resume must not click twice). */
   const clicked = useRef(-1);
@@ -158,15 +173,31 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
     if (!cursorOn || index === 0) cursorRef.current?.hide();
   }, [cursorOn, index]);
 
-  // The scroll growth: the window grows from GROW_FROM to full size over the first GROW_OVER of the viewport.
+  // The scroll growth: while the sticky frame is pinned the window grows from GROW_FROM to full size; the phone
+  // pins beside it and then glides up with the page to PHONE_REST.
   useEffect(() => {
     const stageEl = stageRef.current;
-    if (!stageEl || reduced) return;
+    const storyEl = storyRef.current;
+    const trackEl = trackRef.current;
+    if (!stageEl || !storyEl || !trackEl) return;
     let frame = 0;
     const apply = () => {
       frame = 0;
-      const progress = Math.min(1, Math.max(0, window.scrollY / (window.innerHeight * GROW_OVER)));
+      if (reduced || window.innerWidth < STATIC_BELOW) {
+        stageEl.style.removeProperty("--rlp-grow");
+        storyEl.style.removeProperty("--rlp-phone-top");
+        return;
+      }
+      const run = trackEl.querySelector<HTMLElement>(".rlp-grow-run")?.offsetHeight || window.innerHeight * GROW_RUN;
+      const frameEl = trackEl.querySelector<HTMLElement>(".rlp-grow-frame");
+      const pinnedAt = frameEl ? parseFloat(getComputedStyle(frameEl).top) || 0 : 0;
+      const scrolled = Math.max(0, pinnedAt - trackEl.getBoundingClientRect().top);
+      const progress = Math.min(1, scrolled / run);
       stageEl.style.setProperty("--rlp-grow", String(GROW_FROM + (1 - GROW_FROM) * progress));
+      // The phone rests beside the window's top edge while pinned, then rises with the page.
+      const stageTop = pinnedAt + stageEl.offsetTop;
+      const phoneTop = Math.max(PHONE_REST, stageTop - Math.max(0, scrolled - run));
+      storyEl.style.setProperty("--rlp-phone-top", `${phoneTop}px`);
     };
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(apply);
@@ -206,70 +237,78 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
 
   return (
     <div className="rlp-page">
-      <section id="resident-lifecycle-walkthrough" className="rlp-hero" aria-labelledby="rlp-hero-title">
-        <div className="rlp-hero-copy">
-          <h1 id="rlp-hero-title">
-            <span className="rlp-h1-line">Your AI property</span>{" "}
-            <br />
-            <span className="rlp-h1-line">management assistant.</span>
-          </h1>
-          <div className="rlp-hero-actions">
-            <Link href={GET_STARTED_HREF} data-attr="home-hero-get-started">
-              Start free - no card
-            </Link>
-            <Link href={BOOK_DEMO_HREF} data-attr="home-hero-book-demo">
-              Book a demo
-            </Link>
-            <AppStoreBadge tone="dark" size="lg" dataAttr="home-hero-app-store" className="rlp-app-store" />
-          </div>
-        </div>
-      </section>
-      <div className="rlp-story">
-        <div className="rlp-hero-stage" ref={stageRef}>
-          <div
-            id="rlp-demo-stage"
-            role="group"
-            aria-label="Sample PropLane workspace"
-            className="rlp-dual-view"
-            data-demo-beat={beat}
-            data-demo-portal={portal}
-            data-demo-cursor={cursorOn ? "on" : "off"}
-            onPointerEnter={() => setHovered(true)}
-            onPointerLeave={() => setHovered(false)}
-            // Only keyboard focus pauses the story: a mouse click on the sidebar must not freeze the phone.
-            onFocus={(event) => {
-              if (event.target.matches(":focus-visible")) setFocused(true);
-            }}
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
-            }}
-          >
-            {portal === "manager" && !reduced ? <DemoCursor label={CURSOR_LABEL} apiRef={cursorRef} /> : null}
-            <ResidentLifecycleWorkspace
-              portal={portal}
-              tabs={DEMO_TABS[portal]}
-              active={activeTab}
-              badges={sidebarBadges}
-              onSelect={setTabOverride}
-              onSwitchPortal={switchPortal}
-              onMenuOpenChange={setMenuOpen}
-              panel={!isCommunication}
-            >
-              {isCommunication ? (
-                <ManagerCommunication
-                  messages={managerMessages(state.shown)}
-                  typing={typing}
-                  draft={state.draft ? DRAFT_REPLY : null}
-                  onApprove={approveDraft}
-                  onReply={() => true}
-                />
-              ) : (
-                <div className="rlp-panel-frame" data-demo-panel={`${portal}:${activeTab}`}>
-                  <MemoPanel key={`${portal}-${activeTab}`} portal={portal} tab={activeTab} story={story} stage={stageId} />
+      <div className="rlp-story" ref={storyRef}>
+        <div className="rlp-grow" ref={trackRef} data-reduced={reduced ? "true" : undefined}>
+          <div className="rlp-grow-frame">
+            <section id="resident-lifecycle-walkthrough" className="rlp-hero" aria-labelledby="rlp-hero-title">
+              <div className="rlp-hero-copy">
+                <h1 id="rlp-hero-title">
+                  <span className="rlp-h1-line">Your AI property</span>{" "}
+                  <br />
+                  <span className="rlp-h1-line">management assistant.</span>
+                </h1>
+                <div className="rlp-hero-actions">
+                  <Link href={GET_STARTED_HREF} data-attr="home-hero-get-started">
+                    Start free - no card
+                  </Link>
+                  <Link href={BOOK_DEMO_HREF} data-attr="home-hero-book-demo">
+                    Book a demo
+                  </Link>
+                  <AppStoreBadge tone="dark" size="lg" dataAttr="home-hero-app-store" className="rlp-app-store" />
                 </div>
-              )}
-            </ResidentLifecycleWorkspace>
+              </div>
+            </section>
+            <div className="rlp-grow-stage">
+              <div className="rlp-hero-stage" ref={stageRef}>
+                <div
+                  id="rlp-demo-stage"
+                  role="group"
+                  aria-label="Sample PropLane workspace"
+                  className="rlp-dual-view"
+                  data-demo-beat={beat}
+                  data-demo-portal={portal}
+                  data-demo-cursor={cursorOn ? "on" : "off"}
+                  onPointerEnter={() => setHovered(true)}
+                  onPointerLeave={() => setHovered(false)}
+                  // Only keyboard focus pauses the story: a mouse click on the sidebar must not freeze the phone.
+                  onFocus={(event) => {
+                    if (event.target.matches(":focus-visible")) setFocused(true);
+                  }}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+                  }}
+                >
+                  {portal === "manager" && !reduced ? <DemoCursor label={CURSOR_LABEL} apiRef={cursorRef} /> : null}
+                  <ResidentLifecycleWorkspace
+                    portal={portal}
+                    tabs={DEMO_TABS[portal]}
+                    active={activeTab}
+                    badges={sidebarBadges}
+                    needs={portal === "manager" ? worldFor(story).dashboard.attention : undefined}
+                    onSelect={setTabOverride}
+                    onSwitchPortal={switchPortal}
+                    onMenuOpenChange={setMenuOpen}
+                    panel={!isCommunication}
+                  >
+                    {isCommunication ? (
+                      <ManagerCommunication
+                        messages={managerMessages(state.shown)}
+                        typing={typing}
+                        draft={state.draft ? DRAFT_REPLY : null}
+                        onApprove={approveDraft}
+                        onReply={() => true}
+                      />
+                    ) : (
+                      <div className="rlp-panel-frame" data-demo-panel={`${portal}:${activeTab}`}>
+                        <MemoPanel key={`${portal}-${activeTab}`} portal={portal} tab={activeTab} story={story} stage={stageId} />
+                      </div>
+                    )}
+                  </ResidentLifecycleWorkspace>
+                </div>
+              </div>
+            </div>
           </div>
+          <div className="rlp-grow-run" aria-hidden />
         </div>
         <aside className="rlp-story-rail" aria-label="Sample phone">
           <div className="rlp-story-phone-slot">

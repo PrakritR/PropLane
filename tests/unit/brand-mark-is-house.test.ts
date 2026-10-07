@@ -14,6 +14,8 @@ const read = (rel: string) => readFileSync(path.join(process.cwd(), rel), "utf8"
 const BRAND_FILES = [
   "src/components/brand/axis-logo.tsx",
   "src/components/marketing/listed-with-proplane-band.tsx",
+  /** The home page window's top strip, rail and assistant panel: PropLane there is the house mark. */
+  "src/components/marketing/resident-lifecycle-workspace.tsx",
   "src/components/portal/listing-sites-panel.tsx",
   "src/lib/listing-attribution.ts",
   "src/lib/promotion-flyer.ts",
