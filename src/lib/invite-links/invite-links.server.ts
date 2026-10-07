@@ -39,7 +39,7 @@ function storedTeamRole(raw: unknown): TeamRoleId | null {
   return parsed.ok ? parsed.role : null;
 }
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
+import { OWNER_NEEDS_HOUSE_ERROR, OWNER_SELECTED_ONLY_ERROR, parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
 import { flatTeamRoleGrant, stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
@@ -225,6 +225,17 @@ export async function mintInviteLink(
   // resident included.
   let ownerUserId: string;
   const requestedWorkspaceId = input.workspaceId?.trim() ?? "";
+  if (kind === "manager") {
+    const roleAsked = parseTeamRole(input.teamRole);
+    if (roleAsked.ok && roleAsked.role === "property_owner") {
+      // An owner link is for selected houses only, never "every house, now and later".
+      if (parseHouseScope(input.houseScope) === "all") {
+        return { ok: false, status: 400, error: OWNER_SELECTED_ONLY_ERROR };
+      }
+      houseScope = "selected";
+      if (propertyIds.length === 0) return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
+    }
+  }
   if (kind === "manager" && requestedWorkspaceId) {
     const standing = await actorWorkspaceStanding(db, actorUserId, requestedWorkspaceId);
     if (!standing) return { ok: false, status: 403, error: "That workspace is not yours to invite into." };
@@ -1048,6 +1059,17 @@ export async function redeemInviteLink(
   const ownershipOk = await verifyOwnershipStillHolds();
   if (!ownershipOk.ok) return ownershipOk;
 
+  // A legacy owner link stored with "all" must not mint a membership that follows
+  // every later-added house: it redeems as "selected" over its assigned houses,
+  // or not at all when it has none.
+  const redeemOwnerLink = storedTeamRole(link.team_role) === "property_owner";
+  const redeemAssigned: string[] = Array.isArray(link.assigned_property_ids)
+    ? link.assigned_property_ids.map((id: unknown) => String(id ?? "").trim()).filter(Boolean)
+    : [];
+  if (redeemOwnerLink && redeemAssigned.length === 0) {
+    return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
+  }
+
   // Owner pays for co-manager seats. A Free invitee may join a Pro owner's
   // workspace; their own owned workspaces stay on their own SKU.
   {
@@ -1155,7 +1177,7 @@ export async function redeemInviteLink(
       // in the invitee's switcher immediately.
       status: "accepted",
       responded_at: nowIso,
-      assigned_property_ids: link.assigned_property_ids ?? [],
+      assigned_property_ids: redeemOwnerLink ? redeemAssigned : (link.assigned_property_ids ?? []),
       property_co_manager_permissions: normalizedPropertyMap,
       // The flat grant an "all houses" row falls back to for a house that
       // joins later (see `readPropertyPermissionsFromRow`). Leaving this
@@ -1167,7 +1189,7 @@ export async function redeemInviteLink(
       // Workspace rights follow the role now; nothing is switched on by default.
       workspace_permissions: {},
       team_role: redeemedRole,
-      house_scope: parseHouseScope(link.house_scope),
+      house_scope: redeemOwnerLink ? "selected" : parseHouseScope(link.house_scope),
     })
     .select("id, workspace_id")
     .maybeSingle();

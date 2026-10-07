@@ -185,7 +185,9 @@ function HouseScopeSelect({
   houseCount,
   disabled,
   dataAttr = "team-house-scope",
+  allowAll = true,
 }: {
+  allowAll?: boolean;
   value: HouseScope;
   onChange: (next: HouseScope) => void;
   workspaceName: string;
@@ -197,7 +199,7 @@ function HouseScopeSelect({
     <FieldSingleSelect
       label="Houses"
       options={[
-        { value: "all", label: `All houses in ${workspaceName} (${houseCount})` },
+        ...(allowAll ? [{ value: "all", label: `All houses in ${workspaceName} (${houseCount})` }] : []),
         { value: "selected", label: "Only selected houses" },
       ]}
       value={value}
@@ -257,6 +259,7 @@ export function WorkspacePermissionsFields({
           houseCount={workspace.houseCount}
           onChange={onHouseScopeChange}
           dataAttr={houseScopeDataAttr}
+          allowAll={role !== "property_owner"}
         />
       ) : null}
       {houseScope === "selected" || !workspace ? (

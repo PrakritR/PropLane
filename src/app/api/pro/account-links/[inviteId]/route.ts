@@ -2,6 +2,7 @@ import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import { asStringArray, readPropertyPermissionsFromRow, resolveInviteTeamRole, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
+import { capOwnerKeysForDelegate } from "@/lib/auth/co-manager-team-invite.server";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
   normalizeCoManagerPermissions,
@@ -17,8 +18,8 @@ import {
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
-import { canActOnMember, canManageWorkspaceMembers, parseHouseScope, roleAssignableBy, type WorkspaceRole } from "@/lib/workspaces/membership";
-import { actorWorkspaceStanding, workspaceAdminCount, workspaceHouseIds } from "@/lib/workspaces/membership.server";
+import { OWNER_NEEDS_HOUSE_ERROR, OWNER_SELECTED_ONLY_ERROR, canActOnMember, canManageWorkspaceMembers, parseHouseScope, roleAssignableBy, type WorkspaceRole } from "@/lib/workspaces/membership";
+import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceAdminCount, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationships";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -210,7 +211,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       }
       const houseWorkspaceId = nextWorkspaceId ?? "";
 
-      const nextHouseScope = body?.houseScope !== undefined ? parseHouseScope(body.houseScope) : parseHouseScope(invite.house_scope);
+      let nextHouseScope = body?.houseScope !== undefined ? parseHouseScope(body.houseScope) : parseHouseScope(invite.house_scope);
+      // The role this write leaves behind: the one named, else the stored one.
+      const earlyRole = parseTeamRole(body?.teamRole);
+      const storedRoleEarly = parseTeamRole(invite.team_role);
+      const resultingRole = earlyRole.ok && earlyRole.role ? earlyRole.role : storedRoleEarly.ok ? storedRoleEarly.role : null;
+      const resultingOwner = resultingRole === "property_owner";
+      if (resultingOwner) {
+        // An owner never follows later-added houses.
+        if (body?.houseScope !== undefined && parseHouseScope(body.houseScope) === "all") {
+          return NextResponse.json({ error: OWNER_SELECTED_ONLY_ERROR }, { status: 400 });
+        }
+        nextHouseScope = "selected";
+      }
       let nextAssigned = patchProps ? asStringArray(body?.assignedPropertyIds) : asStringArray(invite.assigned_property_ids);
       if (nextHouseScope === "all" && houseWorkspaceId) {
         // The workspace decides: every house it holds now, and the database
@@ -220,6 +233,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
         const houses = new Set(await workspaceHouseIds(svc, invite.inviter_user_id, houseWorkspaceId));
         if (nextAssigned.some((pid) => !houses.has(pid))) {
           return NextResponse.json({ error: "Choose houses from this workspace only." }, { status: 400 });
+        }
+      }
+      if (resultingOwner && nextAssigned.length === 0) {
+        return NextResponse.json({ error: OWNER_NEEDS_HOUSE_ERROR }, { status: 400 });
+      }
+      // A delegate (an Admin) reaches only the houses their OWN membership
+      // reaches: they cannot add a house beyond that, whatever the role.
+      if (actorManages && actorRole !== "owner" && patchProps) {
+        const reach = new Set(
+          houseWorkspaceId ? await actorOwnWorkspaceHouseIds(svc, user.id, invite.inviter_user_id, houseWorkspaceId) : [],
+        );
+        const before = new Set(asStringArray(invite.assigned_property_ids));
+        const added = nextAssigned.filter((pid) => !before.has(pid));
+        if (added.some((pid) => !reach.has(pid))) {
+          return NextResponse.json({ error: "You cannot add a house beyond the houses you have access to." }, { status: 403 });
         }
       }
       // …and only over properties the inviter actually owns.
@@ -303,6 +331,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
         } else {
           nextTeamRole = inferInviteTeamRole(nextPropertyPerms);
         }
+      }
+      if (nextTeamRole === "property_owner" && actorRole !== "owner") {
+        // Same cap as POST and the mint: a delegate cannot share books they cannot see.
+        const ownerCapped = await capOwnerKeysForDelegate(
+          svc,
+          user.id,
+          invite.inviter_user_id,
+          nextAssigned,
+          nextPropertyPerms,
+        );
+        if (!ownerCapped.ok) {
+          return NextResponse.json({ error: ownerCapped.error }, { status: ownerCapped.status });
+        }
+        nextPropertyPerms = ownerCapped.permissions;
       }
       nextPropertyPerms = applyRoleToPropertyPermissions(nextTeamRole, nextPropertyPerms);
       // Workspace rights follow the role; explicit flags survive only on a Custom row.

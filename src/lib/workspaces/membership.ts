@@ -29,6 +29,10 @@ export type WorkspaceRights = {
   houses: boolean;
 };
 
+/** A Property owner is an investor: only ever the houses somebody chose. */
+export const OWNER_SELECTED_ONLY_ERROR = "A property owner is invited to selected houses only.";
+export const OWNER_NEEDS_HOUSE_ERROR = "Choose at least one house for a property owner.";
+
 export function parseHouseScope(raw: unknown): HouseScope {
   return raw === "all" ? "all" : "selected";
 }

@@ -181,6 +181,26 @@ describe("redeeming a manager invite link", () => {
   // A row from a redeemed link with an empty flat `co_manager_permissions`
   // read as no access for any house that joined an "all houses" workspace
   // later (see readPropertyPermissionsFromRow / PRP report).
+  it("redeems a legacy all-houses owner link as selected, over its assigned houses only", async () => {
+    link = makeLink({ team_role: "property_owner", house_scope: "all", assigned_property_ids: ["prop-1"] });
+
+    await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
+
+    const invite = inserted.account_link_invites?.[0] as Record<string, unknown>;
+    expect(invite.house_scope).toBe("selected");
+    expect(invite.assigned_property_ids).toEqual(["prop-1"]);
+  });
+
+  it("refuses an owner link that carries no houses", async () => {
+    link = makeLink({ team_role: "property_owner", house_scope: "all", assigned_property_ids: [] });
+
+    const result = await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
+
+    expect(result.ok).toBe(false);
+    expect(inserted.account_link_invites).toBeUndefined();
+    expect(link.used_count).toBe(0);
+  });
+
   it("sets co_manager_permissions from the link's team_role, not left empty", async () => {
     link = makeLink({ team_role: "admin", house_scope: "all" });
 
