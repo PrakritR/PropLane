@@ -13,7 +13,8 @@ export async function requireOwnerPage(section?: "messages"): Promise<{ name: st
   const { user, profile } = await getServerSessionProfile();
   if (!user) redirect("/auth/sign-in");
   const state = await getOwnerAccessState(user.id);
-  if (!state.hasOwnerAccess) redirect("/portal/dashboard");
+  // A revoked owner-only account stays here and sees the empty state.
+  if (!state.hasOwnerAccess && !state.ownerOnly) redirect("/portal/dashboard");
   if (section === "messages" && !state.messagesOn) redirect(OWNER_HOME_PATH);
   return { name: profile?.full_name ?? null, email: profile?.email ?? user.email ?? null };
 }

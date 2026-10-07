@@ -84,6 +84,16 @@ describe("an owner-only account is not a manager to any manager API", () => {
     expect(await ownerAccessStateFor(db, OWNER)).toMatchObject({ hasOwnerAccess: true, ownerOnly: true });
   });
 
+  it("stays owner-only after the membership is revoked, and a real manager who was once an owner does not", async () => {
+    const revoked = { ...ownerRow, status: "cancelled" };
+    const db = makeFakeDb({ ...base, account_link_invites: [revoked], manager_purchases: [] });
+    expect(await ownerAccessStateFor(db, OWNER)).toEqual({ hasOwnerAccess: false, ownerOnly: true, messagesOn: false });
+    const pending = makeFakeDb({ ...base, account_link_invites: [{ ...ownerRow, status: "pending" }], manager_purchases: [] });
+    expect((await ownerAccessStateFor(pending, OWNER)).ownerOnly).toBe(false);
+    const owns = makeFakeDb({ ...base, account_link_invites: [revoked], manager_purchases: [], manager_property_records: [{ id: "mine", manager_user_id: OWNER }] });
+    expect((await ownerAccessStateFor(owns, OWNER)).ownerOnly).toBe(false);
+  });
+
   it("is not owner-only when it also owns a house, sits on a team, holds a plan or is an admin", async () => {
     const withOwn = makeFakeDb({ ...base, account_link_invites: [ownerRow], manager_purchases: [], manager_property_records: [{ id: "mine", manager_user_id: OWNER }] });
     expect((await ownerAccessStateFor(withOwn, OWNER)).ownerOnly).toBe(false);

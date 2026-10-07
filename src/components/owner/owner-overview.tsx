@@ -102,6 +102,8 @@ export function OwnerOverview() {
       <OwnerPageTitle>Overview</OwnerPageTitle>
       {loading && !data ? (
         <OwnerLoading />
+      ) : error === "Forbidden." ? (
+        <OwnerEmpty title="No properties are shared with you" />
       ) : error ? (
         <OwnerError message="Couldn't load your properties." onRetry={reload} />
       ) : empty || quiet || !data ? (
@@ -138,6 +140,8 @@ export function OwnerPropertiesList() {
       <OwnerPageTitle>Properties</OwnerPageTitle>
       {loading && !data ? (
         <OwnerLoading />
+      ) : error === "Forbidden." ? (
+        <OwnerEmpty title="No properties are shared with you" />
       ) : error ? (
         <OwnerError message="Couldn't load your properties." onRetry={reload} />
       ) : !data || data.properties.length === 0 ? (

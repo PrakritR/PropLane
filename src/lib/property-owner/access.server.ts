@@ -119,10 +119,10 @@ export function grantedHouses(
 }
 
 export type OwnerAccessState = {
-  /** Has at least one accepted Property owner membership. */
+  /** Has at least one accepted (not revoked) Property owner membership. */
   hasOwnerAccess: boolean;
   /**
-   * Has owner memberships and NOTHING else: no houses of their own, no teammate
+   * Signed up through an owner invite (membership active or since revoked) and has NOTHING else: no houses of their own, no teammate
    * membership, no manager plan. Such an account is shown only the owner portal
    * and is refused by the manager APIs.
    */
@@ -137,13 +137,18 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
   const uid = userId.trim();
   if (!uid) return NONE;
   // One cheap read decides the overwhelmingly common case (a manager): no owner row.
-  const { count, error } = await db
+  // Owner ORIGIN is any accepted or since-revoked (`cancelled`) owner row: a
+  // revoked owner keeps the manager role row from owner sign-up, and must stay
+  // owner-only (an empty owner portal) rather than fall into the manager shell.
+  // Pending / declined rows prove nothing and never count.
+  const { data: ownerRows, error } = await db
     .from("account_link_invites")
-    .select("id", { count: "exact", head: true })
+    .select("id, status")
     .eq("invitee_user_id", uid)
-    .eq("status", "accepted")
-    .eq("team_role", "property_owner");
-  if (error || !count) return NONE;
+    .eq("team_role", "property_owner")
+    .in("status", ["accepted", "cancelled"]);
+  if (error || !ownerRows || ownerRows.length === 0) return NONE;
+  const hasActiveOwner = ownerRows.some((r) => r.status === "accepted");
 
   const [own, teammate, purchase, roles] = await Promise.all([
     db.from("manager_property_records").select("id").eq("manager_user_id", uid).limit(1),
@@ -174,7 +179,7 @@ async function resolveOwnerAccessState(db: SupabaseClient, userId: string): Prom
   } catch {
     messagesOn = false;
   }
-  return { hasOwnerAccess: true, ownerOnly, messagesOn };
+  return { hasOwnerAccess: hasActiveOwner, ownerOnly, messagesOn };
 }
 
 /** Request-cached for server components (layout + page ask the same question). */
