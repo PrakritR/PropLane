@@ -66,6 +66,14 @@ describe("Outgoing payments list", () => {
     expect(screen.queryByText(/Approved/)).toBeNull();
   });
 
+  it("totals each tab from the very rows it counts, in hairline stat cards above the rows", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getAllByText("Brightline Plumbing").length).toBeGreaterThan(0));
+    expect(document.querySelector('[data-attr="outgoing-stat-to-pay"]')?.textContent).toBe("$1,132.00");
+    expect(document.querySelector('[data-attr="outgoing-stat-scheduled"]')?.textContent).toBe("$0.00");
+    expect(document.querySelector('[data-attr="outgoing-stat-paid"]')?.textContent).toBe("$0.00");
+  });
+
   it("offers the PropLane balance in Pay vendor, with the available figure, only when the balance is enabled and covers the bill", async () => {
     mockFetch({ availableCents: 500_000, defaultPaymentSource: "balance" });
     renderPanel({ paymentId: "inv-vendor" });

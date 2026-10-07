@@ -1,6 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalPropertyRecordRow, PortalRowIconTile } from "@/components/portal/portal-record-row";
+import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   MoreHorizontal,
@@ -78,20 +82,31 @@ const REPORT_GROUPS: Array<{ label: string; reports: ReportCard[] }> = [
 export const FINANCES_REPORT_TAB_IDS = new Set(REPORT_GROUPS.flatMap((g) => g.reports.map((r) => r.id)));
 
 export function ManagerFinancesReports({ basePath }: { basePath: string }) {
+  const navigate = usePortalNavigate();
   const specialPanels = new Set(["bills", "security-deposits", "owner-distributions", "bank-reconciliation"]);
   const reportIds: Record<string, string> = { "income-statement": "monthly-profit-loss", "security-deposits": "trust-account-balance", bills: "ap-aging", "owner-distributions": "owner-statement", "bank-reconciliation": "general-ledger" };
-  return <div className="divide-y divide-border pb-6" data-attr="finances-reports">{REPORT_GROUPS.flatMap(g => g.reports).map(report => {
-    const Icon = report.icon;
+  return <div data-attr="finances-reports"><PortalRecordListSurface dataAttr="finances-reports-list">{REPORT_GROUPS.flatMap(g => g.reports).map(report => {
     const exportId = reportIds[report.id] ?? report.id;
     const download = (format: string) => report.id === "profitability" ? `/api/reports/property-worksheet?format=${format}` : specialPanels.has(report.id) ? `/api/reports/operational-export?kind=${report.id}&format=${format}` : `/api/reports/${exportId}/export?format=${format}`;
     const href = report.id === "financial-activity" ? download("csv") : `${basePath}/financials/${report.id}`;
-    return <div key={report.id} className="flex items-center gap-3 py-4" data-attr={`finances-report-${report.id}`}>
-      <Icon className="size-5 text-primary" aria-hidden />
-      {report.id === "financial-activity" ? <a href={href} className="min-w-0 flex-1 font-medium">{report.label}</a> : <Link href={href} className="min-w-0 flex-1 font-medium">{report.label}</Link>}
-      <DropdownMenu modal={false}><DropdownMenuTrigger aria-label={`${report.label} actions`} className="p-3"><MoreHorizontal className="size-5" /></DropdownMenuTrigger><DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={() => window.location.assign(href)}>View</DropdownMenuItem>
-        {["csv", "pdf"].map(format => <DropdownMenuItem key={format} onSelect={() => window.location.assign(download(format))}>Download {format.toUpperCase()}</DropdownMenuItem>)}
-      </DropdownMenuContent></DropdownMenu>
+    const open = () => (report.id === "financial-activity" ? window.location.assign(href) : navigate(href));
+    return <div key={report.id} data-attr={`finances-report-${report.id}`}>
+      <PortalPropertyRecordRow
+        title={report.label}
+        leading={<PortalRowIconTile icon={report.icon} />}
+        leadingShape="square"
+        onOpen={open}
+        dataAttr="finances-report-row"
+        actions={<DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" aria-label={`${report.label} actions`} className={RECORD_ACTION_TRIGGER_BUTTON_CLASS}><MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={open}>View</DropdownMenuItem>
+            {["csv", "pdf"].map(format => <DropdownMenuItem key={format} onSelect={() => window.location.assign(download(format))}>Download {format.toUpperCase()}</DropdownMenuItem>)}
+          </DropdownMenuContent>
+        </DropdownMenu>}
+      />
     </div>;
-  })}</div>;
+  })}</PortalRecordListSurface></div>;
 }
