@@ -46,6 +46,7 @@ import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { vendorPayFeeCents } from "@/lib/platform-fees";
 import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
+import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { recordVendorServiceFeeRevenue } from "@/lib/vendor-banking/platform-revenue.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -795,6 +796,16 @@ export async function completeVendorPayFromStripeSession(
         feeCents: platformFeeCents,
         source: "work_order",
         sourceId: workOrderId,
+      });
+    }
+    if (isHold) {
+      // Paid with no bank to receive it: the money waits on PropLane. Tell the vendor once.
+      await emitVendorBankingEvent(db, {
+        kind: "money_held_no_bank",
+        eventId: `held:work_order:${workOrderId}`,
+        vendorUserId,
+        managerUserId,
+        facts: { amountCents: invoiceCents - platformFeeCents, title: row.title || undefined },
       });
     }
     if (verifiedHoldId) await releaseVerifiedPlatformHoldsForOwner(db, {
