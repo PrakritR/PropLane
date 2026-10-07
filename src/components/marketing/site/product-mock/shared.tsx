@@ -29,11 +29,25 @@
  * Leases/Payments/Services pages render, never a hand-drawn filled pill.
  */
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, createContext, useContext, useEffect, useRef, useState } from "react";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
 import { groupNavItems } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 import { cn } from "@/lib/utils";
+
+/**
+ * "Bare" chrome (the guided home demo, `demo-panels.tsx`): the demo engine
+ * draws its own window frame and sidebar, so inside `BarePanelChrome` a
+ * `ProductWindow` is just a relative, full-width content well (the sheet and
+ * toast overlays still anchor to it) and `PortalSidebarFixture` renders
+ * nothing. Outside the provider both behave exactly as the lifecycle rows
+ * always drew them.
+ */
+const BarePanelChromeContext = createContext(false);
+
+export function BarePanelChrome({ children }: { children: ReactNode }) {
+  return <BarePanelChromeContext.Provider value>{children}</BarePanelChromeContext.Provider>;
+}
 
 export function ProductPanelBackdrop({
   children,
@@ -93,6 +107,14 @@ export function ProductWindow({
   nativeHeight?: number;
 }) {
   const { ref, scale } = useContainerScale(nativeWidth);
+  const bare = useContext(BarePanelChromeContext);
+  if (bare) {
+    return (
+      <div className="relative flex h-full min-h-[520px] w-full min-w-0 overflow-hidden bg-card" data-demo-panel>
+        {children}
+      </div>
+    );
+  }
   return (
     <div ref={ref} className="pm-window absolute inset-x-6 top-6 sm:inset-x-10 sm:top-10" style={{ height: nativeHeight * scale }}>
       <div
@@ -124,6 +146,7 @@ export function PortalSidebarFixture({
   active: string;
   counts?: Record<string, number>;
 }) {
+  if (useContext(BarePanelChromeContext)) return null;
   const groups = groupNavItems(
     "pro",
     proPortal.sections.filter((s) => s.section !== "app" && s.section !== "bugs-feedback"),
