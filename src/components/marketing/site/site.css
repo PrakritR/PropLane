@@ -81,19 +81,3 @@
     radial-gradient(circle at 15% 85%, rgba(154, 156, 245, 0.2) 0%, rgba(154, 156, 245, 0) 60%);
 }
 .pm-window { z-index: 1; }
-
-/* ───────────── /app phone frames (site/app-page.tsx) ───────────── */
-.site-app-shots { position: relative; height: 440px; margin-top: 12px; }
-.site-app-phone {
-  position: absolute;
-  right: calc(50% - 190px);
-  top: 0;
-  z-index: 2;
-  width: 200px;
-  overflow: hidden;
-  border: 7px solid #111;
-  border-radius: 32px;
-  background: #fff;
-  box-shadow: 0 24px 60px rgba(8, 9, 11, 0.22);
-}
-.site-app-phone.is-back { right: calc(50% + 10px); top: 48px; z-index: 1; width: 180px; opacity: 0.92; }

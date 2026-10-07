@@ -1,16 +1,30 @@
 import Image from "next/image";
-import QRCode from "qrcode";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
-import { SITE_MEASURE, SitePageHero } from "@/components/marketing/site/primitives";
+import { SITE_MEASURE, SiteEyebrow, SitePageHero } from "@/components/marketing/site/primitives";
 import { IOS_APP_MINIMUM_OS, iosAppDownloadIsTestFlight, iosAppDownloadUrl } from "@/lib/ios-app-download";
-import "@/components/marketing/site/site.css";
+import dashboardShot from "../../../../app-store/screenshots/iphone-6.9/02-dashboard.png";
+import paymentsShot from "../../../../app-store/screenshots/iphone-6.9/05-payments.png";
+import inspectionsShot from "../../../../app-store/screenshots/iphone-6.9/08-inspections.png";
+import inboxShot from "../../../../app-store/screenshots/iphone-6.9/09-inbox.png";
 
 /**
  * /app — the iPhone app page. Headline, the App Store badge, a requirements
- * line, two phone frames with clean screenshots of the shipped build, a QR code
- * for laptop visitors (rendered at build time from the same canonical URL the
- * badge uses), and four feature rows. Nothing here reads live data.
+ * line, the phones side by side, and four feature rows. Nothing here reads live
+ * data.
+ *
+ * The phones are the committed App Store screenshots (`app-store/screenshots/
+ * iphone-6.9`), imported through the ONE manifest below. The App Store
+ * screenshot pipeline (`npm run app-store:shots`, see `app-store/README.md`)
+ * rewrites those files from the live portal, so a portal redesign plus a
+ * re-shoot updates this page with no edit here. To show a different screen, change the
+ * manifest, not the markup. See docs/agents/marketing-mocks.md.
  */
+const APP_PAGE_SHOTS = [
+  { src: dashboardShot, alt: "The PropLane dashboard on iPhone: occupancy, rent collected and what needs you today" },
+  { src: paymentsShot, alt: "Payments on iPhone: rent collected per room and every charge tracked" },
+  { src: inspectionsShot, alt: "Move-in inspections on iPhone: photos per room" },
+  { src: inboxShot, alt: "The inbox on iPhone: residents, applicants and the PropLane assistant in one place" },
+] as const;
 
 const FEATURES = [
   { title: "Push when it matters", body: "A lease to countersign, a change order, a tour that moved — one tap, from wherever you are." },
@@ -19,10 +33,9 @@ const FEATURES = [
   { title: "Three portals, one app", body: "Manager, resident and vendor sign-ins all live here. Same account as the web." },
 ];
 
-export async function SiteAppPage() {
+export function SiteAppPage() {
   const url = iosAppDownloadUrl();
   const beta = iosAppDownloadIsTestFlight(url);
-  const qr = await QRCode.toString(url, { type: "svg", margin: 0, color: { dark: "#0b1120", light: "#ffffff00" } });
 
   return (
     <>
@@ -40,43 +53,33 @@ export async function SiteAppPage() {
           </span>
         }
       />
-    <div className={`${SITE_MEASURE} pb-20`}>
-      <div className="grid items-center gap-8">
-        <div className="min-w-0">
-          <div className="flex items-center gap-4 mx-auto w-full rounded-2xl border border-border bg-card/90 p-4 sm:max-w-[440px]">
-            <div
-              className="h-[84px] w-[84px] shrink-0 rounded-lg bg-white p-1.5 [&>svg]:h-full [&>svg]:w-full"
-              aria-label={`QR code that opens ${url}`}
-              role="img"
-              dangerouslySetInnerHTML={{ __html: qr }}
-            />
-            <p className="text-[13px] leading-relaxed text-muted">
-              <span className="font-bold text-foreground">On a laptop?</span>
-              <br />
-              Point your phone&rsquo;s camera here to open the App Store listing.
-            </p>
-          </div>
-        </div>
+      <div className={`${SITE_MEASURE} pb-20 sm:pb-24`}>
+        {/* Equal phones in one row: two by two on a phone, four across from md. Same box, same aspect, same alignment. */}
+        <ul className="mx-auto grid max-w-[1100px] grid-cols-2 gap-3 sm:gap-5 md:grid-cols-4 lg:gap-7">
+          {APP_PAGE_SHOTS.map((shot) => (
+            <li key={shot.alt} className="min-w-0">
+              <Image
+                src={shot.src}
+                alt={shot.alt}
+                sizes="(min-width: 1100px) 260px, (min-width: 768px) 24vw, 46vw"
+                className="block h-auto w-full rounded-[22px] border border-[#cfdceb] bg-white shadow-[0_24px_60px_-30px_rgba(19,43,71,0.35)] sm:rounded-[28px]"
+              />
+            </li>
+          ))}
+        </ul>
 
-        <div className="site-app-shots" aria-hidden>
-          <div className="site-app-phone">
-            <Image src="/marketing/product/phone-dashboard.webp" alt="" width={390} height={844} sizes="220px" className="block h-auto w-full" />
-          </div>
-          <div className="site-app-phone is-back">
-            <Image src="/marketing/product/phone-inbox.webp" alt="" width={390} height={844} sizes="200px" className="block h-auto w-full" />
-          </div>
+        <div className="mx-auto mt-16 max-w-[1100px] sm:mt-20">
+          <SiteEyebrow className="mb-4 text-center">In the app</SiteEyebrow>
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {FEATURES.map((f) => (
+              <li key={f.title} className="rounded-2xl border border-[#dbe4ef] bg-white/85 p-5 shadow-[0_18px_44px_-30px_rgba(19,43,71,0.3)]">
+                <h2 className="text-[15px] font-bold text-foreground">{f.title}</h2>
+                <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{f.body}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
-
-      <ul className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {FEATURES.map((f) => (
-          <li key={f.title} className="rounded-2xl border border-border bg-card p-5">
-            <h2 className="text-[15px] font-bold text-foreground">{f.title}</h2>
-            <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{f.body}</p>
-          </li>
-        ))}
-      </ul>
-    </div>
     </>
   );
 }

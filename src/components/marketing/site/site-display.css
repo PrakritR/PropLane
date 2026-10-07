@@ -40,6 +40,18 @@
   position: relative;
   isolation: isolate;
   min-height: calc(100svh - 3.5rem);
+  /* The sticky atmosphere has a negative bottom margin, so its box can run a viewport past the
+     page's end; clip it here so it never paints over the footer below. */
+  overflow: clip;
+}
+
+/* The footer is always a readable solid surface, on the home page's wavy field too (the home
+   stylesheet makes it transparent, which left it near-invisible against the canvas). */
+.axis-page-frame footer[data-site-footer] {
+  position: relative;
+  z-index: 10;
+  background: linear-gradient(180deg, #eaf2fa 0%, #dae7f3 100%);
+  border-top-color: #c5d8ea;
 }
 
 .site-page > .rlp-atmosphere {

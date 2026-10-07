@@ -34,7 +34,8 @@ export const metadata: Metadata = {
  */
 const ROWS: SiteFeatureRow[] = [
   {
-    eyebrow: "Leasing",
+    id: "partner-forms",
+    eyebrow: "Applications & leases",
     title: "From listing to signed lease without a PDF",
     body: "Four answers make a listing. Tours book themselves. The application becomes the lease draft; you read it, tweak a clause, both of you sign online.",
     mock: (
@@ -47,6 +48,7 @@ const ROWS: SiteFeatureRow[] = [
     ),
   },
   {
+    id: "partner-payments",
     eyebrow: "Rent",
     title: "Rent that collects itself",
     body: "Card or bank, through PropLane. Reminders and late fees draft first and send on your approval. Deposits stay liability; the ledger balances.",
@@ -60,6 +62,7 @@ const ROWS: SiteFeatureRow[] = [
     ),
   },
   {
+    id: "partner-communication",
     eyebrow: "Inbox & work number",
     title: "One inbox, one number, drafts waiting",
     body: "Residents text your PropLane number, applicants email, vendors reply — one thread each, with a drafted answer you approve, edit or discard.",

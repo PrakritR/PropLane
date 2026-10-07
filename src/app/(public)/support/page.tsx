@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Mail, MessageSquareText, Phone } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { SupportFaq } from "./support-faq";
 import {
@@ -26,18 +28,20 @@ export default function SupportPage() {
       <MarketingHero title="Help & Support" />
 
       <MarketingSection>
-        <div className="lp-page-grid-3">
+        <div className="mx-auto grid max-w-[60rem] gap-4 sm:grid-cols-3">
           <ContactCard
             href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
+            icon={<Mail strokeWidth={2} aria-hidden />}
             label="Email us"
             value={PUBLIC_SUPPORT_EMAIL}
           />
           <ContactCard
             href={`tel:${PUBLIC_SUPPORT_PHONE_TEL}`}
+            icon={<Phone strokeWidth={2} aria-hidden />}
             label="Call us"
             value={PUBLIC_SUPPORT_PHONE_DISPLAY}
           />
-          <ContactCard href="/contact" label="Send a message" value="Contact form" internal />
+          <ContactCard href="/contact" icon={<MessageSquareText strokeWidth={2} aria-hidden />} label="Send a message" value="Contact form" internal />
         </div>
       </MarketingSection>
 
@@ -85,19 +89,24 @@ export default function SupportPage() {
 
 function ContactCard({
   href,
+  icon,
   label,
   value,
   internal = false,
 }: {
   href: string;
+  icon: ReactNode;
   label: string;
   value: string;
   internal?: boolean;
 }) {
   const className =
-    "lp-page-card lp-page-card-pad group flex flex-col gap-2 transition-colors hover:border-[color-mix(in_srgb,var(--lp-blue)_40%,transparent)]";
+    "lp-page-card lp-page-card-pad group flex flex-col items-center gap-2 text-center transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--lp-blue)_40%,transparent)]";
   const inner = (
     <>
+      <span className="mb-1 grid h-10 w-10 place-items-center rounded-xl bg-[#1769bd]/10 text-[#1769bd] [&>svg]:h-[18px] [&>svg]:w-[18px]">
+        {icon}
+      </span>
       <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--lp-muted)]">
         {label}
       </span>
