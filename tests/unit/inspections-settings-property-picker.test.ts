@@ -6,12 +6,13 @@ const modal = readFileSync("src/components/portal/pro-portal-settings-modal.tsx"
 const tasks = readFileSync("src/components/portal/pro-task-list.tsx", "utf8");
 
 describe("Operations settings gears carry a Property picker", () => {
-  it("Inspections passes propertyOptions into its settings sheet", () => {
-    expect(inspections).toContain("buildManagerPropertyFilterOptions");
-    expect(inspections).toContain("propertyOptions={propertyOptions}");
-    // Inspections settings tab is gone (C111/C116) — the gear opens the
-    // central Reminders hub, grouped to Inspections, instead.
-    expect(inspections).toContain('initialTab="automation"');
+  // Portal redesign (captain: "settings should go to page, remove the pop-up"):
+  // the Inspections panel's settings sheet was never opened by anything, so it
+  // is deleted. Inspection reminders live on the central Settings pages, whose
+  // Property picker is covered by the modal guard below.
+  it("Inspections no longer mounts its own settings sheet", () => {
+    expect(inspections).not.toContain("ProPortalSettingsModal");
+    expect(inspections).not.toContain("propertyOptions={propertyOptions}");
   });
 
   it("the settings modal always wraps the module page in the All properties picker", () => {
