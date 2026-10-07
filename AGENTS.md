@@ -428,6 +428,7 @@ answer. Fail closed to `true`.
 | Demo / sandbox | `docs/agents/demo-sandbox.md` | `/demo` never writes real rows; snapshot ships empty |
 | Studio Live mode | `docs/agents/studio-live.md` | Frame-ancestors relaxation and `/api/dev/studio-sign-in` are dev-only (`NODE_ENV==="development"` + localhost + dev/test project); production/preview headers stay byte-identical |
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
+| Property owner | `docs/agents/co-manager-access.md` § Property owner | A team role, not a portal: four owner keys, no module key; owner rows are filtered out of every teammate-style reader (`withoutOwnerLinks`); the numbers are an allowlist projection of the manager's own reports, never names; the house and manager come from the membership, never the request |
 | SMS / phone | `docs/agents/sms-system.md` | Outbound from the work number only; conversation id is not the phone pair |
 | Communication credit | `docs/agents/comms-billing.md` | Reserve credit before provider/model work; a saved card never authorizes a charge |
 | Vendor dispatch agent | `docs/agents/vendor-dispatch-agent.md` | Answer-only + `escalate_to_manager`; `row_data.dispatch` is server-owned |

@@ -86,7 +86,13 @@ export type OwnerDocumentRow = {
   createdAt: string;
 };
 
-const FORBIDDEN_KEY = /(^|_|-)(name|email|phone|resident|applicant|tenant|vendor|payee|address|ledger|message|description)(s)?($|_|-)|firstname|lastname|fullname|residentemail|vendorid/i;
+const FORBIDDEN_WORD = /(^|_|-)(name|email|phone|resident|applicant|tenant|vendor|payee|address|ledger|message|description|firstname|lastname|fullname)s?($|_|-)/;
+
+/** `residentName` -> `resident_name`, so words are matched whole, in camelCase and snake_case alike. */
+function keyWords(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
 // `label` and the property `unit` are the only name-like strings, and they are
 // property labels, never people. Keys are matched, not values.
 const ALLOWED_KEYS = new Set(["label"]);
@@ -109,7 +115,7 @@ function collectKeys(value: unknown, into: string[]): void {
 export function forbiddenOwnerPayloadKeys(payload: unknown): string[] {
   const keys: string[] = [];
   collectKeys(payload, keys);
-  return keys.filter((key) => !ALLOWED_KEYS.has(key) && FORBIDDEN_KEY.test(key));
+  return keys.filter((key) => !ALLOWED_KEYS.has(key) && FORBIDDEN_WORD.test(keyWords(key)));
 }
 
 export function assertOwnerPayloadRedacted(payload: unknown): void {

@@ -529,3 +529,77 @@ to `true` and left the bank control enabled while discarding the only sentence t
 why it cannot work. Coverage: `tests/unit/manager-stripe-payout-context.test.ts`,
 `tests/unit/manager-payment-setup-refusal.test.tsx`,
 `tests/unit/stripe-connect-status-readonly.test.ts`.
+
+## Property owner
+
+A **Property owner** is the investor who owns a house the manager runs. It is a
+team role in the manager's workspace (`property_owner`, first in the Role
+dropdown), not a portal: the invite, house picker and Edit permissions flow are
+the ones every other role uses. Plan: `property-owner-role-1006` (lane claude-2).
+
+**What the role is.** A stamp plus a label, with its own permission vocabulary:
+four owner keys, `ownerPerformance` (Overview and Properties figures),
+`ownerStatements`, `ownerDocuments` (only files marked *Shared with owners*) and
+`ownerMessages` (default off). The keys are `OWNER_PERMISSION_OPTIONS`, NOT part
+of `CO_MANAGER_PERMISSION_OPTIONS`, so no module loop (stamps, presets, the module
+editor) can ever stamp or show one on another role. An owner holds none of the
+module keys; `workspaceRightsForRole('property_owner')` is explicitly
+`{ members: false, houses: false }`, so an owner cannot invite, edit or remove a
+member (`tests/unit/property-owner-no-members.test.ts`).
+
+**Writes are role-shaped.** `applyRoleToPropertyPermissions` runs on every write
+path (mint link, direct invite, edit member, redeem): an owner keeps owner keys
+only (a forged module grant is dropped), every other role loses any owner key.
+`stampTeamRoleOnProperties` keeps the owner keys the manager set and defaults
+(Messages off) only when none is set. "No access" is stored explicitly as
+`{ notification: false }`, because a missing key means *unset*. The role is
+never inferred from a map (`inferTeamRoleFromPermissions` skips it): an empty map
+must not read as an owner.
+
+**Owner rows are not teammate rows.** An accepted owner row looks exactly like a
+teammate row to code that checks `status = 'accepted'`, so every such reader
+wraps its read in `withoutOwnerLinks` (`src/lib/co-manager-team-roles.ts`) and
+selects `team_role`. The filter runs on the rows, not as a query predicate, so a
+legacy NULL role still passes. `tests/unit/property-owner-link-readers.test.ts`
+fails a new reader that neither filters nor is reviewed on its list. The only
+code that reads owner rows is `src/lib/property-owner/*`.
+
+**Owner-only account (captain decision, plan #5).** An owner invite is redeemed
+without a manager account: `redeemInviteLink` provisions a profile and the
+`manager` `profile_roles` row (the property portal hosts the owner routes) and
+nothing else, with no `manager_purchases` row, so no plan, workspace, Add
+property or billing (`provisionOwnerOnlyAccess`). `getOwnerAccessState` decides
+`ownerOnly`: owner memberships and no houses of their own, no teammate seat, no
+plan, not an admin. An owner-only account:
+
+- gets the owner shell (`OwnerPortalShell`: rail on desktop; bottom bar plus More
+  sheet on a phone) from `src/app/portal/layout.tsx`, and every other `/portal/*`
+  path, hard-loaded or through `renderPortalSection`, redirects to `/portal/owner`;
+- is refused by every manager API: `getReportsAuthContext` and
+  `requireManagerRouteUser` return no context (401), and the module readers
+  exclude its rows. The menu is not the security boundary
+  (`tests/unit/property-owner-reports-auth.test.ts`,
+  `tests/unit/property-owner-server-exclusion.test.ts`).
+
+**Owner APIs** (`/api/owner/*`, one gate: `requireOwnerRoute`). The owner and the
+manager come from the authenticated membership (`loadOwnerGrants`), read fresh on
+every call, so a revoked owner is refused on the very next request. A request may
+only narrow to a granted house (anything else is a 404). Output is an explicit
+allowlist projection (`src/lib/property-owner/projection.ts`), checked with
+`assertOwnerPayloadRedacted`: totals per house and month (rent collected and due,
+other income, fees, repairs and services as ONE total, net), units, occupied, and
+per-unit status, rent and lease end, with no resident, applicant, vendor, ledger
+line or message field. Net equals the manager's Profitability report for the same
+house and month because it is read back from the same rows
+(`queryProfitability` with `groupBy: "month"`). Statements use `queryOwnerStatement`
+and the formal PDF builder, without the unpaid-bills line. Documents list only
+`manager_documents.shared_with_owners` files on granted houses and serve bytes
+through server-minted signed URLs. Messages (when on) are the owner's own thread
+with the manager of their own membership; the recipient is never taken from the
+request.
+
+**Manager side.** Documents row ⋯ menu: *Share with owners* / *Stop sharing*
+(`PATCH /api/manager-documents/[id] { sharedWithOwners }`, owner-only like every
+sharing change, and only for a document with a house). The flag is read through
+`loadSharedWithOwnersIds`, never `DOCUMENT_SELECT_COLUMNS`, so a database that has
+not run `20261007100000_property_owner_role.sql` lists documents normally.

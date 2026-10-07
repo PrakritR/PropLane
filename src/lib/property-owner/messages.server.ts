@@ -34,8 +34,10 @@ export async function loadOwnerConversations(
   grants: OwnerGrant[],
 ): Promise<OwnerConversation[]> {
   const out: OwnerConversation[] = [];
+  const allowed = messagingGrants(grants);
+  if (allowed.length === 0) return out;
   const me = await emailOf(db, ownerUserId);
-  for (const grant of messagingGrants(grants)) {
+  for (const grant of allowed) {
     const manager = await emailOf(db, grant.managerUserId);
     const messages: OwnerMessage[] = [];
     if (manager.email) {
