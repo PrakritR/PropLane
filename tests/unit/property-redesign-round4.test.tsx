@@ -82,8 +82,8 @@ describe("a one-step popup has no rail", () => {
     const root = document.querySelector("[data-rail]") as HTMLElement | null;
     expect(root?.getAttribute("data-rail")).toBe("none");
     expect(root?.className).toContain("[&_nav[aria-label^=Listing]]:hidden");
-    // The live panel keeps its column once the rail's 220px is gone.
-    expect(root?.className).toContain("grid-cols-[minmax(0,1fr)_300px]");
+    // The live panel keeps its column once the rail's 190px is gone.
+    expect(root?.className).toContain("grid-cols-[minmax(0,1fr)_260px]");
   });
 
   it("keeps the rail when there are several steps", () => {
