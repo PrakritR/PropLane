@@ -3,18 +3,17 @@ import { GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { LifecycleFrame } from "@/components/marketing/site/lifecycle-frame";
 import { SiteEyebrow, SiteHeading, SiteSection } from "@/components/marketing/site/primitives";
 import type { DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
-import type { PhoneScript } from "@/components/marketing/resident-lifecycle-script";
 import { cn } from "@/lib/utils";
 
 /**
  * "The best way to run a rental." — the product rows under the demo. Captain
  * 2026-10-06 (home demo redesign, Section map row 4): every row's screen is
  * drawn in Akhil's frame from the hero demo (`lifecycle-frame.tsx`): the
- * PropLane workspace window on the soft-blue stage, the real portal panel for
- * one tab inside it (`DemoPanel`, `product-mock/demo-panels.tsx`), and a phone
- * beside it wherever a second party is in the story (the prospect on Tours and
- * Communication, the vendor on Services and Vendors, the resident on the
- * resident portal). Rows alternate sides. Static fixtures only: no network
+ * PropLane workspace window on the page's wavy background, at one fixed size, with
+ * the real portal panel for one tab inside it (`DemoPanel`,
+ * `product-mock/demo-panels.tsx`); a long list scrolls inside the window and never
+ * grows it. The phone is not drawn here: one phone stays on screen beside every row
+ * (`resident-lifecycle-prototypes.tsx`). Rows alternate sides. Static fixtures only: no network
  * request, nothing saved (`docs/agents/marketing-mocks.md`).
  *
  * Every sentence below describes something the product does; check the area's
@@ -29,69 +28,6 @@ type LifecycleRowDef = {
   linkLabel: string;
   portal: DemoPortal;
   tab: string;
-  phone?: PhoneScript;
-};
-
-const MANAGER_PHONE = { initials: "SH", name: "Seattle Homes", sub: "Fremont Studio" };
-
-/** Static threads for the phones. They echo the fixtures the panel beside them draws. */
-const TOUR_PHONE: PhoneScript = {
-  caption: "Jamie’s phone",
-  ...MANAGER_PHONE,
-  items: [
-    { kind: "time", text: "Saturday" },
-    { kind: "in", text: "You’re booked for Fremont Studio on Saturday at 2:00 PM." },
-    { kind: "card", icon: "calendar", eyebrow: "TOUR · FREMONT STUDIO", title: "Sat, Sep 27 · 2:00 PM", sub: "Reminder set for Friday" },
-    { kind: "out", text: "2:00 PM works great, thank you!" },
-  ],
-};
-
-const PROSPECT_THREAD_PHONE: PhoneScript = {
-  caption: "Jamie’s phone",
-  ...MANAGER_PHONE,
-  items: [
-    { kind: "time", text: "Saturday" },
-    { kind: "out", text: "Hi! Is the studio still available? Could I see it Saturday afternoon?" },
-    { kind: "in", text: "Yes, it’s available from Oct 1. Saturday works: 1:00, 2:00 or 3:30 PM." },
-    { kind: "out", text: "2:00 PM works great, thank you!" },
-  ],
-};
-
-const SERVICE_VENDOR_PHONE: PhoneScript = {
-  caption: "Pacific Plumbing’s phone",
-  initials: "PL",
-  name: "PropLane",
-  sub: "Service offers",
-  items: [
-    { kind: "time", text: "Service scheduled" },
-    { kind: "in", text: "Avery Morgan accepted your quote. The address is now in your portal." },
-    { kind: "card", icon: "wrench", eyebrow: "SERVICE · ALDER HOUSE", title: "Kitchen faucet drip", sub: "Thu, Sep 25 · 10am" },
-  ],
-};
-
-const VENDOR_OFFER_PHONE: PhoneScript = {
-  caption: "Marcus’s phone",
-  initials: "PL",
-  name: "PropLane",
-  sub: "Service offers",
-  items: [
-    { kind: "time", text: "New service offer" },
-    { kind: "in", text: "New service in Ballard, Seattle: no hot water. Reply with your quote and when you can come." },
-    { kind: "out", text: "I can come Thursday at 10 AM. $220." },
-    { kind: "in", text: "Quote received. Avery will confirm." },
-  ],
-};
-
-const RESIDENT_PHONE: PhoneScript = {
-  caption: "Jordan’s phone",
-  initials: "AH",
-  name: "Alder House",
-  sub: "Automated · September rent",
-  items: [
-    { kind: "time", text: "Rent" },
-    { kind: "in", text: "September rent of $1,650.00 was due Sep 1. You can pay it from Payments." },
-    { kind: "card", icon: "card", eyebrow: "PAYMENTS · ALDER HOUSE", title: "September rent", sub: "$1,650.00" },
-  ],
 };
 
 const ROWS: LifecycleRowDef[] = [
@@ -103,7 +39,6 @@ const ROWS: LifecycleRowDef[] = [
     linkLabel: "See tours in PropLane",
     portal: "manager",
     tab: "tours",
-    phone: TOUR_PHONE,
   },
   {
     id: "applications",
@@ -149,7 +84,6 @@ const ROWS: LifecycleRowDef[] = [
     linkLabel: "See services in PropLane",
     portal: "manager",
     tab: "services",
-    phone: SERVICE_VENDOR_PHONE,
   },
   {
     id: "vendors",
@@ -159,7 +93,6 @@ const ROWS: LifecycleRowDef[] = [
     linkLabel: "See the vendor portal",
     portal: "vendor",
     tab: "services",
-    phone: VENDOR_OFFER_PHONE,
   },
   {
     id: "resident-portal",
@@ -169,7 +102,6 @@ const ROWS: LifecycleRowDef[] = [
     linkLabel: "See the resident portal",
     portal: "resident",
     tab: "home",
-    phone: RESIDENT_PHONE,
   },
   {
     id: "calendar",
@@ -188,7 +120,6 @@ const ROWS: LifecycleRowDef[] = [
     linkLabel: "See Communication in PropLane",
     portal: "manager",
     tab: "communication",
-    phone: PROSPECT_THREAD_PHONE,
   },
 ];
 
@@ -208,7 +139,7 @@ function LifecycleRow({ row, flip }: { row: LifecycleRowDef; flip: boolean }) {
     </div>
   );
 
-  const panelCell = <LifecycleFrame portal={row.portal} tab={row.tab} phone={row.phone} label={row.kicker} />;
+  const panelCell = <LifecycleFrame portal={row.portal} tab={row.tab} label={row.kicker} />;
 
   return (
     <div

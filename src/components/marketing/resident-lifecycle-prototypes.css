@@ -2255,3 +2255,209 @@ button.rlp-table-row {
 .rlp-account-menu .rlp-account-signout svg {
   color: #b91c1c;
 }
+
+/* Home round 4 (captain 2026-10-07): one phone that stays on screen through the hero, the demo and
+   the lifecycle rows; every window one fixed size with its content scrolling inside; the focus ring on a
+   sidebar item stays inside the sidebar. */
+.rlp-story {
+  --rlp-phone-s: 1;
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 24px;
+}
+.rlp-story .rlp-hero-stage {
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  margin: 0;
+}
+.rlp-story .rlp-hero-stage .rlp-dual-view {
+  display: block;
+  max-width: none;
+}
+.rlp-story-rail {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  justify-content: center;
+  padding-top: 26px;
+}
+.rlp-story-rest {
+  grid-column: 1;
+  grid-row: 3;
+  min-width: 0;
+}
+.rlp-story-phone-slot {
+  width: 304px;
+}
+.rlp-story-phone {
+  width: 304px;
+}
+.rlp-story-phone .rl-phone-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.rlp-story-phone .rl-phone-caption {
+  order: 2;
+  margin: 12px 0 0;
+}
+.rlp-story-phone .rl-phone-screen {
+  height: 600px;
+  min-height: 0;
+}
+@media (min-width: 1024px) {
+  .rlp-story {
+    --rlp-phone-s: 0.62;
+    grid-template-columns: minmax(0, 1fr) calc(304px * var(--rlp-phone-s));
+  }
+  .rlp-story-rail {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    justify-content: flex-start;
+    padding-top: 0;
+  }
+  .rlp-story-rest {
+    grid-row: 2;
+  }
+  .rlp-story-phone-slot {
+    position: sticky;
+    top: 76px;
+    width: calc(304px * var(--rlp-phone-s));
+    height: calc(660px * var(--rlp-phone-s));
+  }
+  .rlp-story-phone {
+    transform: scale(var(--rlp-phone-s));
+    transform-origin: top left;
+  }
+}
+@media (min-width: 1280px) {
+  .rlp-story { --rlp-phone-s: 0.76; }
+}
+@media (min-width: 1536px) {
+  .rlp-story { --rlp-phone-s: 0.86; }
+}
+
+/* A fixed window: the screen scrolls inside it and never grows it. */
+.rlp-workspace {
+  grid-template-rows: minmax(0, 1fr);
+}
+.rlp-dual-view .rlp-sidebar {
+  min-height: 0;
+  overflow: hidden;
+}
+.rlp-dual-view .rlp-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  align-content: start;
+}
+.rlp-dual-view .rlp-main {
+  min-height: 0;
+  overflow: hidden;
+}
+.rlp-dual-view .rlp-canvas,
+.rlp-dual-view .rlp-canvas-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.rlp-dual-view .rlp-panel-frame {
+  flex: 0 0 auto;
+  min-height: 100%;
+  overflow: visible;
+}
+.rlp-hero-stage .rlp-dual-view .rlp-workspace {
+  height: 640px;
+  min-height: 0;
+}
+@media (max-width: 640px) {
+  .rlp-dual-view .rlp-workspace {
+    display: flex;
+    flex-direction: column;
+    height: 600px;
+    min-height: 0;
+  }
+  .rlp-hero-stage .rlp-dual-view .rlp-workspace {
+    height: 600px;
+  }
+  .rlp-dual-view .rlp-sidebar {
+    flex: none;
+    overflow: visible;
+  }
+  .rlp-dual-view .rlp-nav {
+    flex: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .rlp-dual-view .rlp-main {
+    flex: 1 1 auto;
+  }
+}
+
+/* The focus ring on a sidebar item sits inside the sidebar, never clipped by its edge. */
+.rlp-page .rlp-nav-item:focus-visible,
+.rlp-page .rlp-nav-item[data-guide-active="true"] {
+  outline: 2px solid #1769d6;
+  outline-offset: -2px;
+  box-shadow: none;
+}
+.rlp-page .rlp-nav-item[data-guide-active="true"]::after {
+  display: none;
+}
+
+/* Typing indicator: three dots in a bubble, in the manager thread and on the phone. */
+.rlp-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  padding: 11px 13px;
+}
+.rlp-typing i,
+.rl-phone-typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8a97ab;
+  animation: rlp-typing-dot 1.1s ease-in-out infinite;
+}
+.rlp-typing i:nth-child(2),
+.rl-phone-typing i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.rlp-typing i:nth-child(3),
+.rl-phone-typing i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+.rl-phone-typing > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.rl-phone-typing.rl-phone-outgoing i {
+  background: #fff;
+}
+@keyframes rlp-typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rlp-typing i,
+  .rl-phone-typing i {
+    animation: none;
+    opacity: 0.7;
+  }
+}

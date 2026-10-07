@@ -20,6 +20,9 @@ import { SiteSwitchSteps } from "@/components/marketing/site/switch-steps";
  *      `ResidentLifecycleAtmosphere variant="page"` behind every section, the
  *      sections themselves transparent, and the site top bar blending into it at
  *      the top (`public-navbar.tsx`).
+ *      One phone stays on screen (sticky from `lg`) beside the demo, the strip and the
+ *      lifecycle rows, always typing the next message, so those two sections are the
+ *      demo's children (`ResidentLifecyclePrototypes`).
  *   2. Replaces strip.
  *   3. Lifecycle rows ("From first tour to fixed faucet.").
  *   4. Switching steps (the import).
@@ -35,9 +38,10 @@ export default function HomePage() {
   return (
     <div className="home-wavy min-h-0 flex-1">
       <ResidentLifecycleAtmosphere variant="page" />
-      <ResidentLifecyclePrototypes />
-      <SiteReplacesStrip />
-      <SiteLifecycleRows />
+      <ResidentLifecyclePrototypes>
+        <SiteReplacesStrip />
+        <SiteLifecycleRows />
+      </ResidentLifecyclePrototypes>
       <SiteSwitchSteps />
       <SitePricingTeaser />
       <SiteFaq items={HOME_FAQ_ITEMS} />
