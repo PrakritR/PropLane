@@ -57,7 +57,7 @@ export function ResidentLifecycleDialog({
         </div>
       ) : null}
       <div className="rlp-modal-facts">
-        <span>Willow Court LLC</span>
+        <span>Seattle Homes</span>
       </div>
       <button type="button" className="rlp-modal-close" onClick={onClose}>
         {backLabel}

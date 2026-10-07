@@ -2101,3 +2101,68 @@ button.rlp-table-row {
 @media (prefers-reduced-motion: reduce) {
   .rlp-page [data-guide-active="true"] { animation: none; }
 }
+
+/* Hero with the demo inside it (captain 2026-10-06): headline and buttons, then the
+   product window in the same first screen, on the atmosphere. */
+.rlp-hero {
+  display: block;
+  min-height: 0;
+  padding: 30px 0 34px;
+}
+.rlp-hero-copy {
+  margin: 0 auto;
+  padding: 0 0 26px;
+  width: min(100% - 2 * var(--rlp-gutter), 1120px);
+}
+.rlp-hero h1 {
+  max-width: none;
+  margin-inline: auto;
+  font-size: clamp(34px, 4.2vw, 58px);
+  line-height: 1.06;
+}
+.rlp-hero-actions {
+  justify-content: center;
+  margin-top: 22px;
+  gap: 12px;
+}
+.rlp-hero-actions a {
+  min-height: 46px;
+}
+.rlp-hero-stage {
+  position: relative;
+  z-index: 1;
+  width: min(100% - 2 * var(--rlp-gutter), 1360px);
+  margin: 0 auto;
+}
+.rlp-hero-stage .rlp-demo-controls {
+  margin-top: 18px;
+}
+.rlp-hero-stage .rlp-guide-line {
+  border-top-color: #cfdeed;
+}
+@media (max-width: 860px) {
+  .rlp-hero {
+    min-height: 0;
+    padding-top: 24px;
+  }
+  .rlp-hero-copy {
+    padding: 0 0 20px;
+  }
+}
+@media (max-width: 640px) {
+  .rlp-hero {
+    min-height: 0;
+    padding: 22px 0 26px;
+  }
+  .rlp-hero-copy {
+    padding: 0 0 18px;
+  }
+  .rlp-hero h1 {
+    font-size: clamp(32px, 9.4vw, 44px);
+    line-height: 1.06;
+  }
+  .rlp-hero-actions {
+    align-items: stretch;
+    margin-top: 18px;
+  }
+}

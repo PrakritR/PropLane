@@ -3,8 +3,8 @@
 /**
  * The resident portal's tabs for the home page demo — My home, Applications,
  * Lease, Payments, Services, Forms, Communication — drawn for one resident
- * (Liam Foster, Alder House · Room 1) from the shared "Seattle Homes"
- * fixtures. Each mirrors its real screen's tab names, command bar and row
+ * (Jordan Rivera, Willow Court · Room 3) from the shared "Seattle Homes"
+ * fixtures and the story's progress (`world.ts`). Each mirrors its real screen's tab names, command bar and row
  * anatomy (`resident-move-in-panel.tsx`, `resident-applications-panel.tsx`,
  * `resident-lease-list.tsx`, `resident-payments-panel.tsx`,
  * `resident-services-panel.tsx`, `move-in-forms/resident-move-in-forms.tsx`,
@@ -12,7 +12,7 @@
  * and cards are composed from the same presentational pieces instead.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, ClipboardCheck, Clock, FileText, Home, Lock, Wrench } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -20,15 +20,18 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
-  APPLICATION_ROWS,
-  PAYMENT_ROWS,
-  RESIDENT_CONVERSATIONS,
-  RESIDENT_FORMS,
   RESIDENT_HOME,
   RESIDENT_NAME,
-  SERVICE_ROWS,
+  type CommConversationFixture,
   type ResidentFormFixture,
 } from "@/components/marketing/site/product-mock/fixtures";
+import {
+  residentForms,
+  residentHomeProgress,
+  residentLeases,
+  worldFor,
+  type DemoStory,
+} from "@/components/marketing/site/product-mock/world";
 import { countBy, FixtureInboxScreen, FixtureListScreen, FixtureMenuItems, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
 import { FixtureField, FixtureSheet, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
 
@@ -81,10 +84,10 @@ function InfoCard({ title, rows }: { title: string; rows: Array<[string, string]
   );
 }
 
-const CHECKLIST = ["Lease signed", "Move-in charges paid", "Move-in inspection photographed"];
 const SHARING = ["My name", "My room", "My email address", "My phone number"];
 
-export function ResidentHomePanel() {
+export function ResidentHomePanel({ story }: { story?: DemoStory } = {}) {
+  const progress = residentHomeProgress(worldFor(story).story);
   const [tab, setTab] = useState("placement");
   const [shared, setShared] = useState<Record<string, boolean>>({ "My name": true, "My room": true, "My email address": false, "My phone number": false });
   const { show, node: toastNode } = useFixtureToast();
@@ -100,7 +103,13 @@ export function ResidentHomePanel() {
             }
           />
           <div className="mt-3">
-          {tab === "placement" ? (
+          {!progress.unlocked ? (
+            <div className={`${CARD} flex items-center gap-3 px-4 py-6`}>
+              <Lock className="size-4 shrink-0 text-muted" aria-hidden />
+              <span className="min-w-0 text-[13.5px] font-medium text-foreground">My home opens once your lease is signed.</span>
+            </div>
+          ) : null}
+          {progress.unlocked && tab === "placement" ? (
             <div className="flex flex-col gap-3">
               <div className={`${CARD} grid grid-cols-1 gap-4 p-4 sm:grid-cols-3`}>
                 <DetailField label="Assigned room" value={RESIDENT_HOME.room} />
@@ -108,17 +117,23 @@ export function ResidentHomePanel() {
                 <DetailField label="Move-in date" value={RESIDENT_HOME.moveIn} />
               </div>
               <div className={`${CARD} divide-y divide-border/60`}>
-                {CHECKLIST.map((item) => (
-                  <div key={item} className="flex items-center gap-3 px-4 py-3">
-                    <CheckCircle2 className="size-4 shrink-0 text-emerald-600" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-foreground">{item}</span>
-                    <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-emerald-600">Done</span>
+                {progress.checklist.map((item) => (
+                  <div key={item.label} className="flex items-center gap-3 px-4 py-3">
+                    {item.done ? (
+                      <CheckCircle2 className="size-4 shrink-0 text-emerald-600" aria-hidden />
+                    ) : (
+                      <Clock className="size-4 shrink-0 text-muted" aria-hidden />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-foreground">{item.label}</span>
+                    <span className={`text-[11px] font-bold uppercase tracking-[0.06em] ${item.done ? "text-emerald-600" : "text-muted"}`}>
+                      {item.done ? "Done" : "To do"}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
           ) : null}
-          {tab === "details" ? (
+          {progress.unlocked && tab === "details" ? (
             <div className="grid gap-3 md:grid-cols-2">
               <InfoCard
                 title="Getting in"
@@ -126,10 +141,10 @@ export function ResidentHomePanel() {
                   ["Front door code", "4471#"],
                   ["Gate or building code", "None"],
                   ["Lockbox / key pickup", "Key in the front desk drawer"],
-                  ["Parking", "Street parking on Alder St"],
+                  ["Parking", "Street parking on Willow Court"],
                 ]}
               />
-              <InfoCard title="Wi-Fi" rows={[["Network name", "AlderHouse"], ["Password", "Shared at move-in"]]} />
+              <InfoCard title="Wi-Fi" rows={[["Network name", "WillowCourt"], ["Password", "Shared at move-in"]]} />
               <InfoCard title="Trash & cleaning" rows={[["Trash day", "Tuesday"], ["Recycling", "Every other Tuesday"], ["Common areas", "Cleaned Fridays"]]} />
               <InfoCard
                 title="House rules"
@@ -142,7 +157,7 @@ export function ResidentHomePanel() {
               />
             </div>
           ) : null}
-          {tab === "roommates" ? (
+          {progress.unlocked && tab === "roommates" ? (
             <div className="flex flex-col gap-3">
               <section className={`${CARD} p-4`}>
                 <h3 className="text-[14px] font-bold text-foreground">What housemates can see</h3>
@@ -174,17 +189,9 @@ export function ResidentHomePanel() {
               <p className={`${CARD} px-4 py-6 text-center text-[13px] text-muted`}>No other residents are listed for your household yet.</p>
             </div>
           ) : null}
-          {tab === "inspections" ? (
-            <PortalRecordListSurface isEmpty={false} emptyCard={{ title: "No inspections yet" }} bulkActions={<FixtureMenuItems toast={show} items={["Open"]} />}>
-              <PortalApplicantRecordRow
-                name="Move-in inspection"
-                tileIcon={ClipboardCheck}
-                address={`${RESIDENT_HOME.property} · ${RESIDENT_HOME.room}`}
-                facts={<PortalRowFact icon={CheckCircle2}>Photos added Aug 1</PortalRowFact>}
-                onSelectedChange={() => undefined}
-                onOpen={() => show("Move-in inspection (sample)")}
-                dataAttr="resident-inspection-row"
-              />
+          {progress.unlocked && tab === "inspections" ? (
+            <PortalRecordListSurface isEmpty emptyCard={{ title: "No inspections yet" }} bulkActions={<FixtureMenuItems toast={show} items={["Open"]} />}>
+              {null}
             </PortalRecordListSurface>
           ) : null}
           </div>
@@ -204,10 +211,15 @@ const APPLICATION_TABS = [
 ];
 const APPLICATION_TAB_OF: Record<string, string> = { incomplete: "sent", pending: "sent", approved: "approved", rejected: "denied" };
 
-export function ResidentApplicationsPanel() {
-  const mine = useMemo(() => APPLICATION_ROWS.filter((a) => a.name === RESIDENT_NAME), []);
+export function ResidentApplicationsPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const mine = useMemo(() => world.applications.filter((a) => a.name === RESIDENT_NAME), [world]);
   const counts = useMemo(() => countBy(mine, (a) => APPLICATION_TAB_OF[a.bucket]!, ["sent", "approved", "denied"]), [mine]);
-  const [tab, setTab] = useState("approved");
+  const jordan = mine[0] ? APPLICATION_TAB_OF[mine[0].bucket]! : null;
+  const [tab, setTab] = useState(jordan ?? "sent");
+  useEffect(() => {
+    if (jordan !== null) setTab(jordan);
+  }, [jordan]);
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -259,14 +271,18 @@ const LEASE_TABS = [
   { id: "signed", label: "Signed" },
 ];
 
-export function ResidentLeasePanel() {
-  const [tab, setTab] = useState("signed");
+export function ResidentLeasePanel({ story }: { story?: DemoStory } = {}) {
+  const leases = residentLeases(worldFor(story).story);
+  const jordan = leases[0]?.bucket ?? null;
+  const [tab, setTab] = useState<string>(jordan ?? "pending");
+  useEffect(() => {
+    if (jordan !== null) setTab(jordan);
+  }, [jordan]);
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const { show, node: toastNode } = useFixtureToast();
-  const leases = [{ id: "lease-liam", bucket: "signed", property: RESIDENT_HOME.property, signed: RESIDENT_HOME.leaseSigned }];
   const counts = countBy(leases, (l) => l.bucket, ["pending", "signed"]);
-  const rows = leases.filter((l) => l.bucket === tab && matchesSearch(search, "Lease agreement", l.property));
+  const rows = leases.filter((l) => l.bucket === tab && matchesSearch(search, "Lease agreement", RESIDENT_HOME.property));
 
   return (
     <FixtureListScreen
@@ -295,16 +311,16 @@ export function ResidentLeasePanel() {
           key={l.id}
           name="Lease agreement"
           tileIcon={FileText}
-          address={`${l.property} · Signed · ${l.signed}`}
+          address={`${RESIDENT_HOME.property} · ${RESIDENT_HOME.room} · ${l.label}`}
           onSelectedChange={() => undefined}
           onOpen={() =>
             setDetail({
               title: "Lease agreement",
               fields: [
                 ["Rent", `${RESIDENT_HOME.rent} per month`],
-                ["Property", `${l.property} · ${RESIDENT_HOME.room}`],
-                ["Your signature", "Signed"],
-                ["Manager signature", "Signed"],
+                ["Property", `${RESIDENT_HOME.property} · ${RESIDENT_HOME.room}`],
+                ["Your signature", l.bucket === "signed" ? "Signed" : "Pending"],
+                ["Manager signature", l.managerSigned ? "Signed" : "Pending"],
               ],
             })
           }
@@ -323,10 +339,15 @@ const PAYMENT_TABS = [
   { id: "paid", label: "Paid" },
 ];
 
-export function ResidentPaymentsPanel() {
-  const mine = useMemo(() => PAYMENT_ROWS.filter((p) => p.resident === RESIDENT_NAME), []);
+export function ResidentPaymentsPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const mine = useMemo(() => world.payments.filter((p) => p.resident === RESIDENT_NAME), [world]);
   const counts = useMemo(() => countBy(mine, (p) => p.bucket, ["pending", "overdue", "paid"]), [mine]);
-  const [tab, setTab] = useState("overdue");
+  const jordan = mine[0]?.bucket ?? null;
+  const [tab, setTab] = useState<string>(jordan ?? "pending");
+  useEffect(() => {
+    if (jordan !== null) setTab(jordan);
+  }, [jordan]);
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -409,10 +430,15 @@ const SERVICE_TABS = [
 ];
 const SERVICE_TAB_OF: Record<string, string> = { open: "open", scheduled: "scheduled", done: "completed", declined: "completed" };
 
-export function ResidentServicesPanel() {
-  const mine = useMemo(() => SERVICE_ROWS.filter((s) => s.resident === RESIDENT_NAME), []);
+export function ResidentServicesPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const mine = useMemo(() => world.services.filter((s) => s.resident === RESIDENT_NAME), [world]);
   const counts = useMemo(() => countBy(mine, (s) => SERVICE_TAB_OF[s.state]!, ["open", "assigned", "scheduled", "completed"]), [mine]);
-  const [tab, setTab] = useState("open");
+  const jordan = mine[0] ? SERVICE_TAB_OF[mine[0].state]! : null;
+  const [tab, setTab] = useState<string>(jordan ?? "open");
+  useEffect(() => {
+    if (jordan !== null) setTab(jordan);
+  }, [jordan]);
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -464,11 +490,12 @@ const FORM_TABS = [
   { id: "completed", label: "Completed" },
 ];
 
-export function ResidentFormsPanel() {
-  const counts = useMemo(() => countBy(RESIDENT_FORMS, (f) => f.bucket, ["pending", "completed"]), []);
+export function ResidentFormsPanel({ story }: { story?: DemoStory } = {}) {
+  const forms = residentForms(worldFor(story).story);
+  const counts = useMemo(() => countBy(forms, (f) => f.bucket, ["pending", "completed"]), [forms]);
   const [tab, setTab] = useState<ResidentFormFixture["bucket"]>("pending");
   const { show, node: toastNode } = useFixtureToast();
-  const rows = RESIDENT_FORMS.filter((f) => f.bucket === tab);
+  const rows = forms.filter((f) => f.bucket === tab);
 
   return (
     <FixtureListScreen
@@ -508,6 +535,6 @@ export function ResidentFormsPanel() {
 
 /* ───────────────────────────── Communication ───────────────────────────── */
 
-export function ResidentCommunicationPanel() {
-  return <FixtureInboxScreen path="/resident/communication/active" conversations={RESIDENT_CONVERSATIONS} selfName={RESIDENT_NAME} />;
+export function ResidentCommunicationPanel({ conversations }: { conversations: CommConversationFixture[] }) {
+  return <FixtureInboxScreen path="/resident/communication/active" conversations={conversations} selfName={RESIDENT_NAME} />;
 }

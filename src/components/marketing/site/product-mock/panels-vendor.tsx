@@ -13,7 +13,7 @@
  * these compose the same presentational pieces from fixtures.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpFromLine,
   Check,
@@ -40,15 +40,22 @@ import {
   CALENDAR_NOW_MIN,
   CALENDAR_TODAY,
   CALENDAR_WEEK,
-  VENDOR_CONVERSATIONS,
   VENDOR_NAME,
-  VENDOR_PAYMENTS,
   VENDOR_RATING,
   VENDOR_REVIEWS,
-  VENDOR_SERVICES,
+  type CommConversationFixture,
+  type VendorPaymentFixture,
   type VendorReviewFixture,
   type VendorServiceFixture,
 } from "@/components/marketing/site/product-mock/fixtures";
+import {
+  vendorPayments,
+  vendorServices,
+  vendorStory,
+  vendorVisit,
+  type DemoStory,
+  type VendorVisit,
+} from "@/components/marketing/site/product-mock/world";
 import { countBy, FixtureInboxScreen, FixtureListScreen, FixtureMenuItems, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
 import { FixtureField, FixtureSheet, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
 
@@ -75,13 +82,19 @@ function placeLine(s: VendorServiceFixture): string {
   return s.unit ? `${s.property} · ${s.unit}` : s.property;
 }
 
-export function VendorServicesPanel() {
-  const counts = useMemo(() => countBy(VENDOR_SERVICES, (s) => s.state, ["open", "assigned", "scheduled", "completed"]), []);
-  const [tab, setTab] = useState("open");
+export function VendorServicesPanel({ story }: { story?: DemoStory } = {}) {
+  const services = useMemo(() => vendorServices(story ?? vendorStory(undefined)), [story]);
+  const counts = useMemo(() => countBy(services, (s) => s.state, ["open", "assigned", "scheduled", "completed"]), [services]);
+  // The faucet job is the first row whenever the story has reached the vendor.
+  const jordan = services[0]?.id === "vsvc-willow-faucet" ? services[0].state : null;
+  const [tab, setTab] = useState<string>(jordan ?? "open");
+  useEffect(() => {
+    if (jordan !== null) setTab(jordan);
+  }, [jordan]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<VendorServiceFixture | null>(null);
   const { show, node: toastNode } = useFixtureToast();
-  const rows = VENDOR_SERVICES.filter((s) => s.state === tab && matchesSearch(search, s.title, s.property));
+  const rows = services.filter((s) => s.state === tab && matchesSearch(search, s.title, s.property));
   const nearYou = rows.filter((s) => !s.hired);
   const mine = rows.filter((s) => s.hired);
 
@@ -165,14 +178,14 @@ const CALENDAR_TABS = [
 ];
 const GRID_WINDOW: GridWindow = { from: 8 * 60, to: 19 * 60, early: 0, late: 0 };
 
-type VisitFixture = { id: string; dateStr: string; startMin: number; durationMin: number; title: string; place: string };
+type VisitFixture = VendorVisit;
 /** Pacific Plumbing's visits this week — the same services the Services tab lists. */
 const VISITS: VisitFixture[] = [
   { id: "visit-disposal", dateStr: "2025-09-22", startMin: 13 * 60, durationMin: 60, title: "Garbage disposal repair", place: "Fremont Studio" },
   { id: "visit-faucet", dateStr: "2025-09-25", startMin: 10 * 60, durationMin: 120, title: "Kitchen faucet drip", place: "Alder House" },
 ];
-/** Open hours: Monday to Friday, 8 AM to 4 PM. */
-const AVAILABILITY_DAYS = CALENDAR_WEEK.slice(0, 5);
+/** The week after the standing one, where the Willow Court faucet visit lands (Thursday, Oct 2). */
+const NEXT_WEEK = ["2025-09-29", "2025-09-30", "2025-10-01", "2025-10-02", "2025-10-03", "2025-10-04", "2025-10-05"];
 
 function clock(min: number): string {
   const h = Math.floor(min / 60);
@@ -196,22 +209,29 @@ function visitToGridItem(v: VisitFixture): CalendarGridItem {
   };
 }
 
-export function VendorCalendarPanel() {
+export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
+  const visit = vendorVisit(story ?? vendorStory(undefined));
+  // The grid shows the week the story's visit is in; the rows and counts below are only that week's.
+  const week = visit ? NEXT_WEEK : CALENDAR_WEEK;
+  /** Open hours: Monday to Friday, 8 AM to 4 PM. */
+  const availabilityDays = week.slice(0, 5);
+  const visits = useMemo(() => [...(visit ? [visit] : []), ...VISITS].filter((v) => week.includes(v.dateStr)), [visit, week]);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<CalendarGridItem | null>(null);
   const { show, node: toastNode } = useFixtureToast();
 
-  const counts = { all: VISITS.length + AVAILABILITY_DAYS.length, services: VISITS.length, availability: AVAILABILITY_DAYS.length };
+  const counts = { all: visits.length + availabilityDays.length, services: visits.length, availability: availabilityDays.length };
   const items = useMemo(
-    () => (tab === "availability" ? [] : VISITS.filter((v) => matchesSearch(search, v.title, v.place)).map(visitToGridItem)),
-    [tab, search],
+    () => (tab === "availability" ? [] : visits.filter((v) => matchesSearch(search, v.title, v.place)).map(visitToGridItem)),
+    [visits, tab, search],
   );
   const bandsByDate = useMemo(() => {
     const map = new Map<string, GridBand[]>();
-    if (tab !== "services") for (const ds of AVAILABILITY_DAYS) map.set(ds, [{ startMin: 8 * 60, endMin: 16 * 60, kinds: ["services"], source: "typed" }]);
+    if (tab !== "services") for (const ds of availabilityDays) map.set(ds, [{ startMin: 8 * 60, endMin: 16 * 60, kinds: ["services"], source: "typed" }]);
     return map;
-  }, [tab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, week]);
   const noop = () => undefined;
 
   return (
@@ -245,7 +265,7 @@ export function VendorCalendarPanel() {
     >
       <div className="overflow-hidden rounded-[14px] border border-border bg-card">
         <CalendarTimeGrid
-          dates={CALENDAR_WEEK}
+          dates={week}
           items={items}
           bandsByDate={bandsByDate}
           window={GRID_WINDOW}
@@ -272,15 +292,16 @@ export function VendorCalendarPanel() {
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const parseMoney = (s: string) => Number(s.replace(/[$,]/g, ""));
 
-export function VendorPaymentsPanel() {
+export function VendorPaymentsPanel({ story }: { story?: DemoStory } = {}) {
+  const payments = useMemo(() => vendorPayments(story ?? vendorStory(undefined)), [story]);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<(typeof VENDOR_PAYMENTS)[number] | null>(null);
+  const [selected, setSelected] = useState<VendorPaymentFixture | null>(null);
   const { show, node: toastNode } = useFixtureToast();
-  const rows = VENDOR_PAYMENTS.filter((p) => matchesSearch(search, p.title, p.place, p.status));
+  const rows = payments.filter((p) => matchesSearch(search, p.title, p.place, p.status));
   // The balance card is derived from the rows below it: money submitted but not
   // yet approved is pending; the newest paid invoice is what is available now.
-  const pending = VENDOR_PAYMENTS.filter((p) => p.status === "Submitted").reduce((sum, p) => sum + parseMoney(p.amount), 0);
-  const available = parseMoney(VENDOR_PAYMENTS.find((p) => p.status === "Paid")?.amount ?? "0");
+  const pending = payments.filter((p) => p.status === "Submitted").reduce((sum, p) => sum + parseMoney(p.amount), 0);
+  const available = parseMoney(payments.find((p) => p.status === "Paid")?.amount ?? "0");
 
   return (
     <FixtureListScreen
@@ -510,6 +531,6 @@ export function VendorReviewsPanel() {
 
 /* ───────────────────────────── Communication ───────────────────────────── */
 
-export function VendorCommunicationPanel() {
-  return <FixtureInboxScreen path="/vendor/communication/active" conversations={VENDOR_CONVERSATIONS} selfName={VENDOR_NAME} />;
+export function VendorCommunicationPanel({ conversations }: { conversations: CommConversationFixture[] }) {
+  return <FixtureInboxScreen path="/vendor/communication/active" conversations={conversations} selfName={VENDOR_NAME} />;
 }

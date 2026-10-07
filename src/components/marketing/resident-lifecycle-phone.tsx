@@ -135,7 +135,7 @@ export function ResidentLifecyclePhone({
             <div className="rl-phone-contact">
               <span className="rl-phone-contact-avatar">{script?.initials ?? "AM"}</span>
               <strong>{script?.name ?? "Avery Morgan"}</strong>
-              <small>{script?.sub ?? "Willow Court"}</small>
+              <small>{script?.sub ?? "Seattle Homes"}</small>
             </div>
             <button
               type="button"
@@ -197,7 +197,7 @@ export function ResidentLifecyclePhone({
                   <div>
                     <small>TOUR · 61 WILLOW COURT</small>
                     <strong>Thursday, 5:30 PM Pacific</strong>
-                    <span>Room 3 · Oakland, CA</span>
+                    <span>Room 3 · Wallingford, Seattle</span>
                   </div>
                 </div>
                 {!tourAccepted ? (

@@ -11,6 +11,15 @@
 
 import type { ReactNode } from "react";
 import { BarePanelChrome } from "@/components/marketing/site/product-mock/shared";
+import { phoneScriptFor } from "@/components/marketing/resident-lifecycle-script";
+import {
+  NO_STORY,
+  residentConversations,
+  residentStory,
+  vendorConversations,
+  vendorStory,
+  type DemoStory,
+} from "@/components/marketing/site/product-mock/world";
 import {
   ApplicationsPanel,
   CommunicationPanel,
@@ -40,10 +49,11 @@ import {
 
 export type DemoPortal = "manager" | "resident" | "vendor";
 export type DemoTab = { id: string; label: string; group?: string };
+export type { DemoStory };
 
 export const DEMO_TABS: Record<DemoPortal, DemoTab[]> = {
   manager: [
-    { id: "dashboard", label: "Dashboard" },
+    { id: "dashboard", label: "Dashboard", group: "WORKSPACE" },
     { id: "properties", label: "Properties", group: "WORKSPACE" },
     { id: "tours", label: "Tours", group: "LEASING" },
     { id: "applications", label: "Applications", group: "LEASING" },
@@ -73,46 +83,59 @@ export const DEMO_TABS: Record<DemoPortal, DemoTab[]> = {
   ],
 };
 
-const PANELS: Record<DemoPortal, Record<string, () => ReactNode>> = {
+type PanelProps = { story: DemoStory; stage?: string };
+
+const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode>> = {
   manager: {
-    dashboard: () => <DashboardPanel />,
-    properties: () => <PropertiesPanel />,
-    tours: () => <ToursPanel />,
-    applications: () => <ApplicationsPanel />,
-    leases: () => <LeasesPanel />,
-    residents: () => <ResidentsPanel />,
-    payments: () => <PaymentsPanel />,
-    services: () => <ServicesPanel />,
-    calendar: () => <CalendarPanel />,
+    dashboard: ({ story }) => <DashboardPanel story={story} />,
+    properties: ({ story }) => <PropertiesPanel story={story} />,
+    tours: ({ story }) => <ToursPanel story={story} />,
+    applications: ({ story }) => <ApplicationsPanel story={story} />,
+    leases: ({ story }) => <LeasesPanel story={story} />,
+    residents: ({ story }) => <ResidentsPanel story={story} />,
+    payments: ({ story }) => <PaymentsPanel story={story} />,
+    services: ({ story }) => <ServicesPanel story={story} />,
+    calendar: ({ story }) => <CalendarPanel story={story} />,
     communication: () => <CommunicationPanel />,
-    vendors: () => <VendorsPanel />,
+    vendors: ({ story }) => <VendorsPanel story={story} />,
   },
   resident: {
-    home: () => <ResidentHomePanel />,
-    applications: () => <ResidentApplicationsPanel />,
-    lease: () => <ResidentLeasePanel />,
-    payments: () => <ResidentPaymentsPanel />,
-    services: () => <ResidentServicesPanel />,
-    forms: () => <ResidentFormsPanel />,
-    communication: () => <ResidentCommunicationPanel />,
+    home: ({ story }) => <ResidentHomePanel story={story} />,
+    applications: ({ story }) => <ResidentApplicationsPanel story={story} />,
+    lease: ({ story }) => <ResidentLeasePanel story={story} />,
+    payments: ({ story }) => <ResidentPaymentsPanel story={story} />,
+    services: ({ story }) => <ResidentServicesPanel story={story} />,
+    forms: ({ story }) => <ResidentFormsPanel story={story} />,
+    communication: ({ story, stage }) => (
+      <ResidentCommunicationPanel conversations={residentConversations(story, phoneScriptFor("resident", stage ?? "forms").items)} />
+    ),
   },
   vendor: {
-    services: () => <VendorServicesPanel />,
-    calendar: () => <VendorCalendarPanel />,
-    payments: () => <VendorPaymentsPanel />,
+    services: ({ story }) => <VendorServicesPanel story={story} />,
+    calendar: ({ story }) => <VendorCalendarPanel story={story} />,
+    payments: ({ story }) => <VendorPaymentsPanel story={story} />,
     reviews: () => <VendorReviewsPanel />,
-    communication: () => <VendorCommunicationPanel />,
+    communication: ({ stage }) => (
+      <VendorCommunicationPanel conversations={vendorConversations(phoneScriptFor("vendor", stage ?? "visit").items)} />
+    ),
   },
 };
 
-/** The portal screen for one tab, fed fixtures. An unknown tab falls back to
- * that portal's first, so the demo never renders an empty frame. */
-export function DemoPanel({ portal, tab }: { portal: DemoPortal; tab: string }) {
+/** What a portal shows when the engine does not say where the story is: the manager's standing
+ * portfolio, and the resident's and vendor's fullest view (so no tab is an empty frame). */
+function defaultStory(portal: DemoPortal): DemoStory {
+  return portal === "manager" ? NO_STORY : portal === "resident" ? residentStory(undefined) : vendorStory(undefined);
+}
+
+/** The portal screen for one tab, fed fixtures and the story's progress. An unknown tab falls
+ * back to that portal's first, so the demo never renders an empty frame. `stage` is the
+ * resident or vendor stage id, which decides what the phone beside the panel also says. */
+export function DemoPanel({ portal, tab, story, stage }: { portal: DemoPortal; tab: string; story?: DemoStory; stage?: string }) {
   const panels = PANELS[portal];
   const render = panels[tab] ?? panels[DEMO_TABS[portal][0]!.id]!;
   return (
     <BarePanelChrome key={`${portal}:${tab}`}>
-      {render()}
+      {render({ story: story ?? defaultStory(portal), stage })}
     </BarePanelChrome>
   );
 }
