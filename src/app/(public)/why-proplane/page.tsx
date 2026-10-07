@@ -8,12 +8,13 @@ import {
   MockDraft,
   MockFrame,
   MockRow,
-  SITE_MEASURE,
   SiteCtaPair,
   SiteEyebrow,
   SiteHeading,
+  SitePageHero,
   SiteSection,
 } from "@/components/marketing/site/primitives";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 export const metadata: Metadata = {
   title: "Why PropLane",
@@ -151,25 +152,27 @@ const ROLES = [
 
 export default function WhyPropLanePage() {
   return (
-    <div className="relative min-h-0 flex-1">
-      <section className="border-b border-border/70 pb-14 pt-14 sm:pt-16 lg:pb-20 lg:pt-20" aria-labelledby="why-title">
-        <div className={`${SITE_MEASURE} max-w-[860px]`}>
-          <SiteEyebrow className="mb-4">Why PropLane</SiteEyebrow>
-          <SiteHeading as="h1" id="why-title">
+    <SitePage>
+      <SitePageHero
+        eyebrow="Why PropLane"
+        id="why-title"
+        title={
+          <>
             Property ops that wait
-            <br />
-            <span className="text-primary">for your OK.</span>
-          </SiteHeading>
+            <span className="site-accent">for your OK.</span>
+          </>
+        }
+        actions={
           <SiteCtaPair
-            className="mt-7"
+            align="center"
             primaryLabel="Get started free"
             primaryAttr="why-proplane-hero-get-started"
             secondaryHref="/pricing"
             secondaryLabel="See pricing"
             secondaryAttr="why-proplane-hero-pricing"
           />
-        </div>
-      </section>
+        }
+      />
 
       <SiteSection ariaLabel="Chapters">
         <div className="grid gap-12 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-16">
@@ -268,6 +271,6 @@ export default function WhyPropLanePage() {
       </SiteSection>
 
       <SiteFinalCta primaryAttr="why-proplane-closing-get-started" secondaryAttr="why-proplane-closing-book-demo" />
-    </div>
+    </SitePage>
   );
 }

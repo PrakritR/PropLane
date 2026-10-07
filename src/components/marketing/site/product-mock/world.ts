@@ -3,7 +3,7 @@
  *
  * `fixtures.ts` is the standing portfolio ("Seattle Homes": Alder House, Maple
  * Duplex, Fremont Studio and Willow Court). The guided demo adds one person on
- * top of it: Jordan Rivera, who asks about Room 3 at 61 Willow Court, tours,
+ * top of it: Jordan, who asks about Room 3 at 61 Willow Court, tours,
  * applies, signs, moves in, pays rent and reports a leaking faucet. Every
  * portal reads the same `DemoStory`, so a manager's Applications tab, the
  * resident's Lease tab, the vendor's Services tab and the phone beside them can
@@ -28,6 +28,7 @@ import {
   RESIDENT_FORMS,
   RESIDENT_HOME,
   RESIDENT_NAME,
+  RESIDENT_SELF,
   RESIDENT_ROWS,
   SERVICE_ROWS,
   TOUR_ROWS,
@@ -112,11 +113,10 @@ const SIGNED: DemoStory = { ...APPLIED, applicationApproved: true, leaseStep: 3 
 
 /** What Jordan's own portal knows at each resident stage (the phone beside it shows the same moment). */
 const RESIDENT_STORIES: Record<string, DemoStory> = {
+  tour: { ...NO_STORY, tourOffered: true, tourAccepted: true },
   apply: APPLIED,
-  sign: { ...APPLIED, applicationApproved: true, leaseStep: 2 },
-  pay: { ...SIGNED, rentPaid: true },
-  request: { ...SIGNED, rentPaid: true, service: "open" },
-  forms: { ...SIGNED, rentPaid: true, service: "open", formSent: true },
+  sign: SIGNED,
+  pay: { ...SIGNED, rentPaid: true, service: "scheduled", formSent: true },
 };
 /** What the vendor can see of the faucet service at each vendor stage. */
 const VENDOR_STORIES: Record<string, DemoStory> = {
@@ -127,7 +127,7 @@ const VENDOR_STORIES: Record<string, DemoStory> = {
 };
 
 export function residentStory(stageId: string | undefined): DemoStory {
-  return RESIDENT_STORIES[stageId ?? "forms"] ?? RESIDENT_STORIES.forms!;
+  return RESIDENT_STORIES[stageId ?? "pay"] ?? RESIDENT_STORIES.pay!;
 }
 export function vendorStory(stageId: string | undefined): DemoStory {
   return VENDOR_STORIES[stageId ?? "visit"] ?? VENDOR_STORIES.visit!;
@@ -446,7 +446,7 @@ function threadFrom(
 
 /** Jordan's inbox. On his phone the manager's lines are "in"; in his portal they are inbound too. */
 export function residentConversations(story: DemoStory, lines: PhoneLine[]): CommConversationFixture[] {
-  const messages = threadFrom(lines, "out", { self: RESIDENT_NAME, other: MANAGER_NAME });
+  const messages = threadFrom(lines, "out", { self: RESIDENT_SELF, other: MANAGER_NAME });
   const rows: CommConversationFixture[] = [];
   if (messages.length) {
     const last = messages[messages.length - 1]!;

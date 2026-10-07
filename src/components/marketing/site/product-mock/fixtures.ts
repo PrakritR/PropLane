@@ -639,14 +639,14 @@ export const HERO_ACTIVITY_EVENTS = [
 
 /* ─────────────────────────────────────────────────────────────────────────
  * The rest of the demo's world — Properties, Residents, Calendar, Vendors for
- * the manager, plus the resident (Jordan Rivera, Willow Court · Room 3) and the
+ * the manager, plus the resident (Jordan, Willow Court · Room 3) and the
  * vendor (Pacific Plumbing) portals. Every row below agrees with the rows
  * above: the same people, the same houses, the same charges and services.
  * Counts a panel prints are derived from these rows, never typed beside them.
  * ───────────────────────────────────────────────────────────────────────── */
 
 /** The manager the workspace belongs to. */
-export const MANAGER_NAME = "Avery Morgan";
+export const MANAGER_NAME = "Manager";
 
 export type PropertyFixtureRow = {
   id: string;
@@ -662,7 +662,7 @@ export const PROPERTY_ROWS: PropertyFixtureRow[] = [
   { id: "prop-alder", title: "Alder House", street: "210 Alder St", neighborhood: "Central District", rooms: 3, rentLabel: "$1,650/mo", stage: "listed" },
   { id: "prop-maple", title: "Maple Duplex", street: "1412 Maple Ct", neighborhood: "Ballard", rooms: 4, rentLabel: "$1,850/mo", stage: "listed" },
   { id: "prop-fremont", title: "Fremont Studio", street: "3301 Fremont Ave N", neighborhood: "Fremont", rooms: 1, rentLabel: "$1,400/mo", stage: "listed" },
-  // The home Jordan Rivera's story is about: Rooms 1 and 2 are leased, Room 3 is the one he asks about.
+  // The home Jordan's story is about: Rooms 1 and 2 are leased, Room 3 is the one he asks about.
   { id: "prop-willow", title: "Willow Court", street: "61 Willow Court", neighborhood: "Wallingford", rooms: 3, rentLabel: "$1,080/mo", stage: "listed" },
 ];
 
@@ -795,11 +795,14 @@ export const AREA_BY_PROPERTY: Record<string, string> = {
   "Willow Court": "Wallingford, Seattle",
 };
 
-/* ── Resident portal: Jordan Rivera · Willow Court · Room 3 ── */
+/* ── Resident portal: Jordan · Willow Court · Room 3 ── */
 
 /** The prospect the whole home demo follows: asks about Room 3, tours, applies, signs, moves in. */
-export const RESIDENT_NAME = "Jordan Rivera";
-export const RESIDENT_EMAIL = "jordan.rivera@example.com";
+/** How the resident is named in a manager's list rows: a plain first name. Their own account is RESIDENT_SELF. */
+export const RESIDENT_NAME = "Jordan";
+/** The resident's own account label in their portal and message thread (people are shown by role). */
+export const RESIDENT_SELF = "Resident";
+export const RESIDENT_EMAIL = "jordan@example.com";
 export const RESIDENT_HOME = {
   property: "Willow Court",
   address: "61 Willow Court",
@@ -842,7 +845,7 @@ export type VendorServiceFixture = {
 };
 
 export const VENDOR_SERVICES: VendorServiceFixture[] = [
-  { id: "vsvc-hotwater", title: "No hot water", property: "Maple Duplex", hired: false, fact: "Requested by Avery Morgan · answer by Sep 26", factIcon: "sparkles", figure: "$250 budget", state: "open" },
+  { id: "vsvc-hotwater", title: "No hot water", property: "Maple Duplex", hired: false, fact: "Requested by Manager · answer by Sep 26", factIcon: "sparkles", figure: "$250 budget", state: "open" },
   { id: "vsvc-faucet", title: "Kitchen faucet drip", property: "Alder House", unit: "Room 1", hired: true, fact: "Thu, Sep 25 · 10am", factIcon: "calendar", figure: "$90", state: "scheduled" },
   { id: "vsvc-drain", title: "Slow bathroom drain", property: "Maple Duplex", unit: "Unit B", hired: true, fact: "Paid Sep 15", factIcon: "check", figure: "$140", state: "completed" },
   { id: "vsvc-disposal", title: "Garbage disposal repair", property: "Fremont Studio", hired: true, fact: "Invoice sent", factIcon: "check", figure: "$210", state: "completed" },

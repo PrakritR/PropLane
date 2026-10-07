@@ -1,26 +1,18 @@
 "use client";
 
 /**
- * The two manager-side pieces of Akhil's guided sample that are not a plain
- * portal screen: the live Communication thread (tied to Jordan's phone) and the
- * action strip under a record screen (approve, send the lease, countersign).
- * Every other manager tab renders its real panel through `DemoPanel`; the
- * sidebar and top bar live in `resident-lifecycle-workspace.tsx`.
+ * The one manager screen the demo draws itself rather than through `DemoPanel`: the
+ * live Communication thread, tied to the phone beside the window (the same messages,
+ * the same typing indicator). Every other manager tab renders its real panel through
+ * `DemoPanel`; the sidebar and top bar live in `resident-lifecycle-workspace.tsx`.
  */
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Check, ChevronRight, MessageSquare, MoreHorizontal, Paperclip, Plus, Search, Send, Sparkles, X } from "lucide-react";
+import { MoreHorizontal, Paperclip, Plus, Search, Send, X } from "lucide-react";
 import { ResidentLifecycleDialog } from "./resident-lifecycle-dialog";
-import { COMMUNICATION_THREADS, SUGGESTED_REPLY, type Chapter, type SampleMessage } from "./resident-lifecycle-script";
+import { COMMUNICATION_THREADS, type SampleMessage } from "./resident-lifecycle-script";
 
-export type { Chapter, SampleMessage };
-
-const LEASE_STATUS = [
-  "Manager review",
-  "Resident signature pending",
-  "Manager signature pending",
-  "Signed",
-] as const;
+export type { SampleMessage };
 
 const iconAction = (label: string, icon: React.ReactNode, onClick: () => void) => (
   <button type="button" className="rlp-icon-button" aria-label={label} title={label} onClick={onClick}>
@@ -30,35 +22,21 @@ const iconAction = (label: string, icon: React.ReactNode, onClick: () => void) =
 
 type CommunicationProps = {
   messages: SampleMessage[];
-  chapter: Chapter;
-  suggestedReply: boolean;
-  /** Pre-filled composer text, for a thread that mounts while the reply is prepared but not sent. */
-  initialDraft: string;
-  guideTarget?: string;
-  guideInstruction?: string;
-  busy: boolean;
-  onSuggest(): boolean;
+  /** The other party is typing the next message (the phone shows the same). */
+  typing?: boolean;
   onReply(text: string): boolean;
 };
 
-export function ManagerCommunication({
-  messages,
-  chapter,
-  suggestedReply,
-  initialDraft,
-  guideTarget,
-  guideInstruction,
-  busy,
-  onSuggest,
-  onReply,
-}: CommunicationProps) {
+const PROSPECT = COMMUNICATION_THREADS[0];
+
+export function ManagerCommunication({ messages, typing = false, onReply }: CommunicationProps) {
   const [tab, setTab] = useState("Active");
   const [query, setQuery] = useState("");
-  const [thread, setThread] = useState("Jordan Rivera");
-  const [draft, setDraft] = useState(initialDraft);
+  const [thread, setThread] = useState<string>(PROSPECT);
+  const [draft, setDraft] = useState("");
   const [minaMessages, setMinaMessages] = useState<SampleMessage[]>([
-    { from: "resident", text: "Could I tour Maple Duplex on Friday?", stage: "message" },
-    { from: "manager", text: "Friday at 11:00 AM is available.", stage: "message" },
+    { from: "resident", text: "Could I tour Maple Duplex on Friday?" },
+    { from: "manager", text: "Friday at 11:00 AM is available." },
   ]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [overlay, setOverlay] = useState<{ title: string; content: string; fields?: { label: string; value: string }[] } | null>(null);
@@ -90,15 +68,15 @@ export function ManagerCommunication({
   };
   const send = (event: FormEvent) => {
     event.preventDefault();
-    if (busy || !draft.trim()) return;
-    if (thread === "Jordan Rivera") {
+    if (!draft.trim()) return;
+    if (thread === PROSPECT) {
       if (onReply(draft.trim())) setDraft("");
     } else {
-      setMinaMessages((current) => [...current, { from: "manager", text: draft.trim(), stage: chapter }]);
+      setMinaMessages((current) => [...current, { from: "manager", text: draft.trim() }]);
       setDraft("");
     }
   };
-  const showJordan = "Jordan Rivera 61 Willow Court Room 3".toLowerCase().includes(query.toLowerCase());
+  const showJordan = `${PROSPECT} 61 Willow Court Room 3`.toLowerCase().includes(query.toLowerCase());
   const showMina = "Mina Chen Maple Duplex Tour question".toLowerCase().includes(query.toLowerCase());
   const matches = Number(showJordan) + Number(showMina);
 
@@ -113,9 +91,9 @@ export function ManagerCommunication({
           {iconAction("Search communication", <Search aria-hidden />, () => setSearchOpen((current) => !current))}
           {iconAction("New message", <Plus aria-hidden />, () =>
             open("New message", "Compose a new conversation.", [
-              { label: "To", value: "Jordan Rivera" },
+              { label: "To", value: PROSPECT },
               { label: "Channel", value: "SMS" },
-              { label: "Message", value: "Hello Jordan," },
+              { label: "Message", value: `Hello ${PROSPECT},` },
             ]),
           )}
         </div>
@@ -172,12 +150,12 @@ export function ManagerCommunication({
           <div className="rlp-contacts">
             {showJordan ? (
               <div className="rlp-contact-entry">
-                <button type="button" className={thread === "Jordan Rivera" ? "rlp-contact-active" : ""} onClick={() => setThread("Jordan Rivera")}>
-                  <span>JR</span>
-                  <strong>Jordan Rivera</strong>
+                <button type="button" className={thread === PROSPECT ? "rlp-contact-active" : ""} onClick={() => setThread(PROSPECT)}>
+                  <span>JO</span>
+                  <strong>{PROSPECT}</strong>
                   <small>61 Willow Court · Room 3</small>
                 </button>
-                <button type="button" className="rlp-contact-more" aria-label="More actions for Jordan Rivera" onClick={() => {}}>
+                <button type="button" className="rlp-contact-more" aria-label={`More actions for ${PROSPECT}`} onClick={() => {}}>
                   <MoreHorizontal aria-hidden />
                 </button>
               </div>
@@ -198,10 +176,10 @@ export function ManagerCommunication({
           </div>
           <div className="rlp-conversation">
             <div className="rlp-person-bar">
-              <span>{thread === "Jordan Rivera" ? "JR" : "MC"}</span>
+              <span>{thread === PROSPECT ? "JO" : "MC"}</span>
               <div>
                 <strong>{thread}</strong>
-                <small>{thread === "Jordan Rivera" ? "Prospect · 61 Willow Court" : "Prospect · Maple Duplex"}</small>
+                <small>{thread === PROSPECT ? "Prospect · 61 Willow Court" : "Prospect · Maple Duplex"}</small>
               </div>
               {iconAction("Conversation actions", <MoreHorizontal aria-hidden />, () =>
                 setMenu(menu === "conversation" ? null : "conversation"),
@@ -221,27 +199,19 @@ export function ManagerCommunication({
               </div>
             ) : null}
             <div className="rlp-messages">
-              {(thread === "Jordan Rivera" ? messages : minaMessages).map((message, index) => (
+              {(thread === PROSPECT ? messages : minaMessages).map((message, index) => (
                 <div key={`${message.text}-${index}`} className={`rlp-bubble rlp-bubble-${message.from}`}>
                   {message.text}
                 </div>
               ))}
+              {typing && thread === PROSPECT ? (
+                <div className="rlp-bubble rlp-bubble-resident rlp-typing" role="status" aria-label="Typing">
+                  <i />
+                  <i />
+                  <i />
+                </div>
+              ) : null}
             </div>
-            {thread === "Jordan Rivera" && !suggestedReply ? (
-              <button
-                type="button"
-                className="rlp-suggest-reply"
-                data-guide-target="suggest"
-                data-guide-active={guideTarget === "suggest" ? "true" : undefined}
-                data-guide-label={guideTarget === "suggest" ? guideInstruction : undefined}
-                disabled={busy}
-                onClick={() => {
-                  if (onSuggest()) setDraft(SUGGESTED_REPLY);
-                }}
-              >
-                <Sparkles aria-hidden /> Prepare reply
-              </button>
-            ) : null}
             <form className="rlp-compose" onSubmit={send}>
               {iconAction("Attach file", <Paperclip aria-hidden />, () => {})}
               <label className="rlp-channel-select">
@@ -256,10 +226,7 @@ export function ManagerCommunication({
                 type="submit"
                 aria-label="Send sample reply"
                 title="Send sample reply"
-                data-guide-target="send"
-                data-guide-active={guideTarget === "send" ? "true" : undefined}
-                data-guide-label={guideTarget === "send" ? guideInstruction : undefined}
-                disabled={busy || !draft.trim()}
+                disabled={!draft.trim()}
               >
                 <Send aria-hidden />
               </button>
@@ -285,126 +252,4 @@ export function ManagerCommunication({
       ) : null}
     </>
   );
-}
-
-type StripProps = {
-  tab: string;
-  tourAccepted: boolean;
-  applicationApproved: boolean;
-  leaseStep: 0 | 1 | 2 | 3;
-  serviceRecord: { title: string; details: string } | null;
-  vendorOffered: boolean;
-  guideTarget?: string;
-  guideInstruction?: string;
-  busy: boolean;
-  onApprove(): boolean;
-  onSendLease(): boolean;
-  onManagerSign(): boolean;
-  onChapter(chapter: Chapter): void;
-  onOpenTab(tab: string): void;
-};
-
-/** Akhil's action strip under a record screen; the highlighted button is the guided step. */
-export function ManagerActionStrip({
-  tab,
-  tourAccepted,
-  applicationApproved,
-  leaseStep,
-  serviceRecord,
-  vendorOffered,
-  guideTarget,
-  guideInstruction,
-  busy,
-  onApprove,
-  onSendLease,
-  onManagerSign,
-  onChapter,
-  onOpenTab,
-}: StripProps) {
-  const guide = (target: string) => ({
-    "data-guide-target": target,
-    "data-guide-active": guideTarget === target ? "true" : undefined,
-    "data-guide-label": guideTarget === target ? guideInstruction : undefined,
-  });
-  if (tab === "tours") {
-    return (
-      <div className="rlp-action-strip">
-        <div>
-          <small>Jordan Rivera · Thursday, 5:30 PM Pacific</small>
-          <strong>{tourAccepted ? "Tour confirmed" : "Offered time awaiting Jordan's YES"}</strong>
-        </div>
-      </div>
-    );
-  }
-  if (tab === "applications") {
-    return (
-      <div className="rlp-action-strip">
-        <div>
-          <small>Jordan Rivera · Room 3</small>
-          <strong>{applicationApproved ? "Approved by Avery Morgan" : "Ready for manager review"}</strong>
-        </div>
-        {!applicationApproved ? (
-          <button type="button" {...guide("approve")} disabled={busy} onClick={() => onApprove()}>
-            Approve application <Check aria-hidden />
-          </button>
-        ) : (
-          <button type="button" onClick={() => onChapter("lease")}>
-            Open lease chapter <ChevronRight aria-hidden />
-          </button>
-        )}
-      </div>
-    );
-  }
-  if (tab === "leases") {
-    return (
-      <div className="rlp-action-strip">
-        <div>
-          <small>Jordan Rivera · Room 3</small>
-          <strong>{LEASE_STATUS[leaseStep]}</strong>
-        </div>
-        {leaseStep === 0 ? (
-          <button type="button" {...guide("send-lease")} disabled={busy} onClick={() => onSendLease()}>
-            Send to resident <Send aria-hidden />
-          </button>
-        ) : leaseStep === 1 ? (
-          <span className="rlp-awaiting-signature">Awaiting Jordan’s signature</span>
-        ) : leaseStep === 2 ? (
-          <button type="button" {...guide("manager-sign")} disabled={busy} onClick={() => onManagerSign()}>
-            Countersign sample lease <Check aria-hidden />
-          </button>
-        ) : (
-          <button type="button" onClick={() => onChapter("home")}>
-            Open resident home <ChevronRight aria-hidden />
-          </button>
-        )}
-      </div>
-    );
-  }
-  if (tab === "residents") {
-    return (
-      <div className="rlp-action-strip">
-        <div>
-          <small>Jordan Rivera · 61 Willow Court</small>
-          <strong>Room 3 · October rent $1,080</strong>
-        </div>
-        <button type="button" onClick={() => onOpenTab("communication")}>
-          Message Jordan <MessageSquare aria-hidden />
-        </button>
-      </div>
-    );
-  }
-  if (tab === "services" && serviceRecord) {
-    return (
-      <div className="rlp-action-strip">
-        <div>
-          <small>Jordan Rivera · Room 3 · Resident request</small>
-          <strong>
-            {serviceRecord.title}
-            {vendorOffered ? " · Pacific Plumbing booked Thu 9:00 AM" : " · New in the queue"}
-          </strong>
-        </div>
-      </div>
-    );
-  }
-  return null;
 }

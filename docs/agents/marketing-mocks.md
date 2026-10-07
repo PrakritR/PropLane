@@ -25,27 +25,41 @@ there is no server to write to. If a panel's real component fetches internally
 (session, workspace, or data hooks), build a thin static wrapper around its
 purely presentational pieces instead of trying to mount the whole page tree.
 
-## The home page demo: one guided stage over three portals
+## The home page demo: four beats, one phone, three portals
 
-Captain 2026-10-06: the top of `/` is Akhil's hero plus a demo "through the
-platform" (`resident-lifecycle-prototypes.tsx`; it replaced `SiteHero`). A portal
-switcher (Manager · Resident · Vendor) sits over a row of stage tabs, each with a
-progress bar that fills while the stage plays (about 3 seconds a step). Every
-sidebar item opens the real panel for that tab, and a phone beside it shows the
-other party.
+Captain 2026-10-06, reshaped 2026-10-07: the top of `/` is Akhil's hero plus a
+demo window (`resident-lifecycle-prototypes.tsx`; it replaced `SiteHero`). There
+is no stage UI: no portal pill bar, stage tabs, "Sample demo" line or Activity
+row. The visitor changes portal from the window's own account menu (the real
+menu's "Switch to ... portal" rows, `portalSwitchTargets`), every portal draws
+"Ask PropLane" and no bell, and every sidebar item opens the real panel for
+that tab.
 
-- **One number drives the screen.** `resident-lifecycle-script.ts` holds the
-  stages, the beats inside them and `managerScript(beat, ...)`, which derives the
-  sample state (messages, tour accepted, approved, lease step, the faucet
-  request). A stage tab jumps by setting the beat; nothing replays.
+- **Four beats, no more.** `resident-lifecycle-script.ts` holds `STORIES`: a
+  prospect asks and books a tour, applies, signs the lease, pays rent and gets a
+  repair booked (manager and resident); offer, quote, visit, paid (vendor).
+  Each beat is one or two phone messages and the matching real panel.
+- **One number drives the screen**: how many phone messages have arrived. The
+  clock types a message (typing indicator), lands it, holds, types the next, and
+  starts over, so a message is always typing. The window follows the beat; a
+  sidebar click pins that tab (the window stops autoplaying, the phone does
+  not). Hover or focus inside the window and an open account menu pause the
+  clock; `prefers-reduced-motion` runs no clock and shows the first beat still.
+- **One phone, sticky.** `ResidentLifecyclePrototypes` takes the replaces strip
+  and the lifecycle rows as `children`, so the phone beside the window stays on
+  screen (sticky from `lg`, inline under the window below it) through the hero,
+  the demo and every row; rows draw no phone of their own. Captions are roles:
+  "Resident's phone" (manager portal), "Manager's phone" (resident portal, the
+  thread mirrored), "Vendor's phone".
+- **People are shown by role**: "Manager", "Resident", "Vendor" in the window
+  chrome, phone headers and account cards (company "Pacific Plumbing" stays); a
+  manager's list rows keep a plain first name (`RESIDENT_NAME`), the resident's
+  own account is `RESIDENT_SELF`.
+- **Every window is one fixed size** (hero and rows): the screen scrolls inside
+  it and never grows it. The focus ring on a sidebar item sits inside the sidebar.
 - **Panels come through one contract**, `site/product-mock/demo-panels.tsx`:
-  `DEMO_TABS`, `DemoPanel({ portal, tab })`. The sidebar is built from
-  `DEMO_TABS`, so adding a tab there adds it to the demo. Only the manager
-  Communication thread is drawn by the demo itself (Akhil's, tied to the phone).
-- **Autoplay** runs only while the demo is on screen, the pointer and focus are
-  outside the stage, nobody has started exploring (any sidebar click), and
-  `prefers-reduced-motion` is off. Without autoplay the highlighted button is
-  the guide, exactly as Akhil built it; the e2e guided tests run that way.
+  `DEMO_TABS`, `DemoPanel({ portal, tab })`. Only the manager Communication
+  thread is drawn by the demo itself (Akhil's, tied to the phone).
 - **Nothing writes.** No network request, nothing saved; a vendor is never shown
   the street address before a quote is accepted (offers say the general area).
 

@@ -22,20 +22,24 @@ const repoRoot = join(__dirname, "..", "..", "..");
 const read = (rel: string) => readFileSync(join(repoRoot, rel), "utf8");
 
 describe("portal assistant endpoints", () => {
-  it.each([["src/app/vendor/layout.tsx", "/api/agent/vendor-chat"]])("%s mounts the assistant against %s", (file, endpoint) => {
+  it.each([
+    ["src/app/vendor/layout.tsx", "/api/agent/vendor-chat"],
+    ["src/app/resident/layout.tsx", "/api/agent/resident-chat"],
+  ])("%s mounts the assistant against %s", (file, endpoint) => {
     const source = read(file);
     expect(source).toContain("<AxisAssistant");
     expect(source).toContain(`endpoint="${endpoint}"`);
   });
 
-  it("the resident portal has no assistant at all: no provider, dock rail or header launcher", () => {
+  it("the resident portal mounts the assistant on its own endpoint, never the manager's", () => {
     const layout = read("src/app/resident/layout.tsx");
-    expect(layout).not.toContain("<AxisAssistant");
-    expect(layout).not.toContain("PortalAssistantDockRail");
-    expect(layout).not.toContain("resident-chat");
+    expect(layout).toContain("<AxisAssistant");
+    expect(layout).toContain('endpoint="/api/agent/resident-chat"');
+    expect(layout).not.toContain("/api/agent/chat");
+    // Every mount names its endpoint: the default is the manager route, which 401s residents.
+    for (const tag of layout.match(/<AxisAssistant[^>]*>/g) ?? []) expect(tag).toContain("endpoint=");
     const topBar = read("src/components/portal/portal-top-bar.tsx");
-    // One decision, not a CSS hide: the pill (and the ⌘K listener inside it) never mounts for residents.
-    expect(topBar).toContain('kind === "resident" ? null : <AskPropLaneButton />');
+    expect(topBar).not.toContain('kind === "resident" ? null');
   });
 
   it.each(["src/app/portal/layout.tsx", "src/app/admin/layout.tsx"])(

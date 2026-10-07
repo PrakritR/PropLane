@@ -6,6 +6,7 @@ import { PublicMainTransition } from "@/components/motion/public-main-transition
 import { PublicLightThemeLock } from "@/components/providers/public-light-theme-lock";
 import type { Metadata } from "next";
 import { IOS_APP_STORE_APP_ID } from "@/lib/ios-app-download";
+import { siteDisplayFont } from "@/components/marketing/fonts/site-display-font";
 
 /**
  * Smart App Banner: iPhone Safari shows the native "Open in App Store" strip on
@@ -21,7 +22,7 @@ export default function PublicLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="axis-page-frame relative flex min-h-screen flex-col">
+    <div className={`axis-page-frame relative flex min-h-screen flex-col ${siteDisplayFont.variable}`}>
       <PublicLightThemeLock />
       <HideOnNative>
         <ChromeSubstrate variant="quiet" />

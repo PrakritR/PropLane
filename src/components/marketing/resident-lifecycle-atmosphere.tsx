@@ -55,7 +55,8 @@ function makeParticles(width: number, height: number): Particle[] {
   return particles;
 }
 
-export function ResidentLifecycleAtmosphere() {
+export function ResidentLifecycleAtmosphere({ variant = "hero" }: { variant?: "hero" | "page" }) {
+  const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -64,7 +65,8 @@ export function ResidentLifecycleAtmosphere() {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d", { alpha: true });
     if (!container || !canvas || !context) return;
-    const hero = container.parentElement;
+    // Pointer effects listen on whatever the atmosphere sits behind: the hero, or the whole home page.
+    const hero = outerRef.current?.parentElement;
 
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     let particles: Particle[] = [];
@@ -100,6 +102,8 @@ export function ResidentLifecycleAtmosphere() {
     };
     const onPointerDown = (event: PointerEvent) => {
       if (motionQuery.matches || event.button !== 0) return;
+      // Behind a whole page, a tap on a control is a click on the product, not on the water.
+      if ((event.target as Element | null)?.closest?.("button, a, input, textarea, select, summary, [role='menu']")) return;
       const rect = container.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
@@ -286,8 +290,10 @@ export function ResidentLifecycleAtmosphere() {
   }, []);
 
   return (
-    <div className="rlp-atmosphere" ref={containerRef} aria-hidden="true">
-      <canvas ref={canvasRef} />
+    <div className={variant === "page" ? "rlp-atmosphere rlp-atmosphere--page" : "rlp-atmosphere"} ref={outerRef} aria-hidden="true">
+      <div className="rlp-atmosphere-holder" ref={containerRef}>
+        <canvas ref={canvasRef} />
+      </div>
     </div>
   );
 }

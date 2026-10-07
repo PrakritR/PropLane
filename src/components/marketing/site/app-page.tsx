@@ -1,7 +1,7 @@
 import Image from "next/image";
 import QRCode from "qrcode";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
-import { SITE_MEASURE, SiteEyebrow, SiteHeading } from "@/components/marketing/site/primitives";
+import { SITE_MEASURE, SitePageHero } from "@/components/marketing/site/primitives";
 import { IOS_APP_MINIMUM_OS, iosAppDownloadIsTestFlight, iosAppDownloadUrl } from "@/lib/ios-app-download";
 import "@/components/marketing/site/site.css";
 
@@ -25,23 +25,25 @@ export async function SiteAppPage() {
   const qr = await QRCode.toString(url, { type: "svg", margin: 0, color: { dark: "#0b1120", light: "#ffffff00" } });
 
   return (
-    <div className={`${SITE_MEASURE} pb-20 pt-12 sm:pt-16`}>
-      <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-14">
-        <div className="min-w-0">
-          <SiteEyebrow className="mb-4">{beta ? "iPhone app · beta" : "iPhone app · free"}</SiteEyebrow>
-          <SiteHeading as="h1">The same queue, in your pocket.</SiteHeading>
-          <div className="mt-7 flex flex-wrap items-center gap-3">
-            <AppStoreBadge size="lg" dataAttr="app-page-app-store" />
-          </div>
-          <p className="mt-4 flex flex-wrap gap-x-2 text-[13px] text-muted">
+    <>
+      <SitePageHero
+        eyebrow={beta ? "iPhone app · beta" : "iPhone app · free"}
+        title="The same queue, in your pocket."
+        actions={<AppStoreBadge size="lg" dataAttr="app-page-app-store" />}
+        note={
+          <span className="flex flex-wrap justify-center gap-x-2">
             <span>iOS {IOS_APP_MINIMUM_OS} or later</span>
             <span aria-hidden>·</span>
             <span>Same account as the web</span>
             <span aria-hidden>·</span>
             <span>Free</span>
-          </p>
-
-          <div className="mt-8 flex items-center gap-4 rounded-2xl border border-border bg-card p-4 sm:max-w-[440px]">
+          </span>
+        }
+      />
+    <div className={`${SITE_MEASURE} pb-20`}>
+      <div className="grid items-center gap-8">
+        <div className="min-w-0">
+          <div className="flex items-center gap-4 mx-auto w-full rounded-2xl border border-border bg-card/90 p-4 sm:max-w-[440px]">
             <div
               className="h-[84px] w-[84px] shrink-0 rounded-lg bg-white p-1.5 [&>svg]:h-full [&>svg]:w-full"
               aria-label={`QR code that opens ${url}`}
@@ -75,5 +77,6 @@ export async function SiteAppPage() {
         ))}
       </ul>
     </div>
+    </>
   );
 }

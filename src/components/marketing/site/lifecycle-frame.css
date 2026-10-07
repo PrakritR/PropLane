@@ -1,15 +1,12 @@
-/* Lifecycle row frame: Akhil's workspace window on his atmospheric stage. */
+/* Lifecycle row frame: Akhil's workspace window, on the home page's own wavy background (no stage of its own). */
 .rlp-page.lrf-stage {
   position: relative;
   min-height: 0;
   overflow: hidden;
-  padding: clamp(14px, 3vw, 28px);
-  border: 1px solid #cfe0ef;
-  border-radius: 28px;
-  background: #e5f0fa;
-}
-.lrf-stage .rlp-atmosphere {
-  z-index: 0;
+  padding: 6px 8px 22px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .lrf-body {
   position: relative;
@@ -20,13 +17,8 @@
   gap: 18px;
   min-width: 0;
 }
-.lrf-window-slot,
-.lrf-phone-slot {
+.lrf-window-slot {
   min-width: 0;
-}
-.lrf-phone {
-  display: flex;
-  justify-content: center;
 }
 /* The window keeps Akhil's dual-view look but is one child, not a grid. */
 .lrf-window.rlp-dual-view {
@@ -43,32 +35,17 @@
   margin-top: 0;
   align-self: auto;
 }
-.lrf-phone .rl-phone-wrap {
-  width: min(304px, 100%);
-  min-width: 0;
-}
-.lrf-phone .rl-phone-screen {
-  height: 600px;
-  min-height: 0;
-}
 
-/* Under lg: natural width, scrolling inside the frame. */
+/* Under lg: natural width, one fixed height, the screen scrolling inside it. */
 @media (max-width: 1023px) {
   .lrf-window .rlp-workspace {
-    max-height: 560px;
-  }
-  .lrf-window .rlp-canvas {
-    max-height: 440px;
-    overflow: auto;
-  }
-  .lrf-window .rlp-panel-frame {
-    min-height: 0;
-    overflow: auto;
+    height: 560px;
+    max-height: none;
   }
 }
 @media (max-width: 640px) {
-  .lrf-window .rlp-canvas {
-    max-height: 400px;
+  .lrf-window .rlp-workspace {
+    height: 600px;
   }
 }
 
@@ -101,15 +78,5 @@
   .lrf-window .rlp-canvas-panel {
     min-height: 0;
     overflow: auto;
-  }
-  .lrf-phone-slot {
-    flex: 0 0 auto;
-    width: calc(304px * var(--lrf-s, 0.62));
-    height: calc(655px * var(--lrf-s, 0.62));
-  }
-  .lrf-phone {
-    width: 304px;
-    transform: scale(var(--lrf-s, 0.62));
-    transform-origin: top left;
   }
 }

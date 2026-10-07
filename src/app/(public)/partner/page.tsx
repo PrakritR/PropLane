@@ -11,13 +11,14 @@ import {
   MockDraft,
   MockFrame,
   MockRow,
-  SITE_MEASURE,
   SiteCtaPair,
   SiteEyebrow,
   SiteHeading,
   SiteIntro,
+  SitePageHero,
   SiteSection,
 } from "@/components/marketing/site/primitives";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 export const metadata: Metadata = {
   title: "For managers & landlords",
@@ -93,25 +94,27 @@ function tierMonthlyPrice(id: PlanTierId): string {
 
 export default function PartnerLandingPage() {
   return (
-    <div className="relative min-h-0 flex-1">
-      <section className="border-b border-border/70 pb-14 pt-14 sm:pt-16 lg:pb-20 lg:pt-20" aria-labelledby="partner-title">
-        <div className={`${SITE_MEASURE} max-w-[860px]`}>
-          <SiteEyebrow className="mb-4">For managers &amp; landlords</SiteEyebrow>
-          <SiteHeading as="h1" id="partner-title">
+    <SitePage>
+      <SitePageHero
+        eyebrow="For managers & landlords"
+        id="partner-title"
+        title={
+          <>
             Run the portfolio.
-            <br />
-            <span className="text-primary">Approve the rest.</span>
-          </SiteHeading>
+            <span className="site-accent">Approve the rest.</span>
+          </>
+        }
+        actions={
           <SiteCtaPair
-            className="mt-7"
+            align="center"
             primaryHref={MANAGER_GET_STARTED_HREF}
             primaryLabel="Get started free"
             primaryAttr="partner-hero-get-started"
             secondaryAttr="partner-hero-book-demo"
             note="Free for one home · no card · 14-day Pro trial"
           />
-        </div>
-      </section>
+        }
+      />
 
       <SiteSection ariaLabelledBy="partner-rows-title">
         <SiteIntro
@@ -156,6 +159,6 @@ export default function PartnerLandingPage() {
         primaryAttr="partner-closing-get-started"
         secondaryAttr="partner-closing-book-demo"
       />
-    </div>
+    </SitePage>
   );
 }

@@ -3,6 +3,7 @@
 import { ChromeSubstrate } from "@/components/brand/chrome-substrate";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
 import { PublicFooter } from "@/components/layout/public-footer";
+import { SiteBackdrop } from "@/components/marketing/site/site-backdrop";
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
@@ -77,6 +78,16 @@ export function AuthLayoutSubstrate() {
   const hidden = useHideAuthSubstrate();
   if (hidden) return null;
   return <ChromeSubstrate variant="full" />;
+}
+
+/**
+ * The public site's wavy atmosphere behind every auth screen. The native shells
+ * keep their flat canvas (no wallpaper), exactly like the substrate.
+ */
+export function AuthLayoutBackdrop() {
+  const isNative = useAuthNativeActive();
+  if (isNative) return null;
+  return <SiteBackdrop />;
 }
 
 export function AuthLayoutFooter() {

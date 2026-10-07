@@ -48,8 +48,9 @@ const FOOTER_COLUMNS: { heading: string; links: { href: string; label: string }[
   },
 ];
 
+/** The home page's eyebrow style, in the footer's column heads. */
 const columnHeading =
-  "text-[13px] font-semibold uppercase tracking-[0.08em] text-foreground";
+  "text-[12px] font-extrabold uppercase tracking-[0.16em] text-[#1f64a8]";
 
 const footerLinkClass =
   "block text-[15px] font-normal text-muted transition-[color,opacity] duration-200 hover:text-primary hover:opacity-95";
@@ -109,7 +110,7 @@ function SocialRow({ className = "" }: { className?: string }) {
     <ul className={`flex items-center gap-2 ${className}`}>
       {links.map(({ id, label, href }) => {
         const base =
-          "flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted";
+          "flex h-9 w-9 items-center justify-center rounded-full border border-[#b7cce3] bg-white/50 text-[#285887]";
         return (
           <li key={id}>
             <a
@@ -133,7 +134,7 @@ function SocialRow({ className = "" }: { className?: string }) {
 export function PublicFooter({ compact = false }: { compact?: boolean }) {
   if (compact) {
     return (
-      <footer className="border-t border-border bg-[var(--pl-surface)]">
+      <footer className="border-t border-[#c5d8ea]/70 bg-transparent">
         <div className="px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-6">
           <div className="mx-auto flex max-w-6xl flex-col items-center justify-center gap-1 text-center text-[12px] font-normal text-muted sm:flex-row sm:items-center sm:justify-between sm:text-left">
             <span>© 2026 PropLane. All rights reserved.</span>
@@ -165,9 +166,9 @@ export function PublicFooter({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <footer className="border-t border-border bg-[var(--pl-surface)]">
+    <footer className="border-t border-[#c5d8ea] bg-gradient-to-b from-[#eaf2fa] to-[#dae7f3]">
       <div className={`${footerShell} pb-8 pt-10`}>
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-border pb-7">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-[#c5d8ea] pb-7">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
             <AxisLogoLink href="/" size="compact" />
             {/* The iPhone app is a real differentiator; the badge belongs beside the mark on every page. */}
@@ -223,7 +224,7 @@ export function PublicFooter({ compact = false }: { compact?: boolean }) {
         </div>
       </div>
 
-      <div className="border-t border-border bg-[var(--pl-surface)] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="border-t border-[#c5d8ea] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div
           className={`${footerShell} flex flex-col items-center justify-center gap-1.5 text-center text-[13px] font-normal text-muted sm:flex-row sm:items-center sm:justify-between sm:text-left`}
         >

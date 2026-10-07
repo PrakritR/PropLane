@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicMobileBackBar } from "@/components/layout/public-mobile-back-bar";
+import { SitePageHero } from "@/components/marketing/site/primitives";
+import { SitePage } from "@/components/marketing/site/site-page";
 import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
 
 export const metadata: Metadata = {
@@ -55,21 +57,17 @@ const LIMITS: string[] = [
 
 export default function SecurityPage() {
   return (
-    <div className="min-h-screen px-4 py-16 sm:py-20 [html[data-native]_&]:py-4 [html[data-native]_&]:pt-[max(1rem,env(safe-area-inset-top))]">
+    <SitePage>
       <PublicMobileBackBar label="Back" />
-      <article className="glass-card mx-auto max-w-3xl rounded-3xl px-6 py-10 sm:px-10 sm:py-12">
-        <header className="border-b border-border pb-8">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">Trust</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground">How your data is protected</h1>
-          <p className="mt-3 text-[15px] leading-relaxed text-muted">
-            Property managers put resident and applicant records in PropLane, and some of those records are among
-            the most sensitive a person has. This page says plainly what we do to protect them, and where the
-            limits are.
-          </p>
-          <p className="mt-2 text-sm text-muted">Last updated: {LAST_UPDATED}</p>
-        </header>
-
-        <div className="mt-8 space-y-8 text-[15px] leading-relaxed text-muted">
+      <SitePageHero
+        eyebrow="Trust"
+        title="How your data is protected"
+        lede="Property managers put resident and applicant records in PropLane, and some of those records are among the most sensitive a person has. This page says plainly what we do to protect them, and where the limits are."
+        note={`Last updated: ${LAST_UPDATED}`}
+      />
+      <div className="px-4 pb-16 sm:pb-20">
+      <article className="glass-card site-prose-card mx-auto max-w-3xl rounded-3xl px-6 py-10 sm:px-10 sm:py-12">
+        <div className="space-y-8 text-[15px] leading-relaxed text-muted">
           <section aria-labelledby="security-protections">
             <h2 id="security-protections" className="text-lg font-semibold text-foreground">
               What we do
@@ -130,6 +128,7 @@ export default function SecurityPage() {
           </section>
         </div>
       </article>
-    </div>
+      </div>
+    </SitePage>
   );
 }

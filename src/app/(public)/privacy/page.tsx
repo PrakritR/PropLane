@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicMobileBackBar } from "@/components/layout/public-mobile-back-bar";
 import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -13,9 +14,10 @@ const LAST_UPDATED = "August 6, 2026";
 
 export default function PrivacyPolicyPage() {
   return (
+    <SitePage>
     <div className="min-h-screen px-4 py-16 sm:py-20 [html[data-native]_&]:py-4 [html[data-native]_&]:pt-[max(1rem,env(safe-area-inset-top))]">
       <PublicMobileBackBar label="Back" />
-      <article className="glass-card mx-auto max-w-3xl rounded-3xl px-6 py-10 sm:px-10 sm:py-12">
+      <article className="glass-card site-prose-card mx-auto max-w-3xl rounded-3xl px-6 py-10 sm:px-10 sm:py-12">
         <header className="border-b border-border pb-8">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">Legal</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground">Privacy Policy</h1>
@@ -265,5 +267,6 @@ export default function PrivacyPolicyPage() {
         </div>
       </article>
     </div>
+    </SitePage>
   );
 }

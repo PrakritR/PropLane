@@ -17,9 +17,10 @@ import {
   SITE_BTN_PRIMARY,
   SITE_BTN_SECONDARY,
   SITE_MEASURE,
-  SiteHeading,
+  SitePageHero,
   SiteSection,
 } from "@/components/marketing/site/primitives";
+import { SitePage } from "@/components/marketing/site/site-page";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -344,20 +345,19 @@ export default async function PricingPage({
   const rates = COMMS_BILLING_RATES_CENTS;
 
   return (
-    <div className="relative min-h-0 flex-1 pb-16 md:pb-0">
+    <SitePage className="pb-16 md:pb-0">
       <TrackOnMount event="pricing_viewed" properties={{ billing: annual ? "annual" : "monthly" }} />
-      <section className="border-b border-border/70 pb-12 pt-14 sm:pt-16 lg:pt-20" aria-labelledby="pricing-title">
-        <div className={`${SITE_MEASURE} flex flex-col items-center text-center`}>
-          <SiteHeading as="h1" id="pricing-title">
+      <SitePageHero
+        id="pricing-title"
+        wide
+        title={
+          <>
             Free for {RATE_CARD.free.includedDoors} residents.
-            <br />
-            <span className="text-primary">Pay when the portfolio earns it.</span>
-          </SiteHeading>
-          <div className="mt-7">
-            <BillingToggle annual={annual} />
-          </div>
-        </div>
-      </section>
+            <span className="site-accent">Pay when the portfolio earns it.</span>
+          </>
+        }
+        actions={<BillingToggle annual={annual} />}
+      />
 
       <section className="py-12 sm:py-14" aria-label="Plans">
         {/* C178 (captain-requested reversal of PRP-314's side-by-side snap
@@ -459,6 +459,6 @@ export default async function PricingPage({
         secondaryAttr="pricing-closing-book-demo"
         primaryHref={TIER_CTA.free.href}
       />
-    </div>
+    </SitePage>
   );
 }
