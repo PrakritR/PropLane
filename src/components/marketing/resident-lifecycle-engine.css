@@ -240,3 +240,18 @@ button[data-attr$="-list-row"][data-demo-hover] {
 .rlp-dual-view .rlp-main[data-scroll="more"]::after {
   opacity: 1;
 }
+
+/* A search field's placeholder that does not fit ends in an ellipsis, never a hard cut. */
+.rlp-dual-view input,
+.lrf-window input {
+  text-overflow: ellipsis;
+}
+
+/* On a phone the sidebar is a strip of icons that scrolls sideways: it fades out at the edge so the last icon is never half-drawn. */
+@media (max-width: 640px) {
+  .rlp-dual-view .rlp-nav {
+    padding-right: 28px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+}

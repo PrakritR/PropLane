@@ -637,12 +637,12 @@ export function DashboardPanel({ story }: { story?: DemoStory } = {}) {
 
 /* ───────────────────────────── Switching: import review ───────────────────────────── */
 
-export function ImportReviewPanel() {
+export function ImportReviewPanel({ nativeHeight = 760, whole = false }: { nativeHeight?: number; whole?: boolean } = {}) {
   const [proposal, setProposal] = useState(DEMO_IMPORT_SAMPLE);
   const { show, node: toastNode } = useFixtureToast();
 
   return (
-    <ProductWindow path="/portal/properties/import" nativeWidth={1100} nativeHeight={760}>
+    <ProductWindow path="/portal/properties/import" nativeWidth={1100} nativeHeight={nativeHeight} whole={whole}>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-card">
         <PortfolioImportReviewStep
           proposal={proposal}
