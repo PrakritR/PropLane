@@ -18,6 +18,7 @@ export const VENDOR_BANKING_LEDGER_KINDS = [
   "withdrawal",
   "refund",
   "adjustment",
+  "dispute",
 ] as const;
 export type VendorBankingLedgerKind = (typeof VENDOR_BANKING_LEDGER_KINDS)[number];
 
@@ -28,6 +29,7 @@ export const VENDOR_BANKING_LEDGER_SOURCES = [
   "refund",
   "hold_expiry",
   "adjustment",
+  "dispute",
 ] as const;
 export type VendorBankingLedgerSource = (typeof VENDOR_BANKING_LEDGER_SOURCES)[number];
 

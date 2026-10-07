@@ -19,11 +19,10 @@ export function vendorBankingEnabled(): boolean {
 }
 
 /**
- * Vendor-initiated refunds to a manager. Default OFF: the existing path
- * (`refund.server.ts`) refunds central 'hold' captures outside the reserved
- * central refund rail, which the webhook refuses and which wedges the hold.
- * Stays off until the refund runs through `runReservedPlatformMoneyRefund`.
- * `VENDOR_REFUNDS_ENABLED=1` re-enables it (tests / a rebuilt path only).
+ * Vendor-initiated refunds to a manager. Default OFF. The refund now runs on the central
+ * rail (`runReservedPlatformMoneyRefund`, `central-refund.server.ts`): a stable attempt key,
+ * a recoverable-funds cap, the webhook settling the refund. It stays off until that path is
+ * proven against Stripe TEST; `VENDOR_REFUNDS_ENABLED=1` turns it on for that path only.
  */
 export function vendorRefundsEnabled(): boolean {
   const raw = process.env.VENDOR_REFUNDS_ENABLED?.trim().toLowerCase();

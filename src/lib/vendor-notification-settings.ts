@@ -242,6 +242,6 @@ export function vendorTopicForEvent(domain: string, event: string): VendorNotifi
   // A new service offered to the preferred vendor is an offer; being assigned
   // a service or a task is a schedule change.
   if (domain === "task") return "schedule";
-  if (domain === "payment") return "payments";
+  if (domain === "payment" || domain === "vendor_banking") return "payments";
   return "messages";
 }

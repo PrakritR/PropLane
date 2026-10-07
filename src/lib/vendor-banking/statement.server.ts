@@ -67,6 +67,7 @@ const KIND_LABEL: Record<VendorBankingLedgerEntry["kind"], string> = {
   withdrawal: "Withdrawal",
   refund: "Refund",
   adjustment: "Adjustment",
+  dispute: "Dispute",
 };
 
 export function vendorStatementCsv(statement: VendorStatement): string {
