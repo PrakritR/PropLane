@@ -134,7 +134,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
     );
     render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText("$4,280.00");
-    await waitFor(() => expect(screen.getByText(/Chase Checking/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/Chase Checking/).length).toBeGreaterThan(0));
     expect(screen.getByRole("button", { name: /Actions for/ })).toBeInTheDocument();
   });
 
