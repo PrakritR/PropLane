@@ -828,7 +828,16 @@ async function main() {
   // One at a time: the room-capacity trigger evaluates each approved row against the others, so
   // insertion order must respect it (and a failure names the person).
   for (const row of applicationRows) {
-    await must(supabase.from("manager_application_records").upsert(row, { onConflict: "id" }), `manager_application_records(${row.row_data.name})`);
+    // The shared dev DB occasionally cancels a statement under load; retry before failing.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await must(supabase.from("manager_application_records").upsert(row, { onConflict: "id" }), `manager_application_records(${row.row_data.name})`);
+        break;
+      } catch (err) {
+        if (attempt >= 4 || !/statement timeout/i.test(String(err))) throw err;
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
+    }
   }
   console.log(`  ${applicationRows.length} applications`);
 
