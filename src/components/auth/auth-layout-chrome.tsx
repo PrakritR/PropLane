@@ -39,14 +39,6 @@ function useHideAuthSubstrate(): boolean {
   return useSyncExternalStore(subscribeAuthChrome, shouldHideAuthSubstrate, () => false);
 }
 
-function useAuthWelcomeActive(): boolean {
-  return useSyncExternalStore(
-    subscribeAuthChrome,
-    () => typeof document !== "undefined" && document.documentElement.hasAttribute("data-auth-welcome"),
-    () => false,
-  );
-}
-
 function useAuthNativeActive(): boolean {
   return useSyncExternalStore(
     subscribeAuthChrome,
@@ -59,9 +51,9 @@ function useAuthNativeActive(): boolean {
 }
 
 export function AuthLayoutHomeMark() {
-  const active = useAuthWelcomeActive();
   const isNative = useAuthNativeActive();
-  if (!active || isNative) return null;
+  // The split screen carries the mark top-left on every web auth page, not only the welcome ones.
+  if (isNative) return null;
   return (
     <Link
       href="/"
