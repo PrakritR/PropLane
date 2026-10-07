@@ -57,6 +57,7 @@ import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
+import { resolveVendorSettingsTab } from "@/lib/portals/vendor-settings-pages";
 import { resolveSettingsRedirectHubTab } from "@/lib/portal-settings-section";
 import {
   loadManagerAllServicesPanel,
@@ -566,6 +567,15 @@ export async function renderPortalSection(
     const rest = { ...(searchParams ?? {}) };
     delete rest.tab;
     redirect(`${def.basePath}/profile${searchSuffix(rest, { tab: hubTab })}`);
+  }
+
+  // Vendor Settings lives at section "profile"; `/vendor/settings[/<tab>]` and
+  // `?tab=` land there with the resolved tab (unknown/absent tab -> plain).
+  if (kind === "vendor" && section === "settings") {
+    if (tabParts && tabParts.length > 1) notFound();
+    const raw = tabParts?.[0] ?? firstSearchParam(searchParams, "tab");
+    const tab = resolveVendorSettingsTab(raw);
+    redirect(`${def.basePath}/profile${tab ? `?tab=${encodeURIComponent(tab)}` : ""}`);
   }
 
   // Settings (account entry) sits as its own trailing sidebar group for
