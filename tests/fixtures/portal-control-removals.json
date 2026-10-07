@@ -193,7 +193,7 @@
     "control": "Payment settings",
     "where": "Property record > Pricing tab header gear (property-pricing-panel.tsx)",
     "reason": "Opened a pop-up duplicating the listing wizard's Pricing step; settings go to a page, not a pop-up",
-    "capabilityNowAt": "Listing wizard > Pricing step: Processing fee, Coverage code, Rent due, Automatic late fees, Late fee amount, Grace days (same listing fields)"
+    "capabilityNowAt": "Property record > Pricing tab > Rent & fees card, inline: Processing fee paid by, Coverage code, Rent due, Automatic late fees, Late fee amount, Grace days, each naming its scope with a reset to the workspace default (same listing fields)"
   },
   {
     "portal": "manager",

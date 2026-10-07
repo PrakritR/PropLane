@@ -15,15 +15,6 @@ export type PaymentSettingsScope = "workspace" | "own";
 
 export type PropertyPaymentSettingsScope = Partial<Record<PaymentSettingsField, PaymentSettingsScope>>;
 
-const FIELDS: PaymentSettingsField[] = [
-  "serviceFeePayer",
-  "serviceFeeWaiverCode",
-  "rentDueDayMode",
-  "lateFeeEnabled",
-  "lateFeeAmount",
-  "lateFeeGraceDays",
-];
-
 /** What the field holds when it is the workspace's, not this property's own. */
 function workspaceValue(field: PaymentSettingsField, ws: WorkspacePaymentPublic | null | undefined): unknown {
   switch (field) {
@@ -120,7 +111,19 @@ export function resetPaymentFieldToWorkspace(
   }
 }
 
-export function propertyOverridesPaymentSettings(sub: ManagerListingSubmissionV1): boolean {
-  const scope = sub.paymentSettingsScope ?? {};
-  return FIELDS.some((f) => scope[f] === "own");
+/**
+ * Just the payment answers and their scope stamps, so a host can keep an
+ * in-flight edit of THESE fields without carrying a whole stale submission
+ * (rooms and prices included) back to the server on the next save.
+ */
+export function pickPaymentSettings(sub: ManagerListingSubmissionV1): Partial<ManagerListingSubmissionV1> {
+  return {
+    serviceFeePayer: sub.serviceFeePayer,
+    serviceFeeWaiverCode: sub.serviceFeeWaiverCode,
+    rentDueDayMode: sub.rentDueDayMode,
+    lateFeeEnabled: sub.lateFeeEnabled,
+    lateFeeAmount: sub.lateFeeAmount,
+    lateFeeGraceDays: sub.lateFeeGraceDays,
+    paymentSettingsScope: sub.paymentSettingsScope,
+  };
 }

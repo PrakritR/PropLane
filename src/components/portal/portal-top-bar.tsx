@@ -41,10 +41,19 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
 }
 
-/** A modal already on screen (record pop-up, confirm) keeps the keystroke and its focus trap. */
+/**
+ * A modal or menu already on screen keeps the keystroke and its focus trap.
+ *
+ * The same selector the inbox uses for "something else owns this key"
+ * (`portal-inbox-ui.tsx`): the app's hand-rolled sheets and info panels carry
+ * `role="dialog"` / `aria-modal` without Radix's `data-state`, so matching on
+ * `data-state` alone would miss them.
+ */
 function hasOpenDialog(): boolean {
   if (typeof document === "undefined") return false;
-  return Boolean(document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'));
+  return Boolean(
+    document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [aria-modal="true"]'),
+  );
 }
 
 /**

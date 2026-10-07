@@ -11,6 +11,10 @@ import {
   type PropertyPricingSubject,
 } from "@/components/portal/property-room-pricing-workspace";
 import {
+  PropertyPaymentSettingsCard,
+  type WorkspacePaymentDefaults,
+} from "@/components/portal/property-payment-settings-card";
+import {
   emptyBundleRow,
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
@@ -27,6 +31,7 @@ import {
   propertyPricingWholeHouseSummary,
 } from "@/lib/property-pricing-summary";
 import { resetRoomToWorkspaceDefault, resetWholeHouseToWorkspaceDefault } from "@/lib/property-pricing-publish";
+import { pickPaymentSettings } from "@/lib/property-payment-settings-scope";
 import {
   normalizeWorkspacePricingDefaults,
   type WorkspacePricingDefaults,
@@ -80,6 +85,7 @@ export function PropertyPricingPanel({
   const [workspacePricingDefaults, setWorkspacePricingDefaults] = useState<WorkspacePricingDefaults>(
     () => normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp ?? {}),
   );
+  const [workspacePayment, setWorkspacePayment] = useState<WorkspacePaymentDefaults | null>(null);
 
   const loadWorkspace = useCallback(async () => {
     const wsId = activeWorkspaceIdentity()?.id;
@@ -91,17 +97,28 @@ export function PropertyPricingPanel({
     const data = await res.json();
     const row = data.workspacePaymentSettings?.[wsId];
     if (row?.pricingDefaults) setWorkspacePricingDefaults(normalizeWorkspacePricingDefaults(row.pricingDefaults));
+    if (row) setWorkspacePayment({ serviceFeePayer: row.serviceFeePayer ?? null });
   }, []);
 
   useEffect(() => {
     if (workspacePricingDefaultsProp && Object.keys(workspacePricingDefaultsProp).length > 0) {
       setWorkspacePricingDefaults(normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp));
-      return;
     }
     void loadWorkspace();
   }, [loadWorkspace, workspacePricingDefaultsProp]);
 
   const sub = useMemo(() => normalizeManagerListingSubmissionV1(submission), [submission]);
+  /**
+   * The Rent & fees card's own answers while a save is in flight (or still
+   * being typed), so a toggle never snaps back while the record re-reads. Only
+   * the payment fields are held, and every save rebases them onto the stored
+   * submission, so an edit made elsewhere is never written back stale.
+   */
+  const [paymentPatch, setPaymentPatch] = useState<Partial<ManagerListingSubmissionV1> | null>(null);
+  const paymentSub = useMemo(
+    () => (paymentPatch ? { ...sub, ...paymentPatch } : sub),
+    [paymentPatch, sub],
+  );
   const [tab, setTab] = useState<PricingTab>("rooms");
   const [query, setQuery] = useState("");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -318,6 +335,19 @@ export function PropertyPricingPanel({
           />
         ) : null}
       </PortalRecordListSurface>
+
+      <PropertyPaymentSettingsCard
+        sub={paymentSub}
+        workspacePayment={workspacePayment}
+        onDraft={(next) => setPaymentPatch(pickPaymentSettings(next))}
+        onCommit={(next) => {
+          const patch = pickPaymentSettings(next);
+          setPaymentPatch(patch);
+          void persist({ ...sub, ...patch }).then((ok) => {
+            if (!ok) setPaymentPatch(null);
+          });
+        }}
+      />
 
       {subject ? (
         <PropertyRoomPricingWorkspace
