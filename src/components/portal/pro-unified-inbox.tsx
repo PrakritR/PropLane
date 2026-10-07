@@ -32,6 +32,14 @@ import { CommunicationInboxInitialState } from "@/components/portal/communicatio
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 import {
+  CommunicationDetailsPane,
+  type CommunicationDetails,
+  type CommunicationDetailsRecord,
+} from "@/components/portal/communication-details-pane";
+import { counterpartyRoleLabel } from "@/lib/sms-conversation-identity";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { recordRoutePath } from "@/lib/portals/record-kinds";
+import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
   InboxListHeader,
@@ -1802,10 +1810,54 @@ export function ManagerUnifiedInbox({
       />
     );
 
+  // The right-hand contact column restates what the open conversation already carries; it
+  // fetches nothing (scheduled sends come from the thread pane's own load).
+  const contactDetails = useMemo((): CommunicationDetails | null => {
+    if (!selectedRow && !placeholderContact) return null;
+    if (selectedRow && isAssistantUnifiedInboxRow(selectedRow, emailThreads)) return null;
+    const email = (placeholderContact?.email ?? selectedRow?.personEmail ?? "").trim();
+    const contact =
+      placeholderContact ??
+      (email ? filterContacts?.find((c) => c.email?.trim().toLowerCase() === email.toLowerCase()) ?? null : null);
+    const sms = selectedSmsResidents[0] ?? null;
+    const name = (placeholderContact?.name ?? selectedRow?.name ?? "").trim();
+    if (!name) return null;
+    const role = (() => {
+      if (contact?.role === "resident") {
+        return contact.tenancyStatus === "applicant" ? "Applicant" : contact.tenancyStatus === "past" ? "Past resident" : "Resident";
+      }
+      if (contact?.role === "vendor") return "Vendor";
+      if (contact?.role === "manager") return "Manager";
+      return sms?.counterpartyRole ? counterpartyRoleLabel(sms.counterpartyRole) : undefined;
+    })();
+    const place = selectedRow?.address || contact?.propertyLabel || sms?.propertyLabel || "";
+    const phone = formatSmsPhoneLabel(sms?.phone ?? contact?.phone ?? null);
+    const records: CommunicationDetailsRecord[] = [];
+    const ref = selectedRow?.recordRef;
+    if (ref) {
+      records.push({
+        key: `ref-${ref.kind}-${ref.id}`,
+        label: ref.label,
+        detail: place || undefined,
+        href: recordRoutePath("manager", ref.kind, ref.id),
+      });
+    }
+    if (contact?.propertyId && contact.propertyLabel && !(ref?.kind === "property" && ref.id === contact.propertyId)) {
+      records.push({
+        key: `property-${contact.propertyId}`,
+        label: contact.propertyLabel,
+        detail: contact.roomLabel || undefined,
+        href: recordRoutePath("manager", "property", contact.propertyId),
+      });
+    }
+    return { name, role, phone, email: email || null, records };
+  }, [emailThreads, filterContacts, placeholderContact, selectedRow, selectedSmsResidents]);
+
   return (
     <>
       <InboxTwoPane
         panes="flat"
+        details={contactDetails ? <CommunicationDetailsPane details={contactDetails} /> : undefined}
         heightMode="viewport"
         fillViewport={threadOpen}
         fillParent

@@ -10,6 +10,7 @@ import { useSearchParams } from "next/navigation";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
+import { CommunicationDetailsPane, communicationDetailsFromRow } from "@/components/portal/communication-details-pane";
 import { VendorWorkNumberCard } from "@/components/portal/vendor-work-number-card";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
@@ -420,6 +421,18 @@ function VendorUnifiedInbox({
     </div>
   );
 
+  const selectedRow = useMemo(
+    () => (selectedKey ? merged.find((row) => row.key === selectedKey || (row.memberKeys ?? []).includes(selectedKey)) ?? null : null),
+    [merged, selectedKey],
+  );
+  const contactDetails = useMemo(
+    () =>
+      assistantSelected
+        ? null
+        : communicationDetailsFromRow(selectedRow, (kind, id) => recordRoutePath("vendor", kind as RecordKind, id)),
+    [assistantSelected, selectedRow],
+  );
+
   const smsSelected = selection?.channel === "sms";
   const threadPane = (
     <>
@@ -486,6 +499,7 @@ function VendorUnifiedInbox({
     <>
       <InboxTwoPane
         panes="flat"
+        details={contactDetails ? <CommunicationDetailsPane details={contactDetails} /> : undefined}
         heightMode="viewport"
         fillViewport={anySelected}
         fillParent

@@ -7,16 +7,61 @@
  * manager can see, edit or cancel it, exactly like the main thread. It reads and writes the same
  * scheduled-inbox-messages API as the main composer; Its pop-up can send a scheduled message now, through the existing send-now routes.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { InboxScheduledCard, InboxScheduledThreadList } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { DEMO_UNAVAILABLE_MESSAGE, sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
-import { automationChannelDefaultsFromSettings, scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
+import { automationChannelDefaultsFromSettings, scheduledItemsForRecipient, type ThreadScheduledItem } from "@/lib/inbox-scheduled-thread";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 
 type ScheduledRef = { id: string; source: "manual" | "automation" };
+
+/**
+ * The scheduled sends this hook already loaded for a conversation, by recipient email, so a sibling
+ * pane (the Communication contact-details column) can list them without a second fetch. The thread
+ * pane publishes while it is mounted and withdraws when it unmounts; a reader with no thread open
+ * sees an empty list.
+ */
+const publishedScheduled = new Map<string, ThreadScheduledItem[]>();
+const publishedListeners = new Set<() => void>();
+const NO_SCHEDULED: ThreadScheduledItem[] = [];
+const scheduledKey = (email: string) => email.trim().toLowerCase();
+
+function publishThreadScheduledItems(email: string, items: ThreadScheduledItem[]): void {
+  const key = scheduledKey(email);
+  if (!key) return;
+  if (items.length === 0) publishedScheduled.delete(key);
+  else publishedScheduled.set(key, items);
+  for (const listener of publishedListeners) listener();
+}
+
+/**
+ * Publish the scheduled sends a thread pane already holds for `email` (call it where the items are
+ * computed). Withdrawn when the pane unmounts or the conversation changes.
+ */
+export function usePublishThreadScheduledItems(email: string, items: ThreadScheduledItem[]): void {
+  useEffect(() => {
+    publishThreadScheduledItems(email, items);
+    return () => publishThreadScheduledItems(email, []);
+  }, [email, items]);
+}
+
+/** The scheduled sends the open conversation's thread pane loaded for `email` (read only). */
+export function useThreadScheduledItems(email: string): ThreadScheduledItem[] {
+  const key = scheduledKey(email);
+  return useSyncExternalStore(
+    (onChange) => {
+      publishedListeners.add(onChange);
+      return () => {
+        publishedListeners.delete(onChange);
+      };
+    },
+    () => publishedScheduled.get(key) ?? NO_SCHEDULED,
+    () => NO_SCHEDULED,
+  );
+}
 
 export function useThreadScheduledCards({
   recipientEmail,
@@ -69,6 +114,8 @@ export function useThreadScheduledCards({
     () => (enabled ? scheduledItemsForRecipient(recipientEmail, manual, automation, automationChannelDefaultsFromSettings(settings)) : []),
     [automation, enabled, manual, recipientEmail, settings],
   );
+
+  usePublishThreadScheduledItems(recipientEmail, items);
 
   const cancel = useCallback(
     async (item: ScheduledRef) => {

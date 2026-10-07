@@ -11,6 +11,7 @@ import Link from "next/link";
 import type { ResidentPhoneState } from "@/lib/communication/resident-conversation";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
+import { CommunicationDetailsPane, communicationDetailsFromRow } from "@/components/portal/communication-details-pane";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/portal/resident-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
@@ -510,6 +511,18 @@ function ResidentUnifiedInbox({
     </div>
   );
 
+  const selectedRow = useMemo(
+    () => (selectedKey ? merged.find((row) => row.key === selectedKey || (row.memberKeys ?? []).includes(selectedKey)) ?? null : null),
+    [merged, selectedKey],
+  );
+  const contactDetails = useMemo(
+    () =>
+      communicationDetailsFromRow(selectedRow, (kind, id) =>
+        recordRoutePath("resident", kind as RecordKind, id),
+      ),
+    [selectedRow],
+  );
+
   const smsSelected = selection?.channel === "sms";
   const threadPane = (
     <>
@@ -550,6 +563,7 @@ function ResidentUnifiedInbox({
     <>
       <InboxTwoPane
         panes="flat"
+        details={contactDetails ? <CommunicationDetailsPane details={contactDetails} /> : undefined}
         heightMode="viewport"
         fillViewport={Boolean(selection)}
         fillParent
