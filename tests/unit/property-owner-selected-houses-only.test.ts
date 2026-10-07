@@ -30,6 +30,7 @@ import { PATCH } from "@/app/api/pro/account-links/[inviteId]/route";
 import { POST } from "@/app/api/pro/account-links/route";
 import { mintInviteLink } from "@/lib/invite-links/invite-links.server";
 import { loadOwnerGrants } from "@/lib/property-owner/access.server";
+import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { OWNER_SELECTED_ONLY_ERROR } from "@/lib/workspaces/membership";
 import { makeFakeDb } from "./property-owner-fake-db";
 
@@ -163,5 +164,77 @@ describe("loadOwnerGrants", () => {
     });
     const grants = await loadOwnerGrants(db, OWNER);
     expect(grants[0]!.houses.map((h) => h.propertyId)).toEqual(["house-a"]);
+  });
+});
+
+/**
+ * The sibling cap on the same PATCH: a delegate may never leave behind a MODULE
+ * level above their own, on the houses the membership already names as much as
+ * the ones the write adds. Restamping a role rewrites the map for every house,
+ * so "did this write add that house?" is the wrong question to cap on.
+ */
+describe("PATCH module cap for a delegate", () => {
+  const MEMBER = "member-user";
+  const adminGrant = stampTeamRolePermissions("admin")!;
+
+  function tablesWithMember(assigned: string[]) {
+    const base = tables();
+    const adminOwn = base.account_link_invites!.find((row) => row.id === "admin-own")!;
+    // The Admin really does run house-a — and only house-a.
+    adminOwn.property_co_manager_permissions = { "house-a": adminGrant };
+    base.profiles!.push({ id: MEMBER, email: "bob@example.com" });
+    base.account_link_invites!.push({
+      id: "member-invite",
+      inviter_user_id: MANAGER,
+      invitee_user_id: MEMBER,
+      status: "accepted",
+      team_role: "viewer",
+      workspace_id: WS,
+      house_scope: "selected",
+      assigned_property_ids: assigned,
+      property_co_manager_permissions: Object.fromEntries(assigned.map((id) => [id, { properties: { read: true } }])),
+      co_manager_permissions: {},
+      workspace_permissions: {},
+      payout_percent_for_manager: 15,
+    });
+    return base;
+  }
+
+  const patchMember = (body: unknown) =>
+    PATCH(
+      new Request("https://example.com/api/pro/account-links/member-invite", { method: "PATCH", body: JSON.stringify(body) }),
+      { params: Promise.resolve({ inviteId: "member-invite" }) },
+    );
+
+  it("refuses a houses-scoped Admin widening a role on a house already on the row", async () => {
+    serviceDb = makeFakeDb(tablesWithMember(["house-a", "house-b"]));
+    session.userId = ADMIN;
+    const res = await patchMember({ teamRole: "property_manager" });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/beyond what you have/i);
+  });
+
+  it("refuses an explicit per-house map beyond the Admin's own reach", async () => {
+    serviceDb = makeFakeDb(tablesWithMember(["house-a", "house-b"]));
+    session.userId = ADMIN;
+    const res = await patchMember({
+      propertyCoManagerPermissions: { "house-a": adminGrant, "house-b": adminGrant },
+      teamRole: "custom",
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("allows the same write when every house is within the Admin's reach", async () => {
+    serviceDb = makeFakeDb(tablesWithMember(["house-a"]));
+    session.userId = ADMIN;
+    const res = await patchMember({ teamRole: "property_manager" });
+    expect(res.status).toBe(200);
+  });
+
+  it("the workspace owner is never capped", async () => {
+    serviceDb = makeFakeDb(tablesWithMember(["house-a", "house-b"]));
+    session.userId = MANAGER;
+    const res = await patchMember({ teamRole: "property_manager" });
+    expect(res.status).toBe(200);
   });
 });

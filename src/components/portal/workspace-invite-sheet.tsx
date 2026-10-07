@@ -32,7 +32,7 @@ import {
   WorkspaceGrantFields,
 } from "@/components/portal/workspace-permissions-fields";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
-import { memberReachLabel, parseHouseScope, type HouseScope } from "@/lib/workspaces/membership";
+import { houseScopeForRoleChange, memberReachLabel, parseHouseScope, type HouseScope } from "@/lib/workspaces/membership";
 import {
   TEAM_ROLE_LABELS,
   parseTeamRole,
@@ -298,10 +298,9 @@ export function WorkspaceInviteSheet({
     setRole(next);
     // Switching TO Property owner drops "all houses": the investor's houses are
     // picked on purpose (switching away leaves the current pick alone).
-    if (next === "property_owner" && houseScope === "all") {
-      setHouseScope("selected");
-      setSelectedHouseIds([]);
-    }
+    const scoped = houseScopeForRoleChange(next, { houseScope, selectedHouseIds });
+    setHouseScope(scoped.houseScope);
+    setSelectedHouseIds(scoped.selectedHouseIds);
   };
   const changeHouseScope = (next: HouseScope) => setHouseScope(next);
   const changeSelectedHouseIds = (next: string[]) => setSelectedHouseIds(next);
