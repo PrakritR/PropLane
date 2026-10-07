@@ -45,8 +45,8 @@ function initials(name: string | null, email: string | null): string {
 }
 
 /**
- * The Ask PropLane pill and its ⌘K shortcut. Mounted only for portals that have the
- * assistant; the resident portal never renders this, so it never binds the shortcut either.
+ * The Ask PropLane pill and its ⌘K shortcut. Rendered for every portal kind
+ * (manager, vendor and resident each mount `AxisAssistant` on their own role-scoped endpoint).
  */
 function AskPropLaneButton() {
   const assistantOpen = useSyncExternalStore(
@@ -166,7 +166,7 @@ export function PortalTopBar({
   const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
   return (
     <header className="hidden h-14 shrink-0 items-center justify-end gap-3 border-b border-border bg-background px-4 sm:px-5 lg:flex">
-      {kind === "resident" ? null : <AskPropLaneButton />}
+      <AskPropLaneButton />
 
       <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
         <DropdownMenuTrigger

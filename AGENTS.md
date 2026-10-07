@@ -229,8 +229,9 @@ or `src/lib/agent/`.
   surfaces also pass `readOnly: true`.
 - One registry + resolver + route per role. Never cross them. Mounting
   `AxisAssistant` without a role-scoped `endpoint` 401s (how resident/vendor
-  assistants broke). The **resident portal mounts no assistant at all**; its
-  route and registry serve resident SMS and the inbox agents only.
+  assistants broke). The **resident portal mounts the assistant on its own
+  `/api/agent/resident-chat` endpoint** (captain, Oct 7; the same route and registry
+  also serve resident SMS and the inbox agents).
 - Manager SMS = portal catalog minus every `destructive` tool (derived from the
   flag). Leasing SMS inline-allows only `escalate_to_manager` and `request_tour`.
 - Approving an application and creating/editing a listing are **not** agent

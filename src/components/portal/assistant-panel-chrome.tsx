@@ -28,6 +28,9 @@ export const MANAGER_ASSISTANT_ENDPOINT = "/api/agent/chat";
 /** The vendor endpoint — its empty state gets its own job-shaped chip set (VD23). */
 export const VENDOR_ASSISTANT_ENDPOINT = "/api/agent/vendor-chat";
 
+/** The resident endpoint — its empty state and composer copy are resident-shaped. */
+export const RESIDENT_ASSISTANT_ENDPOINT = "/api/agent/resident-chat";
+
 const WORD_BTN =
   "inline-flex h-8 shrink-0 items-center rounded-full px-2 text-[12.5px] font-semibold text-muted outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25";
 const ICON_BTN =

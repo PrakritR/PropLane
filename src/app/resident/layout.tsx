@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
+import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { RateAppPrompt } from "@/components/native/rate-app-prompt";
@@ -64,7 +65,9 @@ export default async function ResidentLayout({ children }: { children: React.Rea
   }
 
   return (
-    // Residents have no PropLane assistant: no provider, FAB, dock rail, modal strip or header launcher.
+    // The resident assistant must carry its own role-scoped endpoint: the default manager endpoint
+    // 401s for residents (captain, Oct 7: residents get Ask PropLane like vendors).
+    <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null}>
     <div className={PORTAL_SHELL_ROOT_CLASS}>
       <SurfaceThemeDefault theme="light" />
       <PortalDataPrefetch kind="resident" />
@@ -107,5 +110,6 @@ export default async function ResidentLayout({ children }: { children: React.Rea
         </div>
       </div>
     </div>
+    </AxisAssistant>
   );
 }

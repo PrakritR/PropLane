@@ -1,18 +1,20 @@
 # PropLane Assistant — architecture, tool catalog, and how to extend it
 
-The in-app AI assistant ("PropLane Assistant") runs on the **manager/admin and
-vendor** portals, with one shared agent core and a portal-scoped tool registry
-per surface. Users ask in natural language; the assistant answers from live data
-and **proposes** actions that only execute after the user explicitly confirms.
+The in-app AI assistant ("PropLane Assistant") runs on the **manager/admin,
+vendor and resident** portals, with one shared agent core and a portal-scoped
+tool registry per surface. Users ask in natural language; the assistant answers
+from live data and **proposes** actions that only execute after the user
+explicitly confirms.
 
-**The resident portal mounts no assistant at all** (captain, Oct 2026): no
-`AxisAssistant` provider, FAB, dock rail or ⌘K launcher, and the header's Ask
-PropLane pill never renders for `kind === "resident"`. The resident route,
-registry and persona below stay wired and in use — resident SMS and the inbox
-agents are the same tools — so this is a surface decision, not a capability
-removal. Guard:
+**The resident portal mounts the assistant** (captain, Oct 7, reversing the
+earlier "no assistant" decision): `src/app/resident/layout.tsx` wraps the portal
+in `<AxisAssistant endpoint="/api/agent/resident-chat">` and the top bar's Ask
+PropLane pill and ⌘K render for residents like every other portal. The endpoint
+is required: the default manager route 401s a resident. Nothing about the
+resident route, registry, persona or row scoping changed; the same tools also
+serve resident SMS and the inbox agents (`set_autopay` is portal-only). Guards:
 `tests/unit/agent/portal-assistant-wiring.test.ts`,
-`tests/unit/resident-portal-top-bar-no-assistant.test.tsx`.
+`tests/unit/resident-portal-top-bar-assistant.test.tsx`.
 
 All conversational surfaces assemble their runtime prompt through
 `src/lib/agent/system-prompts.ts`. It is the catalog for portal, public-site,
@@ -30,9 +32,9 @@ axis-assistant.tsx (one panel, portal-aware copy/suggestions/endpoints)
         │
         ▼
 GET/POST /api/agent/chat            (manager/admin) ┐
-GET/POST /api/agent/resident-chat   (resident*)     ├─ resolve portal context → registry
+GET/POST /api/agent/resident-chat   (resident)      ├─ resolve portal context → registry
 GET/POST /api/agent/vendor-chat     (vendor)        ┘
-   * SMS and inbox agents only; the resident portal mounts no assistant panel.
+   (each portal mounts AxisAssistant on its own endpoint; never cross them)
 POST /api/agent/demo-chat       (public /demo sandbox, simulated actions)
         │
         ▼
