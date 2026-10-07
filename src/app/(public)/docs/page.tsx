@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { DocsScrollspyNav, type DocsNavGroup } from "@/components/docs/docs-scrollspy-nav";
 import { BOOK_DEMO_HREF } from "@/lib/marketing/public-contact";
+import { SitePage } from "@/components/marketing/site/site-page";
+import { SitePageHero } from "@/components/marketing/site/primitives";
 
 export const metadata: Metadata = {
   title: "Docs",
@@ -49,28 +51,13 @@ const NAV_GROUPS: DocsNavGroup[] = [
 
 export default function DocsPage() {
   return (
-    <div className="relative min-h-screen overflow-x-clip bg-background text-foreground">
-      {/* Subtle indigo glow behind the header. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-32 left-1/2 h-[420px] w-[820px] max-w-[130%] -translate-x-1/2 opacity-70"
-        style={{
-          background:
-            "radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--primary) 12%, transparent), color-mix(in srgb, var(--primary) 5%, transparent) 44%, transparent 72%)",
-          filter: "blur(44px)",
-        }}
-      />
+    <SitePage>
+    <div className="relative overflow-x-clip text-foreground">
 
-      {/* Header */}
-      <header className="relative mx-auto max-w-6xl px-5 pb-10 pt-16 sm:px-6 sm:pt-20">
-        <h1 className="text-[2.4rem] font-semibold leading-[1.06] tracking-[-0.035em] sm:text-[3rem]">
-          Documentation
-        </h1>
-        <p className="mt-4 max-w-2xl text-[15.5px] leading-relaxed text-muted">
-          A practical guide to running rentals with PropLane. This page covers the workflows
-          available today.
-        </p>
-      </header>
+      <SitePageHero
+        title="Documentation"
+        lede="A practical guide to running rentals with PropLane. This page covers the workflows available today."
+      />
 
       {/* Docs shell: sticky nav + content */}
       <div className="relative mx-auto grid max-w-6xl gap-10 px-5 pb-24 sm:px-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-14">
@@ -78,7 +65,7 @@ export default function DocsPage() {
         <DocsScrollspyNav groups={NAV_GROUPS} dataAttrPrefix="docs-toc" />
 
         {/* Right content column */}
-        <div className="min-w-0 max-w-3xl">
+        <div className="site-prose-card min-w-0 max-w-3xl rounded-3xl px-6 py-8 sm:px-9 sm:py-10">
           <DocSection id="getting-started" kicker="Overview" title="Getting started">
             <p>
               Set up a property, invite people, and manage the rental lifecycle in one place.
@@ -332,6 +319,7 @@ export default function DocsPage() {
         </div>
       </div>
     </div>
+    </SitePage>
   );
 }
 
