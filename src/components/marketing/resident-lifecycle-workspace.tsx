@@ -7,9 +7,8 @@
  * content slot is whatever the engine renders for the active tab.
  */
 
-import { type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
-  Bell,
   Building2,
   CalendarDays,
   ChevronDown,
@@ -19,7 +18,9 @@ import {
   FileText,
   Hammer,
   Home,
+  LogOut,
   MessageSquare,
+  Settings,
   Sparkles,
   Star,
   Users,
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
 import type { DemoPortal, DemoTab } from "@/components/marketing/site/product-mock/demo-panels";
+import { portalSwitchTargets } from "@/lib/portal-switch-targets";
 import { PORTAL_META } from "./resident-lifecycle-script";
 
 const TAB_ICONS: Record<string, LucideIcon> = {
@@ -58,12 +60,112 @@ function groupTabs(tabs: DemoTab[]): { label?: string; tabs: DemoTab[] }[] {
   return groups;
 }
 
+/**
+ * The window's account menu, mirroring the real portal's top bar
+ * (`portal-top-bar.tsx`): the avatar pill opens the account card, Settings, and
+ * one "Switch to ... portal" row for each of the OTHER portals (the real list
+ * comes from `portalSwitchTargets`, so the labels and order are the product's
+ * own), then Sign out. Settings and Sign out do nothing: it is a sample.
+ */
+function AccountMenu({
+  portal,
+  onSwitchPortal,
+  onOpenChange,
+}: {
+  portal: DemoPortal;
+  onSwitchPortal?: (portal: DemoPortal) => void;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const meta = PORTAL_META[portal];
+  const [open, setOpenState] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChange?.(next);
+  };
+  const targets = onSwitchPortal ? portalSwitchTargets(portal, ["manager", "resident", "vendor"]) : [];
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpenState(false);
+        onOpenChange?.(false);
+      }
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenState(false);
+        onOpenChange?.(false);
+        rootRef.current?.querySelector<HTMLElement>("[aria-haspopup]")?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onOpenChange]);
+
+  return (
+    <div className="rlp-account" ref={rootRef}>
+      <button
+        type="button"
+        className="rlp-account-trigger"
+        aria-label="Account menu"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        data-attr="home-demo-account-menu"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="rlp-avatar">{meta.profile.initials}</span>
+        <ChevronDown aria-hidden />
+      </button>
+      {open ? (
+        <div id={menuId} className="rlp-account-menu" role="menu" aria-label="Account">
+          <div className="rlp-account-card">
+            <strong>{meta.profile.name}</strong>
+            <span>{meta.profile.email}</span>
+          </div>
+          <button type="button" role="menuitem" onClick={() => setOpen(false)}>
+            <Settings aria-hidden /> Settings
+          </button>
+          {targets.map((target) => (
+            <button
+              type="button"
+              role="menuitem"
+              key={target.role}
+              data-attr={`home-demo-portal-${target.role}`}
+              data-demo-portal={target.role}
+              onClick={() => {
+                setOpen(false);
+                onSwitchPortal?.(target.role as DemoPortal);
+              }}
+            >
+              <Users aria-hidden /> {target.label}
+            </button>
+          ))}
+          <hr />
+          <button type="button" role="menuitem" className="rlp-account-signout" onClick={() => setOpen(false)}>
+            <LogOut aria-hidden /> Sign out
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ResidentLifecycleWorkspace({
   portal,
   tabs,
   active,
   badges,
   onSelect,
+  onSwitchPortal,
+  onMenuOpenChange,
   panel,
   children,
 }: {
@@ -72,6 +174,9 @@ export function ResidentLifecycleWorkspace({
   active: string;
   badges?: Record<string, number>;
   onSelect(tab: string): void;
+  /** Switch the demo to another portal from the account menu; without it the menu lists no portals. */
+  onSwitchPortal?: (portal: DemoPortal) => void;
+  onMenuOpenChange?: (open: boolean) => void;
   /** True when the content is a full-bleed portal screen, not Akhil's padded page. */
   panel: boolean;
   children: ReactNode;
@@ -130,19 +235,10 @@ export function ResidentLifecycleWorkspace({
       </aside>
       <div className="rlp-main">
         <header className="rlp-topbar">
-          {meta.assistant ? (
-            <button type="button" className="rlp-assistant" onClick={() => {}}>
-              <Sparkles aria-hidden /> Ask PropLane <kbd>⌘K</kbd>
-            </button>
-          ) : (
-            <span className="rlp-assistant-spacer" />
-          )}
-          <button type="button" className="rlp-icon-button" aria-label="Notifications" title="Notifications" onClick={() => {}}>
-            <Bell aria-hidden />
+          <button type="button" className="rlp-assistant" onClick={() => {}}>
+            <Sparkles aria-hidden /> Ask PropLane <kbd>⌘K</kbd>
           </button>
-          <button type="button" className="rlp-icon-button" aria-label="Profile" title="Profile" onClick={() => {}}>
-            <span className="rlp-avatar">{meta.profile.initials}</span>
-          </button>
+          <AccountMenu portal={portal} onSwitchPortal={onSwitchPortal} onOpenChange={onMenuOpenChange} />
         </header>
         <div id="rlp-workspace-panel" className={panel ? "rlp-canvas rlp-canvas-panel" : "rlp-canvas"}>
           {children}

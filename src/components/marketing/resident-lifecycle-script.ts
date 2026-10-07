@@ -23,8 +23,7 @@ export const PORTAL_META: Record<
     label: string;
     product: string;
     workspace: string;
-    profile: { name: string; initials: string };
-    assistant: boolean;
+    profile: { name: string; email: string; initials: string };
     workspaceLabel: string;
     phoneCaption: string;
     opening: string;
@@ -34,19 +33,18 @@ export const PORTAL_META: Record<
     label: "Manager portal",
     product: "Property",
     workspace: "Seattle Homes",
-    profile: { name: "Avery Morgan", initials: "AM" },
-    assistant: true,
+    profile: { name: "Avery Morgan", email: "avery@seattlehomes.example", initials: "AM" },
     workspaceLabel: "Manager workspace",
     phoneCaption: "Jordan’s phone",
     opening: "Jordan asks about Room 3",
   },
-  // The resident portal mounts no assistant (AGENTS.md, AI Agent & Tool Layer).
+  // The demo window draws "Ask PropLane" for every portal (captain 2026-10-07), though the REAL
+  // resident portal mounts no assistant (AGENTS.md, AI Agent & Tool Layer); the real one is unchanged.
   resident: {
     label: "Resident portal",
     product: "Resident",
     workspace: "Seattle Homes",
-    profile: { name: "Jordan Rivera", initials: "JR" },
-    assistant: false,
+    profile: { name: "Jordan Rivera", email: "jordan.rivera@example.com", initials: "JR" },
     workspaceLabel: "Resident portal",
     phoneCaption: "Jordan’s phone",
     opening: "Jordan applies for Room 3",
@@ -55,8 +53,7 @@ export const PORTAL_META: Record<
     label: "Vendor portal",
     product: "Vendor",
     workspace: "Pacific Plumbing",
-    profile: { name: "Marcus Lee", initials: "ML" },
-    assistant: true,
+    profile: { name: "Marcus Lee", email: "marcus@pacificplumbing.example", initials: "ML" },
     workspaceLabel: "Vendor portal",
     phoneCaption: "Marcus’s phone",
     opening: "A service offer arrives",

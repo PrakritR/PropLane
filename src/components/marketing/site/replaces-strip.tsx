@@ -11,7 +11,7 @@ const REPLACES: { from: string; to: string }[] = [
 /** What a manager stops doing by hand — the strip under the hero, in place of logos we do not have. */
 export function SiteReplacesStrip() {
   return (
-    <div className="border-b border-border/70 bg-[var(--pl-surface-muted)] [html[data-theme=dark]_&]:bg-white/[0.03]">
+    <div className="border-b border-border/40">
       <div
         className={`${SITE_MEASURE} flex flex-wrap items-center gap-x-4 gap-y-2.5 overflow-x-auto py-4 text-[13.5px] max-[379px]:hidden xl:flex-nowrap xl:gap-x-2.5 xl:text-[12px]`}
       >

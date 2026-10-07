@@ -18,6 +18,13 @@ test.describe("Public home", () => {
     await expect(hero.getByRole("link", { name: /start free/i })).toHaveAttribute("href", "/auth/create-account");
     await expect(hero.getByRole("link", { name: /book a demo/i })).toHaveAttribute("href", "/contact?tab=schedule");
     await expect(hero.locator(".rlp-hero-actions a")).toHaveCount(3);
+    // Exactly two lines, centered: "Your AI property" over "management assistant."
+    const lines = await page.locator(".rlp-hero h1 .rlp-h1-line").evaluateAll((nodes) =>
+      nodes.map((node) => ({ text: node.textContent, top: Math.round(node.getBoundingClientRect().top) })),
+    );
+    expect(lines.map((line) => line.text)).toEqual(["Your AI property", "management assistant."]);
+    expect(lines[1]!.top).toBeGreaterThan(lines[0]!.top);
+    await expect(page.locator(".rlp-hero h1")).toHaveCSS("text-align", "center");
     // The demo lives in the hero: there is no separate "One conversation" section any more.
     await expect(page.getByRole("heading", { name: /one conversation\. every next step/i })).toHaveCount(0);
   });
@@ -101,7 +108,7 @@ test.describe("Public home", () => {
     await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 
-  test.describe("demo engine (portals, stages, every sidebar tab)", () => {
+  test.describe("demo engine (account-menu portals, every sidebar tab)", () => {
     test.use({ contextOptions: { reducedMotion: "reduce" } });
 
     const openDemo = async (page: import("@playwright/test").Page) => {
@@ -110,122 +117,180 @@ test.describe("Public home", () => {
       await section.scrollIntoViewIfNeeded();
       return section;
     };
-    const stageNames: Record<string, string[]> = {
-      "Manager portal": ["Message", "Tour", "Application", "Lease", "Move in", "Rent", "Repair"],
-      "Resident portal": ["Apply", "Sign", "Pay", "Request", "Forms"],
-      "Vendor portal": ["Offer", "Quote", "Visit", "Paid"],
-    };
-    const sidebars: Record<string, string[]> = {
-      "Manager portal": ["Dashboard", "Properties", "Tours", "Applications", "Leases", "Residents", "Payments", "Services", "Calendar", "Communication", "Vendors"],
-      "Resident portal": ["My home", "Applications", "Lease", "Payments", "Services", "Forms", "Communication"],
-      "Vendor portal": ["Services", "Calendar", "Payments", "Reviews", "Communication"],
+    const portals: Record<string, { label: string; sidebar: string[] }> = {
+      manager: {
+        label: "Manager portal",
+        sidebar: ["Dashboard", "Properties", "Tours", "Applications", "Leases", "Residents", "Payments", "Services", "Calendar", "Communication", "Vendors"],
+      },
+      resident: { label: "Resident portal", sidebar: ["My home", "Applications", "Lease", "Payments", "Services", "Forms", "Communication"] },
+      vendor: { label: "Vendor portal", sidebar: ["Services", "Calendar", "Payments", "Reviews", "Communication"] },
     };
 
-    test("the portal switcher swaps stages, sidebar and phone, and every sidebar tab renders a panel", async ({ page }) => {
+    test("no stage chrome: no portal switcher, stage tabs, guide line or activity row", async ({ page }) => {
+      const section = await openDemo(page);
+      await expect(section.getByRole("tablist")).toHaveCount(0);
+      await expect(section.locator(".rlp-stage-tabs, .rlp-portal-switch, .rlp-guide-line, .rlp-activity")).toHaveCount(0);
+      for (const gone of ["Sample demo", "Explore freely", "Start the story", "Restart guide", "ACTIVITY"]) {
+        await expect(section.getByText(gone, { exact: true })).toHaveCount(0);
+      }
+      // The real portal has no bell, so the demo's top bar has none either.
+      await expect(section.getByRole("button", { name: "Notifications" })).toHaveCount(0);
+    });
+
+    test("the account menu switches portals, every portal asks PropLane, and every sidebar tab renders a panel", async ({ page }) => {
       const writes: string[] = [];
       page.on("request", (request) => {
         if (request.method() !== "GET" && request.method() !== "HEAD" && request.method() !== "OPTIONS") writes.push(`${request.method()} ${request.url()}`);
       });
       const section = await openDemo(page);
-      const portals = section.getByRole("tablist", { name: "Portal", exact: true });
-      await expect(portals.getByRole("tab")).toHaveCount(3);
-      for (const portal of Object.keys(stageNames)) {
-        await portals.getByRole("tab", { name: portal }).click();
-        await expect(portals.getByRole("tab", { name: portal })).toHaveAttribute("aria-selected", "true");
-        const stages = section.getByRole("tablist", { name: `${portal} stages` });
-        for (const stage of stageNames[portal]!) await expect(stages.getByRole("tab", { name: new RegExp(`${stage}$`) })).toBeVisible();
-        await expect(stages.getByRole("tab")).toHaveCount(stageNames[portal]!.length);
-        const nav = section.getByRole("navigation", { name: `${portal} navigation` });
-        for (const tab of sidebars[portal]!) await expect(nav.getByRole("button", { name: tab, exact: true })).toBeVisible();
-        // Every sidebar item opens a panel and becomes the current page.
-        for (const tab of sidebars[portal]!) {
+      const topBar = section.locator(".rlp-topbar");
+      const menuItem = (name: string) => section.getByRole("menuitem", { name });
+
+      // The menu mirrors the real portal's account menu: the other portals, never the current one.
+      await topBar.getByRole("button", { name: "Account menu" }).click();
+      await expect(section.getByRole("menu", { name: "Account" })).toBeVisible();
+      await expect(menuItem("Switch to Resident portal")).toBeVisible();
+      await expect(menuItem("Switch to Vendor portal")).toBeVisible();
+      await expect(menuItem("Switch to Property portal")).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(section.getByRole("menu")).toHaveCount(0);
+
+      const order = [
+        ["manager", null],
+        ["resident", "Switch to Resident portal"],
+        ["vendor", "Switch to Vendor portal"],
+        ["manager", "Switch to Property portal"],
+      ] as const;
+      for (const [portal, via] of order) {
+        if (via) {
+          await topBar.getByRole("button", { name: "Account menu" }).click();
+          await menuItem(via).click();
+        }
+        const { label, sidebar } = portals[portal]!;
+        const nav = section.getByRole("navigation", { name: `${label} navigation` });
+        for (const tab of sidebar) await expect(nav.getByRole("button", { name: tab, exact: true })).toBeVisible();
+        // Ask PropLane sits in the top bar of all three portals.
+        await expect(topBar.getByRole("button", { name: /Ask PropLane/ })).toBeVisible();
+        for (const tab of sidebar) {
           await nav.getByRole("button", { name: tab, exact: true }).click();
           await expect(nav.getByRole("button", { name: tab, exact: true })).toHaveAttribute("aria-current", "page");
-          if (portal === "Manager portal" && tab === "Communication") {
+          if (portal === "manager" && tab === "Communication") {
             await expect(section.locator(".rlp-live-communication")).toBeVisible();
           } else {
             const frame = section.locator(".rlp-panel-frame[data-demo-panel]");
-            await expect(frame).toHaveAttribute("data-demo-panel", new RegExp(`^${portal.split(" ")[0]!.toLowerCase()}:`));
+            await expect(frame).toHaveAttribute("data-demo-panel", new RegExp(`^${portal}:`));
             await expect(frame.locator("> *")).not.toHaveCount(0);
           }
         }
       }
-      // The resident and vendor portals show their own phones.
-      await expect(section.getByText("Marcus’s phone").first()).toBeVisible();
       expect(writes).toEqual([]);
     });
 
-    test("a stage tab jumps there and the sidebar follows; arrow keys move between tabs", async ({ page }) => {
-      const section = await openDemo(page);
-      const stages = section.getByRole("tablist", { name: "Manager portal stages" });
-      await stages.getByRole("tab", { name: /Lease$/ }).click();
-      await expect(stages.getByRole("tab", { name: /Lease$/ })).toHaveAttribute("aria-selected", "true");
-      await expect(section.getByRole("button", { name: "Leases", exact: true })).toHaveAttribute("aria-current", "page");
-      await expect(section.locator('[data-guide-target="send-lease"]')).toHaveAttribute("data-guide-active", "true");
-      await stages.getByRole("tab", { name: /Message$/ }).click();
-      await stages.getByRole("tab", { name: /Message$/ }).focus();
-      await page.keyboard.press("ArrowRight");
-      await expect(stages.getByRole("tab", { name: /Tour$/ })).toBeFocused();
-      await page.keyboard.press("Enter");
-      await expect(stages.getByRole("tab", { name: /Tour$/ })).toHaveAttribute("aria-selected", "true");
-      await expect(section.getByRole("button", { name: "Tours", exact: true })).toHaveAttribute("aria-current", "page");
-    });
-
-    test("reduced motion never autoplays: the Dashboard stays until the story is started", async ({ page }) => {
+    test("reduced motion never autoplays or grows: the Dashboard stays at full size", async ({ page }) => {
       const section = await openDemo(page);
       await page.mouse.move(2, 2);
       await page.waitForTimeout(4500);
       await expect(section.getByRole("button", { name: "Dashboard", exact: true })).toHaveAttribute("aria-current", "page");
-      await section.getByRole("button", { name: "Start the story" }).click();
-      await expect(section.getByRole("tab", { name: /Message$/ })).toHaveAttribute("aria-selected", "true");
-      await expect(section.locator('[data-guide-target="suggest"]')).toHaveAttribute("data-guide-active", "true");
+      await expect(page.locator(".rlp-hero-stage")).toHaveCSS("transform", "none");
     });
   });
 
   test.describe("demo autoplay", () => {
     test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
-    test("plays each step on its own, and pauses while the pointer is over the stage", async ({ page }) => {
+    test("plays the story on its own, pauses over the window, and a sidebar click stops it", async ({ page }) => {
       await goHome(page);
       const section = page.locator("#resident-lifecycle-walkthrough");
       await section.scrollIntoViewIfNeeded();
       await page.mouse.move(2, 2);
-      const selected = section.locator('.rlp-stage-tabs [aria-selected="true"]');
-      await expect(selected).toContainText("Tour", { timeout: 20_000 });
+      const current = section.locator(".rlp-nav-item[aria-current='page']");
+      await expect(current).toHaveAttribute("aria-label", "Communication", { timeout: 20_000 });
+      await expect(current).toHaveAttribute("aria-label", "Tours", { timeout: 20_000 });
       await section.locator(".rlp-dual-view").hover();
-      const held = (await selected.textContent()) ?? "";
+      const held = await current.getAttribute("aria-label");
       await page.waitForTimeout(4500);
-      await expect(selected).toHaveText(held);
+      await expect(current).toHaveAttribute("aria-label", held!);
+      // A sidebar click is the visitor taking over: leaving the window does not restart the story.
+      await section.getByRole("button", { name: "Properties", exact: true }).click();
       await page.mouse.move(2, 2);
-      await expect(selected).not.toHaveText(held, { timeout: 15_000 });
+      await page.waitForTimeout(4500);
+      await expect(current).toHaveAttribute("aria-label", "Properties");
+    });
+
+    test("the window grows from 88% to full size over the first 60% of the viewport, with no layout shift", async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await goHome(page);
+      const scale = () =>
+        page.locator(".rlp-hero-stage").evaluate((node) => {
+          const match = /matrix\(([^,]+),/.exec(getComputedStyle(node).transform);
+          return match ? Number(match[1]) : 1;
+        });
+      const sectionHeight = () => page.locator("#resident-lifecycle-walkthrough").evaluate((node) => node.getBoundingClientRect().height);
+      expect(await scale()).toBeCloseTo(0.88, 2);
+      const height = await sectionHeight();
+      await page.evaluate(() => window.scrollTo(0, 270));
+      await expect.poll(scale).toBeCloseTo(0.94, 1);
+      await page.evaluate(() => window.scrollTo(0, 600));
+      await expect.poll(scale).toBeCloseTo(1, 2);
+      expect(await sectionHeight()).toBe(height);
     });
   });
 
-  // The demo autoplays; reduced motion turns that off, so the highlighted button is the
-  // only thing that moves the story and these steps are deterministic.
-  test.describe("guided sample (clicking each highlighted step)", () => {
-    test.use({ contextOptions: { reducedMotion: "reduce" } });
+  test.describe("wavy page background and the blended top bar", () => {
+    test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
-    test("the homepage guides the local sample from reply through service and can replay", async ({ page }) => {
+    test("the top bar is transparent at the top of the home page and solid once scrolled; other pages keep theirs", async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await goHome(page);
+      const bar = page.locator("#axis-public-navbar");
+      await expect(bar).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(bar).toHaveCSS("border-bottom-width", "0px");
+      await page.evaluate(() => window.scrollTo(0, 700));
+      await expect(bar).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await page.goto("/pricing");
+      await expect(page.locator("#axis-public-navbar")).toHaveCSS("border-bottom-width", "1px");
+    });
+
+    test("one wavy background runs behind every section: no white bands", async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await goHome(page);
+      await expect(page.locator(".home-wavy .rlp-atmosphere--page canvas")).toHaveCount(1);
+      const bands = await page.locator(".home-wavy section").evaluateAll((nodes) =>
+        nodes.map((node) => getComputedStyle(node).backgroundColor).filter((color) => color !== "rgba(0, 0, 0, 0)"),
+      );
+      expect(bands).toEqual([]);
+      await expect(page.locator(".lrf-stage").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(page.locator("footer").last()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    });
+  });
+
+  // The demo autoplays; to step through it by hand, wait for the story to start, then hover the
+  // window: hovering pauses autoplay and the highlighted button is the guide.
+  test.describe("guided sample (clicking each highlighted step)", () => {
+    test.use({ contextOptions: { reducedMotion: "no-preference" } });
+
+    const startGuided = async (page: import("@playwright/test").Page) => {
       await goHome(page);
       const section = page.locator("#resident-lifecycle-walkthrough");
       await section.scrollIntoViewIfNeeded();
-      await expect(section.getByText("Sample demo")).toBeVisible();
-      await section.getByRole("button", { name: "Start the story" }).click();
+      await page.mouse.move(2, 2);
+      await expect(section.locator('[data-guide-target="suggest"]')).toHaveAttribute("data-guide-active", "true", { timeout: 20_000 });
+      await section.locator(".rlp-dual-view").hover();
+      return section;
+    };
+
+    test("the homepage guides the local sample from reply through service", async ({ page }) => {
+      const section = await startGuided(page);
       for (const target of ["suggest", "send", "accept-tour", "approve", "send-lease", "open-lease", "resident-sign", "manager-sign", "service"]) {
         const action = section.locator(`[data-guide-target="${target}"]`);
         await expect(action).toHaveAttribute("data-guide-active", "true");
         await action.click();
       }
-      await expect(section.getByText("Jordan’s request reached the manager")).toBeVisible();
-      await section.getByRole("button", { name: "Replay" }).click();
-      await expect(section.locator('[data-guide-target="suggest"]')).toHaveAttribute("data-guide-active", "true");
+      await expect(section.getByText("Manager signature pending").first()).toBeVisible();
     });
 
-    test("busy transitions preserve drafts and the signing preview, then replay cancels timers", async ({ page }) => {
-      await goHome(page);
-      const section = page.locator("#resident-lifecycle-walkthrough");
-      await section.getByRole("button", { name: "Start the story" }).click();
+    test("busy transitions preserve drafts and the signing preview", async ({ page }) => {
+      const section = await startGuided(page);
       const action = (target: string) => section.locator(`[data-guide-target="${target}"]`);
       const draft = section.locator(".rlp-compose input[aria-label='Write a reply']");
       const prepared = "Yes, Room 3 is available. Thursday at 5:30 PM Pacific is offered for a tour. Reply YES to confirm that time.";
@@ -255,22 +320,11 @@ test.describe("Public home", () => {
       await action("manager-sign").click();
       await expect(action("service")).toHaveAttribute("data-guide-active", "true");
       await action("service").click();
-      await expect(section.getByText("Jordan’s request reached the manager")).toBeVisible();
-
-      await section.getByRole("button", { name: "Replay" }).click();
-      await action("suggest").click();
-      await section.getByRole("button", { name: "Explore freely" }).click();
-      await section.getByRole("button", { name: "Restart guide" }).click();
-      await page.waitForTimeout(1100);
-      await expect(action("suggest")).toHaveAttribute("data-guide-active", "true");
-      await expect(draft).toBeEmpty();
-      await expect(section.locator(".rlp-bubble-manager", { hasText: prepared })).toHaveCount(0);
+      await expect(section.getByRole("button", { name: "Services", exact: true })).toHaveAttribute("aria-current", "page");
     });
 
     test("a phone reply submitted during a chapter transition is kept", async ({ page }) => {
-      await goHome(page);
-      const section = page.locator("#resident-lifecycle-walkthrough");
-      await section.getByRole("button", { name: "Start the story" }).click();
+      const section = await startGuided(page);
       const action = (target: string) => section.locator(`[data-guide-target="${target}"]`);
       const reply = "I can visit Thursday after work.";
       const phoneComposer = section.locator(".rl-phone-composer");

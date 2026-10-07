@@ -1,31 +1,32 @@
 "use client";
 
 /**
- * The home page hero and the guided demo beneath it (captain 2026-10-06).
+ * The home page hero and the guided demo beneath it (captain 2026-10-06, revised
+ * 2026-10-07).
  *
- * The hero is Akhil's headline and three buttons, with the demo itself in the
- * same first screen, directly under them (the manager portal's Dashboard shows
- * first, then the story plays). The demo plays his guided sample (a prospect's message
- * through tour, application, lease and move-in) and extends it into a demo
- * "through the platform": a Manager, Resident and Vendor portal switcher, a
- * tab per stage with a progress bar that fills while the stage plays, autoplay
- * at about three seconds a step, and every sidebar item opening the real panel
- * for that tab (`DemoPanel`, `site/product-mock/demo-panels.tsx`).
+ * The hero is the two-line headline and three buttons, with the demo itself in the
+ * same first screen directly under them. The demo plays Akhil's guided sample (a
+ * prospect's message through tour, application, lease and move-in), extended into
+ * a demo "through the platform" across the Manager, Resident and Vendor portals.
+ * There is no stage UI on screen: the story drives the window and the phone by
+ * itself (`resident-lifecycle-script.ts`), and the visitor changes portal from the
+ * window's own account menu, exactly as a multi-role user does in the real portal.
+ * Every sidebar item opens the real panel for that tab (`DemoPanel`,
+ * `site/product-mock/demo-panels.tsx`); clicking one stops the autoplay.
  *
- * Everything on screen is derived from one number, the beat, and the script in
- * `resident-lifecycle-script.ts`, so a stage tab can jump anywhere without
- * replaying. Nothing here touches the network or saves: it is a sample.
+ * Everything on screen is derived from one number, the beat, so nothing replays
+ * from scratch. Nothing here touches the network or saves: it is a sample.
  *
- * Autoplay pauses while the pointer or focus is inside the stage, while the
- * demo is off screen, once a visitor starts exploring (any sidebar click), and
- * never runs under prefers-reduced-motion. Without autoplay the highlighted
- * button is the guide: clicking it plays that step, exactly as before.
+ * Autoplay pauses while the pointer or focus is inside the window, while the account
+ * menu is open, while the demo is off screen, once a visitor starts exploring (any
+ * sidebar click), and never runs under prefers-reduced-motion. The window also
+ * grows from about 88% to full size as the page scrolls through the first 60% of
+ * the viewport (transform only, so nothing shifts; off under reduced motion).
  */
 
 import "./resident-lifecycle-prototypes.css";
 import "./resident-lifecycle-engine.css";
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { Check, RotateCcw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
 import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
@@ -33,14 +34,10 @@ import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/si
 import { managerStory, residentStory, vendorStory, worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
 import { ManagerActionStrip, ManagerCommunication } from "./resident-lifecycle-manager";
 import { ResidentLifecyclePhone } from "./resident-lifecycle-phone";
-import { ResidentLifecycleAtmosphere } from "./resident-lifecycle-atmosphere";
 import { ResidentLifecycleWorkspace } from "./resident-lifecycle-workspace";
 import {
   COMMUNICATION_THREADS,
-  MANAGER_DONE_BEAT,
   MANAGER_STEPS,
-  PORTAL_META,
-  PORTAL_ORDER,
   SUGGESTED_REPLY,
   TRACKS,
   firstBeatOfChapter,
@@ -58,18 +55,9 @@ const WALKTHROUGH = "#resident-lifecycle-walkthrough";
 const isNarrow = () => window.matchMedia("(max-width: 850px)").matches;
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** Arrow keys, Home and End move focus along a tablist; Enter and Space activate the focused tab. */
-function tablistKeys(event: KeyboardEvent<HTMLElement>) {
-  const keys = ["ArrowRight", "ArrowLeft", "Home", "End"];
-  if (!keys.includes(event.key)) return;
-  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'));
-  const at = tabs.indexOf(document.activeElement as HTMLElement);
-  if (at < 0) return;
-  event.preventDefault();
-  const next =
-    event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-  tabs[next]?.focus();
-}
+/** The hero window starts at GROW_FROM of its size and reaches full size after GROW_OVER of the viewport height. */
+const GROW_FROM = 0.88;
+const GROW_OVER = 0.6;
 
 export function ResidentLifecyclePrototypes() {
   const [portal, setPortal] = useState<DemoPortal>("manager");
@@ -83,22 +71,20 @@ export function ResidentLifecyclePrototypes() {
   const [intro, setIntro] = useState(true);
   const [exploring, setExploring] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [activity, setActivity] = useState<string[]>([]);
   const [viewVersion, setViewVersion] = useState(0);
-  const [jumpVersion, setJumpVersion] = useState(0);
   const [guideEntered, setGuideEntered] = useState(false);
   const [reduced, setReduced] = useState(false);
   const [inView, setInView] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const busyRef = useRef(false);
   const elapsed = useRef(0);
   const sectionRef = useRef<HTMLElement>(null);
-  const stageTabsRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const latest = useRef<{ tick(dt: number): void }>({ tick: () => {} });
 
-  const meta = PORTAL_META[portal];
   const track = TRACKS[portal];
   const current = track.beats[beat]!;
   const stage = track.stages[current.stage]!;
@@ -123,10 +109,9 @@ export function ResidentLifecyclePrototypes() {
         ? residentStory(stage.id)
         : vendorStory(stage.id);
   const sidebarBadges = portal === "manager" ? { ...worldFor(story).badges, communication: COMMUNICATION_THREADS.length } : undefined;
-  const playing = !reduced && !exploring && !hovered && !focused && inView;
+  const playing = !reduced && !exploring && !hovered && !focused && !menuOpen && inView;
   const guideTarget = exploring || busy || introShowing ? undefined : activeStep?.target;
   const guideInstruction = exploring || busy || introShowing ? undefined : activeStep?.instruction;
-  const finished = portal === "manager" && beat >= MANAGER_DONE_BEAT;
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   useEffect(() => {
@@ -153,14 +138,29 @@ export function ResidentLifecyclePrototypes() {
       behavior: prefersReducedMotion() ? "instant" : "smooth",
       block: "center",
     });
-  }, [beat, viewVersion, jumpVersion, exploring, busy, playing, activeStep, guideEntered]);
-  // Keep the playing stage visible in the phone-width tab strip.
+  }, [beat, viewVersion, exploring, busy, playing, activeStep, guideEntered]);
+  // Scroll growth: the window grows from GROW_FROM to full size over the first GROW_OVER of the viewport.
   useEffect(() => {
-    const strip = stageTabsRef.current;
-    const tab = strip?.querySelector<HTMLElement>('[aria-selected="true"]');
-    if (!strip || !tab || strip.scrollWidth <= strip.clientWidth) return;
-    strip.scrollTo({ left: tab.offsetLeft - 16, behavior: prefersReducedMotion() ? "auto" : "smooth" });
-  }, [stage.id, portal]);
+    const stageEl = stageRef.current;
+    if (!stageEl || reduced) return;
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      const progress = Math.min(1, Math.max(0, window.scrollY / (window.innerHeight * GROW_OVER)));
+      stageEl.style.setProperty("--rlp-grow", String(GROW_FROM + (1 - GROW_FROM) * progress));
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(apply);
+    };
+    apply();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [reduced]);
 
   const later = (fn: () => void, ms: number) => {
     timers.current.push(setTimeout(fn, ms));
@@ -171,13 +171,11 @@ export function ResidentLifecyclePrototypes() {
     busyRef.current = false;
     setBusy(false);
   };
-  const goToBeat = (next: number, quiet = false) => {
+  const goToBeat = (next: number) => {
     elapsed.current = 0;
     setBeat(next);
     setPending(null);
     setTabOverride(null);
-    const caption = track.beats[next]?.step ? null : track.beats[next]?.caption;
-    if (!quiet && caption) setActivity((items) => [...items.slice(-2), caption]);
   };
   const resetStory = (nextPortal: DemoPortal) => {
     clearTimers();
@@ -190,22 +188,9 @@ export function ResidentLifecyclePrototypes() {
     setSentReply(SUGGESTED_REPLY);
     setTabOverride(null);
     setExploring(false);
-    setActivity([]);
     setViewVersion((value) => value + 1);
   };
   const replay = () => resetStory(portal);
-  const restartGuide = () => {
-    replay();
-    setGuideEntered(true);
-  };
-  const jumpToStage = (index: number) => {
-    clearTimers();
-    setIntro(false);
-    setExploring(false);
-    setGuideEntered(true);
-    setJumpVersion((value) => value + 1);
-    goToBeat(track.stages[index]!.first);
-  };
   const selectTab = (tab: string) => {
     setTabOverride(tab);
     setExploring(true);
@@ -221,18 +206,15 @@ export function ResidentLifecyclePrototypes() {
     if (busyRef.current) return false;
     const index = MANAGER_STEPS.findIndex((step) => step.target === target);
     if (index < 0 || index < beat) return true;
-    const step = MANAGER_STEPS[index]!;
     busyRef.current = true;
     setBusy(true);
     setGuideEntered(true);
     setPending(index);
-    setActivity((items) => [...items.slice(-2), step.activity[0]]);
     later(() => {
-      setActivity((items) => [...items.slice(-2), step.activity[1]]);
       later(() => {
         busyRef.current = false;
         setBusy(false);
-        goToBeat(index + 1, true);
+        goToBeat(index + 1);
       }, 410);
     }, 520);
     return true;
@@ -255,13 +237,10 @@ export function ResidentLifecyclePrototypes() {
   const tick = (dt: number) => {
     elapsed.current += dt;
     const spent = elapsed.current;
-    const bar = stageTabsRef.current?.querySelector<HTMLElement>('[data-state="active"]');
     if (introShowing) {
-      bar?.style.setProperty("--p", "0");
       if (spent >= BEAT_MS) startStory();
       return;
     }
-    bar?.style.setProperty("--p", String(Math.min(1, (beat - stage.first + Math.min(spent / BEAT_MS, 0.97)) / stage.count)));
     if (activeStep) {
       if (busyRef.current || spent < CLICK_AT_MS) return;
       const target = document.querySelector<HTMLButtonElement>(`${WALKTHROUGH} [data-guide-target="${activeStep.target}"]`);
@@ -294,15 +273,6 @@ export function ResidentLifecyclePrototypes() {
   const messages = [...(script?.messages ?? []), ...extra];
   const repairStage = TRACKS.manager.stages.findIndex((item) => item.id === "repair");
   const isCommunication = portal === "manager" && activeTab === "communication";
-  const guideText = exploring
-    ? "Explore the sample at your pace"
-    : busy
-      ? activity.at(-1)
-      : introShowing
-        ? "Your workspace at a glance"
-        : (activeStep?.instruction ?? current.caption);
-  const stageTabId = (id: string) => `demo-stage-${portal}-${id}`;
-
   return (
     <div className="rlp-page">
       <section
@@ -311,9 +281,12 @@ export function ResidentLifecyclePrototypes() {
         className="rlp-hero"
         aria-labelledby="rlp-hero-title"
       >
-        <ResidentLifecycleAtmosphere />
         <div className="rlp-hero-copy">
-          <h1 id="rlp-hero-title">Your AI property management assistant.</h1>
+          <h1 id="rlp-hero-title">
+            <span className="rlp-h1-line">Your AI property</span>{" "}
+            <br />
+            <span className="rlp-h1-line">management assistant.</span>
+          </h1>
           <div className="rlp-hero-actions">
             <Link href={GET_STARTED_HREF} data-attr="home-hero-get-started">
               Start free - no card
@@ -324,11 +297,11 @@ export function ResidentLifecyclePrototypes() {
             <AppStoreBadge tone="dark" size="lg" dataAttr="home-hero-app-store" className="rlp-app-store" />
           </div>
         </div>
-        <div className="rlp-hero-stage">
+        <div className="rlp-hero-stage" ref={stageRef}>
           <div
             id="rlp-demo-stage"
-            role="tabpanel"
-            aria-labelledby={stageTabId(stage.id)}
+            role="group"
+            aria-label="Sample PropLane workspace"
             className="rlp-dual-view"
             onPointerEnter={() => setHovered(true)}
             onPointerLeave={() => setHovered(false)}
@@ -343,11 +316,13 @@ export function ResidentLifecyclePrototypes() {
               active={activeTab}
               badges={sidebarBadges}
               onSelect={selectTab}
+              onSwitchPortal={resetStory}
+              onMenuOpenChange={setMenuOpen}
               panel={!isCommunication}
             >
               {isCommunication && script ? (
                 <ManagerCommunication
-                  key={`comm-${viewVersion}-${jumpVersion}`}
+                  key={`comm-${viewVersion}`}
                   messages={messages}
                   chapter={script.chapter}
                   suggestedReply={script.suggestedReply}
@@ -388,7 +363,7 @@ export function ResidentLifecyclePrototypes() {
             </ResidentLifecycleWorkspace>
             {script ? (
               <ResidentLifecyclePhone
-                key={`phone-${script.chapter}-${viewVersion}-${jumpVersion}`}
+                key={`phone-${script.chapter}-${viewVersion}`}
                 stage={script.chapter}
                 tourAccepted={script.tourAccepted}
                 applicationApproved={script.applicationApproved}
@@ -406,7 +381,7 @@ export function ResidentLifecyclePrototypes() {
               />
             ) : (
               <ResidentLifecyclePhone
-                key={`phone-${portal}-${stage.id}-${viewVersion}-${jumpVersion}`}
+                key={`phone-${portal}-${stage.id}-${viewVersion}`}
                 stage="message"
                 tourAccepted={false}
                 applicationApproved={false}
@@ -421,99 +396,6 @@ export function ResidentLifecyclePrototypes() {
                 onCreateService={() => false}
                 onReply={() => true}
               />
-            )}
-          </div>
-          <div className="rlp-demo-controls">
-            <div className="rlp-portal-switch" role="tablist" aria-label="Portal" onKeyDown={tablistKeys}>
-              {PORTAL_ORDER.map((id) => (
-                <button
-                  type="button"
-                  role="tab"
-                  key={id}
-                  id={`demo-portal-${id}`}
-                  aria-selected={portal === id}
-                  tabIndex={portal === id ? 0 : -1}
-                  className="rlp-portal-tab"
-                  data-attr={`home-demo-portal-${id}`}
-                  onClick={() => portal !== id && resetStory(id)}
-                >
-                  {PORTAL_META[id].label}
-                </button>
-              ))}
-            </div>
-            <div
-              ref={stageTabsRef}
-              className="rlp-stage-tabs"
-              role="tablist"
-              aria-label={`${meta.label} stages`}
-              style={{ "--stages": track.stages.length } as CSSProperties}
-              onKeyDown={tablistKeys}
-            >
-              {track.stages.map((item, index) => {
-                const selected = index === current.stage;
-                return (
-                  <button
-                    type="button"
-                    role="tab"
-                    key={item.id}
-                    id={stageTabId(item.id)}
-                    aria-selected={selected}
-                    aria-controls="rlp-demo-stage"
-                    tabIndex={selected ? 0 : -1}
-                    className="rlp-stage-tab"
-                    data-state={selected ? "active" : index < current.stage ? "done" : "todo"}
-                    data-attr={`home-demo-stage-${item.id}`}
-                    style={selected && reduced && !introShowing ? ({ "--p": 1 } as CSSProperties) : undefined}
-                    onClick={() => jumpToStage(index)}
-                  >
-                    <small>{index + 1}</small>
-                    <span>{item.label}</span>
-                    <i className="rlp-stage-bar" aria-hidden>
-                      <b />
-                    </i>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="rlp-guide-line" aria-live={playing ? "off" : "polite"}>
-            <div className="rlp-guide-copy">
-              <span className="rlp-sample-tag">Sample demo</span>
-              <strong>
-                {finished && !exploring && !busy ? <Check aria-hidden /> : null}
-                {guideText}
-              </strong>
-            </div>
-            <div className="rlp-guide-actions">
-              {finished ? (
-                <button type="button" onClick={replay}>
-                  <RotateCcw aria-hidden /> Replay
-                </button>
-              ) : exploring ? (
-                <button type="button" onClick={restartGuide}>
-                  Restart guide
-                </button>
-              ) : introShowing ? (
-                <button type="button" onClick={startStory}>
-                  Start the story
-                </button>
-              ) : (
-                <button type="button" onClick={() => setExploring(true)}>
-                  Explore freely
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="rlp-activity" aria-label="Sample activity" aria-live="off">
-            <span className="rlp-activity-label">ACTIVITY</span>
-            {activity.length ? (
-              activity.map((item, index) => (
-                <span key={`${item}-${index}`} className={index === activity.length - 1 ? "rlp-activity-current" : ""}>
-                  {item}
-                </span>
-              ))
-            ) : (
-              <span>{meta.opening}</span>
             )}
           </div>
         </div>

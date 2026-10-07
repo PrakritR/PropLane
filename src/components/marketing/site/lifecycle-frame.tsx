@@ -4,7 +4,7 @@
  * The screen frame for one lifecycle row (captain 2026-10-06, Section map row 4
  * of the home demo redesign): Akhil's workspace window from the hero demo
  * (`ResidentLifecycleWorkspace`: PropLane workspace card, sidebar, "Ask PropLane"
- * top bar, avatar tile) on his atmospheric soft-blue stage, with the real portal
+ * top bar, avatar tile) on the home page's own wavy background, with the real portal
  * screen for one tab inside it (`DemoPanel`) and, where a second party is
  * involved, his phone (`ResidentLifecyclePhone`) beside it with a short static
  * thread. Nothing here fetches or saves; the sidebar switches the panel exactly
@@ -17,7 +17,6 @@
  */
 
 import "@/components/marketing/resident-lifecycle-prototypes.css";
-import "@/components/marketing/resident-lifecycle-atmosphere.css";
 import "./lifecycle-frame.css";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
@@ -64,7 +63,6 @@ export function LifecycleFrame({
 
   return (
     <div className="rlp-page lrf-stage" role="group" aria-label={`${label} in PropLane`}>
-      <div className="rlp-atmosphere" aria-hidden />
       <div ref={bodyRef} className="lrf-body" style={{ "--lrf-s": scale } as CSSProperties}>
         <div className="lrf-window-slot">
           <div className="lrf-window rlp-dual-view" data-lifecycle-frame={`${portal}:${active}`}>

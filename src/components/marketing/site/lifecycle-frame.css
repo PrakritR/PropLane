@@ -1,15 +1,12 @@
-/* Lifecycle row frame: Akhil's workspace window on his atmospheric stage. */
+/* Lifecycle row frame: Akhil's workspace window, on the home page's own wavy background (no stage of its own). */
 .rlp-page.lrf-stage {
   position: relative;
   min-height: 0;
   overflow: hidden;
   padding: clamp(14px, 3vw, 28px);
-  border: 1px solid #cfe0ef;
-  border-radius: 28px;
-  background: #e5f0fa;
-}
-.lrf-stage .rlp-atmosphere {
-  z-index: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .lrf-body {
   position: relative;

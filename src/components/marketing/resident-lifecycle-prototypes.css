@@ -1949,72 +1949,6 @@ button.rlp-table-row {
 }
 .rlp-walkthrough { padding-top: clamp(56px, 6vw, 100px); }
 .rlp-walkthrough-heading { margin-bottom: 20px; }
-.rlp-guide-line {
-  max-width: 1360px;
-  min-height: 60px;
-  margin: 0 auto 20px;
-  padding: 9px 0;
-  border-top: 1px solid #d2e2f2;
-  border-bottom: 1px solid #d2e2f2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.rlp-guide-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 15px; }
-.rlp-guide-copy strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: #254666;
-  font-size: 13px;
-  font-weight: 730;
-}
-.rlp-guide-copy svg { width: 15px; height: 15px; color: #29875a; }
-.rlp-sample-tag {
-  color: #71849b;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-.rlp-guide-actions { display: flex; align-items: center; gap: 8px; }
-.rlp-guide-actions button {
-  min-height: 36px;
-  padding: 0 8px;
-  border: 0;
-  background: transparent;
-  color: #2363a4;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 750;
-  white-space: nowrap;
-}
-.rlp-guide-actions button:hover { text-decoration: underline; }
-.rlp-guide-actions svg { width: 13px; height: 13px; vertical-align: middle; }
-.rlp-activity {
-  max-width: 1360px;
-  margin: 17px auto 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 18px;
-  color: #708198;
-  font-size: 11px;
-}
-.rlp-activity-label { font-size: 10px; font-weight: 800; letter-spacing: .12em; }
-.rlp-activity span:not(:first-child)::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 7px;
-  border-radius: 50%;
-  background: #9eb6ce;
-  vertical-align: middle;
-}
-.rlp-activity .rlp-activity-current { color: #1769bd; font-weight: 750; }
-.rlp-activity .rlp-activity-current::before { background: #1769bd !important; }
 .rlp-suggest-reply {
   width: fit-content;
   min-height: 35px;
@@ -2095,8 +2029,6 @@ button.rlp-table-row {
   .rlp-hero-copy { padding: 85px 0 120px; }
   .rlp-hero h1 { font-size: clamp(46px, 12vw, 72px); }
   .rlp-hero-bottom { bottom: 25px; }
-  .rlp-guide-line { align-items: flex-start; flex-direction: column; gap: 2px; }
-  .rlp-guide-actions { align-self: flex-end; }
 }
 @media (prefers-reduced-motion: reduce) {
   .rlp-page [data-guide-active="true"] { animation: none; }
@@ -2133,12 +2065,6 @@ button.rlp-table-row {
   z-index: 1;
   width: min(100% - 2 * var(--rlp-gutter), 1360px);
   margin: 0 auto;
-}
-.rlp-hero-stage .rlp-demo-controls {
-  margin-top: 18px;
-}
-.rlp-hero-stage .rlp-guide-line {
-  border-top-color: #cfdeed;
 }
 @media (max-width: 860px) {
   .rlp-hero {
@@ -2193,4 +2119,139 @@ button.rlp-table-row {
     margin: 10px 0 0;
     justify-content: center;
   }
+}
+
+/* Home round 3 (captain 2026-10-07): a two-line headline with room above it, no stage chrome,
+   the window growing as the page scrolls, the account menu, and a transparent page so the
+   wavy background shows through. */
+.rlp-page {
+  min-height: 0;
+  overflow: visible;
+  overflow-x: clip;
+  background: transparent;
+  padding-bottom: 0;
+}
+.rlp-hero {
+  overflow: visible;
+  background: transparent;
+  padding: 64px 0 34px;
+}
+.rlp-hero-copy {
+  text-align: center;
+}
+.rlp-hero h1 {
+  text-wrap: initial;
+}
+.rlp-hero h1 .rlp-h1-line {
+  display: inline;
+  color: inherit;
+  white-space: nowrap;
+}
+.rlp-hero-stage {
+  transform: scale(var(--rlp-grow, 0.88));
+  transform-origin: top center;
+}
+@media (max-width: 860px) {
+  .rlp-hero { padding-top: 52px; }
+}
+@media (max-width: 640px) {
+  .rlp-hero { padding: 44px 0 26px; }
+  .rlp-hero h1 { font-size: clamp(24px, 8.1vw, 44px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rlp-hero-stage { transform: none; }
+}
+
+.rlp-account {
+  position: relative;
+}
+.rlp-account-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 3px;
+  border: 1px solid var(--rlp-line);
+  border-radius: 999px;
+  background: #fff;
+  color: #62738b;
+  cursor: pointer;
+}
+.rlp-account-trigger:hover {
+  background: #eaf3ff;
+}
+.rlp-account-trigger .rlp-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+.rlp-account-trigger svg {
+  width: 14px;
+  height: 14px;
+}
+.rlp-account-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 248px;
+  padding: 6px;
+  border: 1px solid var(--rlp-line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(24, 52, 92, 0.18);
+  text-align: left;
+}
+.rlp-account-menu hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--rlp-line);
+}
+.rlp-account-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px 9px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--rlp-line);
+}
+.rlp-account-card strong {
+  color: var(--rlp-ink);
+  font-size: 13.5px;
+  font-weight: 650;
+}
+.rlp-account-card span {
+  overflow: hidden;
+  color: var(--rlp-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rlp-account-menu button[role="menuitem"] {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--rlp-ink);
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 560;
+  text-align: left;
+}
+.rlp-account-menu button[role="menuitem"]:hover,
+.rlp-account-menu button[role="menuitem"]:focus-visible {
+  background: #eaf3ff;
+}
+.rlp-account-menu button[role="menuitem"] svg {
+  width: 16px;
+  height: 16px;
+  color: var(--rlp-muted);
+}
+.rlp-account-menu .rlp-account-signout,
+.rlp-account-menu .rlp-account-signout svg {
+  color: #b91c1c;
 }
