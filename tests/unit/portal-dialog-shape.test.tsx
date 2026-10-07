@@ -154,7 +154,7 @@ describe("PortalDialog header", () => {
     expect(strip).toBeTruthy();
     expect(strip.textContent?.trim()).toBe("");
     const panel = screen.getByRole("dialog");
-    expect(panel.className).toContain("!max-w-[1480px]");
+    expect(panel.className).toContain("!max-w-[920px]");
   });
 
   it("shows a back arrow only when a step supplies one", () => {
