@@ -2166,3 +2166,31 @@ button.rlp-table-row {
     margin-top: 18px;
   }
 }
+
+/* Sidebar rows keep their count badge inside the sidebar: label truncates, badge never shrinks. */
+.rlp-dual-view .rlp-nav-item {
+  font-size: 13px;
+}
+.rlp-nav-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rlp-nav-item b {
+  flex: none;
+}
+
+/* On desktop the phone caption sits under the device, so the window and the phone share one top edge. */
+@media (min-width: 851px) {
+  .rlp-dual-view .rl-phone-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+  .rlp-dual-view .rl-phone-caption {
+    display: flex;
+    order: 2;
+    margin: 10px 0 0;
+    justify-content: center;
+  }
+}

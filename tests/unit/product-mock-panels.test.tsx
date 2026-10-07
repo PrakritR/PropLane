@@ -8,6 +8,7 @@
 // ever called while a panel renders or its tabs are switched.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { LEASE_ROWS } from "@/components/marketing/site/product-mock/fixtures";
 import {
   ApplicationsPanel,
   LeasesPanel,
@@ -59,16 +60,18 @@ describe("product mock panels — tabs actually change the rows", () => {
     expect(screen.getByText("Dana Reyes")).toBeInTheDocument();
   });
 
-  it("Leases: the pipeline progress bar reads N of TOTAL signed", () => {
+  it("Leases: the pipeline progress bar reads N of TOTAL signed, both counted from the rows", () => {
     render(<LeasesPanel />);
-    expect(screen.getByText(/of 7 leases signed/i)).toBeInTheDocument();
+    const signed = LEASE_ROWS.filter((r) => r.bucket === "completed").length;
+    expect(screen.getByText(`${signed} of ${LEASE_ROWS.length} leases signed`)).toBeInTheDocument();
   });
 
-  it("Payments: Overdue shows September rent; Paid shows a different charge", () => {
+  it("Payments: Overdue shows unpaid September rent; Paid shows charges with a paid date instead", () => {
     render(<PaymentsPanel />);
-    expect(screen.getAllByText(/September rent/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Due Sep 1/).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: /paid/i }));
-    expect(screen.queryByText(/September rent/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Due Sep 1/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Paid Sep 1/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/August rent/).length).toBeGreaterThan(0);
   });
 
