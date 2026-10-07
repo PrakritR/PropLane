@@ -45,6 +45,21 @@ export const getPortalAccessContext = cache(async (): Promise<PortalAccessContex
 
   const fallbackRole = base.profile?.role ?? null;
 
+  // A verified "View as" session resolves this request as the viewed account:
+  // its roles, and the portal the operator opened (never the operator's own
+  // active-portal cookie).
+  if (base.viewAs) {
+    return {
+      user: base.user,
+      profile: base.profile,
+      roles: normalizeRoles(
+        base.viewAs.target.roles.map((role) => ({ role })),
+        fallbackRole,
+      ),
+      effectiveRole: base.viewAs.portal,
+    };
+  }
+
   let roles: AuthRole[];
   try {
     const supabase = await createSupabaseServerClient();

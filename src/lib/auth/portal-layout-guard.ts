@@ -26,7 +26,7 @@ export async function assertPortalLayoutRole(
   }
 
   const preview = await getAdminPreviewFromCookies();
-  if (hasAdminRole(ctx) && preview?.portal === portal) {
+  if (preview?.portal === portal) {
     return;
   }
 

@@ -12,6 +12,15 @@ import {
   requestHostFromHeaders,
 } from "@/lib/seo/public-crawl-host";
 import { isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
+import {
+  readViewAsSecret,
+  VIEW_AS_COOKIE,
+  VIEW_AS_READ_ONLY_ERROR,
+  verifyViewAsToken,
+  viewAsBlocksRequest,
+  viewAsDeniesPrivateBytes,
+  type ViewAsPayload,
+} from "@/lib/auth/view-as-token";
 
 const PROTECTED_PREFIXES = ["/portal", "/pro", "/manager", "/owner", "/resident", "/admin", "/vendor"];
 
@@ -23,8 +32,36 @@ function stampCrawlPolicy(request: NextRequest, response: NextResponse): NextRes
   return response;
 }
 
+/**
+ * "View as" (read-only support mode): while a validly signed, unexpired cookie
+ * is present, EVERY request that is not a read is refused here, before any route
+ * or server action runs, except ending the session and signing out. This is the
+ * real control behind the read-only promise; client-side disabling is cosmetic.
+ * Private-document GETs are refused too (metadata may be listed, bytes may not).
+ * The cookie is only trusted for "this browser is in a read-only session"; WHO
+ * the viewer is, and whether the session is still honoured, is decided on the
+ * server by `resolveActiveViewAs`.
+ */
+async function viewAsGuard(request: NextRequest): Promise<{ payload: ViewAsPayload | null; blocked: NextResponse | null }> {
+  const raw = request.cookies.get(VIEW_AS_COOKIE)?.value;
+  if (!raw) return { payload: null, blocked: null };
+  const payload = await verifyViewAsToken(raw, readViewAsSecret());
+  if (!payload) return { payload: null, blocked: null };
+  const path = request.nextUrl.pathname;
+  if (viewAsBlocksRequest(request.method, path) || viewAsDeniesPrivateBytes(request.method, path)) {
+    return {
+      payload,
+      blocked: NextResponse.json({ error: VIEW_AS_READ_ONLY_ERROR }, { status: 403, headers: { "Cache-Control": "no-store" } }),
+    };
+  }
+  return { payload, blocked: null };
+}
+
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
+
+  const viewAs = await viewAsGuard(request);
+  if (viewAs.blocked) return viewAs.blocked;
 
   // Browser visitors on a legacy domain (prop-lane.space, proplane.space,
   // axis-seattle-housing.com, and their www variants) go to proplane.ai.
@@ -144,6 +181,11 @@ export async function middleware(request: NextRequest) {
     const redirectUrl = new URL("/auth/sign-in", request.url);
     redirectUrl.searchParams.set("next", `${path}${request.nextUrl.search}`);
     return stampCrawlPolicy(request, NextResponse.redirect(redirectUrl));
+  }
+
+  // A view-as cookie left in the browser by a different sign-in is dropped.
+  if (viewAs.payload && user && user.id !== viewAs.payload.adminId) {
+    supabaseResponse.cookies.set(VIEW_AS_COOKIE, "", { path: "/", maxAge: 0, httpOnly: true, sameSite: "lax" });
   }
 
   supabaseResponse.headers.set("x-pathname", path);
