@@ -16,7 +16,7 @@ import type { ServerProfile } from "@/lib/auth/server-profile";
  * gone, because a session is now explicit, signed, bounded and bannered.
  */
 export const getEffectiveSessionForPortal = cache(async (
-  portal: PreviewPortal,
+  _portal: PreviewPortal,
 ): Promise<{ user: { id: string; email?: string | null } | null; profile: ServerProfile | null }> => {
   const ctx = await getPortalAccessContext();
   if (!ctx.user) return { user: null, profile: null };

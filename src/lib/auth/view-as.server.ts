@@ -96,6 +96,14 @@ export async function readVerifiedViewAsPayload(
   return verifyViewAsToken(raw, readViewAsSecret(), { allowExpired: opts.allowExpired });
 }
 
+/**
+ * True while this request carries a validly signed, unexpired view-as cookie
+ * (see `view-as-guard.ts`). GET handlers that heal, backfill or provision as a
+ * side effect of being read consult it and skip the work; the service-role
+ * client refuses the write regardless (`view-as-read-only.ts`).
+ */
+export { isViewAsSessionOpen } from "@/lib/auth/view-as-guard";
+
 /* -------------------------------------------------------------------------- */
 /* Current-request resolution                                                  */
 /* -------------------------------------------------------------------------- */
@@ -231,6 +239,57 @@ export async function recordViewAsStarted(
     },
   );
   return outcome.recorded === true;
+}
+
+/**
+ * Close the trail for sessions that simply timed out: the operator closed the
+ * tab, so neither End nor the banner's timer ever ran. Called when the same
+ * operator starts their next session. Every session this finds has a started
+ * row, a window that has passed and no ended row; the ended row is written as
+ * `expired` at the window's end (`dedupe_key` makes it idempotent).
+ */
+export async function reconcileExpiredViewAsSessions(
+  db: SupabaseClient,
+  operatorId: string,
+  nowMs: number = Date.now(),
+): Promise<number> {
+  try {
+    const { data: started } = await db
+      .from("audit_log")
+      .select("landlord_id, input_summary, created_at")
+      .eq("actor_user_id", operatorId)
+      .eq("action", VIEW_AS_STARTED_ACTION)
+      .order("created_at", { ascending: false })
+      .limit(25);
+    let closed = 0;
+    for (const row of (started ?? []) as Array<{ landlord_id: string; input_summary: Record<string, unknown> | null }>) {
+      const s = row.input_summary ?? {};
+      const sid = typeof s.sid === "string" ? s.sid : "";
+      const startedAt = typeof s.startedAt === "string" ? Date.parse(s.startedAt) : NaN;
+      const expiresAt = typeof s.expiresAt === "string" ? Date.parse(s.expiresAt) : NaN;
+      const portal = s.portal;
+      if (!sid || !Number.isFinite(startedAt) || !Number.isFinite(expiresAt) || nowMs < expiresAt) continue;
+      if (portal !== "manager" && portal !== "resident" && portal !== "vendor") continue;
+      const ok = await recordViewAsEnded(
+        db,
+        {
+          v: 1,
+          adminId: operatorId,
+          targetId: row.landlord_id,
+          portal,
+          iat: Math.floor(startedAt / 1000),
+          exp: Math.floor(expiresAt / 1000),
+          sid,
+        },
+        "expired",
+        nowMs,
+      );
+      if (ok) closed += 1;
+    }
+    return closed;
+  } catch {
+    return 0;
+  }
 }
 
 export async function recordViewAsEnded(

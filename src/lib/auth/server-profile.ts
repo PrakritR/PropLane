@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { viewAsOfUser } from "@/lib/auth/view-as-user";
 import type { ActiveViewAs } from "@/lib/auth/view-as.server";
 import { isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
 import { describeAuthRejection } from "@/lib/auth/session-rejection";
@@ -75,7 +76,7 @@ export const getServerSessionProfile = cache(
       let profile: ServerProfile | null = null;
       // `createSupabaseServerClient` marks the synthetic user it returns while a
       // verified "View as" session is open (structural check: no import to mock).
-      const viewAs = (user as { __viewAs?: ActiveViewAs }).__viewAs ?? null;
+      const viewAs = viewAsOfUser(user);
       try {
         // While viewing, the session client is still the operator's: RLS would answer
         // for them. The viewed account's profile is read with the service role.

@@ -16,6 +16,7 @@ import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import { resolveServiceFeePayerFor, type ServiceFeePayer } from "@/lib/payment-policy";
 import { track } from "@/lib/analytics/posthog";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as-guard";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 /**
@@ -132,6 +133,9 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
  * persist across requests, so provider freshness and write-time checks remain.
  */
 const syncManagerPurchaseTierStateOnce = cache(async (userId: string): Promise<void> => {
+  // Reconciliation revokes and downgrades: a read-only "View as" session must
+  // show the plan as stored and never settle it.
+  if (await isViewAsSessionOpen()) return;
   const startedAt = performance.now();
   try {
     const { syncManagerPurchaseTierState } = await import("@/lib/manager-tier-sync");

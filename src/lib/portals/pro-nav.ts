@@ -82,7 +82,7 @@ export const buildProPortalDefinition = cache(async (): Promise<{
    */
   planLapsedFromTrial: boolean;
 }> => {
-  const { ctx, preview, portalTitle, isFree, subscriptionTier, purchase } = await getProPortalRenderContext();
+  const { preview, portalTitle, isFree, subscriptionTier, purchase } = await getProPortalRenderContext();
   const planLabel = isFree ? "Free" : managerTierDisplayLabel(purchase.tier);
 
   const showPreviewBanner = !!preview?.targetUserId;

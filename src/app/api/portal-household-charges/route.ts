@@ -10,6 +10,7 @@ import {
   type ManagerWorkspaceRowScope,
 } from "@/lib/auth/co-manager-module-scope";
 import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { HouseholdCharge } from "@/lib/household-charges";
@@ -227,7 +228,7 @@ export async function GET(req?: Request) {
         ? { ...charge, managerUserId: r.manager_user_id }
         : charge;
     });
-    const advanced = localDevAchShortcutAllowed()
+    const advanced = localDevAchShortcutAllowed() && !(await isViewAsSessionOpen())
       ? advanceStaleProcessingHouseholdCharges(rawCharges)
       : rawCharges;
     if (advanced !== rawCharges && user.role === "resident") {

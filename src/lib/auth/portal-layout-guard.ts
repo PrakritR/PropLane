@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
 import { getAdminPreviewFromCookies } from "@/lib/auth/admin-preview";
 import type { PreviewPortal } from "@/lib/auth/preview-types";
-import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
+import { getPortalAccessContext, hasRole } from "@/lib/auth/portal-access";
 
 async function requestedPortalPath(role: "manager" | "resident" | "vendor"): Promise<string | null> {
   const requestedPath = (await headers()).get("x-requested-path");
