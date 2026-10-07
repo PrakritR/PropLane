@@ -32,7 +32,7 @@ import { PortalApplicantRecordRow, PortalPropertyRecordRow, PortalRowFact } from
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { CalendarTimeGrid, type CalendarGridItem } from "@/components/portal/manager-calendar-views";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
-import { VendorPaymentRowMenu } from "@/components/portal/vendor-payment-row-menu";
+import { VendorRowMenu } from "@/components/portal/vendor-row-menu";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
 import type { GridBand, GridWindow } from "@/lib/calendar-grid";
 import {
@@ -382,12 +382,18 @@ export function VendorPaymentsPanel({ story }: { story?: DemoStory } = {}) {
           facts={<span className="truncate">{`${p.date} · ${p.status}`}</span>}
           amount={p.amount}
           actions={
-            <VendorPaymentRowMenu
+            <VendorRowMenu
               label={p.title}
-              onView={() => setSelected(p)}
-              onEdit={p.status === "Submitted" ? () => show("Edit (sample)") : undefined}
-              onWithdraw={p.status === "Submitted" ? () => show("Withdraw (sample)") : undefined}
-              onDownload={p.status === "Paid" ? () => show("Download (sample)") : undefined}
+              items={[
+                { id: "view", label: "View", onSelect: () => setSelected(p) },
+                ...(p.status === "Submitted"
+                  ? [
+                      { id: "edit", label: "Edit", onSelect: () => show("Edit (sample)") },
+                      { id: "withdraw", label: "Withdraw", onSelect: () => show("Withdraw (sample)") },
+                    ]
+                  : []),
+                ...(p.status === "Paid" ? [{ id: "download", label: "Download", onSelect: () => show("Download (sample)") }] : []),
+              ]}
             />
           }
           onOpen={() => setSelected(p)}
