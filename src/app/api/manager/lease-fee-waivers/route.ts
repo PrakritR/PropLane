@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 /** GET - this manager's OWN waived lease fees. Never another manager's. */
 export async function GET() {
-  const ctx = await requireManagerRouteUser();
+  const ctx = await requireManagerRouteUser({ fast: true });
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   try {
     return NextResponse.json({ waivers: await listLeaseFeeWaivers(ctx.db, ctx.userId) });

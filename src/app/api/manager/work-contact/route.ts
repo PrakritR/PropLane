@@ -5,7 +5,7 @@ import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/man
 
 /** Public work channels for a manager the caller already has an accepted relationship with. */
 export async function GET(request: Request) {
-  const auth = await requireManagerRouteUser();
+  const auth = await requireManagerRouteUser({ fast: true });
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const id = new URL(request.url).searchParams.get("relationshipId");
   if (!id) return NextResponse.json({ error: "Relationship required." }, { status: 400 });

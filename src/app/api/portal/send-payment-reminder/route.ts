@@ -19,7 +19,7 @@ function isUsableEmail(email: string): boolean {
 /** The composer checks a charge's actual workspace before offering SMS. */
 export async function GET(req: Request) {
   try {
-    const actor = await requireManagerRouteUser();
+    const actor = await requireManagerRouteUser({ fast: true });
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
     const chargeId = new URL(req.url).searchParams.get("chargeId")?.trim() ?? "";
     if (!chargeId) return NextResponse.json({ error: "chargeId is required." }, { status: 400 });
@@ -266,7 +266,8 @@ export async function POST(req: Request) {
             if (!current || current.residentVisibleAt) return;
             await db
               .from("portal_household_charge_records")
-              .update({ row_data: { ...current, residentVisibleAt } })
+              // updated_at is what the household-charges incremental resync keys on.
+              .update({ row_data: { ...current, residentVisibleAt }, updated_at: residentVisibleAt })
               .eq("id", id);
           } catch {
             /* best-effort visibility stamp; the reminder itself already sent */

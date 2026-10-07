@@ -78,7 +78,7 @@ vi.mock("@/lib/auth/server-profile", () => ({
 // Imported at module scope, AFTER the vi.mock calls above (which are hoisted),
 // so the whole render-portal-section graph's transform cost is paid once at
 // collection time instead of being billed to the first test's timeout.
-const { renderPortalSection } = await import("@/lib/render-portal-section");
+const { renderPortalSection } = await import("@/lib/render-portal-section/resident");
 
 /** Runs renderPortalSection and returns the path it redirected to. */
 async function redirectTargetFor(

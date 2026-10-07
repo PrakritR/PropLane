@@ -1,4 +1,4 @@
-import { renderPortalSection, type PortalSearchParams } from "@/lib/render-portal-section";
+import { renderPortalSection, type PortalSearchParams } from "@/lib/render-portal-section/resident";
 
 /** Routed House details sub-tabs (placement, housemates, info, amenities, move-in). */
 export default async function ResidentMoveInTabPage({

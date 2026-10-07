@@ -33,6 +33,7 @@ import { vendorPayoutTimeline, type VendorPayoutTimelineStep } from "@/lib/vendo
 import { VendorPayoutTimeline } from "@/components/portal/vendor-payout-timeline";
 import type { VendorInvoice } from "@/lib/vendor-invoices";
 import { managerVendorPayMethodLabel } from "@/lib/manager-vendor-payment-flow";
+import { sharedGet } from "@/lib/shared-get-cache";
 
 type VendorPaymentBucket = "pending" | "paid";
 
@@ -238,8 +239,8 @@ export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embed
       });
       return;
     }
-    const res = await fetch("/api/vendor/profile", { credentials: "include" });
-    const data = (await res.json().catch(() => ({}))) as { profile?: ManagerVendorRow | null };
+    const res = await sharedGet("/api/vendor/profile");
+    const data = (res.ok ? res.data ?? {} : {}) as { profile?: ManagerVendorRow | null };
     setVendorProfile(data.profile ?? null);
   }, []);
 
@@ -275,9 +276,12 @@ export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embed
 
   useEffect(() => {
     if (demo) return;
-    void fetch("/api/vendor/profile", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data: { linked?: boolean; profile?: ManagerVendorRow | null }) => {
+    void sharedGet("/api/vendor/profile")
+      .then((r) => {
+        if (!r.ok) throw new Error("vendor profile unavailable");
+        return (r.data ?? {}) as { linked?: boolean; profile?: ManagerVendorRow | null };
+      })
+      .then((data) => {
         setUnlinked(data.linked === false);
         setVendorProfile(data.profile ?? null);
       })

@@ -18,7 +18,7 @@ export async function GET() {
     const supabase = await createSupabaseServerClient();
     // The 401 body stays generic — telling a caller WHY their session was
     // refused is an oracle. The reason goes to the server log.
-    const { user } = await getUserOrRejection(supabase, "GET /api/profile");
+    const { user } = await getUserOrRejection(supabase, "GET /api/profile", { fast: true });
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }

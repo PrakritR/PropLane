@@ -1,7 +1,7 @@
 "use client";
 
 import { stripeLiveJsBlockedMessage, stripePublishableKey } from "@/lib/stripe/stripe-js-client";
-import { loadStripe } from "@stripe/stripe-js";
+import { getStripe } from "@/lib/stripe-browser";
 import { useEffect, useRef, useState } from "react";
 
 type Props = {
@@ -44,7 +44,7 @@ export function EmbeddedCheckoutMount({ clientSecret, onError }: Props) {
       }
 
       try {
-        const stripe = await loadStripe(pk);
+        const stripe = await getStripe(pk);
         if (!stripe || cancelled) return;
 
         const s = stripe as unknown as {

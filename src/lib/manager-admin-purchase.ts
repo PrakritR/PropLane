@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerSkuTier } from "@/lib/manager-access";
+import { invalidateManagerTierCache } from "@/lib/manager-tier-sync-cache";
 
 export const ADMIN_MANAGER_PURCHASE_PREFIX = "admin_" as const;
 
@@ -72,6 +73,7 @@ export async function applyAdminManagerPurchaseTier(
   if (existingPurchase) {
     const { error } = await supabase.from("manager_purchases").update(patch).eq("id", existingPurchase.id);
     if (error) return { ok: false, error: error.message };
+    invalidateManagerTierCache(userId);
     return { ok: true };
   }
 
@@ -80,5 +82,6 @@ export async function applyAdminManagerPurchaseTier(
     paid_at: patch.paid_at ?? new Date().toISOString(),
   });
   if (error) return { ok: false, error: error.message };
+  invalidateManagerTierCache(userId);
   return { ok: true };
 }

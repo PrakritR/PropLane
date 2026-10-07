@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 
 /** GET — list this manager's OWN waiver codes and redemption history. Never another manager's. */
 export async function GET() {
-  const ctx = await requireManagerRouteUser();
+  const ctx = await requireManagerRouteUser({ fast: true });
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   try {
     const [codes, redemptions] = await Promise.all([

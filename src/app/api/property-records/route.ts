@@ -134,10 +134,15 @@ export async function GET() {
     const user = await sessionUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const db = createSupabaseServiceRoleClient();
-    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+    // Access is decided before any property data is read. The admin flag is a
+    // separate lookup that does not depend on it, so the two run together.
+    const [businessAccess, admin] = await Promise.all([
+      resolveAuthenticatedBusinessAccess(user.id, db),
+      isAdminUser(user.id),
+    ]);
+    if (businessAccess.kind === "denied") {
       return NextResponse.json({ error: "Property access is unavailable for this account." }, { status: 403 });
     }
-    const admin = await isAdminUser(user.id);
     const baseQuery = db
       .from("manager_property_records")
       .select("id, manager_user_id, status, row_data, property_data, edit_request_note")
@@ -149,14 +154,39 @@ export async function GET() {
       return NextResponse.json({ snapshot: propertyRowsToSnapshot(data ?? []), linkedPropertyIds: [] as string[] });
     }
 
-    const { data: viewerProfile } = await db.from("profiles").select("email").eq("id", user.id).maybeSingle();
+    // Five independent reads, started together (auth and access were settled
+    // above). Errors are still checked in the original order below.
+    const [
+      { data: viewerProfile },
+      { data: linkRows, error: linkError },
+      permsByProperty,
+      { data: ownedRows, error },
+      workspaceScope,
+    ] = await Promise.all([
+      db.from("profiles").select("email").eq("id", user.id).maybeSingle(),
+      db
+        .from("account_link_invites")
+        .select("inviter_user_id, assigned_property_ids")
+        .eq("status", "accepted")
+        .eq("invitee_user_id", user.id),
+      // Assignment alone is not the grant: a house shows up in the co-managed
+      // union only when the actor's per-property grant positively allows
+      // `properties` at read (docs/agents/co-manager-access.md "Empty used to
+      // mean FULL"). This list exposes full address, access info and
+      // fee-waiver codes, so an assigned-but-ungranted delegate must see none
+      // of it.
+      collectLinkedPropertyPermissionsForUser(db, user.id),
+      baseQuery.eq("manager_user_id", user.id),
+      // The active workspace, resolved server-side from the selection cookie —
+      // never from anything the client sends. `null` means "not narrowing" (no
+      // workspaces, or the load failed); a resolved array (even empty) is the
+      // active workspace's real property ids. Without this, the raw payload
+      // here always carried EVERY workspace the manager owns (full address,
+      // access codes) regardless of which one is active, and a co-manager's
+      // linked rows were never narrowed to the workspace that holds them either.
+      activeWorkspacePropertyScope(db, user.id),
+    ]);
     const viewerEmail = String(viewerProfile?.email ?? user.email ?? "").trim();
-
-    const { data: linkRows, error: linkError } = await db
-      .from("account_link_invites")
-      .select("inviter_user_id, assigned_property_ids")
-      .eq("status", "accepted")
-      .eq("invitee_user_id", user.id);
 
     if (linkError && !String(linkError.message ?? "").toLowerCase().includes("account_link_invites")) {
       return NextResponse.json({ error: linkError.message }, { status: 500 });
@@ -179,13 +209,6 @@ export async function GET() {
       }
     }
 
-    // Assignment alone is not the grant: a house shows up in the co-managed
-    // union only when the actor's per-property grant positively allows
-    // `properties` at read (docs/agents/co-manager-access.md "Empty used to
-    // mean FULL"). This list exposes full address, access info and
-    // fee-waiver codes, so an assigned-but-ungranted delegate must see none
-    // of it.
-    const permsByProperty = await collectLinkedPropertyPermissionsForUser(db, user.id);
     const linkedPropertyIds = new Set<string>();
     for (const row of linkRows ?? []) {
       const inviterId = String((row as { inviter_user_id?: string }).inviter_user_id ?? "").trim();
@@ -199,17 +222,8 @@ export async function GET() {
       }
     }
 
-    const { data: ownedRows, error } = await baseQuery.eq("manager_user_id", user.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // The active workspace, resolved server-side from the selection cookie —
-    // never from anything the client sends. `null` means "not narrowing" (no
-    // workspaces, or the load failed); a resolved array (even empty) is the
-    // active workspace's real property ids. Without this, the raw payload
-    // here always carried EVERY workspace the manager owns (full address,
-    // access codes) regardless of which one is active, and a co-manager's
-    // linked rows were never narrowed to the workspace that holds them either.
-    const workspaceScope = await activeWorkspacePropertyScope(db, user.id);
     let rows = workspaceScope === null ? (ownedRows ?? []) : (ownedRows ?? []).filter((row) => workspaceScope.includes(String(row.id)));
     const scopedLinkedPropertyIds =
       workspaceScope === null ? linkedPropertyIds : new Set([...linkedPropertyIds].filter((id) => workspaceScope.includes(id)));

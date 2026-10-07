@@ -1,5 +1,6 @@
 "use client";
 
+import { writeThroughFetch } from "@/lib/shared-get-cache";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -150,15 +151,19 @@ export function ManagerOnboardingWorkNumberSetup({
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch("/api/manager/messaging-number", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "request_number",
-          ...(areaCode.length === 3 ? { areaCode } : {}),
-        }),
-      });
+      const res = await writeThroughFetch(
+        "/api/manager/messaging-number",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "request_number",
+            ...(areaCode.length === 3 ? { areaCode } : {}),
+          }),
+        },
+        { invalidatePrefix: "/api/manager/messaging-number" },
+      );
       const body = (await res.json().catch(() => ({}))) as WorkNumberOnboardingStatus & { error?: string };
       if (!res.ok) {
         setError(body.error ?? "Could not request a work number.");

@@ -10,7 +10,7 @@ const privateHeaders = { "Cache-Control": "private, no-store" };
 
 export async function GET(req: NextRequest) {
   const auth = await createSupabaseServerClient();
-  const user = await getRequestAuthUser(auth, req);
+  const user = await getRequestAuthUser(auth, req, { fast: true });
   if (!user) return NextResponse.json({ error: "Sign in to manage your saved data." }, { status: 401, headers: privateHeaders });
   try {
     const request = await pendingAccountRecovery(createSupabaseServiceRoleClient(), user.id, new URL(req.url).searchParams.get("portal") ?? undefined);

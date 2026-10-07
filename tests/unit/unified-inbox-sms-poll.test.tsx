@@ -16,6 +16,7 @@ const scope = vi.hoisted(() => ({ viewer: "manager-test", workspace: "workspace-
 
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 vi.mock("@/lib/portal-inbox-storage", () => ({
+  retryWhileStale: <T,>(run: () => Promise<T>) => run(),
   collapsePersonInboxThreads: (threads: unknown[]) => threads,
   resolveCollapsedInboxThread: (id: string | null, collapsed: Array<{ id: string }>) => collapsed.find((t) => t.id === id) ?? null,
   inboxThreadCounterpartyEmail: (t: { email?: string }) => t.email ?? "",

@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadStripe } from "@stripe/stripe-js";
+import { getStripe } from "@/lib/stripe-browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 type BankStatus = "entry" | "verification" | "clearing" | "paid" | "review";
 
@@ -91,7 +90,7 @@ export function ResidentBankAccountForm({
     setBusy(true);
     setError(null);
     try {
-      const stripe = await stripePromise;
+      const stripe = await getStripe();
       if (!stripe) throw new Error("Secure bank entry is unavailable.");
       const details = {
         payment_method: {

@@ -26,7 +26,7 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-const { renderPortalSection } = await import("@/lib/render-portal-section");
+const { renderPortalSection } = await import("@/lib/render-portal-section/vendor");
 
 async function redirectOf(tabs: string[] | undefined): Promise<string | null> {
   try {
@@ -87,7 +87,9 @@ describe("vendor Finances routing", () => {
 
   it("the Refunds tab mounts part B's VendorRefundsPanel", () => {
     const src = readFileSync("src/lib/render-portal-section.tsx", "utf8");
-    expect(src).toContain('import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";');
+    expect(readFileSync("src/lib/render-portal-section/vendor.tsx", "utf8")).toContain(
+      'import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";',
+    );
     expect(src).toContain('<VendorRefundsPanel basePath={def.basePath} />');
     expect(readFileSync("src/components/portal/vendor-refunds-panel.tsx", "utf8")).toContain("export function VendorRefundsPanel(props: { basePath: string })");
   });

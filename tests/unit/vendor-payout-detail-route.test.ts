@@ -34,7 +34,7 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-const { renderPortalSection } = await import("@/lib/render-portal-section");
+const { renderPortalSection } = await import("@/lib/render-portal-section/vendor");
 
 describe("vendor payout detail route (/vendor/financials/payouts/<id>)", () => {
   it("resolves a payout record with the flag-on detail-only tab, never 404ing", async () => {

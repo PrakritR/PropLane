@@ -1,4 +1,4 @@
-import { renderPortalSection, type PortalSearchParams } from "@/lib/render-portal-section";
+import { renderPortalSection, type PortalSearchParams } from "@/lib/render-portal-section/resident";
 
 export default async function ResidentSectionPage({
   params,

@@ -1,4 +1,5 @@
 "use client";
+import { sharedGet } from "@/lib/shared-get-cache";
 import { ManagerPaymentSourceSetting } from "@/components/portal/manager-payment-source-setting";
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Minus, Plus } from "lucide-react";
@@ -1511,11 +1512,10 @@ export function CommunicationSettingsPanel({
         if (!userId) return;
         const [loadedAuto, numberRes] = await Promise.all([
           loadManagerAutomationSettingsCached(userId, { workspaceId: scopeWorkspaceId, propertyId: scopePropertyId }),
-          fetch(
+          sharedGet(
             scopeWorkspaceId
               ? `/api/manager/messaging-number?workspaceId=${encodeURIComponent(scopeWorkspaceId)}`
               : "/api/manager/messaging-number",
-            { credentials: "include", cache: "no-store" },
           ).catch(() => null),
         ]);
         const nextSettings = normalizeManagerAutomationSettings(loadedAuto.settings);
@@ -1528,7 +1528,7 @@ export function CommunicationSettingsPanel({
         if (!cancelled) {
           const status =
             numberRes && numberRes.ok
-              ? ((await numberRes.json()) as ManagerMessagingNumberStatus)
+              ? (numberRes.data as ManagerMessagingNumberStatus | null)
               : null;
           setSmsSetup(
             status

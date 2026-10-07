@@ -58,7 +58,7 @@ import {
 } from "@/lib/documents/document-expiration";
 import { loadDocumentExpirationSummary } from "@/lib/manager-document-expiry-client";
 import { useSearchParams } from "next/navigation";
-import { MANAGER_VENDORS_EVENT, syncManagerVendorsFromServer, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { MANAGER_VENDORS_EVENT, readManagerVendorRows, syncManagerVendorsFromServer, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { FileText } from "lucide-react";
@@ -412,7 +412,10 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   useEffect(() => {
     if (demo) return;
     void syncManagerVendorsFromServer().then(setVendorRows);
-    const onVendors = () => void syncManagerVendorsFromServer({ force: true }).then(setVendorRows);
+    // The event means the store already changed: read it. Forcing a server read from here made every
+    // refetch that differed (the roster response is not byte-stable) emit the event again, a loop of
+    // one GET /api/portal-vendors every ~250 ms for as long as the tab stayed open.
+    const onVendors = () => setVendorRows(readManagerVendorRows());
     window.addEventListener(MANAGER_VENDORS_EVENT, onVendors);
     return () => window.removeEventListener(MANAGER_VENDORS_EVENT, onVendors);
   }, [demo]);

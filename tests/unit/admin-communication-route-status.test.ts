@@ -50,7 +50,7 @@ vi.mock("@/lib/auth/server-profile", () => ({
   getServerSessionProfile: vi.fn(async () => ({ profile: null, user: null })),
 }));
 
-const { renderPortalSection } = await import("@/lib/render-portal-section");
+const { renderPortalSection } = await import("@/lib/render-portal-section/admin");
 
 type Outcome = { kind: "redirect"; to: string } | { kind: "notFound" } | { kind: "rendered" };
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
-import { loadStripe } from "@stripe/stripe-js";
+import { getStripe } from "@/lib/stripe-browser";
 import { CreditCard, Landmark } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -41,10 +41,6 @@ export function isPayoutDestinationSummary(value: unknown): value is PayoutDesti
 }
 
 type BankMode = "manual" | "card";
-
-// Client bundle only — Next.js inlines `NEXT_PUBLIC_*` vars at build time.
-// Same pattern as `stripe-checkout-modal.tsx`.
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "");
 
 async function postJson<T>(
   url: string,
@@ -313,8 +309,11 @@ export function PayoutBankSheet({
   apiBase: string;
   onAdded: (destination: PayoutDestinationSummary) => void;
 }) {
+  // Stripe.js loads the first time the sheet opens, then stays (Elements forbids changing `stripe`).
+  const [stripe, setStripe] = useState<ReturnType<typeof getStripe> | null>(null);
+  if (open && !stripe) setStripe(getStripe());
   return (
-    <Elements stripe={stripePromise}>
+    <Elements stripe={stripe}>
       <BankSheetContent
         open={open}
         apiBase={apiBase}

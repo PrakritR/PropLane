@@ -3,6 +3,7 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { ManagerReachabilityLines } from "@/lib/manager-reachability-for-resident";
 import { formatManagerMessagingPhone } from "@/lib/sms/manager-messaging-number";
+import { sharedGet } from "@/lib/shared-get-cache";
 import { trimmedText } from "@/lib/trimmed-text";
 
 /**
@@ -21,11 +22,11 @@ export async function fetchManagerReachabilityForWelcome(): Promise<ManagerReach
   if (isDemoModeActive()) return DEMO_REACHABILITY_LINES;
   try {
     const [numberRes, emailRes] = await Promise.all([
-      fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
+      sharedGet("/api/manager/messaging-number"),
       fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" }),
     ]);
     const numberBody = numberRes.ok
-      ? ((await numberRes.json().catch(() => null)) as {
+      ? (numberRes.data as {
           canSend?: boolean;
           number?: { phoneNumber?: string | null };
         } | null)

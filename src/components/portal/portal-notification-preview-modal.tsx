@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/shared-get-cache";
 import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -224,8 +225,8 @@ export function PortalNotificationPreviewModal({
     }
     if (smsSetupOverride) return;
     let active = true;
-    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
-      .then(async (res) => (res.ok ? ((await res.json()) as ManagerMessagingNumberStatus) : null))
+    void sharedGet("/api/manager/messaging-number")
+      .then((res) => (res.ok ? (res.data as ManagerMessagingNumberStatus | null) : null))
       .then((status) => {
         if (!active || !status) return;
         setSmsSetup({

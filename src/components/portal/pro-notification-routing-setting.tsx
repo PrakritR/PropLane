@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/shared-get-cache";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BellOff, BellRing, MessageCircleMore, Smartphone } from "lucide-react";
@@ -98,13 +99,13 @@ export function ManagerNotificationRoutingSetting() {
         if (!userId) return;
         const [loaded, numberResponse] = await Promise.all([
           loadManagerAutomationSettingsCached(userId, { workspaceId: scopeWorkspaceId, force: opts?.force }),
-          fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
+          sharedGet("/api/manager/messaging-number", { force: opts?.force }),
         ]);
         setSettings(normalizeManagerAutomationSettings(loaded.settings));
         setSource(loaded.source);
         reportSource("automation-settings", loaded.source);
         setNumberStatus(
-          numberResponse.ok ? ((await numberResponse.json()) as ManagerMessagingNumberStatus) : null,
+          numberResponse.ok ? (numberResponse.data as ManagerMessagingNumberStatus | null) : null,
         );
         setLoadState("ready");
       } catch {

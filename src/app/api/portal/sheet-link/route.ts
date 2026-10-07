@@ -24,7 +24,7 @@ function asTrimmed(value: unknown): string {
 }
 
 export async function GET() {
-  const actor = await requireManagerRouteUser();
+  const actor = await requireManagerRouteUser({ fast: true });
   if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   await warmGoogleCalendarOAuthConfig();
   const [bindings, sheets] = await Promise.all([

@@ -1,4 +1,4 @@
-import { renderProPortalSection } from "@/lib/portal-section-page";
+import { renderProPortalSection } from "@/lib/render-portal-section/manager";
 
 export default async function ServiceRequestsListPage({
   params,

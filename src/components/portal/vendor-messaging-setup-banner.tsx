@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { sharedGet } from "@/lib/shared-get-cache";
+import { PHONE_VERIFIED_EVENT } from "@/lib/vendor-work-number";
 
 const DISMISSED_KEY = "proplane.vendor-verify-phone-notice.dismissed";
 
@@ -31,19 +33,27 @@ export function VendorMessagingSetupBanner() {
   }, []);
 
   useEffect(() => {
+    // A dismissed banner never renders again, so it never needs the answer: skip the request on
+    // every vendor page for a vendor who dismissed it (`null` = localStorage not read yet).
+    if (dismissed !== false) return;
     if (isDemoModeActive()) return;
     let cancelled = false;
-    void fetch("/api/manager/phone", { credentials: "include", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (cancelled || !body || typeof body !== "object") return;
-        setNeedsVerification(!(body as { phoneVerifiedAt?: string | null }).phoneVerifiedAt);
-      })
-      .catch(() => undefined);
+    const read = (force: boolean) => {
+      void sharedGet("/api/vendor/profile", force ? { force: true } : undefined).then((result) => {
+        if (cancelled || !result.ok || !result.data || typeof result.data !== "object") return;
+        const contact = (result.data as { contact?: { phoneVerifiedAt?: string | null } }).contact;
+        setNeedsVerification(!contact?.phoneVerifiedAt);
+      });
+    };
+    read(false);
+    // Verifying in Settings hides the banner right away, without waiting out the shared read's TTL.
+    const onVerified = () => read(true);
+    window.addEventListener(PHONE_VERIFIED_EVENT, onVerified);
     return () => {
       cancelled = true;
+      window.removeEventListener(PHONE_VERIFIED_EVENT, onVerified);
     };
-  }, []);
+  }, [dismissed]);
 
   if (dismissed !== false) return null;
   if (!needsVerification) return null;

@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet, writeThroughFetch } from "@/lib/shared-get-cache";
 import { WorkIdentityRow } from "./work-identity-row";
 import { AlertCircle, Phone } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -189,40 +190,40 @@ export function ManagerMessagingSettingsPanel() {
     setLoading(true);
     setError(null);
     try {
-      let res: Response;
+      let body: (ManagerMessagingNumberStatus & { error?: string }) | null = null;
+      let ok = false;
       if (opts?.refreshEligibility) {
-        res = await fetch(ENDPOINT, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "refresh_eligibility",
-            ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
-          }),
-          signal,
-        });
-        if (!res.ok) {
-          res = await fetch(messagingUrl, {
+        // A write: it settles eligibility server-side, so every cached read of the route is dropped.
+        const res = await writeThroughFetch(
+          ENDPOINT,
+          {
+            method: "POST",
             credentials: "include",
-            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "refresh_eligibility",
+              ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+            }),
             signal,
-          });
+          },
+          { invalidatePrefix: ENDPOINT },
+        );
+        if (res.ok) {
+          ok = true;
+          body = (await res.json().catch(() => ({}))) as ManagerMessagingNumberStatus & { error?: string };
+        } else {
+          const read = await sharedGet(messagingUrl);
+          ok = read.ok;
+          body = read.data as typeof body;
         }
       } else {
-        res = await fetch(messagingUrl, {
-          credentials: "include",
-          cache: "no-store",
-          signal,
-        });
+        const read = await sharedGet(messagingUrl);
+        ok = read.ok;
+        body = read.data as typeof body;
       }
-      const body = (await res
-        .json()
-        .catch(() => ({}))) as ManagerMessagingNumberStatus & {
-        error?: string;
-      };
-      if (!res.ok)
-        throw new Error(body.error ?? "Could not load messaging settings.");
-      if (!isMessagingNumberStatus(body)) {
+      if (signal?.aborted) return;
+      if (!ok) throw new Error(body?.error ?? "Could not load messaging settings.");
+      if (!body || !isMessagingNumberStatus(body)) {
         throw new Error("Messaging settings returned an invalid response.");
       }
       setStatus(body);
@@ -399,12 +400,16 @@ export function ManagerMessagingSettingsPanel() {
       setRowBusyKey(`${workspaceId}:${numberId}:remove`);
       setError(null);
       try {
-        const res = await fetch(ENDPOINT, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "unassign", numberId, workspaceId }),
-        });
+        const res = await writeThroughFetch(
+          ENDPOINT,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "unassign", numberId, workspaceId }),
+          },
+          { invalidatePrefix: ENDPOINT },
+        );
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         if (!res.ok) {
           const message = body.error ?? "Could not remove this number.";

@@ -23,6 +23,11 @@ function looksLikeMissingTable(err: { message?: string } | null | undefined): bo
   return m.includes("does not exist") || m.includes("schema cache") || (m.includes("relation") && m.includes("not"));
 }
 
+const TABLES_SYNCED_BY_UPDATED_AT: ReadonlySet<string> = new Set([
+  "portal_household_charge_records",
+  "portal_recurring_rent_profile_records",
+]);
+
 async function updateManagerUserIdForProperty(
   db: Db,
   table: string,
@@ -34,7 +39,12 @@ async function updateManagerUserIdForProperty(
   if (fromUserId === toUserId) return;
   const { error } = await db
     .from(table)
-    .update({ manager_user_id: toUserId })
+    .update({
+      manager_user_id: toUserId,
+      // The household-charges incremental resync keys on updated_at: a row that changes owner
+      // without bumping it would never reach the new manager's browser until a full sync.
+      ...(TABLES_SYNCED_BY_UPDATED_AT.has(table) ? { updated_at: new Date().toISOString() } : {}),
+    })
     .eq("manager_user_id", fromUserId)
     .eq(propertyColumn, propertyId);
   if (error && !looksLikeMissingTable(error)) throw new Error(error.message);

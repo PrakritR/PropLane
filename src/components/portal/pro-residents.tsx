@@ -195,6 +195,7 @@ import {
   syncHouseholdChargesFromServer,
   type HouseholdCharge,
 } from "@/lib/household-charges";
+import { loadResidentAccountEmails } from "@/lib/manager-resident-account-emails";
 import {
   appendManagerApplicationRow,
   readManagerApplicationRows,
@@ -805,13 +806,10 @@ export function ManagerResidents({
         setResidentAccountEmails(new Set(emails));
         return;
       }
-      const opts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emails }) };
-      const accountRes = await fetch("/api/manager/resident-account-emails", opts);
-      if (cancelled) return;
-      if (accountRes.ok) {
-        const body = (await accountRes.json()) as { emails?: string[] };
-        if (!cancelled) setResidentAccountEmails(new Set((body.emails ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean)));
-      }
+      // One read per distinct list (shared by concurrent ticks); null = failed, keep the current set.
+      const withAccount = await loadResidentAccountEmails(emails);
+      if (cancelled || !withAccount) return;
+      setResidentAccountEmails(new Set(withAccount));
     });
     return () => {
       cancelled = true;

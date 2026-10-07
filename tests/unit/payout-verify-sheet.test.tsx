@@ -19,7 +19,7 @@ vi.mock("@/components/stripe-connect-embedded", () => ({
 }));
 
 const { createTokenMock } = vi.hoisted(() => ({ createTokenMock: vi.fn() }));
-vi.mock("@stripe/stripe-js", () => ({
+vi.mock("@stripe/stripe-js/pure", () => ({
   loadStripe: () => Promise.resolve({ createToken: createTokenMock }),
 }));
 

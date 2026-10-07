@@ -12,6 +12,11 @@ function looksLikeMissingTableError(err: { message?: string } | null | undefined
   );
 }
 
+const TABLES_SYNCED_BY_UPDATED_AT: ReadonlySet<string> = new Set([
+  "portal_household_charge_records",
+  "portal_recurring_rent_profile_records",
+]);
+
 async function updateUserIdColumn(
   db: ServiceDb,
   table: string,
@@ -20,7 +25,14 @@ async function updateUserIdColumn(
   toUserId: string,
 ) {
   if (fromUserId === toUserId) return;
-  const { error } = await db.from(table).update({ [column]: toUserId }).eq(column, fromUserId);
+  const { error } = await db
+    .from(table)
+    .update({
+      [column]: toUserId,
+      // The household-charges incremental resync keys on updated_at (see household-charges.ts).
+      ...(TABLES_SYNCED_BY_UPDATED_AT.has(table) ? { updated_at: new Date().toISOString() } : {}),
+    })
+    .eq(column, fromUserId);
   if (error && !looksLikeMissingTableError(error)) throw new Error(error.message);
 }
 

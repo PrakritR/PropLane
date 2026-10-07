@@ -100,6 +100,7 @@ import {
   stagePersistedInboxRows,
   markPersistedInboxSourcesRead,
   reconcileObservedInboxReadRows,
+  retryWhileStale,
   syncPersistedInboxFromServerWithStatus,
   formatInboxListNarrowTime,
   type PersistedInboxSyncResult,
@@ -566,8 +567,8 @@ export function ManagerUnifiedInbox({
     );
     if (!hadCachedSnapshot) setInitialListState("loading");
     const [inbox, applications, smsOk] = await Promise.all([
-      syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
-      syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId }),
+      retryWhileStale(() => syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY)),
+      retryWhileStale(() => syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId })),
       // force: true — this is the load that decides whether the page is
       // "ready" or "error" (and the one an explicit Retry re-runs via
       // retryInitialList below), so it must always be a genuine new attempt,
@@ -576,7 +577,11 @@ export function ManagerUnifiedInbox({
       loadSms({ force: true, initialGeneration: requestGeneration }),
     ]);
     if (requestGeneration !== initialLoadGeneration.current) return;
-    if (inbox.stale || applications.stale) return;
+    if (inbox.stale || applications.stale) {
+      // Still stale after the retries: show the error/Retry state, never a skeleton that cannot resolve.
+      if (!hadCachedSnapshot) setInitialListState("error");
+      return;
+    }
     if (applications.ok) onApplicationsLoaded?.();
     if (inbox.ok) setEmailThreads(inbox.rows);
     const ready = inbox.ok && applications.ok && smsOk;

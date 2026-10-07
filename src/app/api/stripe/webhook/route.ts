@@ -35,6 +35,7 @@ import {
   stripeInvoiceSubscriptionId,
 } from "@/lib/stripe-subscription-helpers";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { invalidateManagerTierCache } from "@/lib/manager-tier-sync-cache";
 import { reconcileManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
 import { fulfillApplicationFeePayment, promoteClaimedApplicationAfterFee } from "@/lib/application-fee-fulfillment.server";
 import { LINKED_FORM_FEE_PURPOSE, markLinkedFormFeePaidFromStripeSession } from "@/lib/linked-form-fee.server";
@@ -215,7 +216,22 @@ async function recordCheckoutSubscriptionExpense(session: Stripe.Checkout.Sessio
   });
 }
 
+/**
+ * Any verified Stripe event may have changed subscription or purchase state, so
+ * the cross-request tier-sync cache is dropped once the event has been handled
+ * (and again before, so a sync that races the handler cannot repopulate it with
+ * the pre-event state). Unverified requests never touch the cache.
+ */
 export async function POST(req: Request) {
+  const ctx = { verified: false };
+  try {
+    return await handleStripeWebhook(req, ctx);
+  } finally {
+    if (ctx.verified) invalidateManagerTierCache();
+  }
+}
+
+async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
     return NextResponse.json({ error: "Missing STRIPE_WEBHOOK_SECRET" }, { status: 500 });
@@ -235,6 +251,8 @@ export async function POST(req: Request) {
     const msg = err instanceof Error ? err.message : "Invalid signature";
     return NextResponse.json({ error: msg }, { status: 400 });
   }
+  ctx.verified = true;
+  invalidateManagerTierCache();
 
   const db = createSupabaseServiceRoleClient();
 

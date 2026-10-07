@@ -7,6 +7,7 @@ import { PortalStripeConnectPanel } from "@/components/portal/portal-stripe-conn
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { writeThroughFetch } from "@/lib/shared-get-cache";
 import { buildVendorAcceptedPaymentMethods, VENDOR_ACCEPTED_PAYMENT_METHOD_LABELS } from "@/lib/vendor-payment-methods";
 
 type VendorPaymentMethodsDraft = {
@@ -66,7 +67,7 @@ export function VendorPaymentMethodsModal({
 
     setSaving(true);
     try {
-      const res = await fetch("/api/vendor/profile", {
+      const res = await writeThroughFetch("/api/vendor/profile", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

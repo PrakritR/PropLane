@@ -655,7 +655,11 @@ notifications, Quick replies). Existing content moved, not copied: Business deta
 Business profile + Work contact & email; Trades & service area = the old Work capabilities + the
 service-area field; Phone & notifications = Verify your phone + Notifications; Profile = the old
 Directory listing. `payouts` and `messaging` keep their ids (setup banners and emails link to them);
-`work*`, `workspace*` and `notifications` alias forward (`VENDOR_SETTINGS_TAB_ALIASES`). Licenses &
+`work*`, `workspace*` and `notifications` alias forward (`VENDOR_SETTINGS_TAB_ALIASES`).
+`/vendor/settings`, `/vendor/settings/<tab>` and `/vendor/settings?tab=<tab>` are the same address:
+`renderPortalSection` redirects them to `/vendor/profile` carrying the resolved tab (an unknown or
+absent tab lands on Profile; a deeper path 404s), so a typed URL or an old link does not dead-end
+(`tests/unit/vendor-settings-redirect.test.ts`). Licenses &
 insurance edits the profile's license and coverage fields (certificates still upload from
 Documents); Invoicing shows the W-9 on file read-only — there was no prior vendor invoicing setting.
 

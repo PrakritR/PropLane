@@ -4,6 +4,14 @@ import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { reconcileManagerPurchaseWithApple } from "@/lib/manager-apple-subscription-sync";
 import { isManagerPurchasePeriodExpired, isSignupTrialManagerPurchase, resolveEffectiveManagerTier } from "@/lib/manager-tier-expiry";
 import { reconcileManagerPurchaseWithStripe } from "@/lib/manager-stripe-subscription-sync";
+import {
+  invalidateManagerTierCache,
+  managerTierCacheEnabled,
+  managerTierSyncedAt,
+  managerTierSyncInFlight,
+  MANAGER_TIER_CACHE_TTL_MS,
+  rememberManagerTierSync,
+} from "@/lib/manager-tier-sync-cache";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /** Clears self-assigned paid tiers that were never backed by Stripe or admin billing. */
@@ -79,21 +87,21 @@ export async function applyExpiredManagerPurchaseDowngrade(userId: string): Prom
   return !error;
 }
 
-/** Aligns `manager_purchases` with Stripe and date-based expiry for one account. */
-export async function syncManagerPurchaseTierState(userId: string): Promise<void> {
-  const uid = userId.trim();
-  if (!uid) return;
-
+/** Runs one full sync. Resolves `true` only when no provider lookup failed. */
+async function runManagerPurchaseTierSync(uid: string): Promise<boolean> {
+  let clean = true;
   try {
     await reconcileManagerPurchaseWithStripe(uid);
   } catch {
     /* Stripe not configured or transient error */
+    clean = false;
   }
 
   try {
     await reconcileManagerPurchaseWithApple(uid);
   } catch {
     /* RevenueCat not configured or transient error — keep last known DB state */
+    clean = false;
   }
 
   await revokeUnauthorizedManagerPaidTier(uid);
@@ -104,6 +112,56 @@ export async function syncManagerPurchaseTierState(userId: string): Promise<void
   } catch {
     /* non-blocking */
   }
+  return clean;
 }
 
-export { resolveEffectiveManagerTier };
+/**
+ * Aligns `manager_purchases` with Stripe and date-based expiry for one account.
+ * Pass `{ fresh: true }` after a write that must be reconciled immediately.
+ */
+export async function syncManagerPurchaseTierState(
+  userId: string,
+  options?: { fresh?: boolean },
+): Promise<void> {
+  const uid = userId.trim();
+  if (!uid) return;
+
+  if (!managerTierCacheEnabled()) {
+    await runManagerPurchaseTierSync(uid);
+    return;
+  }
+
+  if (options?.fresh) invalidateManagerTierCache(uid);
+
+  const syncedAt = managerTierSyncedAt.get(uid);
+  if (syncedAt !== undefined) {
+    if (Date.now() - syncedAt < MANAGER_TIER_CACHE_TTL_MS) return;
+    managerTierSyncedAt.delete(uid);
+  }
+
+  const pending = managerTierSyncInFlight.get(uid);
+  if (pending) {
+    await pending;
+    return;
+  }
+
+  const run: Promise<boolean> = runManagerPurchaseTierSync(uid).then(
+    (clean) => {
+      // Only the run that is still registered may populate the cache; an
+      // invalidation in the meantime detached it.
+      if (managerTierSyncInFlight.get(uid) === run) {
+        managerTierSyncInFlight.delete(uid);
+        if (clean) rememberManagerTierSync(uid);
+      }
+      return clean;
+    },
+    (error) => {
+      if (managerTierSyncInFlight.get(uid) === run) managerTierSyncInFlight.delete(uid);
+      throw error;
+    },
+  );
+  managerTierSyncInFlight.set(uid, run);
+  await run;
+}
+
+export { invalidateManagerTierCache, resolveEffectiveManagerTier };

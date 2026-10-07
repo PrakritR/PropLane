@@ -164,7 +164,7 @@ function toLabel(iso: string | null): string | null {
 
 export async function GET(req: Request) {
   try {
-    const ctx = await requireManagerRouteUser();
+    const ctx = await requireManagerRouteUser({ fast: true });
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const url = new URL(req.url);

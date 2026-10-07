@@ -86,6 +86,7 @@ import {
 import type { RecordRef } from "@/lib/portals/record-kinds";
 import { isSelfThread, resolveCounterpartyName } from "@/lib/record-communication-counterparty";
 import { serviceThreadsForParty } from "@/lib/service-communication-scope";
+import { sharedGet } from "@/lib/shared-get-cache";
 
 export type RecordCommunicationSectionRole = "manager" | "resident" | "vendor";
 
@@ -211,9 +212,12 @@ export function RecordCommunicationSection({
   const [senderIdentity, setSenderIdentity] = useState<{ name: string; email: string } | null>(null);
   useEffect(() => {
     let active = true;
-    void fetch(role === "vendor" ? "/api/vendor/profile" : "/api/profile", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { fullName?: string; email?: string; profile?: { name?: string; email?: string } } | null) => {
+    type SenderProfileBody = { fullName?: string; email?: string; profile?: { name?: string; email?: string } } | null;
+    const read: Promise<SenderProfileBody> = role === "vendor"
+      ? sharedGet("/api/vendor/profile").then((res) => (res.ok ? res.data : null) as SenderProfileBody)
+      : fetch("/api/profile", { credentials: "include" }).then((res) => (res.ok ? res.json() : null));
+    void read
+      .then((data) => {
         if (!active || !data) return;
         const name = String(data.fullName ?? data.profile?.name ?? "").trim();
         const email = String(data.email ?? data.profile?.email ?? "").trim();

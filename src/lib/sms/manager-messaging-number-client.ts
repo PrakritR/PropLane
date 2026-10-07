@@ -1,6 +1,9 @@
 "use client";
 
+import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+
+const MESSAGING_NUMBER_URL = "/api/manager/messaging-number";
 
 type MessagingNumberLoadResult =
   | { ok: true; status: ManagerMessagingNumberStatus }
@@ -42,13 +45,10 @@ export function loadManagerMessagingNumberStatusClient(
   }
   if (inflight) return inflight;
 
-  inflight = fetch("/api/manager/messaging-number", {
-    credentials: "include",
-    cache: "no-store",
-  })
+  inflight = sharedGet(MESSAGING_NUMBER_URL)
     .then(async (res) => {
       if (!res.ok) throw new Error("Messaging status request failed.");
-      const body = (await res.json()) as ManagerMessagingNumberStatus | null;
+      const body = res.data as ManagerMessagingNumberStatus | null;
       const result: MessagingNumberLoadResult = {
         ok: true,
         status: (body ?? null) as ManagerMessagingNumberStatus,
@@ -74,6 +74,7 @@ export function loadManagerMessagingNumberStatusClient(
 
 /** Test / sign-out hooks may clear the cache. */
 export function resetManagerMessagingNumberStatusClientCache() {
+  invalidateSharedGets(MESSAGING_NUMBER_URL);
   cachedUserId = null;
   cachedResult = undefined;
   inflight = null;

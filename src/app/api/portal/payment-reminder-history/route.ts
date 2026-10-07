@@ -10,7 +10,7 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
 
 export async function GET(req: Request) {
   try {
-    const actor = await requireManagerRouteUser();
+    const actor = await requireManagerRouteUser({ fast: true });
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 403, headers: NO_STORE });
     const url = new URL(req.url);
     const chargeId = url.searchParams.get("chargeId")?.trim() ?? "";

@@ -1,4 +1,3 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { LeaseDocumentField } from "@/lib/lease-document-library";
 
 /**
@@ -87,6 +86,7 @@ export async function stampLeaseDocumentFields(
   const toStamp = fields.filter((f) => valueForField(f, values));
   if (toStamp.length === 0) return null;
 
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
   const doc = await PDFDocument.load(pdfDataUrlToBytes(originalDataUrl));
   const pages = doc.getPages();
   const signatureFont = await doc.embedFont(StandardFonts.TimesRomanItalic);

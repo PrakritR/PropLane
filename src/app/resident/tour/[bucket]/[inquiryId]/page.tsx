@@ -1,4 +1,4 @@
-import { renderResidentPortalSection } from "@/lib/portal-section-page";
+import { renderResidentPortalSection } from "@/lib/render-portal-section/resident";
 
 export default async function ResidentTourDetailPage({
   params,

@@ -94,6 +94,7 @@ import {
   moneyLabel,
 } from "@/lib/bundle-group/bundle-cost-split";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 export const HOUSEHOLD_CHARGES_EVENT = "axis:household-charges";
 
@@ -111,6 +112,85 @@ let householdChargesSyncPromise: Promise<HouseholdChargesSyncResult> | null = nu
 const householdChargesRefreshers = new Map<string, CoalescedRefresher<HouseholdChargesSyncResult>>();
 export const HOUSEHOLD_CHARGES_SESSION_KEY = "axis:household-charges:v1";
 const HOUSEHOLD_RENT_PROFILES_SESSION_KEY = "axis:household-rent-profiles:v1";
+
+/**
+ * Incremental resync (`?updatedSince=`) — plan load-followups-1007, item 3.
+ *
+ * Relies on every writer of `portal_household_charge_records` bumping `updated_at` (there is no DB
+ * trigger). Audit 2026-10-07 found three that did not — `POST /api/portal/send-payment-reminder`,
+ * `property-ownership-transfer.ts` and `migrate-portal-user-id.ts` — and they now set it. A new
+ * writer of that table MUST set `updated_at`, or an incremental read never sees its change.
+ * Switching the active workspace forces a full read (the watermark carries the workspace id).
+ */
+let householdIncrementalSyncEnabled = true;
+/** Deletions (and scope changes) only surface in a full read, so one is forced at least this often. */
+const HOUSEHOLD_FULL_SYNC_MAX_AGE_MS = 10 * 60_000;
+/** Same `axis:` prefix as the charges themselves, so sign-out's `clearPortalBrowserCache` drops both together. */
+const HOUSEHOLD_SYNC_MARK_SESSION_KEY = "axis:household-charges-sync-mark:v1";
+type HouseholdSyncMark = {
+  /** Server clock, taken before the read that produced it. */
+  syncedAt: string;
+  /** Server clock of the last FULL read — the age limit counts from here. */
+  fullAt: number;
+  viewerRole: string | null;
+  skipReconcile: boolean;
+  /** Active workspace when the watermark was taken; a switch changes what the viewer may see. */
+  workspaceId: string | null;
+};
+let householdSyncMark: HouseholdSyncMark | null = null;
+/** A forced caller wants the next run to be a full one; the run consumes it. */
+let householdForceFullSyncPending = false;
+
+/** Test seam: turn incremental resync on/off. */
+export function setHouseholdIncrementalSyncEnabledForTests(enabled: boolean) {
+  householdIncrementalSyncEnabled = enabled;
+}
+
+function readHouseholdSyncMark(): HouseholdSyncMark | null {
+  if (typeof window === "undefined") return null;
+  try {
+    // sessionStorage is the source of truth: sign-out's `clearPortalBrowserCache` empties it, and a
+    // watermark that outlived the cached charges it describes must never be trusted.
+    const raw = window.sessionStorage.getItem(HOUSEHOLD_SYNC_MARK_SESSION_KEY);
+    if (!raw) {
+      householdSyncMark = null;
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<HouseholdSyncMark> | null;
+    if (
+      parsed &&
+      typeof parsed.syncedAt === "string" &&
+      Number.isFinite(Date.parse(parsed.syncedAt)) &&
+      typeof parsed.fullAt === "number" &&
+      Number.isFinite(parsed.fullAt) &&
+      typeof parsed.skipReconcile === "boolean"
+    ) {
+      householdSyncMark = {
+        syncedAt: parsed.syncedAt,
+        fullAt: parsed.fullAt,
+        viewerRole: typeof parsed.viewerRole === "string" ? parsed.viewerRole : null,
+        skipReconcile: parsed.skipReconcile,
+        workspaceId: typeof parsed.workspaceId === "string" ? parsed.workspaceId : null,
+      };
+    } else {
+      householdSyncMark = null;
+    }
+  } catch {
+    householdSyncMark = null;
+  }
+  return householdSyncMark;
+}
+
+function writeHouseholdSyncMark(mark: HouseholdSyncMark | null) {
+  householdSyncMark = mark;
+  if (typeof window === "undefined") return;
+  try {
+    if (mark) window.sessionStorage.setItem(HOUSEHOLD_SYNC_MARK_SESSION_KEY, JSON.stringify(mark));
+    else window.sessionStorage.removeItem?.(HOUSEHOLD_SYNC_MARK_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 function chargesChanged(a: HouseholdCharge[], b: HouseholdCharge[]) {
   return JSON.stringify(dedupeCharges(a)) !== JSON.stringify(dedupeCharges(b));
@@ -562,6 +642,7 @@ export async function syncHouseholdChargesFromServer(
     hydrateHouseholdStateFromSession();
     return { charges: readAll(), rentProfiles: readRentProfiles() };
   }
+  if (force) householdForceFullSyncPending = true;
   if (!force && householdChargesSyncPromise) return householdChargesSyncPromise;
   if (!force && householdChargesLastSyncedAt > 0 && Date.now() - householdChargesLastSyncedAt < HOUSEHOLD_CHARGES_SYNC_TTL_MS) {
     return { charges: readAll(), rentProfiles: readRentProfiles() };
@@ -588,14 +669,40 @@ async function runHouseholdChargesSync({
 }: {
   skipReconcile: boolean;
 }): Promise<HouseholdChargesSyncResult> {
-  const syncPromise = fetch("/api/portal-household-charges")
+  // First load, `force`, a viewer/mode change and the 10-minute age limit all take the full,
+  // authoritative path (today's behavior). Only the plain TTL resync may ask for a delta.
+  const forceFull = householdForceFullSyncPending;
+  householdForceFullSyncPending = false;
+  hydrateHouseholdStateFromSession();
+  const priorMark = householdIncrementalSyncEnabled && !forceFull ? readHouseholdSyncMark() : null;
+  const requestedIncremental =
+    priorMark !== null &&
+    priorMark.skipReconcile === skipReconcile &&
+    priorMark.workspaceId === selectedWorkspaceId() &&
+    (priorMark.viewerRole === null || householdViewerRole === null || priorMark.viewerRole === householdViewerRole) &&
+    Date.now() - priorMark.fullAt < HOUSEHOLD_FULL_SYNC_MAX_AGE_MS &&
+    (memoryCharges.length > 0 || memoryRentProfiles.length > 0);
+  const url = requestedIncremental
+    ? `/api/portal-household-charges?updatedSince=${encodeURIComponent(priorMark!.syncedAt)}`
+    : "/api/portal-household-charges";
+  // Captured with the request: a workspace switched while the read is in flight must not be
+  // stamped onto a watermark that describes the old workspace's rows.
+  const requestWorkspaceId = selectedWorkspaceId();
+  const syncPromise = fetch(url)
     .then(async (res) => {
       notePortalResponse(res.status);
+      if (requestedIncremental && !res.ok) {
+        // A failed delta read says nothing about the ledger: change nothing, write nothing, and keep
+        // the watermark so the next tick asks for the same window again.
+        return { charges: readAll(), rentProfiles: readRentProfiles() };
+      }
       const body = res.ok
         ? (await res.json() as {
             charges?: HouseholdCharge[];
             rentProfiles?: RecurringRentProfile[];
             viewerRole?: string;
+            syncedAt?: string;
+            incremental?: boolean;
           })
         : {};
       if (body.viewerRole === "resident" || body.viewerRole === "manager" || body.viewerRole === "admin") {
@@ -604,10 +711,34 @@ async function runHouseholdChargesSync({
       const serverCharges = Array.isArray(body.charges) ? body.charges : [];
       const serverProfiles = Array.isArray(body.rentProfiles) ? body.rentProfiles : [];
       hydrateHouseholdStateFromSession();
+      // The server may answer a delta request with a full read (invalid watermark, truncated
+      // window, older server): only an explicit `incremental: true` is treated as a delta.
+      const incrementalResponse = requestedIncremental && body.incremental === true;
       let mergedCharges: HouseholdCharge[];
       let hasUpdatedCharges = false;
       let mergedProfiles: RecurringRentProfile[];
-      if (skipReconcile) {
+      if (incrementalResponse) {
+        // A delta only adds and replaces by id. It cannot prove a row is gone, so it never removes
+        // one and never uploads "local-only" rows (that comparison is only meaningful against a
+        // full list).
+        const mirrorPending = householdMirrorInFlight !== null || householdMirrorQueued;
+        if (mirrorPending) {
+          // Our own edit is still on its way to the server: the delta may carry the PREVIOUS copy
+          // of that row, so keep today's local-wins reconcile instead of overwriting it.
+          mergedCharges = mergeHouseholdChargesWithServer(serverCharges, memoryCharges).merged;
+        } else {
+          const incoming = new Map(serverCharges.map((charge) => [charge.id, charge]));
+          mergedCharges = dedupeCharges([
+            ...memoryCharges.filter((charge) => !incoming.has(charge.id)),
+            ...serverCharges,
+          ]);
+        }
+        const incomingProfiles = new Map(serverProfiles.map((profile) => [profile.id, profile]));
+        mergedProfiles = dedupeRecurringRentProfiles([
+          ...memoryRentProfiles.filter((profile) => !incomingProfiles.has(profile.id)),
+          ...serverProfiles,
+        ]);
+      } else if (skipReconcile) {
         // Resident portal: residents never generate charges locally, so server amounts are
         // always correct. Using the local-wins merge would lock stale session data in place
         // whenever the manager updates charge amounts (e.g. switching proration methods).
@@ -622,11 +753,27 @@ async function runHouseholdChargesSync({
         mergedProfiles = mergeServerAuthoritativeRentProfiles(serverProfiles, memoryRentProfiles);
       }
       mergedCharges = advanceStaleProcessingChargesForDev(mergedCharges);
-      const hasLocalOnlyCharges = mergedCharges.length > serverCharges.length;
-      const hasLocalOnlyProfiles = mergedProfiles.length > serverProfiles.length;
+      const hasLocalOnlyCharges = !incrementalResponse && mergedCharges.length > serverCharges.length;
+      const hasLocalOnlyProfiles = !incrementalResponse && mergedProfiles.length > serverProfiles.length;
       memoryCharges = mergedCharges;
       memoryRentProfiles = mergedProfiles;
       persistHouseholdStateToSession();
+      if (res.ok && typeof body.syncedAt === "string" && Number.isFinite(Date.parse(body.syncedAt))) {
+        writeHouseholdSyncMark(
+          incrementalResponse && priorMark
+            ? { ...priorMark, syncedAt: body.syncedAt, viewerRole: householdViewerRole ?? priorMark.viewerRole }
+            : {
+                syncedAt: body.syncedAt,
+                fullAt: Date.parse(body.syncedAt),
+                viewerRole: householdViewerRole,
+                skipReconcile,
+                workspaceId: requestWorkspaceId,
+              },
+        );
+      } else if (res.ok) {
+        // An older server that sends no watermark: stay on full reads.
+        writeHouseholdSyncMark(null);
+      }
       // Push to server if we have local-only rows or local amounts that differ from what the server stored.
       if (!skipReconcile && (hasLocalOnlyCharges || hasLocalOnlyProfiles || hasUpdatedCharges)) {
         postHouseholdPayload({ action: "replace", charges: memoryCharges, rentProfiles: memoryRentProfiles });

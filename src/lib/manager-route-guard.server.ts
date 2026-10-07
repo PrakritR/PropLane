@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { withholdManagerSurface } from "@/lib/property-owner/access.server";
+import { getRequestUserFast } from "@/lib/auth/request-user-fast.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -13,12 +14,28 @@ import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.
  * A manager is anyone with the additive `profile_roles` "manager" row OR a
  * legacy `profiles.role` / metadata role of manager/owner/pro/admin.
  * Residents and vendors never pass.
+ *
+ * `{ fast: true }` resolves the caller from the verified token claims instead
+ * of a GoTrue round trip (`request-user-fast.server.ts`). Claims reflect the
+ * token, not a fresh read, so a revoked or banned session still reads until the
+ * token expires. That is acceptable for READS ONLY: pass `fast: true` only from
+ * a GET/HEAD handler that has no side effects; every mutating handler keeps the
+ * default `getUser()`. If the claims cannot be verified this falls back to
+ * `getUser()`, never to "allowed". `user_metadata.role` keeps the same meaning
+ * (a legacy fallback consulted only when `profiles.role` is empty).
  */
-export async function requireManagerRouteUser(): Promise<{ db: SupabaseClient; userId: string } | null> {
+export async function requireManagerRouteUser(
+  opts?: { fast?: boolean },
+): Promise<{ db: SupabaseClient; userId: string } | null> {
   const supabaseAuth = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabaseAuth.auth.getUser();
+  let user: { id: string; user_metadata?: Record<string, unknown> } | null =
+    opts?.fast === true ? await getRequestUserFast(supabaseAuth) : null;
+  if (!user?.id) {
+    const {
+      data: { user: fresh },
+    } = await supabaseAuth.auth.getUser();
+    user = fresh;
+  }
   if (!user?.id) return null;
 
   const db = createSupabaseServiceRoleClient();

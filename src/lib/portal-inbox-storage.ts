@@ -510,6 +510,35 @@ export async function syncPersistedInboxFromServerWithStatus(
   }
 }
 
+/**
+ * How many times an initial-list load re-asks after its answer was discarded as stale.
+ * One is the real case (the session store resolves the viewer while the first request is in
+ * flight, which purges the cache and invalidates that request); the second covers a late
+ * workspace switch. More than that is a loop, not a race.
+ */
+export const INBOX_STALE_RETRIES = 2;
+
+/**
+ * Run a `...WithStatus` sync until it returns a result that was not discarded as stale.
+ *
+ * `stale` means "this answer belonged to an older viewer generation and was dropped", never
+ * "nothing to show". A caller that is still the current viewer (the page was server-rendered
+ * with the user id, so it started before the browser session store published the same id) must
+ * ask again against the now-current cache slot; returning on stale left the list on its
+ * skeleton forever because nothing else re-runs the load. A caller whose viewer really changed
+ * is torn down by its own generation check, so a retry for it is harmless.
+ */
+export async function retryWhileStale<T extends { stale?: boolean }>(
+  run: () => Promise<T>,
+  retries: number = INBOX_STALE_RETRIES,
+): Promise<T> {
+  let result = await run();
+  for (let attempt = 0; result.stale && attempt < retries; attempt += 1) {
+    result = await run();
+  }
+  return result;
+}
+
 /** Legacy array-only API for existing refresh consumers. */
 export function persistedInboxReadSucceeded(key: string) {
   if (isDemoModeActive()) return true;
