@@ -644,8 +644,15 @@ grants, so the module cap carries neither a check nor a value for them and both
 write paths re-derive them from the request. `capOwnerKeysForDelegate` caps that
 re-derive by the module each key reads from (Performance / Statements ←
 Finances, Documents ← Documents, Messages ← Communication), so a co-manager with
-nothing but `teams: edit` cannot hand an investor the books. An owner invite also
-never starts from "All houses": the investor's houses are picked on purpose.
+nothing but `teams: edit` cannot hand an investor the books. The cap runs on
+every write path a delegate can reach — `POST /api/pro/account-links`, the mint,
+and `PATCH /api/pro/account-links/[inviteId]`, which caps the houses already on
+the membership as well as the ones the write adds, because restamping a role
+rewrites the map for all of them. An owner invite also never starts from
+"All houses": the investor's houses are picked on purpose, and every editor
+coerces the scope through `houseScopeForRoleChange` so a member switched to the
+role carries their current houses over instead of saving a shape the server
+refuses.
 Accepting an owner invite does not rewrite `profiles.role` — an existing
 resident or vendor keeps the role their account was created as.
 
@@ -655,7 +662,11 @@ houses" row picks up later, so a Property owner's column is
 `flatTeamRoleGrant` (one place, used by invite, mint redeem and edit) — the
 link's own owner keys, with "No access" kept EXPLICIT as
 `{ notification: false }` — never the role default, which would hand
-Performance, Statements and Documents back on every new house.
+Performance, Statements and Documents back on every new house. For an owner that
+column is now display and legacy shape only: an owner row is selected-houses-only
+on every write path, and `loadOwnerGrants` pins `house_scope: "selected"` so the
+flat fallback never fires — a house with no per-house entry is simply not a
+grant. No owner reach decision reads the flat column.
 
 **Manager side.** Documents row ⋯ menu: *Share with owners* / *Stop sharing*
 (`PATCH /api/manager-documents/[id] { sharedWithOwners }`, owner-only like every

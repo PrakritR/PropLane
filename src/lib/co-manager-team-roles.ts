@@ -160,13 +160,18 @@ export function stampTeamRolePermissions(role: TeamRoleId): CoManagerPermissions
  * The flat `co_manager_permissions` column a membership stores, or null when
  * the caller must fall back to its own value (Custom).
  *
- * For every role but Property owner that is the role stamp. An owner's is the
- * per-house keys the manager ACTUALLY set, because
- * `readPropertyPermissionsFromRow` falls back to this column for a house an
- * "all houses" row picks up later: a stamped role default would hand
- * Performance, Statements and Documents back on every new house after the
- * manager turned those keys off. Every write path (invite, mint redeem, edit)
- * goes through here so the three cannot disagree.
+ * For every role but Property owner that is the role stamp, and it is the grant
+ * `readPropertyPermissionsFromRow` falls back to for a house an "all houses" row
+ * picks up later.
+ *
+ * An owner's is the per-house keys the manager ACTUALLY set, never the role
+ * default, which would hand Performance, Statements and Documents back on every
+ * house the manager turned those keys off for. That value is a display and
+ * legacy-shape column only: an owner is selected-houses-only on every write path
+ * and `loadOwnerGrants` reads the per-house map alone (it pins
+ * `house_scope: "selected"` so the fallback cannot fire), so no owner reach
+ * decision consults it. Every write path (invite, mint redeem, edit) goes
+ * through here so the three cannot disagree.
  */
 export function flatTeamRoleGrant(
   role: TeamRoleId | null | undefined,

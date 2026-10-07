@@ -38,6 +38,32 @@ export function parseHouseScope(raw: unknown): HouseScope {
 }
 
 /**
+ * House scope and houses after an editor picks `role`.
+ *
+ * A Property owner is selected-houses-only on every server path, and the role
+ * select hides "All houses" for it, so an editor that left `houseScope: "all"`
+ * on the row would save a shape the server refuses with
+ * `OWNER_SELECTED_ONLY_ERROR` and show a scope field with nothing chosen.
+ * Switching an "all houses" row to Property owner therefore drops to "selected"
+ * carrying the houses that row already names — the member's current pick, which
+ * is empty for a brand-new invite because an investor's houses are chosen on
+ * purpose. Switching AWAY from the role leaves the scope and pick alone.
+ *
+ * Every editor (invite sheet, member edit, Edit permissions) applies this in the
+ * single state update its role change makes, so the three cannot disagree.
+ */
+export function houseScopeForRoleChange(
+  role: TeamRoleId,
+  current: { houseScope: HouseScope; selectedHouseIds: readonly string[] },
+): { houseScope: HouseScope; selectedHouseIds: string[] } {
+  const selectedHouseIds = [...current.selectedHouseIds];
+  if (role !== "property_owner" || current.houseScope !== "all") {
+    return { houseScope: current.houseScope, selectedHouseIds };
+  }
+  return { houseScope: "selected", selectedHouseIds };
+}
+
+/**
  * What a role may do at the workspace level. Owner and Admin run the
  * workspace; Property manager may add houses (the listing wizard's
  * create-as-owner); everyone else acts only inside the modules they hold.

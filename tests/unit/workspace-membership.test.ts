@@ -3,6 +3,7 @@ import {
   canActOnMember,
   describeHouseMove,
   effectiveHouseIds,
+  houseScopeForRoleChange,
   memberReachLabel,
   memberStandingLabel,
   roleAssignableBy,
@@ -138,5 +139,39 @@ describe("moving a house between workspaces", () => {
       destination: { members: [{ ...ana, houseScope: "all", propertyIds: ["pine"] }, { ...priya, houseScope: "all", propertyIds: ["pine"] }] },
     });
     expect(result).toEqual({ loses: ["Jordan Kim"], keeps: ["Ana Reyes"], gains: ["Priya Bhatt"] });
+  });
+});
+
+/**
+ * `WorkspacePermissionsFields` hides "All houses" for Property owner, so an
+ * editor that left the stored scope alone would show an empty scope field and
+ * save a shape the server refuses. One helper, applied by every editor.
+ */
+describe("houseScopeForRoleChange", () => {
+  it("switching an all-houses member to Property owner drops to selected, carrying their houses", () => {
+    expect(
+      houseScopeForRoleChange("property_owner", { houseScope: "all", selectedHouseIds: ["oak", "elm"] }),
+    ).toEqual({ houseScope: "selected", selectedHouseIds: ["oak", "elm"] });
+  });
+  it("a brand-new invite with no pick stays empty — an investor's houses are chosen on purpose", () => {
+    expect(houseScopeForRoleChange("property_owner", { houseScope: "all", selectedHouseIds: [] })).toEqual({
+      houseScope: "selected",
+      selectedHouseIds: [],
+    });
+  });
+  it("an owner already on selected houses is untouched", () => {
+    expect(
+      houseScopeForRoleChange("property_owner", { houseScope: "selected", selectedHouseIds: ["oak"] }),
+    ).toEqual({ houseScope: "selected", selectedHouseIds: ["oak"] });
+  });
+  it("every other role keeps all houses, and switching AWAY leaves the pick alone", () => {
+    expect(houseScopeForRoleChange("admin", { houseScope: "all", selectedHouseIds: ["oak"] })).toEqual({
+      houseScope: "all",
+      selectedHouseIds: ["oak"],
+    });
+    expect(houseScopeForRoleChange("viewer", { houseScope: "selected", selectedHouseIds: ["oak"] })).toEqual({
+      houseScope: "selected",
+      selectedHouseIds: ["oak"],
+    });
   });
 });

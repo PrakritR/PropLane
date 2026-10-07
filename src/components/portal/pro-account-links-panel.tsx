@@ -40,7 +40,7 @@ import {
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
 import type { PortalWorkspace, WorkspaceMember } from "@/lib/workspaces/types";
-import { memberReachLabel, type HouseScope } from "@/lib/workspaces/membership";
+import { houseScopeForRoleChange, memberReachLabel, type HouseScope } from "@/lib/workspaces/membership";
 import { cn } from "@/lib/utils";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -1742,16 +1742,25 @@ export function ProAccountLinksPanel({
               other.workspaceId !== inv.workspaceId,
           );
           const applyRole = (teamRole: TeamRoleId) => {
+            // Property owner is selected-houses-only on every server path, so the
+            // role change carries the member's current houses over in the SAME
+            // draft — a second update would race this one's 300 ms save.
+            const scoped = houseScopeForRoleChange(teamRole, {
+              houseScope: draft.houseScope,
+              selectedHouseIds: draft.assignedPropertyIds,
+            });
             const stamp = stampTeamRolePermissions(teamRole);
             const nextPerms = stamp
               ? normalizePropertyCoManagerPermissions(
-                  Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, stamp])),
-                  draft.assignedPropertyIds,
+                  Object.fromEntries(scoped.selectedHouseIds.map((id) => [id, stamp])),
+                  scoped.selectedHouseIds,
                 )
               : draft.propertyCoManagerPermissions;
             queueDraft({
               ...draft,
               teamRole,
+              houseScope: scoped.houseScope,
+              assignedPropertyIds: scoped.selectedHouseIds,
               workspaceDefaultPermissions: stamp ?? draft.workspaceDefaultPermissions,
               propertyCoManagerPermissions: nextPerms,
               // A named role carries its own workspace rights.

@@ -2,7 +2,7 @@ import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import { asStringArray, readPropertyPermissionsFromRow, resolveInviteTeamRole, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
-import { capOwnerKeysForDelegate } from "@/lib/auth/co-manager-team-invite.server";
+import { capOwnerKeysForDelegate, capTeamInvitePermissionsForDelegate } from "@/lib/auth/co-manager-team-invite.server";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
   normalizeCoManagerPermissions,
@@ -331,6 +331,23 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
         } else {
           nextTeamRole = inferInviteTeamRole(nextPropertyPerms);
         }
+      }
+      // A delegate (an Admin) may never leave behind a module level above their
+      // own on ANY house of the membership — the houses already on the row as
+      // much as the ones this write adds. Same cap as POST, in the same order:
+      // modules first, then the owner keys, which are not modules.
+      if (actorManages && actorRole !== "owner" && nextTeamRole !== "property_owner") {
+        const capped = await capTeamInvitePermissionsForDelegate(
+          svc,
+          user.id,
+          invite.inviter_user_id,
+          nextAssigned,
+          nextPropertyPerms,
+        );
+        if (!capped.ok) {
+          return NextResponse.json({ error: capped.error }, { status: capped.status });
+        }
+        nextPropertyPerms = capped.permissions;
       }
       if (nextTeamRole === "property_owner" && actorRole !== "owner") {
         // Same cap as POST and the mint: a delegate cannot share books they cannot see.
