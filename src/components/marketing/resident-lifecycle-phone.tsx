@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
+  CreditCard,
   FileText,
   Plus,
   Send,
@@ -16,6 +17,7 @@ import {
   Wifi,
   Wrench,
 } from "lucide-react";
+import type { PhoneIcon, PhoneScript } from "./resident-lifecycle-script";
 
 type Stage = "message" | "tour" | "application" | "lease" | "home";
 type Props = {
@@ -28,6 +30,8 @@ type Props = {
   guideTarget?: string;
   guideInstruction?: string;
   busy: boolean;
+  /** A scripted thread for the resident and vendor portals; replaces the manager-story stages. */
+  script?: PhoneScript;
   onAcceptTour: () => boolean;
   onOpenLease: () => boolean;
   onResidentSign: () => boolean;
@@ -42,6 +46,12 @@ const leaseStatus = [
   "Signed",
 ] as const;
 const serviceDetails = "The water is collecting under the cabinet.";
+const cardIcons: Record<PhoneIcon, React.ReactNode> = {
+  file: <FileText aria-hidden />,
+  calendar: <CalendarDays aria-hidden />,
+  wrench: <Wrench aria-hidden />,
+  card: <CreditCard aria-hidden />,
+};
 const stageOrder: Stage[] = ["message", "tour", "application", "lease", "home"];
 
 export function ResidentLifecyclePhone({
@@ -54,6 +64,7 @@ export function ResidentLifecyclePhone({
   guideTarget,
   guideInstruction,
   busy,
+  script,
   onAcceptTour,
   onOpenLease,
   onResidentSign,
@@ -61,7 +72,10 @@ export function ResidentLifecyclePhone({
   onReply,
 }: Props) {
   const [reply, setReply] = useState("");
-  const [signingOpen, setSigningOpen] = useState(false);
+  const [signingOpen, setSigningOpen] = useState(
+    () => leaseStep === 1 && guideTarget === "resident-sign",
+  );
+  const [localReplies, setLocalReplies] = useState<string[]>([]);
   const stageIndex = stageOrder.indexOf(stage);
   const earlierMessages = messages.filter(
     (message) => stageOrder.indexOf(message.stage) < stageIndex,
@@ -81,17 +95,22 @@ export function ResidentLifecyclePhone({
     event.preventDefault();
     const text = reply.trim();
     if (!text) return;
+    if (script) {
+      setLocalReplies((items) => [...items, text]);
+      setReply("");
+      return;
+    }
     if (onReply(text)) setReply("");
   }
 
   return (
     <section
       className="rl-phone-wrap"
-      aria-label="Jordan’s Messages conversation"
+      aria-label={`${script?.caption ?? "Jordan’s phone"} Messages conversation`}
     >
       <div className="rl-phone-caption">
         <span className="rl-phone-caption-dot" />
-        Jordan’s phone
+        {script?.caption ?? "Jordan’s phone"}
       </div>
       <div className="rl-phone-device">
         <div className="rl-phone-screen">
@@ -114,9 +133,9 @@ export function ResidentLifecyclePhone({
               <span>2</span>
             </button>
             <div className="rl-phone-contact">
-              <span className="rl-phone-contact-avatar">AM</span>
-              <strong>Avery Morgan</strong>
-              <small>Willow Court</small>
+              <span className="rl-phone-contact-avatar">{script?.initials ?? "AM"}</span>
+              <strong>{script?.name ?? "Avery Morgan"}</strong>
+              <small>{script?.sub ?? "Willow Court"}</small>
             </div>
             <button
               type="button"
@@ -128,11 +147,41 @@ export function ResidentLifecyclePhone({
           </header>
           <div
             className="rl-phone-thread"
-            aria-label="Conversation with Avery Morgan"
+            aria-label={`Conversation with ${script?.name ?? "Avery Morgan"}`}
           >
-            <div className="rl-phone-time">Today&nbsp; 10:12 AM</div>
-            {renderMessages(earlierMessages)}
-            {stage === "tour" ? (
+            {script ? (
+              <>
+                {script.items.map((item, index) =>
+                  item.kind === "time" ? (
+                    <div key={index} className="rl-phone-time">{item.text}</div>
+                  ) : item.kind === "card" ? (
+                    <div key={index} className="rl-phone-rich-card">
+                      <div className="rl-phone-rich-icon">{cardIcons[item.icon]}</div>
+                      <div>
+                        <small>{item.eyebrow}</small>
+                        <strong>{item.title}</strong>
+                        <span>{item.sub}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={index}
+                      className={`rl-phone-message ${item.kind === "out" ? "rl-phone-outgoing" : "rl-phone-incoming"}`}
+                    >
+                      <span>{item.text}</span>
+                    </div>
+                  ),
+                )}
+                {localReplies.map((text, index) => (
+                  <div key={`local-${index}`} className="rl-phone-message rl-phone-outgoing">
+                    <span>{text}</span>
+                  </div>
+                ))}
+              </>
+            ) : null}
+            {!script ? <div className="rl-phone-time">Today&nbsp; 10:12 AM</div> : null}
+            {!script ? renderMessages(earlierMessages) : null}
+            {!script && stage === "tour" ? (
               <>
                 <div className="rl-phone-time">Tour invitation</div>
                 <div className="rl-phone-message rl-phone-incoming">
@@ -166,7 +215,7 @@ export function ResidentLifecyclePhone({
                 ) : null}
               </>
             ) : null}
-            {stage === "application" ? (
+            {!script && stage === "application" ? (
               <>
                 <div className="rl-phone-time">Application</div>
                 <div className="rl-phone-message rl-phone-incoming">
@@ -197,7 +246,7 @@ export function ResidentLifecyclePhone({
                 </button>
               </>
             ) : null}
-            {stage === "lease" ? (
+            {!script && stage === "lease" ? (
               <>
                 <div className="rl-phone-time">Lease</div>
                 <div className="rl-phone-message rl-phone-incoming">
@@ -250,7 +299,7 @@ export function ResidentLifecyclePhone({
                 ) : null}
               </>
             ) : null}
-            {stage === "home" ? (
+            {!script && stage === "home" ? (
               <>
                 <div className="rl-phone-time">After move-in</div>
                 <div className="rl-phone-message rl-phone-incoming">
@@ -291,8 +340,8 @@ export function ResidentLifecyclePhone({
                 )}
               </>
             ) : null}
-            {renderMessages(chapterMessages)}
-            {stage === "tour" && tourAccepted ? (
+            {!script ? renderMessages(chapterMessages) : null}
+            {!script && stage === "tour" && tourAccepted ? (
               <div className="rl-phone-confirmed">
                 <Check aria-hidden />
                 Tour confirmed

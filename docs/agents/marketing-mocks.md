@@ -25,6 +25,30 @@ there is no server to write to. If a panel's real component fetches internally
 (session, workspace, or data hooks), build a thin static wrapper around its
 purely presentational pieces instead of trying to mount the whole page tree.
 
+## The home page demo: one guided stage over three portals
+
+Captain 2026-10-06: the top of `/` is Akhil's hero plus a demo "through the
+platform" (`resident-lifecycle-prototypes.tsx`; it replaced `SiteHero`). A portal
+switcher (Manager · Resident · Vendor) sits over a row of stage tabs, each with a
+progress bar that fills while the stage plays (about 3 seconds a step). Every
+sidebar item opens the real panel for that tab, and a phone beside it shows the
+other party.
+
+- **One number drives the screen.** `resident-lifecycle-script.ts` holds the
+  stages, the beats inside them and `managerScript(beat, ...)`, which derives the
+  sample state (messages, tour accepted, approved, lease step, the faucet
+  request). A stage tab jumps by setting the beat; nothing replays.
+- **Panels come through one contract**, `site/product-mock/demo-panels.tsx`:
+  `DEMO_TABS`, `DemoPanel({ portal, tab })`. The sidebar is built from
+  `DEMO_TABS`, so adding a tab there adds it to the demo. Only the manager
+  Communication thread is drawn by the demo itself (Akhil's, tied to the phone).
+- **Autoplay** runs only while the demo is on screen, the pointer and focus are
+  outside the stage, nobody has started exploring (any sidebar click), and
+  `prefers-reduced-motion` is off. Without autoplay the highlighted button is
+  the guide, exactly as Akhil built it; the e2e guided tests run that way.
+- **Nothing writes.** No network request, nothing saved; a vendor is never shown
+  the street address before a quote is accepted (offers say the general area).
+
 ## Marketing mocks must use portal-accurate copy
 
 Every OTHER hand-drawn product mock on the marketing site — the homepage
