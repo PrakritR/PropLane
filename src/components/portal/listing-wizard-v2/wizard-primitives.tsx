@@ -1934,6 +1934,37 @@ export function RecordCard({
 }
 
 /**
+ * The one Reset control a row offers when its value is its own rather than the
+ * default it inherits. Used by {@link FactRow} and by rows that carry their own
+ * layout (a checkbox row) so there is a single affordance, not two that look alike.
+ */
+export function FactRowReset({
+  onReset,
+  label,
+  title,
+  dataAttr = "listing-v2-cell-reset",
+}: {
+  onReset: () => void;
+  label: string;
+  title: string;
+  dataAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onReset}
+      data-attr={dataAttr}
+      aria-label={label}
+      title={title}
+      className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
+    >
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+      Reset
+    </button>
+  );
+}
+
+/**
  * One row of a card: the label on the left, the control on the right.
  *
  * `own` marks a value the record set itself (a Reset puts it back on the
@@ -1976,17 +2007,11 @@ export function FactRow({
           {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
         </span>
         {own && onReset ? (
-          <button
-            type="button"
-            onClick={onReset}
-            data-attr="listing-v2-cell-reset"
-            aria-label={resetLabel ?? `Reset ${typeof label === "string" ? label : "this"} to the top card`}
+          <FactRowReset
+            onReset={onReset}
+            label={resetLabel ?? `Reset ${typeof label === "string" ? label : "this"} to the top card`}
             title={resetTitle ?? "Back to the Default card"}
-            className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
-          >
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
-            Reset
-          </button>
+          />
         ) : null}
       </span>
       <span className="flex min-w-0 shrink-0 items-center justify-end">{children}</span>

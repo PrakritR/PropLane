@@ -5,6 +5,7 @@ type WorkspacePaymentPublic = {
 
 export type PaymentSettingsField =
   | "serviceFeePayer"
+  | "serviceFeeWaiverCode"
   | "rentDueDayMode"
   | "lateFeeEnabled"
   | "lateFeeAmount"
@@ -16,12 +17,61 @@ export type PropertyPaymentSettingsScope = Partial<Record<PaymentSettingsField, 
 
 const FIELDS: PaymentSettingsField[] = [
   "serviceFeePayer",
+  "serviceFeeWaiverCode",
   "rentDueDayMode",
   "lateFeeEnabled",
   "lateFeeAmount",
   "lateFeeGraceDays",
 ];
 
+/** What the field holds when it is the workspace's, not this property's own. */
+function workspaceValue(field: PaymentSettingsField, ws: WorkspacePaymentPublic | null | undefined): unknown {
+  switch (field) {
+    case "serviceFeePayer":
+      return ws?.serviceFeePayer ?? "resident";
+    // A workspace has no coverage code: one typed here is always this property's own.
+    case "serviceFeeWaiverCode":
+      return null;
+    case "rentDueDayMode":
+      return "first_of_month";
+    case "lateFeeEnabled":
+      return true;
+    case "lateFeeAmount":
+      return 50;
+    case "lateFeeGraceDays":
+      return 5;
+  }
+}
+
+/** What the field holds on this property right now, in the same shape `workspaceValue` returns. */
+function currentValue(sub: ManagerListingSubmissionV1, field: PaymentSettingsField): unknown {
+  switch (field) {
+    // What the row SHOWS when nothing is stored is "Resident pays", not the
+    // workspace's answer, so that is what the scope is measured against.
+    case "serviceFeePayer":
+      return sub.serviceFeePayer ?? "resident";
+    case "serviceFeeWaiverCode":
+      return (sub.serviceFeeWaiverCode ?? "").trim() || null;
+    case "rentDueDayMode":
+      return sub.rentDueDayMode ?? "first_of_month";
+    case "lateFeeEnabled":
+      return sub.lateFeeEnabled !== false;
+    case "lateFeeAmount": {
+      const n = Number(String(sub.lateFeeAmount ?? "50").replace(/[^0-9.]/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    }
+    case "lateFeeGraceDays":
+      return sub.lateFeeGraceDays ?? 5;
+  }
+}
+
+/**
+ * Whether a payment row is still the workspace default or this property's own.
+ *
+ * A recorded scope wins (an edit stamps `own`, a reset clears the stamp); with
+ * nothing recorded the answer is derived from the value itself, so a property
+ * nobody has touched reads "Workspace default" and offers no reset.
+ */
 export function paymentSettingsFieldScope(
   sub: ManagerListingSubmissionV1,
   field: PaymentSettingsField,
@@ -29,10 +79,7 @@ export function paymentSettingsFieldScope(
 ): PaymentSettingsScope {
   const explicit = sub.paymentSettingsScope?.[field];
   if (explicit === "own" || explicit === "workspace") return explicit;
-  if (field === "serviceFeePayer" && ws?.serviceFeePayer != null) {
-    return sub.serviceFeePayer === ws.serviceFeePayer ? "workspace" : "own";
-  }
-  return "own";
+  return currentValue(sub, field) === workspaceValue(field, ws) ? "workspace" : "own";
 }
 
 export function paymentSettingsScopeLabel(scope: PaymentSettingsScope): string {
@@ -57,22 +104,20 @@ export function resetPaymentFieldToWorkspace(
   const scope = { ...(sub.paymentSettingsScope ?? {}) };
   delete scope[field];
   const next: ManagerListingSubmissionV1 = { ...sub, paymentSettingsScope: scope };
-  if (field === "serviceFeePayer" && ws?.serviceFeePayer) {
-    return { ...next, serviceFeePayer: ws.serviceFeePayer };
+  switch (field) {
+    case "serviceFeePayer":
+      return { ...next, serviceFeePayer: ws?.serviceFeePayer ?? "resident" };
+    case "serviceFeeWaiverCode":
+      return { ...next, serviceFeeWaiverCode: undefined };
+    case "rentDueDayMode":
+      return { ...next, rentDueDayMode: "first_of_month" };
+    case "lateFeeEnabled":
+      return { ...next, lateFeeEnabled: true };
+    case "lateFeeAmount":
+      return { ...next, lateFeeAmount: "50" };
+    case "lateFeeGraceDays":
+      return { ...next, lateFeeGraceDays: 5 };
   }
-  if (field === "rentDueDayMode") {
-    return { ...next, rentDueDayMode: "first_of_month" };
-  }
-  if (field === "lateFeeEnabled") {
-    return { ...next, lateFeeEnabled: true };
-  }
-  if (field === "lateFeeAmount") {
-    return { ...next, lateFeeAmount: "50" };
-  }
-  if (field === "lateFeeGraceDays") {
-    return { ...next, lateFeeGraceDays: 5 };
-  }
-  return next;
 }
 
 export function propertyOverridesPaymentSettings(sub: ManagerListingSubmissionV1): boolean {

@@ -108,8 +108,17 @@ export function PortalCommandPalette({
     listRef.current?.querySelector<HTMLElement>('[data-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
   }, [selected, rows]);
 
+  /**
+   * Set by an Ask row so the dialog's close does NOT pull focus back to
+   * whatever had it before the palette opened: `onAsk` has just put the caret
+   * in the assistant composer, and Radix's own close-autofocus would take it
+   * straight back out again.
+   */
+  const askedRef = useRef(false);
+
   function run(row: Row | undefined) {
     if (!row) return;
+    if (row.kind === "ask") askedRef.current = true;
     onOpenChange(false);
     if (row.kind === "ask") onAsk(query.trim());
     else if (row.kind === "jump") onNavigate(row.item.href);
@@ -187,6 +196,11 @@ export function PortalCommandPalette({
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             inputRef.current?.focus();
+          }}
+          onCloseAutoFocus={(e) => {
+            if (!askedRef.current) return;
+            askedRef.current = false;
+            e.preventDefault();
           }}
           className="fixed left-1/2 top-[72px] z-[10081] w-[600px] max-w-[calc(100%-40px)] -translate-x-1/2 overflow-hidden rounded-xl border border-[rgba(17,24,39,0.13)] bg-white text-[#15171c] shadow-[0_24px_60px_-12px_rgba(16,24,40,0.4)] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
           data-attr="portal-command-palette"

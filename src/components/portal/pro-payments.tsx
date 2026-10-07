@@ -63,7 +63,7 @@ import { useScheduledPaymentMessages } from "@/components/portal/payment-schedul
 import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
 import { isUpcomingDueDateMs } from "@/lib/household-charge-visibility";
 import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
-import { formatCentsAsUsd, sumMoneyLabelsCents } from "@/lib/money-label-totals";
+import { formatCentsAsUsd, sumMoneyLabelsCents, sumMoneyRowsCents } from "@/lib/money-label-totals";
 import {
   cacheShowUpcomingChargesSetting,
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
@@ -648,7 +648,11 @@ export function ManagerPayments({
           ? sumMoneyLabelsCents(
               rowsForCounts.filter((row) => row.bucket === id).map((row) => (id === "paid" ? row.lineAmount : row.balanceDue)),
             )
-          : sumMoneyLabelsCents(outgoingRowsForCounts.filter((row) => row.bucket === id).map((row) => row.amountLabel));
+          : sumMoneyRowsCents(
+              outgoingRowsForCounts
+                .filter((row) => row.bucket === id)
+                .map((row) => ({ cents: row.amountCents, label: row.amountLabel })),
+            );
       return {
         id,
         label,

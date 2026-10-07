@@ -127,7 +127,13 @@ import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/
 import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manager-listing-submission";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { isValidZipInput, sanitizeMoneyInput } from "@/lib/listing-form-inputs";
-import type { PaymentSettingsField } from "@/lib/property-payment-settings-scope";
+import {
+  markPaymentFieldOwn,
+  paymentSettingsFieldScope,
+  paymentSettingsScopeLabel,
+  resetPaymentFieldToWorkspace,
+  type PaymentSettingsField,
+} from "@/lib/property-payment-settings-scope";
 import {
   bathroomTypeOf,
   copyBathroomSetupFrom,
@@ -191,6 +197,7 @@ import {
   Field,
   FieldRow,
   FactRow,
+  FactRowReset,
   MoneyInput,
   AdvancedGroup,
   AdvancedPanel,
@@ -2377,14 +2384,69 @@ function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
  * with. What is left here is not a cost: whose bill the processing fee lands
  * on, and which rails you accept money over.
  */
-function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+function HousePaymentsGroup({
+  sub,
+  patch,
+  workspacePayment = null,
+}: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  workspacePayment?: WorkspacePaymentDefaults | null;
+}) {
   // Who pays card processing (and the promo code that lets PropLane cover it) is
   // asked once, here — never twice. The whole place's rent is on its own card
   // under "The whole place".
   return (
     <>
-      <HouseStripePaymentsGroup sub={sub} patch={patch} />
-      <HouseRentDueAndLateFeesGroup sub={sub} patch={patch} />
+      <HouseStripePaymentsGroup sub={sub} patch={patch} workspacePayment={workspacePayment} />
+      <HouseRentDueAndLateFeesGroup sub={sub} patch={patch} workspacePayment={workspacePayment} />
+    </>
+  );
+}
+
+/** The workspace-wide payment answers a property's rows fall back to. */
+export type WorkspacePaymentDefaults = {
+  serviceFeePayer?: ManagerListingSubmissionV1["serviceFeePayer"] | null;
+};
+
+/**
+ * Which scope a payment row is in, and the way back out of an override.
+ *
+ * The Pricing gear's pop-up carried both (it is gone); the rows it moved into
+ * keep them, so a manager can still see that Rent due is the workspace's answer
+ * and put a property's own answer back to it. Short label, icon-sized action —
+ * never a sentence under the row.
+ */
+function PaymentScopeMark({
+  sub,
+  patch,
+  field,
+  label,
+  workspacePayment,
+}: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  field: PaymentSettingsField;
+  label: string;
+  workspacePayment?: WorkspacePaymentDefaults | null;
+}) {
+  const scope = paymentSettingsFieldScope(sub, field, workspacePayment);
+  return (
+    <>
+      <span
+        className="shrink-0 text-[11.5px] font-semibold text-muted"
+        data-attr={`listing-v2-payment-scope-${field}`}
+      >
+        {paymentSettingsScopeLabel(scope)}
+      </span>
+      {scope === "own" ? (
+        <FactRowReset
+          onReset={() => patch(resetPaymentFieldToWorkspace(sub, field, workspacePayment))}
+          label={`Reset ${label} to the workspace default`}
+          title="Back to the workspace default"
+          dataAttr={`listing-v2-payment-reset-${field}`}
+        />
+      ) : null}
     </>
   );
 }
@@ -2405,47 +2467,68 @@ const LATE_FEE_GRACE_OPTIONS = Array.from({ length: 31 }, (_, days) => ({
  * marks the field as this property's own (`paymentSettingsScope`), exactly as
  * that pop-up did, so a workspace default never silently overwrites it.
  */
-function HouseRentDueAndLateFeesGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+function HouseRentDueAndLateFeesGroup({
+  sub,
+  patch,
+  workspacePayment = null,
+}: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  workspacePayment?: WorkspacePaymentDefaults | null;
+}) {
   const own = (field: PaymentSettingsField, next: Partial<ManagerListingSubmissionV1>) =>
-    patch({ ...next, paymentSettingsScope: { ...(sub.paymentSettingsScope ?? {}), [field]: "own" } });
+    patch(markPaymentFieldOwn({ ...sub, ...next }, field));
+  const mark = (field: PaymentSettingsField, label: string) => (
+    <PaymentScopeMark sub={sub} patch={patch} field={field} label={label} workspacePayment={workspacePayment} />
+  );
   const lateFeesOn = sub.lateFeeEnabled !== false;
   return (
     <>
       <FactRow label="Rent due">
-        <RowSelectCell
-          ariaLabel="Rent due"
-          value={sub.rentDueDayMode ?? "first_of_month"}
-          options={RENT_DUE_OPTIONS}
-          dataAttr="listing-v2-rent-due-day"
-          onChange={(v) => own("rentDueDayMode", { rentDueDayMode: v === "last_of_month" ? "last_of_month" : "first_of_month" })}
-        />
+        <span className="flex min-w-0 items-center gap-2">
+          {mark("rentDueDayMode", "Rent due")}
+          <RowSelectCell
+            ariaLabel="Rent due"
+            value={sub.rentDueDayMode ?? "first_of_month"}
+            options={RENT_DUE_OPTIONS}
+            dataAttr="listing-v2-rent-due-day"
+            onChange={(v) => own("rentDueDayMode", { rentDueDayMode: v === "last_of_month" ? "last_of_month" : "first_of_month" })}
+          />
+        </span>
       </FactRow>
-      <div className="border-t border-border px-3.5 py-1">
+      <div className="flex items-center justify-between gap-3 border-t border-border px-3.5 py-1">
         <CheckboxOption
           label="Automatic late fees"
           checked={lateFeesOn}
           onChange={(next) => own("lateFeeEnabled", { lateFeeEnabled: next })}
         />
+        <span className="flex shrink-0 items-center gap-2">{mark("lateFeeEnabled", "Automatic late fees")}</span>
       </div>
       {lateFeesOn ? (
         <>
           <FactRow sub label="Late fee amount">
-            <MoneyInput
-              label="Late fee amount"
-              value={(sub.lateFeeAmount ?? "50").replace(/^\$/, "").trim()}
-              placeholder="50"
-              dataAttr="listing-v2-late-fee-amount"
-              onChange={(raw) => own("lateFeeAmount", { lateFeeAmount: sanitizeMoneyInput(raw) })}
-            />
+            <span className="flex min-w-0 items-center gap-2">
+              {mark("lateFeeAmount", "Late fee amount")}
+              <MoneyInput
+                label="Late fee amount"
+                value={(sub.lateFeeAmount ?? "50").replace(/^\$/, "").trim()}
+                placeholder="50"
+                dataAttr="listing-v2-late-fee-amount"
+                onChange={(raw) => own("lateFeeAmount", { lateFeeAmount: sanitizeMoneyInput(raw) })}
+              />
+            </span>
           </FactRow>
           <FactRow sub label="Grace days">
-            <RowSelectCell
-              ariaLabel="Grace days"
-              value={String(sub.lateFeeGraceDays ?? 5)}
-              options={LATE_FEE_GRACE_OPTIONS}
-              dataAttr="listing-v2-late-fee-grace-days"
-              onChange={(v) => own("lateFeeGraceDays", { lateFeeGraceDays: Math.max(0, Math.min(30, Number(v) || 0)) })}
-            />
+            <span className="flex min-w-0 items-center gap-2">
+              {mark("lateFeeGraceDays", "Grace days")}
+              <RowSelectCell
+                ariaLabel="Grace days"
+                value={String(sub.lateFeeGraceDays ?? 5)}
+                options={LATE_FEE_GRACE_OPTIONS}
+                dataAttr="listing-v2-late-fee-grace-days"
+                onChange={(v) => own("lateFeeGraceDays", { lateFeeGraceDays: Math.max(0, Math.min(30, Number(v) || 0)) })}
+              />
+            </span>
           </FactRow>
         </>
       ) : null}
@@ -2453,7 +2536,18 @@ function HouseRentDueAndLateFeesGroup({ sub, patch }: { sub: ManagerListingSubmi
   );
 }
 
-function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+function HouseStripePaymentsGroup({
+  sub,
+  patch,
+  workspacePayment = null,
+}: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  workspacePayment?: WorkspacePaymentDefaults | null;
+}) {
+  const mark = (field: PaymentSettingsField, label: string) => (
+    <PaymentScopeMark sub={sub} patch={patch} field={field} label={label} workspacePayment={workspacePayment} />
+  );
   const stripeOn = sub.axisPaymentsEnabled !== false;
   const payer = sub.serviceFeePayer ?? "resident";
   /*
@@ -2485,36 +2579,56 @@ function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissio
       {stripeOn ? (
         <>
           <FactRow label="Processing fee">
-            <RowSelectCell
-              ariaLabel="Stripe processing fee"
-              value={payer}
-              dataAttr="listing-v2-service-fee-payer"
-              options={[
-                { value: "resident", label: "Resident pays" },
-                { value: "manager", label: "I pay" },
-                { value: "proplane", label: "PropLane pays" },
-              ]}
-              onChange={(v) =>
-                patch({
-                  serviceFeePayer: v as ManagerListingSubmissionV1["serviceFeePayer"],
-                  serviceFeeWaiverCode: undefined,
-                })
-              }
-            />
+            <span className="flex min-w-0 items-center gap-2">
+              {mark("serviceFeePayer", "Processing fee paid by")}
+              <RowSelectCell
+                ariaLabel="Stripe processing fee"
+                value={payer}
+                dataAttr="listing-v2-service-fee-payer"
+                options={[
+                  { value: "resident", label: "Resident pays" },
+                  { value: "manager", label: "I pay" },
+                  { value: "proplane", label: "PropLane pays" },
+                ]}
+                onChange={(v) =>
+                  patch(
+                    markPaymentFieldOwn(
+                      // Switching the payer still clears the stored code, scope stamp included.
+                      resetPaymentFieldToWorkspace(
+                        { ...sub, serviceFeePayer: v as ManagerListingSubmissionV1["serviceFeePayer"] },
+                        "serviceFeeWaiverCode",
+                        workspacePayment,
+                      ),
+                      "serviceFeePayer",
+                    ),
+                  )
+                }
+              />
+            </span>
           </FactRow>
           {needsCoverageCode ? (
             <FactRow sub label="Coverage code">
               <span className="flex flex-col items-end gap-1">
-                <input
-                  style={{ textTransform: "uppercase" }}
-                  autoComplete="off"
-                  aria-label="Processing coverage code"
-                  value={sub.serviceFeeWaiverCode ?? ""}
-                  placeholder="Processing coverage code"
-                  data-attr="listing-v2-service-fee-code"
-                  onChange={(e) => patch({ serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value) || undefined })}
-                  className="min-h-[36px] w-[170px] rounded-lg border border-border bg-card px-2.5 text-[13.5px] font-semibold text-foreground outline-none focus:border-primary"
-                />
+                <span className="flex items-center gap-2">
+                  {mark("serviceFeeWaiverCode", "Coverage code")}
+                  <input
+                    style={{ textTransform: "uppercase" }}
+                    autoComplete="off"
+                    aria-label="Processing coverage code"
+                    value={sub.serviceFeeWaiverCode ?? ""}
+                    placeholder="Processing coverage code"
+                    data-attr="listing-v2-service-fee-code"
+                    onChange={(e) =>
+                      patch(
+                        markPaymentFieldOwn(
+                          { ...sub, serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value) || undefined },
+                          "serviceFeeWaiverCode",
+                        ),
+                      )
+                    }
+                    className="min-h-[36px] w-[170px] rounded-lg border border-border bg-card px-2.5 text-[13.5px] font-semibold text-foreground outline-none focus:border-primary"
+                  />
+                </span>
                 {coverageCodeTyped && !coverageCodeValid ? <span className="text-[12px] font-semibold text-red-600">{LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID}</span> : null}
               </span>
             </FactRow>
@@ -2754,12 +2868,15 @@ export function ListingPricingWorkspace({
   defaults,
   setDefaults,
   onActiveLeaseTermChange,
+  workspacePayment = null,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
   defaults: ListingHouseDefaults;
   setDefaults: (next: ListingHouseDefaults) => void;
   onActiveLeaseTermChange?: (leaseTerm: string) => void;
+  /** The workspace's own payment answers, so each Payments row can name its scope. */
+  workspacePayment?: WorkspacePaymentDefaults | null;
 }) {
   const [leaseDocOpen, setLeaseDocOpen] = useState(false);
   return (
@@ -2777,7 +2894,7 @@ export function ListingPricingWorkspace({
             {resolveAllowedLeaseTerms(sub).includes(LONG_TERM_LEASE_TERM) ? <LongTermLengthsField sub={sub} patch={patch} /> : null}
           </>
         }
-        payments={<HousePaymentsGroup sub={sub} patch={patch} />}
+        payments={<HousePaymentsGroup sub={sub} patch={patch} workspacePayment={workspacePayment} />}
         applications={<HouseApplicationsGroup sub={sub} patch={patch} />}
         onActiveLeaseTermChange={onActiveLeaseTermChange}
         leaseDocument={

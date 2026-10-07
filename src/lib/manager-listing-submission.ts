@@ -1147,10 +1147,15 @@ export type ManagerListingSubmissionV1 = {
   lateFeeGraceDays?: number;
   /** Flat late fee amount (e.g. "50" or "$50"). Default $50. */
   lateFeeAmount?: string;
-  /** Property Pricing gear — which payment rows override workspace defaults. */
+  /** Which payment rows on the Pricing step override workspace defaults. */
   paymentSettingsScope?: Partial<
     Record<
-      "serviceFeePayer" | "rentDueDayMode" | "lateFeeEnabled" | "lateFeeAmount" | "lateFeeGraceDays",
+      | "serviceFeePayer"
+      | "serviceFeeWaiverCode"
+      | "rentDueDayMode"
+      | "lateFeeEnabled"
+      | "lateFeeAmount"
+      | "lateFeeGraceDays",
       "workspace" | "own"
     >
   >;

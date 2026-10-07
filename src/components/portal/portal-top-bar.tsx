@@ -1,7 +1,7 @@
 "use client";
 
 import { PanelLeft, PanelRight, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   PortalCommandPalette,
   portalPaletteActions,
@@ -30,6 +30,21 @@ function portalDisplayName(kind: PortalKind): string {
     default:
       return "PropLane";
   }
+}
+
+/** A text field, a number field or a rich-text area owns its own Ctrl/Cmd+K. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+}
+
+/** A modal already on screen (record pop-up, confirm) keeps the keystroke and its focus trap. */
+function hasOpenDialog(): boolean {
+  if (typeof document === "undefined") return false;
+  return Boolean(document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'));
 }
 
 /**
@@ -75,13 +90,28 @@ export function PortalTopBar({
   const workspaceName = isWorkspacePortal && workspaces && !workspaces.loading ? workspaces.active?.name : undefined;
   const searchTarget = workspaceName?.trim() || portalDisplayName(kind);
 
-  // Cmd/Ctrl+K opens (or closes) the palette. Only this shortcut is claimed.
+  // Cmd/Ctrl+K opens (or closes) the palette. Only this shortcut is claimed, and
+  // only when nothing else owns the keystroke: a field the manager is typing in
+  // keeps its own Ctrl+K, and a dialog already on screen keeps its focus trap
+  // rather than having the palette stacked over it.
+  const paletteOpenRef = useRef(paletteOpen);
+  useEffect(() => {
+    paletteOpenRef.current = paletteOpen;
+  }, [paletteOpen]);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === "k" || event.key === "K")) {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (event.key !== "k" && event.key !== "K") return;
+      if (event.defaultPrevented) return;
+      if (paletteOpenRef.current) {
         event.preventDefault();
-        setPaletteOpen((open) => !open);
+        setPaletteOpen(false);
+        return;
       }
+      if (isEditableTarget(event.target)) return;
+      if (hasOpenDialog()) return;
+      event.preventDefault();
+      setPaletteOpen(true);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
