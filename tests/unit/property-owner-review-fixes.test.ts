@@ -318,7 +318,11 @@ describe("a delegate cannot hand out owner keys they do not hold", () => {
   it("an owner invite does not start from 'all houses'", () => {
     const src = read("src/components/portal/workspace-invite-sheet.tsx");
     expect(src).toContain('if (role === "property_owner") return "selected"');
-    expect(src).toMatch(/next === "property_owner" && houseScope === "all"/);
+    // The role-change guard moved into houseScopeForRoleChange (src/lib/workspaces/membership.ts),
+    // whose behaviour is covered in workspace-membership.test.ts; the sheet must route role changes through it.
+    expect(src).toMatch(/houseScopeForRoleChange\(next, \{ houseScope, selectedHouseIds \}\)/);
+    const membership = read("src/lib/workspaces/membership.ts");
+    expect(membership).toMatch(/role !== "property_owner" \|\| current\.houseScope !== "all"/);
   });
 });
 
