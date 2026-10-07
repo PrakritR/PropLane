@@ -83,3 +83,27 @@ export function orderRecordActions<T extends RecordActionOrderItem>(items: T[]):
     ...groups.delete,
   ];
 }
+
+/**
+ * Decision tone of a ⋯ item (approved redesign, dashboard-redesign-1007).
+ *
+ * Decisions sit last, after the divider: positive ones (Approve, Confirm, Mark
+ * paid, Mark done, Pay / Pay now, Complete) in green DIRECTLY ABOVE the negative
+ * one (Decline, Reject, Cancel request) in red, then Delete / Remove in red at
+ * the very end. Everything else is "neutral" and keeps the canonical order above
+ * the divider. Matched on the action's visible label or its `data-record-action-id`.
+ */
+export type RecordActionTone = "neutral" | "positive" | "negative" | "destructive";
+
+const POSITIVE_DECISION =
+  /^(approve|confirm|mark( as)? (paid|done|complete(d)?)|pay( now| bill| invoice)?|complete( & lock)?|accept)(\b|$)/i;
+const NEGATIVE_DECISION = /^(decline|reject|deny|cancel request)(\b|$)/i;
+
+export function classifyRecordActionTone(idOrLabel: string): RecordActionTone {
+  const text = idOrLabel.trim().replace(/[-_]+/g, " ");
+  if (!text) return "neutral";
+  if (NEGATIVE_DECISION.test(text)) return "negative";
+  if (POSITIVE_DECISION.test(text)) return "positive";
+  if (/^(delete|remove)\b/i.test(text)) return "destructive";
+  return "neutral";
+}

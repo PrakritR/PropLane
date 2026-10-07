@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalRecordDecisionPair, splitRecordDecisionActions } from "@/components/portal/portal-record-decision-pair";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 
@@ -29,9 +30,11 @@ export function ManagerResidentSectionToolbar({
   extraActions?: ReactNode;
   className?: string;
 }) {
-  const primaryIndex = actions.findIndex((a) => a.tone === "primary");
-  const primary = primaryIndex >= 0 ? actions[primaryIndex] : undefined;
-  const secondary = actions.filter((_, i) => i !== primaryIndex);
+  // Approve / Decline are the one labelled pair (redesign 1007); everything else stays an icon.
+  const { rest, positive, negative } = splitRecordDecisionActions(actions);
+  const primaryIndex = rest.findIndex((a) => a.tone === "primary");
+  const primary = primaryIndex >= 0 ? rest[primaryIndex] : undefined;
+  const secondary = rest.filter((_, i) => i !== primaryIndex);
   const headerRow = destinationRow ? (
     <div className="flex min-w-0 items-center gap-1" data-attr="resident-section-header">
       <div className="min-w-0 flex-1">{destinationRow}</div>
@@ -66,6 +69,7 @@ export function ManagerResidentSectionToolbar({
             />
           ))}
           {extraActions}
+          <PortalRecordDecisionPair positive={positive} negative={negative} onAction={onAction} dataAttrPrefix="resident-section-action" />
         </>
       }
       primary={

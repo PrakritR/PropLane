@@ -50,7 +50,7 @@ export function residentSectionHeaderActions(ctx: ResidentSectionActionContext):
       }
       if (app.subTab === "pending") {
         return [
-          ...(app.undecidable ? [] : [{ id: "decline", label: "Reject", icon: XCircle, tone: "danger" as const }]),
+          ...(app.undecidable ? [] : [{ id: "decline", label: "Decline", icon: XCircle, tone: "danger" as const }]),
           ...(app.hasForm ? [EDIT] : []),
           DOWNLOAD_PDF,
           ...(app.undecidable ? [] : [{ id: "approve", label: "Approve", icon: CheckCircle2, tone: "primary" as const }]),

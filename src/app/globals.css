@@ -3866,6 +3866,13 @@ html[data-native] [data-listing-subnav] {
 .record-action-menu [role="menuitem"]:not(:disabled):not([data-disabled]):hover,
 .record-action-menu [role="menuitem"][data-highlighted]:not(:disabled):not([data-disabled]) { background: rgb(92 130 244 / .12) !important; }
 .record-action-menu .text-danger { color: var(--destructive); }
+/* Redesign 1007: 16px leading glyph; decisions sit last — green above red, Delete red at the very end. */
+.record-action-menu [role="menuitem"] { align-items: center; gap: 10px; }
+.record-action-menu [role="menuitem"] > svg { width: 16px; height: 16px; flex: none; }
+.record-action-menu [role="menuitem"][data-record-action-tone="neutral"] > svg { color: var(--muted); }
+.record-action-menu [role="menuitem"][data-record-action-tone="positive"] { color: #12805c; font-weight: 600; }
+.record-action-menu [role="menuitem"][data-record-action-tone="negative"],
+.record-action-menu [role="menuitem"][data-record-action-tone="destructive"] { color: var(--red, #d92d20); }
 @supports not (backdrop-filter: blur(1px)) { .portal-liquid-glass { background: var(--card); } }
 /* Desktop menus are floating cards (approved shell redesign): solid white, one
    1px border, the popover shadow, and no blurred scrim behind them. */

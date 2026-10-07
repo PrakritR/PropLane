@@ -6,7 +6,8 @@ import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RecordActionContext, RecordActionItemsContext, RecordActionCloseContext } from "./record-action-context";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu";
-import { isPostDividerRecordActionId, orderRecordActions } from "@/lib/portals/record-action-order";
+import { classifyRecordActionTone, isPostDividerRecordActionId, orderRecordActions, type RecordActionTone } from "@/lib/portals/record-action-order";
+import { recordActionIcon } from "@/lib/portals/record-action-icons";
 
 /** Trailing ⋯ on list rows — shared sitewide (portal lists, DataList overflow, expense rows). */
 export const RECORD_ACTION_TRIGGER_ICON_CLASS = "size-[18px] shrink-0 text-muted stroke-[2.25]";
@@ -79,6 +80,34 @@ function withStableKey(leaf: ReactElement<ActionLeafProps>, index: number): Reac
   return cloneElement(leaf, { key: `record-action-${index}` });
 }
 
+/** The visible words of a leaf (strings anywhere in its children), used to read its tone and pick its glyph. */
+function leafLabel(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(leafLabel).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return leafLabel(node.props.children);
+  return "";
+}
+
+/** Tone of a leaf: its own action id wins, otherwise the words it shows. */
+function leafTone(leaf: ReactElement<ActionLeafProps>): RecordActionTone {
+  const id = leaf.props["data-record-action-id"];
+  const byId = id ? classifyRecordActionTone(id) : "neutral";
+  return byId !== "neutral" ? byId : classifyRecordActionTone(leafLabel(leaf.props.children));
+}
+
+/** A leaf that already draws its own icon (a component child) keeps it; a plain-text leaf gets the 16px glyph. */
+function leafHasOwnIcon(leaf: ReactElement<ActionLeafProps>): boolean {
+  return Children.toArray(leaf.props.children).some((child) => isValidElement(child) && typeof child.type !== "string");
+}
+
+function withLeadingIcon(leaf: ReactElement<ActionLeafProps>, tone: RecordActionTone): ReactElement<ActionLeafProps> {
+  const label = leafLabel(leaf.props.children).trim() || leaf.props["data-record-action-id"] || "";
+  const extra = { "data-record-action-tone": tone } as Partial<ActionLeafProps>;
+  if (leafHasOwnIcon(leaf)) return cloneElement(leaf, extra);
+  const Icon = recordActionIcon(label);
+  return cloneElement(leaf, extra, <Icon className="size-4 shrink-0" aria-hidden />, <span className="min-w-0 truncate">{leaf.props.children}</span>);
+}
+
 function isDestructiveLeaf(leaf: ReactElement<ActionLeafProps>): boolean {
   const actionId = leaf.props["data-record-action-id"];
   if (actionId && isPostDividerRecordActionId(actionId)) return true;
@@ -97,19 +126,24 @@ function isDestructiveLeaf(leaf: ReactElement<ActionLeafProps>): boolean {
  */
 function splitDestructiveActions(actions: ReactNode) {
   const leaves = flattenActionLeaves(actions).map(withStableKey);
-  const nonDestructive: ReactElement<ActionLeafProps>[] = [];
-  const destructive: ReactElement<ActionLeafProps>[] = [];
+  const neutral: ReactElement<ActionLeafProps>[] = [];
+  const positive: ReactElement<ActionLeafProps>[] = [];
+  const negative: ReactElement<ActionLeafProps>[] = [];
+  const trailing: ReactElement<ActionLeafProps>[] = [];
   for (const leaf of leaves) {
-    if (isDestructiveLeaf(leaf)) destructive.push(leaf);
-    else nonDestructive.push(leaf);
+    const tone = leafTone(leaf);
+    if (tone === "positive") positive.push(withLeadingIcon(leaf, "positive"));
+    else if (tone === "negative") negative.push(withLeadingIcon(leaf, "negative"));
+    else if (tone === "destructive" || isDestructiveLeaf(leaf)) trailing.push(withLeadingIcon(leaf, tone === "destructive" ? "destructive" : "neutral"));
+    else neutral.push(leaf);
   }
-  const fullyTagged = nonDestructive.length > 0 && nonDestructive.every((leaf) => Boolean(leaf.props["data-record-action-id"]));
-  const orderedNonDestructive = fullyTagged
-    ? orderRecordActions(nonDestructive.map((leaf) => ({ id: leaf.props["data-record-action-id"]!, leaf }))).map(
-        (entry) => entry.leaf,
-      )
-    : nonDestructive;
-  return { nonDestructive: orderedNonDestructive, destructive };
+  const fullyTagged = neutral.length > 0 && neutral.every((leaf) => Boolean(leaf.props["data-record-action-id"]));
+  const orderedNeutral = (fullyTagged
+    ? orderRecordActions(neutral.map((leaf) => ({ id: leaf.props["data-record-action-id"]!, leaf }))).map((entry) => entry.leaf)
+    : neutral
+  ).map((leaf) => withLeadingIcon(leaf, "neutral"));
+  // After the divider: green decisions, then the red one directly below them, then Delete / Remove.
+  return { nonDestructive: orderedNeutral, destructive: [...positive, ...negative, ...trailing] };
 }
 
 export function RecordActionMenu({ label, activate, disabled = false, onOpen }: {

@@ -253,7 +253,7 @@ async function click(name: string): Promise<void> {
 /** Open the record and reject the application from it — how a row reaches Rejected. */
 async function openRejectedRecord(): Promise<void> {
   await openRecord();
-  await click("Reject");
+  await click("Decline");
   await waitFor(() => expect(ROWS[0]!.bucket).toBe("rejected"));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -263,7 +263,7 @@ async function openRejectedRecord(): Promise<void> {
 describe("resident record · Application › Rejected", () => {
   it("a submitted application still offers Reject · Edit · Download · Approve", async () => {
     await openRecord();
-    expect(sectionActionIds()).toEqual(["decline", "edit", "download", "approve"]);
+    expect(sectionActionIds()).toEqual(["edit", "download", "decline", "approve"]);
     dump("application-pending-before-reject", document.body.innerHTML);
   });
 
@@ -291,7 +291,7 @@ describe("resident record · Application › Rejected", () => {
     expect(calls.toasts).toContain("Moved to pending.");
     await waitFor(() => expect(sectionActionIds()).toContain("approve"));
     // Back under Pending, with the decision live again.
-    expect(sectionActionIds()).toEqual(["decline", "edit", "download", "approve"]);
+    expect(sectionActionIds()).toEqual(["edit", "download", "decline", "approve"]);
     dump("application-moved-back-to-pending", document.body.innerHTML);
   });
 
