@@ -54,8 +54,8 @@ describe("PortalDetailHeader - the one labeled primary stays a pill beside the 4
     const host = complete.parentElement!;
     expect(host.contains(edit)).toBe(true);
     // Every size / shape override is scoped to "not a labeled primary", so the icon circles keep 40px
-    // (`!size-9`) and the labeled button keeps its own h-9 / px-5 pill.
-    for (const rule of ["!size-9", "!min-h-0", "!rounded-full", "!p-0"]) {
+    // (`!size-8`, ghost record-header icons) and the labeled button keeps its own h-9 / px-5 pill.
+    for (const rule of ["!size-8", "!min-h-0", "!rounded-lg", "!p-0"]) {
       expect(host.className).toContain(`[&_button:not([data-labeled-primary])]:${rule}`);
       expect(host.className).not.toContain(`[&_button]:${rule}`);
     }
