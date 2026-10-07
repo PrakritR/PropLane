@@ -89,10 +89,42 @@ const VENDOR_EMAIL = "showcase.vendor@test.proplane.local";
 const VENDOR_PASSWORD = "ShowcaseVendor123!";
 const SIDE_PASSWORD = "ShowcaseSide123!"; // non-login residents, never shown
 
+// Gentle on the shared dev DB: ~200ms between requests, and abort (never keep retrying) after
+// 3 timeouts/overload errors in a row.
+const PACE_MS = 200;
+const BATCH = 50;
+let consecutiveTimeouts = 0;
+let lastStep = "(start)";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isOverload = (msg) => /timeout|canceling statement|ERR_HTTP2|fetch failed|upstream|503|502|504|ECONN/i.test(String(msg));
+
 async function must(promise, label) {
+  lastStep = label;
   const { data, error } = await promise;
-  if (error) throw new Error(`${label}: ${error.message}`);
+  if (error) {
+    if (isOverload(error.message ?? error)) {
+      consecutiveTimeouts++;
+      if (consecutiveTimeouts >= 3) {
+        console.error(`ABORT: the database returned ${consecutiveTimeouts} timeouts in a row. Stopped at: ${label}. Re-run later; the seed is idempotent.`);
+        process.exit(2);
+      }
+    } else {
+      consecutiveTimeouts = 0;
+    }
+    throw new Error(`${label}: ${error.message}`);
+  }
+  consecutiveTimeouts = 0;
+  await sleep(PACE_MS);
   return data;
+}
+
+/** Write rows in batches of <= BATCH, sequentially. mode: "insert" | "upsert". */
+async function put(table, mode, rows, onConflict, label = table) {
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const slice = rows.slice(i, i + BATCH);
+    const q = supabase.from(table);
+    await must(mode === "insert" ? q.insert(slice) : q.upsert(slice, onConflict ? { onConflict } : undefined), `${label}[${i}..${i + slice.length}]`);
+  }
 }
 
 function money(n) {
@@ -650,6 +682,16 @@ const RENT_PLAN = {
 async function main() {
   console.log(`Seeding the showcase world into ${ref} (dev/test)`);
 
+  // Health check first: one cheap select. Stop if the shared dev DB is slow.
+  const t0 = Date.now();
+  const health = await supabase.from("profiles").select("id").limit(1);
+  const took = Date.now() - t0;
+  if (health.error || took > 5000) {
+    console.error(`ABORT: dev DB health check ${health.error ? `failed (${health.error.message})` : `took ${took}ms (>5000ms)`}. Not seeding.`);
+    process.exit(2);
+  }
+  console.log(`  db health ok (${took}ms)`);
+
   /* 1. Manager account, plan, workspace */
   const managerAxis = "MGR-SHOWCASE";
   const managerUserId = await ensureShowcaseUser(MANAGER_EMAIL, MANAGER_PASSWORD, "manager", {
@@ -748,7 +790,7 @@ async function main() {
       updated_at: iso(NOW),
     };
   });
-  await must(supabase.from("manager_property_records").upsert(propertyRows, { onConflict: "id" }), "manager_property_records");
+  await put("manager_property_records", "upsert", propertyRows, "id", "manager_property_records");
   console.log(`  ${propertyRows.length} properties`);
 
   /* 5. Applications */
@@ -834,8 +876,8 @@ async function main() {
         await must(supabase.from("manager_application_records").upsert(row, { onConflict: "id" }), `manager_application_records(${row.row_data.name})`);
         break;
       } catch (err) {
-        if (attempt >= 4 || !/statement timeout/i.test(String(err))) throw err;
-        await new Promise((r) => setTimeout(r, 2000 * attempt));
+        if (attempt >= 3 || !/statement timeout/i.test(String(err))) throw err; // cap: 2 retries
+        await sleep(2000 * attempt);
       }
     }
   }
@@ -858,7 +900,7 @@ async function main() {
       updated_at: iso(NOW),
     };
   });
-  await must(supabase.from("portal_lease_pipeline_records").upsert(leaseRows, { onConflict: "id" }), "portal_lease_pipeline_records");
+  await put("portal_lease_pipeline_records", "upsert", leaseRows, "id", "portal_lease_pipeline_records");
   console.log(`  ${leaseRows.length} leases`);
 
   /* 7. Charges + rent profiles */
@@ -908,8 +950,8 @@ async function main() {
       chargeRows.push(householdChargeDbRow(fixedCharge(who, managerUserId, kind, title, amount, "paid", (who.since ?? 0) - 5)));
     }
   }
-  await must(supabase.from("portal_household_charge_records").upsert(chargeRows, { onConflict: "id" }), "portal_household_charge_records");
-  await must(supabase.from("portal_recurring_rent_profile_records").upsert(profileRows, { onConflict: "id" }), "portal_recurring_rent_profile_records");
+  await put("portal_household_charge_records", "upsert", chargeRows, "id", "portal_household_charge_records");
+  await put("portal_recurring_rent_profile_records", "upsert", profileRows, "id", "portal_recurring_rent_profile_records");
   console.log(`  ${chargeRows.length} charges, ${profileRows.length} rent profiles`);
 
   await seedRest({ managerUserId, workspaceId });
@@ -1160,7 +1202,7 @@ async function seedRest({ managerUserId, workspaceId }) {
   for (const weekday of [1, 2, 3, 4, 5]) availability.push({ vendor_user_id: vendorUserId, kind: "weekly", weekday, start_minute: 9 * 60, end_minute: 17 * 60 });
   availability.push({ vendor_user_id: vendorUserId, kind: "open", specific_date: isoDate(daysFromNow(5)), start_minute: 10 * 60, end_minute: 14 * 60 });
   availability.push({ vendor_user_id: vendorUserId, kind: "block", specific_date: isoDate(daysFromNow(4)), start_minute: 12 * 60, end_minute: 13 * 60, note: "Lunch" });
-  await must(supabase.from("vendor_availability_rules").insert(availability), "vendor_availability_rules");
+  await put("vendor_availability_rules", "insert", availability, null);
   {
     // The "event" kind needs migration 20260706220000, which the dev DB may not have yet.
     const { error } = await supabase
@@ -1384,12 +1426,12 @@ async function seedRest({ managerUserId, workspaceId }) {
       });
     }
   }
-  await must(supabase.from("portal_work_order_records").upsert(woRows, { onConflict: "id" }), "portal_work_order_records");
-  await must(supabase.from("work_order_vendor_offers").upsert(offerRows, { onConflict: "work_order_id,vendor_directory_id" }), "work_order_vendor_offers");
-  await must(supabase.from("work_order_bids").upsert(bidRows, { onConflict: "work_order_id,vendor_user_id" }), "work_order_bids");
-  await must(supabase.from("vendor_invoices").insert(invoiceRows), "vendor_invoices");
-  await must(supabase.from("vendor_payouts").insert(payoutRows), "vendor_payouts");
-  await must(supabase.from("vendor_reviews").insert(reviewRows), "vendor_reviews");
+  await put("portal_work_order_records", "upsert", woRows, "id", "portal_work_order_records");
+  await put("work_order_vendor_offers", "upsert", offerRows, "work_order_id,vendor_directory_id", "work_order_vendor_offers");
+  await put("work_order_bids", "upsert", bidRows, "work_order_id,vendor_user_id", "work_order_bids");
+  await put("vendor_invoices", "insert", invoiceRows, null);
+  await put("vendor_payouts", "insert", payoutRows, null);
+  await put("vendor_reviews", "insert", reviewRows, null);
   console.log(`  ${woRows.length} services, ${bidRows.length} quotes, ${invoiceRows.length} invoices, ${reviewRows.length} reviews`);
 
   /* ── Add-on service requests ── */
@@ -1592,7 +1634,7 @@ async function seedRest({ managerUserId, workspaceId }) {
       };
     }),
   ];
-  await must(supabase.from("portal_schedule_records").upsert(scheduleRows, { onConflict: "id" }), "portal_schedule_records(showcase)");
+  await put("portal_schedule_records", "upsert", scheduleRows, "id", "portal_schedule_records(showcase)");
   await mergeSingleton("axis_admin_planned_events_v1", managerUserId, [...planned, ...taskEvents]);
   await mergeSingleton("axis_admin_partner_inquiries_v1", managerUserId, inquiries);
   // Register the manager as the tour host for each property.
@@ -1776,7 +1818,7 @@ async function seedRest({ managerUserId, workspaceId }) {
       { archived: true },
     ),
   ];
-  await must(supabase.from("portal_inbox_thread_records").upsert([...managerThreads, ...residentThreads, ...vendorThreads], { onConflict: "id" }), "portal_inbox_thread_records");
+  await put("portal_inbox_thread_records", "upsert", [...managerThreads, ...residentThreads, ...vendorThreads], "id", "portal_inbox_thread_records");
   console.log(`  ${managerThreads.length + residentThreads.length + vendorThreads.length} inbox threads`);
 
   /* ── Forms ── */
@@ -1824,7 +1866,7 @@ async function seedRest({ managerUserId, workspaceId }) {
       manager_viewed_at: iso(daysFromNow(-8)),
     }),
   ];
-  await must(supabase.from("resident_move_in_forms").insert(formRows), "resident_move_in_forms");
+  await put("resident_move_in_forms", "insert", formRows, null);
   console.log(`  ${formRows.length} forms`);
 
   /* ── Money: ledger, deposits, expenses, payees ── */
@@ -1871,8 +1913,8 @@ async function seedRest({ managerUserId, workspaceId }) {
       });
     }
   }
-  if (ledgerRows.length) await must(supabase.from("ledger_entries").insert(ledgerRows), "ledger_entries");
-  if (depositRows.length) await must(supabase.from("security_deposit_ledger").insert(depositRows), "security_deposit_ledger");
+  if (ledgerRows.length) await put("ledger_entries", "insert", ledgerRows, null);
+  if (depositRows.length) await put("security_deposit_ledger", "insert", depositRows, null);
 
   const payee = await must(
     supabase
@@ -1899,7 +1941,7 @@ async function seedRest({ managerUserId, workspaceId }) {
     }
   }
   expenseRows.push(exp(2, 15, "showcase-maple", "insurance", 640, "Landlord insurance, quarterly"), exp(1, 20, "showcase-alder", "property_tax", 1880, "Property tax installment"));
-  await must(supabase.from("manager_expense_entries").insert(expenseRows.filter(Boolean)), "manager_expense_entries");
+  await put("manager_expense_entries", "insert", expenseRows.filter(Boolean), null);
   console.log(`  ${ledgerRows.length} ledger payments, ${expenseRows.filter(Boolean).length} expenses`);
 
   /* ── Documents ── */
@@ -1932,7 +1974,7 @@ async function seedRest({ managerUserId, workspaceId }) {
       uploaded_by: managerUserId,
     });
   }
-  if (docRows.length) await must(supabase.from("manager_documents").insert(docRows), "manager_documents");
+  if (docRows.length) await put("manager_documents", "insert", docRows, null);
   console.log(`  ${docRows.length} documents`);
 
   /* ── Promotion (built by the app's own default-asset builder) ── */
@@ -1954,6 +1996,7 @@ async function seedRest({ managerUserId, workspaceId }) {
 }
 
 main().catch((err) => {
+  console.error(`Stopped at: ${lastStep}`);
   console.error(err);
   process.exit(1);
 });
