@@ -1,3 +1,6 @@
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { withManagerWorkspacePrompt } from "@/lib/agent/manager-workspace-scope";
 import { attachPrivateInspectionSources } from "@/lib/inspections/attachment-intake.server";
 import { NextResponse } from "next/server";
@@ -32,18 +35,29 @@ import { selectPortalAgentRoute, fastLaneRunOptions, type AgentRouteSelection } 
 import { assistantResponse } from "@/lib/agent/assistant-stream";
 
 export const runtime = "nodejs";
+
+/** resolveAgentContext is null for no session AND for an owner-only account; only the second is a 403. */
+async function unauthorizedOrOwnerOnly() {
+  const auth = await createSupabaseServerClient();
+  const { data: { user } } = await auth.auth.getUser();
+  if (user) {
+    const refusal = await refuseOwnerOnly(createSupabaseServiceRoleClient(), user.id);
+    if (refusal) return refusal;
+  }
+  return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+}
 export const maxDuration = 120;
 
 /** Manager/admin archive, scoped entirely from the authenticated context. */
 export async function GET(req: Request) {
   const ctx = await resolveAgentContext();
-  if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (!ctx) return unauthorizedOrOwnerOnly();
   return handleAgentChatHistoryRequest(req, ctx, "manager");
 }
 
 export async function DELETE(req: Request) {
   const ctx = await resolveAgentContext();
-  if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (!ctx) return unauthorizedOrOwnerOnly();
   return handleAgentChatHistoryDeleteRequest(req, ctx, "manager");
 }
 
@@ -60,7 +74,7 @@ export async function DELETE(req: Request) {
  */
 export async function POST(req: Request) {
   const ctx = await resolveAgentContext();
-  if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (!ctx) return unauthorizedOrOwnerOnly();
 
   let body: Record<string, unknown> = {};
   try {

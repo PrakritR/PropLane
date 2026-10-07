@@ -6,6 +6,7 @@ import {
   MANAGER_DOCUMENTS_BUCKET,
   MAX_DOCUMENT_BYTES,
   DOCUMENT_SELECT_COLUMNS,
+  loadSharedWithOwnersIds,
   buildDocumentStoragePath,
   extensionForMime,
   isAllowedDocumentMime,
@@ -118,9 +119,12 @@ export async function GET(req: Request) {
     }
   }
 
-  const documents = [...rowsById.values()]
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
-    .map(mapDocumentRow);
+  const sortedRows = [...rowsById.values()].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  const sharedWithOwners = await loadSharedWithOwnersIds(
+    auth.db,
+    sortedRows.filter((row) => row.property_id).map((row) => row.id),
+  );
+  const documents = sortedRows.map((row) => ({ ...mapDocumentRow(row), sharedWithOwners: sharedWithOwners.has(row.id) }));
   return NextResponse.json({ documents });
 }
 

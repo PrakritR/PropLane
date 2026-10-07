@@ -4,6 +4,7 @@ import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { isVendorCategorySettingsRow, managerVendorCategorySettingsRowId } from "@/lib/manager-vendors-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { ownerAccessStateFor } from "@/lib/property-owner/access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -86,6 +87,11 @@ export async function GET(req: Request) {
     const role = String(profileResult.data?.role ?? user.user_metadata?.role ?? "").toLowerCase();
 
     if (!admin && role !== "manager" && role !== "pro") {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+    // A Property owner carries the manager role row only to host /portal/owner;
+    // the vendor directory (own and shared rows) is not theirs to read or write.
+    if ((await ownerAccessStateFor(db, user.id)).ownerOnly) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
@@ -237,6 +243,11 @@ export async function POST(req: Request) {
     const admin = await isAdminUser(user.id);
 
     if (!admin && role !== "manager" && role !== "pro") {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+    // A Property owner carries the manager role row only to host /portal/owner;
+    // the vendor directory (own and shared rows) is not theirs to read or write.
+    if ((await ownerAccessStateFor(db, user.id)).ownerOnly) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

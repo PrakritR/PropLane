@@ -1,3 +1,4 @@
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -11,6 +12,7 @@ import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligib
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
 import {
+  applyRoleToPropertyPermissions,
   inferInviteTeamRole,
   parseTeamRole,
   permissionsMatchTeamRole,
@@ -241,6 +243,8 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const ownerRefusal = await refuseOwnerOnly(createSupabaseServiceRoleClient(), user.id);
+    if (ownerRefusal) return ownerRefusal;
 
     const body = (await req.json().catch(() => null)) as {
       inviteeAxisId?: string;
@@ -375,6 +379,19 @@ export async function POST(req: Request) {
       }
       payoutPercentForManager = 15;
     }
+    if (teamRole === "property_owner") {
+      // Owner keys are not module grants, so the delegate cap above strips them.
+      // Re-derive from what was asked; the role carries no module access to cap.
+      propertyCoManagerPermissions = stampTeamRoleOnProperties(
+        teamRole,
+        assignedPropertyIds,
+        normalizePropertyCoManagerPermissions(
+          body?.propertyCoManagerPermissions ?? body?.coManagerPermissions,
+          assignedPropertyIds,
+        ),
+      );
+    }
+    propertyCoManagerPermissions = applyRoleToPropertyPermissions(teamRole, propertyCoManagerPermissions);
     if (teamRole !== "custom") {
       const flatAfterCap = flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
       if (!permissionsMatchTeamRole(flatAfterCap, teamRole)) {

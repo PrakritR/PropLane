@@ -7,7 +7,9 @@
  */
 import {
   CO_MANAGER_PERMISSION_OPTIONS,
+  OWNER_PERMISSION_OPTIONS,
   normalizeCoManagerPermissions,
+  onlyOwnerPermissions,
   type CoManagerPermissionGrant,
   type CoManagerPermissionId,
   type CoManagerPermissions,
@@ -15,6 +17,7 @@ import {
 } from "@/lib/co-manager-permissions";
 
 export const TEAM_ROLE_IDS = [
+  "property_owner",
   "viewer",
   "leasing",
   "property_manager",
@@ -30,6 +33,7 @@ export type TeamRoleId = (typeof TEAM_ROLE_IDS)[number];
 export type CoManagerTeamRole = TeamRoleId;
 
 export const TEAM_ROLE_LABELS: Record<TeamRoleId, string> = {
+  property_owner: "Property owner",
   viewer: "Viewer",
   leasing: "Leasing",
   property_manager: "Property manager",
@@ -78,7 +82,32 @@ function allModules(level: StampLevel): CoManagerPermissions {
   return out;
 }
 
+/** Owner keys at View, Messages off: the Property owner default. */
+const OWNER_DEFAULT_STAMP: CoManagerPermissions = {
+  ownerPerformance: { ...VIEW },
+  ownerStatements: { ...VIEW },
+  ownerDocuments: { ...VIEW },
+};
+
+/** The one role that is not a manager: an investor who reads their own houses' results. */
+export function isPropertyOwnerRole(role: unknown): boolean {
+  return role === "property_owner";
+}
+
+/**
+ * What a stored/requested map becomes for `role`. A Property owner holds ONLY
+ * owner keys (a forged module grant is dropped); every other role never
+ * carries an owner key.
+ */
+export function permissionsForRole(role: TeamRoleId | null | undefined, perms: CoManagerPermissions): CoManagerPermissions {
+  if (role === "property_owner") return onlyOwnerPermissions(perms);
+  const out: CoManagerPermissions = { ...perms };
+  for (const { id } of OWNER_PERMISSION_OPTIONS) delete out[id];
+  return out;
+}
+
 const ROLE_STAMPS: Record<Exclude<TeamRoleId, "custom">, CoManagerPermissions> = {
+  property_owner: OWNER_DEFAULT_STAMP,
   viewer: allModules("view"),
   leasing: stampFromSpec({
     applications: "edit",
@@ -136,9 +165,31 @@ export function stampTeamRoleOnProperties(
   if (!stamp) return current;
   const next: PropertyCoManagerPermissions = {};
   for (const id of assignedPropertyIds) {
-    next[id] = { ...stamp };
+    if (role === "property_owner") {
+      // The owner keys the manager set per owner stand; an owner with none set
+      // at all starts from the default. "Off" is stored explicitly
+      // (`{ notification: false }`), so a turned-off row is never read as unset.
+      const chosen = onlyOwnerPermissions(normalizeCoManagerPermissions(current[id]));
+      next[id] = Object.keys(chosen).length > 0 ? chosen : { ...stamp };
+    } else {
+      next[id] = { ...stamp };
+    }
   }
   return next;
+}
+
+/**
+ * Final shape of a per-house map for `role`: an owner keeps owner keys only,
+ * every other role loses any owner key. Run on every write path (mint, invite,
+ * edit) so a forged or stale key cannot ride along a role change.
+ */
+export function applyRoleToPropertyPermissions(
+  role: TeamRoleId | null | undefined,
+  perms: PropertyCoManagerPermissions,
+): PropertyCoManagerPermissions {
+  const out: PropertyCoManagerPermissions = {};
+  for (const [id, map] of Object.entries(perms)) out[id] = permissionsForRole(role, normalizeCoManagerPermissions(map));
+  return out;
 }
 
 function grantFingerprint(grant: CoManagerPermissionGrant | undefined): string {
@@ -156,9 +207,15 @@ function grantFingerprint(grant: CoManagerPermissionGrant | undefined): string {
 export function permissionsMatchTeamRole(actual: CoManagerPermissions, role: TeamRoleId): boolean {
   const stamp = stampTeamRolePermissions(role);
   if (!stamp) return false;
+  // A Property owner is edited per owner, so any owner-key combination is still
+  // the role; what it must never hold is a module grant.
+  if (role === "property_owner") {
+    const a = normalizeCoManagerPermissions(actual);
+    return CO_MANAGER_PERMISSION_OPTIONS.every(({ id }) => !a[id]);
+  }
   const a = normalizeCoManagerPermissions(actual);
   const s = normalizeCoManagerPermissions(stamp);
-  for (const { id } of CO_MANAGER_PERMISSION_OPTIONS) {
+  for (const { id } of [...CO_MANAGER_PERMISSION_OPTIONS, ...OWNER_PERMISSION_OPTIONS]) {
     if (grantFingerprint(a[id]) !== grantFingerprint(s[id])) return false;
   }
   return true;
@@ -167,6 +224,9 @@ export function permissionsMatchTeamRole(actual: CoManagerPermissions, role: Tea
 export function inferTeamRoleFromPermissions(grant: CoManagerPermissions): TeamRoleId {
   for (const id of TEAM_ROLE_IDS) {
     if (id === "custom") continue;
+    // Never inferred: an empty or owner-only map is not evidence of an owner.
+    // Property owner exists only as an explicitly stored role.
+    if (id === "property_owner") continue;
     if (permissionsMatchTeamRole(grant, id)) return id;
   }
   return "custom";
@@ -196,4 +256,25 @@ export function teamRoleListLabel(role: TeamRoleId | string | null | undefined):
   const parsed = parseTeamRole(role);
   if (!parsed.ok || parsed.role == null) return "Co-manager";
   return TEAM_ROLE_LABELS[parsed.role];
+}
+
+/**
+ * Drop a Property owner's rows from a result of `account_link_invites`.
+ *
+ * Every reader that treats an accepted membership row as "this person is a
+ * teammate of the inviter" (recipients, SMS and email access, tier inheritance,
+ * linked houses, payout access…) wraps its read in this, and selects
+ * `team_role`. An owner is an investor reading their own houses' results, never
+ * a teammate; the owner readers (`src/lib/property-owner/*`) are the only code
+ * that look at those rows. The filter is applied to the rows rather than as a
+ * query predicate so a legacy row whose `team_role` is NULL still passes.
+ * `tests/unit/property-owner-link-readers.test.ts` fails a reader that forgets it.
+ */
+export function withoutOwnerLinks<R extends { data: unknown }>(result: R): R {
+  const rows = result.data;
+  if (!Array.isArray(rows)) return result;
+  return {
+    ...result,
+    data: rows.filter((row) => (row as { team_role?: unknown } | null)?.team_role !== "property_owner"),
+  };
 }

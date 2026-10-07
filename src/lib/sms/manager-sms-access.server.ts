@@ -9,6 +9,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import { normalizeE164 } from "@/lib/phone-e164";
 import type { PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 type LinkRow = {
   inviter_user_id?: string | null;
@@ -50,7 +51,7 @@ async function loadIncomingAssignedProperties(
   // its existing owner-number boundary unchanged.
   if (testWorkspaceId?.trim()) query = query.eq("test_workspace_id", testWorkspaceId.trim());
 
-  const { data: linkRows, error } = await query;
+  const { data: linkRows, error } = withoutOwnerLinks(await query);
   if (error) throw new Error("Manager assignments unavailable.");
 
   const inviterIds = [
@@ -163,11 +164,11 @@ export async function resolveManagerSmsInboundIdentity(
     toPhone: args.toPhone,
   });
 
-  const { data: inviteRows, error: inviteError } = await db
+  const { data: inviteRows, error: inviteError } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("invitee_user_id")
+    .select("invitee_user_id, team_role")
     .eq("status", "accepted")
-    .eq("inviter_user_id", workNumberOwnerId);
+    .eq("inviter_user_id", workNumberOwnerId));
   if (inviteError) throw new Error("Manager invitee identity unavailable.");
   const inviteeIds = [
     ...new Set(

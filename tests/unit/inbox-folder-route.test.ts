@@ -1,3 +1,6 @@
+vi.mock("@/lib/property-owner/access.server", () => ({
+  ownerAccessStateFor: async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false }),
+}));
 import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock("@/lib/portal-inbox-thread-scope", () => ({

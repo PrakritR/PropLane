@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getReportsAuthContext, assertManagerFinancialsAccess } from "@/lib/reports/auth";
 import {
   DOCUMENT_SELECT_COLUMNS,
+  loadSharedWithOwnersIds,
   isDocumentCategory,
   isDocumentVisibility,
   mapDocumentRow,
@@ -68,7 +69,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     (body.visibility !== undefined ||
       body.residentUserId !== undefined ||
       body.residentEmail !== undefined ||
-      body.vendorId !== undefined)
+      body.vendorId !== undefined ||
+      body.sharedWithOwners !== undefined)
   ) {
     return NextResponse.json(
       { error: "Only the document owner can change sharing." },
@@ -112,6 +114,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const parsed = parseExpiresAtInput(body.expiresAt);
     if (!parsed) return NextResponse.json({ error: "expiresAt must be YYYY-MM-DD." }, { status: 400 });
     update.expires_at = parsed;
+  }
+
+  // Share with Property owners. Owner-only (guarded above) and house-scoped: an
+  // owner reads a document through a granted HOUSE, so a document with no
+  // property has nobody to share it with.
+  if (body.sharedWithOwners !== undefined) {
+    if (typeof body.sharedWithOwners !== "boolean") {
+      return NextResponse.json({ error: "sharedWithOwners must be true or false." }, { status: 400 });
+    }
+    if (body.sharedWithOwners && !existingPropertyId) {
+      return NextResponse.json({ error: "Choose a house for this document before sharing it with owners." }, { status: 400 });
+    }
+    update.shared_with_owners = body.sharedWithOwners;
   }
 
   if (nextVisibility === "manager") {
@@ -179,7 +194,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     });
   }
 
-  return NextResponse.json({ document: mapDocumentRow(data as ManagerDocumentRow) });
+  const sharedIds = await loadSharedWithOwnersIds(auth.db, [id]);
+  return NextResponse.json({
+    document: { ...mapDocumentRow(data as ManagerDocumentRow), sharedWithOwners: sharedIds.has(id) },
+  });
 }
 
 // DELETE /api/manager-documents/[id] — soft-delete (sets deleted_at). The

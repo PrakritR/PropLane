@@ -20,6 +20,10 @@ vi.mock("@/lib/auth/manager-onboarding", () => ({
   isManagerOnboardingComplete: vi.fn(() => false),
 }));
 
+vi.mock("@/lib/property-owner/access.server", () => ({
+  ownerAccessStateFor: vi.fn(async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false })),
+}));
+
 vi.mock("@/lib/auth/primary-admin", () => ({
   isPrimaryAdminEmail: vi.fn(() => false),
 }));

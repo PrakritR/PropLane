@@ -101,6 +101,23 @@ describe("transferWorkspaceOwnership", () => {
     expect(result).toEqual({ ok: false, error: "That person isn't a member of this workspace.", status: 404 });
   });
 
+  it("409s when the target is a Property owner membership", async () => {
+    const { db, rpc } = buildQueueDb({
+      portal_workspaces: [{ data: WORKSPACE_ROW }],
+      account_link_invites: [{ data: { id: "link-1", team_role: "property_owner" } }],
+    });
+    const { transferWorkspaceOwnership } = await import("@/lib/workspace-ownership-transfer");
+    const result = await transferWorkspaceOwnership(db, {
+      workspaceId: "ws-1",
+      currentOwnerUserId: "owner-1",
+      newOwnerUserId: "member-1",
+      formerOwnerRole: "admin",
+      formerOwnerPermissions: {},
+    });
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it("400s when transferring to yourself", async () => {
     const { db } = buildQueueDb({});
     const { transferWorkspaceOwnership } = await import("@/lib/workspace-ownership-transfer");

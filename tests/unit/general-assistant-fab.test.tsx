@@ -38,9 +38,12 @@ describe("GeneralAssistantFab", () => {
     },
   );
 
-  it("treats only the resident portal subtree as assistant-free", () => {
+  it("treats only the resident and owner portal subtrees as assistant-free", () => {
     expect(isAssistantFreePath(RESIDENT_PORTAL_BASE_PATH)).toBe(true);
     expect(isAssistantFreePath("/resident/communication")).toBe(true);
+    expect(isAssistantFreePath("/portal/owner")).toBe(true);
+    expect(isAssistantFreePath("/portal/owner/statements")).toBe(true);
+    expect(isAssistantFreePath("/portal/ownership")).toBe(false);
     expect(isAssistantFreePath("/residents-guide")).toBe(false);
     expect(isAssistantFreePath("/portal/communication")).toBe(false);
     expect(isAssistantFreePath(null)).toBe(false);

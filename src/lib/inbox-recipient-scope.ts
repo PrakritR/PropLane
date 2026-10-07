@@ -10,6 +10,7 @@ import {
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 /** Shared singleton holding every manager's tour inquiries (see tour-inquiry.server). */
 const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
@@ -104,11 +105,11 @@ async function accountLinkCoManagerIdsForManagers(
   const ids = new Set<string>();
   if (managerIds.length === 0) return ids;
   try {
-    const { data } = await db
+    const { data } = withoutOwnerLinks(await db
       .from("account_link_invites")
-      .select("invitee_user_id, workspace_id")
+      .select("invitee_user_id, workspace_id, team_role")
       .eq("status", "accepted")
-      .in("inviter_user_id", managerIds);
+      .in("inviter_user_id", managerIds));
     for (const row of (data ?? []) as { invitee_user_id?: unknown; workspace_id?: unknown }[]) {
       const rowWorkspace = String(row.workspace_id ?? "").trim();
       if (workspaceId && rowWorkspace && rowWorkspace !== workspaceId) continue;
@@ -129,11 +130,11 @@ async function coManagerInviterIdsForInvitee(
   const ids = new Set<string>();
   if (!inviteeUserId) return ids;
   try {
-    const { data } = await db
+    const { data } = withoutOwnerLinks(await db
       .from("account_link_invites")
-      .select("inviter_user_id")
+      .select("inviter_user_id, team_role")
       .in("status", ["pending", "accepted"])
-      .eq("invitee_user_id", inviteeUserId);
+      .eq("invitee_user_id", inviteeUserId));
     for (const row of data ?? []) {
       const id = String(row.inviter_user_id ?? "").trim();
       if (id) ids.add(id);

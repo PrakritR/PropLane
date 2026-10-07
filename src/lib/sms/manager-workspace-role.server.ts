@@ -2,6 +2,7 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listViewerWorkspaces, loadWorkspaceById, resolveActiveWorkspace, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 /** Accepted co-manager links where this user is the invitee (linked workspace, no owned rows). */
 export async function getAcceptedCoManagerInviterIds(
@@ -9,11 +10,11 @@ export async function getAcceptedCoManagerInviterIds(
   userId: string,
   opts: { throwOnError?: boolean } = {},
 ): Promise<string[]> {
-  const { data, error } = await db
+  const { data, error } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("inviter_user_id")
+    .select("inviter_user_id, team_role")
     .eq("invitee_user_id", userId)
-    .eq("status", "accepted");
+    .eq("status", "accepted"));
   if (error) {
     if (opts.throwOnError) throw new Error("Co-manager workspace links unavailable.");
     return [];
@@ -108,11 +109,11 @@ export async function listWorkspaceOwnersForCoManager(
   coManagerUserId: string,
   opts: { throwOnError?: boolean } = {},
 ): Promise<Array<{ ownerUserId: string; houses: number }>> {
-  const { data, error } = await db
+  const { data, error } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("inviter_user_id, assigned_property_ids")
+    .select("inviter_user_id, assigned_property_ids, team_role")
     .eq("invitee_user_id", coManagerUserId)
-    .eq("status", "accepted");
+    .eq("status", "accepted"));
   if (error) {
     if (opts.throwOnError) throw new Error("Co-manager workspace links unavailable.");
     return [];

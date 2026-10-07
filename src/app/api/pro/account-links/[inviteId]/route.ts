@@ -1,3 +1,4 @@
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import { asStringArray, readPropertyPermissionsFromRow, resolveInviteTeamRole, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
@@ -8,6 +9,7 @@ import {
   prunePropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
 import {
+  applyRoleToPropertyPermissions,
   inferInviteTeamRole,
   parseTeamRole,
   stampTeamRoleOnProperties,
@@ -57,6 +59,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
     }
 
     const svc = createSupabaseServiceRoleClient();
+    const ownerRefusal = await refuseOwnerOnly(svc, user.id);
+    if (ownerRefusal) return ownerRefusal;
 
     const { data: row, error: fetchErr } = await svc.from("account_link_invites").select("*").eq("id", id).maybeSingle();
 
@@ -300,6 +304,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           nextTeamRole = inferInviteTeamRole(nextPropertyPerms);
         }
       }
+      nextPropertyPerms = applyRoleToPropertyPermissions(nextTeamRole, nextPropertyPerms);
       // Workspace rights follow the role; explicit flags survive only on a Custom row.
       const nextWorkspacePermissions =
         nextTeamRole !== "custom"

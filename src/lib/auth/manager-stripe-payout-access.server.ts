@@ -3,6 +3,7 @@ import "server-only";
 import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -53,12 +54,12 @@ export async function coManagerHasOwnerBankAccountAccess(
   ownerUserId: string,
   level: "read" | "edit" = "edit",
 ): Promise<boolean> {
-  const { data: links } = await db
+  const { data: links } = withoutOwnerLinks(await db
     .from("account_link_invites")
     .select(INVITE_PERMISSION_COLUMNS)
     .eq("invitee_user_id", coManagerUserId)
     .eq("inviter_user_id", ownerUserId)
-    .eq("status", "accepted");
+    .eq("status", "accepted"));
   for (const link of links ?? []) {
     const assigned = Array.isArray(link.assigned_property_ids) ? link.assigned_property_ids.map(String) : [];
     const perms = readPropertyPermissionsFromRow(link as Parameters<typeof readPropertyPermissionsFromRow>[0]);
@@ -99,11 +100,11 @@ export async function resolveStripePayoutContext(
     return { payoutOwnerUserId: uid, canEditBankAccount: true, canViewBankAccount: true, isCoManagerForPayout: false };
   }
 
-  const { data: links, error: linkError } = await db
+  const { data: links, error: linkError } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("inviter_user_id")
+    .select("inviter_user_id, team_role")
     .eq("invitee_user_id", uid)
-    .eq("status", "accepted");
+    .eq("status", "accepted"));
   if (linkError) {
     return {
       payoutOwnerUserId: "",

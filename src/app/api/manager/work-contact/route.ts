@@ -10,8 +10,8 @@ export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get("relationshipId");
   if (!id) return NextResponse.json({ error: "Relationship required." }, { status: 400 });
   const { data: link, error } = await auth.db.from("account_link_invites")
-    .select("inviter_user_id, invitee_user_id, workspace_id, status").eq("id", id).maybeSingle();
-  if (error || !link || link.status !== "accepted" || ![link.inviter_user_id, link.invitee_user_id].includes(auth.userId)) {
+    .select("inviter_user_id, invitee_user_id, workspace_id, status, team_role").eq("id", id).maybeSingle();
+  if (error || !link || link.status !== "accepted" || link.team_role === "property_owner" || ![link.inviter_user_id, link.invitee_user_id].includes(auth.userId)) {
     return NextResponse.json({ error: "Relationship not found." }, { status: 404 });
   }
   // The shared workspace's work identity belongs to its owner, regardless of which teammate is reading.

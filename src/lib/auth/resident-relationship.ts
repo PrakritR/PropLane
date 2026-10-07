@@ -1,5 +1,6 @@
 import "server-only";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -16,11 +17,11 @@ type ResidentTarget = {
 async function relatedWorkspaceUserIds(db: ServiceClient, requestorUserId: string): Promise<string[]> {
   const ids = new Set<string>([requestorUserId]);
   try {
-    const { data } = await db
+    const { data } = withoutOwnerLinks(await db
       .from("account_link_invites")
-      .select("inviter_user_id, invitee_user_id, status")
+      .select("inviter_user_id, invitee_user_id, status, team_role")
       .eq("status", "accepted")
-      .or(`inviter_user_id.eq.${requestorUserId},invitee_user_id.eq.${requestorUserId}`);
+      .or(`inviter_user_id.eq.${requestorUserId},invitee_user_id.eq.${requestorUserId}`));
     for (const row of (data ?? []) as { inviter_user_id?: unknown; invitee_user_id?: unknown }[]) {
       if (typeof row.inviter_user_id === "string" && row.inviter_user_id.trim()) ids.add(row.inviter_user_id.trim());
       if (typeof row.invitee_user_id === "string" && row.invitee_user_id.trim()) ids.add(row.invitee_user_id.trim());
