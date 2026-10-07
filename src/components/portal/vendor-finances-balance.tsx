@@ -181,7 +181,7 @@ export function VendorBalancePanel({ basePath }: { basePath: string }) {
               ) : null}
             </div>
           ) : null}
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm" data-attr="vendor-balance-card">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 rounded-[10px] border border-border bg-card p-4" data-attr="vendor-balance-card">
             <div className="flex flex-1 flex-wrap gap-6">
               <Figure label="Available" cents={figures.availableCents} dataAttr="vendor-balance-available" />
               <Figure label="Pending" cents={figures.pendingCents} dataAttr="vendor-balance-pending" />

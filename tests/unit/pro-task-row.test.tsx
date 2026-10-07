@@ -75,8 +75,8 @@ describe("TaskListCardRow", () => {
     // Priority is never a fact or a pill.
     expect(screen.queryByText("Normal")).toBeNull();
     const card = document.querySelector(".portal-property-row");
-    expect(card?.className).toContain("rounded-xl");
-    expect(card?.className).toContain("mb-3");
+    expect(card?.className).toContain("border-b");
+    expect(card?.className).not.toContain("rounded-xl");
     const factLine = document.querySelector('[data-attr="record-row-facts"]');
     expect(factLine?.querySelector("svg")).toBeTruthy();
   });

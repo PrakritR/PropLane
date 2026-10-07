@@ -173,14 +173,14 @@ export function PortalDetailHeader({
         >
           {actions}
           {iconTitleActions && !inlineActions ? (
-            <PortalTitleActionsHost
+            <PortalTitleActionsHost detail
               className={cn(
                 "flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button:not([data-labeled-primary])]:!size-9 [&_button:not([data-labeled-primary])]:!min-h-0 [&_button:not([data-labeled-primary])]:!rounded-full [&_button:not([data-labeled-primary])]:!p-0",
                 titleSingleLine && "max-md:flex-none max-md:basis-auto",
               )}
             />
           ) : (
-            <PortalTitleActionsHost
+            <PortalTitleActionsHost detail
               breakpoint={inlineActions ? undefined : "md-up"}
               className="flex items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]"
             />
@@ -198,7 +198,7 @@ export function PortalDetailHeader({
       >
         {actions && !suppressMobileActions && !inlineActions && !iconTitleActions ? actions : null}
         {inlineActions || iconTitleActions ? null : (
-          <PortalTitleActionsHost
+          <PortalTitleActionsHost detail
             breakpoint="below-md"
             className="flex flex-wrap items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]"
           />

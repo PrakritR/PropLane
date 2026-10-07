@@ -21,6 +21,8 @@ class SlotStore {
   node: ReactNode = null;
   /** Mounted hosts — a publisher only claims the slot when there is somewhere to render. */
   hosts = 0;
+  /** How many of those hosts sit in a record's own detail header (its icons are the record's, not a list band's). */
+  detailHosts = 0;
   private listeners = new Set<() => void>();
   subscribe = (onChange: () => void) => {
     this.listeners.add(onChange);
@@ -35,8 +37,9 @@ class SlotStore {
     this.node = node;
     this.emit();
   }
-  addHost(delta: 1 | -1) {
+  addHost(delta: 1 | -1, detail = false) {
     this.hosts += delta;
+    if (detail) this.detailHosts += delta;
     this.emit();
   }
 }
@@ -85,10 +88,13 @@ export function useMdUp(): boolean {
 export function PortalTitleActionsHost({
   className,
   breakpoint,
+  detail = false,
 }: {
   className?: string;
   /** Render only on one side of `md`; omit to render at every width. */
   breakpoint?: "md-up" | "below-md";
+  /** This host is a record's own detail header (see {@link usePublishTitleActions} `pageOnly`). */
+  detail?: boolean;
 }) {
   const store = useContext(SlotContext);
   const node = useSlotValue(store, (s) => s.node, null);
@@ -96,9 +102,9 @@ export function PortalTitleActionsHost({
   const matches = breakpoint === "md-up" ? mdUp : breakpoint === "below-md" ? !mdUp : true;
   useLayoutEffect(() => {
     if (!store) return;
-    store.addHost(1);
-    return () => store.addHost(-1);
-  }, [store]);
+    store.addHost(1, detail);
+    return () => store.addHost(-1, detail);
+  }, [store, detail]);
   if (!node || !matches) return null;
   return (
     <div className={className} data-slot="portal-title-actions">
@@ -118,10 +124,13 @@ export function useTitleActionsPublished(): boolean {
  * mounted host exists (the caller then renders nothing in place), false when
  * it must fall back to rendering the controls itself.
  */
-export function usePublishTitleActions(node: ReactNode, enabled: boolean): boolean {
+export function usePublishTitleActions(node: ReactNode, enabled: boolean, opts?: { pageOnly?: boolean }): boolean {
   const store = useContext(SlotContext);
   const hosts = useSlotValue(store, (s) => s.hosts, 0);
-  const active = Boolean(store) && enabled && hosts > 0;
+  // `pageOnly`: a list band's icons go to a page title row, never into a record's detail
+  // header, whose slot belongs to the record's own actions (single slot, last publisher wins).
+  const detailHosts = useSlotValue(store, (s) => s.detailHosts, 0);
+  const active = Boolean(store) && enabled && hosts > 0 && !(opts?.pageOnly && detailHosts > 0);
   useLayoutEffect(() => {
     if (!active || !store) return;
     store.publish(node);
