@@ -123,39 +123,40 @@ export function PortalDetailHeader({
   const hasActions = Boolean(actions) || slotPublished;
   return (
     <header
+      data-bare={bare ? "" : undefined}
       className={`portal-detail-header flex shrink-0 flex-col max-md:gap-2 md:gap-0 ${
-        bare ? "bg-transparent" : "border-b border-border bg-card"
+        bare ? "bg-transparent" : "border-b border-border bg-background"
       }`}
     >
-      <div className="flex items-center gap-0.5 px-1.5 py-1 max-md:py-1 md:gap-1 md:px-2 md:py-2 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))]">
+      <div className="flex items-center gap-0.5 px-1.5 py-1 max-md:py-1 md:gap-2 md:px-0 md:py-3 md:[padding-top:max(0.75rem,env(safe-area-inset-top,0px))]">
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
-            className="flex min-h-8 shrink-0 items-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary hover:bg-accent/40 md:px-2"
+            className="grid size-[30px] min-h-0 shrink-0 place-items-center rounded-[7px] p-0 text-muted transition-colors hover:bg-foreground/[0.06] hover:text-foreground max-md:size-9"
             aria-label={backLabel}
             data-attr={dataAttrBack}
           >
-            <ChevronLeft className="h-5 w-5" strokeWidth={2.25} />
-            <span className={hideBackText ? "sr-only" : "max-md:sr-only"}>{backLabel}</span>
+            <ChevronLeft className="size-[18px]" strokeWidth={2} />
+            <span className="sr-only">{backLabel}</span>
           </button>
         ) : null}
         <div className={cn("flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1", iconTitleActions && hasActions && (titleSingleLine ? "md:max-w-[15rem] lg:max-w-[26rem]" : "max-w-[9rem] md:max-w-[15rem] lg:max-w-[26rem]"))}>
           {leading ? <span className="shrink-0">{leading}</span> : null}
           {!leading && avatarName ? (
-            <InboxAvatar name={avatarName} className="h-9 w-9 text-[11px] md:h-10 md:w-10 md:text-[12px]" />
+            <InboxAvatar name={avatarName} className="size-9 text-[11px] md:size-[34px] md:rounded-lg md:text-[12px]" />
           ) : null}
           {/* The record's name is the page's title: it reads as one, not as a list row. */}
           <div className="min-w-0">
             <p
               className={cn(
-                "truncate text-[15px] font-bold tracking-tight text-foreground md:text-[17px]",
+                "truncate text-[16px] font-[650] tracking-[-0.02em] text-foreground md:text-[19px] md:leading-tight",
                 !titleSingleLine && "max-md:line-clamp-2 max-md:whitespace-normal",
               )}
             >
               {title}
             </p>
-            {subtitle ? <p className="truncate text-[12.5px] text-muted">{subtitle}</p> : null}
+            {subtitle ? <p className="truncate text-[13px] text-muted">{subtitle}</p> : null}
           </div>
         </div>
         {/* The host stays mounted even while empty — a publisher only claims
@@ -175,7 +176,7 @@ export function PortalDetailHeader({
           {iconTitleActions && !inlineActions ? (
             <PortalTitleActionsHost detail
               className={cn(
-                "flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button:not([data-labeled-primary])]:!size-9 [&_button:not([data-labeled-primary])]:!min-h-0 [&_button:not([data-labeled-primary])]:!rounded-full [&_button:not([data-labeled-primary])]:!p-0",
+                "flex min-w-0 flex-1 basis-0 items-center gap-1.5 [&_button:not([data-labeled-primary])]:!size-8 [&_button:not([data-labeled-primary])]:!min-h-0 [&_button:not([data-labeled-primary])]:!rounded-lg [&_button:not([data-labeled-primary])]:!p-0",
                 titleSingleLine && "max-md:flex-none max-md:basis-auto",
               )}
             />

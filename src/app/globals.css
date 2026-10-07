@@ -4153,3 +4153,19 @@ html[data-theme="dark"] .portal-skel {
   background: linear-gradient(90deg, #16181b, #1c1f23, #16181b);
   background-size: 200% 100%;
 }
+
+/* Record pages: the header band (back chevron, tile, title, icons) runs edge to
+   edge under the shell's top strip like the list header, keeping the page's own
+   gutter so its text lines up with the cards below. */
+@media (min-width: 1024px) {
+  #portal-main-content header.portal-detail-header:not([data-bare]) {
+    margin: -2rem -2rem 0;
+    padding-inline: 2rem;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  #portal-main-content header.portal-detail-header:not([data-bare]) {
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+  }
+}

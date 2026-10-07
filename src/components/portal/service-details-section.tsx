@@ -2,9 +2,9 @@
 
 import Image from "next/image";
 import { useRef, type ReactNode } from "react";
-import { Check, Clock3, ImagePlus } from "lucide-react";
+import { Check, ImagePlus } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
+import { RecordFactCard, RecordFactRow, RecordTimeline } from "@/components/portal/portal-record-overview-kit";
 import { cn } from "@/lib/utils";
 import type { StageBarItem } from "@/lib/work-order-bid-cycle";
 import type { ServiceActivityEvent } from "@/lib/service-activity";
@@ -178,17 +178,7 @@ export function ServiceDetailsSection({
       </RecordFactCard>
       <RecordFactCard title="Activity" dataAttr="service-activity">
         {activity.length > 0 ? (
-          <ol className="divide-y divide-border/70" data-attr="record-activity-list">
-            {activity.map((event) => (
-              <li key={event.id} className="flex items-start gap-2.5 px-[var(--portal-card-padding,16px)] py-3">
-                <Clock3 className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
-                <div className="min-w-0">
-                  <p className="text-[14px] font-medium text-foreground">{event.label}</p>
-                  <p className="text-[12px] text-muted">{event.timestamp}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <RecordTimeline events={activity.map((event) => ({ id: event.id, label: event.label, timestamp: event.timestamp }))} />
         ) : (
           <p className="px-[var(--portal-card-padding,16px)] py-3.5 text-[13.5px] text-muted" data-attr="record-activity-empty">
             No activity yet

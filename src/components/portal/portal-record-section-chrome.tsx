@@ -158,7 +158,7 @@ function PortalRecordSectionChromeFromRegistry({
         subtitle={subtitle}
         groups={railGroups}
         ariaLabel={ariaLabel}
-        className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
+        className="lg:mr-5"
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
         <div className="px-0 pt-3 lg:hidden">
@@ -213,7 +213,7 @@ function PortalRecordSectionChromeLegacy({
         subtitle={subtitle}
         groups={groups}
         ariaLabel={ariaLabel}
-        className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
+        className="lg:mr-5"
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
         <div className="px-0 pt-3 lg:hidden">
