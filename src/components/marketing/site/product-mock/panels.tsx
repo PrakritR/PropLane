@@ -60,7 +60,7 @@ import {
   type ServiceFixtureRow,
   type TourFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
-import { DemoTarget, FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { DEMO_PAGE_CLASS, DemoTarget, FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
 import { worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
 
 /** A panel mounted while the story is running keeps showing Jordan's row: when the
@@ -122,7 +122,7 @@ export function ToursPanel({ story }: { story?: DemoStory } = {}) {
   return (
     <ProductWindow path="/portal/tours/upcoming">
       <PortalSidebarFixture active="tours" counts={{ tours: counts.pending }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Tours">
           <PortalListControlStack
             variant="command"
@@ -229,7 +229,7 @@ export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
   return (
     <ProductWindow path="/portal/applications/pending">
       <PortalSidebarFixture active="applications" counts={{ applications: counts.pending }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Applications">
           <PortalListControlStack
             variant="command"
@@ -353,7 +353,7 @@ export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
   return (
     <ProductWindow path="/portal/leases">
       <PortalSidebarFixture active="leases" />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Leases">
           <div className="mb-2 rounded-xl border border-border bg-card px-3.5 py-2.5">
             <p className="text-[13px] font-medium text-foreground">{counts.completed} of {total} leases signed</p>
@@ -460,7 +460,7 @@ export function PaymentsPanel({ story }: { story?: DemoStory } = {}) {
   return (
     <ProductWindow path="/portal/payments/incoming/overdue">
       <PortalSidebarFixture active="payments" counts={{ payments: counts.overdue }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Payments">
           <PortalListControlStack
             variant="command"
@@ -548,7 +548,7 @@ export function ServicesPanel({ story }: { story?: DemoStory } = {}) {
   return (
     <ProductWindow path="/portal/services">
       <PortalSidebarFixture active="services" counts={{ services: counts.open }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Services">
           <PortalListControlStack
             variant="command"
@@ -617,7 +617,7 @@ export function DashboardPanel({ story }: { story?: DemoStory } = {}) {
   return (
     <ProductWindow path="/portal/dashboard" nativeHeight={900}>
       <PortalSidebarFixture active="dashboard" />
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
+      <div className={DEMO_PAGE_CLASS}>
         <p className="mb-3 text-[15px] font-bold text-foreground">Welcome back</p>
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <KpiCard label="Occupancy" value={dashboard.occupancy.value} unit={dashboard.occupancy.unit} href="#" dataAttr="dashboard-metric-occupied" />
@@ -702,7 +702,7 @@ export function CommunicationPanel() {
   return (
     <ProductWindow path="/portal/communication/active" nativeHeight={780}>
       <PortalSidebarFixture active="communication" counts={{ communication: counts.active }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Communication" viewportFillBody>
           <InboxTwoPane
             threadOpen

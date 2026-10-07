@@ -88,12 +88,35 @@ that tab.
   manager's list rows keep a plain first name (`RESIDENT_NAME`), the resident's
   own account is `RESIDENT_SELF`.
 - **Every window is one fixed size** (hero and rows): the screen scrolls inside
-  it and never grows it. The focus ring on a sidebar item sits inside the sidebar.
+  it and never grows it (the hero window GROWS on scroll as a transform only; see the next section). The focus ring on a sidebar item sits inside the sidebar.
 - **Panels come through one contract**, `site/product-mock/demo-panels.tsx`:
   `DEMO_TABS`, `DemoPanel({ portal, tab })`. Only the manager Communication
   thread is drawn by the demo itself (Akhil's, tied to the phone).
 - **Nothing writes.** No network request, nothing saved; a vendor is never shown
   the street address before a quote is accepted (offers say the general area).
+
+## The home page window is the redesigned portal shell, and the hero grows on scroll
+
+Captain 2026-10-07 (approved plan `dashboard-redesign-1007`): the window the home page draws
+(`resident-lifecycle-workspace.tsx`, styled by `resident-lifecycle-shell.css`) is the new portal shell, not a
+lookalike of the old one: a dark 40px top strip ("Ask PropLane or search <workspace>", the house mark, no plane),
+an ink workspace rail (workspace tile, help, the account avatar that opens the account menu), a light 248px sidebar
+with collapsible groups bucketed like `PORTAL_NAV_GROUPS` (an unheaded home group, then Portfolio / Leasing / People /
+Money, or My home / Applying / Money for the resident, Work / Money for the vendor; labels are the real nav labels),
+flat white content, and the AI assistant as the ONLY right panel (the strip's right icon docks it; its "Needs
+attention" rows are the Dashboard's, counted from them). Match the running portal when you change it. The window's
+pages are the real redesigned components inside `DEMO_PAGE_CLASS` (the real main column's 32px rhythm, which the page
+shell's negative-margin header band bleeds into) drawn at 82% from `lg` up, because those components answer to the
+viewport and the window's column is narrower than a real 1440px one. Every `data-demo-target` (nav-<tab>,
+applications-send, sheet-primary, comm-approve, application-row) stays on its control; the cursor re-resolves a target
+a beat after finding it, because a freshly mounted real page can swap its toolbar for a fresh copy.
+
+The hero (`resident-lifecycle-prototypes.tsx`, `resident-lifecycle-hero.css`) is scroll-driven: a sticky frame pins the
+headline and the window while the window GROWS (transform only, 72% to 100%) over 70% of the viewport height of
+scrolling, then releases and the page scrolls on. The track is always frame + run, the window's height and the phone's
+resting top come from the headline's size in CSS, so there is no layout jump. The phone pins beside the window and then
+glides up to its usual place. Phones (under `md`) and `prefers-reduced-motion` get the static, full-size window.
+`tests/unit/home-hero-grow.test.ts` guards the pieces that must keep agreeing.
 
 ## The /app page's phones follow `app-store/screenshots`
 

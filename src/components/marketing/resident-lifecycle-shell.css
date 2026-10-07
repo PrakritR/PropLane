@@ -1,0 +1,1026 @@
+/*
+ * The demo window drawn in the redesigned portal shell (plan dashboard-redesign-1007), matching the real
+ * portal: dark 40px strip, ink rail, light 248px sidebar with collapsible groups, flat white content, the AI
+ * assistant as the only right panel. Tokens are the plan's: rail #101828, side #F6F7F9, ink #15171C,
+ * mute #6A707C, blue #2863F0, red #D92D20, green #12805C; radii 6 controls / 8 menus / 10 window.
+ *
+ * Every selector is scoped `.rlp-page .pls` (specificity 0,3,0 and up) so it wins over the older window
+ * rules in resident-lifecycle-prototypes.css without editing them.
+ */
+.rlp-page .pls {
+  --pls-ink: #15171c;
+  --pls-mute: #6a707c;
+  --pls-line: rgba(17, 24, 39, 0.086);
+  --pls-rail: #101828;
+  --pls-strip-fg: #c7ccd6;
+  --pls-side: #f6f7f9;
+  --pls-blue: #2863f0;
+  --pls-active-bg: #e9effe;
+  --pls-active-fg: #1f55e0;
+  --pls-rail-w: 56px;
+  --pls-side-w: 248px;
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--pls-rail-w) var(--pls-side-w) minmax(0, 1fr);
+  grid-template-rows: 40px minmax(0, 1fr);
+  grid-template-areas:
+    "strip strip strip"
+    "rail side main";
+  min-height: 0;
+  border: 1px solid rgba(16, 24, 40, 0.22);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--pls-ink);
+  box-shadow: 0 24px 55px rgba(16, 24, 40, 0.2);
+}
+.rlp-page .pls[data-side="closed"] {
+  grid-template-columns: var(--pls-rail-w) 0 minmax(0, 1fr);
+}
+.rlp-page .pls[data-side="closed"] .pls-side {
+  visibility: hidden;
+  border-right: 0;
+}
+.rlp-page .pls[data-assistant="open"] {
+  grid-template-columns: var(--pls-rail-w) var(--pls-side-w) minmax(0, 1fr) 296px;
+  grid-template-areas:
+    "strip strip strip strip"
+    "rail side main assist";
+}
+.rlp-page .pls[data-assistant="open"][data-side="closed"] {
+  grid-template-columns: var(--pls-rail-w) 0 minmax(0, 1fr) 296px;
+}
+
+/* ───────── Top strip ───────── */
+.rlp-page .pls .pls-strip {
+  grid-area: strip;
+  min-height: 0;
+  height: 40px;
+  padding: 0 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: var(--pls-rail);
+  color: var(--pls-strip-fg);
+}
+.rlp-page .pls .pls-strip-left,
+.rlp-page .pls .pls-strip-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rlp-page .pls .pls-strip-right {
+  justify-content: flex-end;
+}
+.rlp-page .pls .pls-strip-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.85;
+  cursor: pointer;
+  transition: background-color 100ms ease, opacity 100ms ease;
+}
+.rlp-page .pls .pls-strip-icon:hover {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 1;
+}
+.rlp-page .pls .pls-strip-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.rlp-page .pls .pls-strip-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #fff;
+}
+.rlp-page .pls .pls-strip-mark {
+  width: 18px;
+  height: 18px;
+  color: #8fb0ff;
+}
+.rlp-page .pls .pls-strip-brand strong {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.rlp-page .pls .pls-search {
+  min-width: 0;
+  width: 100%;
+  height: 28px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+.rlp-page .pls .pls-search:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.rlp-page .pls .pls-search svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: #8fb0ff;
+}
+.rlp-page .pls .pls-search span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rlp-page .pls .pls-search kbd {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: 0.8;
+}
+
+/* ───────── Workspace rail ───────── */
+.rlp-page .pls .pls-rail {
+  grid-area: rail;
+  min-height: 0;
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: var(--pls-rail);
+  color: var(--pls-strip-fg);
+}
+.rlp-page .pls .pls-tile {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #2b3448;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.rlp-page .pls .pls-tile-active {
+  background: #fff;
+  color: var(--pls-rail);
+  box-shadow:
+    0 0 0 2px var(--pls-rail),
+    0 0 0 4px #fff;
+}
+.rlp-page .pls .pls-tile-add {
+  border: 1px dashed rgba(255, 255, 255, 0.32);
+  background: transparent;
+  color: var(--pls-strip-fg);
+}
+.rlp-page .pls .pls-tile-add svg {
+  width: 15px;
+  height: 15px;
+}
+.rlp-page .pls .pls-rail-gap {
+  flex: 1 1 auto;
+}
+.rlp-page .pls .pls-rail-help svg {
+  width: 18px;
+  height: 18px;
+  opacity: 0.85;
+}
+.rlp-page .pls .rlp-account {
+  position: relative;
+}
+.rlp-page .pls .rlp-account-trigger {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+.rlp-page .pls .rlp-account-trigger:hover {
+  background: transparent;
+}
+.rlp-page .pls .rlp-account-trigger .rlp-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #3f4f73;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.rlp-page .pls .pls-presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--pls-rail);
+  border-radius: 50%;
+  background: #12b76a;
+}
+.rlp-page .pls .rlp-account-menu {
+  top: auto;
+  right: auto;
+  bottom: 0;
+  left: calc(100% + 10px);
+  width: 248px;
+  border-radius: 8px;
+  border-color: var(--pls-line);
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.22);
+  color: var(--pls-ink);
+}
+.rlp-page .pls .rlp-account-menu button[role="menuitem"] {
+  min-height: 34px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.rlp-page .pls .rlp-account-menu button[role="menuitem"]:hover,
+.rlp-page .pls .rlp-account-menu button[role="menuitem"]:focus-visible {
+  background: rgba(16, 24, 40, 0.06);
+}
+
+/* ───────── Sidebar ───────── */
+.rlp-page .pls .pls-side {
+  grid-area: side;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 8px 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--pls-line);
+  background: var(--pls-side);
+}
+.rlp-page .pls .pls-side-head {
+  padding: 12px 0 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+.rlp-page .pls .pls-workspace-name {
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 6px;
+  justify-content: flex-start;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--pls-ink);
+  font-size: 16px;
+  cursor: pointer;
+}
+.rlp-page .pls .pls-workspace-name strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.rlp-page .pls .pls-workspace-name svg {
+  width: 14px;
+  flex: none;
+}
+.rlp-page .pls .pls-side-compose {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--pls-line);
+  border-radius: 7px;
+  background: #fff;
+  color: #3c414b;
+}
+.rlp-page .pls .pls-side-compose svg {
+  width: 14px;
+  height: 14px;
+}
+.rlp-page .pls .pls-side-sub {
+  grid-column: 1;
+  margin: 0;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #7a808b;
+  font-size: 12px;
+}
+.rlp-page .pls .pls-side-sub i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #12805c;
+}
+.rlp-page .pls .pls-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 4px 0 0;
+  display: block;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.rlp-page .pls .pls-nav::-webkit-scrollbar {
+  display: none;
+}
+.rlp-page .pls .pls-group {
+  display: block;
+  margin-top: 4px;
+}
+.rlp-page .pls .pls-group:first-child {
+  margin-top: 0;
+}
+.rlp-page .pls .pls-group-label {
+  margin: 6px 0 0;
+  padding: 0;
+  color: #7a808b;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.rlp-page .pls .pls-group-label button {
+  height: 24px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rlp-page .pls .pls-group-label button:hover {
+  color: var(--pls-ink);
+}
+.rlp-page .pls .pls-group-label svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 140ms ease;
+}
+.rlp-page .pls .pls-group-label button[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+.rlp-page .pls .pls-item {
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #3c414b;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: -0.003em;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+.rlp-page .pls .pls-item:hover {
+  background: rgba(16, 24, 40, 0.05);
+  color: #3c414b;
+}
+.rlp-page .pls .pls-item .pls-item-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: #5b6270;
+}
+.rlp-page .pls .pls-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rlp-page .pls .pls-item b {
+  flex: none;
+  min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #7a808b;
+  font-size: 12px;
+  font-weight: 450;
+}
+.rlp-page .pls .pls-item[data-unread="true"] {
+  color: var(--pls-ink);
+  font-weight: 600;
+}
+.rlp-page .pls .pls-item[data-unread="true"] b {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #d92d20;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.rlp-page .pls .pls-item[aria-current="page"],
+.rlp-page .pls .pls-item[aria-current="page"]:hover,
+.rlp-dual-view.rlp-dual-view .pls .pls-item[data-demo-hover] {
+  background: var(--pls-active-bg);
+  color: var(--pls-active-fg);
+  font-weight: 600;
+}
+.rlp-page .pls .pls-item[aria-current="page"] .pls-item-icon {
+  color: var(--pls-active-fg);
+}
+.rlp-page .pls .pls-item[aria-current="page"] b {
+  color: var(--pls-active-fg);
+}
+.rlp-page .pls .pls-item:focus-visible,
+.rlp-page .pls .pls-group-label button:focus-visible,
+.rlp-page .pls .pls-strip-icon:focus-visible,
+.rlp-page .pls .pls-search:focus-visible {
+  outline: 2px solid var(--pls-blue);
+  outline-offset: -2px;
+}
+.rlp-page .pls .pls-search:focus-visible,
+.rlp-page .pls .pls-strip-icon:focus-visible {
+  outline-color: rgba(255, 255, 255, 0.7);
+}
+
+/* ───────── Content ───────── */
+.rlp-page .pls .pls-main {
+  grid-area: main;
+  min-width: 0;
+  min-height: 0;
+  background: #fff;
+}
+.rlp-page .pls .pls-main::after {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232863f0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+      center calc(100% - 9px) / 18px 18px no-repeat,
+    linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff 80%);
+}
+
+/*
+ * The real pages are laid out for a 1132px main column (a 1440px window). The demo window's main column is
+ * about 760px (hero) to 820px (row frames), so from lg up the screen is drawn at 82% (the real components
+ * answer to the viewport, not their column): rows keep their names, the Calendar keeps seven days, and
+ * nothing overflows. Phones keep 100%: their layouts already stack.
+ */
+@media (min-width: 1024px) {
+  .rlp-page .pls .rlp-panel-frame {
+    zoom: 0.82;
+  }
+}
+
+/* A row whose facts are longer than the column wraps them (as the phone layout does) instead of overlapping its name. */
+.rlp-page .pls .rlp-panel-frame .portal-property-row > button > div:last-child:not(:first-child) {
+  flex-wrap: wrap;
+  flex-shrink: 1;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.rlp-page .pls .rlp-panel-frame .portal-property-row > button > div:first-child:not(:last-child) {
+  flex: 1 0 8.5rem;
+}
+
+/* ───────── The assistant: the only right panel ───────── */
+.rlp-page .pls .pls-assistant {
+  grid-area: assist;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--pls-line);
+  background: #fff;
+  animation: pls-assistant-in 220ms ease-out;
+}
+@keyframes pls-assistant-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+.rlp-page .pls .pls-assistant-head {
+  height: 48px;
+  padding: 0 10px 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid var(--pls-line);
+}
+.rlp-page .pls .pls-assistant-mark {
+  width: 18px;
+  height: 18px;
+  color: var(--pls-blue);
+}
+.rlp-page .pls .pls-assistant-head strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+.rlp-page .pls .pls-assistant-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+.rlp-page .pls .pls-assistant-actions button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5b6270;
+  cursor: pointer;
+}
+.rlp-page .pls .pls-assistant-actions button:hover {
+  background: rgba(16, 24, 40, 0.06);
+}
+.rlp-page .pls .pls-assistant-actions svg {
+  width: 15px;
+  height: 15px;
+}
+.rlp-page .pls .pls-assistant-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 14px;
+  overflow-y: auto;
+}
+.rlp-page .pls .pls-assistant-body h3 {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.022em;
+}
+.rlp-page .pls .pls-assistant-label {
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pls-mute);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.rlp-page .pls .pls-assistant-label b {
+  font-weight: 450;
+}
+.rlp-page .pls .pls-assistant-body ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--pls-line);
+}
+.rlp-page .pls .pls-assistant-body li {
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-bottom: 1px solid var(--pls-line);
+}
+.rlp-page .pls .pls-assistant-body li strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.rlp-page .pls .pls-assistant-body li span {
+  color: var(--pls-mute);
+  font-size: 12.5px;
+}
+.rlp-page .pls .pls-assistant-composer {
+  margin: 0 12px 12px;
+  height: 40px;
+  padding: 0 10px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(17, 24, 39, 0.14);
+  border-radius: 8px;
+  color: #8a909b;
+  font-size: 14px;
+}
+.rlp-page .pls .pls-assistant-composer svg {
+  width: 16px;
+  height: 16px;
+  color: var(--pls-blue);
+}
+
+/* ───────── Narrower windows ───────── */
+@media (max-width: 1023px) {
+  .rlp-page .pls {
+    --pls-side-w: 208px;
+  }
+  .rlp-page .pls .pls-item {
+    font-size: 14px;
+  }
+}
+@media (max-width: 640px) {
+  .rlp-page .pls,
+  .rlp-page .pls[data-side="closed"],
+  .rlp-page .pls[data-assistant="open"] {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-radius: 10px;
+  }
+  .rlp-page .pls .pls-strip {
+    flex: none;
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 0 8px;
+  }
+  .rlp-page .pls .pls-strip-icon,
+  .rlp-page .pls .pls-strip-brand strong,
+  .rlp-page .pls .pls-strip-right,
+  .rlp-page .pls .pls-search kbd,
+  .rlp-page .pls .pls-rail-help,
+  .rlp-page .pls .pls-tile,
+  .rlp-page .pls .pls-side-head,
+  .rlp-page .pls .pls-assistant,
+  .rlp-page .pls .pls-group-label {
+    display: none;
+  }
+  /* The rail is the avatar only, floated over the strip's right edge. */
+  .rlp-page .pls .pls-rail {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 5;
+    padding: 0;
+    background: transparent;
+  }
+  .rlp-page .pls .rlp-account-trigger,
+  .rlp-page .pls .rlp-account-trigger .rlp-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+  }
+  .rlp-page .pls .rlp-account-menu {
+    top: calc(100% + 8px);
+    right: 0;
+    bottom: auto;
+    left: auto;
+  }
+  .rlp-page .pls .pls-search {
+    margin-right: 38px;
+  }
+  .rlp-page .pls .pls-side {
+    flex: none;
+    padding: 6px 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--pls-line);
+    visibility: visible;
+  }
+  .rlp-page .pls .pls-nav {
+    padding: 0;
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-right: 28px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  .rlp-page .pls .pls-group {
+    display: contents;
+  }
+  .rlp-page .pls .pls-item {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+  .rlp-page .pls .pls-item span {
+    flex: none;
+    display: block;
+  }
+  .rlp-page .pls .pls-main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rlp-page .pls .pls-assistant {
+    animation: none;
+  }
+  .rlp-page .pls .pls-group-label svg {
+    transition: none;
+  }
+}
+
+/* ───────── Communication (the one screen the demo draws itself), flat like the real page ───────── */
+.rlp-page .pls .rlp-canvas:not(.rlp-canvas-panel) {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+.rlp-page .pls .pls-main:has(> .rlp-canvas:not(.rlp-canvas-panel))::after {
+  display: none;
+}
+.rlp-page .pls .rlp-canvas:not(.rlp-canvas-panel) .rlp-page-header {
+  flex: none;
+  min-height: 52px;
+  margin: 0;
+  padding: 24px 32px 10px;
+  align-items: center;
+}
+.rlp-page .pls .rlp-canvas:not(.rlp-canvas-panel) .rlp-page-header h2 {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.022em;
+}
+.rlp-page .pls .rlp-header-actions {
+  align-items: center;
+  gap: 6px;
+}
+.rlp-page .pls .rlp-icon-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: #3c414b;
+}
+.rlp-page .pls .rlp-icon-button:hover {
+  background: rgba(16, 24, 40, 0.06);
+  color: var(--pls-ink);
+}
+.rlp-page .pls .rlp-icon-button.rlp-icon-primary {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--pls-blue);
+  color: #fff;
+  transition: transform 100ms ease;
+}
+.rlp-page .pls .rlp-icon-button.rlp-icon-primary:hover {
+  background: var(--pls-blue);
+  color: #fff;
+  transform: scale(1.05);
+}
+.rlp-page .pls .rlp-icon-button.rlp-icon-primary svg {
+  width: 18px;
+  height: 18px;
+}
+.rlp-page .pls .rlp-section-tabs {
+  flex: none;
+  margin: 0;
+  padding: 0 32px;
+  gap: 18px;
+  border-bottom: 1px solid var(--pls-line);
+}
+.rlp-page .pls .rlp-section-tabs button {
+  position: relative;
+  height: 40px;
+  padding: 0;
+  background: transparent;
+  color: #4a505c;
+  font-size: 14px;
+  font-weight: 550;
+}
+.rlp-page .pls .rlp-section-tabs .rlp-tab-active {
+  color: var(--pls-ink);
+  background: transparent;
+  box-shadow: none;
+}
+.rlp-page .pls .rlp-section-tabs .rlp-tab-active::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--pls-blue);
+}
+.rlp-page .pls .rlp-section-tabs button small {
+  font-size: 12px;
+  font-weight: 450;
+  color: #7a808b;
+}
+.rlp-page .pls .rlp-section-tabs .rlp-tab-active small {
+  color: var(--pls-blue);
+}
+.rlp-page .pls .rlp-list-command {
+  flex: none;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 32px;
+  gap: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--pls-line);
+  border-radius: 0;
+  background: #fff;
+  color: #7a808b;
+}
+.rlp-page .pls .rlp-list-command input {
+  font-size: 14px;
+  color: var(--pls-ink);
+}
+.rlp-page .pls .rlp-list-command span {
+  font-size: 12.5px;
+}
+.rlp-page .pls .rlp-live-communication {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  grid-template-columns: 280px minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+}
+.rlp-page .pls .rlp-contacts {
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--pls-line);
+}
+.rlp-page .pls .rlp-contact-entry {
+  border-bottom: 1px solid var(--pls-line);
+}
+.rlp-page .pls .rlp-contacts button {
+  min-height: 56px;
+  padding: 9px 8px 9px 16px;
+  grid-template-columns: 38px 1fr;
+  column-gap: 10px;
+  align-items: center;
+  border-bottom: 0;
+  background: transparent;
+}
+.rlp-page .pls .rlp-contacts button:hover {
+  background: rgba(16, 24, 40, 0.04);
+}
+.rlp-page .pls .rlp-contacts .rlp-contact-active {
+  background: #f3f6fe;
+}
+.rlp-page .pls .rlp-contacts span {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: #f0f2f5;
+  color: var(--pls-mute);
+  font-size: 12px;
+  font-weight: 700;
+}
+.rlp-page .pls .rlp-contacts strong {
+  color: var(--pls-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.rlp-page .pls .rlp-contacts small {
+  color: var(--pls-mute);
+  font-size: 13px;
+}
+.rlp-page .pls .rlp-contact-entry .rlp-contact-more {
+  flex-basis: 32px;
+  width: 32px;
+  background: transparent;
+}
+.rlp-page .pls .rlp-conversation {
+  min-height: 0;
+}
+.rlp-page .pls .rlp-conversation .rlp-person-bar {
+  min-height: 56px;
+  padding: 8px 16px;
+  gap: 10px;
+  border-bottom: 1px solid var(--pls-line);
+}
+.rlp-page .pls .rlp-person-bar > span {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: #f0f2f5;
+  color: var(--pls-mute);
+  font-size: 12px;
+  font-weight: 700;
+}
+.rlp-page .pls .rlp-person-bar strong {
+  color: var(--pls-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.rlp-page .pls .rlp-person-bar small {
+  color: var(--pls-mute);
+  font-size: 13px;
+}
+.rlp-page .pls .rlp-conversation .rlp-messages {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rlp-page .pls .rlp-bubble {
+  max-width: 78%;
+  padding: 9px 13px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.rlp-page .pls .rlp-draft {
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(40, 99, 240, 0.28);
+  border-radius: 8px;
+  background: #f6f8ff;
+  box-shadow: none;
+}
+.rlp-page .pls .rlp-draft-head {
+  font-size: 12.5px;
+  color: var(--pls-blue);
+}
+.rlp-page .pls .rlp-draft p {
+  font-size: 14px;
+  color: var(--pls-ink);
+}
+.rlp-page .pls .rlp-draft-actions button {
+  height: 32px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.rlp-page .pls .rlp-draft-actions .rlp-draft-approve {
+  border-color: var(--pls-blue);
+  background: var(--pls-blue);
+}
+.rlp-page .pls .rlp-conversation .rlp-compose {
+  min-height: 56px;
+  padding: 10px 16px;
+  grid-template-columns: 32px 60px minmax(0, 1fr) 32px;
+  border-top: 1px solid var(--pls-line);
+}
+.rlp-page .pls .rlp-compose input {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(17, 24, 39, 0.14);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.rlp-page .pls .rlp-channel-select select {
+  width: 60px;
+  font-size: 13px;
+}
+.rlp-page .pls .rlp-compose > button[type="submit"] {
+  color: var(--pls-blue);
+}
+@media (max-width: 1023px) {
+  .rlp-page .pls .rlp-live-communication {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .rlp-page .pls .rlp-canvas:not(.rlp-canvas-panel) .rlp-page-header {
+    padding: 16px 16px 8px;
+  }
+  .rlp-page .pls .rlp-section-tabs,
+  .rlp-page .pls .rlp-list-command {
+    padding-inline: 16px;
+  }
+  .rlp-page .pls .rlp-live-communication {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .rlp-page .pls .rlp-contacts {
+    border-right: 0;
+    border-bottom: 1px solid var(--pls-line);
+  }
+}
+.rlp-page .pls .pls-item[aria-current="page"][data-unread="true"] b {
+  color: #fff;
+}

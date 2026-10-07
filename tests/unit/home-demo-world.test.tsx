@@ -5,7 +5,7 @@
 // progress (`world.ts`), and every count a panel prints is derived from the
 // rows it draws (`docs/agents/marketing-mocks.md`).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { DEMO_TABS, DemoPanel } from "@/components/marketing/site/product-mock/demo-panels";
 import {
   NO_STORY,
@@ -128,34 +128,76 @@ describe("one sample world", () => {
   });
 });
 
-describe("sidebar grouping", () => {
-  it("puts every group label before the items it labels, in every portal", () => {
+describe("sidebar grouping (the redesigned shell)", () => {
+  const mount = (portal: "manager" | "resident" | "vendor", props: Record<string, unknown> = {}) =>
+    render(
+      <ResidentLifecycleWorkspace portal={portal} tabs={DEMO_TABS[portal]} active={DEMO_TABS[portal][0]!.id} onSelect={() => {}} panel {...props}>
+        <span />
+      </ResidentLifecycleWorkspace>,
+    );
+
+  it("opens every portal with its unheaded home group, then headed groups that put the label first", () => {
     for (const portal of ["manager", "resident", "vendor"] as const) {
-      const { container } = render(
-        <ResidentLifecycleWorkspace portal={portal} tabs={DEMO_TABS[portal]} active={DEMO_TABS[portal][0]!.id} onSelect={() => {}} panel>
-          <span />
-        </ResidentLifecycleWorkspace>,
-      );
-      const nav = container.querySelector("nav")!;
-      for (const group of Array.from(nav.children)) {
+      const { container } = mount(portal);
+      const groups = Array.from(container.querySelector("nav")!.children);
+      expect(groups[0]!.querySelector("p"), `${portal}: the home group has no heading`).toBeNull();
+      for (const group of groups.slice(1)) {
         const label = group.querySelector("p");
-        if (label) expect(group.firstElementChild, `${portal}: label first`).toBe(label);
+        expect(label, `${portal}: a headed group`).not.toBeNull();
+        expect(group.firstElementChild, `${portal}: label first`).toBe(label);
       }
-      // A labeled portal opens with a label, never a bare item above it.
-      if (DEMO_TABS[portal].some((tab) => tab.group)) expect(nav.firstElementChild!.querySelector("p"), `${portal}: opens with a label`).not.toBeNull();
+      // Every tab is exactly one row in exactly one group.
+      const ids = Array.from(container.querySelectorAll("[data-demo-tab]")).map((node) => node.getAttribute("data-demo-tab"));
+      expect(ids.sort()).toEqual(DEMO_TABS[portal].map((tab) => tab.id).sort());
       cleanup();
     }
   });
 
-  it("opens the manager sidebar under WORKSPACE with Dashboard first", () => {
-    const { container } = render(
-      <ResidentLifecycleWorkspace portal="manager" tabs={DEMO_TABS.manager} active="dashboard" onSelect={() => {}} panel>
-        <span />
-      </ResidentLifecycleWorkspace>,
-    );
-    const first = container.querySelector("nav")!.firstElementChild!;
-    expect(within(first as HTMLElement).getByText("WORKSPACE")).toBeInTheDocument();
-    expect(Array.from(first.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(["Dashboard", "Properties"]);
-    expect(screen.queryByText("Willow Court LLC")).toBeNull();
+  it("buckets the manager sidebar like the real shell: home, Portfolio, Leasing, People, Money", () => {
+    const { container } = mount("manager");
+    const groups = Array.from(container.querySelector("nav")!.children);
+    expect(groups.map((group) => group.querySelector("p")?.textContent?.trim() ?? "")).toEqual(["", "Portfolio", "Leasing", "People", "Money"]);
+    expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(["Dashboard", "Calendar", "Communication"]);
+    expect(Array.from(groups[2]!.querySelectorAll("button[data-demo-tab]")).map((b) => b.getAttribute("aria-label"))).toEqual(["Tours", "Application", "Leases"]);
+  });
+
+  it("collapses and re-opens a group, and keeps every cursor target on its row", () => {
+    const { container } = mount("manager");
+    const leasing = screen.getByRole("button", { name: "Leasing group" });
+    expect(leasing.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(leasing);
+    expect(leasing.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector('[data-demo-tab="tours"]')).toBeNull();
+    fireEvent.click(leasing);
+    expect(container.querySelector('[data-demo-target="nav-tours"]')).not.toBeNull();
+    for (const tab of DEMO_TABS.manager) expect(container.querySelector(`[data-demo-target="nav-${tab.id}"]`), tab.id).not.toBeNull();
+  });
+
+  it("draws the house mark in the top strip and a red count only on an unread Communication", () => {
+    const { container } = mount("manager", { badges: { tours: 2, communication: 2 } });
+    expect(container.querySelector(".pls-strip svg.pls-strip-mark")).not.toBeNull();
+    expect(container.querySelector(".pls-strip")!.innerHTML).not.toMatch(/lucide-send|lucide-plane/);
+    expect(container.querySelector('[data-demo-tab="communication"]')!.getAttribute("data-unread")).toBe("true");
+    expect(container.querySelector('[data-demo-tab="tours"]')!.getAttribute("data-unread")).toBeNull();
+  });
+
+  it("docks the assistant as the only right panel, with Needs attention counted from the rows it draws", () => {
+    const needs = [
+      { id: "a", title: "Review Sample Applicant", detail: "Maple Duplex" },
+      { id: "b", title: "Countersign a lease", detail: "Fremont Studio" },
+    ];
+    const { container } = mount("manager", { needs });
+    expect(screen.queryByLabelText("PropLane assistant")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle assistant panel" }));
+    const panel = screen.getByLabelText("PropLane assistant");
+    expect(within(panel).getByText("Needs attention").textContent).toContain(String(needs.length));
+    expect(within(panel).getAllByRole("listitem")).toHaveLength(needs.length);
+    for (const name of ["New chat", "History", "Close assistant"]) expect(within(panel).getByRole("button", { name })).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: "Close assistant" }));
+    expect(container.querySelector(".pls-assistant")).toBeNull();
+    // A portal that is not handed rows has no assistant toggle at all.
+    cleanup();
+    mount("resident");
+    expect(screen.queryByRole("button", { name: "Toggle assistant panel" })).toBeNull();
   });
 });

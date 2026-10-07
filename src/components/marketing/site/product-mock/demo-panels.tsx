@@ -51,35 +51,41 @@ export type DemoPortal = "manager" | "resident" | "vendor";
 export type DemoTab = { id: string; label: string; group?: string };
 export type { DemoStory };
 
+/**
+ * The sidebar's rows per portal, bucketed like the real shell (`PORTAL_NAV_GROUPS`,
+ * `src/lib/portals/nav-groups.ts`): an unheaded home group, then short collapsible groups.
+ * Labels are the real nav labels (`proPortal`, `residentPortal`, `vendorPortal`). The first
+ * entry of each portal is the fallback panel, so it never moves.
+ */
 export const DEMO_TABS: Record<DemoPortal, DemoTab[]> = {
   manager: [
-    { id: "dashboard", label: "Dashboard", group: "WORKSPACE" },
-    { id: "properties", label: "Properties", group: "WORKSPACE" },
-    { id: "tours", label: "Tours", group: "LEASING" },
-    { id: "applications", label: "Applications", group: "LEASING" },
-    { id: "leases", label: "Leases", group: "LEASING" },
-    { id: "residents", label: "Residents", group: "TENANCY" },
-    { id: "payments", label: "Payments", group: "TENANCY" },
-    { id: "services", label: "Services", group: "TENANCY" },
-    { id: "calendar", label: "Calendar", group: "OPERATIONS" },
-    { id: "communication", label: "Communication", group: "OPERATIONS" },
-    { id: "vendors", label: "Vendors", group: "OPERATIONS" },
+    { id: "dashboard", label: "Dashboard" },
+    { id: "calendar", label: "Calendar" },
+    { id: "communication", label: "Communication" },
+    { id: "properties", label: "Properties", group: "Portfolio" },
+    { id: "tours", label: "Tours", group: "Leasing" },
+    { id: "applications", label: "Application", group: "Leasing" },
+    { id: "leases", label: "Leases", group: "Leasing" },
+    { id: "residents", label: "Residents", group: "People" },
+    { id: "vendors", label: "Vendors", group: "People" },
+    { id: "services", label: "Services", group: "People" },
+    { id: "payments", label: "Incoming payments", group: "Money" },
   ],
   resident: [
-    { id: "home", label: "My home" },
-    { id: "applications", label: "Applications" },
-    { id: "lease", label: "Lease" },
-    { id: "payments", label: "Payments" },
-    { id: "services", label: "Services" },
-    { id: "forms", label: "Forms" },
+    { id: "home", label: "My home", group: "My home" },
+    { id: "lease", label: "Lease", group: "My home" },
+    { id: "forms", label: "Forms", group: "My home" },
+    { id: "services", label: "Services", group: "My home" },
+    { id: "applications", label: "Applications", group: "Applying" },
+    { id: "payments", label: "Payments", group: "Money" },
     { id: "communication", label: "Communication" },
   ],
   vendor: [
-    { id: "services", label: "Services" },
+    { id: "services", label: "Services", group: "Work" },
+    { id: "reviews", label: "Reviews", group: "Work" },
     { id: "calendar", label: "Calendar" },
-    { id: "payments", label: "Payments" },
-    { id: "reviews", label: "Reviews" },
     { id: "communication", label: "Communication" },
+    { id: "payments", label: "Finances", group: "Money" },
   ],
 };
 

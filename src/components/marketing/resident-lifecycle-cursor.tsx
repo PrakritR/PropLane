@@ -30,6 +30,8 @@ export const MOVE_MS = 850;
 export const HOVER_MS = 320;
 export const PRESS_MS = 170;
 export const SETTLE_MS = 480;
+/** How long a freshly found target must stay in place before the cursor aims at it. */
+const SETTLE_FIND_MS = 220;
 
 export const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
@@ -87,7 +89,12 @@ export function DemoCursor({ label, apiRef }: { label: string; apiRef: Ref<DemoC
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const hit = scope.querySelector<HTMLElement>(`[data-demo-target="${id}"]`);
-      if (hit) return aimAt(hit);
+      if (hit) {
+        // A page that has just mounted may swap its toolbar for a fresh copy once it has measured itself
+        // (the real portal's list stack does): take the copy that is still there a beat later.
+        await sleep(SETTLE_FIND_MS);
+        return aimAt(scope.querySelector<HTMLElement>(`[data-demo-target="${id}"]`) ?? hit);
+      }
       if (Date.now() > deadline) return null;
       await sleep(80);
     }
