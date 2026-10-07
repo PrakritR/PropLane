@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { vendorServiceFeeDescription } from "@/lib/platform-fees";
 
 /**
  * Every statement line kind vendor banking ever writes. `charge` and
@@ -17,6 +18,7 @@ export const VENDOR_BANKING_LEDGER_KINDS = [
   "withdrawal",
   "refund",
   "adjustment",
+  "dispute",
 ] as const;
 export type VendorBankingLedgerKind = (typeof VENDOR_BANKING_LEDGER_KINDS)[number];
 
@@ -27,6 +29,7 @@ export const VENDOR_BANKING_LEDGER_SOURCES = [
   "refund",
   "hold_expiry",
   "adjustment",
+  "dispute",
 ] as const;
 export type VendorBankingLedgerSource = (typeof VENDOR_BANKING_LEDGER_SOURCES)[number];
 
@@ -159,50 +162,86 @@ export async function recordVendorBankingChargeAndFee(
       amountCents: -Math.abs(opts.feeCents),
       source: opts.source,
       sourceId: opts.sourceId,
-      description: "PropLane fee (3%)",
+      description: vendorServiceFeeDescription(),
       stripeObjectId: opts.stripeObjectId,
       idempotencyKey: `${opts.source}:${opts.sourceId}:platform_fee`,
     });
   }
 }
 
-/** Every statement line for this vendor, newest first, optionally scoped to a UTC calendar month ("2026-09"). */
+/**
+ * PostgREST caps a single response (Supabase's default is 1,000 rows), so every
+ * read here pages to the end instead of taking one capped page. A statement or a
+ * 1099 total that silently stops at the cap is a WRONG number, not a short list.
+ */
+const LEDGER_PAGE_SIZE = 1000;
+
+type PagedQuery = {
+  range: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
+};
+
+/** Read every row the builder matches, one page at a time. `build()` must return a freshly ordered query. */
+async function readAllLedgerPages<T>(build: () => PagedQuery, failure: string): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += LEDGER_PAGE_SIZE) {
+    const { data, error } = await build().range(from, from + LEDGER_PAGE_SIZE - 1);
+    if (error) throw new Error(`${failure}: ${error.message}`);
+    const page = (data ?? []) as T[];
+    out.push(...page);
+    if (page.length < LEDGER_PAGE_SIZE) return out;
+  }
+}
+
+/**
+ * Every statement line for this vendor, OLDEST first (a running balance is only
+ * meaningful in order).
+ *
+ * There is deliberately no row cap: the caller gets the whole ledger or an
+ * error, never a truncated one that reads as a complete statement. Callers that
+ * want one month (`buildVendorStatement`) still read everything, because the
+ * opening balance is every line BEFORE that month.
+ */
 export async function listVendorBankingLedgerEntries(
   db: SupabaseClient,
   vendorUserId: string,
-  opts: { month?: string | null; limit?: number } = {},
 ): Promise<VendorBankingLedgerEntry[]> {
-  let query = db
-    .from("vendor_banking_ledger_entries")
-    .select("id, vendor_user_id, manager_user_id, kind, amount_cents, source, source_id, description, stripe_object_id, created_at")
-    .eq("vendor_user_id", vendorUserId)
-    .order("created_at", { ascending: true })
-    .limit(opts.limit ?? 1000);
-  if (opts.month && /^\d{4}-\d{2}$/.test(opts.month)) {
-    const start = `${opts.month}-01T00:00:00.000Z`;
-    const [y, m] = opts.month.split("-").map(Number);
-    const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
-    const end = `${nextMonth}-01T00:00:00.000Z`;
-    query = query.gte("created_at", start).lt("created_at", end);
-  }
-  const { data, error } = await query;
-  if (error) throw new Error(`Could not read the vendor banking ledger: ${error.message}`);
-  return (data ?? []).map((row) => fromRow(row as LedgerRow));
+  const rows = await readAllLedgerPages<LedgerRow>(
+    () =>
+      db
+        .from("vendor_banking_ledger_entries")
+        .select("id, vendor_user_id, manager_user_id, kind, amount_cents, source, source_id, description, stripe_object_id, created_at")
+        .eq("vendor_user_id", vendorUserId)
+        // `created_at` alone is not unique, and a page boundary inside a tie
+        // would drop or repeat a line; `id` makes the order total.
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true }) as unknown as PagedQuery,
+    "Could not read the vendor banking ledger",
+  );
+  return rows.map((row) => fromRow(row));
 }
 
-/** Running total across every ledger line for this vendor — the reconciliation job's "our side" number. */
+/**
+ * Running total across every ledger line for this vendor — the reconciliation
+ * job's "our side" number. Summed in the DATABASE: the nightly cron asks this
+ * once per vendor, and dragging every row across the wire to add them up is
+ * egress the free plan cannot spend (AGENTS.md § Performance & egress).
+ */
 export async function sumVendorBankingLedgerCents(db: SupabaseClient, vendorUserId: string): Promise<number> {
-  const { data, error } = await db
-    .from("vendor_banking_ledger_entries")
-    .select("amount_cents")
-    .eq("vendor_user_id", vendorUserId);
+  const { data, error } = await db.rpc("vendor_banking_ledger_total_cents", { p_vendor_user_id: vendorUserId });
   if (error) throw new Error(`Could not sum the vendor banking ledger: ${error.message}`);
-  return (data ?? []).reduce((sum, row) => sum + (Number((row as { amount_cents: number }).amount_cents) || 0), 0);
+  return Number(data ?? 0) || 0;
 }
 
-/** Every vendor with at least one ledger line — the reconciliation cron's fan-out list. */
+/** Every vendor with at least one ledger line — the reconciliation cron's fan-out list, deduped in the database. */
 export async function listVendorUserIdsWithLedgerActivity(db: SupabaseClient): Promise<string[]> {
-  const { data, error } = await db.from("vendor_banking_ledger_entries").select("vendor_user_id");
+  const { data, error } = await db.rpc("vendor_banking_ledger_vendor_ids");
   if (error) throw new Error(`Could not list vendor banking ledger vendors: ${error.message}`);
-  return [...new Set((data ?? []).map((row) => String((row as { vendor_user_id: string }).vendor_user_id)))];
+  const rows = (data ?? []) as Array<{ vendor_user_id?: unknown } | string>;
+  return [
+    ...new Set(
+      rows
+        .map((row) => String(typeof row === "string" ? row : row?.vendor_user_id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
 }

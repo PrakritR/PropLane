@@ -17,6 +17,13 @@ const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
+  useOptionalAppUi: () => ({ showToast: vi.fn() }),
+  useConfirm: () => async () => true,
+}));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/vendor/reviews/all",
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
 import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
@@ -65,10 +72,16 @@ describe("VendorReviewsPanel — top bar (VD21)", () => {
     expect(screen.getByText("Late")).toBeTruthy();
   });
 
-  it("renders the Overall summary with a 5..1 star distribution", async () => {
+  it("draws the header stats strip from the rows: Average rating, Reviews, Needs reply, Response rate", async () => {
     vi.stubGlobal("fetch", stubFetch());
     render(<VendorReviewsPanel tabId="all" />);
-    await waitFor(() => expect(document.querySelector('[data-attr="vendor-reviews-distribution"]')).not.toBeNull());
+    await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-review-row"]')).toHaveLength(2));
+    const stat = (id: string) => document.querySelector(`[data-attr="vendor-reviews-stat-${id}"]`)?.textContent ?? "";
+    expect(stat("average")).toContain("Average rating");
+    expect(stat("average")).toContain("3.5 ★");
+    expect(stat("count")).toContain("2");
+    expect(stat("needs-reply")).toContain("1");
+    expect(stat("response-rate")).toContain("50%");
   });
 
   it("has a Rating field (plus From/To date) in the Filter sheet — never a Property field (privacy: no workspace/property link on this route)", () => {

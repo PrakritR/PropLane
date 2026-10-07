@@ -140,6 +140,24 @@ function buildPortalNavItems(
           },
         ];
       }
+      if (definition.kind === "vendor" && section.section === "financials" && section.tabs.length > 1) {
+        // Finances (vendor-banking-1006): Balance & payouts · Payments · Refunds ·
+        // Statements · Tax info nest under the one Finances row, like manager Payments.
+        return [
+          {
+            section: section.section,
+            label: section.label,
+            href: `${definition.basePath}/financials/${section.tabs[0]!.id}`,
+            prefetchHrefs: section.tabs.map((tab) => `${definition.basePath}/financials/${tab.id}`),
+            subItems: section.tabs.map((tab) => ({
+              sectionTabId: tab.id,
+              label: tab.label,
+              href: `${definition.basePath}/financials/${tab.id}`,
+              prefetchHrefs: [`${definition.basePath}/financials/${tab.id}`],
+            })),
+          },
+        ];
+      }
       if (section.section === "applications") {
         // Screening nests inside the application record's own Screening tab now
         // (docs/agents/record-page.md, PLAN-0920-1058 area 1c) — no second
@@ -268,14 +286,26 @@ export function PortalSidebar({
       const tab = parts[paymentsIdx + 1];
       return tab === "incoming" || tab === "outgoing" ? tab : "incoming";
     }
+    if (activeSection === "financials" && definition.kind === "vendor") {
+      const tab = parts[parts.indexOf("financials") + 1];
+      // Invoice / payout records live under their list's tab.
+      if (tab === "invoices" || tab === "payouts") return "income";
+      return definition.sections.find((s) => s.section === "financials")?.tabs.some((t) => t.id === tab)
+        ? (tab ?? "balance")
+        : "balance";
+    }
     return null;
-  }, [activeSection, pathname]);
+  }, [activeSection, definition, pathname]);
 
   useEffect(() => {
-    if (activeSection === "payments" || activeSection === "applications") {
+    if (
+      activeSection === "payments" ||
+      activeSection === "applications" ||
+      (activeSection === "financials" && definition.kind === "vendor")
+    ) {
       setExpandableNavOpen((prev) => ({ ...prev, [activeSection]: true }));
     }
-  }, [activeSection]);
+  }, [activeSection, definition.kind]);
 
   const isNavItemActive = useCallback(
     (item: PortalSidebarNavItem) => {

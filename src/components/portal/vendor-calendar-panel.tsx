@@ -8,7 +8,7 @@ import { MEETING_CONFIRMED_COLOR, PortalCalendarPanels, type DemoMeeting } from 
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { FilterCollapsibleSection, FilterCheckboxList } from "@/components/portal/filter-field-lists";
-import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
+import { VendorCalendarIntegrationsAction } from "@/components/portal/vendor-calendar-integrations-action";
 import { GoogleCalendarPendingChangesBanner } from "@/components/portal/google-calendar-pending-changes-banner";
 import { VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, VENDOR_AVAILABILITY_CHANGED_EVENT, VendorAvailabilityEditor } from "@/components/portal/vendor-availability-editor";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -366,11 +366,7 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
         actions={
           <>
             {filterSheet}
-            <GoogleCalendarConnectDialog
-              apiBase="/api/vendor/google-calendar"
-              showVendorPushToggle
-              onConnectionChange={() => setRefreshSignal((n) => n + 1)}
-            />
+            <VendorCalendarIntegrationsAction />
           </>
         }
         primary={

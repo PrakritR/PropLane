@@ -67,7 +67,7 @@ describe("setupVendorWorkIdentity — claiming a specific picked number", () => 
 
   type FakeIdentityRow = Record<string, unknown>;
 
-  function fakeDb(options: { ensuredId?: string; identity?: Partial<FakeIdentityRow>; claimedSequence?: boolean[] } = {}) {
+  function fakeDb(options: { ensuredId?: string; identity?: Partial<FakeIdentityRow>; claimedSequence?: boolean[]; unverified?: boolean } = {}) {
     const ensuredId = options.ensuredId ?? "identity-1";
     let identityRow: FakeIdentityRow = {
       id: ensuredId, vendor_user_id: "vendor-1", lifecycle_state: "not_started",
@@ -83,6 +83,7 @@ describe("setupVendorWorkIdentity — claiming a specific picked number", () => 
       q.select = () => q;
       q.eq = () => q;
       q.in = () => q;
+      q.gte = () => q;
       q.order = () => q;
       q.limit = () => q;
       q.update = (value: Record<string, unknown>) => {
@@ -94,6 +95,9 @@ describe("setupVendorWorkIdentity — claiming a specific picked number", () => 
         if (table === "vendor_work_identities") return { data: identityRow, error: null };
         if (table === "vendor_work_identity_runtime") {
           return { data: { enabled: true, max_active_identities: 10, outbound_message_cap: 100 }, error: null };
+        }
+        if (table === "profiles") {
+          return { data: { phone: options.unverified ? null : "(206) 555-0142", phone_verified_at: options.unverified ? null : "2026-10-01T00:00:00Z" }, error: null };
         }
         return { data: null, error: null };
       };
@@ -114,6 +118,23 @@ describe("setupVendorWorkIdentity — claiming a specific picked number", () => 
     });
     return { db: { from, rpc } as unknown as SupabaseClient, writes, rpc, currentIdentity: () => identityRow };
   }
+
+  it("never buys for a vendor whose phone is not verified - nothing is claimed either", async () => {
+    const { db, rpc } = fakeDb({ unverified: true });
+    const provider = fakeProvider();
+    await setupVendorWorkIdentity(db, "vendor-1", "77777777-7777-7777-7777-777777777777", "sms", provider, "+12065550101");
+    expect(provider.searchSmsCandidates).not.toHaveBeenCalled();
+    expect(provider.purchaseSms).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("only ever buys a US local number, even for a verified vendor", async () => {
+    const { db, rpc } = fakeDb();
+    const provider = fakeProvider();
+    await setupVendorWorkIdentity(db, "vendor-1", "88888888-8888-8888-8888-888888888888", "sms", provider, "+18005550101");
+    expect(provider.purchaseSms).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
 
   it("purchases the vendor's exact picked number, not just the first available one", async () => {
     const { db } = fakeDb();

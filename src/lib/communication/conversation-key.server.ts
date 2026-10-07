@@ -12,6 +12,7 @@ import {
   type ConversationFlag,
   type DerivedConversationKey,
 } from "@/lib/communication/conversation-key";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 /**
  * THE conversation-key resolver. Every writer that stores a person-thread asks
@@ -81,14 +82,16 @@ export function isAdminInboxScope(scope: string | null | undefined): boolean {
 /** May `managerUserId` act inside a workspace owned by `workspaceOwnerId`? Owner, or an accepted account link. */
 async function managerMayUseWorkspace(db: Db, managerUserId: string, workspaceOwnerId: string, workspaceId: string): Promise<boolean> {
   if (managerUserId === workspaceOwnerId) return true;
-  const { data, error } = await db
+  const { data, error } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("id")
+    .select("id, team_role")
     .eq("invitee_user_id", managerUserId)
     .eq("inviter_user_id", workspaceOwnerId)
     .eq("status", "accepted")
-    .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
-    .limit(1);
+    .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`));
+  // No `.limit`: the Property owner rows are dropped from the result in JS (so
+  // a legacy NULL `team_role` row still passes), and a limit of 1 could be
+  // spent on an owner row - answering "not a member" for a real co-manager.
   return !error && Array.isArray(data) && data.length > 0;
 }
 
@@ -151,12 +154,12 @@ export async function resolveWorkspaceContext(
     if (own?.id) return { workspaceId: clean(own.id), workspaceOwnerId: manager, isDefault: true };
 
     // A co-manager with no workspace of their own: the one workspace they were invited into.
-    const { data: links } = await db
+    const { data: links } = withoutOwnerLinks(await db
       .from("account_link_invites")
-      .select("inviter_user_id, workspace_id")
+      .select("inviter_user_id, workspace_id, team_role")
       .eq("invitee_user_id", manager)
       .eq("status", "accepted")
-      .not("workspace_id", "is", null);
+      .not("workspace_id", "is", null));
     const distinct = new Map<string, string>();
     for (const link of links ?? []) {
       const id = clean((link as { workspace_id?: unknown }).workspace_id);

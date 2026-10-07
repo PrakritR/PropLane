@@ -17,6 +17,10 @@ const payVendorFromBalance = vi.fn(async () => {
 const claimInvoicePayment = vi.fn(async (..._a: unknown[]) => undefined);
 const settleInvoicePayment = vi.fn(async () => undefined);
 
+const recordVendorServiceFeeRevenue = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/vendor-banking/platform-revenue.server", () => ({
+  recordVendorServiceFeeRevenue: (...a: unknown[]) => recordVendorServiceFeeRevenue(...a),
+}));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/proplane-balance/flag", () => ({ proplaneBalanceEnabled: () => true }));
 vi.mock("@/lib/proplane-balance/ledger.server", () => ({
@@ -107,6 +111,16 @@ describe("pay from the PropLane balance", () => {
     await call();
     expect(claimInvoicePayment).toHaveBeenCalledWith(fake.db, MANAGER, INVOICE, "balance");
     expect(claimInvoicePayment.mock.invocationCallOrder[0]!).toBeLessThan(payVendorFromBalance.mock.invocationCallOrder[0]!);
+  });
+
+  it("takes NO service fee on the balance rail: full invoice total moves, no revenue entry, no fee settle arg", async () => {
+    moveResult.value = { ok: true };
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(payVendorFromBalance).toHaveBeenCalledWith(fake.db, expect.objectContaining({ amountCents: 25_000 }));
+    expect(recordVendorServiceFeeRevenue).not.toHaveBeenCalled();
+    // settle is told the rail only; it is never handed a fee.
+    expect(settleInvoicePayment).toHaveBeenCalledWith(fake.db, MANAGER, INVOICE, "balance");
   });
 
   it("releases the claim through the RPC when the balance is short (422)", async () => {

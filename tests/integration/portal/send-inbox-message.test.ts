@@ -171,7 +171,18 @@ describe("POST /api/portal/send-inbox-message", () => {
       error: null,
     });
 
-    const from = vi.fn().mockImplementation(() => {
+    const from = vi.fn().mockImplementation((table: string) => {
+      // The Property-owner inbox re-scope (`applyOwnerMessageInboxScope`) asks
+      // this manager's owner memberships with `.in(...).eq(...).eq(...)`, but
+      // the `select()` stand-in below resolves `.in()` straight to the
+      // recipient profiles, which is not a chain. No owner memberships here.
+      if (table === "account_link_invites") {
+        const links: Record<string, unknown> = {};
+        links.select = vi.fn(() => links);
+        links.in = vi.fn(() => links);
+        links.eq = vi.fn(() => links);
+        return links;
+      }
       const obj: Record<string, unknown> = {};
       obj.upsert = upsert;
       // Chainable stand-in for the person-thread lookup

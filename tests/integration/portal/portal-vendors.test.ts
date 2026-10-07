@@ -17,6 +17,15 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
   resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
 }));
 
+// The route's Property-owner gate (`refuseOwnerOnly`) reads the membership
+// across four tables that the per-test chains below do not model. That the
+// gate refuses an owner-only account on this route is proven against a real
+// fake db in `tests/unit/owner-manager-route-refusals-behavior.test.ts`; here
+// the caller is an ordinary manager.
+vi.mock("@/lib/property-owner/access.server", () => ({
+  ownerAccessStateFor: async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false }),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { GET, POST } from "@/app/api/portal-vendors/route";

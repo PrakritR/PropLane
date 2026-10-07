@@ -149,7 +149,7 @@ describe("Work capabilities — immediate autosave on toggle", () => {
     vi.unstubAllGlobals();
   });
 
-  it("saves a trade immediately on checkbox change, no Save button", async () => {
+  it("saves a trade immediately when picked from the Trades dropdown, no Save button", async () => {
     currentTab = "capabilities";
     let lastTrades: string[] | undefined;
     mockFetchByUrl({
@@ -161,9 +161,16 @@ describe("Work capabilities — immediate autosave on toggle", () => {
       },
     });
     render(<VendorSettingsPanel />);
-    const box = await waitForElement<HTMLInputElement>('[data-vs-trades] input[type="checkbox"]');
-    fireEvent.click(box);
-    await waitFor(() => expect(lastTrades).toBeDefined());
+    const trigger = await waitForElement<HTMLElement>('[data-attr="vendor-trades-select"]');
+    fireEvent.click(trigger);
+    const option = await waitFor(() => {
+      const el = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent?.includes("Plumbing"));
+      if (!el) throw new Error("option not rendered yet");
+      return el as HTMLElement;
+    });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
+    await waitFor(() => expect(lastTrades).toEqual(["Plumbing"]));
     expect(document.querySelector('[data-attr="vendor-settings-capabilities-save"]')).toBeNull();
   });
 });

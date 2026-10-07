@@ -48,6 +48,9 @@ export function workspaceRightsForRole(role: WorkspaceRole | null | undefined): 
       return { members: true, houses: true };
     case "property_manager":
       return { members: false, houses: true };
+    case "property_owner":
+      // Explicit, not the default branch: an investor never runs a workspace.
+      return { members: false, houses: false };
     default:
       return { members: false, houses: false };
   }

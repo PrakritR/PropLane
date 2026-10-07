@@ -29,13 +29,25 @@ export type VendorWorkIdentityChannel = {
     | "platform_capacity_reached"
     | "identity_quarantined"
     | "identity_released"
+    | "phone_unverified"
     | "none";
 };
 
 export type VendorWorkIdentityUsage = {
+  /** Texts sent this Pacific calendar month (outbound SMS segments for the number; emails count one each). */
   outboundUsed: number;
+  /** Fair-use cap per month. */
   outboundCap: number;
   capState: "available" | "exhausted" | "unconfigured";
+  /** SMS segments this Pacific calendar month - what "Texts this month X of 1,000" shows. */
+  smsSegmentsUsed: number;
+};
+
+/** The vendor's own verified phone: the eligibility gate and the forwarding destination. */
+export type VendorWorkIdentityEligibility = {
+  phoneVerified: boolean;
+  /** Masked for display, e.g. "(206) 555-0142"; never used to route. */
+  verifiedPhoneLabel: string | null;
 };
 
 export type VendorWorkIdentityResponse = {
@@ -46,4 +58,10 @@ export type VendorWorkIdentityResponse = {
   inboundAvailable: { email: boolean; sms: boolean };
   smsUiEnabled: boolean;
   usage: VendorWorkIdentityUsage;
+  /** Verified-phone gate for claiming a number. Optional so older fixtures still type-check. */
+  eligibility?: VendorWorkIdentityEligibility;
+  /** Forward managers' texts to the verified phone. Defaults on. */
+  forwardToPhone?: boolean;
+  /** True when provisioning is a dry run (no provider call, a fictional number). */
+  dryRun?: boolean;
 };

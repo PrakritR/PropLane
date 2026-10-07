@@ -19,6 +19,11 @@ function database(seed: Record<string, Row[]> = {}) {
         select() { return query; },
         eq(column: string, value: unknown) { predicates.push((row) => row[column] === value); return query; },
         in(column: string, values: unknown[]) { predicates.push((row) => values.includes(row[column])); return query; },
+        // Reads added with vendor texting: a verified-phone lookup and the manager's recent-text lookup.
+        not(column: string, _op: string, value: unknown) { predicates.push((row) => (value === null ? row[column] != null : row[column] !== value)); return query; },
+        like(column: string, pattern: string) { const re = new RegExp(`^${pattern.replace(/%/g, ".*")}$`); predicates.push((row) => re.test(String(row[column] ?? ""))); return query; },
+        gte(column: string, value: unknown) { predicates.push((row) => String(row[column] ?? "") >= String(value)); return query; },
+        order() { return query; },
         limit(n: number) { maxRows = n; return query; },
         async maybeSingle() {
           return { data: (rows[table] ?? []).find((row) => predicates.every((p) => p(row))) ?? null, error: null };

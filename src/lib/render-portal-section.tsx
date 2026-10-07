@@ -1,4 +1,7 @@
 import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/portal/inspections-panel";
+import { getOwnerAccessState } from "@/lib/property-owner/access.server";
+import { PortalAccessUnavailable } from "@/components/portal/portal-access-unavailable";
+import { OWNER_HOME_PATH } from "@/lib/property-owner/sections";
 import {
   parseResidentInspectionTypeFilter,
 } from "@/lib/resident-inspections-tabs";
@@ -44,6 +47,10 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
+import { VendorBalancePanel, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
+import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";
+import { VendorStatementsPanel } from "@/components/portal/vendor-statements-panel";
+import { VendorTaxPanel } from "@/components/portal/vendor-tax-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
@@ -305,6 +312,25 @@ export async function renderPortalSection(
   tabParts?: string[],
   searchParams?: PortalSearchParams,
 ) {
+  // A Property owner (an owner-only account) is sent to their Overview for
+  // every manager section — runs before anything else can redirect them into
+  // a manager surface. The layout enforces the same rule for the routes that
+  // have their own directory; this is the dynamic-section half.
+  if (kind === "pro" || kind === "manager") {
+    const { user } = await getServerSessionProfile();
+    if (user) {
+      let ownerOnly: boolean;
+      try {
+        ownerOnly = (await getOwnerAccessState(user.id)).ownerOnly;
+      } catch {
+        // Neither shell: a membership we could not read must not decide in
+        // favour of the manager surface.
+        return <PortalAccessUnavailable />;
+      }
+      if (ownerOnly) redirect(OWNER_HOME_PATH);
+    }
+  }
+
   const def = await getPortalDefinition(kind);
 
   // A deferred section is unreachable by URL as well as by nav. The nav lock alone only hides the
@@ -723,7 +749,7 @@ export async function renderPortalSection(
       const vendorTab = tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const ManagerVendorsPanel = await loadManagerVendorsPanel();
       return subscriptionGated(
-        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} />,
+        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} smsUiEnabled={isSmsCommUiEnabled()} />,
         kind,
         "vendors",
         managerOwnerSubscriptionTier,
@@ -1833,6 +1859,11 @@ export async function renderPortalSection(
       redirect(vendorWorkOrderListHref(def.basePath, DEFAULT_VENDOR_WORK_ORDER_TAB));
     }
     const raw = tabParts[0]!;
+    // Find work: the fifth Services tab, published work from any manager (vendor-work-share-1006).
+    if (raw === "find-work") {
+      if (tabParts.length > 1) notFound();
+      return <VendorWorkOrdersPanel tabId="find-work" />;
+    }
     if (VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) {
       redirect(vendorWorkOrderListHref(def.basePath, VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!));
     }
@@ -1931,7 +1962,8 @@ export async function renderPortalSection(
   if (kind === "vendor" && section === "financials") {
     if (!meta.tabs.length) notFound();
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/financials/income`);
+      // Finances opens on Balance & payouts; `income` (Payments) is still its own tab.
+      redirect(`${def.basePath}/financials/balance`);
     }
     const finTab = tabParts[0]!;
     // "payouts" is a detail-only tab id: VD10/VD11 merged the visible Payouts
@@ -1940,7 +1972,9 @@ export async function renderPortalSection(
     // from the merged list and from a paid invoice with a matching
     // `vendor_payouts` row) must still resolve rather than 404 on a tab the
     // nav no longer shows.
-    const DETAIL_ONLY_FINANCIALS_TABS = ["payouts"] as const;
+    // `invoices` joined it when Finances became five tabs: an invoice's own
+    // record page lives under it, the bare id is a door to Payments.
+    const DETAIL_ONLY_FINANCIALS_TABS = ["payouts", "invoices"] as const;
     if (
       !meta.tabs.some((tab) => tab.id === finTab) &&
       !(DETAIL_ONLY_FINANCIALS_TABS as readonly string[]).includes(finTab)
@@ -1953,12 +1987,11 @@ export async function renderPortalSection(
       // (PLAN-0920-1058, area 1c).
       if (tabParts.length > 3) notFound();
       if (tabParts.length === 1) {
-        // Payouts is one page now, mounted at Settings → Payouts (vendor twin
-        // of the manager redirect above) — the bare Finances tab is a door to
-        // it, never its own render (PLAN-0920-1500). A payout record below
-        // still renders here.
+        // The bare `payouts` id is a door to Balance & payouts (it used to open
+        // Settings → Payouts, which now keeps only bank accounts + schedule). A
+        // payment's own record below still renders here.
         if (finTab === "payouts") {
-          redirect(`${def.basePath}/profile?tab=payouts`);
+          redirect(`${def.basePath}/financials/balance`);
         }
         // VD11 — Income and Invoices merged into one Payments list at the
         // `income` tabId; the bare Invoices tab is a door to it, same shape
@@ -1991,12 +2024,20 @@ export async function renderPortalSection(
       );
     }
 
+    // A withdrawal's own page: /financials/balance/<payoutId>.
+    if (finTab === "balance" && tabParts.length === 2 && tabParts[1] !== "pending") {
+      return <VendorWithdrawalDetail basePath={def.basePath} withdrawalId={decodeURIComponent(tabParts[1]!)} />;
+    }
     if (tabParts.length > 1) {
       if (tabParts.length === 2 && tabParts[1] === "pending") {
         redirect(`${def.basePath}/financials/${tabParts[0]}`);
       }
       notFound();
     }
+    if (finTab === "balance") return <VendorBalancePanel basePath={def.basePath} />;
+    if (finTab === "refunds") return <VendorRefundsPanel basePath={def.basePath} />;
+    if (finTab === "statements") return <VendorStatementsPanel basePath={def.basePath} />;
+    if (finTab === "tax") return <VendorTaxPanel basePath={def.basePath} />;
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
   }
 

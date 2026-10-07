@@ -634,6 +634,8 @@ export async function createInAppPayout(
      * as before — byte-for-byte.
      */
     computeFeeCents?: (method: PayoutMethod, amountCents: number) => number;
+    /** Cents of the available balance that may NOT be withdrawn (e.g. frozen by an open dispute). Default 0. */
+    reservedCents?: number;
   },
 ): Promise<CreateInAppPayoutResult> {
   const [account, balance] = await Promise.all([
@@ -667,11 +669,12 @@ export async function createInAppPayout(
     return { ok: false, status: 422, error: "Choose an eligible payout destination." };
   }
 
+  const reservedCents = Math.max(0, Math.round(opts.reservedCents ?? 0));
   const validation = validatePayoutAgainstBalance(
     opts.input,
     {
-      availableCents: currencyAmount(balance.available, CURRENCY),
-      instantAvailableCents: currencyAmount(balance.instant_available, CURRENCY),
+      availableCents: Math.max(0, currencyAmount(balance.available, CURRENCY) - reservedCents),
+      instantAvailableCents: Math.max(0, currencyAmount(balance.instant_available, CURRENCY) - reservedCents),
       bankInstantEligible: payableDestination.kind === "card" && payableDestination.instantEligible,
     },
     setup,

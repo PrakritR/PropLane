@@ -75,6 +75,7 @@ import {
   handleStripeTransferCreated,
   handleStripeTransferReversed,
 } from "@/lib/stripe-webhook-financials";
+import { handleVendorBankingDispute } from "@/lib/vendor-banking/disputes.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 export const runtime = "nodejs";
@@ -532,7 +533,10 @@ export async function POST(req: Request) {
       event.type === "account.external_account.updated" ||
       event.type === "account.external_account.deleted"
     ) {
-      await handleExternalAccountEvent(stripe, db, event.account).catch((e) => {
+      await handleExternalAccountEvent(stripe, db, event.account, {
+        type: event.type,
+        object: event.data.object as Stripe.BankAccount | Stripe.Card,
+      }).catch((e) => {
         console.error("[stripe webhook] account.external_account event", e);
       });
     }
@@ -625,10 +629,16 @@ export async function POST(req: Request) {
       // Resolve the durable ordinary ledger owner first. A rent/application
       // dispute is complete once that handler records (or deliberately
       // captures) it and must not enter the communication-credit retry path.
-      const ordinaryPaymentHandled = await handleStripeDisputeEvent(db, dispute).catch((e) => {
-        console.error("[stripe webhook] dispute event", e);
+      // A charge a vendor payout settled on freezes the vendor's amount and notifies both
+      // sides; it is not a rent dispute and never enters the communication-credit path.
+      const vendorDisputeHandled = await handleVendorBankingDispute(db, dispute).catch((e) => {
+        console.error("[stripe webhook] vendor dispute event", e);
         throw e;
       });
+      const ordinaryPaymentHandled = vendorDisputeHandled || (await handleStripeDisputeEvent(db, dispute).catch((e) => {
+        console.error("[stripe webhook] dispute event", e);
+        throw e;
+      }));
       if (
         !ordinaryPaymentHandled &&
         disputedCharge &&

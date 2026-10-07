@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { formatInvoiceMoney } from "@/lib/vendor-invoices";
@@ -98,10 +99,12 @@ export default async function VendorPayoutReceiptPage({ params }: { params: Prom
             <dt className="text-[11px] font-bold uppercase tracking-[0.1em] text-black/55">Gross</dt>
             <dd className="text-right text-[15px] font-semibold">{formatInvoiceMoney(breakdown.grossCents)}</dd>
           </div>
-          <div className="flex items-baseline justify-between gap-4 py-2">
-            <dt className="text-[11px] font-bold uppercase tracking-[0.1em] text-black/55">PropLane fee</dt>
-            <dd className="text-right text-[15px] font-semibold">−{formatInvoiceMoney(breakdown.feeCents)}</dd>
-          </div>
+          {breakdown.feeCents > 0 ? (
+            <div className="flex items-baseline justify-between gap-4 py-2">
+              <dt className="text-[11px] font-bold uppercase tracking-[0.1em] text-black/55">{PROPLANE_SERVICE_FEE_LABEL}</dt>
+              <dd className="text-right text-[15px] font-semibold">−{formatInvoiceMoney(breakdown.feeCents)}</dd>
+            </div>
+          ) : null}
           <div className="flex items-baseline justify-between gap-4 py-2">
             <dt className="text-[11px] font-bold uppercase tracking-[0.1em] text-black/55">Net paid to you</dt>
             <dd className="text-right text-[15px] font-semibold">{formatInvoiceMoney(breakdown.netCents)}</dd>

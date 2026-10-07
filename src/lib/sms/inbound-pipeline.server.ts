@@ -9,6 +9,8 @@ import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.s
 import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation-consent.server";
 import { resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
 import { routeUnrecognizedInboundText } from "@/lib/sms/inbound-text-routing.server";
+import { handleVendorSessionInbound } from "@/lib/sms/vendor-inbound-session.server";
+import { recordVendorInboundReplyConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
   deliverManagerSmsReply,
@@ -883,8 +885,16 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     await db.from("inbound_sms_log").update({ matched_sender_user_id: vendor.session.vendor_user_id,
       ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "vendor", counterpartyUserId: vendor.session.vendor_user_id, fromPhone })
     }).eq("message_sid", messageSid).eq("manager_user_id", managerId);
-    await runVendorAgentSessionTurn(db, vendor.session, body, "sms", { inboundMessageSid: messageSid,
-      precomputedReply: vendor.kind === "reply" ? vendor.reply : null, reference: vendor.kind === "session" ? vendor.reference : null });
+    // The manager's own conversation wins (Decide #3, Oct 6): see handleVendorSessionInbound.
+    const vendorRoute = await handleVendorSessionInbound(db, {
+      managerUserId: managerId,
+      phoneE164: normalizeE164(fromPhone) ?? fromPhone,
+      messageSid,
+      body,
+      vendor,
+      runTurn: runVendorAgentSessionTurn as never,
+    });
+    if (vendorRoute.route === "manager_thread") mark("vendor:manager-wins");
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Vendor inbound completion unavailable.");
     return twimlOk();
   }
@@ -1065,6 +1075,14 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         body,
         occurredAt,
       }).catch((error) => console.error("vendor roster inbound projection failed", error instanceof Error ? error.message : "unknown"));
+      // A text from a vendor on the manager's list (or one the manager texted
+      // in the last 90 days) unlocks replies in this thread, unless STOP stands.
+      await recordVendorInboundReplyConsent(db, {
+        managerUserId: workspace.ownerUserId,
+        vendorUserId: routing.vendorUserId,
+        phone: normalizeE164(fromPhone) ?? fromPhone,
+        messageSid,
+      });
       await upsertManagerSmsContact(db, {
         managerUserId: managerId,
         phone: fromPhone,

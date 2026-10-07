@@ -1,5 +1,5 @@
 /**
- * Reviewer-visible visual evidence for the claude-1 lane integration.
+ * Reviewer-visible visual evidence for the 2026-10-06 lane integration.
  *
  * Bundles the REAL components and the REAL Tailwind build and screenshots them in
  * Chromium. Only data, session, analytics and network are stubbed — so what the

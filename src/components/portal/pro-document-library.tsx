@@ -27,6 +27,7 @@ import {
 import { triggerDocumentDownload } from "@/components/portal/resident-other-documents";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -494,6 +495,27 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
     [showToast],
   );
 
+  const handleToggleOwnerSharing = useCallback(
+    async (doc: ManagerDocumentDTO) => {
+      const next = doc.sharedWithOwners !== true;
+      try {
+        const res = await fetch(`/api/manager-documents/${doc.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ sharedWithOwners: next }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { document?: ManagerDocumentDTO; error?: string };
+        if (!res.ok || !data.document) throw new Error(data.error ?? "Could not update sharing.");
+        setDocuments((cur) => cur.map((d) => (d.id === doc.id ? { ...d, sharedWithOwners: next } : d)));
+        showToast(next ? "Shared with owners." : "Stopped sharing with owners.");
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not update sharing.");
+      }
+    },
+    [showToast],
+  );
+
   const handleShareLink = useCallback(
     async (doc: ManagerDocumentDTO) => {
       try {
@@ -914,6 +936,20 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
               // C062/C063 (captain, BUILD-WAVE2 §4, resolved): one modal — no
               // 4-tab document record page.
               onOpen={() => setPreviewTarget(doc)}
+              menu={
+                doc.scope.propertyId ? (
+                  <RowActionsMenu
+                    label={doc.displayName}
+                    items={[
+                      {
+                        id: "owner-sharing",
+                        label: doc.sharedWithOwners ? "Stop sharing" : "Share with owners",
+                        onSelect: () => void handleToggleOwnerSharing(doc),
+                      },
+                    ]}
+                  />
+                ) : undefined
+              }
               dataAttr={`document-row-${doc.id}`}
             />
           ))}

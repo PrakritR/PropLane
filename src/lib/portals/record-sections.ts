@@ -9,6 +9,7 @@ import {
   CreditCard,
   FileText,
   MessageSquare,
+  Smartphone,
   Wallet,
   Download,
   Settings,
@@ -593,6 +594,9 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     headerActions: [
       { id: "edit", label: "Edit vendor", icon: Pencil },
       { id: "invite", label: "Invite to PropLane", icon: UserPlus },
+      // Text goes from the workspace work number to the vendor's own saved phone; the vendor page
+      // drops it when the vendor has no phone or texting is off.
+      { id: "text", label: "Text", icon: Smartphone },
       { id: "message", label: "Message", icon: Send, tone: "primary" },
       { id: "remove", label: "Remove vendor", icon: Trash2, tone: "danger" },
     ],
@@ -837,17 +841,28 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
 const VENDOR_DEFS: Record<VendorRecordKind, KindDef> = {
   job: {
     basePathDefault: "/vendor",
-    // Services plan (claude-2/services-vendors-1004): Service · Estimate & bid · Schedule ·
-    // Invoice · Communication. The old ids (overview, bid-invoice ...) alias in
-    // `parseVendorJobDetailTab`.
-    ownGroups: [{ label: "Service", ids: [
-      { id: "service", label: "Service" },
-      { id: "bid", label: "Estimate & bid" },
-      { id: "schedule", label: "Schedule" },
-      { id: "invoice", label: "Invoice" },
-    ] }],
-    // No registry header icons: the vendor service page draws its own header (Message · ⋯ Decline ·
-    // ONE primary next step), so the rail and phone picker carry sections only.
+    // Vendor portal redesign (claude-2/vendor-portal-redesign-1006): the resident-record anatomy -
+    // Job (Overview · Estimate & bid · Schedule), Money (Invoice · Payments), Records (Communication ·
+    // Documents). `service` is the Overview id; the old ids alias in `parseVendorJobDetailTab`.
+    ownGroups: [
+      { label: "Job", ids: [
+        { id: "service", label: "Overview" },
+        { id: "bid", label: "Estimate & bid" },
+        { id: "schedule", label: "Schedule" },
+      ] },
+      { label: "Money", ids: [
+        { id: "invoice", label: "Invoice" },
+        { id: "payments", label: "Payments" },
+      ] },
+      // A labelled group, so it is declared here rather than through the unlabeled trio.
+      { label: "Records", ids: [
+        { id: "communication", label: "Communication" },
+        { id: "documents", label: "Documents" },
+      ] },
+    ],
+    hasCommunication: false,
+    // No registry header icons: the vendor service record draws its own header (Message the manager ·
+    // Send bid · ⋯), so the rail and phone picker carry sections only.
     headerActions: [],
     hasDocuments: false,
     hasActivity: false,

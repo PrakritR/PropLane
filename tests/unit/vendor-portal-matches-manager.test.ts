@@ -19,10 +19,11 @@ describe("vendor portal matches manager chrome", () => {
     expect(communication?.label).toBe("Communication");
     expect(vendorPortal.sections.some((s) => s.section === "payments")).toBe(false);
     expect(vendorPortal.sections.some((s) => s.label === "Inbox")).toBe(false);
-    expect(vendorPortal.sections.find((s) => s.section === "financials")?.tabs.map((t) => t.id)).toEqual([
-      "income",
-      "invoices",
-    ]);
+    const finances = vendorPortal.sections.find((s) => s.section === "financials");
+    expect(finances?.label).toBe("Finances");
+    expect(finances?.tabs.map((t) => t.label)).toEqual(["Balance & payouts", "Payments", "Refunds", "Statements", "Tax info"]);
+    // `income` keeps its id so every old /vendor/financials/income link still lands on Payments.
+    expect(finances?.tabs.map((t) => t.id)).toEqual(["balance", "income", "refunds", "statements", "tax"]);
   });
 
   it("native bar is Services · Calendar · Dashboard · Communication", () => {
@@ -56,7 +57,8 @@ describe("vendor portal matches manager chrome", () => {
     expect(comm).toContain("PortalPrimaryIconAction");
     expect(comm).toContain("VendorWorkNumberCard");
     const cards = read("src/components/portal/vendor-work-number-card.tsx");
-    expect(cards).toContain("Set up work number");
+    // The PropLane work NUMBER card is retired (vendors never own a number); the email card stays.
+    expect(cards).not.toContain("Set up work number");
     expect(cards).toContain("Set up work email");
   });
 
@@ -93,7 +95,7 @@ describe("vendor portal matches manager chrome", () => {
     expect(calendar).toContain("vendorViewer");
     expect(calendar).toContain("onVendorAvailabilityEdit");
     expect(calendar).toContain("hideViewModeControl");
-    expect(calendar).toContain("GoogleCalendarConnectDialog");
+    expect(calendar).toContain("VendorCalendarIntegrationsAction");
     // Set-availability edits and removal both go through the one canonical
     // editor — clicking a painted block re-opens it rather than a bespoke
     // grid-level delete.
@@ -116,15 +118,19 @@ describe("vendor portal matches manager chrome", () => {
     // "Request payment" was renamed to the shared "Add <noun>" list-band
     // primary shape (N025) — this assertion rotted after that fix landed.
     expect(finances).toContain('portalListAddPrimaryLabel("payment")');
-    expect(finances).toContain("Payout setup");
+    // The band's gear opens Settings → Payouts (vendor-portal-redesign-1006); the
+    // Bank icon on the balance card keeps the Add bank flow.
+    expect(finances).toContain('<VendorSettingsGear section="payments"');
+    // The Bank icon lives on the Balance & payouts card now.
+    expect(read("src/components/portal/vendor-finances-balance.tsx")).toContain('label="Bank"');
     // Payouts is one page now, mounted at Settings → Payouts
     // (PLAN-0920-1500) — the Finances "payouts" tabId never reaches this
-    // component; `render-portal-section.tsx` redirects it first. Income still
-    // keeps a quick "Payout setup" door into payment methods.
+    // component; `render-portal-section.tsx` redirects it first. 
     expect(finances).not.toContain("PortalPayoutsPanel");
     const render = read("src/lib/render-portal-section.tsx");
     expect(render).toContain('finTab === "payouts"');
-    expect(render).toContain("${def.basePath}/profile?tab=payouts");
+    // Settings › Payouts keeps only bank accounts + schedule; the bare payouts id now opens Balance & payouts.
+    expect(render).toContain("${def.basePath}/financials/balance");
     expect(finances).not.toContain("ReportFilterBar");
     expect(finances).toContain("VendorQuoteWizard");
     expect(read("src/components/portal/vendor-quote-wizard.tsx")).not.toContain("VendorAddChooser");

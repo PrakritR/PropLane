@@ -17,10 +17,22 @@ import {
 } from "@/components/portal/portal-payouts-panel";
 import { PayoutWithdrawSheet } from "@/components/portal/payout-withdraw-sheet";
 import { AddBankFlow } from "@/components/portal/add-bank-flow";
-import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
+import {
+  deriveVendorFinancesFigures,
+  vendorWithdrawableCents,
+  type VendorHeldReasonKind,
+} from "@/lib/vendor-banking/finances";
 import { track } from "@/lib/analytics/track-client";
 import { sharedGet } from "@/lib/shared-get-cache";
 import { isPayoutDestinationSummary, type PayoutDestinationSummary } from "@/components/portal/payout-bank-sheet";
+
+const HELD_PHRASE: Record<VendorHeldReasonKind, string> = {
+  none: "held",
+  proplane: "held by PropLane",
+  awaiting_bank: "held until you add a bank",
+  awaiting_identity: "held until your identity is verified",
+  releasing: "held, being released to your account",
+};
 
 export function VendorDashboardBalanceCard() {
   const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
@@ -55,12 +67,16 @@ export function VendorDashboardBalanceCard() {
   if (loading) return null;
   if (loadError || !balance || !destinations) return <div role="alert" className="rounded-xl border border-border p-4 text-sm" data-attr="vendor-dashboard-balance-error">Could not load payout funds or bank accounts.</div>;
 
-  const withdrawableCents = withdrawableCentsFromSnapshot(balance);
+  // The same derivation the Finances panel uses, so the two screens can never
+  // disagree about what is withdrawable or what is held.
+  const withdrawableCents = vendorWithdrawableCents(balance);
+  const figures = deriveVendorFinancesFigures(balance);
   const withdrawAccounts = destinations.filter((row) => row.payable)
     .sort((a, b) => Number(b.default) - Number(a.default))
     .map((row) => ({ id: row.id, label: row.label, last4: row.last4, kind: row.kind, instantEligible: row.instantEligible }));
   const ready = balance.setup.ready && withdrawAccounts.length > 0;
-  const heldCents = balance.heldCents ?? 0;
+  const heldCents = figures.heldCents;
+  const heldLabel = `${HELD_PHRASE[figures.heldReasonKind]}${figures.hasDisputeFreeze ? " (Disputed)" : ""}`;
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-sm" data-attr="vendor-dashboard-balance">
       <div className="flex items-start justify-between gap-3">
@@ -82,7 +98,7 @@ export function VendorDashboardBalanceCard() {
           {balance.pendingCents > 0 ? <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-payment-pending">{formatMoney(balance.pendingCents, balance.currency)} pending payment</p> : null}
           {heldCents > 0 ? (
             <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-balance-held">
-              {formatMoney(heldCents, balance.currency)} held by PropLane
+              {formatMoney(heldCents, balance.currency)} {heldLabel}
             </p>
           ) : null}
           {(balance.releasePendingCents ?? 0) > 0 ? <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-release-pending">{formatMoney(balance.releasePendingCents ?? 0, balance.currency)} release pending</p> : null}

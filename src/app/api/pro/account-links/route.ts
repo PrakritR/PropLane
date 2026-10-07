@@ -1,3 +1,4 @@
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -6,16 +7,22 @@ import {
   type AccountLinksPayload,
 } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
-import { actorCanManageInviteLink, capTeamInvitePermissionsForDelegate, resolveTeamInviteDelegate } from "@/lib/auth/co-manager-team-invite.server";
+import {
+  actorCanManageInviteLink,
+  capOwnerKeysForDelegate,
+  capTeamInvitePermissionsForDelegate,
+  resolveTeamInviteDelegate,
+} from "@/lib/auth/co-manager-team-invite.server";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
 import {
+  applyRoleToPropertyPermissions,
+  flatTeamRoleGrant,
   inferInviteTeamRole,
   parseTeamRole,
   permissionsMatchTeamRole,
   stampTeamRoleOnProperties,
-  stampTeamRolePermissions,
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
@@ -241,6 +248,8 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const ownerRefusal = await refuseOwnerOnly(createSupabaseServiceRoleClient(), user.id);
+    if (ownerRefusal) return ownerRefusal;
 
     const body = (await req.json().catch(() => null)) as {
       inviteeAxisId?: string;
@@ -375,6 +384,32 @@ export async function POST(req: Request) {
       }
       payoutPercentForManager = 15;
     }
+    if (teamRole === "property_owner") {
+      // Owner keys are not module grants, so the delegate cap above strips them.
+      // Re-derive from what was asked; the role carries no module access to cap.
+      propertyCoManagerPermissions = stampTeamRoleOnProperties(
+        teamRole,
+        assignedPropertyIds,
+        normalizePropertyCoManagerPermissions(
+          body?.propertyCoManagerPermissions ?? body?.coManagerPermissions,
+          assignedPropertyIds,
+        ),
+      );
+      // ...but re-deriving must not step over the cap: an owner key is capped by
+      // the module it reads from, so a delegate cannot share books they cannot see.
+      const ownerCapped = await capOwnerKeysForDelegate(
+        svc,
+        user.id,
+        inviterUserId,
+        assignedPropertyIds,
+        propertyCoManagerPermissions,
+      );
+      if (!ownerCapped.ok) {
+        return NextResponse.json({ error: ownerCapped.error }, { status: ownerCapped.status });
+      }
+      propertyCoManagerPermissions = ownerCapped.permissions;
+    }
+    propertyCoManagerPermissions = applyRoleToPropertyPermissions(teamRole, propertyCoManagerPermissions);
     if (teamRole !== "custom") {
       const flatAfterCap = flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
       if (!permissionsMatchTeamRole(flatAfterCap, teamRole)) {
@@ -384,7 +419,7 @@ export async function POST(req: Request) {
 
     // Workspace rights follow the role; only a Custom row keeps explicit flags.
     const workspacePermissions = teamRole === "custom" ? normalizeWorkspacePermissions(body?.workspacePermissions) : {};
-    const stampedFlat = stampTeamRolePermissions(teamRole);
+    const stampedFlat = flatTeamRoleGrant(teamRole, propertyCoManagerPermissions);
     const coManagerPermissions: CoManagerPermissions = stampedFlat
       ? stampedFlat
       : Object.keys(

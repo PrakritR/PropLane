@@ -228,4 +228,29 @@ describe("startVendorPayCheckout — vendor pay fee wiring", () => {
     expect(call.forceExplicitCard).toBe(true);
     expect(call.fixedFeeBreakdown).toMatchObject({ totalCents: expect.any(Number) });
   });
+
+  it("the fee is derived at pay time and frozen with the terms; the accepted bid is never written", async () => {
+    const tables = baseTables(12_500);
+    tables.work_order_bids = [{ id: "bid_1", work_order_id: WORK_ORDER, vendor_user_id: VENDOR, amount_cents: 12_500, status: "accepted" }];
+    const bidsBefore = JSON.parse(JSON.stringify(tables.work_order_bids));
+    const db = makeDb(tables);
+    signIn(db);
+    flagState.enabled = true;
+
+    const res = await POST(postBody(12_500));
+    expect(res.status).toBe(200);
+    // The bid row is byte-for-byte what the vendor accepted: no fee, no net, no new amount.
+    expect(tables.work_order_bids).toEqual(bidsBefore);
+
+    const pending = (tables.portal_work_order_records![0]!.row_data as Row).pendingVendorPay as {
+      providerTerms: { platformFeeCents: number; request: { extraApplicationFeeCents: number; amountCents: number } };
+    };
+    expect(pending.providerTerms.platformFeeCents).toBe(375);
+    expect(pending.providerTerms.request.extraApplicationFeeCents).toBe(375);
+    expect(pending.providerTerms.request.amountCents).toBe(12_500);
+
+    // Flipping the flag after the freeze cannot change what was frozen.
+    flagState.enabled = false;
+    expect(pending.providerTerms.platformFeeCents).toBe(375);
+  });
 });

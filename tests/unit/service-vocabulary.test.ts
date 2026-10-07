@@ -9,7 +9,7 @@ import { SERVICE_STAGE_IDS, SERVICE_STAGE_LABEL, SERVICE_STAGE_TABS, parseServic
  * actions are Request bids · Assign · Approve bid · Schedule · Complete · Pay. This scans the
  * user-visible string literals and JSX text of service / vendor / task UI for the retired words.
  */
-const RETIRED = ["Vendor & schedule", "Mark done", "Publish to vendors", "Compare quotes", "Potential", "Send quote", "Add quote"];
+const RETIRED = ["Vendor & schedule", "Mark done", "Compare quotes", "Potential", "Send quote", "Add quote"];
 
 /** Files whose copy is the service / vendor / task UI. */
 const UI_FILE = /(service|vendor|task|work-order|bid|calendar|booking)/i;

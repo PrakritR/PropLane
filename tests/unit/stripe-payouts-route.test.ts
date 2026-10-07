@@ -248,6 +248,11 @@ vi.mock("@/lib/vendor-banking/flag", () => ({
   vendorBankingEnabled: () => vendorBankingFlagState.enabled,
 }));
 
+const frozenDisputes: { cents: number } = { cents: 0 };
+vi.mock("@/lib/vendor-banking/disputes.server", () => ({
+  readVendorFrozenDisputeCents: async () => frozenDisputes.cents,
+}));
+
 import { POST as managerCreate } from "@/app/api/stripe/payouts/create/route";
 import { PUT as managerSchedule } from "@/app/api/stripe/payouts/schedule/route";
 import { GET as managerBalance } from "@/app/api/stripe/payouts/balance/route";
@@ -269,6 +274,7 @@ beforeEach(() => {
   payoutContext.isCoManagerForPayout = false;
   vendorAccess = { ok: true, actor: { userId: "vendor-1", email: "vendor@example.com" } };
   vendorBankingFlagState.enabled = false;
+  frozenDisputes.cents = 0;
   fakeDb = makeFakeDb();
   fakeStripe = makeFakeStripe({ availableCents: 100_000, instantAvailableCents: 100_000, bankInstantEligible: true });
 });
@@ -693,14 +699,16 @@ describe("POST /api/vendor/payouts/create — VENDOR_BANKING_ENABLED Instant fee
     expect(body).toMatchObject({ feeCents: 1_000, netCents: 99_000 }); // 1%
   });
 
-  it("flag on: Instant withdrawal uses the vendor-specific 1.5% fee instead", async () => {
+  it("flag on: Instant withdrawal quotes and charges NO PropLane fee (nothing could collect it, so none is booked)", async () => {
     vendorBankingFlagState.enabled = true;
     const res = await vendorCreate(
       jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 100_000, method: "instant", destinationId: "card_debit" }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toMatchObject({ feeCents: 1_500, netCents: 98_500 }); // 1.5%
+    expect(body).toMatchObject({ feeCents: 0, netCents: 100_000 });
+    expect(fakeStripe.payouts.create.mock.calls[0]![0].amount).toBe(100_000);
+    expect(fakeDb.rows.some((row) => Number((row as { fee_cents?: number }).fee_cents) > 0)).toBe(false);
   });
 
   it("flag on: Standard withdrawal is still free — the vendor rate only ever applies to Instant", async () => {
@@ -721,6 +729,37 @@ describe("POST /api/vendor/payouts/create — VENDOR_BANKING_ENABLED Instant fee
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ feeCents: 1_000, netCents: 99_000 });
+  });
+});
+
+describe("POST /api/vendor/payouts/create — money frozen by an open dispute is not withdrawable", () => {
+  it("refuses an amount above Available minus frozen, server side, before any payout is created", async () => {
+    vendorBankingFlagState.enabled = true;
+    frozenDisputes.cents = 30_000; // Available is $1,000.00 in the fake
+    const res = await vendorCreate(
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 80_000, method: "standard" }),
+    );
+    expect(res.status).toBe(422);
+    expect(fakeStripe.payouts.create).not.toHaveBeenCalled();
+    expect(fakeDb.rows).toHaveLength(0);
+  });
+
+  it("allows exactly Available minus frozen", async () => {
+    vendorBankingFlagState.enabled = true;
+    frozenDisputes.cents = 30_000;
+    const res = await vendorCreate(
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 70_000, method: "standard" }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("ignores disputes entirely with the flag off", async () => {
+    vendorBankingFlagState.enabled = false;
+    frozenDisputes.cents = 99_000;
+    const res = await vendorCreate(
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 80_000, method: "standard" }),
+    );
+    expect(res.status).toBe(200);
   });
 });
 

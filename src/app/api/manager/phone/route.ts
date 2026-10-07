@@ -433,6 +433,24 @@ export async function PUT(req: Request) {
     /* non-critical */
   }
 
+  // The same for a VENDOR: the conversations their managers had with this number
+  // become theirs (one per manager workspace), and a roster row whose own saved
+  // phone is this number links to the account. Role comes from `profile_roles`.
+  try {
+    const { data: vendorRole } = await db
+      .from("profile_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "vendor")
+      .maybeSingle();
+    if (vendorRole) {
+      const { linkVerifiedVendorPhoneHistory } = await import("@/lib/communication/vendor-conversations.server");
+      await linkVerifiedVendorPhoneHistory(db, user.id);
+    }
+  } catch {
+    /* non-critical */
+  }
+
   // First verified personal phone → PropLane messaging assistant intro (idempotent).
   try {
     const { maybeSendManagerPropLaneAssistantIntro } = await import("@/lib/claw-onboarding-sms.server");

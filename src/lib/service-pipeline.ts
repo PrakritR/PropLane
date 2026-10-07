@@ -40,7 +40,38 @@ export type PipelineRosterVendor = {
   /** The vendor's review rating, when they have reviews. */
   rating?: { average: number; count: number } | null;
   city?: string | null;
+  /** How the vendor reached the roster; a text link or the work board (vendor-work-share-1006). */
+  origin?: VendorOrigin | null;
+  /** The server holds their phone / email until they bid, so the row has none yet. */
+  contactHeldUntilBid?: boolean;
 };
+
+export type VendorOrigin = "service_link" | "work_board";
+
+/** The plain fact a Sent / Bids row draws for where the vendor came from. */
+export const VENDOR_ORIGIN_FACT: Record<VendorOrigin, string> = {
+  service_link: "From your text link",
+  work_board: "From the work board",
+};
+export const CONTACT_HELD_FACT = "Contact shown after they bid";
+
+/** A Sent / Bids row plus the extra facts a link / board vendor carries (absent for every other vendor). */
+export type PipelineRequestRow = VendorRequestRow & {
+  originFact?: string;
+  contactFact?: string;
+};
+
+/** The origin / held-contact facts for one pipeline row; Sent rows show the held-contact fact, Bids rows never do. */
+export function requestRowFacts(
+  vendor: Pick<PipelineRosterVendor, "origin" | "contactHeldUntilBid"> | undefined,
+  group: "sent" | "bids",
+): { originFact?: string; contactFact?: string } {
+  if (!vendor) return {};
+  const out: { originFact?: string; contactFact?: string } = {};
+  if (vendor.origin && VENDOR_ORIGIN_FACT[vendor.origin]) out.originFact = VENDOR_ORIGIN_FACT[vendor.origin];
+  if (group === "sent" && vendor.contactHeldUntilBid === true) out.contactFact = CONTACT_HELD_FACT;
+  return out;
+}
 
 export type PipelineCandidate = {
   id: string;
@@ -71,9 +102,9 @@ export type PipelineJobRow = {
 export type ServicePipeline = {
   available: PipelineCandidate[];
   /** Offers out, estimates given, visits booked and vendors who declined - nobody has bid yet. */
-  sent: VendorRequestRow[];
+  sent: PipelineRequestRow[];
   /** Submitted bids, each approvable. */
-  bids: VendorRequestRow[];
+  bids: PipelineRequestRow[];
   scheduled: PipelineJobRow[];
   done: PipelineJobRow[];
   counts: Record<PipelineTabId, number>;
@@ -152,8 +183,14 @@ export function buildServicePipeline(input: {
   const approved = requests.find((request) => request.state === "approved") ?? null;
   const bidRows = requests.filter((request) => request.state === "bid");
   // Nothing is pending once a vendor is hired or the job is closed out: open offers read as Sent only before that.
-  const sent = approved || finished || cancelled ? [] : requests.filter((request) => request.state !== "bid" && request.state !== "approved");
-  const bidsOpen = approved || finished || cancelled ? [] : bidRows;
+  const rosterById = new Map(input.roster.map((vendor) => [vendor.id, vendor]));
+  const withFacts = (rows: VendorRequestRow[], group: "sent" | "bids"): PipelineRequestRow[] =>
+    rows.map((row) => {
+      const facts = requestRowFacts(row.vendorDirectoryId ? rosterById.get(row.vendorDirectoryId) : undefined, group);
+      return facts.originFact || facts.contactFact ? { ...row, ...facts } : row;
+    });
+  const sent = approved || finished || cancelled ? [] : withFacts(requests.filter((request) => request.state !== "bid" && request.state !== "approved"), "sent");
+  const bidsOpen = approved || finished || cancelled ? [] : withFacts(bidRows, "bids");
 
   const assignee = job ? resolveWorkOrderAssignee(job as DemoManagerWorkOrderRow) : null;
   const vendorName = approved?.vendorName ?? (assignee?.kind === "vendor" ? assignee.name : "");

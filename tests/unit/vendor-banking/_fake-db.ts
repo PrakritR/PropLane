@@ -16,6 +16,8 @@ class FakeQuery {
   private upsertConflictCol: string | null = null;
   private payload: Row | null = null;
   private cols: string | null = null;
+  private rangeFrom: number | null = null;
+  private rangeTo: number | null = null;
   constructor(
     private rows: Row[],
     private table: string,
@@ -51,6 +53,12 @@ class FakeQuery {
     return this;
   }
   limit() {
+    return this;
+  }
+  /** PostgREST paging: the real client caps a page, so the callers that page to the end must be exercised. */
+  range(from: number, to: number) {
+    this.rangeFrom = from;
+    this.rangeTo = to;
     return this;
   }
   insert(row: Row) {
@@ -101,7 +109,11 @@ class FakeQuery {
       else this.rows.push({ ...this.payload! });
       return { data: null, error: null };
     }
-    return { data: this.matched(), error: null };
+    const rows = this.matched();
+    return {
+      data: this.rangeFrom === null ? rows : rows.slice(this.rangeFrom, (this.rangeTo ?? rows.length) + 1),
+      error: null,
+    };
   }
   maybeSingle() {
     const res = this.exec();
@@ -115,6 +127,25 @@ class FakeQuery {
 
 export function makeFakeDb(tables: Record<string, Row[]> = {}, rpcs: Record<string, RpcHandler> = {}) {
   const inserts: Array<{ table: string; row: Row }> = [];
+  const ledgerRows = () => tables.vendor_banking_ledger_entries ?? [];
+  /**
+   * The two read-only ledger aggregates the reconciliation path now asks the
+   * database for, computed over the same backing rows so a test still exercises
+   * the real sum rather than a hand-fed number.
+   */
+  const builtInRpcs: Record<string, RpcHandler> = {
+    vendor_banking_ledger_total_cents: (params) => ({
+      data: ledgerRows()
+        .filter((row) => row.vendor_user_id === params.p_vendor_user_id)
+        .reduce((sum, row) => sum + (Number(row.amount_cents) || 0), 0),
+      error: null,
+    }),
+    vendor_banking_ledger_vendor_ids: () => ({
+      // `returns setof uuid` comes back as bare strings, like the real client.
+      data: [...new Set(ledgerRows().map((row) => String(row.vendor_user_id)))],
+      error: null,
+    }),
+  };
   return {
     _tables: tables,
     _inserts: inserts,
@@ -122,8 +153,8 @@ export function makeFakeDb(tables: Record<string, Row[]> = {}, rpcs: Record<stri
       if (!tables[table]) tables[table] = [];
       return new FakeQuery(tables[table]!, table, inserts);
     },
-    async rpc(name: string, params: Record<string, unknown>) {
-      const handler = rpcs[name];
+    async rpc(name: string, params: Record<string, unknown> = {}) {
+      const handler = rpcs[name] ?? builtInRpcs[name];
       if (!handler) throw new Error(`unmocked rpc ${name}`);
       return handler(params);
     },

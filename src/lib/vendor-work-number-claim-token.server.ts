@@ -2,6 +2,8 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { featureSigningSecret } from "@/lib/feature-signing-secret.server";
+
 /**
  * Signs which EXACT number a vendor may claim, so `POST
  * /api/vendor/work-identity` can never be made to purchase an arbitrary
@@ -19,7 +21,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * feature-scoped secrets (no generic app-wide signing key exists — see
  * rate-limit.ts and mcp/oauth.server.ts), the HMAC key reuses
  * `SUPABASE_SERVICE_ROLE_KEY`, which every real deployment already requires
- * for the service-role client this whole module runs under.
+ * for the service-role client this whole module runs under. Missing it is a
+ * refusal to sign (`featureSigningSecret`), never a literal fallback: a
+ * published key would let anyone mint a claim for an arbitrary number.
  */
 export type VendorWorkNumberClaimPayload = {
   vendorUserId: string;
@@ -30,7 +34,7 @@ export type VendorWorkNumberClaimPayload = {
 const CLAIM_TOKEN_TTL_MS = 15 * 60_000;
 
 function claimSigningSecret(): string {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY ?? "test-only-vendor-work-number-claim-secret";
+  return featureSigningSecret("vendor-work-number-claim");
 }
 
 function hmac(encodedPayload: string): string {

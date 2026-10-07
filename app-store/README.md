@@ -20,23 +20,31 @@ an eleventh file, or copy over Apple's limits (170 / 4000 / 4000 / 100).
 
 ## Re-shoot the screenshots
 
-Run a dev server with the seeded e2e manager (`npm run test:seed`), then:
+Seed the showcase manager once (dev/test project only; it writes `SHOT_EMAIL` /
+`SHOT_PASSWORD` to the gitignored `.env.local`, and must be re-run after
+`npm run test:seed`, which prunes it), start a dev server, then:
 
 ```sh
+npm run app-store:seed
 npm run app-store:shots -- --base http://localhost:3000            # both devices
 npm run app-store:shots -- --base http://localhost:3000 --device iphone
 ```
 
-`scripts/ios-app-store-screenshots.mjs` signs in as
-`manager2@test.proplane.local`, shoots each screen in `GALLERY` on the phone
-and iPad viewports, frames it with its headline in PropLane's font, and
-rewrites the two folders. It refuses a manager with fewer than three
-properties. Look at the PNGs, then commit them — the next production push
-uploads whatever is committed.
+`scripts/ios-app-store-screenshots.mjs` signs in as that showcase manager
+(`SHOT_EMAIL` / `SHOT_PASSWORD`, from the environment or `.env.local`), captures each
+screen in `GALLERY` (iPhone at 440x956 @3x, iPad at 834x1112 @3x), frames it and
+rewrites the two folders. The frame is fixed: brand blue and navy alternating by slot,
+the PropLane mark from `src/app/icon.svg`, a two-line headline with no subtext, and a
+device that bleeds off the bottom edge; slots 02 and 05 are a zoomed crop card instead.
+It refuses a manager with fewer than three properties, and it stops, rather than shoot
+a wrong page, if a route redirects away (slot 08 is a resident's Move in section, slot
+10 reaches Rooms through the phone Steps picker: both once silently broke), if an
+element is missing, or if the page shows a test-fixture string or "work order".
+Look at the PNGs, then commit them: the next production push uploads whatever is committed.
 
-To change a headline or which screen a slot shows, edit `GALLERY` in the
-script and re-run it. To change store text, edit `copy.json`; the legal-link
-footer Apple requires is appended automatically.
+To change a headline or which screen a slot shows, edit `GALLERY` in the script and
+re-run it. To change store text, edit `copy.json`; the legal-link footer Apple requires
+is appended automatically.
 
 ## How it ships
 

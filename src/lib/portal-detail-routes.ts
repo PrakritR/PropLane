@@ -753,30 +753,39 @@ export function parseVendorWorkOrderListTab(raw: string | undefined | null): Ven
   return DEFAULT_VENDOR_WORK_ORDER_TAB;
 }
 
+/**
+ * The fifth Services tab on the vendor portal: published work from any manager (vendor-work-share-1006).
+ * It is NOT a service stage - the four stages above stay the one vocabulary - so it lives beside
+ * `VENDOR_WORK_ORDER_LIST_TABS`, not in it.
+ */
+export const VENDOR_FIND_WORK_LIST_TAB = "find-work" as const;
+
 export function vendorWorkOrderListHref(
   basePath: string,
-  tab: VendorWorkOrderListTabId = DEFAULT_VENDOR_WORK_ORDER_TAB,
+  tab: VendorWorkOrderListTabId | typeof VENDOR_FIND_WORK_LIST_TAB = DEFAULT_VENDOR_WORK_ORDER_TAB,
 ): string {
   return `${basePath}/work-orders/${tab}`;
 }
 
 /**
- * Vendor service page rail: Service · Estimate & bid · Schedule · Invoice · Communication. The old
- * ids (overview, scope-photos, bid-invoice, quote ...) stay as aliases so saved links keep working.
+ * Vendor service record rail: Job (Overview · Estimate & bid · Schedule), Money (Invoice · Payments),
+ * Records (Communication · Documents). `service` is the Overview id; the old ids (overview,
+ * scope-photos, bid-invoice, quote ...) stay as aliases so saved links keep working.
  */
 export const VENDOR_JOB_DETAIL_TABS = [
   "service",
   "bid",
   "schedule",
   "invoice",
+  "payments",
   "communication",
+  "documents",
 ] as const;
 export type VendorJobDetailTabId = (typeof VENDOR_JOB_DETAIL_TABS)[number];
 
 const VENDOR_JOB_DETAIL_TAB_ALIASES: Record<string, VendorJobDetailTabId> = {
   overview: "service",
-  "scope-photos": "service",
-  documents: "service",
+  "scope-photos": "documents",
   "bid-invoice": "invoice",
   quote: "bid",
   estimate: "bid",

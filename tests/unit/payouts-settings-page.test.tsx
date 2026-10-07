@@ -81,7 +81,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
   beforeEach(() => stubFetch(readyBalance));
 
   it("renders the provider withdrawable amount with an enabled Withdraw button", async () => {
-    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText("$4,280.00");
     expect(screen.getByText("Available to withdraw")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Withdraw" })).not.toBeDisabled();
@@ -97,7 +97,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
   });
 
   it("hides the Set up section once ready", async () => {
-    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText("$4,280.00");
     expect(screen.queryByText("Set up")).not.toBeInTheDocument();
     expect(screen.queryByText("Verify identity")).not.toBeInTheDocument();
@@ -105,7 +105,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
 
   it("fails closed when the bank-accounts route is unavailable", async () => {
     stubFetch(readyBalance, { bankAccountsStatus: 404 });
-    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    render(<PortalPayoutsSettingsPage portal="manager" />);
     expect(await screen.findByText("Could not verify payout bank accounts.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
   });
@@ -132,9 +132,9 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
         return new Response(JSON.stringify({}), { status: 200 });
       }),
     );
-    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText("$4,280.00");
-    await waitFor(() => expect(screen.getByText(/Chase Checking/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/Chase Checking/).length).toBeGreaterThan(0));
     expect(screen.getByRole("button", { name: /Actions for/ })).toBeInTheDocument();
   });
 
@@ -163,7 +163,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
         return new Response(JSON.stringify({}), { status: 200 });
       }),
     );
-    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText("$4,280.00");
     fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
     fireEvent.click(screen.getByRole("button", { name: /^Withdraw \$/ }));
@@ -178,7 +178,7 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
   });
 
   it("opens the Withdraw sheet from the Balance section", async () => {
-    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText("$4,280.00");
     fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
     expect(await screen.findByRole("button", { name: /^Withdraw \$/ })).toBeInTheDocument();
@@ -243,7 +243,7 @@ describe("PortalPayoutsSettingsPage — not-ready state", () => {
   });
 
   it("has no Set up checklist and no Verify identity step", async () => {
-    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    render(<PortalPayoutsSettingsPage portal="manager" />);
     await screen.findByText("Bank accounts");
     expect(screen.queryByText("Set up")).not.toBeInTheDocument();
     expect(screen.queryByText("Verify identity")).not.toBeInTheDocument();
@@ -267,7 +267,7 @@ it("does not let an old portal balance replace the newly selected portal", async
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === "/api/stripe/payouts/balance") return oldManagerRead;
-    if (url === "/api/vendor/payouts/balance") return new Response(JSON.stringify(vendorBalance), { status: 200 });
+    if (url === "/api/vendor/payouts/balance") return new Response(JSON.stringify({ ...vendorBalance, schedule: { interval: "weekly", nextPayoutAt: "2026-09-26T00:00:00.000Z" } }), { status: 200 });
     if (url.endsWith("/bank-accounts")) return new Response(JSON.stringify({ destinations: [
       { id: "ba_current", kind: "bank", label: "Current", last4: "1234", status: "new", payable: true, instantEligible: false, default: true },
     ] }), { status: 200 });
@@ -277,8 +277,22 @@ it("does not let an old portal balance replace the newly selected portal", async
   const view = render(<PortalPayoutsSettingsPage portal="manager" />);
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/stripe/payouts/balance", expect.anything()));
   view.rerender(<PortalPayoutsSettingsPage portal="vendor" />);
-  await screen.findByText("$20.00");
+  await screen.findByText(/\$20\.00/);
   await act(async () => { finishManagerRead(new Response(JSON.stringify(readyBalance), { status: 200 })); });
-  expect(document.querySelector('[data-attr="payouts-settings-available"]')).toHaveTextContent("$20.00");
+  expect(screen.getByText(/\$20\.00/)).toBeInTheDocument();
   expect(screen.queryByText("$4,280.00")).not.toBeInTheDocument();
+});
+
+describe("PortalPayoutsSettingsPage — vendor keeps only bank accounts + schedule", () => {
+  beforeEach(() => stubFetch(readyBalance));
+
+  it("links to Finances and offers no Withdraw, no payout history and no W-9 / fee section", async () => {
+    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    await screen.findByText("Bank accounts");
+    expect(screen.getByRole("link", { name: "Open Finances" })).toHaveAttribute("href", "/vendor/financials/balance");
+    expect(screen.getByText("Schedule")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
+    expect(screen.queryByText("History")).not.toBeInTheDocument();
+    expect(screen.queryByText("W-9 on file")).not.toBeInTheDocument();
+  });
 });

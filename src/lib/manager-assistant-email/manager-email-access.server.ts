@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // client-safe one. Importing both from the latter did not resolve.
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
 import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 export type ManagerEmailInboundIdentity = {
   workNumberOwnerId: string;
@@ -59,11 +60,11 @@ export async function resolveManagerEmailInboundIdentity(
     };
   }
 
-  const { data: inviteRows, error: inviteError } = await db
+  const { data: inviteRows, error: inviteError } = withoutOwnerLinks(await db
     .from("account_link_invites")
-    .select("invitee_user_id")
+    .select("invitee_user_id, team_role")
     .eq("status", "accepted")
-    .eq("inviter_user_id", workNumberOwnerId);
+    .eq("inviter_user_id", workNumberOwnerId));
   if (inviteError) return null;
 
   const inviteeIds = [

@@ -18,6 +18,8 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
 }));
 
+vi.mock("@/components/portal/vendor-work-number-settings", () => ({ VendorWorkNumberSettings: () => null }));
+
 import { VendorOnboardingFlow } from "@/components/portal/vendor-onboarding";
 
 function mockProfileFetch(profile: Record<string, unknown> | null) {

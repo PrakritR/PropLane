@@ -15,6 +15,7 @@ import {
 import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import { readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { calendarPersonLabel } from "@/lib/calendar-people";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 export const runtime = "nodejs";
 
@@ -137,7 +138,7 @@ export async function GET(req: Request) {
     linkQuery = businessAccess.kind === "test"
       ? linkQuery.eq("test_workspace_id", businessAccess.workspaceId)
       : linkQuery.is("test_workspace_id", null);
-    const { data: linkRows, error: linkError } = await linkQuery;
+    const { data: linkRows, error: linkError } = withoutOwnerLinks(await linkQuery);
 
     if (linkError && !String(linkError.message ?? "").toLowerCase().includes("account_link_invites")) {
       return NextResponse.json({ error: linkError.message }, { status: 500 });

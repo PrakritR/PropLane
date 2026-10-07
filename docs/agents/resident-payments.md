@@ -678,8 +678,8 @@ Coverage: `tests/unit/charges-follow-the-lease.test.ts`,
 ## Lease fee and pay-at-signing (captain, 2026-10-03)
 
 **Sending a lease creates the at-signing charges, and the resident pays them BEFORE they can sign.** This
-supersedes "sign first, pay after" for these lines (the workspace-level `leaseSigningFee` card is separate
-and unchanged).
+supersedes "sign first, pay after" for these lines (the workspace-level
+`leaseSigningFeeCents` card is separate and unchanged).
 
 - **`lease_fee` is a charge kind** (`HouseholdChargeKind`), income (`other_income`), never a liability. Its
   amount is the placement resolver's (`listing-placement-standard-fees.ts`, read off the

@@ -6,7 +6,7 @@ import { propertyMatchesZipRadius, parseUSZip } from "@/lib/listings-search";
 import { vendorInsuranceIsCurrent } from "@/lib/vendor-business-profile.server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 
-type DirectoryProfileRow = {
+export type DirectoryProfileRow = {
   user_id: string;
   trades: string[] | null;
   service_area_zips: string[] | null;
@@ -53,7 +53,7 @@ export function workOrderCategoryForMarketplace(
   return null;
 }
 
-function vendorMatchesZip(
+export function vendorMatchesZip(
   propertyZip: string,
   publishRadiusMi: number,
   profile: DirectoryProfileRow,
@@ -75,6 +75,22 @@ function vendorIsEligible(profile: DirectoryProfileRow): boolean {
     insuranceDocPath: profile.insurance_doc_path,
     insuranceExpiresAt: profile.insurance_expires_at,
   });
+}
+
+/**
+ * Who may REQUEST a job off the vendor work board or a texted service link
+ * (vendor-work-share-1006, Decide #2): any ONBOARDED vendor with a trade and a service area. Unlike
+ * `vendorIsEligible` above - the manager's "send to nearby PropLane vendors" broadcast, which
+ * stays licensed + currently insured - a license or insurance is not required here. A handyman
+ * often has neither, and the manager sees whatever the vendor has on file when deciding on a bid.
+ */
+export function vendorIsOnboardedForBoard(
+  profile: Pick<DirectoryProfileRow, "onboarding_completed_at" | "trades" | "service_area_zips">,
+): boolean {
+  if (!profile.onboarding_completed_at) return false;
+  const trades = Array.isArray(profile.trades) ? profile.trades.filter((t) => String(t ?? "").trim()) : [];
+  const zips = Array.isArray(profile.service_area_zips) ? profile.service_area_zips.filter(Boolean) : [];
+  return trades.length > 0 && zips.length > 0;
 }
 
 export function filterMarketplaceVendorUserIds(

@@ -14,6 +14,7 @@ import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
  * checkout.stripe.com.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { Modal } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
@@ -145,7 +146,7 @@ export function VendorInvoiceManagerPaySheet({
             {clientSecret ? <dl className="mt-2 space-y-1 border-t border-border/70 pt-2 text-sm" data-attr="vendor-invoice-pay-fee-disclosure">
               <div className="flex justify-between"><dt>Processing fee</dt><dd>{formatMoney(processingFeeCents)}</dd></div>
               <div className="flex justify-between font-semibold"><dt>You pay</dt><dd>{formatMoney(totalCents)}</dd></div>
-              {platformFeeCents > 0 ? <div className="flex justify-between"><dt>PropLane fee from vendor</dt><dd>{formatMoney(platformFeeCents)}</dd></div> : null}
+              {platformFeeCents > 0 ? <div className="flex justify-between"><dt>{PROPLANE_SERVICE_FEE_LABEL} (from vendor)</dt><dd>{formatMoney(platformFeeCents)}</dd></div> : null}
               <div className="flex justify-between"><dt>Vendor receives</dt><dd>{formatMoney(netToVendorCents)}</dd></div>
             </dl> : null}
           </div>

@@ -143,7 +143,9 @@ describe("prospect burst outbox dispatcher gate", () => {
       "utf8",
     );
     const begin = dispatcher.indexOf('db.rpc("begin_sms_outbox_submission"');
-    const provider = dispatcher.indexOf("sendSms(row.recipient_phone");
+    // The provider destination resolves through providerDestinationFor (a
+    // vendor with a PropLane work number is texted at that number).
+    const provider = dispatcher.indexOf("sendSms(await providerDestinationFor(db, row)");
 
     // The app supplies only plan figures and the resolved sender. The locked
     // outbox supplies owner, key, and segment quantity inside the same

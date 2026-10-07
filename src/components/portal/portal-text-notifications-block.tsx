@@ -14,6 +14,7 @@ import {
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { PHONE_VERIFIED_EVENT } from "@/lib/vendor-work-number";
 
 type TextNotificationSettings = {
   phone: string | null;
@@ -86,6 +87,8 @@ export function PortalTextNotificationsBlock({
       setCodeInput("");
       setPhoneInput("");
       setError(null);
+      // A work-number claim on the same page (vendor onboarding) opens up.
+      if (typeof window !== "undefined") window.dispatchEvent(new Event(PHONE_VERIFIED_EVENT));
     },
     [settings],
   );

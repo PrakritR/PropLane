@@ -28,6 +28,7 @@ import { parseInviteRecipient } from "@/lib/invite-recipient";
 import {
   WorkspacePermissionsFields,
   CoManagerPermissionsEditor,
+  RoleCapabilitiesList,
   WorkspaceGrantFields,
 } from "@/components/portal/workspace-permissions-fields";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
@@ -71,8 +72,17 @@ function reachLabelFor(input: {
   });
 }
 
-/** The default Houses scope an inviter may hand out: never wider than their own reach in this workspace. */
-function defaultHouseScopeFor(workspace: PortalWorkspace): HouseScope {
+/**
+ * The default Houses scope an inviter may hand out: never wider than their own
+ * reach in this workspace, and never "all" for a Property owner.
+ *
+ * "All houses" means every house in the workspace, now and later. For a
+ * teammate that is the normal shape; for an investor it would silently share
+ * the whole portfolio - including houses they do not own and ones added
+ * months later - so an owner invite starts from an explicit pick.
+ */
+function defaultHouseScopeFor(workspace: PortalWorkspace, role?: TeamRoleId): HouseScope {
+  if (role === "property_owner") return "selected";
   return workspace.viewerHouseScope === "selected" ? "selected" : "all";
 }
 
@@ -200,7 +210,7 @@ export function WorkspaceInviteSheet({
   useEffect(() => {
     if (!open) return;
     setRole("viewer");
-    setHouseScope(defaultHouseScopeFor(workspace));
+    setHouseScope(defaultHouseScopeFor(workspace, "viewer"));
     setSelectedHouseIds([]);
     setCustomPermissions(EMPTY_CO_MANAGER_PERMISSIONS);
     setWorkspacePermissions(DEFAULT_NEW_INVITE_WORKSPACE_GRANT);
@@ -284,7 +294,15 @@ export function WorkspaceInviteSheet({
     };
   }, [open, linkId, termsMatchHeldLink, linkUrl]);
 
-  const changeRole = (next: TeamRoleId) => setRole(next);
+  const changeRole = (next: TeamRoleId) => {
+    setRole(next);
+    // Switching TO Property owner drops "all houses": the investor's houses are
+    // picked on purpose (switching away leaves the current pick alone).
+    if (next === "property_owner" && houseScope === "all") {
+      setHouseScope("selected");
+      setSelectedHouseIds([]);
+    }
+  };
   const changeHouseScope = (next: HouseScope) => setHouseScope(next);
   const changeSelectedHouseIds = (next: string[]) => setSelectedHouseIds(next);
   const changeCustomPermissions = (next: CoManagerPermissions) => setCustomPermissions(next);
@@ -528,6 +546,10 @@ export function WorkspaceInviteSheet({
           houseScopeDataAttr="workspace-invite-houses"
           selectedHousesDataAttr="workspace-invite-selected-houses"
         />
+
+        {role === "property_owner" ? (
+          <RoleCapabilitiesList role={role} grant={effectivePermissions} />
+        ) : null}
 
         {role === "custom" ? (
           <>

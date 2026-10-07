@@ -20,6 +20,7 @@ function fakeDb() {
     q.select = () => q;
     q.eq = () => q;
     q.in = () => q;
+    q.gte = () => q;
     q.order = () => q;
     q.limit = () => q;
     q.update = (value: unknown) => { writes.push({ table, value }); return q; };

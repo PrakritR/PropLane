@@ -46,8 +46,25 @@ export async function GET() {
 
     const { data, error } = invoicesResult;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // The due date lives on the manager's bill for the invoice (`bill_id`); the
+    // vendor reads only that one date, never the bill itself. A failed read just
+    // leaves the invoices without a due date (so none can show as overdue).
+    const rows = (data ?? []) as Record<string, unknown>[];
+    const billIds = [...new Set(rows.map((row) => row.bill_id).filter((id): id is string => typeof id === "string" && id.length > 0))];
+    const dueByBillId = new Map<string, string>();
+    if (billIds.length > 0) {
+      const { data: bills } = await gate.db.from("manager_bills").select("id, due_date").in("id", billIds);
+      for (const bill of bills ?? []) {
+        const due = (bill as { id: string; due_date: string | null }).due_date;
+        if (due) dueByBillId.set(String((bill as { id: string }).id), String(due).slice(0, 10));
+      }
+    }
     return NextResponse.json({
-      invoices: (data ?? []).map(mapVendorInvoiceRow),
+      invoices: rows.map((row) => ({
+        ...mapVendorInvoiceRow(row),
+        dueDate: typeof row.bill_id === "string" ? (dueByBillId.get(row.bill_id) ?? null) : null,
+      })),
       linkedManagers,
     });
   } catch (e) {

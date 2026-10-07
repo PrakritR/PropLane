@@ -12,15 +12,18 @@ export const vendorPortal: PortalDefinition = {
     { section: "calendar", label: "Calendar", tabs: [] },
     { section: "communication", label: "Communication", tabs: [] },
     {
-      // VD10 — nav label and page title read "Payments"; VD11 folded Income
-      // and Invoices into one merged list, so `income`/`invoices` stay as
-      // internal tab ids only (routing for invoice record pages still needs
-      // "invoices" to validate) rather than two visible destinations.
+      // Finances (vendor-banking-1006): one section, five routed tabs. `income`
+      // keeps its id so every old `/vendor/financials/income` link still lands
+      // on the Payments list (VD10/VD11). `invoices` and `payouts` are detail-only
+      // ids (an invoice / payment record page) — see render-portal-section.tsx.
       section: "financials",
-      label: "Payments",
+      label: "Finances",
       tabs: [
-        { id: "income", label: "Income" },
-        { id: "invoices", label: "Invoices" },
+        { id: "balance", label: "Balance & payouts" },
+        { id: "income", label: "Payments" },
+        { id: "refunds", label: "Refunds" },
+        { id: "statements", label: "Statements" },
+        { id: "tax", label: "Tax info" },
       ],
     },
     // No status tabs (VD16, 2026-09-27) — the checklist groups by section
@@ -47,8 +50,11 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Services", path: "/vendor/work-orders" },
   { label: "Calendar", path: "/vendor/calendar" },
   { label: "Communication", path: "/vendor/communication/active" },
+  { label: "Balance & payouts", path: "/vendor/financials/balance" },
   { label: "Payments", path: "/vendor/financials/income" },
-  { label: "Invoices", path: "/vendor/financials/invoices" },
+  { label: "Refunds", path: "/vendor/financials/refunds" },
+  { label: "Statements", path: "/vendor/financials/statements" },
+  { label: "Tax info", path: "/vendor/financials/tax" },
   { label: "Documents", path: "/vendor/documents" },
   { label: "Reviews", path: "/vendor/reviews" },
   { label: "Settings", path: "/vendor/profile" },

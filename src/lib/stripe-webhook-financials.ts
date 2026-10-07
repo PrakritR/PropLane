@@ -21,6 +21,8 @@ import { settleClearedPlatformOwnerRecovery } from "@/lib/platform-owner-recover
 import { creditVerifiedHouseholdAutopaySource,
   verifyExistingHistoricalAutopayHold } from "@/lib/household-captured-source.server";
 import { settleReservedPlatformMoneyRefundFromWebhook } from "@/lib/platform-money-refund.server";
+import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
+import { settleVendorRefundFromWebhook } from "@/lib/vendor-banking/central-refund.server";
 import { feeCentsForMethod, normalizePayoutStatus } from "@/lib/stripe-payouts";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
@@ -92,6 +94,16 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
     { onConflict: "owner_user_id" },
   );
   if (identityError) throw new Error("Could not update payout identity status.");
+
+  // A vendor's account was restricted (Stripe `disabled_reason`): tell them once per reason.
+  if (snapshot.disabledReason && (await isVendorOwnedAccount(db, targetId).catch(() => false))) {
+    await emitVendorBankingEvent(db, {
+      kind: "account_restricted",
+      eventId: `account:${account.id}:restricted:${snapshot.disabledReason}`,
+      vendorUserId: targetId,
+      facts: { reason: String(snapshot.disabledReason).replace(/[._]/g, " ") },
+    });
+  }
 
   if (connectAccountReadyForAchPayouts(account)) {
     // The account event is a readiness signal, never authority for a transfer.
@@ -329,7 +341,38 @@ export async function handleConnectPayoutEvent(
   const managerUserId = await resolveUserIdByConnectAccountId(db, connectAccountId);
   if (!managerUserId) return;
   if (await refuseClassifiedFinancialMutation(db, managerUserId, "connect_payout")) return;
+  const { data: prior } = await db.from("stripe_payouts").select("status").eq("stripe_payout_id", payout.id).maybeSingle();
   await upsertStripePayoutRecord(db, managerUserId, payout, connectAccountId, stripe);
+  await notifyVendorOfPayoutEvent(db, managerUserId, payout, (prior as { status?: string } | null)?.status ?? null);
+}
+
+/**
+ * A vendor's own payout reached a terminal state: paid, failed, or returned (it had been
+ * paid and then came back). Idempotent on the payout id + state, so a redelivery tells
+ * them once. Never throws: the payout row is already written.
+ */
+async function notifyVendorOfPayoutEvent(
+  db: SupabaseClient,
+  ownerUserId: string,
+  payout: Stripe.Payout,
+  priorStatus: string | null,
+): Promise<void> {
+  try {
+    if (!(await isVendorOwnedAccount(db, ownerUserId))) return;
+    const providerStatus = payout.status;
+    let kind: "payout_paid" | "payout_failed" | "payout_returned" | null = null;
+    if (providerStatus === "paid") kind = "payout_paid";
+    if (providerStatus === "failed") kind = priorStatus === "paid" ? "payout_returned" : "payout_failed";
+    if (!kind) return;
+    await emitVendorBankingEvent(db, {
+      kind,
+      eventId: `payout:${payout.id}:${kind}`,
+      vendorUserId: ownerUserId,
+      facts: { amountCents: payout.amount, reason: payout.failure_message ?? undefined },
+    });
+  } catch (e) {
+    console.error("[stripe webhook] vendor payout notification", e instanceof Error ? e.message : e);
+  }
 }
 
 /**
@@ -344,11 +387,27 @@ export async function handleExternalAccountEvent(
   stripe: Stripe,
   db: SupabaseClient,
   connectAccountId: string | null | undefined,
+  event?: { type: string; object: Stripe.BankAccount | Stripe.Card },
 ): Promise<void> {
   if (!connectAccountId) return;
   const ownerUserId = await resolveUserIdByConnectAccountId(db, connectAccountId);
   if (!ownerUserId) return;
   await refreshPayoutDestinationsCacheFromStripe(stripe, db, ownerUserId, connectAccountId);
+  if (!event) return;
+  try {
+    if (!(await isVendorOwnedAccount(db, ownerUserId))) return;
+    const external = event.object as { id: string; object?: string; last4?: string; bank_name?: string | null; brand?: string; status?: string };
+    const bankLabel = external.object === "card"
+      ? `${external.brand ?? "Card"} ••${external.last4 ?? ""}`
+      : `${external.bank_name ?? "Bank"} ••${external.last4 ?? ""}`;
+    if (event.type === "account.external_account.deleted") {
+      await emitVendorBankingEvent(db, { kind: "bank_removed", eventId: `external:${external.id}:removed`, vendorUserId: ownerUserId, facts: { bankLabel } });
+    } else if (external.status === "verification_failed" || external.status === "errored") {
+      await emitVendorBankingEvent(db, { kind: "bank_needs_verification", eventId: `external:${external.id}:${external.status}`, vendorUserId: ownerUserId, facts: { bankLabel } });
+    }
+  } catch (e) {
+    console.error("[stripe webhook] vendor bank notification", e instanceof Error ? e.message : e);
+  }
 }
 
 async function ledgerPaymentForStripeCharge(
@@ -429,6 +488,12 @@ export async function handleStripeRefund(
     if (await refuseClassifiedFinancialMutation(db, reservation.owner_user_id, "refund")) return;
   }
   const settlement = await settleReservedPlatformMoneyRefundFromWebhook(stripe, db, current);
+  // A vendor's refund to a manager (the reservation carries a payout id) books its own
+  // statement, manager expense reversal and notifications; it never reaches the household
+  // ledger poster below.
+  if (reservedAttemptId && reservation) {
+    if (await settleVendorRefundFromWebhook(db, reservedAttemptId, settlement)) return;
+  }
   if (settlement === "unmatched") {
     // Only a CENTRAL capture's refund has to come through the reservation. A
     // destination-allocation hold reverses its transfer with the refund and books

@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 
 export const runtime = "nodejs";
 
@@ -41,6 +42,10 @@ export async function GET(req: Request) {
     }
 
     const supabase = createSupabaseServiceRoleClient();
+    // Looking another account up by PropLane ID is the first step of inviting
+    // one, which an owner-only account may not do (`/api/pro/account-links`).
+    const ownerRefusal = await refuseOwnerOnly(supabase, user.id);
+    if (ownerRefusal) return ownerRefusal;
     const profileQuery = supabase.from("profiles").select("id, full_name, manager_id, role");
     const { data: profile, error } = email
       ? await profileQuery.ilike("email", email).limit(1).maybeSingle()

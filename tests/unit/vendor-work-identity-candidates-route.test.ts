@@ -7,6 +7,7 @@ import { jsonRequest, parseJsonResponse } from "../helpers/api-request";
 const mocks = vi.hoisted(() => ({
   resolveVendorPortalUserId: vi.fn(),
   searchVendorWorkNumberCandidates: vi.fn(),
+  loadVendorVerifiedPhone: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/vendor-api-access", () => ({
@@ -14,7 +15,9 @@ vi.mock("@/lib/auth/vendor-api-access", () => ({
 }));
 vi.mock("@/lib/vendor-work-identity.server", () => ({
   searchVendorWorkNumberCandidates: mocks.searchVendorWorkNumberCandidates,
+  loadVendorVerifiedPhone: mocks.loadVendorVerifiedPhone,
 }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({}) }));
 
 import { POST } from "@/app/api/vendor/work-identity/candidates/route";
 
@@ -23,6 +26,16 @@ describe("POST /api/vendor/work-identity/candidates", () => {
     mocks.resolveVendorPortalUserId.mockReset();
     mocks.searchVendorWorkNumberCandidates.mockReset();
     mocks.resolveVendorPortalUserId.mockResolvedValue({ ok: true, userId: "vendor-1" });
+    mocks.loadVendorVerifiedPhone.mockResolvedValue({ verified: true, phone: "+12065550142" });
+  });
+
+  it("403s a vendor whose phone is not verified before any search", async () => {
+    mocks.loadVendorVerifiedPhone.mockResolvedValue({ verified: false, phone: null });
+    const res = await POST(jsonRequest("http://test/api/vendor/work-identity/candidates", { method: "POST", body: { areaCode: "206" } }));
+    const { status, data } = await parseJsonResponse<{ ok: boolean; code: string }>(res);
+    expect(status).toBe(403);
+    expect(data.code).toBe("phone_unverified");
+    expect(mocks.searchVendorWorkNumberCandidates).not.toHaveBeenCalled();
   });
 
   it("401s an unauthenticated caller before touching the search", async () => {

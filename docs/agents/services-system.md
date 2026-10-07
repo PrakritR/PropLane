@@ -64,8 +64,8 @@ it carries the services OFFERED there, under Long term / Short term tabs (see ab
   record path), and the old `vendor-schedule` section id is an alias of `vendors`
   (`SERVICE_DETAIL_TAB_ALIASES`). A saved link never falls home.
 - **Retired words** (`tests/unit/service-vocabulary.test.ts` fails them in service / vendor / task UI
-  copy): "Vendor & schedule", "Mark done", "Publish to vendors", "Compare quotes", "Potential",
-  "Send quote", "Add quote". Pending / Active / Past / Done as a service state are retired too. One
+  copy): "Vendor & schedule", "Mark done", "Compare quotes", "Potential",
+  "Send quote", "Add quote". ("Publish to vendors" was retired and is back, 2026-10-06, as the header icon action that puts a service on the vendor work board; vendor-work-share-1006.) Pending / Active / Past / Done as a service state are retired too. One
   deliberate exception: the add-on header's finishing step reads "Mark done" (the approved studio plan),
   defined once in `src/lib/service-header-next-step.ts` and allow-listed there; maintenance keeps "Complete".
 - **The service record** (`record-sections.ts` `service`): rail Service - Vendors | Linked: Incoming
@@ -289,6 +289,45 @@ maintenance service uses.
   the offered-vendor projection replaces an add-on job's `description` with its title.
 - `assignableKindsFor("vendor")` now includes `service`, but an add-on's own assignee picker stays team-only; a
   vendor is on an add-on only by being sent the job.
+
+## Sending a service to a phone, and publishing to the vendor work board (vendor-work-share-1006)
+
+Two more doors for a service to reach a vendor the manager did not pick from their roster. Both end in the SAME thing
+a manager's Send job makes - a roster row on the manager's workspace and a `sent` offer - so the offer -> estimate / bid
+-> approve cycle above runs untouched: only a submitted bid is approvable, one accepted bid per service, the accepted
+amount immutable, vendors scoped by `vendor_user_id`, offers and bids written only by service-role code
+(`src/lib/service-work-board.server.ts`). The vendor's side (Find work, the three options, the texted-link page, what a
+stranger may read) is in [`vendor-portal.md`](vendor-portal.md) § The work board is back.
+
+- **Header (an Open service with nobody on it):** Message - **Send to phone** - **Publish to vendors** - Edit - more
+  (⋯) - the primary. Send to phone is the popup on the Send job shell (Phone, Name, Share photos, "I work with this
+  vendor", Send) -> `POST /api/portal/service-share-link/send`. Publish to vendors is the popup (Budget, Share photos,
+  Publish) -> `POST /api/portal/service-publish`; a published service reads **Published** on the Request card and
+  gains **Unpublish** in the ⋯. Publishing sets `row_data.published` + an opaque `publishRef`, opens bidding, and is
+  taken back by Unpublish, by the hire (`acceptWorkOrderBid` clears `published`) or by the service completing.
+- **The publish state is server-owned.** `/api/portal-work-orders` restores `published`, `publishedAt`, `publishRef`,
+  `publishBudgetCents` and `publishSharePhotos` from the stored row on every client write
+  (`restoreServerPublishState`), exactly like `row_data.dispatch`: a stale browser copy cannot unpublish a service, and a
+  client cannot forge a ref. The browser mirrors the publish route's returned patch onto its local row.
+- **Vendors section:** a request that came off the board or a link is a plain Sent row with one extra fact, **From your
+  text link** or **From the work board**, and **Contact shown after they bid** until the vendor's first submitted bid
+  releases it (`contactHeldUntilBid` on the roster row, `revealHeldVendorContact`). Estimates and messages do not.
+  The manager removes a request like any other (`remove_request`); a removed vendor cannot ask again.
+- **The texted number never becomes the redeemer's phone.** A link can be forwarded, so whoever redeems it has not been
+  shown to hold the number the manager typed: the roster row stores it as `row_data.linkPhone` with
+  `phoneVerified: false`, and only `serviceLinkPhoneVerificationHook` returning true promotes it to `row_data.phone`.
+  That matters because `phone` is identity to the inbound pipeline - `findVendorByPhone` and
+  `resolveVendorNumberSenderPhone` skip any `origin: "service_link"` row that is not `phoneVerified`
+  (`rosterPhoneIdentifiesVendor`) and read in a deterministic order, so a forwarded link cannot file the real
+  recipient's texts under someone else's vendor account (`tests/unit/service-link-phone-binding.test.ts`). The manager still
+  sees the number they typed: the Vendors row and the vendor record draw it as the plain fact **Texted to <phone>** while the
+  row has no `phone` of its own.
+- **Never public:** the street address, unit, resident, entry notes and any cost. The public page, the text itself and
+  the board all read `publicServiceProjection` (an allowlist; `tests/unit/public-service-projection.test.ts`). The address
+  reaches a vendor only after hire, through the existing hired-vendor row.
+- **Data:** `service_share_links` (`20261006180000_service_share_links.sql`) holds only the SHA-256 of each token;
+  classified in `account-purge-manifest.ts` (manager `manager_user_id`, vendor `redeemed_by_user_id`). The publish flag
+  is jsonb on the service, no column.
 
 ## Communication is per party and about this service (D9)
 
