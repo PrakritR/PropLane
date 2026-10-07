@@ -61,11 +61,9 @@ function writeStoredCollapsed(listKey: string, groupKey: string, collapsed: bool
  * remembered per list, per group, per viewer. An optional footer line
  * renders under the group's rows.
  *
- * The whole group — header, rows, footer — is ONE card: a single bordered,
- * rounded, shadowed container, with the header separated from its rows by a
- * hairline and each row separated from the next by a hairline
- * (`PortalListGroupRowContext` is what makes the individual rows render
- * flush instead of floating as their own cards).
+ * The group is a flat band, not a card: a 34px sticky header band, its rows
+ * edge to edge separated by hairlines (`PortalListGroupRowContext` makes the
+ * individual rows render flush), and an optional footer line.
  */
 export function PortalListGroup({
   listKey,
@@ -115,7 +113,7 @@ export function PortalListGroup({
 
   return (
     <div
-      className="mb-4 overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+      className="min-w-0 bg-card"
       data-attr={dataAttr ?? "portal-list-group"}
       data-group-key={groupKey}
     >
@@ -124,42 +122,37 @@ export function PortalListGroup({
           type="button"
           onClick={toggle}
           aria-expanded={!collapsed}
-          className="flex min-h-11 w-full items-center gap-3 px-3 py-2.5 text-left"
+          // The group band: 34px, #fafbfc, 13px/600, sticky under the page chrome (approved list anatomy).
+          className="sticky top-0 z-[2] flex h-[34px] w-full items-center gap-2 border-b border-border bg-[#fafbfc] px-[22px] text-left text-[13px] font-semibold text-foreground max-lg:min-h-11 max-lg:px-4 dark:bg-card"
           data-attr="portal-list-group-header"
         >
+          <ChevronDown
+            className={cn("size-3.5 shrink-0 text-muted transition-transform", collapsed && "-rotate-90")}
+            aria-hidden
+          />
           {avatar ? (
             <span
               aria-hidden
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/[0.08] text-[12px] font-bold text-primary"
+              className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/[0.08] text-[9px] font-bold text-primary"
             >
               {avatar}
             </span>
           ) : null}
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[14px] font-semibold text-foreground">{name}</span>
-            {sub ? <span className="block truncate text-[12px] text-muted">{sub}</span> : null}
+          <span className="min-w-0 flex-1 truncate">
+            {name}
+            {sub ? <span className="ml-2 font-normal text-muted">{sub}</span> : null}
           </span>
-          <span className="flex shrink-0 items-center gap-2">
-            {figure || count ? (
-              <span className="flex flex-col items-end leading-tight">
-                {figure ? <b className="text-[13px] font-bold text-foreground">{figure}</b> : null}
-                {count ? <span className="text-[11px] text-muted">{count}</span> : null}
-              </span>
-            ) : null}
-            <ChevronDown
-              className={cn("size-4 shrink-0 text-muted transition-transform", collapsed && "-rotate-90")}
-              aria-hidden
-            />
-          </span>
+          {figure ? <b className="shrink-0 text-[13px] font-semibold text-foreground">{figure}</b> : null}
+          {count ? <span className="shrink-0 font-medium text-muted/75">{count}</span> : null}
         </button>
       ) : null}
       {collapsed ? null : (
-        <div className={cn(hasHeader && "border-t border-border/60")}>
+        <div>
           <PortalListGroupRowContext.Provider value={true}>
-            <div className="divide-y divide-border/60">{children}</div>
+            <div className="divide-y divide-border border-b border-border">{children}</div>
           </PortalListGroupRowContext.Provider>
           {footer ? (
-            <div className="flex items-center justify-between gap-2 border-t border-border/60 px-3 py-2 text-[11px] text-muted">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-[22px] py-2 text-[12.5px] text-muted max-lg:px-4">
               <span className="truncate">{footer[0]}</span>
               {footer[1] ? <span className="truncate">{footer[1]}</span> : null}
             </div>

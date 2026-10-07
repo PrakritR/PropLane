@@ -59,7 +59,7 @@ export function PortalAssistantDockRail({
 
   return (
     <aside
-      className="portal-assistant-dock-rail relative hidden h-full min-h-0 w-[var(--portal-assistant-rail-width)] shrink-0 self-stretch flex-col overflow-hidden border-l border-border/70 bg-background p-3 lg:flex"
+      className="portal-assistant-dock-rail relative hidden h-full min-h-0 w-[var(--portal-assistant-rail-width)] shrink-0 self-stretch flex-col overflow-hidden border-l border-border bg-white lg:flex dark:bg-background"
       aria-label="PropLane Assistant"
       data-attr="portal-assistant-dock-rail"
     >
@@ -68,7 +68,7 @@ export function PortalAssistantDockRail({
           managerName={managerName}
           onClose={closeRail}
           inputId={ASSISTANT_DOCK_INPUT_ID}
-          className="h-full"
+          className="h-full rounded-none border-0 bg-transparent"
         />
       </div>
     </aside>

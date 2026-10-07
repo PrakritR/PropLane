@@ -9,11 +9,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { isPostDividerRecordActionId, orderRecordActions } from "@/lib/portals/record-action-order";
 
 /** Trailing ⋯ on list rows — shared sitewide (portal lists, DataList overflow, expense rows). */
-export const RECORD_ACTION_TRIGGER_ICON_CLASS = "size-5 shrink-0 text-foreground stroke-[2.25]";
+export const RECORD_ACTION_TRIGGER_ICON_CLASS = "size-[18px] shrink-0 text-muted stroke-[2.25]";
 
-/** Ghost circle trigger for row ⋯ menus (44×44 tap target). */
+/** Ghost trigger for row ⋯ menus: 32px on desktop, the 44x44 tap target on a phone. */
 export const RECORD_ACTION_TRIGGER_BUTTON_CLASS =
-  "h-11 w-11 shrink-0 rounded-full p-0 text-foreground hover:text-foreground";
+  "h-11 w-11 shrink-0 rounded-lg p-0 text-muted hover:text-foreground lg:h-8 lg:w-8";
 
 /**
  * iOS can synthesise a click into a freshly-mounted menu at the tap point.

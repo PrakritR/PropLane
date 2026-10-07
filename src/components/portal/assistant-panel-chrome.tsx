@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -32,9 +32,9 @@ export const VENDOR_ASSISTANT_ENDPOINT = "/api/agent/vendor-chat";
 export const RESIDENT_ASSISTANT_ENDPOINT = "/api/agent/resident-chat";
 
 const WORD_BTN =
-  "inline-flex h-8 shrink-0 items-center rounded-full px-2 text-[12.5px] font-semibold text-muted outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25";
+  "inline-flex h-8 shrink-0 items-center rounded-lg px-2.5 text-[13.5px] font-medium text-muted outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25";
 const ICON_BTN =
-  "grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25";
+  "grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25";
 
 export function AssistantPanelHeader({
   titleId,
@@ -60,12 +60,12 @@ export function AssistantPanelHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("relative flex shrink-0 items-center gap-0.5 border-b border-border/70 px-2 py-2", className)}>
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 px-0.5">
-        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-          <AxisAssistantSparkleIcon className="h-3.5 w-3.5" />
+    <div className={cn("relative flex h-14 shrink-0 items-center gap-0.5 border-b border-border px-3.5", className)}>
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--portal-active-bg,#eaf0fe)] text-primary">
+          <AxisAssistantSparkleIcon className="h-4 w-4" />
         </span>
-        <p className="min-w-0 truncate text-[14px] font-semibold tracking-[-0.01em] text-foreground">
+        <p className="min-w-0 truncate text-[15px] font-[650] tracking-[-0.01em] text-foreground">
           <span aria-hidden>PropLane</span>
           <span id={titleId} className="sr-only">
             PropLane Assistant
@@ -123,10 +123,10 @@ export function AssistantPanelHeader({
   );
 }
 
-const ROW_DOT: Record<ManagerAttentionRow["tone"], string> = {
-  danger: "bg-[var(--status-overdue-fg)]",
-  pending: "bg-[var(--status-pending-fg)]",
-  info: "bg-primary",
+const ROW_TILE: Record<ManagerAttentionRow["tone"], string> = {
+  danger: "bg-[var(--status-overdue-bg)] text-[var(--status-overdue-fg)]",
+  pending: "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]",
+  info: "bg-[var(--portal-active-bg,#eaf0fe)] text-primary",
 };
 
 /**
@@ -138,33 +138,33 @@ export function AssistantAttentionQueue({ onNavigate }: { onNavigate?: () => voi
   if (!ready) return null;
   return (
     <section
-      className="w-full overflow-hidden rounded-2xl border border-border bg-card text-left shadow-sm"
+      className="w-full overflow-hidden rounded-[10px] border border-border bg-card text-left"
       data-attr="assistant-attention-queue"
       aria-label="Needs attention"
     >
-      <div className="flex items-center gap-2 border-b border-border/70 px-3.5 py-2.5">
-        <h3 className="text-[13.5px] font-semibold tracking-[-0.01em] text-foreground">Needs attention</h3>
+      <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
+        <h3 className="text-[14px] font-[650] tracking-[-0.01em] text-foreground">Needs attention</h3>
         {rows.length > 0 ? (
-          <span className="rounded-full bg-[var(--secondary)] px-2 py-px text-[11px] font-semibold tabular-nums text-muted">
-            {rows.length}
-          </span>
+          <span className="text-[12px] font-medium tabular-nums text-muted/75">{rows.length}</span>
         ) : null}
       </div>
       {rows.length === 0 ? (
         <p className="px-3.5 py-4 text-center text-[13px] text-muted">Nothing is waiting on you. Nice.</p>
       ) : (
-        <ul className="divide-y divide-border/70">
+        <ul className="divide-y divide-border">
           {rows.map((row) => (
-            <li key={row.id} className="flex items-center gap-2.5 px-3.5 py-2" data-attr={`assistant-attention-${row.id}`}>
-              <span className={cn("size-2 shrink-0 rounded-full", ROW_DOT[row.tone])} aria-hidden />
+            <li key={row.id} className="flex items-center gap-2.5 px-3.5 py-2.5" data-attr={`assistant-attention-${row.id}`}>
+              <span className={cn("grid size-7 shrink-0 place-items-center rounded-lg", ROW_TILE[row.tone])} aria-hidden>
+                <CircleAlert className="size-4" strokeWidth={1.75} />
+              </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-foreground">{row.title}</span>
-                <span className="block truncate text-[11.5px] text-muted">{row.detail}</span>
+                <span className="block truncate text-[14px] font-semibold text-foreground">{row.title}</span>
+                <span className="block truncate text-[12.5px] text-muted">{row.detail}</span>
               </span>
               <Link
                 href={row.href}
                 onClick={onNavigate}
-                className="inline-flex h-8 shrink-0 items-center rounded-full border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary"
+                className="inline-flex h-8 shrink-0 items-center rounded-[7px] border border-[var(--input)] bg-card px-3 text-[13.5px] font-semibold text-foreground transition hover:bg-foreground/[0.04]"
               >
                 {row.actionLabel}
               </Link>
@@ -202,9 +202,10 @@ export function AssistantEmptyState({
   return (
     <div className={cn("flex flex-1 flex-col gap-3.5", className)} data-attr="assistant-empty-state">
       <div className="flex flex-col gap-0.5 px-0.5">
-        {firstName ? <h2 className="text-[13px] font-medium text-muted">Hi {firstName},</h2> : null}
-        <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">What should we look at first?</h3>
-        <p className="text-[13px] leading-relaxed text-muted">{hint?.trim() || "Grounded in your live portfolio."}</p>
+        {firstName ? <h2 className="text-[14px] font-medium text-muted">Hi {firstName},</h2> : null}
+        <h3 className="text-[18px] font-[650] tracking-[-0.015em] text-foreground">What should we look at first?</h3>
+        {/* No default subline: only a surface with its own task framing says more. */}
+        {hint?.trim() ? <p className="text-[13px] leading-relaxed text-muted">{hint.trim()}</p> : null}
       </div>
       {showQueue ? <AssistantAttentionQueue onNavigate={onNavigate} /> : null}
       {hideChips ? null : (

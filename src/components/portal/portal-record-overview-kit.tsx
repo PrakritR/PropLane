@@ -38,10 +38,10 @@ export function StatTile({
 }) {
   const body = (
     <>
-      <span className="text-[12.5px] font-medium text-muted">{label}</span>
+      <span className="text-[13px] text-muted">{label}</span>
       <span
         className={cn(
-          "block truncate text-[1.3rem] font-semibold leading-none tracking-[-0.02em] sm:text-[1.45rem]",
+          "block truncate text-xl font-[650] leading-none tracking-[-0.02em] tabular-nums",
           tone === "danger"
             ? "text-[var(--status-overdue-fg)]"
             : tone === "warning"
@@ -51,14 +51,14 @@ export function StatTile({
       >
         {value}
       </span>
-      <span className="truncate text-[12px] font-medium text-muted">{detail ?? ""}</span>
+      <span className="truncate text-[12.5px] text-muted">{detail ?? ""}</span>
     </>
   );
   const className =
-    "flex min-w-0 flex-col gap-1.5 rounded-2xl border border-border bg-card px-[var(--portal-card-padding,16px)] py-3.5 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+    "flex min-w-0 flex-col gap-1.5 rounded-[10px] border border-border bg-card px-[var(--portal-card-padding,14px)] py-3.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
   if (href) {
     return (
-      <Link href={href} className={cn(className, "hover:border-primary/35")} data-attr={dataAttr}>
+      <Link href={href} className={cn(className, "hover:border-[var(--input)]")} data-attr={dataAttr}>
         {body}
       </Link>
     );
@@ -94,11 +94,11 @@ export function RecordFactCard({
   dataAttr?: string;
 }) {
   return (
-    <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr={dataAttr}>
-      <div className="flex items-center gap-2 border-b border-border/70 px-[var(--portal-card-padding,16px)] py-3">
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-border bg-card" data-attr={dataAttr}>
+      <div className="flex items-center gap-2 border-b border-border px-[var(--portal-card-padding,14px)] py-[11px]">
+        <h2 className="text-[14px] font-[650] tracking-[-0.01em] text-foreground">
           {title}
-          {count != null ? <span className="ml-1.5 font-medium text-muted">{count}</span> : null}
+          {count != null ? <span className="ml-1.5 text-[12.5px] font-medium text-muted/75">{count}</span> : null}
         </h2>
         {headerActions ? (
           <div className="ml-auto flex items-center gap-1.5" data-attr="record-card-header-actions">
@@ -108,7 +108,7 @@ export function RecordFactCard({
         {action ? (
           <Link
             href={action.href}
-            className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary hover:underline"
+            className="ml-auto inline-flex items-center gap-1 text-[13px] font-[550] text-primary hover:underline"
           >
             {action.label}
             <ArrowRight className="size-3.5" aria-hidden />
@@ -131,11 +131,11 @@ export function RecordFactRow({
   tone?: "ok" | "bad";
 }) {
   return (
-    <div className={cn("flex items-start justify-between gap-4 px-[var(--portal-card-padding,16px)] py-3.5", ((typeof value === "string" && value.length > 18) || label.length > 15) && "max-sm:flex-col max-sm:gap-1 [&>span]:max-sm:w-auto [&>span]:max-sm:text-left")}>
-      <span className="w-28 shrink-0 text-[13px] text-muted">{label}</span>
+    <div className={cn("grid min-h-8 grid-cols-[104px_minmax(0,1fr)] items-start gap-2 px-[var(--portal-card-padding,14px)] py-[7px]", ((typeof value === "string" && value.length > 18) || label.length > 15) && "max-sm:grid-cols-1 max-sm:gap-0.5")}>
+      <span className="text-[13.5px] text-muted">{label}</span>
       <span
         className={cn(
-          "min-w-0 flex-1 text-right text-[13.5px] font-medium sm:text-left",
+          "min-w-0 text-left text-[13.5px]",
           tone === "ok"
             ? "text-[var(--status-confirmed-fg)]"
             : tone === "bad"
@@ -177,29 +177,29 @@ export function RecordNeedsYou({
   if (items.length === 0) return null;
   return (
     <RecordFactCard title="Needs you" dataAttr={dataAttr}>
-      <ul className="divide-y divide-border/70">
+      <ul className="divide-y divide-border">
         {items.map((row) => {
           const inner = (
             <>
               <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
-                {row.detail ? <span className="block truncate text-[12px] text-muted">{row.detail}</span> : null}
+                <span className="block truncate text-[13.5px] font-semibold text-foreground">{row.title}</span>
+                {row.detail ? <span className="block truncate text-[12.5px] text-muted">{row.detail}</span> : null}
               </span>
               {row.href || row.onClick ? <ArrowRight className="size-4 shrink-0 text-muted" aria-hidden /> : null}
             </>
           );
-          const className = "flex items-center gap-3 px-[var(--portal-card-padding,16px)] py-2.5";
+          const className = "flex items-center gap-2.5 px-[var(--portal-card-padding,14px)] py-[7px]";
           return (
             <li key={row.id} data-attr={`${itemDataAttrPrefix}-${row.id}`}>
               {row.href ? (
-                <Link href={row.href} className={cn(className, "transition hover:bg-accent/40")}>
+                <Link href={row.href} className={cn(className, "transition hover:bg-[rgba(17,24,39,0.035)]")}>
                   {inner}
                 </Link>
               ) : row.onClick ? (
                 <button
                   type="button"
-                  className={cn(className, "w-full text-left transition hover:bg-accent/40")}
+                  className={cn(className, "w-full text-left transition hover:bg-[rgba(17,24,39,0.035)]")}
                   onClick={row.onClick}
                 >
                   {inner}
@@ -240,6 +240,7 @@ export function RecordRowsCard({
   emptyLabel = "Nothing here yet.",
   footer,
   dataAttr,
+  timeline = false,
 }: {
   title: string;
   action?: { label: string; href: string };
@@ -247,33 +248,37 @@ export function RecordRowsCard({
   emptyLabel?: string;
   footer?: { label: string; href?: string; onClick?: () => void };
   dataAttr?: string;
+  /** Draw the rows as the dotted activity timeline (title, then the sub-line as a grey date). */
+  timeline?: boolean;
 }) {
   return (
     <RecordFactCard title={title} action={action} dataAttr={dataAttr}>
       {rows.length === 0 ? (
-        <p className="px-[var(--portal-card-padding,16px)] py-5 text-center text-[13px] text-muted">{emptyLabel}</p>
+        <p className="px-[var(--portal-card-padding,14px)] py-5 text-center text-[13px] text-muted">{emptyLabel}</p>
+      ) : timeline ? (
+        <RecordTimeline events={rows.map((row) => ({ id: row.id, label: row.title, timestamp: row.sub }))} dataAttr="record-timeline" />
       ) : (
-        <ul className="divide-y divide-border/70">
+        <ul className="divide-y divide-border">
           {rows.map((row) => {
             const inner = (
               <>
                 {row.glyph ? <span className="shrink-0">{row.glyph}</span> : null}
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
-                  {row.sub ? <span className="block truncate text-[12px] text-muted">{row.sub}</span> : null}
+                  <span className="block truncate text-[13.5px] font-semibold text-foreground">{row.title}</span>
+                  {row.sub ? <span className="block truncate text-[12.5px] text-muted">{row.sub}</span> : null}
                 </span>
                 {row.figure ? <span className="shrink-0">{row.figure}</span> : null}
               </>
             );
-            const className = "flex items-center gap-3 px-[var(--portal-card-padding,16px)] py-2.5";
+            const className = "flex items-center gap-2.5 px-[var(--portal-card-padding,14px)] py-[7px]";
             return (
               <li key={row.id}>
                 {row.href ? (
-                  <Link href={row.href} className={cn(className, "transition hover:bg-accent/40")}>
+                  <Link href={row.href} className={cn(className, "transition hover:bg-[rgba(17,24,39,0.035)]")}>
                     {inner}
                   </Link>
                 ) : row.onClick ? (
-                  <button type="button" className={cn(className, "w-full text-left transition hover:bg-accent/40")} onClick={row.onClick}>
+                  <button type="button" className={cn(className, "w-full text-left transition hover:bg-[rgba(17,24,39,0.035)]")} onClick={row.onClick}>
                     {inner}
                   </button>
                 ) : (
@@ -288,14 +293,14 @@ export function RecordRowsCard({
         footer.href ? (
           <Link
             href={footer.href}
-            className="block border-t border-dashed border-border/70 px-[var(--portal-card-padding,16px)] py-2.5 text-center text-[13px] font-semibold text-primary transition hover:bg-accent/40"
+            className="block border-t border-border px-[var(--portal-card-padding,14px)] py-2.5 text-center text-[13px] font-semibold text-primary transition hover:bg-[rgba(17,24,39,0.035)]"
           >
             + {footer.label}
           </Link>
         ) : (
           <button
             type="button"
-            className="block w-full border-t border-dashed border-border/70 px-[var(--portal-card-padding,16px)] py-2.5 text-center text-[13px] font-semibold text-primary transition hover:bg-accent/40"
+            className="block w-full border-t border-border px-[var(--portal-card-padding,14px)] py-2.5 text-center text-[13px] font-semibold text-primary transition hover:bg-[rgba(17,24,39,0.035)]"
             onClick={footer.onClick}
           >
             + {footer.label}
@@ -303,5 +308,37 @@ export function RecordRowsCard({
         )
       ) : null}
     </RecordFactCard>
+  );
+}
+
+/**
+ * Activity as the dotted timeline: a hairline rail, one hollow dot per event,
+ * the event's words and its date as a small grey tail. Used wherever a record
+ * lists what happened (Overview's Recent activity, the Activity section).
+ */
+export function RecordTimeline({
+  events,
+  dataAttr = "record-activity-list",
+}: {
+  events: Array<{ id: string; label: string; timestamp?: string }>;
+  dataAttr?: string;
+}) {
+  return (
+    <div className="px-[var(--portal-card-padding,14px)] py-2.5">
+      <ol
+        className="relative pl-[18px] before:absolute before:bottom-1.5 before:left-[5px] before:top-1.5 before:w-px before:bg-[var(--input)]"
+        data-attr={dataAttr}
+      >
+        {events.map((event) => (
+          <li
+            key={event.id}
+            className="relative py-1 text-[13px] text-foreground/85 before:absolute before:-left-[16px] before:top-[10px] before:size-[7px] before:rounded-full before:border-[1.5px] before:border-muted/60 before:bg-card"
+          >
+            {event.label}
+            {event.timestamp ? <small className="ml-1.5 text-[12px] text-muted/75">{event.timestamp}</small> : null}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }

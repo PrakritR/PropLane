@@ -122,8 +122,9 @@ describe("ManagerServiceCardRow", () => {
     const cards = document.querySelectorAll(".portal-property-row");
     expect(cards.length).toBe(2);
     for (const card of Array.from(cards)) {
-      expect(card.className).toContain("rounded-xl");
-      expect(card.className).toContain("mb-3");
+      // A flat row on the page with a hairline divider - no card chrome (approved list anatomy).
+      expect(card.className).toContain("border-b");
+      expect(card.className).not.toContain("rounded-xl");
     }
     // No status chip rides on the row.
     expect(document.querySelector('[class*="rounded-full"][class*="bg-"]')).toBeNull();
@@ -179,7 +180,7 @@ describe("ResidentServiceCardRow", () => {
     expect(screen.getByText(/^Requested /)).toBeTruthy();
     expect(screen.getAllByText("$25").length).toBeGreaterThan(0);
     expect(document.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
-    expect(document.querySelector(".portal-property-row")?.className).toContain("rounded-xl");
+    expect(document.querySelector(".portal-property-row")?.className).toContain("border-b");
   });
 
   it("draws no figure for a maintenance request", () => {

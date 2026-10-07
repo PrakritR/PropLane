@@ -3764,7 +3764,7 @@ html[data-native] [data-listing-subnav] {
 /* One width contract for page chat and dialog chat. Reserve the rail before
    centering/sizing the editor, so narrow and wide dialogs both move left. */
 :root {
-  --portal-assistant-rail-width: clamp(21rem, 26vw, 23rem);
+  --portal-assistant-rail-width: 26.25rem; /* 420px docked dock, approved shell */
   --portal-assistant-panel-gap: 1rem;
 }
 
@@ -4085,4 +4085,87 @@ html[data-theme="light"] .portal-shell .glass-card {
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* ---- Portal lists (approved list anatomy, dashboard-redesign-1007) ----------
+   A list page is a header band on white: title row, underline tabs, one tools
+   line, then rows edge to edge. The page shell keeps the main column's padding
+   for everything else; only the header, the command band and the rows bleed to
+   the column edges, and only on a page whose command band is a direct child of
+   the page body (a panel that wraps its band in its own card keeps that card). */
+@media (min-width: 1024px) {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > [data-slot="page-header"] {
+    margin: -2rem -2rem 0;
+    padding: 14px 22px 0;
+    background: var(--background);
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > [data-slot="page-header"] + * {
+    margin-top: 0;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]) {
+    margin-inline: -2rem;
+    padding-top: 10px;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) .portal-list-page-scroll {
+    margin-inline: -2rem;
+    padding-inline: 2rem;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-record-list-surface"],
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-record-list-surface"] {
+    margin-inline: -2rem;
+  }
+}
+@media (max-width: 1023px) {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]) {
+    margin-inline: -1rem;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) .portal-list-page-scroll {
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-record-list-surface"],
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-record-list-surface"] {
+    margin-inline: -1rem;
+  }
+}
+
+/* Loading skeleton shimmer: rows on the page itself, no spinner. */
+.portal-skel {
+  background: linear-gradient(90deg, #f0f2f5, #f7f8fa, #f0f2f5);
+  background-size: 200% 100%;
+  animation: portal-skel-shimmer 1.2s infinite;
+}
+@keyframes portal-skel-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-skel {
+    animation: none;
+  }
+}
+html[data-theme="dark"] .portal-skel {
+  background: linear-gradient(90deg, #16181b, #1c1f23, #16181b);
+  background-size: 200% 100%;
+}
+
+/* Record pages: the header band (back chevron, tile, title, icons) runs edge to
+   edge under the shell's top strip like the list header, keeping the page's own
+   gutter so its text lines up with the cards below. */
+@media (min-width: 1024px) {
+  #portal-main-content header.portal-detail-header:not([data-bare]) {
+    margin: -2rem -2rem 0;
+    padding-inline: 2rem;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  #portal-main-content header.portal-detail-header:not([data-bare]) {
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+  }
 }

@@ -13,13 +13,13 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * The composer's two round controls. `min-h-0` opts out of the portal shell's
- * 44px button floor, which otherwise stretches these into pills; the 44px
- * single-line box around them is the touch target. Inset 6px on every side so
- * they sit centered on one line and bottom-aligned as the text grows.
+ * The composer's two 30px controls (attach, send). `min-h-0` opts out of the portal
+ * shell's 44px button floor, which otherwise stretches these; the 44px single-line
+ * box around them is the touch target. Inset so they sit centered on one line and
+ * bottom-aligned as the text grows.
  */
 const COMPOSER_ICON_BTN =
-  "absolute bottom-1.5 flex size-8 min-h-0 items-center justify-center rounded-full transition-[background-color,color,filter,transform] duration-150 disabled:cursor-not-allowed";
+  "absolute bottom-[7px] flex size-[30px] min-h-0 items-center justify-center rounded-[7px] transition-[background-color,color,filter,transform] duration-150 disabled:cursor-not-allowed";
 
 export type AssistantChatComposerProps = {
   input: string;
@@ -169,10 +169,10 @@ export function AssistantChatComposer({
       ) : null}
       <div
         className={cn(
-          "relative rounded-2xl border bg-auth-input-bg shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] duration-200 focus-within:border-primary/60 focus-within:ring-[3px] focus-within:ring-primary/20",
+          "relative rounded-[10px] border bg-auth-input-bg transition-[border-color,box-shadow] duration-150 focus-within:border-[#b9c9f6] focus-within:ring-[3px] focus-within:ring-[rgba(40,99,240,0.12)]",
           dragOver
             ? "border-primary/50 ring-[3px] ring-primary/15"
-            : "border-border",
+            : "border-[var(--input)]",
         )}
         onDragEnter={onDragEnter}
         onDragLeave={onDragLeave}
@@ -233,7 +233,7 @@ export function AssistantChatComposer({
             COMPOSER_ICON_BTN,
             "right-1.5",
             canSend
-              ? "text-white shadow-[0_2px_6px_-2px_rgba(47,107,255,0.55)] hover:brightness-110 active:scale-95"
+              ? "text-white hover:brightness-110 active:scale-95"
               : "bg-foreground/[0.07] text-muted/70",
           )}
           style={canSend ? { background: "var(--btn-primary)" } : undefined}

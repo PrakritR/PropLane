@@ -231,9 +231,8 @@ describe("PortalListControlStack", () => {
     expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add" })).toBeTruthy();
     expect(container.querySelector('[data-attr="portal-list-command-actions"]')).toBeTruthy();
-    expect(container.querySelector("[data-portal-list-destination-nav]")?.parentElement?.className).toMatch(
-      /border-b/,
-    );
+    // The tabs band carries its hairline underneath (the band row that holds the tabs).
+    expect(container.querySelector("[data-portal-list-destination-nav]")?.closest(".border-b")).toBeTruthy();
   });
 
   it("sticks destinations and Settings together in command mode (PRP-389)", () => {

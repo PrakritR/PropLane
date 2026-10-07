@@ -57,15 +57,16 @@ describe("PortalRecordListSurface empty card", () => {
 });
 
 describe("services empty state is one surface", () => {
-  it("renders exactly one bordered card for an empty list surface", () => {
+  it("renders exactly one empty card for an empty list surface, flat on the page (no bordered card)", () => {
     const { container } = render(
       <PortalRecordListSurface isEmpty emptyCard={{ title: "No assigned services", section: "services" }}>
         <div />
       </PortalRecordListSurface>,
     );
-    const cards = container.querySelectorAll(".border-border.bg-card");
+    const cards = container.querySelectorAll('[data-attr="portal-list-empty-card"]');
     expect(cards).toHaveLength(1);
-    expect(cards[0].getAttribute("data-attr")).toBe("portal-list-empty-card");
+    // The empty state is a centred tile and one bold line, not a card with its own border.
+    expect(container.querySelectorAll(".border-border.bg-card")).toHaveLength(0);
   });
 
   it("the services panel drops its joined outer card when the tab is empty", async () => {

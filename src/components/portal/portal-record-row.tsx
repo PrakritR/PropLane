@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Children, Fragment, isValidElement, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { DoorOpen, UserRound, Wrench, type LucideIcon } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
@@ -51,11 +51,11 @@ const SAFE_PHOTO_HREF_RE =
 export function PortalRowIconTile({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <span
-      className="flex size-14 items-center justify-center rounded-xl bg-accent text-primary"
+      className="flex size-[38px] items-center justify-center rounded-lg bg-accent text-primary"
       data-slot="portal-row-icon-tile"
       aria-hidden
     >
-      <Icon className="size-5" />
+      <Icon className="size-4" strokeWidth={1.75} />
     </span>
   );
 }
@@ -123,6 +123,22 @@ export function PortalPersonRecordRow({
     </div>
   );
 }
+
+/** Unwrap fragments and arrays into a flat list of real fact nodes. */
+function flattenFacts(node: ReactNode): ReactNode[] {
+  const out: ReactNode[] = [];
+  Children.toArray(node).forEach((child) => {
+    if (isValidElement(child) && child.type === Fragment) {
+      out.push(...flattenFacts((child.props as { children?: ReactNode }).children));
+    } else {
+      out.push(child);
+    }
+  });
+  return out;
+}
+
+/** A phone row names at most two glyph facts under its place line. */
+const PHONE_FACT_LIMIT = 2;
 
 /**
  * Property-style card row.
@@ -228,61 +244,82 @@ export function PortalPropertyRecordRow({
   const badgeContent = statusWord ? <PortalRecordRowStatus {...statusWord} /> : badge;
   const trailingContent = trailing ?? (amount != null ? amount : undefined);
   const amountToneClass = amountTone ? STATUS_WORD_TONE_CLASS[amountTone] : "text-foreground";
+  // Glyph facts live in the body button once, at every width: one line right of the text at
+  // lg+, under the place line below it, where a third fact onward is hidden (a phone row
+  // names two). Same DOM at both widths, so nothing is ever drawn twice.
+  const factNodes = flattenFacts(facts);
+  const metaNodes: ReactNode[] = [];
+  if (meta?.rooms) {
+    metaNodes.push(
+      <span key="rooms" className="inline-flex items-center gap-[5px]"><DoorOpen className="size-3.5" strokeWidth={1.6} aria-hidden />{meta.rooms} {meta.rooms === 1 ? "room" : "rooms"}</span>,
+    );
+  }
+  if (meta?.residents) {
+    metaNodes.push(
+      <span key="residents" className="inline-flex items-center gap-[5px]"><UserRound className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Residents</span>{meta.residents} {meta.residents === 1 ? "resident" : "residents"}</span>,
+    );
+  }
+  const phoneCap = (node: ReactNode, index: number, key: string) =>
+    index >= PHONE_FACT_LIMIT ? <span key={key} className="max-lg:hidden">{node}</span> : node;
+  const hasFacts = factNodes.length > 0 || metaNodes.length > 0;
+  const factsLine = hasFacts ? (
+    <div
+      className="flex flex-wrap items-center gap-x-3.5 gap-y-0.5 text-[13px] text-muted max-lg:mt-0.5 lg:shrink-0 lg:flex-nowrap"
+      data-attr="record-row-facts"
+    >
+      {factNodes.map((node, i) => phoneCap(node, i, `fact-${i}`))}
+      {metaNodes.length > 0 ? (
+        <span className="contents" data-attr="property-row-meta">
+          {metaNodes.map((node, i) => phoneCap(node, factNodes.length + i, `meta-${i}`))}
+        </span>
+      ) : null}
+    </div>
+  ) : null;
   const body = (
     <>
-      <p className="flex min-w-0 items-center gap-1 text-[15px] font-semibold leading-tight text-foreground">
-        {attention ? (
-          <>
-            <span aria-hidden className="size-2 shrink-0 rounded-full bg-primary" />
-            <span className="sr-only">Needs attention</span>
-          </>
+      {/* Text column: a real box at lg+ (so the facts sit beside it), transparent below it so the
+          facts can drop under the place line and the money/status rows follow them. */}
+      <div className="flex min-w-0 flex-col gap-px max-lg:contents lg:flex-1">
+        <p className="flex min-w-0 items-center gap-1.5 text-[14.5px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
+          {attention ? (
+            <>
+              <span aria-hidden className="size-2 shrink-0 rounded-full bg-primary" />
+              <span className="sr-only">Needs attention</span>
+            </>
+          ) : null}
+          <span className="truncate">{title}</span>
+        </p>
+        {address ? <p className="truncate text-[13px] leading-snug text-muted">{address}</p> : null}
+        {summary ? <p className="truncate text-[13px] text-muted max-lg:order-1">{summary}</p> : null}
+        {badgeContent || trailingContent ? (
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 max-lg:order-1">
+            {badgeContent}
+            {/* On a phone the money sits under the title, so the title keeps its
+                width; on desktop it moves to the right edge. */}
+            {trailingContent ? (
+              <span className="inline-flex items-baseline gap-1 md:hidden">
+                <span className={cn("text-[13px] font-semibold", amountToneClass)}>{trailingContent}</span>
+                {amountSubLabel ? <span className="text-[12px] font-medium text-muted/75">{amountSubLabel}</span> : null}
+              </span>
+            ) : null}
+          </div>
         ) : null}
-        <span className="truncate">{title}</span>
-      </p>
-      {address ? <p className="text-[13px] leading-relaxed text-muted md:truncate">{address}</p> : null}
-      {/* One fact line, like the studio: state facts first, then rooms and residents. */}
-      {facts || (meta && (meta.rooms || meta.residents)) ? (
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="record-row-facts">
-          {facts}
-          {meta && (meta.rooms || meta.residents) ? (
-            <span className="contents" data-attr="property-row-meta">
-              {meta.rooms ? (
-                <span className="inline-flex items-center gap-1"><DoorOpen className="size-3.5" strokeWidth={1.6} aria-hidden />{meta.rooms} {meta.rooms === 1 ? "room" : "rooms"}</span>
-              ) : null}
-              {meta.residents ? (
-                <span className="inline-flex items-center gap-1"><UserRound className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Residents</span>{meta.residents} {meta.residents === 1 ? "resident" : "residents"}</span>
-              ) : null}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      {summary ? <p className="truncate text-xs text-muted">{summary}</p> : null}
-      {badgeContent || trailingContent ? (
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-          {badgeContent}
-          {/* On a phone the money sits under the title, so the title keeps its
-              width; on desktop it moves to the right edge. */}
-          {trailingContent ? (
-            <span className="inline-flex items-baseline gap-1 md:hidden">
-              <span className={cn("text-[13px] font-bold", amountToneClass)}>{trailingContent}</span>
-              {amountSubLabel ? <span className="text-[11px] font-medium text-muted">{amountSubLabel}</span> : null}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      </div>
+      {factsLine}
     </>
   );
   const aside =
     trailingContent ? (
-      <div className="ml-2 hidden shrink-0 flex-col items-end justify-center gap-0.5 self-center text-right md:flex">
-        <span className={cn("whitespace-nowrap text-[14px] font-bold", amountToneClass)}>{trailingContent}</span>
-        {amountSubLabel ? <span className="whitespace-nowrap text-[11px] font-medium text-muted">{amountSubLabel}</span> : null}
+      <div className="ml-2 hidden min-w-24 shrink-0 flex-col items-end justify-center self-center text-right md:flex">
+        <span className={cn("whitespace-nowrap text-[14px] font-semibold tabular-nums", amountToneClass)}>{trailingContent}</span>
+        {amountSubLabel ? <span className="whitespace-nowrap text-[12px] font-medium text-muted/75">{amountSubLabel}</span> : null}
       </div>
     ) : null;
   return (
     <div
       id={rowId}
       data-openable={openable ? "" : undefined}
+      data-record-row=""
       // The body button is the keyboard / screen-reader target, but a click ANYWHERE on the card opens the
       // record - the tile, the right-hand figure and the padding included (a vendor record's Services rows
       // were only clickable on their text). Anything interactive inside (the body button itself, the ⋯, an
@@ -305,15 +342,14 @@ export function PortalPropertyRecordRow({
         // record and a separate 44px selection target. Inside a
         // `PortalListGroup`, `flush` drops the card chrome so the row reads
         // as one line inside the group's single container instead.
-        "portal-property-row flex w-full items-center min-h-[92px] gap-1 px-4 py-4 transition-colors max-md:min-h-[76px] max-md:px-3.5 max-md:py-3.5",
-        flush
-          ? selected || checked
-            ? "bg-primary/[0.04]"
-            : "hover:bg-foreground/[0.03]"
-          : cn(
-              "mb-3 rounded-xl border bg-card shadow-sm",
-              selected || checked ? "border-primary/40 bg-primary/[0.04]" : "border-border hover:border-primary/30",
-            ),
+        // Flat row on white: hairline divider, a faint ink hover, 38px tile - no card chrome
+        // (approved list anatomy, dashboard-redesign-1007). A group's `divide-y` supplies the
+        // divider for its flush rows.
+        "portal-property-row flex w-full items-center gap-3 min-h-[56px] py-2 pl-[22px] pr-3.5 transition-colors max-lg:min-h-16 max-lg:pl-4 max-lg:pr-2",
+        !flush && "border-b border-border",
+        selected || checked
+          ? "bg-[var(--portal-selected-row,#f1f5ff)] shadow-[inset_2px_0_0_var(--primary)]"
+          : "hover:bg-[rgba(17,24,39,0.035)]",
       )}
     >
       {selectable ? (
@@ -328,8 +364,8 @@ export function PortalPropertyRecordRow({
       {leading ? (
         <div
           className={cn(
-            "mr-3 shrink-0 self-start",
-            leadingShape === "square" && "overflow-hidden rounded-[10px]",
+            "shrink-0 self-center",
+            leadingShape === "square" && "overflow-hidden rounded-lg",
             leadingShape === "round" && "overflow-hidden rounded-full",
           )}
         >
@@ -341,12 +377,12 @@ export function PortalPropertyRecordRow({
           type="button"
           data-attr={dataAttr}
           onClick={onOpen}
-          className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 text-left"
+          className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-px text-left lg:flex-row lg:items-center lg:gap-3.5"
         >
           {body}
         </button>
       ) : (
-        <div data-attr={dataAttr} className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 text-left">
+        <div data-attr={dataAttr} className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-px text-left lg:flex-row lg:items-center lg:gap-3.5">
           {body}
         </div>
       )}
@@ -367,12 +403,18 @@ export function PortalRowFact({
   icon: LucideIcon;
   children: ReactNode;
   srLabel?: string;
-  /** "danger" draws the fact in the overdue red — a fact, never a pill. */
-  tone?: "danger";
+  /** "danger" draws the fact in the overdue red, "ok" in green - text colour only, never a pill. */
+  tone?: "danger" | "ok";
 }) {
   if (typeof children === "string" && /^Moved (?:in|out)\s*[—–-]$/.test(children.trim())) return null;
   return (
-    <span className={cn("inline-flex min-w-0 items-center gap-1", tone === "danger" && "text-[var(--status-overdue-fg)]")}>
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center gap-[5px] whitespace-nowrap",
+        tone === "danger" && "text-[var(--status-overdue-fg)]",
+        tone === "ok" && "text-[var(--status-confirmed-fg)]",
+      )}
+    >
       <Icon className="size-3.5 shrink-0" strokeWidth={1.6} aria-hidden />
       {srLabel ? <span className="sr-only">{srLabel}</span> : null}
       <span className="truncate">{children}</span>
@@ -433,7 +475,7 @@ export function PortalApplicantRecordRow({
     .slice(0, 2)
     .map((part) => part[0]!.toUpperCase())
     .join("");
-  const tileRounding = leadingShape === "round" ? "rounded-full" : "rounded-[10px]";
+  const tileRounding = leadingShape === "round" ? "rounded-full" : "rounded-lg";
   // An unusable or unsafe photo falls through to the glyph / initials tile.
   const tilePhoto = (tileImage ?? "").trim();
   return (
@@ -444,10 +486,10 @@ export function PortalApplicantRecordRow({
           <div
             data-slot="portal-row-photo-tile"
             className={cn(
-              "overflow-hidden bg-accent/60",
+              "size-[38px] overflow-hidden bg-accent/60",
               leadingShape === "round"
-                ? "h-[4.125rem] w-[4.125rem] max-md:h-[3.125rem] max-md:w-[3.125rem]"
-                : "h-[4.125rem] w-[5.5rem] max-md:h-12 max-md:w-14",
+                ? "size-[38px]"
+                : "size-[38px]",
               tileRounding,
             )}
           >
@@ -459,29 +501,22 @@ export function PortalApplicantRecordRow({
             aria-hidden
             data-slot={tileIcon ? "portal-row-glyph-tile" : undefined}
             className={cn(
-              "grid place-items-center bg-accent/60 text-muted/80",
-              tileIcon && leadingShape !== "round"
-                ? "h-[4.125rem] w-[5.5rem] max-md:h-12 max-md:w-14"
-                : "h-[4.125rem] w-[4.125rem] max-md:h-[3.125rem] max-md:w-[3.125rem]",
+              "grid place-items-center bg-accent text-primary",
+              "size-[38px]",
               tileRounding,
             )}
           >
             {(() => {
               const Glyph = tileIcon ?? UserRound;
-              return <Glyph className="size-[22px]" strokeWidth={1.5} />;
+              return <Glyph className="size-[18px]" strokeWidth={1.6} />;
             })()}
           </div>
         ) : (
           <div
             aria-hidden
             className={cn(
-              "grid place-items-center bg-primary/[0.08] text-[20px] font-extrabold tracking-wide text-primary max-md:text-[16px]",
+              "grid size-[38px] place-items-center bg-[#f0f2f5] text-[12px] font-bold tracking-wide text-muted",
               tileRounding,
-              // A round avatar reads as a circle only when it is square; a
-              // square tile keeps its existing wider, photo-like proportions.
-              leadingShape === "round"
-                ? "h-[4.125rem] w-[4.125rem] max-md:h-[3.125rem] max-md:w-[3.125rem]"
-                : "h-[4.125rem] w-[5.5rem] max-md:h-12 max-md:w-14",
             )}
           >
             {initials || "?"}
@@ -536,24 +571,25 @@ export function PortalServiceRecordRow({
     leading ??
     (useServiceTile !== false ? (
       <span
-        className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary"
+        className="flex size-[38px] shrink-0 items-center justify-center rounded-lg bg-accent text-primary"
         data-slot="portal-service-row-tile"
         aria-hidden
       >
-        <Wrench className="size-5" />
+        <Wrench className="size-4" strokeWidth={1.75} />
       </span>
     ) : (
-      <InboxAvatar name={title} className="h-9 w-9 shrink-0 text-[11px]" />
+      <InboxAvatar name={title} className="size-[38px] shrink-0 text-[11px]" />
     ));
 
   return (
     <div
       id={rowId}
       data-svc-row={rowId?.replace(/^svc-/, "") || undefined}
-      className={`portal-service-row flex w-full items-center gap-3 border-b border-border/50 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5 ${
+      data-record-row=""
+      className={`portal-service-row flex w-full items-center gap-3 border-b border-border min-h-[56px] py-2 pl-[22px] pr-3.5 transition-colors max-lg:min-h-16 max-lg:pl-4 max-lg:pr-2 ${
         highlighted
-          ? "border-l-[3px] border-l-primary bg-primary/[0.06]"
-          : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
+          ? "bg-[var(--portal-selected-row,#f1f5ff)] shadow-[inset_2px_0_0_var(--primary)]"
+          : "hover:bg-[rgba(17,24,39,0.035)]"
       }`}
     >
       {selectable ? (
@@ -574,17 +610,17 @@ export function PortalServiceRecordRow({
       >
         {tile}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">{title}</p>
-          {subtitle ? <p className="mt-0.5 truncate text-xs text-muted">{subtitle}</p> : null}
+          <p className="truncate text-[14.5px] font-semibold tracking-[-0.01em] text-foreground">{title}</p>
+          {subtitle ? <p className="truncate text-[13px] text-muted">{subtitle}</p> : null}
           {facts ? (
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="service-row-facts">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-3.5 gap-y-0.5 text-[13px] text-muted max-lg:[&>*:nth-child(n+3)]:hidden" data-attr="service-row-facts">
               {facts}
             </div>
           ) : null}
         </div>
       </button>
       {figure ? (
-        <span className="shrink-0 text-[13px] font-semibold text-foreground tabular-nums">{figure}</span>
+        <span className="min-w-24 shrink-0 text-right text-[14px] font-semibold text-foreground tabular-nums">{figure}</span>
       ) : null}
       {actions ? <div className="shrink-0">{actions}</div> : null}
       {menu ? <div className="shrink-0 self-center">{menu}</div> : null}

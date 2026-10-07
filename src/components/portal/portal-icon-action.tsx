@@ -167,9 +167,12 @@ export const PortalIconAction = forwardRef<
         tone === "primary" ? "text-primary" : tone === "danger" ? "text-red-600" : "text-foreground/80 hover:text-foreground",
         active && "bg-accent text-primary",
         ring &&
+          // A record header's icons are ghost 32px glyphs like the list band's (approved
+          // record header); the section's next step stays the one filled round primary
+          // (docs/agents/record-page.md, point 1).
           (ringPrimary
             ? "!size-11 rounded-full md:!size-9 lg:!size-8 border border-transparent bg-[var(--btn-primary)] !text-white shadow-[0_1px_2px_rgba(40,99,240,0.35)] hover:bg-[#1e4fd6] active:scale-95"
-            : "!size-11 rounded-full md:!size-9 lg:!size-8 border border-border bg-card hover:bg-accent/60"),
+            : "!size-11 rounded-lg md:!size-9 lg:!size-8 hover:bg-[var(--secondary)]/70"),
         className,
       )}
       {...rest}
