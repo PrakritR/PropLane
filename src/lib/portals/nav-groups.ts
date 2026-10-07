@@ -72,10 +72,10 @@ const PRO_GROUPS: NavGroupConfig[] = [
 ];
 
 const ADMIN_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard"] },
+  { id: "home", label: null, sections: ["dashboard", "communication"] },
+  { id: "accounts", label: "Accounts", sections: ["axis-users", "test-accounts"] },
   { id: "portfolio", label: "Portfolio", sections: ["properties"] },
-  { id: "people", label: "People", sections: ["axis-users", "test-accounts"] },
-  { id: "operations", label: "Operations", sections: ["events", "communication", "bugs-feedback"] },
+  { id: "support", label: "Support", sections: ["bugs-feedback", "events", "health"] },
 ];
 
 // `move-in` is the resident's "My home" row (label "My home").

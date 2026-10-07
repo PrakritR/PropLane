@@ -1,221 +1,215 @@
 "use client";
 
-import { useState } from "react";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
-import { Button } from "@/components/ui/button";
-import { formatPacificDate } from "@/lib/pacific-time";
-import { ManagerDangerZoneCard, ManagerPlanBillingCard } from "@/components/portal/admin-manager-account-detail";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Trash2, UserCheck, UserX } from "lucide-react";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { AdminViewAsAction } from "@/components/portal/admin-view-as-action";
+import { useAdminAccountActions } from "@/components/portal/use-admin-account-actions";
+import {
+  AccountAuditSection,
+  AccountBillingSection,
+  AccountCommunicationSection,
+  AccountOverviewSection,
+  AccountPaymentsSection,
+  AccountSupportSection,
+  AccountWorkspacesSection,
+  type AdminAccountBillingSummary,
+} from "@/components/portal/admin-account-record-sections";
+import { useAppUi } from "@/components/providers/app-ui-provider";
+import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
+import {
+  adminAccountRail,
+  adminAccountSectionFromParam,
+  adminAccountSectionHref,
+  type AdminAccountRowKind,
+} from "@/lib/admin/admin-account-keys";
+import type { AdminAccountDetail } from "@/lib/admin/admin-account-detail.server";
+
+const FETCH_TIMEOUT_MS = 20_000;
 
 /**
- * An Accounts row's record (C165): Overview / Plan & billing / Danger zone,
- * following the flat-cards shape `admin-property-record-page.tsx` (C163)
- * established — no side rail, since `record-sections.ts` is the shared
- * registry every kind but Residents still owes a real migration to
- * (`docs/agents/record-page.md`).
+ * An Accounts row's record: header (tile, name, email line, then the View-as
+ * slot and the Disable / Delete icons) over a rail of Account · Money ·
+ * Activity sections. Everything it shows comes from one read,
+ * `GET /api/admin/accounts/<id>`.
  */
-export type AdminAccountRecordRow =
-  | {
-      kind: "manager";
-      id: string;
-      email: string;
-      fullName: string;
-      managerId: string;
-      tier: string;
-      active: boolean;
-      joinedAt: string | null;
-    }
-  | {
-      kind: "resident" | "vendor";
-      id: string;
-      email: string;
-      fullName: string;
-      managerId: string;
-      active: boolean;
-      joinedAt: string | null;
-    };
-
-const ROLE_LABEL: Record<AdminAccountRecordRow["kind"], string> = {
-  manager: "Manager",
-  resident: "Resident",
-  vendor: "Vendor",
-};
-
-/**
- * Enable/disable and delete for a resident or vendor account — the simple
- * counterpart to {@link ManagerDangerZoneCard} (managers alone carry a plan
- * and billing overrides).
- */
-function SimpleAccountDangerZoneCard({
-  row,
-  apiPath,
-  accountLabel,
-  onRefresh,
-  showToast,
-}: {
-  row: { id: string; active: boolean };
-  apiPath: "/api/admin/residents" | "/api/admin/vendors";
-  accountLabel: string;
-  onRefresh: () => void;
-  showToast: (m: string) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const toggle = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch(apiPath, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id, active: !row.active }),
-      });
-      if (!res.ok) {
-        showToast("Could not update account.");
-        return;
-      }
-      showToast(row.active ? `${accountLabel} account disabled.` : `${accountLabel} account enabled.`);
-      onRefresh();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteAccount = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch(apiPath, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id }),
-      });
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: "Could not delete account." }));
-        showToast((error as string) || "Could not delete account.");
-        return;
-      }
-      showToast(`${accountLabel} account deleted.`);
-      onRefresh();
-    } finally {
-      setBusy(false);
-      setConfirmDelete(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 px-4 py-4">
-      <Button
-        type="button"
-        variant="outline"
-        className={`rounded-full ${row.active ? "border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]" : ""}`}
-        onClick={() => toggle()}
-        disabled={busy}
-      >
-        {busy && !confirmDelete ? "Updating…" : row.active ? "Disable account" : "Enable account"}
-      </Button>
-      {confirmDelete ? (
-        <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 portal-banner-danger">
-          <span className="text-xs font-semibold text-rose-800">
-            {apiPath === "/api/admin/residents"
-              ? "Permanently delete this resident, leases, payments, and login?"
-              : "Delete vendor bids, invoices, and payouts?"}
-          </span>
-          <button
-            type="button"
-            className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
-            onClick={() => void deleteAccount()}
-            disabled={busy}
-          >
-            {busy ? "Deleting…" : "Yes, delete"}
-          </button>
-          <button
-            type="button"
-            className="text-xs font-semibold text-muted hover:text-foreground"
-            onClick={() => setConfirmDelete(false)}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          className="rounded-full border-rose-200 text-rose-700 hover:bg-[var(--status-overdue-bg)]"
-          onClick={() => setConfirmDelete(true)}
-          disabled={busy}
-        >
-          Delete account
-        </Button>
-      )}
-    </div>
-  );
-}
-
 export function AdminAccountRecordPage({
-  row,
+  parsed,
+  section: sectionParam,
   backHref,
-  planLabel,
-  commsLabel,
-  onRefresh,
-  showToast,
+  onDeleted,
 }: {
-  row: AdminAccountRecordRow;
+  parsed: { kind: AdminAccountRowKind; id: string } | null;
+  section?: string;
   backHref: string;
-  /** Manager rows only — the plan label the Overview and Plan & billing cards share. */
-  planLabel?: string;
-  /** Manager rows only — the wallet's remaining balance, already formatted. `undefined` on a free plan or unread wallet. */
-  commsLabel?: string;
-  onRefresh: () => void;
-  showToast: (m: string) => void;
+  onDeleted: () => void;
 }) {
-  const roleLabel = ROLE_LABEL[row.kind];
+  const { showToast } = useAppUi();
+  const [detail, setDetail] = useState<AdminAccountDetail | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "missing" | "error">("loading");
+  const [reloadTick, setReloadTick] = useState(0);
+  const [billing, setBilling] = useState<AdminAccountBillingSummary | undefined>(undefined);
+
+  const kind = parsed?.kind ?? "manager";
+  const id = parsed?.id ?? "";
+  const reload = useCallback(() => setReloadTick((n) => n + 1), []);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchWithTimeout(`/api/admin/accounts/${encodeURIComponent(id)}`, {}, FETCH_TIMEOUT_MS);
+        if (cancelled) return;
+        if (res.status === 404) {
+          setState("missing");
+          return;
+        }
+        if (!res.ok) {
+          setState("error");
+          return;
+        }
+        setDetail((await res.json()) as AdminAccountDetail);
+        setState("ready");
+      } catch {
+        if (!cancelled) setState("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, reloadTick]);
+
+  // Plan label and comms credit come from the existing manager-billing read.
+  useEffect(() => {
+    if (kind !== "manager" || !id) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchWithTimeout("/api/admin/manager-billing", {}, FETCH_TIMEOUT_MS);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { rows?: ({ id: string } & AdminAccountBillingSummary)[] };
+        const row = data.rows?.find((r) => r.id === id);
+        if (!cancelled && row) setBilling({ planLabel: row.planLabel, comms: row.comms });
+      } catch {
+        // Overview shows "—" for the plan and credit until a reload succeeds.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, id, reloadTick]);
+
+  const { busy, setActive, remove } = useAdminAccountActions(reload);
+
+  const section = adminAccountSectionFromParam(sectionParam, kind);
+  const rail = useMemo(() => adminAccountRail(kind), [kind]);
+  const railItems = useMemo(
+    () =>
+      rail.groups.flatMap((g) =>
+        g.ids.map((sid) => ({ id: sid, label: rail.labels[sid], href: adminAccountSectionHref(kind, id, sid) })),
+      ),
+    [rail, kind, id],
+  );
+
+  if (!parsed || state === "missing") {
+    return (
+      <PortalRecordDetailPage title="Account" backHref={backHref} backLabel="Accounts">
+        <PortalDataTableEmpty icon="data" message="Account not found" />
+      </PortalRecordDetailPage>
+    );
+  }
+  if (state === "error") {
+    return (
+      <PortalRecordDetailPage title="Account" backHref={backHref} backLabel="Accounts">
+        <PortalDataTableEmpty icon="data" message="Could not load this account" />
+      </PortalRecordDetailPage>
+    );
+  }
+  if (state === "loading" || !detail) {
+    return (
+      <PortalRecordDetailPage title="Account" backHref={backHref} backLabel="Accounts">
+        <PortalDataTableEmpty icon="data" message="Loading…" />
+      </PortalRecordDetailPage>
+    );
+  }
+
+  const name = detail.fullName || detail.email;
+  const active = detail.status === "active";
+
+  const body = (() => {
+    switch (section) {
+      case "workspaces":
+        return <AccountWorkspacesSection detail={detail} />;
+      case "billing":
+        return <AccountBillingSection detail={detail} onRefresh={reload} showToast={showToast} />;
+      case "payments":
+        return <AccountPaymentsSection detail={detail} />;
+      case "communication":
+        return <AccountCommunicationSection detail={detail} />;
+      case "audit":
+        return <AccountAuditSection detail={detail} />;
+      case "support":
+        return <AccountSupportSection detail={detail} />;
+      default:
+        return <AccountOverviewSection detail={detail} kind={kind} billing={billing} />;
+    }
+  })();
 
   return (
     <PortalRecordDetailPage
-      title={row.fullName || row.email}
-      subtitle={row.email}
-      avatarName={row.fullName || row.email}
+      title={name}
+      subtitle={detail.email}
+      avatarName={name}
       backHref={backHref}
       backLabel="Accounts"
-    >
-      <div className="flex flex-col gap-4 px-4 py-4 sm:px-6">
-        <RecordFactCard title="Overview" dataAttr="admin-account-overview">
-          <RecordFactRow label="Role" value={roleLabel} />
-          {row.kind === "manager" ? <RecordFactRow label="Plan" value={planLabel ?? "—"} /> : null}
-          <RecordFactRow label="Status" value={row.active ? "Active" : "Disabled"} tone={row.active ? "ok" : undefined} />
-          <RecordFactRow label="PropLane ID" value={row.managerId || "—"} />
-          <RecordFactRow
-            label="Joined"
-            value={
-              row.joinedAt
-                ? formatPacificDate(row.joinedAt, { year: "numeric", month: "short", day: "numeric" })
-                : "—"
+      iconTitleActions
+      actions={
+        <PortalRecordActions>
+          {/* SLOT: the View-as button. Owned by the View-as change; first in the header. */}
+          <AdminViewAsAction account={{ id: detail.id, kind, email: detail.email, name, active }} />
+          <PortalIconAction
+            ring
+            icon={active ? UserX : UserCheck}
+            label={active ? "Disable account" : "Enable account"}
+            disabled={busy}
+            data-attr="admin-account-toggle-active"
+            onClick={() => void setActive(kind, detail.id, !active)}
+          />
+          <PortalIconAction
+            ring
+            tone="danger"
+            icon={Trash2}
+            label="Delete account"
+            disabled={busy}
+            data-attr="admin-account-delete"
+            onClick={() =>
+              void remove(kind, detail.id, name).then((deleted) => {
+                if (deleted) onDeleted();
+              })
             }
           />
-          {row.kind === "manager" ? <RecordFactRow label="Comms credit" value={commsLabel ?? "—"} /> : null}
-        </RecordFactCard>
-
-        {row.kind === "manager" ? (
-          <RecordFactCard title="Plan & billing" dataAttr="admin-account-plan-billing">
-            <ManagerPlanBillingCard row={row} onRefresh={onRefresh} showToast={showToast} />
-          </RecordFactCard>
-        ) : null}
-
-        <RecordFactCard title="Danger zone" dataAttr="admin-account-danger-zone">
-          {row.kind === "manager" ? (
-            <ManagerDangerZoneCard row={row} onRefresh={onRefresh} showToast={showToast} />
-          ) : (
-            <SimpleAccountDangerZoneCard
-              row={row}
-              apiPath={row.kind === "resident" ? "/api/admin/residents" : "/api/admin/vendors"}
-              accountLabel={roleLabel}
-              onRefresh={onRefresh}
-              showToast={showToast}
-            />
-          )}
-        </RecordFactCard>
-      </div>
+        </PortalRecordActions>
+      }
+    >
+      <PortalRecordSectionChrome
+        items={railItems}
+        activeId={section}
+        groups={rail.groups.map((g) => ({ label: g.label, ids: [...g.ids] }))}
+        title={name}
+        subtitle={detail.email}
+        backHref={backHref}
+        backLabel="Accounts"
+        ariaLabel="Account sections"
+        currentLabel={rail.labels[section]}
+      >
+        <div className="flex flex-col gap-4 px-4 py-4 sm:px-6 lg:px-0" data-attr={`admin-account-section-${section}`}>
+          {body}
+        </div>
+      </PortalRecordSectionChrome>
     </PortalRecordDetailPage>
   );
 }

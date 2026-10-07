@@ -5,6 +5,7 @@ import { AdminCreateManagerClient } from "@/components/portal/admin-create-manag
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
 import { AdminDashboard } from "@/components/portal/admin-dashboard";
 import { AdminEventsClient } from "@/components/portal/admin-events-client";
+import { AdminHealthClient } from "@/components/portal/admin-health-client";
 import { AdminProfileSection } from "@/components/portal/admin-profile-section";
 import { AdminPropertiesClient } from "@/components/portal/admin-properties-client";
 import { AdminTestWorkspacesClient } from "@/components/portal/admin-test-workspaces-client";
@@ -21,6 +22,7 @@ const panels: PortalPanels = {
   AdminCreateResidentClient,
   AdminDashboard,
   AdminEventsClient,
+  AdminHealthClient,
   AdminProfileSection,
   AdminPropertiesClient,
   AdminTestWorkspacesClient,

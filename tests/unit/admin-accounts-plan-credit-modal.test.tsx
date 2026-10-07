@@ -14,7 +14,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/admin/axis-users",
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
-vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useAppUi: () => ({ showToast: vi.fn() }),
+  useConfirm: () => vi.fn(async () => true),
+}));
 vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => false,
   DEMO_MANAGER_USER_ID: "demo-manager",
@@ -37,9 +40,9 @@ beforeEach(() => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/api/admin/comms-plan-credit-rules")) return jsonResponse({ rules: PLAN_CREDIT_RULES });
       if (url.includes("/api/admin/manager-billing")) return jsonResponse({ rows: [] });
-      if (url.includes("/api/admin/managers")) return jsonResponse({ managers: [] });
-      if (url.includes("/api/admin/residents")) return jsonResponse({ residents: [] });
-      if (url.includes("/api/admin/vendors")) return jsonResponse({ vendors: [] });
+      if (url.includes("/api/admin/accounts/search")) {
+        return jsonResponse({ rows: [], counts: { manager: 0, resident: 0, vendor: 0 } });
+      }
       return jsonResponse({});
     }),
   );

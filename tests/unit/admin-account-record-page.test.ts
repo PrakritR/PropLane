@@ -16,7 +16,7 @@ describe("admin Accounts rows open a routed record page", () => {
 
   it("accepts a detailId and navigates rows into /admin/axis-users/<kind>-<id>", () => {
     expect(src).toContain("detailId");
-    expect(src).toMatch(/navigate\(`\/admin\/axis-users\/\$\{encodeURIComponent\(rowKeyOf\(row\)\)\}`\)/);
+    expect(src).toMatch(/navigate\(`\/admin\/axis-users\/\$\{encodeURIComponent\(adminAccountKey\(row\.kind, row\.id\)\)\}`\)/);
     expect(src).not.toContain("expandedKey");
     expect(src).not.toContain("ExpandedContent");
   });
@@ -26,25 +26,50 @@ describe("admin Accounts rows open a routed record page", () => {
     expect(src).toContain('navigate("/admin/profile")');
   });
 
-  it("a manager row's figure is its plan and comms credit, not the old tier/status pills", () => {
+  it("a manager row's facts are plan, workspaces and last sign-in, not the old tier/status pills", () => {
     expect(src).not.toContain("TierBadge");
     expect(src).not.toContain("<StatusPill");
     expect(src).toContain("billing?.planLabel");
-    expect(src).toContain("commsCreditLabel");
+    expect(src).toContain("workspaceCount");
+    expect(src).toContain("lastSignInAt");
+  });
+
+  it("shows Disabled in red only on a disabled account", () => {
+    expect(src).toContain('figure={row.active ? undefined : { value: "Disabled", tone: "bad" }}');
   });
 });
 
-describe("admin-account-record-page renders Overview / Plan & billing / Danger zone", () => {
+describe("admin-account-record-page: header, rail and one read", () => {
   const src = read("src/components/portal/admin-account-record-page.tsx");
+  const sections = read("src/components/portal/admin-account-record-sections.tsx");
+  const keys = read("src/lib/admin/admin-account-keys.ts");
 
-  it("has the three cards the redesign calls for", () => {
-    expect(src).toContain('title="Overview"');
-    expect(src).toContain('title="Plan & billing"');
-    expect(src).toContain('title="Danger zone"');
+  it("reads the whole record from GET /api/admin/accounts/<id>", () => {
+    expect(src).toContain("/api/admin/accounts/${encodeURIComponent(id)}");
   });
 
-  it("only a manager carries a plan and billing card", () => {
-    expect(src).toMatch(/row\.kind === "manager" \? \(\s*<RecordFactCard title="Plan & billing"/);
+  it("puts the View-as slot first in the header, then Disable and a red Delete", () => {
+    const header = src.slice(src.indexOf("<PortalRecordActions>"), src.indexOf("</PortalRecordActions>"));
+    expect(header.indexOf("<AdminViewAsAction")).toBeGreaterThan(-1);
+    expect(header.indexOf("<AdminViewAsAction")).toBeLessThan(header.indexOf('data-attr="admin-account-toggle-active"'));
+    expect(header.indexOf('data-attr="admin-account-toggle-active"')).toBeLessThan(
+      header.indexOf('data-attr="admin-account-delete"'),
+    );
+    expect(header).toContain('tone="danger"');
+  });
+
+  it("groups the rail Account · Money · Activity", () => {
+    expect(keys).toContain('{ label: "Account", ids: ["overview", "workspaces"] }');
+    expect(keys).toContain('{ label: "Money", ids: ["billing", "payments"] }');
+    expect(keys).toContain('{ label: "Activity", ids: ["communication", "audit", "support"] }');
+    expect(keys).toContain('billing: "Billing & plan"');
+    expect(keys).toContain('communication: "Communication log"');
+    expect(keys).toContain('audit: "Audit trail"');
+  });
+
+  it("reuses the existing manager billing editor unchanged", () => {
+    expect(sections).toContain("ManagerPlanBillingCard");
+    expect(sections).toContain('title="Plan & billing"');
   });
 });
 
@@ -68,7 +93,7 @@ describe("admin routes forward a detail segment for properties, accounts and tes
 
   it("properties, axis-users and test-accounts each pass detailId through", () => {
     expect(src).toContain("<AdminPropertiesClient detailId={detailId} />");
-    expect(src).toContain("<AdminAxisUsersClient detailId={detailId} />");
+    expect(src).toContain("<AdminAxisUsersClient detailId={detailId} detailSection={detailSection} />");
     expect(src).toContain("<AdminTestWorkspacesClient detailId={detailId} />");
   });
 });

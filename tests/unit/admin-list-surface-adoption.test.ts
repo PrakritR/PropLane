@@ -166,14 +166,25 @@ describe("admin Accounts", () => {
     // different content.
     expect(src).not.toContain("PORTAL_MOBILE_CARD_CLASS");
     expect(src).not.toContain("<table");
-    expect(src).toContain("PortalPersonRecordRow");
+    expect(src).toContain("PortalEntryRow");
+    expect(src).toContain('kind: "initials"');
   });
 
-  it("keeps account changes inside the editor the row opens", () => {
-    // Enable / disable and plan changes are not one stray tick away in a dock.
+  it("lists Managers, Residents and Vendors from one server search", () => {
+    expect(src).toContain("/api/admin/accounts/search");
+    expect(src).toContain('dataAttr: `admin-accounts-tab-${tab.id}`');
+    expect(src).not.toContain('"All"');
+  });
+
+  it("puts Open, Copy PropLane ID, Disable and a red Delete in the row menu", () => {
     const dock = src.slice(src.indexOf("const bulkActions ="), src.indexOf("return (\n    <ManagerPortalPageShell"));
     expect(dock).toContain('data-attr="admin-account-open"');
-    expect(dock).not.toContain("Disable");
+    expect(dock).toContain('data-attr="admin-account-copy-id"');
+    expect(dock).toContain('data-attr="admin-account-toggle-active"');
+    expect(dock).toContain('variant="danger"');
+    // Delete is last, and goes through the shared confirm in useAdminAccountActions.
+    expect(dock.indexOf("admin-account-delete")).toBeGreaterThan(dock.indexOf("admin-account-toggle-active"));
+    expect(read("src/components/portal/use-admin-account-actions.ts")).toContain("confirm(");
   });
 });
 
