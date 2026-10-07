@@ -1,11 +1,13 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { usePortalContainer } from "@/components/ui/portal-container-context";
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-conversation-context";
 import { modalAssistantStorageScope } from "@/lib/axis-assistant/assistant-chat-storage";
 import { closeAxisAssistant } from "@/lib/axis-assistant/open-store";
@@ -140,19 +142,23 @@ export function ModalAssistantStrip({
   if (!config) return null;
   const scopeSource = (storageScopeKey ?? contextHint ?? "Portal modal").trim();
   const storageScope = modalAssistantStorageScope(scopeSource, conversationInstance);
+  // History belongs to the modal, not to one visit of it.
+  const historyScope = modalAssistantStorageScope(scopeSource);
+  // The same utility chrome as everywhere else: a ghost ✦ icon action. The
+  // words "Ask PropLane" are its tooltip and accessible name, never a pill.
   const trigger = !hideTrigger ? (
-    <button
+    <PortalIconAction
       ref={triggerRef}
-      type="button"
+      icon={Sparkles}
+      iconSlot={<AxisAssistantSparkleIcon className="size-[18px]" />}
+      label="Ask PropLane"
+      tone="primary"
+      active={showExpanded}
       onClick={() => toggle(!showExpanded)}
-      className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border border-primary/25 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-attr="modal-assistant-expand"
       aria-expanded={showExpanded}
       aria-controls={showExpanded ? railId : undefined}
-    >
-      <AxisAssistantSparkleIcon className="h-4 w-4 shrink-0" />
-      Ask PropLane
-    </button>
+    />
   ) : null;
   const rail = showExpanded ? (
     <aside
@@ -176,7 +182,7 @@ export function ModalAssistantStrip({
     </aside>
   ) : null;
   return (
-    <AssistantConversationProvider endpoint={config.endpoint} storageScope={storageScope}>
+    <AssistantConversationProvider endpoint={config.endpoint} storageScope={storageScope} historyScope={historyScope}>
       <span ref={anchorRef} className={cn("shrink-0", className)} data-attr="modal-assistant-strip" data-expanded={showExpanded}>
         {triggerTarget ? createPortal(trigger, triggerTarget) : trigger}
         {railTarget ? createPortal(rail, railTarget) : rail}
