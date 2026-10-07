@@ -75,17 +75,24 @@ const PROPLANE_SENT_KINDS: ReadonlySet<VendorBankingEventKind> = new Set([
   "money_held_no_bank",
 ]);
 
-/** The name a PropLane system notice goes out under, whatever account backs it. */
+/** The name a PropLane system notice goes out under. */
 const PROPLANE_SENDER_NAME = "PropLane";
 
 /**
- * PropLane's own ops identity, the sender of a PropLane system notice.
+ * PropLane's own ops identity — the ONLY identity a PropLane system notice is
+ * ever sent under. There is deliberately no manager fallback: the From address,
+ * the Reply-To and the vendor's conversation identity all derive from this one
+ * account downstream, so borrowing a manager's would email "your Stripe account
+ * was restricted" from that manager's work address and route the vendor's reply
+ * to someone who had nothing to do with the event.
  *
  * `profiles.email` carries no unique constraint (see `primary-admin.ts`), so
  * this takes the OLDEST matching row rather than asking for exactly one — two
  * rows must not disable the whole PropLane-sender path. A read failure and a
- * missing identity are logged separately: both send the notice down the
- * manager fallback, and neither is normal operation.
+ * missing identity are logged separately; either one means the notice is not
+ * sent, because production always provisions this account
+ * (`scripts/ensure-admin-account.mjs`) and its absence is a misconfiguration,
+ * never a state to degrade around.
  */
 async function proplaneSystemSender(
   db: SupabaseClient,
@@ -105,9 +112,7 @@ async function proplaneSystemSender(
   const userId = String(row?.id ?? "").trim();
   const email = String(row?.email ?? "").trim().toLowerCase();
   if (!userId || !email) {
-    console.error(
-      `[vendor-banking] no PropLane ops profile for ${PRIMARY_ADMIN_EMAIL}; a PropLane notice will use the manager account for plumbing only`,
-    );
+    console.error(`[vendor-banking] no PropLane ops profile for ${PRIMARY_ADMIN_EMAIL}`);
     return null;
   }
   return { userId, email, name: PROPLANE_SENDER_NAME };
@@ -126,6 +131,12 @@ async function latestPayingManagerId(db: SupabaseClient, vendorUserId: string): 
   return id ? String(id) : null;
 }
 
+/** Why a notice did not go out. Absent when `sent` is true. */
+export type VendorBankingEventOutcome = {
+  sent: boolean;
+  reason?: "proplane_sender_missing" | "no_manager_sender" | "no_recipients" | "emit_failed";
+};
+
 export async function emitVendorBankingEvent(
   db: SupabaseClient,
   input: {
@@ -136,29 +147,33 @@ export async function emitVendorBankingEvent(
     managerUserId?: string | null;
     facts: VendorBankingEventFacts;
   },
-): Promise<{ sent: boolean }> {
+): Promise<VendorBankingEventOutcome> {
   try {
     // Whether a manager authored this moment is a property of the KIND, never
     // of which account happens to be available as the From address. A
-    // PropLane-sent kind is PropLane's own notice even on a database with no
-    // ops profile: the manager account is then plumbing (the bus needs a real
-    // user id for the thread and the foreign key), while the vendor still sees
-    // PropLane's address and name, and no workspace's settings gate it.
+    // PropLane-sent kind goes out as PropLane or not at all — never under a
+    // manager's identity, since every downstream address derives from the
+    // sender's user id.
     const proplaneSent = PROPLANE_SENT_KINDS.has(input.kind);
-    const system = proplaneSent ? await proplaneSystemSender(db) : null;
-    let sender: { userId: string; email: string; name?: string } | null = system;
-    if (!sender) {
+    let sender: { userId: string; email: string; name?: string } | null = null;
+    if (proplaneSent) {
+      sender = await proplaneSystemSender(db);
+      if (!sender) {
+        console.error(
+          `[vendor-banking] notification ${input.kind} NOT SENT for vendor ${input.vendorUserId}: the PropLane ops account is missing, and a PropLane notice is never sent under a manager's identity`,
+        );
+        return { sent: false, reason: "proplane_sender_missing" };
+      }
+    } else {
       const managerUserId = input.managerUserId ?? (await latestPayingManagerId(db, input.vendorUserId));
       const contact = managerUserId ? await profileContact(db, managerUserId) : null;
       if (!managerUserId || !contact?.email) {
         console.error(
           `[vendor-banking] notification ${input.kind} dropped: no sender for vendor ${input.vendorUserId}`,
         );
-        return { sent: false };
+        return { sent: false, reason: "no_manager_sender" };
       }
-      sender = proplaneSent
-        ? { userId: managerUserId, email: PRIMARY_ADMIN_EMAIL.trim().toLowerCase(), name: PROPLANE_SENDER_NAME }
-        : { userId: managerUserId, email: contact.email, name: contact.name };
+      sender = { userId: managerUserId, email: contact.email, name: contact.name };
     }
     const base = resolveEmailLinkBaseUrl().replace(/\/$/, "");
     const senderUserId = sender.userId;
@@ -177,7 +192,7 @@ export async function emitVendorBankingEvent(
         },
       ];
     });
-    if (recipients.length === 0) return { sent: false };
+    if (recipients.length === 0) return { sent: false, reason: "no_recipients" };
     await emitActionEvent(db, {
       eventId: `vendor_banking:${input.eventId}`,
       domain: "vendor_banking",
@@ -200,6 +215,6 @@ export async function emitVendorBankingEvent(
     return { sent: true };
   } catch (e) {
     console.error(`[vendor-banking] notification ${input.kind} failed:`, e instanceof Error ? e.message : e);
-    return { sent: false };
+    return { sent: false, reason: "emit_failed" };
   }
 }

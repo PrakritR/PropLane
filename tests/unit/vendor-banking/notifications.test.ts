@@ -18,8 +18,10 @@ const KINDS: VendorBankingEventKind[] = [
 ];
 
 /**
- * `proplaneOps` present = the PropLane ops profile exists (a real deployment);
- * absent = it does not, which is the fallback-to-manager path.
+ * The PropLane ops profile exists by default — production always provisions it
+ * (`scripts/ensure-admin-account.mjs`). `proplaneOps: false` is the
+ * misconfigured database, where a PropLane notice must refuse rather than
+ * borrow a manager's identity. `_tablesRead` proves which tables were consulted.
  */
 function db(
   rows: {
@@ -28,8 +30,12 @@ function db(
     proplaneOps?: boolean;
   } = {},
 ) {
+  const tablesRead: string[] = [];
+  const hasProplaneOps = rows.proplaneOps !== false;
   return {
+    _tablesRead: tablesRead,
     from(table: string) {
+      tablesRead.push(table);
       const b: Record<string, unknown> = {};
       let byEmail = "";
       b.select = () => b;
@@ -42,7 +48,7 @@ function db(
       const one = () => {
         if (table !== "profiles") return "payout" in rows ? rows.payout : { manager_user_id: "mgr_1" };
         if (byEmail === PRIMARY_ADMIN_EMAIL.toLowerCase()) {
-          return rows.proplaneOps ? { id: "proplane_ops", email: PRIMARY_ADMIN_EMAIL, full_name: "PropLane" } : null;
+          return hasProplaneOps ? { id: "proplane_ops", email: PRIMARY_ADMIN_EMAIL, full_name: "PropLane" } : null;
         }
         return rows.manager ?? { id: "mgr_1", email: "mgr@example.com", full_name: "Test Manager" };
       };
@@ -97,7 +103,7 @@ describe("emitVendorBankingEvent", () => {
   });
 
   it("a vendor-only moment (payout paid) goes to the vendor as a PropLane notice, never in a manager's name", async () => {
-    await emitVendorBankingEvent(db({ proplaneOps: true }) as never, { kind: "payout_paid", eventId: "payout:po_1:payout_paid", vendorUserId: "vendor_1", facts: { amountCents: 40_000 } });
+    await emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "payout:po_1:payout_paid", vendorUserId: "vendor_1", facts: { amountCents: 40_000 } });
     const input = h.emitAction.mock.calls[0]![1];
     expect(input.senderUserId).toBe("proplane_ops");
     expect(input.senderName).toBe("PropLane");
@@ -111,14 +117,13 @@ describe("emitVendorBankingEvent", () => {
       "bank_needs_verification", "account_restricted", "money_held_no_bank",
     ];
     for (const kind of proplaneSent) {
-      for (const proplaneOps of [true, false]) {
-        h.emitAction.mockReset();
-        await emitVendorBankingEvent(db({ proplaneOps }) as never, { kind, eventId: `e:${kind}`, vendorUserId: "vendor_1", facts: { amountCents: 1_000 } });
-        const input = h.emitAction.mock.calls[0]![1];
-        expect(input.systemNotice, kind).toBe(true);
-        expect(input.senderName, kind).toBe("PropLane");
-        expect(input.recipients.every((r: { draftForReview?: boolean }) => r.draftForReview !== true), kind).toBe(true);
-      }
+      h.emitAction.mockReset();
+      await emitVendorBankingEvent(db() as never, { kind, eventId: `e:${kind}`, vendorUserId: "vendor_1", facts: { amountCents: 1_000 } });
+      const input = h.emitAction.mock.calls[0]![1];
+      expect(input.systemNotice, kind).toBe(true);
+      expect(input.senderUserId, kind).toBe("proplane_ops");
+      expect(input.senderName, kind).toBe("PropLane");
+      expect(input.recipients.every((r: { draftForReview?: boolean }) => r.draftForReview !== true), kind).toBe(true);
     }
   });
 
@@ -131,32 +136,40 @@ describe("emitVendorBankingEvent", () => {
     expect(input.systemNotice).toBe(false);
   });
 
-  it("stays a system notice with no ops profile: the manager account is plumbing, the From is still PropLane", async () => {
-    await emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "fallback", vendorUserId: "vendor_1", facts: {} });
+  it("goes out under PropLane's own identity, never a manager's: address, name and sender id all the ops account", async () => {
+    await emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "proplane", vendorUserId: "vendor_1", facts: {} });
     const input = h.emitAction.mock.calls[0]![1];
     expect(input.systemNotice).toBe(true);
+    expect(input.senderUserId).toBe("proplane_ops");
+    expect(input.managerUserId).toBe("proplane_ops");
     expect(input.senderEmail).toBe(PRIMARY_ADMIN_EMAIL.toLowerCase());
     expect(input.senderName).toBe("PropLane");
     expect(input.recipients.map((r: { audience: string; userId: string }) => [r.audience, r.userId])).toEqual([["vendor", "vendor_1"]]);
   });
 
-  it("the system-notice decision is the KIND, never whether the ops profile resolved", async () => {
-    for (const proplaneOps of [true, false]) {
-      h.emitAction.mockReset();
-      await emitVendorBankingEvent(db({ proplaneOps }) as never, {
-        kind: "account_restricted", eventId: `ops:${proplaneOps}`, vendorUserId: "vendor_1", facts: { reason: "requirements past due" },
-      });
-      expect(h.emitAction.mock.calls[0]![1].systemNotice, String(proplaneOps)).toBe(true);
-    }
+  it("refuses rather than downgrading to a manager when the ops account is missing — a misconfiguration, not a fallback", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // A paying manager IS available here; it must still not be used.
+    const fake = db({ proplaneOps: false });
+    const result = await emitVendorBankingEvent(fake as never, {
+      kind: "account_restricted", eventId: "no-ops", vendorUserId: "vendor_1", facts: { reason: "requirements past due" },
+    });
+    expect(result).toEqual({ sent: false, reason: "proplane_sender_missing" });
+    expect(h.emitAction).not.toHaveBeenCalled();
+    expect(fake._tablesRead).not.toContain("vendor_payouts");
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("reaches a vendor with no payout history at all — PropLane is the sender, so there is nobody to be missing", async () => {
-    const result = await emitVendorBankingEvent(db({ proplaneOps: true, payout: null }) as never, {
+    const fake = db({ payout: null });
+    const result = await emitVendorBankingEvent(fake as never, {
       kind: "account_restricted", eventId: "account:acct_1:restricted", vendorUserId: "vendor_1", facts: { reason: "requirements past due" },
     });
     expect(result).toEqual({ sent: true });
     const input = h.emitAction.mock.calls[0]![1];
     expect(input.senderUserId).toBe("proplane_ops");
+    expect(fake._tablesRead).not.toContain("vendor_payouts");
     expect(input.recipients.map((r: { audience: string; userId: string }) => [r.audience, r.userId])).toEqual([["vendor", "vendor_1"]]);
   });
 
@@ -179,25 +192,15 @@ describe("emitVendorBankingEvent", () => {
   it("never throws into a money path: a bus failure is swallowed", async () => {
     h.emitAction.mockRejectedValue(new Error("bus down"));
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await expect(emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "z", vendorUserId: "vendor_1", facts: {} })).resolves.toEqual({ sent: false });
-    spy.mockRestore();
-  });
-
-  it("a PropLane-sent kind with neither an ops profile nor a manager is dropped loudly, never in silence", async () => {
-    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const result = await emitVendorBankingEvent(db({ payout: null }) as never, {
-      kind: "account_restricted", eventId: "nobody", vendorUserId: "vendor_1", facts: {},
-    });
-    expect(result).toEqual({ sent: false });
-    expect(h.emitAction).not.toHaveBeenCalled();
-    expect(spy).toHaveBeenCalled();
+    await expect(emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "z", vendorUserId: "vendor_1", facts: {} }))
+      .resolves.toEqual({ sent: false, reason: "emit_failed" });
     spy.mockRestore();
   });
 
   it("a cross-party moment with no manager to send as is dropped loudly, never in silence", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const result = await emitVendorBankingEvent(db({ payout: null }) as never, { kind: "refund_sent", eventId: "n", vendorUserId: "vendor_1", facts: {} });
-    expect(result).toEqual({ sent: false });
+    expect(result).toEqual({ sent: false, reason: "no_manager_sender" });
     expect(h.emitAction).not.toHaveBeenCalled();
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
