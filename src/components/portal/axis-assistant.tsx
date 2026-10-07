@@ -191,7 +191,6 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
     setError,
     send,
     resolvePendingAction,
-    reset,
     threads,
     activeThreadId,
     historyOpen,
@@ -199,7 +198,6 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
     historyError,
     historySearch,
     hasMoreHistory,
-    multiThread,
     openHistory,
     closeHistory,
     searchHistory,
@@ -280,11 +278,6 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
     });
   }, []);
 
-  function resetConversation() {
-    reset();
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }
-
   // Keep the scripted-prompt sender pointing at the latest closure (updated
   // after each render so it captures current messages/loading state).
   useEffect(() => {
@@ -336,42 +329,34 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
             titleId="axis-assistant-title"
             onClose={closePanel}
             onPinToRail={dockable ? pinToRail : undefined}
-            showHistory={multiThread}
             onOpenHistory={openHistory}
-            showNew={multiThread || hasConversation}
             onNew={() => {
-              if (multiThread) {
-                void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-              } else {
-                resetConversation();
-              }
+              void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
             }}
             className="[html[data-native]_&]:py-1.5"
           />
 
           <AssistantSmsTestControl />
 
-          {multiThread ? (
-            <AssistantChatHistoryPanel
-              open={historyOpen}
-              threads={threads}
-              activeThreadId={activeThreadId}
-              onSelect={selectThread}
-              onDelete={deleteThread}
-              onNewChat={() => {
-                void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-              }}
-              onClose={closeHistory}
-              loading={historyLoading}
-              error={historyError}
-              searchQuery={historySearch}
-              hasMore={hasMoreHistory}
-              onRetry={openHistory}
-              onLoadMore={loadMoreHistory}
-              onSearchQueryChange={searchHistory}
-              portalContainer={historyPortal}
-            />
-          ) : null}
+          <AssistantChatHistoryPanel
+            open={historyOpen}
+            threads={threads}
+            activeThreadId={activeThreadId}
+            onSelect={selectThread}
+            onDelete={deleteThread}
+            onNewChat={() => {
+              void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
+            }}
+            onClose={closeHistory}
+            loading={historyLoading}
+            error={historyError}
+            searchQuery={historySearch}
+            hasMore={hasMoreHistory}
+            onRetry={openHistory}
+            onLoadMore={loadMoreHistory}
+            onSearchQueryChange={searchHistory}
+            portalContainer={historyPortal}
+          />
 
           {hideEmptyChrome ? null : (
             <div

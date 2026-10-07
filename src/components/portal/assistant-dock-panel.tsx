@@ -72,7 +72,6 @@ export function AssistantDockPanel({
     setError,
     send,
     resolvePendingAction,
-    reset,
     threads,
     activeThreadId,
     historyOpen,
@@ -80,7 +79,6 @@ export function AssistantDockPanel({
     historyError,
     historySearch,
     hasMoreHistory,
-    multiThread,
     openHistory,
     closeHistory,
     searchHistory,
@@ -150,43 +148,34 @@ export function AssistantDockPanel({
       <AssistantPanelHeader
         onClose={onClose}
         closeDataAttr="modal-assistant-close"
-        showHistory={multiThread}
         onOpenHistory={openHistory}
-        showNew={multiThread || hasConversation}
         onNew={() => {
-          if (multiThread) {
-            void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-          } else {
-            reset();
-            requestAnimationFrame(() => inputRef.current?.focus());
-          }
+          void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
         }}
       />
 
       <AssistantSmsTestControl />
 
       <div ref={setHistoryPortal} className="relative flex min-h-0 flex-1 flex-col">
-        {multiThread ? (
-          <AssistantChatHistoryPanel
-            open={historyOpen}
-            threads={threads}
-            activeThreadId={activeThreadId}
-            onSelect={selectThread}
-            onDelete={deleteThread}
-            onNewChat={() => {
-              void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-            }}
-            onClose={closeHistory}
-            loading={historyLoading}
-            error={historyError}
-            searchQuery={historySearch}
-            hasMore={hasMoreHistory}
-            onRetry={openHistory}
-            onLoadMore={loadMoreHistory}
-            onSearchQueryChange={searchHistory}
-            portalContainer={historyPortal}
-          />
-        ) : null}
+        <AssistantChatHistoryPanel
+          open={historyOpen}
+          threads={threads}
+          activeThreadId={activeThreadId}
+          onSelect={selectThread}
+          onDelete={deleteThread}
+          onNewChat={() => {
+            void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
+          }}
+          onClose={closeHistory}
+          loading={historyLoading}
+          error={historyError}
+          searchQuery={historySearch}
+          hasMore={hasMoreHistory}
+          onRetry={openHistory}
+          onLoadMore={loadMoreHistory}
+          onSearchQueryChange={searchHistory}
+          portalContainer={historyPortal}
+        />
       <div
         ref={scrollRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-[18px] py-3.5"
