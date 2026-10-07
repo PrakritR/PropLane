@@ -391,6 +391,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
   },
   {
+    // The vendor's own W-9 (one per account). Personal tax identifiers go with
+    // the account (the FK cascades from auth.users too).
+    table: "vendor_account_tax_profiles",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
     table: "vendor_tax_profiles",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

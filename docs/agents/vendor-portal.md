@@ -576,12 +576,8 @@ reply · Replied, rows `★ tile · reviewer · the review · date · ✓ Replie
 link, and the redesign did not reverse that. Reply opens a small pop-up with the review for context,
 a ⚡ quick-reply menu and **Save reply** in the footer.
 
-**Payments** (`/vendor/financials/income`, `VendorFinancesPanel`). The balance card sits above the
-band: Available now (with "$X on the way") and Bank · Withdraw as the only header icons (the captain removed the
-balance card's Refund and Statement icons — a vendor refund flow is a separate plan; the per-payment Refund on
-a payout record page is hidden too: the vendor refund route is paused server-side with 409
-`VENDOR_REFUND_PAUSED` until the banking rebuild, and `VendorRefundModal` stays in the codebase for it; the band keeps
-its single Download). Tabs are **Pending · Paid · Overdue**
+**Payments** (`/vendor/financials/income`, `VendorFinancesPanel`) is one tab of Finances (below) and carries no
+balance card. Tabs are **Pending · Paid · Overdue**
 (`vendorPaymentBucket`, `src/lib/vendor-payments.ts`): Paid = a paid invoice or payout; Overdue = an
 **unpaid, non-rejected invoice whose due date is before today** (a payment due today is still
 Pending; an invoice with no due date can never be overdue); everything else Pending (rejected
@@ -589,7 +585,59 @@ invoices and failed payouts stay there because the vendor must act on them). The
 manager's bill's `due_date` for the invoice (`vendor_invoices.bill_id` → `manager_bills`); the GET
 `/api/vendor/invoices` route projects only that one date as `dueDate`, never the bill. Row ⋯:
 View invoice (View payment on an income row) · Edit · Retract invoice (a submitted invoice; named so it is never read as withdrawing money) · Download ·
-Message the manager (opens Communication with New message, `?compose=1`).
+**Refund** · Message the manager (opens Communication with New message, `?compose=1`). Refund shows only when
+`isVendorPaymentRefundable` (a settled payment with gross left) AND `VENDOR_REFUNDS_ENABLED` is on — the flag reaches
+the client as `refundsEnabled` on the one balance snapshot, never a client guess — and opens the Refund a payment
+pop-up (`VendorRefundModal`, owned by the refund path) on that payment. The payout record page's header still hides Refund.
+
+## Finances: Balance & payouts · Payments · Refunds · Statements · Tax info (vendor-banking-1006, Oct 7)
+
+One vendor nav section, id `financials` (so every old URL keeps resolving), label **Finances**, five routed tabs
+(`vendor.ts`): `balance`, `income` (Payments — the id never changed), `refunds`, `statements`, `tax`. The sidebar
+nests them under the one Finances row (`portal-sidebar.tsx`, like manager Payments); the phone More sheet nests
+them too. `invoices` and `payouts` are **detail-only** ids (an invoice / a payment record page); bare
+`/financials` opens Balance, bare `/financials/invoices` → Payments, bare `/financials/payouts` → Balance,
+`/vendor/payments` → Payments. Settings › Payouts keeps only **Bank accounts + Schedule** and links to Finances;
+the balance, withdraw, payout history, fee rate and W-9 rows moved out of it.
+
+**One server snapshot feeds every number**: `GET /api/vendor/payouts/balance`. `deriveVendorFinancesFigures`
+(`src/lib/vendor-banking/finances.ts`, pure) turns it into **Available · Pending · Held (with its reason: until you
+add a bank / until identity is verified / being released) · On the way · Owed to PropLane** (provider deficit plus
+outstanding recovery); `deriveVendorFinancesBanner` names the exact reason money cannot move and the one fix (Add
+bank, Reconnect on a 409 `needsRelink`); `vendorWithdrawDisabledReason` is why Withdraw is disabled — a disabled
+button always says why (it is in the icon's name). Header icons on the card: **Bank · Withdraw only**.
+
+- **Payout history** (`vendor-finances-balance.tsx`): rows from the snapshot's history; a row opens
+  `/vendor/financials/balance/<payoutId>` (amounts, destination, dates, status) whose Receipt opens
+  `/print/vendor-withdrawal/<id>` (scoped to the signed-in vendor's own `stripe_payouts` row; Print → Save as PDF).
+- **Withdraw sheet** quotes the Instant fee from **one constant**: `VENDOR_INSTANT_WITHDRAW_FEE_BPS` (1.5%) and
+  `…_MIN_CENTS` ($0.50) in `platform-fees.ts`; `vendorInstantWithdrawFeeQuoteCents` is the flag-free formula the
+  server (`vendorInstantWithdrawFeeCents`) and the sheet both call, and the label is derived
+  (`VENDOR_INSTANT_WITHDRAW_FEE_LABEL`). Standard is free. The sheet's submit is guarded by a ref so a double click
+  cannot create two payouts (the server's pending-claim index is the real guard).
+- **Ledger**: `POST /api/vendor/payouts/create` writes the withdrawal to the vendor ledger
+  (`recordVendorWithdrawalLedger`, idempotent on the payout id): a `withdrawal` debit for what the bank receives
+  and, for Instant, a `platform_fee` debit with source `withdrawal`. The Instant fee is quoted, shown and booked;
+  collecting it to the platform account is not wired (the payout request is for the net amount).
+- **Statements** (`vendor-statements-panel.tsx`, `vendor-statement-modal.tsx`): one row per month with activity —
+  opening, closing, Matches Stripe — opening the month's lines (`GET /api/vendor/payouts/statement?month=`), PDF
+  (`/print/vendor-statement/<yyyy-mm>`) and CSV (`?format=csv`, formula-safe). Every ledger line carries an event type
+  from `vendorStatementEventType` (`statement-events.ts`): charge · fee · hold · transfer · withdrawal · instant fee ·
+  refund · dispute · hold expiry · adjustment, derived from `kind` + `source` (a dispute is an `adjustment` whose
+  description starts "Dispute"; no ledger constraint was widened). A read failure is an error with Try again, never
+  "No activity yet". Opening balance = everything before the month.
+- **Tax info** (`vendor-tax-panel.tsx`, `/api/vendor/finances/tax`): one W-9 per vendor **account** in
+  `vendor_account_tax_profiles` (PK `vendor_user_id`, RLS on, no client grant; migration
+  `20261007010000_vendor_tax_profiles.sql`). The TIN is AES-256-GCM ciphertext (`tin-crypto.ts`,
+  `FINANCIALS_TIN_ENCRYPTION_KEY`; the route answers 503 without the key, never stores plaintext) plus last four —
+  only the last four ever leaves the server. Editing without retyping the TIN keeps the stored one. The save mirrors
+  the same ciphertext into the legacy per-manager `vendor_tax_profiles` rows the manager's 1099 export reads. The tax-year
+  summary (earnings, fees, refunds) comes from the ledger; the 1099 line uses `threshold1099Cents` ($600 before 2026,
+  $2,000 from 2026) on earnings less refunds.
+- **Refunds** tab mounts `VendorRefundsPanel` (`vendor-refunds-panel.tsx`), owned by the refund path.
+
+Coverage: `tests/unit/vendor-finances-*.test.ts(x)`, `tests/unit/vendor-banking/{finances,statement-events,tax,withdrawal-ledger}.test.ts`,
+`tests/unit/vendor-payments-refund-item.test.tsx`.
 
 **Gear in every vendor list band** opens the matching Settings page, never a pop-up
 (`vendor-settings-pages.ts`, `VendorSettingsGear`): Services → Trades & service area, Payments →

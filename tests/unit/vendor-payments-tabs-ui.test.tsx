@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 //
 // Vendor Payments (vendor-portal-redesign-1006): Pending · Paid · Overdue tabs
-// with counts, the balance card with Bank / Withdraw as header
-// icons, and the shared row with ⋯ View invoice · Download · Message the manager.
+// with counts and the shared row with ⋯ View invoice · Download · Message the manager.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
@@ -125,19 +124,10 @@ describe("vendor Payments tabs", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/communication/active?compose=1");
   });
 
-  it("the balance card reads Available now with what is on the way, and Bank / Withdraw are the only header icons (no Statement, no Refund)", async () => {
+  it("the Payments tab carries no balance card (it moved to Balance & payouts); the band keeps its single Download", async () => {
     renderPanel();
-    const card = await waitFor(() => {
-      const el = document.querySelector('[data-attr="vendor-income-balance-card"]');
-      expect(el).toBeTruthy();
-      return el as HTMLElement;
-    });
-    expect(card.textContent).toContain("Available now");
-    expect(card.textContent).toContain("$420.00");
-    expect(card.textContent).toContain("$180.00 on the way");
-    expect(within(card).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Bank", "Withdraw"]);
-    for (const label of ["Statement", "Refund"]) expect(within(card).queryByRole("button", { name: label })).toBeNull();
-    // the band keeps its single Download
+    await waitFor(() => expect(document.querySelectorAll('[data-attr="vendor-invoice-row"]')).toHaveLength(1));
+    expect(document.querySelector('[data-attr="vendor-income-balance-card"]')).toBeNull();
     expect(document.querySelectorAll('[data-attr="vendor-export-invoices-csv"]')).toHaveLength(1);
   });
 
@@ -168,11 +158,11 @@ describe("vendor Payments tabs", () => {
     }
   });
 
-  it("the payout record header and page no longer offer Refund (the vendor refund route is paused)", async () => {
+  it("the payout record header still offers no Refund; the row ⋯ Refund is mounted only behind the flag", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("src/components/portal/vendor-finances-panel.tsx", "utf8");
-    expect(src).not.toContain("<VendorRefundModal");
-    expect(src).not.toContain("setRefundOpen");
     expect(src).toContain('if (action.id === "refund") return false;');
+    expect(src).toContain("{refundConfig.enabled ? (");
+    expect(src).toContain("isVendorPaymentRefundable(row.payout, refundsEnabled)");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUpFromLine, CalendarDays, Download, FileText, Landmark, Undo2, DollarSign, UserRound } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { CalendarDays, Download, FileText, Undo2, DollarSign, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -31,7 +31,6 @@ import {
   FilterFieldsAccordion,
   filterMultiSelectSummary,
 } from "@/components/portal/filter-field-lists";
-import { AddBankFlow } from "@/components/portal/add-bank-flow";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
@@ -61,11 +60,9 @@ import {
   isPortalPayoutBalance,
   type PortalPayoutBalance,
 } from "@/components/portal/portal-payouts-panel";
-import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
-import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
 import { sharedGet } from "@/lib/shared-get-cache";
-import { isPayoutDestinationSummary, type PayoutDestinationSummary } from "@/components/portal/payout-bank-sheet";
-import { track } from "@/lib/analytics/track-client";
+import { isVendorPaymentRefundable } from "@/lib/vendor-banking/finances";
+import { VendorRefundModal } from "@/components/portal/vendor-refund-modal";
 import {
   formatInvoiceMoney,
   normalizeLineItems,
@@ -155,181 +152,6 @@ function formatIncomeDate(dateIso: string): string {
 }
 
 /**
- * C160 — Income becomes a Money-in view: the Available balance + Withdraw
- * affordance that used to live only on Settings → Payouts is now surfaced
- * directly on the Income tab too, so a vendor reads "money in" and can move
- * it without a detour through Settings. Reuses the same read route
- * (`GET /api/vendor/payouts/balance`) and the same `PayoutWithdrawSheet` /
- * `POST /api/vendor/payouts/create` write path the Settings page already
- * uses — no new money route, no bypass of server-side amount/ownership
- * checks. Settings → Payouts is unchanged and still works on its own.
- */
-function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () => void; reloadKey?: number } = {}) {
-  const loadSequence = useRef(0);
-  const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
-  const [loadError, setLoadError] = useState(false);
-  const [destinations, setDestinations] = useState<PayoutDestinationSummary[] | null>(null);
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
-
-  const loadBalance = useCallback(async () => {
-    const sequence = ++loadSequence.current;
-    setBalance(null);
-    setDestinations(null);
-    setLoadError(false);
-    const [balanceRead, banksRead] = await Promise.all([
-      sharedGet("/api/vendor/payouts/balance", { ttlMs: 0 }),
-      sharedGet("/api/vendor/stripe-connect/bank-accounts", { ttlMs: 0 }),
-    ]);
-    if (sequence !== loadSequence.current) return;
-    const bankBody = banksRead.ok ? banksRead.data as { destinations?: unknown } | null : null;
-    if (!balanceRead.ok || !isPortalPayoutBalance(balanceRead.data) ||
-        !bankBody || !Array.isArray(bankBody.destinations) ||
-        !bankBody.destinations.every(isPayoutDestinationSummary)) {
-      setLoadError(true);
-      return;
-    }
-    setBalance(balanceRead.data);
-    setDestinations(bankBody.destinations);
-  }, []);
-
-  useEffect(() => {
-    void loadBalance();
-    return () => { loadSequence.current += 1; };
-  }, [loadBalance, reloadKey]);
-
-  if (loadError) return <div role="alert" className="mb-3 rounded-xl border border-border p-4 text-sm" data-attr="vendor-income-balance-error">Could not load payout funds or bank accounts.</div>;
-  if (!balance || !destinations) return null;
-
-  const withdrawAccounts: PayoutWithdrawAccount[] = destinations.filter((row) => row.payable)
-    .sort((a, b) => Number(b.default) - Number(a.default))
-    .map((row) => ({ id: row.id, label: row.label, last4: row.last4, kind: row.kind, instantEligible: row.instantEligible }));
-  const withdrawableCents = withdrawableCentsFromSnapshot(balance);
-  const ready = balance.setup.ready && withdrawAccounts.length > 0;
-  const heldCents = balance.heldCents ?? 0;
-  // VENDOR_BANKING_ENABLED signal: the balance route only ever includes
-  // feeBps once the flag is on, so this whole enhanced card (buckets, nudge)
-  // stays byte-for-byte absent with it off.
-  const vendorBankingOn = typeof balance.feeBps === "number";
-
-  return (
-    <div
-      className="mb-3 flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm"
-      data-attr="vendor-income-balance-card"
-    >
-      <div className="vbank-balance-title flex flex-wrap items-start justify-between gap-3">
-        {vendorBankingOn ? (
-          <div className="flex flex-1 flex-wrap gap-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available now</p>
-              <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-available">
-                {formatMoney(withdrawableCents, balance.currency)}
-              </p>
-              {balance.onTheWayCents > 0 ? (
-                <p className="mt-1 text-xs text-muted" data-attr="vendor-income-on-the-way-sub">
-                  {formatMoney(balance.onTheWayCents, balance.currency)} on the way
-                </p>
-              ) : null}
-            </div>
-            {balance.pendingCents > 0 ? (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Pending</p>
-                <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-pending">
-                  {formatMoney(balance.pendingCents, balance.currency)}
-                </p>
-              </div>
-            ) : null}
-            {heldCents > 0 ? (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Held by PropLane</p>
-                <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-held">
-                  {formatMoney(heldCents, balance.currency)}
-                </p>
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Available to withdraw</p>
-              <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-available">
-                {formatMoney(withdrawableCents, balance.currency)}
-              </p>
-            </div>
-            {heldCents > 0 ? <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Held pending bank</p>
-              <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-held">{formatMoney(heldCents, balance.currency)}</p></div> : null}
-          </div>
-        )}
-        {(balance.withdrawableCents ?? 0) < 0 ? <p className="text-sm text-danger" data-attr="vendor-income-provider-deficit">Provider deficit {formatMoney(-(balance.withdrawableCents ?? 0), balance.currency)}</p> : null}
-        <div className="vbank-quickactions flex items-center gap-1.5">
-          {/* Bank: add or change where withdrawals go — the same Add bank flow the held-funds nudge opens. */}
-          <PortalIconAction
-            icon={Landmark}
-            label="Bank"
-            data-attr="vendor-income-balance-bank"
-            onClick={() => onAddBank?.()}
-          />
-          {/* VD12/VD45 — Withdraw is a top-right icon action on the balance card,
-              matching the pattern already landed on Settings → Payouts and the
-              Dashboard balance card; same withdraw sheet, no new money path. */}
-          <PortalIconAction
-            icon={ArrowUpFromLine}
-            label="Withdraw"
-            data-attr="vendor-income-balance-withdraw"
-            disabled={!ready || balance.payoutReconciliationPending || withdrawableCents <= 0}
-            onClick={() => {
-              // No bank yet: the one Add bank account flow is the fix, never a
-              // Withdraw sheet with nowhere to send the money.
-              track("payout_withdraw_started", { portal: "vendor", source: "income_tab" });
-              setWithdrawOpen(true);
-            }}
-          />
-        </div>
-      </div>
-      {balance.pendingCents > 0 || balance.onTheWayCents > 0 || (balance.releasePendingCents ?? 0) > 0 || balance.payoutReconciliationPending ? (
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
-          {balance.pendingCents > 0 ? <span data-attr="vendor-income-payment-pending">Pending payments {formatMoney(balance.pendingCents, balance.currency)}</span> : null}
-          {balance.onTheWayCents > 0 && !vendorBankingOn ? <span data-attr="vendor-income-payout-on-way">On the way to bank {formatMoney(balance.onTheWayCents, balance.currency)}</span> : null}
-          {(balance.releasePendingCents ?? 0) > 0 ? <span data-attr="vendor-income-release-pending">Release pending {formatMoney(balance.releasePendingCents ?? 0, balance.currency)}</span> : null}
-          {balance.payoutReconciliationPending ? <span>Checking a prior withdrawal</span> : null}
-        </div>
-      ) : null}
-      {/* VD41 — shown only while money is genuinely held (no bank yet); disappears the moment a bank is added. */}
-      {vendorBankingOn && heldCents > 0 && !ready ? (
-        <div
-          className="vbank-nudge flex flex-wrap items-center justify-between gap-2 rounded-xl bg-accent/50 px-3 py-2.5 text-sm"
-          data-attr="vendor-income-balance-nudge"
-        >
-          <span className="text-foreground">
-            {formatMoney(heldCents, balance.currency)} is held pending a ready bank account.
-          </span>
-          <button
-            type="button"
-            className="shrink-0 text-sm font-semibold text-primary underline-offset-2 hover:underline"
-            data-attr="vendor-income-balance-add-bank"
-            onClick={() => onAddBank?.()}
-          >
-            Add bank
-          </button>
-        </div>
-      ) : null}
-      <PayoutWithdrawSheet
-        open={withdrawOpen}
-        onClose={() => setWithdrawOpen(false)}
-        apiBase="/api/vendor"
-        currency={balance.currency}
-        availableCents={withdrawableCents}
-        instantAvailableCents={balance.instantAvailableCents}
-        accounts={withdrawAccounts}
-        onSuccess={() => {
-          setWithdrawOpen(false);
-          void loadBalance();
-        }}
-      />
-    </div>
-  );
-}
-
-/**
  * The Payments list (VD11 merged Income and Invoices; vendor-portal-redesign-1006
  * split it into Pending · Paid · Overdue tabs): every income row (a completed
  * job's payout) and every invoice row (a submitted bill) as the shared row —
@@ -345,6 +167,8 @@ function VendorPaymentsTable({
   onWithdrawInvoice,
   withdrawingInvoiceId,
   onDownload,
+  refundsEnabled,
+  onRefund,
 }: {
   rows: VendorPaymentRow[];
   basePath: string;
@@ -354,6 +178,9 @@ function VendorPaymentsTable({
   onWithdrawInvoice: (invoice: VendorInvoice) => void;
   withdrawingInvoiceId: string | null;
   onDownload: (row: VendorPaymentRow) => void;
+  /** `VENDOR_REFUNDS_ENABLED` as the one balance snapshot reports it — false hides every Refund item. */
+  refundsEnabled: boolean;
+  onRefund: (payoutId: string) => void;
 }) {
   const navigate = usePortalNavigate();
 
@@ -402,6 +229,12 @@ function VendorPaymentsTable({
           });
         }
         if (downloadable) items.push({ id: "download", label: "Download", onSelect: () => onDownload(row) });
+        // Refund only when the payment is refundable (settled, gross still unrefunded) AND the refund
+        // path is live. It opens the Refund a payment pop-up on this payment.
+        if (row.payout && isVendorPaymentRefundable(row.payout, refundsEnabled)) {
+          const refundPayoutId = row.payout.id;
+          items.push({ id: "refund", label: "Refund", onSelect: () => onRefund(refundPayoutId) });
+        }
         items.push({
           id: "message",
           label: "Message the manager",
@@ -954,7 +787,7 @@ function VendorPayoutRecordPage({
   }
 
   const job = readVendorWorkOrderRows().find((row) => row.id === payout.workOrderId) ?? null;
-  const backHref = `${basePath}/financials/payouts`;
+  const backHref = `${basePath}/financials/income`;
   const sections = recordSections("vendor", "payout", { basePath });
   const title = job?.title || "Payout";
   const vendorBankingOn = typeof balance?.feeBps === "number";
@@ -1091,6 +924,9 @@ export function VendorFinancesPanel({
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
   const [payoutsByInvoiceId, setPayoutsByInvoiceId] = useState<Record<string, VendorPayout>>({});
   const [requestOpen, setRequestOpen] = useState(false);
+  // The refund flag and fee rate come from the one balance snapshot, never a client guess.
+  const [refundConfig, setRefundConfig] = useState<{ enabled: boolean; feeBps: number }>({ enabled: false, feeBps: 0 });
+  const [refundPayoutId, setRefundPayoutId] = useState<string | null>(null);
 
   // VD11 — invoice fetch/edit/withdraw state used to live inside the now-
   // removed standalone Invoices list view; it lives here so the merged
@@ -1184,6 +1020,17 @@ export function VendorFinancesPanel({
     return () => window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
   }, [loadPayouts]);
 
+  useEffect(() => {
+    let active = true;
+    void sharedGet("/api/vendor/payouts/balance").then((result) => {
+      if (!active || !result.ok || !isPortalPayoutBalance(result.data)) return;
+      setRefundConfig({ enabled: result.data.refundsEnabled === true, feeBps: result.data.feeBps ?? 0 });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const jobs = useMemo(() => {
     void tick;
     return readVendorWorkOrderRows();
@@ -1239,8 +1086,6 @@ export function VendorFinancesPanel({
     [filteredRows, today, bucket],
   );
 
-  const [addBankOpen, setAddBankOpen] = useState(false);
-  const [balanceReloadKey, setBalanceReloadKey] = useState(0);
   const defaults = defaultFilters();
   const filterTouchCount =
     propertyIds.length +
@@ -1359,7 +1204,6 @@ export function VendorFinancesPanel({
 
   return (
     <VendorFinancesChrome
-      above={<VendorIncomeBalanceCard onAddBank={() => setAddBankOpen(true)} reloadKey={balanceReloadKey} />}
       destinationRow={
         <LocalDestinationNav
           appearance="command"
@@ -1431,6 +1275,8 @@ export function VendorFinancesPanel({
           onWithdrawInvoice={(invoice) => void withdrawInvoice(invoice)}
           withdrawingInvoiceId={withdrawingId}
           onDownload={downloadPaymentRow}
+          refundsEnabled={refundConfig.enabled}
+          onRefund={setRefundPayoutId}
         />
       )}
       {requestWizard}
@@ -1441,15 +1287,18 @@ export function VendorFinancesPanel({
         linkedManagers={linkedManagers}
         editingInvoice={editingInvoice}
       />
-      <AddBankFlow
-        open={addBankOpen}
-        onClose={() => setAddBankOpen(false)}
-        portal="vendor"
-        onAdded={() => {
-          setAddBankOpen(false);
-          setBalanceReloadKey((n) => n + 1);
-        }}
-      />
+      {refundConfig.enabled ? (
+        <VendorRefundModal
+          open={refundPayoutId !== null}
+          onClose={() => setRefundPayoutId(null)}
+          feeBps={refundConfig.feeBps}
+          initialPayoutId={refundPayoutId}
+          onDone={() => {
+            setRefundPayoutId(null);
+            void loadPayouts();
+          }}
+        />
+      ) : null}
     </VendorFinancesChrome>
   );
 }

@@ -7,7 +7,7 @@ import { buildVendorStatement, vendorStatementCsv } from "@/lib/vendor-banking/s
 
 export const runtime = "nodejs";
 
-/** The vendor's own full ledger statement — every charge/fee/hold/transfer/withdrawal/refund/adjustment line, running balance, optional month filter, CSV export. */
+/** The vendor's own full ledger statement — every ledger line with its event type and running balance, opening/closing balance, the months with activity, optional month filter, CSV export. */
 export async function GET(req: Request) {
   try {
     if (!vendorBankingEnabled()) {
@@ -34,6 +34,11 @@ export async function GET(req: Request) {
           "Content-Disposition": `attachment; filename="statement${month ? `-${month}` : ""}.csv"`,
         },
       });
+    }
+    if (url.searchParams.get("summary") === "1") {
+      // The Statements list needs the months and the reconciliation stamp, never every line.
+      const { months, reconciliation, openingCents, closingCents } = statement;
+      return NextResponse.json({ months, reconciliation, openingCents, closingCents });
     }
     return NextResponse.json(statement);
   } catch (e) {

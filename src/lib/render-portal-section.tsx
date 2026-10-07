@@ -44,6 +44,10 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
+import { VendorBalancePanel, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
+import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";
+import { VendorStatementsPanel } from "@/components/portal/vendor-statements-panel";
+import { VendorTaxPanel } from "@/components/portal/vendor-tax-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
@@ -1936,7 +1940,8 @@ export async function renderPortalSection(
   if (kind === "vendor" && section === "financials") {
     if (!meta.tabs.length) notFound();
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/financials/income`);
+      // Finances opens on Balance & payouts; `income` (Payments) is still its own tab.
+      redirect(`${def.basePath}/financials/balance`);
     }
     const finTab = tabParts[0]!;
     // "payouts" is a detail-only tab id: VD10/VD11 merged the visible Payouts
@@ -1945,7 +1950,9 @@ export async function renderPortalSection(
     // from the merged list and from a paid invoice with a matching
     // `vendor_payouts` row) must still resolve rather than 404 on a tab the
     // nav no longer shows.
-    const DETAIL_ONLY_FINANCIALS_TABS = ["payouts"] as const;
+    // `invoices` joined it when Finances became five tabs: an invoice's own
+    // record page lives under it, the bare id is a door to Payments.
+    const DETAIL_ONLY_FINANCIALS_TABS = ["payouts", "invoices"] as const;
     if (
       !meta.tabs.some((tab) => tab.id === finTab) &&
       !(DETAIL_ONLY_FINANCIALS_TABS as readonly string[]).includes(finTab)
@@ -1958,12 +1965,11 @@ export async function renderPortalSection(
       // (PLAN-0920-1058, area 1c).
       if (tabParts.length > 3) notFound();
       if (tabParts.length === 1) {
-        // Payouts is one page now, mounted at Settings → Payouts (vendor twin
-        // of the manager redirect above) — the bare Finances tab is a door to
-        // it, never its own render (PLAN-0920-1500). A payout record below
-        // still renders here.
+        // The bare `payouts` id is a door to Balance & payouts (it used to open
+        // Settings → Payouts, which now keeps only bank accounts + schedule). A
+        // payment's own record below still renders here.
         if (finTab === "payouts") {
-          redirect(`${def.basePath}/profile?tab=payouts`);
+          redirect(`${def.basePath}/financials/balance`);
         }
         // VD11 — Income and Invoices merged into one Payments list at the
         // `income` tabId; the bare Invoices tab is a door to it, same shape
@@ -1996,12 +2002,20 @@ export async function renderPortalSection(
       );
     }
 
+    // A withdrawal's own page: /financials/balance/<payoutId>.
+    if (finTab === "balance" && tabParts.length === 2 && tabParts[1] !== "pending") {
+      return <VendorWithdrawalDetail basePath={def.basePath} withdrawalId={decodeURIComponent(tabParts[1]!)} />;
+    }
     if (tabParts.length > 1) {
       if (tabParts.length === 2 && tabParts[1] === "pending") {
         redirect(`${def.basePath}/financials/${tabParts[0]}`);
       }
       notFound();
     }
+    if (finTab === "balance") return <VendorBalancePanel basePath={def.basePath} />;
+    if (finTab === "refunds") return <VendorRefundsPanel basePath={def.basePath} />;
+    if (finTab === "statements") return <VendorStatementsPanel basePath={def.basePath} />;
+    if (finTab === "tax") return <VendorTaxPanel basePath={def.basePath} />;
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
   }
 

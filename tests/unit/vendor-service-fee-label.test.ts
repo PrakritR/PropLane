@@ -14,9 +14,7 @@ const ROOT = join(__dirname, "..", "..");
 const LABEL_SURFACES = [
   "src/components/portal/vendor-finances-panel.tsx",
   "src/app/print/vendor-payout/[id]/page.tsx",
-  "src/lib/vendor-banking/statement.server.ts",
-  "src/components/portal/vendor-statement-modal.tsx",
-  "src/components/portal/vendor-payouts-settings-extra.tsx",
+  "src/lib/vendor-banking/statement-events.ts",
   "src/components/portal/vendor-refund-modal.tsx",
   "src/components/portal/vendor-invoice-manager-pay-sheet.tsx",
   "src/lib/vendor-banking/refund.server.ts",
