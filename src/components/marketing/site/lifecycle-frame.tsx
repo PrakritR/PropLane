@@ -19,7 +19,8 @@ import "@/components/marketing/resident-lifecycle-prototypes.css";
 import "./lifecycle-frame.css";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
-import { worldFor } from "@/components/marketing/site/product-mock/world";
+import { demoSidebar } from "@/components/marketing/site/product-mock/sidebar-data";
+import { NO_STORY, worldFor } from "@/components/marketing/site/product-mock/world";
 import { ResidentLifecycleWorkspace } from "@/components/marketing/resident-lifecycle-workspace";
 
 const WINDOW_WIDTH = 1120;
@@ -37,6 +38,7 @@ export function LifecycleFrame({
   const [active, setActive] = useState(tab);
   const [scale, setScale] = useState(0.62);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const sidebar = demoSidebar(portal, NO_STORY, portal === "vendor" ? "visit" : "pay");
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -61,6 +63,8 @@ export function LifecycleFrame({
               portal={portal}
               tabs={DEMO_TABS[portal]}
               active={active}
+              badges={sidebar.badges}
+              conversations={sidebar.conversations}
               needs={portal === "manager" ? worldFor().dashboard.attention : undefined}
               onSelect={setActive}
               panel

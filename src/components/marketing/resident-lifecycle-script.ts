@@ -158,13 +158,13 @@ const withTabs = (tabs: string[]): StoryBeat[] => RESIDENT_JOURNEY.map((beat, in
 const VENDOR_JOURNEY: StoryBeat[] = [
   {
     id: "offer",
-    tab: "services",
+    tab: "work-orders",
     time: "New service offer",
     messages: [{ kind: "in", text: "New service in Wallingford, Seattle: kitchen faucet leak. Reply with your quote and when you can come." }],
   },
   {
     id: "quote",
-    tab: "services",
+    tab: "work-orders",
     time: "Quote",
     messages: [
       { kind: "out", text: "I can come Thursday at 9:00 AM. $180." },
@@ -185,7 +185,7 @@ const VENDOR_JOURNEY: StoryBeat[] = [
   },
   {
     id: "paid",
-    tab: "payments",
+    tab: "financials",
     time: "Payment",
     messages: [
       {
@@ -363,9 +363,9 @@ export function timelineFor(portal: DemoPortal): Step[] {
   return portal === "manager" ? MANAGER_STEPS : PHONE_STEPS[portal];
 }
 
-/** What the window shows before the first step: the manager's Dashboard, else the first beat's tab. */
-export function initialState(portal: DemoPortal): DemoState {
-  return { shown: 0, tab: portal === "manager" ? "dashboard" : STORIES[portal][0]!.tab, story: NO_STORY, draft: false };
+/** What the window shows before the first step: every portal opens on its Dashboard, as the real portal does. */
+export function initialState(_portal: DemoPortal): DemoState {
+  return { shown: 0, tab: "dashboard", story: NO_STORY, draft: false };
 }
 
 function applyStep(state: DemoState, step: Step): DemoState {

@@ -92,7 +92,7 @@ const ROWS: LifecycleRowDef[] = [
     body: "A vendor sees the service, a budget and the general area, and answers with a quote. The street address opens only once you accept it.",
     linkLabel: "See the vendor portal",
     portal: "vendor",
-    tab: "services",
+    tab: "work-orders",
   },
   {
     id: "resident-portal",
@@ -101,7 +101,7 @@ const ROWS: LifecycleRowDef[] = [
     body: "Rent, the lease, service requests and messages with you live in one place, on the web and in the iOS app.",
     linkLabel: "See the resident portal",
     portal: "resident",
-    tab: "home",
+    tab: "move-in",
   },
   {
     id: "calendar",

@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowUp,
   ArrowUpFromLine,
   Check,
   CalendarDays,
@@ -23,13 +24,18 @@ import {
   Download,
   FileText,
   Filter,
+  Landmark,
   Settings,
   Sparkles,
+  TriangleAlert,
   Undo2,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { PortalApplicantRecordRow, PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { VENDOR_CHECKLIST, VENDOR_PAYOUTS, type VendorPayoutFixture } from "@/components/marketing/site/product-mock/fixtures-more";
 import { CalendarTimeGrid, type CalendarGridItem } from "@/components/portal/manager-calendar-views";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import { VendorRowMenu, type VendorRowMenuItem } from "@/components/portal/vendor-row-menu";
@@ -540,4 +546,159 @@ export function VendorReviewsPanel() {
 
 export function VendorCommunicationPanel({ conversations }: { conversations: CommConversationFixture[] }) {
   return <FixtureInboxScreen path="/vendor/communication/active" conversations={conversations} selfName={VENDOR_NAME} />;
+}
+
+/* ───────────────────────────── Documents ───────────────────────────── */
+
+/**
+ * `vendor-documents-panel.tsx`: a checklist in sections (Tax · Business license · Insurance), each header the
+ * section name with "N of M" uploaded, each row a file glyph, the title, the file name once uploaded, and a plain
+ * fact (Uploaded / Required / Not uploaded). Search, Filter and the round "Add document" are in the command bar.
+ */
+export function VendorDocumentsPanel() {
+  const [search, setSearch] = useState("");
+  const { show, node: toastNode } = useFixtureToast();
+  const items = VENDOR_CHECKLIST.filter((item) => matchesSearch(search, item.title, item.file, item.section));
+  const sections = ["Tax", "Business license", "Insurance"] as const;
+
+  return (
+    <FixtureListScreen
+      path="/vendor/documents"
+      title="Documents"
+      tabs={[]}
+      activeId=""
+      onTab={() => undefined}
+      search={search}
+      onSearch={setSearch}
+      searchPlaceholder="Search documents"
+      actions={<PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />}
+      primary={{ label: "Add document", onClick: () => show("Add document") }}
+      surface={false}
+      isEmpty={items.length === 0}
+      emptyTitle="No documents yet"
+      emptySection="documents"
+      overlay={toastNode}
+    >
+      <div className="space-y-5 pb-4">
+        {sections.map((section) => {
+          const all = VENDOR_CHECKLIST.filter((item) => item.section === section);
+          const shown = items.filter((item) => item.section === section);
+          if (shown.length === 0) return null;
+          return (
+            <section key={section} data-attr="vendor-documents-section">
+              <div className="mb-1.5 flex items-center justify-between px-1">
+                <h2 className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">{section}</h2>
+                <span className="text-[12px] text-muted">
+                  {all.filter((item) => item.file).length} of {all.length}
+                </span>
+              </div>
+              <PortalRecordListSurface isEmpty={false} bulkActions={<FixtureMenuItems toast={show} items={["View", "Download", "Replace", "Delete"]} />}>
+                {shown.map((item) => (
+                  <PortalApplicantRecordRow
+                    key={item.id}
+                    name={item.title}
+                    tileIcon={FileText}
+                    address={item.file}
+                    facts={
+                      item.file ? (
+                        <PortalRowFact icon={Check}>{item.uploaded}</PortalRowFact>
+                      ) : item.required ? (
+                        <PortalRowFact icon={TriangleAlert} tone="danger">
+                          Required
+                        </PortalRowFact>
+                      ) : (
+                        <PortalRowFact icon={Clock}>Not uploaded</PortalRowFact>
+                      )
+                    }
+                    omitActionView
+                    onSelectedChange={() => undefined}
+                    onOpen={() => show(`${item.title} (sample)`)}
+                    dataAttr="vendor-document-row"
+                  />
+                ))}
+              </PortalRecordListSurface>
+            </section>
+          );
+        })}
+      </div>
+    </FixtureListScreen>
+  );
+}
+
+/* ───────────────────────────── Finances: Balance & payouts ───────────────────────────── */
+
+/**
+ * `vendor-finances-panel.tsx`, the Balance & payouts section (where bare `/vendor/financials` lands): a stat strip
+ * (Available · Pending · Held · On the way) with the Bank and Withdraw icon actions, one "Payouts" destination, and the
+ * payout history rows. Every figure is read off the rows below; the faucet job's payout appears once it is paid.
+ */
+export function VendorFinancesPanel({ story }: { story?: DemoStory } = {}) {
+  const current = story ?? vendorStory(undefined);
+  const payments = vendorPayments(current);
+  const payouts: VendorPayoutFixture[] = useMemo(
+    () =>
+      current.service === "paid"
+        ? [{ id: "payout-faucet", kind: "Standard payout", bank: "Bank ····4821", date: "Oct 2, 2025", status: "In transit", amount: "$180.00" }, ...VENDOR_PAYOUTS]
+        : VENDOR_PAYOUTS,
+    [current.service],
+  );
+  const { show, node: toastNode } = useFixtureToast();
+  const pending = payments.filter((p) => p.status === "Submitted").reduce((sum, p) => sum + parseMoney(p.amount), 0);
+  const onTheWay = payouts.filter((p) => p.status === "In transit").reduce((sum, p) => sum + parseMoney(p.amount), 0);
+
+  return (
+    <FixtureListScreen
+      path="/vendor/financials/balance"
+      title="Finances"
+      tabs={[{ id: "payouts", label: "Payouts", count: payouts.length }]}
+      activeId="payouts"
+      onTab={() => undefined}
+      above={
+        <div className="mb-2 flex items-stretch rounded-[10px] border border-border bg-card" data-attr="vendor-balance-strip">
+          {(
+            [
+              ["Available", money(0)],
+              ["Pending", money(pending)],
+              ["Held", money(0)],
+              ["On the way", money(onTheWay)],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="min-w-0 flex-1 border-r border-border px-4 py-3">
+              <p className="text-[13px] font-[550] text-muted">{label}</p>
+              <p className="my-1 whitespace-nowrap text-[26px] font-[650] leading-[1.15] tracking-[-0.03em] text-foreground">{value}</p>
+            </div>
+          ))}
+          <div className="flex shrink-0 items-start gap-1 px-2 py-2.5">
+            <PortalIconAction icon={Landmark} label="Bank" onClick={() => show("Bank")} />
+            <PortalIconAction icon={ArrowUpFromLine} label="Withdraw" onClick={() => show("Withdraw")} />
+          </div>
+        </div>
+      }
+      isEmpty={payouts.length === 0}
+      emptyTitle="No payouts yet"
+      emptySection="payments"
+      overlay={toastNode}
+    >
+      {payouts.map((p) => (
+        <PortalApplicantRecordRow
+          key={p.id}
+          name={p.kind}
+          tileIcon={p.kind === "Instant payout" ? Zap : ArrowUp}
+          address={p.bank}
+          amount={p.amount}
+          facts={
+            <>
+              <PortalRowFact icon={CalendarDays}>{p.date}</PortalRowFact>
+              <span className="truncate">{p.status}</span>
+              {p.fee ? <PortalRowFact icon={Zap}>{p.fee}</PortalRowFact> : null}
+            </>
+          }
+          omitActionView
+          onSelectedChange={() => undefined}
+          onOpen={() => show(`${p.kind} (sample)`)}
+          dataAttr="vendor-payout-row"
+        />
+      ))}
+    </FixtureListScreen>
+  );
 }

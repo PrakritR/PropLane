@@ -46,13 +46,13 @@ import Link from "next/link";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
 import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
+import { demoSidebar } from "@/components/marketing/site/product-mock/sidebar-data";
 import { worldFor } from "@/components/marketing/site/product-mock/world";
 import { DemoCursor, SETTLE_MS, sleep, type DemoCursorApi } from "./resident-lifecycle-cursor";
 import { ManagerCommunication } from "./resident-lifecycle-manager";
 import { ResidentLifecyclePhone } from "./resident-lifecycle-phone";
 import { ResidentLifecycleWorkspace } from "./resident-lifecycle-workspace";
 import {
-  COMMUNICATION_THREADS,
   DRAFT_REPLY,
   PHONE_META,
   STORIES,
@@ -71,8 +71,6 @@ const GROW_FROM = 0.72;
 const GROW_RUN = 0.7;
 /** Below this width the hero is static (a phone gets the full-size window, no pin). */
 const STATIC_BELOW = 768;
-/** Where the sticky phone rests once the window has scrolled away. */
-const PHONE_REST = 76;
 
 /** The role the cursor wears. Only the manager's window has one (the resident and vendor windows are told by the phone). */
 const CURSOR_LABEL = "Manager";
@@ -85,6 +83,8 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
   const [index, setIndex] = useState(0);
   /** A sidebar click pins a tab: the window stops following the story and the cursor leaves. */
   const [tabOverride, setTabOverride] = useState<string | null>(null);
+  /** A nested sidebar row the visitor picked (the vendor's Finances sections). */
+  const [subOverride, setSubOverride] = useState<string | null>(null);
   // Replies a visitor types to the prospect in the demo inbox. Kept here so the thread and the phone both
   // show them; cleared when the story restarts or the portal changes.
   const [sampleReplies, setSampleReplies] = useState<string[]>([]);
@@ -114,10 +114,7 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
   const playing = !reduced && !hovered && !focused && !menuOpen;
   const cursorOn = portal === "manager" && !reduced && tabOverride === null;
   const isCommunication = portal === "manager" && activeTab === "communication";
-  const sidebarBadges = useMemo(
-    () => (portal === "manager" ? { ...worldFor(story).badges, communication: COMMUNICATION_THREADS.length } : undefined),
-    [portal, story],
-  );
+  const sidebar = useMemo(() => demoSidebar(portal, story, stageId), [portal, story, stageId]);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -176,19 +173,17 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
     if (!cursorOn || index === 0) cursorRef.current?.hide();
   }, [cursorOn, index]);
 
-  // The scroll growth: while the sticky frame is pinned the window grows from GROW_FROM to full size; the phone
-  // pins beside it and then glides up with the page to PHONE_REST.
+  // The scroll growth: while the sticky frame is pinned the window grows from GROW_FROM to full size. The phone
+  // does not move with it: it is sticky, vertically centred in the viewport on the right (CSS, hero.css).
   useEffect(() => {
     const stageEl = stageRef.current;
-    const storyEl = storyRef.current;
     const trackEl = trackRef.current;
-    if (!stageEl || !storyEl || !trackEl) return;
+    if (!stageEl || !trackEl) return;
     let frame = 0;
     const apply = () => {
       frame = 0;
       if (reduced || window.innerWidth < STATIC_BELOW) {
         stageEl.style.removeProperty("--rlp-grow");
-        storyEl.style.removeProperty("--rlp-phone-top");
         return;
       }
       const run = trackEl.querySelector<HTMLElement>(".rlp-grow-run")?.offsetHeight || window.innerHeight * GROW_RUN;
@@ -198,14 +193,6 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
       const progress = Math.min(1, scrolled / run);
       const grow = GROW_FROM + (1 - GROW_FROM) * progress;
       stageEl.style.setProperty("--rlp-grow", String(grow));
-      // The phone sits vertically centred on the window as it grows (captain, Oct 7: "move phone higher up and
-      // keep in middle"), never below the screen's bottom edge, then rises with the page.
-      const stageTop = pinnedAt + stageEl.offsetTop;
-      const phoneH = storyEl.querySelector<HTMLElement>(".rlp-story-phone-slot")?.offsetHeight ?? 0;
-      const centred = stageTop + (stageEl.offsetHeight * grow - phoneH) / 2;
-      const onScreen = Math.min(centred, window.innerHeight - phoneH - 16);
-      const phoneTop = Math.max(PHONE_REST, onScreen - Math.max(0, scrolled - run));
-      storyEl.style.setProperty("--rlp-phone-top", `${phoneTop}px`);
     };
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(apply);
@@ -231,6 +218,7 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
     setSampleReplies([]);
     clicked.current = -1;
     setTabOverride(null);
+    setSubOverride(null);
     // The menu item that was focused is gone; no blur follows its removal.
     setFocused(false);
   };
@@ -300,9 +288,13 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
                     portal={portal}
                     tabs={DEMO_TABS[portal]}
                     active={activeTab}
-                    badges={sidebarBadges}
+                    badges={sidebar.badges}
+                    conversations={sidebar.conversations}
                     needs={portal === "manager" ? worldFor(story).dashboard.attention : undefined}
-                    onSelect={setTabOverride}
+                    onSelect={(tab, sub) => {
+                      setTabOverride(tab);
+                      setSubOverride(sub ?? null);
+                    }}
                     onSwitchPortal={switchPortal}
                     onMenuOpenChange={setMenuOpen}
                     panel={!isCommunication}
@@ -320,7 +312,7 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
                       />
                     ) : (
                       <div className="rlp-panel-frame" data-demo-panel={`${portal}:${activeTab}`}>
-                        <MemoPanel key={`${portal}-${activeTab}`} portal={portal} tab={activeTab} story={story} stage={stageId} />
+                        <MemoPanel key={`${portal}-${activeTab}-${subOverride ?? ""}`} portal={portal} tab={activeTab} story={story} stage={stageId} sub={tabOverride ? (subOverride ?? undefined) : undefined} />
                       </div>
                     )}
                   </ResidentLifecycleWorkspace>

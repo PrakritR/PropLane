@@ -117,7 +117,7 @@ const GroupGlyphContext = createContext<LucideIcon>(ClipboardList);
  * label over a 26px figure. The figure is amber when something waits on the
  * resident, red when overdue, ink when there is nothing to do.
  */
-function ResidentKpiTile({
+export function ResidentKpiTile({
   label,
   value,
   href,
@@ -156,7 +156,7 @@ function tourWhenLabel(tour: ResidentTourView): string {
 }
 
 /** Status is a plain colored fact; the row itself carries no badge or chip. */
-function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode }) {
+export function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode }) {
   const color = tone === "neutral"
     ? "var(--muted)"
     : tone === "success"
@@ -174,7 +174,7 @@ function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode })
 }
 
 /** One item: tinted glyph tile · title + place line · meta · status word. */
-function IssueRow({
+export function IssueRow({
   href,
   tone = "info",
   title,
@@ -222,7 +222,7 @@ function IssueRow({
  * title · count · status words · →) over its rows, matching the manager
  * dashboard. Opens by default only when it has items.
  */
-function AttentionGroup<T>({
+export function AttentionGroup<T>({
   title,
   href,
   sectionId,

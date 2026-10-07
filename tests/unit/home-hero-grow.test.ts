@@ -36,8 +36,9 @@ describe("home hero grows on scroll", () => {
     expect(tsx).toMatch(/reduced \|\| window\.innerWidth < STATIC_BELOW/);
   });
 
-  it("keeps the phone beside the window while pinned, then lets it glide up to its resting top", () => {
-    expect(tsx).toMatch(/setProperty\("--rlp-phone-top"/);
-    expect(css).toMatch(/\.rlp-story-phone-slot\s*\{\s*top:\s*var\(--rlp-phone-top/);
+  it("keeps the phone sticky and vertically centred in the viewport on the right, with no scroll-driven offset", () => {
+    expect(tsx).not.toMatch(/--rlp-phone-top/);
+    expect(css).toMatch(/\.rlp-story-phone-slot\s*\{\s*top:\s*max\(calc\(var\(--rlp-hdr\) \+ 12px\), calc\(50svh - /);
+    expect(read("src/components/marketing/resident-lifecycle-prototypes.css")).toMatch(/\.rlp-story-phone-slot\s*\{[^}]*position:\s*sticky/);
   });
 });

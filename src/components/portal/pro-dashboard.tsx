@@ -220,7 +220,7 @@ function relativeFromNow(iso: string | undefined | null, nowMs: number): string 
 }
 
 /** Status is a plain coloured fact; the row itself carries no badge or chip. */
-function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode }) {
+export function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode }) {
   return (
     <span
       className="inline-flex items-center whitespace-nowrap text-[12.5px] font-semibold"
@@ -235,7 +235,7 @@ function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode })
  * One open item: tinted glyph tile · title + place line · meta · status word.
  * The tile wears its group's glyph in the row's status tone.
  */
-function IssueRow({
+export function IssueRow({
   href,
   tone = "info",
   title,
@@ -287,7 +287,7 @@ function IssueRow({
  * here" empty states collapses to one-line headers on a phone. The manager can
  * tap any header to override.
  */
-function AttentionGroup<T>({
+export function AttentionGroup<T>({
   title,
   href,
   sectionId,

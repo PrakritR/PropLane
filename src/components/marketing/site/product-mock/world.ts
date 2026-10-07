@@ -18,7 +18,7 @@
 import {
   APPLICATION_ROWS,
   CALENDAR_ITEMS,
-  DASHBOARD_ATTENTION,
+  COMM_CONVERSATIONS,
   DASHBOARD_UPCOMING,
   LEASE_ROWS,
   MANAGER_NAME,
@@ -53,6 +53,8 @@ import {
   type VendorPaymentFixture,
   type VendorServiceFixture,
 } from "@/components/marketing/site/product-mock/fixtures";
+import { kpiDelta, type KpiDelta } from "@/lib/dashboard-kpis";
+import { buildManagerAttentionRows, type ManagerAttentionRow } from "@/lib/manager-attention-queue";
 
 export type ServiceProgress = "none" | "open" | "quoted" | "scheduled" | "paid";
 
@@ -142,7 +144,19 @@ const REPAIR = { title: "Kitchen faucet", vendor: VENDOR_NAME, visit: "Thu 9:00 
 const LEASE_STAGE = ["Manager review", "Resident signature pending", "Manager signature pending", "Fully Signed"] as const;
 const LEASE_BUCKET = ["manager", "resident", "signed", "completed"] as const;
 
-export type DashboardCard = { value: string; unit: string };
+/** The seven periods before this one, for the KPI cards' bar history (the eighth bar is the figure itself). */
+const OCCUPIED_HISTORY = [2, 2, 3, 3, 4, 4, 4];
+const COLLECTED_HISTORY = [5200, 6100, 5800, 7400, 8100, 7900, 9100];
+const OPENED_HISTORY = [1, 0, 2, 1, 3, 1, 1];
+const LAST_MONTH = "last month";
+
+export type DashboardCard = {
+  value: string;
+  unit: string;
+  /** Eight values, oldest first; the last is the figure. Omitted for a card the real dashboard draws no bars on. */
+  series?: number[];
+  delta?: KpiDelta | null;
+};
 export type DashboardProperty = { id: string; title: string; address: string; spacesLabel: string; rentLabel: string };
 
 export type DemoWorld = {
@@ -161,12 +175,12 @@ export type DemoWorld = {
     rentCollected: DashboardCard;
     openRequests: DashboardCard;
     applicationsReady: DashboardCard;
-    attention: typeof DASHBOARD_ATTENTION;
+    attention: ManagerAttentionRow[];
     upcoming: typeof DASHBOARD_UPCOMING;
     properties: DashboardProperty[];
   };
   /** Sidebar badges, each the count of the rows its panel's first tab draws. */
-  badges: { tours: number; applications: number; payments: number; services: number };
+  badges: { tours: number; applications: number; leases: number; payments: number; services: number };
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -291,37 +305,26 @@ function build(story: DemoStory): DemoWorld {
   const openServices = services.filter((s) => s.state === "open");
   const pendingApplications = applications.filter((a) => a.bucket === "pending");
 
-  const attention = [...DASHBOARD_ATTENTION];
-  if (story.applicationSubmitted && !story.applicationApproved) {
-    attention.unshift({
-      id: "att-app-jordan",
-      title: `Review ${JORDAN.name}`,
-      detail: `${JORDAN.property} · ${JORDAN.unit} · ready for review`,
-      actionLabel: "Review",
-      href: "#",
-      tone: "pending",
-    });
-  }
-  if (story.leaseStep === 2) {
-    attention.unshift({
-      id: "att-lease-jordan",
-      title: `Countersign ${JORDAN.name}'s lease`,
-      detail: `${JORDAN.property} · resident signed`,
-      actionLabel: "Sign",
-      href: "#",
-      tone: "pending",
-    });
-  }
-  if (story.service === "open") {
-    attention.unshift({
-      id: "att-service-jordan",
-      title: "Dispatch a vendor",
-      detail: `${JORDAN.property} · ${REPAIR.title}`,
-      actionLabel: "Review",
-      href: "#",
-      tone: "danger",
-    });
-  }
+  // The real queue builder (`buildManagerAttentionRows`), fed counts read off the rows above, so the
+  // Dashboard's Needs attention and the assistant panel say what the product says, in its words.
+  const overdue = payments.filter((p) => p.bucket === "overdue");
+  const toSign = leases.filter((l) => l.bucket === "signed");
+  const unreadThreads = COMM_CONVERSATIONS.filter((c) => c.segment === "active" && c.unread);
+  const attention: ManagerAttentionRow[] = buildManagerAttentionRows({
+    basePath: "#",
+    overdueChargeCount: overdue.length,
+    overdueBalanceLabel: money(overdue.reduce((sum, p) => sum + parseMoney(p.amount), 0)),
+    pendingApplicationCount: pendingApplications.length,
+    latestPendingApplicationProperty: pendingApplications[0]?.property,
+    managerSignatureLeaseCount: toSign.length,
+    pendingTourCount: 0,
+    messagingNeedsSetup: false,
+    messagingSettingsHref: "#",
+    draftPropertyCount: 0,
+    draftsHref: "#",
+    unreadConversationCount: unreadThreads.length,
+    latestUnreadSubject: unreadThreads[0]?.preview,
+  });
   const upcoming = [...DASHBOARD_UPCOMING];
   if (story.tourAccepted) {
     upcoming.push({ id: "up-tour-jordan", kind: "Tour", title: JORDAN.name, detail: `${JORDAN.property} · ${JORDAN.unit}`, at: atTime(1, 17, 30), href: "#" });
@@ -340,11 +343,23 @@ function build(story: DemoStory): DemoWorld {
     calendar,
     vendors,
     dashboard: {
-      occupancy: { value: `${Math.round((occupied / totalRooms) * 100)}%`, unit: `${occupied} / ${totalRooms} rooms` },
-      rentCollected: { value: money(collected), unit: `of ${money(dueTotal)} due` },
+      occupancy: {
+        value: `${Math.round((occupied / totalRooms) * 100)}%`,
+        unit: `${occupied} / ${totalRooms}`,
+        series: [...OCCUPIED_HISTORY, occupied].map((n) => Math.round((n / totalRooms) * 100)),
+        delta: kpiDelta([...OCCUPIED_HISTORY, occupied].map((n) => Math.round((n / totalRooms) * 100)), (n) => `${n} pts`, LAST_MONTH),
+      },
+      rentCollected: {
+        value: money(collected),
+        unit: `of ${money(dueTotal)} due`,
+        series: [...COLLECTED_HISTORY, collected],
+        delta: kpiDelta([...COLLECTED_HISTORY, collected], money, LAST_MONTH),
+      },
       openRequests: {
         value: String(openServices.length),
-        unit: `${openServices.filter((s) => s.kind === "maintenance").length} maintenance`,
+        unit: "oldest 1 day",
+        series: [...OPENED_HISTORY, openServices.length],
+        delta: kpiDelta([...OPENED_HISTORY, openServices.length], String, LAST_MONTH, true),
       },
       applicationsReady: {
         value: String(pendingApplications.length),
@@ -363,6 +378,7 @@ function build(story: DemoStory): DemoWorld {
     badges: {
       tours: tours.filter((t) => t.bucket === "pending").length,
       applications: pendingApplications.length,
+      leases: toSign.length,
       payments: payments.filter((p) => p.bucket === "overdue").length,
       services: openServices.length,
     },

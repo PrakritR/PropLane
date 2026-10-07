@@ -18,6 +18,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUp,
   ChevronDown,
+  ChevronRight,
   CircleHelp,
   History,
   LogOut,
@@ -32,29 +33,28 @@ import {
 } from "lucide-react";
 import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
-import type { DemoPortal, DemoTab } from "@/components/marketing/site/product-mock/demo-panels";
+import { PortalNavCountBadge } from "@/components/portal/portal-nav-count-badge";
+import type { DemoPortal, DemoTab } from "@/components/marketing/site/product-mock/demo-nav";
 import { PROPERTY_ROWS } from "@/components/marketing/site/product-mock/fixtures";
 import { portalSwitchTargets } from "@/lib/portal-switch-targets";
 import { PORTAL_META } from "./resident-lifecycle-script";
 
-/** The real nav section whose icon a demo tab wears (`PortalNavIcon`). */
-function iconSection(portal: DemoPortal, tabId: string): string {
-  if (tabId === "home") return "move-in";
-  if (portal === "vendor" && tabId === "services") return "work-orders";
-  if (portal === "vendor" && tabId === "payments") return "financials";
-  return tabId;
-}
-
 /** One row of the assistant panel's "Needs attention": a title and the place it is about. */
 export type AssistantNeed = { id: string; title: string; detail: string };
 
+/** A row of the real sidebar's "Conversations" group: the most recent threads, newest first. */
+export type SidebarConversation = { id: string; name: string; initials: string; unread?: boolean };
+
+/** Alert (a red pill) for unread mail and overdue money, quiet numbers for ordinary pending work (`usePortalNavCounts`). */
+const ALERT_COUNTS = new Set(["communication", "payments"]);
+
 type TabGroup = { key: string; label?: string; tabs: DemoTab[] };
 
-/** The unheaded home group first, then each labelled group in the order it first appears. */
+/** The real groups in the real order (`DEMO_TABS` is already `PORTAL_NAV_GROUPS` order). */
 function groupTabs(tabs: DemoTab[]): TabGroup[] {
   const groups: TabGroup[] = [];
   for (const tab of tabs) {
-    const key = tab.group ?? "";
+    const key = tab.groupId ?? tab.group ?? "";
     let group = groups.find((candidate) => candidate.key === key);
     if (!group) {
       group = { key, label: tab.group, tabs: [] };
@@ -62,7 +62,7 @@ function groupTabs(tabs: DemoTab[]): TabGroup[] {
     }
     group.tabs.push(tab);
   }
-  return groups.sort((a, b) => Number(Boolean(a.label)) - Number(Boolean(b.label)));
+  return groups;
 }
 
 /**
@@ -216,6 +216,7 @@ export function ResidentLifecycleWorkspace({
   tabs,
   active,
   badges,
+  conversations,
   needs,
   onSelect,
   onSwitchPortal,
@@ -227,9 +228,11 @@ export function ResidentLifecycleWorkspace({
   tabs: DemoTab[];
   active: string;
   badges?: Record<string, number>;
+  /** The real sidebar's "Conversations" group (most recent threads). */
+  conversations?: SidebarConversation[];
   /** The Dashboard's attention rows. When given, the strip's right icon docks the assistant panel. */
   needs?: AssistantNeed[];
-  onSelect(tab: string): void;
+  onSelect(tab: string, sub?: string): void;
   /** Switch the demo to another portal from the account menu; without it the menu lists no portals. */
   onSwitchPortal?: (portal: DemoPortal) => void;
   onMenuOpenChange?: (open: boolean) => void;
@@ -241,6 +244,7 @@ export function ResidentLifecycleWorkspace({
   const [sideOpen, setSideOpen] = useState(true);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [subOpened, setSubOpened] = useState<Record<string, boolean>>({});
   const mainRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -381,28 +385,81 @@ export function ResidentLifecycleWorkspace({
                   ? null
                   : group.tabs.map((tab) => {
                       const badge = badges?.[tab.id];
-                      const unread = tab.id === "communication";
+                      const alert = ALERT_COUNTS.has(tab.id) && Boolean(badge);
+                      const isActive = active === tab.id;
+                      const subOpen = Boolean(tab.subItems?.length) && (subOpened[tab.id] ?? isActive);
                       return (
-                        <button
-                          type="button"
-                          key={tab.id}
-                          className="rlp-nav-item pls-item"
-                          aria-label={tab.label}
-                          aria-current={active === tab.id ? "page" : undefined}
-                          data-demo-tab={tab.id}
-                          data-demo-target={`nav-${tab.id}`}
-                          data-unread={unread && badge ? "true" : undefined}
-                          onClick={() => onSelect(tab.id)}
-                        >
-                          <PortalNavIcon section={iconSection(portal, tab.id)} active={active === tab.id} className="pls-item-icon" />
-                          <span>{tab.label}</span>
-                          {badge ? <b>{badge}</b> : null}
-                        </button>
+                        <div key={tab.id} className="pls-item-wrap">
+                          <button
+                            type="button"
+                            className="rlp-nav-item pls-item"
+                            aria-label={tab.label}
+                            aria-current={isActive ? "page" : undefined}
+                            aria-expanded={tab.subItems?.length ? subOpen : undefined}
+                            data-demo-tab={tab.id}
+                            data-demo-target={`nav-${tab.id}`}
+                            data-unread={alert ? "true" : undefined}
+                            onClick={() => {
+                              if (tab.subItems?.length) setSubOpened((state) => ({ ...state, [tab.id]: !subOpen }));
+                              onSelect(tab.id);
+                            }}
+                          >
+                            <PortalNavIcon section={tab.id} active={isActive} className="pls-item-icon" />
+                            <span>{tab.label}</span>
+                            {badge ? <PortalNavCountBadge count={badge} tone={alert ? "alert" : "muted"} /> : null}
+                            {tab.subItems?.length ? (
+                              subOpen ? <ChevronDown className="pls-item-chevron" aria-hidden /> : <ChevronRight className="pls-item-chevron" aria-hidden />
+                            ) : null}
+                          </button>
+                          {subOpen ? (
+                            <div className="pls-subnav">
+                              {tab.subItems!.map((sub) => (
+                                <button type="button" key={sub.id} className="pls-subitem" onClick={() => onSelect(tab.id, sub.id)}>
+                                  <PortalNavIcon section={tab.id} sectionTabId={sub.id} className="pls-subitem-icon" />
+                                  <span>{sub.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
                       );
                     })}
               </div>
             );
           })}
+          {conversations?.length ? (
+            <div className="rlp-nav-group pls-group" data-nav-group="conversations" data-collapsed={collapsed.conversations ? "true" : undefined}>
+              <p className="pls-group-label">
+                <button
+                  type="button"
+                  aria-label="Conversations group"
+                  aria-expanded={!collapsed.conversations}
+                  onClick={() => setCollapsed((state) => ({ ...state, conversations: !state.conversations }))}
+                >
+                  <ChevronDown aria-hidden />
+                  Conversations
+                </button>
+              </p>
+              {collapsed.conversations
+                ? null
+                : conversations.map((conversation) => (
+                    <button
+                      type="button"
+                      key={conversation.id}
+                      className="rlp-nav-item pls-item pls-conversation"
+                      aria-label={conversation.unread ? `${conversation.name}, unread` : conversation.name}
+                      data-unread={conversation.unread ? "true" : undefined}
+                      onClick={() => onSelect("communication")}
+                    >
+                      <i className="pls-conversation-mark" aria-hidden>
+                        {conversation.initials}
+                      </i>
+                      <span>{conversation.name}</span>
+                      {conversation.unread ? <i className="pls-conversation-dot" aria-hidden /> : null}
+                    </button>
+                  ))}
+            </div>
+          ) : null}
         </nav>
       </aside>
       <div className="rlp-main pls-main" ref={mainRef}>

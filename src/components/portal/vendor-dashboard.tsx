@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { PortalHomeLayout } from "@/components/portal/portal-home-layout";
@@ -156,6 +156,72 @@ export function VendorDashboard({}: { displayName: string }) {
     : undefined;
 
   return (
+    <VendorDashboardView
+      openJobs={openWorkOrders.length}
+      bidsDue={bidsPending.length}
+      upcomingVisits={upcomingVisits.length}
+      unreadMessages={inboxThreads.length}
+      nextVisitLabel={nextVisitLabel}
+      attentionRows={attentionRows}
+      upcomingRows={upcomingRows}
+      nowMs={nowMs}
+      jobs={jobCards.map((row) => ({
+        id: row.id,
+        title: row.title,
+        subtitle: propertyLabel(row),
+        bidNeeded: Boolean(row.biddingOpen && row.bucket !== "completed"),
+        scheduledLabel: row.bucket === "completed" ? "Done" : row.scheduled && row.scheduled !== "—" ? row.scheduled : "Scheduled",
+      }))}
+      belowKpis={<VendorDashboardBalanceCard />}
+      onAdd={() => router.push(`${vendorWorkOrderListHref(BASE, "open")}?add=1`)}
+      onOpenJob={(id) => router.push(vendorJobDetailHref(BASE, id))}
+    />
+  );
+}
+
+/** One job card the vendor's Dashboard lists under Services. */
+export type VendorDashboardJob = {
+  id: string;
+  title: string;
+  subtitle: string;
+  bidNeeded: boolean;
+  scheduledLabel: string;
+};
+
+/**
+ * The vendor Dashboard as pure presentation: the numbers and rows come in as props, so the real page
+ * (fed by the work-order store) and the home page's demo window (fed by fixtures, `product-mock/dashboards.tsx`)
+ * draw exactly the same tree.
+ */
+export function VendorDashboardView({
+  openJobs,
+  bidsDue,
+  upcomingVisits,
+  unreadMessages,
+  nextVisitLabel,
+  attentionRows,
+  upcomingRows,
+  nowMs,
+  jobs,
+  belowKpis,
+  onAdd,
+  onOpenJob,
+}: {
+  openJobs: number;
+  bidsDue: number;
+  upcomingVisits: number;
+  unreadMessages: number;
+  nextVisitLabel?: string;
+  attentionRows: ManagerAttentionRow[];
+  upcomingRows: UpcomingRow[];
+  nowMs: number;
+  jobs: VendorDashboardJob[];
+  /** Rendered above Services (the real page's balance card, which reads the payouts API). */
+  belowKpis?: ReactNode;
+  onAdd: () => void;
+  onOpenJob: (id: string) => void;
+}) {
+  return (
     <ManagerPortalPageShell
       title="Dashboard"
       hideTitleOnNative
@@ -166,21 +232,21 @@ export function VendorDashboard({}: { displayName: string }) {
           <>
             <KpiCard
               label="Open jobs"
-              value={String(openWorkOrders.length)}
+              value={String(openJobs)}
               href={vendorWorkOrderListHref(BASE, "open")}
               dataAttr="vendor-dashboard-kpi-jobs"
               icon={Wrench}
             />
             <KpiCard
               label="Bids due"
-              value={String(bidsPending.length)}
+              value={String(bidsDue)}
               href={vendorWorkOrderListHref(BASE, "open")}
               dataAttr="vendor-dashboard-kpi-bids"
               icon={FileText}
             />
             <KpiCard
               label="Upcoming visits"
-              value={String(upcomingVisits.length)}
+              value={String(upcomingVisits)}
               unit={nextVisitLabel}
               href={`${BASE}/calendar`}
               dataAttr="vendor-dashboard-kpi-visits"
@@ -188,7 +254,7 @@ export function VendorDashboard({}: { displayName: string }) {
             />
             <KpiCard
               label="Unread messages"
-              value={String(inboxThreads.length)}
+              value={String(unreadMessages)}
               href={`${BASE}/communication/active`}
               dataAttr="vendor-dashboard-kpi-inbox"
               icon={Mail}
@@ -216,7 +282,7 @@ export function VendorDashboard({}: { displayName: string }) {
         }
         below={
           <>
-            <VendorDashboardBalanceCard />
+            {belowKpis}
             <section className="space-y-3" data-attr="dashboard-your-jobs">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-[15px] font-[650] text-foreground">Services</h2>
@@ -224,11 +290,11 @@ export function VendorDashboard({}: { displayName: string }) {
                 <PortalPrimaryIconAction
                   label="Add"
                   data-attr="vendor-dashboard-add"
-                  onClick={() => router.push(`${vendorWorkOrderListHref(BASE, "open")}?add=1`)}
+                  onClick={onAdd}
                 />
               </div>
             </div>
-            {jobCards.length === 0 ? (
+            {jobs.length === 0 ? (
               // Exactly one create control for "Services": the header icon
               // action above stays the CTA — this card explains the empty
               // state without a second, duplicate "Add" button (C147).
@@ -238,21 +304,19 @@ export function VendorDashboard({}: { displayName: string }) {
               />
             ) : (
               <PortalRecordListSurface isEmpty={false} dataAttr="vendor-dashboard-services">
-                {jobCards.map((row) => (
+                {jobs.map((job) => (
                   <PortalServiceRecordRow
-                    key={row.id}
-                    title={row.title}
-                    subtitle={propertyLabel(row)}
+                    key={job.id}
+                    title={job.title}
+                    subtitle={job.subtitle}
                     facts={
-                      row.biddingOpen && row.bucket !== "completed" ? (
+                      job.bidNeeded ? (
                         <PortalRowFact icon={Clock}>Bid needed</PortalRowFact>
                       ) : (
-                        <PortalRowFact icon={CalendarDays}>
-                          {row.bucket === "completed" ? "Done" : row.scheduled && row.scheduled !== "—" ? row.scheduled : "Scheduled"}
-                        </PortalRowFact>
+                        <PortalRowFact icon={CalendarDays}>{job.scheduledLabel}</PortalRowFact>
                       )
                     }
-                    onOpen={() => router.push(vendorJobDetailHref(BASE, row.id))}
+                    onOpen={() => onOpenJob(job.id)}
                     dataAttr="vendor-dashboard-job-card"
                   />
                 ))}

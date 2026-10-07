@@ -26,30 +26,25 @@ beforeEach(() => {
 const PORTALS = Object.keys(DEMO_TABS) as DemoPortal[];
 
 describe("DEMO_TABS contract", () => {
-  it("lists the planned tabs per portal", () => {
+  it("is the real sidebar, row for row (the full parity check is home-demo-nav-parity.test.ts)", () => {
     expect(DEMO_TABS.manager.map((t) => t.id)).toEqual([
-      "dashboard",
-      "calendar",
-      "communication",
-      "properties",
-      "tours",
-      "applications",
-      "leases",
-      "residents",
-      "vendors",
-      "services",
-      "payments",
+      "dashboard", "tasks", "calendar", "communication",
+      "properties", "bookings", "promotion",
+      "tours", "applications", "leases", "forms",
+      "residents", "vendors", "services",
+      "payments", "outgoing", "financials", "documents",
     ]);
     expect(DEMO_TABS.resident.map((t) => t.id)).toEqual([
-      "home",
-      "lease",
-      "forms",
-      "services",
-      "applications",
-      "payments",
-      "communication",
+      "dashboard", "communication",
+      "move-in", "lease", "forms", "services",
+      "tour", "applications",
+      "payments", "documents",
     ]);
-    expect(DEMO_TABS.vendor.map((t) => t.id)).toEqual(["services", "reviews", "calendar", "communication", "payments"]);
+    expect(DEMO_TABS.vendor.map((t) => t.id)).toEqual([
+      "dashboard", "communication", "calendar",
+      "work-orders", "reviews",
+      "financials", "documents",
+    ]);
   });
 });
 

@@ -163,10 +163,20 @@ test.describe("Public home", () => {
     const portals: Record<string, { label: string; sidebar: string[] }> = {
       manager: {
         label: "Manager portal",
-        sidebar: ["Dashboard", "Calendar", "Communication", "Properties", "Tours", "Application", "Leases", "Residents", "Vendors", "Services", "Incoming payments"],
+        // The real manager sidebar, row for row (`PORTAL_NAV_GROUPS`; tests/unit/home-demo-nav-parity.test.ts).
+        sidebar: [
+          "Dashboard", "Tasks", "Calendar", "Communication",
+          "Properties", "Bookings", "Promotion",
+          "Tours", "Application", "Leases", "Forms",
+          "Residents", "Vendors", "Services",
+          "Incoming payments", "Outgoing payments", "Finances", "Documents",
+        ],
       },
-      resident: { label: "Resident portal", sidebar: ["My home", "Lease", "Forms", "Services", "Applications", "Payments", "Communication"] },
-      vendor: { label: "Vendor portal", sidebar: ["Services", "Reviews", "Calendar", "Communication", "Finances"] },
+      resident: {
+        label: "Resident portal",
+        sidebar: ["Dashboard", "Communication", "My home", "Lease", "Forms", "Services", "Tour", "Application", "Payments", "Documents"],
+      },
+      vendor: { label: "Vendor portal", sidebar: ["Dashboard", "Communication", "Calendar", "Services", "Reviews", "Finances", "Documents"] },
     };
 
     test("no stage chrome: no portal switcher, stage tabs, guide line or activity row", async ({ page }) => {
@@ -348,6 +358,18 @@ test.describe("Public home", () => {
       const rows = page.locator("[data-lifecycle-row]");
       const count = await rows.count();
       expect(count).toBeGreaterThan(5);
+      // Captain, Oct 7: the phone is vertically centred in the viewport, on the right, and stays there.
+      const centred = async () => {
+        const box = (await page.locator(".rlp-story-phone").boundingBox())!;
+        const viewport = page.viewportSize()!;
+        expect(box.x + box.width / 2).toBeGreaterThan(viewport.width * 0.7);
+        expect(Math.abs(box.y + box.height / 2 - viewport.height / 2)).toBeLessThan(viewport.height * 0.12);
+      };
+      for (const y of [0, 800, 2400]) {
+        await page.evaluate((top) => window.scrollTo(0, top), y);
+        await page.waitForTimeout(300);
+        await centred();
+      }
       for (const index of [0, 3, count - 1]) {
         await rows.nth(index).scrollIntoViewIfNeeded();
         await expect(slot).toBeInViewport({ ratio: 0.9 });
@@ -367,7 +389,7 @@ test.describe("Public home", () => {
       for (const [via, tabs] of [
         [null, ["Dashboard", "Properties", "Communication", "Leases"]],
         ["Switch to Resident portal", ["My home", "Payments", "Communication"]],
-        ["Switch to Vendor portal", ["Services", "Calendar"]],
+        ["Switch to Vendor portal", ["Dashboard", "Services", "Calendar"]],
       ] as const) {
         if (via) {
           await demo.getByRole("button", { name: "Account menu" }).click();

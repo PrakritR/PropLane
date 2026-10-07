@@ -46,7 +46,7 @@ describe("one sample world", () => {
     const world = worldFor(NO_STORY);
     const rooms = world.properties.reduce((sum, p) => sum + p.rooms, 0);
     const occupied = world.residents.filter((r) => r.tab === "current").length;
-    expect(world.dashboard.occupancy).toEqual({ value: `${Math.round((occupied / rooms) * 100)}%`, unit: `${occupied} / ${rooms} rooms` });
+    expect(world.dashboard.occupancy).toEqual({ value: `${Math.round((occupied / rooms) * 100)}%`, unit: `${occupied} / ${rooms}`, series: expect.any(Array), delta: expect.anything() });
     const pending = world.applications.filter((a) => a.bucket === "pending");
     expect(world.dashboard.applicationsReady.value).toBe(String(pending.length));
     expect(world.dashboard.applicationsReady.unit).toBe(`${new Set(pending.map((a) => a.property)).size} properties`);
@@ -120,11 +120,11 @@ describe("one sample world", () => {
       cleanup();
       return out;
     };
-    expect(text("offer", "services")).toContain("Wallingford, Seattle");
-    expect(text("offer", "services")).not.toContain("Willow Court");
-    expect(text("quote", "services")).not.toContain("Willow Court");
-    expect(text("visit", "services")).toContain("Willow Court");
-    expect(text("paid", "payments")).toContain("$180.00");
+    expect(text("offer", "work-orders")).toContain("Wallingford, Seattle");
+    expect(text("offer", "work-orders")).not.toContain("Willow Court");
+    expect(text("quote", "work-orders")).not.toContain("Willow Court");
+    expect(text("visit", "work-orders")).toContain("Willow Court");
+    expect(text("paid", "financials")).toContain("$180.00");
   });
 });
 
@@ -157,8 +157,8 @@ describe("sidebar grouping (the redesigned shell)", () => {
     const { container } = mount("manager");
     const groups = Array.from(container.querySelector("nav")!.children);
     expect(groups.map((group) => group.querySelector("p")?.textContent?.trim() ?? "")).toEqual(["", "Portfolio", "Leasing", "People", "Money"]);
-    expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(["Dashboard", "Calendar", "Communication"]);
-    expect(Array.from(groups[2]!.querySelectorAll("button[data-demo-tab]")).map((b) => b.getAttribute("aria-label"))).toEqual(["Tours", "Application", "Leases"]);
+    expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(["Dashboard", "Tasks", "Calendar", "Communication"]);
+    expect(Array.from(groups[2]!.querySelectorAll("button[data-demo-tab]")).map((b) => b.getAttribute("aria-label"))).toEqual(["Tours", "Application", "Leases", "Forms"]);
   });
 
   it("collapses and re-opens a group, and keeps every cursor target on its row", () => {

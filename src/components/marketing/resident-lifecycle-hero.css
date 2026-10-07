@@ -77,7 +77,9 @@
   min-height: 0;
 }
 
-/* The phone: beside the window at lg, pinned with it, then gliding up to its resting top. */
+/* The phone: beside the window at lg, sticky and vertically centred in the viewport on the right (captain, Oct 7:
+   "keep the phone centered on screen, in the middle on the right side"). It stays there while the page scrolls,
+   never closer to the top than the site header, and its slot is as tall as the phone so nothing is cut off. */
 @media (min-width: 1024px) {
   .rlp-page .rlp-grow {
     grid-column: 1 / -1;
@@ -86,12 +88,11 @@
     padding-right: calc(304px * var(--rlp-phone-s) + 24px);
   }
   .rlp-page .rlp-story-rail {
-    /* The sticky top (set from the scroll) places the phone, centred on the window, from the first frame. */
     margin-top: 0;
     z-index: 2;
   }
   .rlp-page .rlp-story-phone-slot {
-    top: var(--rlp-phone-top, var(--rlp-stage-top));
+    top: max(calc(var(--rlp-hdr) + 12px), calc(50svh - (660px * var(--rlp-phone-s)) / 2));
   }
 }
 
@@ -135,8 +136,5 @@
   .rlp-page .rlp-story .rlp-hero-stage {
     transform: none;
     will-change: auto;
-  }
-  .rlp-page .rlp-story-phone-slot {
-    top: 76px;
   }
 }
