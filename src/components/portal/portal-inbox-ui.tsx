@@ -3082,18 +3082,23 @@ export function InboxThreadSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy="true" role="status" data-attr="inbox-thread-skeleton">
       <span className="sr-only">Loading conversation…</span>
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-3 md:px-4">
-        <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-accent/55 motion-reduce:animate-none" />
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-border px-3 py-2.5 md:pl-[18px] md:pr-4">
+        <div className="size-8 shrink-0 animate-pulse rounded-lg bg-accent/55 motion-reduce:animate-none" />
         <div className="h-4 w-40 max-w-[50%] animate-pulse rounded bg-accent/55 motion-reduce:animate-none" />
       </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 bg-background/40 px-3 py-3">
-        <div className="h-10 w-[62%] animate-pulse rounded-2xl bg-accent/50 motion-reduce:animate-none" />
-        <div className="ml-auto h-10 w-[48%] animate-pulse rounded-2xl bg-accent/40 motion-reduce:animate-none" />
-        <div className="h-10 w-[70%] animate-pulse rounded-2xl bg-accent/50 motion-reduce:animate-none" />
-        <div className="ml-auto h-10 w-[40%] animate-pulse rounded-2xl bg-accent/40 motion-reduce:animate-none" />
+      <div className="flex min-h-0 flex-1 flex-col gap-4 px-3 py-3.5 md:px-[18px]">
+        {[["w-[62%]", "w-24"], ["w-[48%]", "w-20"], ["w-[70%]", "w-28"]].map(([line, name]) => (
+          <div key={line} className="flex gap-2.5">
+            <div className="size-8 shrink-0 animate-pulse rounded-lg bg-accent/55 motion-reduce:animate-none" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className={`h-3.5 ${name} animate-pulse rounded bg-accent/55 motion-reduce:animate-none`} />
+              <div className={`h-3.5 ${line} animate-pulse rounded bg-accent/40 motion-reduce:animate-none`} />
+            </div>
+          </div>
+        ))}
       </div>
-      <div className="shrink-0 border-t border-border px-3 py-2.5 opacity-45">
-        <div className="h-10 rounded-xl border border-border bg-background" />
+      <div className="shrink-0 px-3.5 pb-3.5 pt-2.5 opacity-45">
+        <div className="h-[76px] rounded-[10px] border border-input bg-card" />
       </div>
     </div>
   );
@@ -3483,7 +3488,11 @@ export function InboxTwoPane({
   // exactly bounds the two cards. It must not clip, or it would cut the cards'
   // own shadows on all four sides; nothing can escape regardless, because both
   // sections keep their own `overflow-hidden`.
-  const rootCard = split
+  // `flat` runs to the main column's edges (the column pads 2rem from lg up) under one hairline,
+  // the same bleed the list pages' header band and rows use.
+  const rootCard = flat
+    ? "lg:-mx-8 lg:border-t lg:border-border"
+    : split
     ? ""
     : "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl max-md:border-x-0 max-md:shadow-none";
   const paneCard = flat
