@@ -33,7 +33,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       .eq("id", id)
       .eq("vendor_user_id", access.userId)
       .maybeSingle();
-    if (readError) return NextResponse.json({ error: readError.message }, { status: 500 });
+    if (readError) {
+      console.error("[vendor/reviews/reply] read failed", readError.message);
+      return NextResponse.json({ error: "Could not load the review." }, { status: 500 });
+    }
     if (!existing) return NextResponse.json({ error: "Review not found." }, { status: 404 });
     if (existing.vendor_reply) {
       return NextResponse.json({ error: "A reply has already been sent for this review." }, { status: 409 });
@@ -46,13 +49,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       .eq("vendor_user_id", access.userId)
       .select(VENDOR_REVIEW_PUBLIC_SELECT)
       .maybeSingle();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("[vendor/reviews/reply] save failed", error.message);
+      return NextResponse.json({ error: "Could not save your reply." }, { status: 500 });
+    }
     if (!data) return NextResponse.json({ error: "Review not found." }, { status: 404 });
 
     return NextResponse.json({ review: mapPublicVendorReviewRow(data) });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to save reply.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[vendor/reviews/reply] failed", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Could not save your reply." }, { status: 500 });
   }
 }
 
@@ -82,12 +88,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       .not("vendor_reply", "is", null)
       .select(VENDOR_REVIEW_PUBLIC_SELECT)
       .maybeSingle();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("[vendor/reviews/reply] edit failed", error.message);
+      return NextResponse.json({ error: "Could not save your reply." }, { status: 500 });
+    }
     if (!data) return NextResponse.json({ error: "No reply to edit on this review." }, { status: 404 });
 
     return NextResponse.json({ review: mapPublicVendorReviewRow(data) });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to save reply.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[vendor/reviews/reply] failed", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Could not save your reply." }, { status: 500 });
   }
 }

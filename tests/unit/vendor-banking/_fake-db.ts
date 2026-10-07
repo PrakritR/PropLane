@@ -16,6 +16,8 @@ class FakeQuery {
   private upsertConflictCol: string | null = null;
   private payload: Row | null = null;
   private cols: string | null = null;
+  private rangeFrom: number | null = null;
+  private rangeTo: number | null = null;
   constructor(
     private rows: Row[],
     private table: string,
@@ -51,6 +53,12 @@ class FakeQuery {
     return this;
   }
   limit() {
+    return this;
+  }
+  /** PostgREST paging: the real client caps a page, so the callers that page to the end must be exercised. */
+  range(from: number, to: number) {
+    this.rangeFrom = from;
+    this.rangeTo = to;
     return this;
   }
   insert(row: Row) {
@@ -101,7 +109,11 @@ class FakeQuery {
       else this.rows.push({ ...this.payload! });
       return { data: null, error: null };
     }
-    return { data: this.matched(), error: null };
+    const rows = this.matched();
+    return {
+      data: this.rangeFrom === null ? rows : rows.slice(this.rangeFrom, (this.rangeTo ?? rows.length) + 1),
+      error: null,
+    };
   }
   maybeSingle() {
     const res = this.exec();

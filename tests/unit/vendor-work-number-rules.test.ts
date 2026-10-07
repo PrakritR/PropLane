@@ -28,8 +28,12 @@ describe("the approved numbers", () => {
     expect(vendorNumberSegments("a".repeat(307))).toBe(3);
     expect(vendorNumberSegments("é中".repeat(36))).toBe(2);
   });
-  it("resets on the first of the UTC month", () => {
-    expect(vendorNumberMonthStart(new Date("2026-10-31T23:59:59Z")).toISOString()).toBe("2026-10-01T00:00:00.000Z");
+  it("resets on the first of the PACIFIC month, so a late-evening text never counts against the next month", () => {
+    // 4:59pm PT on Oct 31 — still October where the product stamps time.
+    expect(vendorNumberMonthStart(new Date("2026-10-31T23:59:59Z")).toISOString()).toBe("2026-10-01T07:00:00.000Z");
+    // 5:00pm PT on Oct 31 is Nov 1 in UTC but still October in Pacific.
+    expect(vendorNumberMonthStart(new Date("2026-11-01T00:00:00Z")).toISOString()).toBe("2026-10-01T07:00:00.000Z");
+    expect(vendorNumberMonthStart(new Date("2026-11-01T08:00:00Z")).toISOString()).toBe("2026-11-01T07:00:00.000Z");
   });
 });
 

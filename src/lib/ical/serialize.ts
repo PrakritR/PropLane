@@ -20,7 +20,7 @@ export function escapeIcsText(value: string): string {
   return value
     .replace(/\r\n?/g, "\n")
     .replace(/\\/g, "\\\\")
-    .replace(/;/g, "\;")
+    .replace(/;/g, "\\;")
     .replace(/,/g, "\\,")
     .replace(/\n/g, "\\n");
 }

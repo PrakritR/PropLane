@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent, type ActionEventAudience } from "@/lib/action-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import {
   renderVendorBankingEvent,
   type VendorBankingEventFacts,
@@ -54,7 +55,41 @@ async function profileContact(db: SupabaseClient, userId: string) {
   };
 }
 
-/** The manager a vendor-only notice is sent as: the vendor's most recent paying manager. */
+/**
+ * Moments that are about the VENDOR'S OWN account — their bank, their payout,
+ * their Stripe status — and nobody else's. PropLane sends these itself: no
+ * manager did the thing being reported, and a vendor who has never been paid
+ * through PropLane (no `vendor_payouts` row, so no manager to borrow a name
+ * from) is exactly the person who most needs "your account was restricted".
+ *
+ * Everything else here is cross-party (a refund, a dispute) and still goes out
+ * in the name of the manager involved.
+ */
+const PROPLANE_SENT_KINDS: ReadonlySet<VendorBankingEventKind> = new Set([
+  "payout_paid",
+  "payout_failed",
+  "payout_returned",
+  "bank_removed",
+  "bank_needs_verification",
+  "account_restricted",
+  "money_held_no_bank",
+]);
+
+/** PropLane's own ops identity, the sender of a PropLane system notice. Null when the account is absent. */
+async function proplaneSystemSender(
+  db: SupabaseClient,
+): Promise<{ userId: string; email: string; name: string } | null> {
+  const { data } = await db
+    .from("profiles")
+    .select("id, email")
+    .eq("email", PRIMARY_ADMIN_EMAIL.trim().toLowerCase())
+    .maybeSingle();
+  const userId = String((data as { id?: string } | null)?.id ?? "").trim();
+  const email = String((data as { email?: string } | null)?.email ?? "").trim().toLowerCase();
+  return userId && email ? { userId, email, name: "PropLane" } : null;
+}
+
+/** The manager a cross-party notice is sent as: the vendor's most recent paying manager. */
 async function latestPayingManagerId(db: SupabaseClient, vendorUserId: string): Promise<string | null> {
   const { data } = await db
     .from("vendor_payouts")
@@ -79,19 +114,34 @@ export async function emitVendorBankingEvent(
   },
 ): Promise<{ sent: boolean }> {
   try {
-    const managerUserId = input.managerUserId ?? (await latestPayingManagerId(db, input.vendorUserId));
-    if (!managerUserId) return { sent: false };
-    const sender = await profileContact(db, managerUserId);
-    if (!sender.email) return { sent: false };
+    // A PropLane-sent kind goes out as PropLane. Only if that identity is
+    // missing does it fall back to the manager rail, so the notice still lands.
+    const system = PROPLANE_SENT_KINDS.has(input.kind) ? await proplaneSystemSender(db) : null;
+    let sender: { userId: string; email: string; name?: string } | null = system;
+    if (!sender) {
+      const managerUserId = input.managerUserId ?? (await latestPayingManagerId(db, input.vendorUserId));
+      const contact = managerUserId ? await profileContact(db, managerUserId) : null;
+      if (!managerUserId || !contact?.email) {
+        console.error(
+          `[vendor-banking] notification ${input.kind} dropped: no sender for vendor ${input.vendorUserId}`,
+        );
+        return { sent: false };
+      }
+      sender = { userId: managerUserId, email: contact.email, name: contact.name };
+    }
     const base = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+    const senderUserId = sender.userId;
     const recipients = audiencesForVendorBankingEvent(input.kind).flatMap((audience) => {
       const rendered = renderVendorBankingEvent(input.kind, audience, input.facts);
       if (!rendered) return [];
+      // A manager copy only exists for a cross-party kind, which never takes
+      // the PropLane sender — so the manager audience is the sender's own id.
+      const userId = audience === "vendor" ? input.vendorUserId : senderUserId;
       const path = audience === "vendor" ? "/vendor/finances" : "/portal/payments";
       return [
         {
           audience,
-          userId: audience === "vendor" ? input.vendorUserId : managerUserId,
+          userId,
           rendered: { ...rendered, text: `${rendered.text}\n\n${base}${path}` },
         },
       ];
@@ -101,10 +151,10 @@ export async function emitVendorBankingEvent(
       eventId: `vendor_banking:${input.eventId}`,
       domain: "vendor_banking",
       event: input.kind,
-      managerUserId,
+      managerUserId: senderUserId,
       entityId: input.eventId,
       category: "payments",
-      senderUserId: managerUserId,
+      senderUserId,
       senderEmail: sender.email,
       senderName: sender.name,
       urgent: input.kind === "payout_failed" || input.kind === "account_restricted" || input.kind === "payout_returned",

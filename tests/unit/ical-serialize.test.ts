@@ -27,7 +27,23 @@ function row(overrides: Partial<DemoManagerWorkOrderRow> = {}): DemoManagerWorkO
 
 describe("iCal serializer", () => {
   it("escapes backslash, semicolon, comma and newlines, and drops bare CRs", () => {
-    expect(escapeIcsText("a\\b;c,d\ne\r\nf\rg")).toBe("a\\\\b\;c\\,d\\ne\\nf\\ng");
+    expect(escapeIcsText("a\\b;c,d\ne\r\nf\rg")).toBe("a\\\\b\\;c\\,d\\ne\\nf\\ng");
+  });
+
+  it("a semicolon or comma inside a title is escaped in the serialized line, never left to split the value", () => {
+    const body = buildIcsTimedCalendar(
+      [{
+        uid: "a",
+        summary: "Fix sink; replace trap, then test",
+        start: new Date("2026-10-08T17:00:00Z"),
+        end: new Date("2026-10-08T18:00:00Z"),
+        location: "123 Main St; Unit 2, Seattle",
+      }],
+      { calendarName: "PropLane jobs", now: NOW },
+    );
+    expect(body).toContain("SUMMARY:Fix sink\\; replace trap\\, then test\r\n");
+    expect(body).toContain("LOCATION:123 Main St\\; Unit 2\\, Seattle\r\n");
+    expect(body).not.toMatch(/SUMMARY:[^\r\n]*[^\\];/);
   });
 
   it("uses CRLF everywhere and wraps events in a VCALENDAR with the calendar name", () => {

@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listVendorBankingLedgerEntries, type VendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.server";
 import {
+  statementMonthKey,
   summarizeStatementMonths,
   vendorStatementEventType,
   VENDOR_STATEMENT_EVENT_LABELS,
@@ -34,13 +35,14 @@ export type VendorStatement = {
   months: StatementMonthSummary[];
 };
 
-const STATEMENT_LINE_LIMIT = 5000;
-
 /**
- * Every ledger line for the vendor (optionally one UTC month), each carrying a
- * running balance — computed once, in order, never per-row from scratch. A month
- * filter still carries everything BEFORE that month into the opening balance, so
- * it reads as a real bank statement rather than resetting to 0.
+ * Every ledger line for the vendor (optionally one PACIFIC month), each carrying
+ * a running balance — computed once, in order, never per-row from scratch. A
+ * month filter still carries everything BEFORE that month into the opening
+ * balance, so it reads as a real bank statement rather than resetting to 0.
+ *
+ * The read is unlimited and paged: a statement that silently stopped at a row
+ * cap would show a stale closing balance as if it were the real one.
  *
  * Throws on a read failure: the caller must answer with a real error, never an
  * empty statement that reads as "No activity yet".
@@ -50,10 +52,10 @@ export async function buildVendorStatement(
   vendorUserId: string,
   opts: { month?: string | null } = {},
 ): Promise<VendorStatement> {
-  const all = await listVendorBankingLedgerEntries(db, vendorUserId, { limit: STATEMENT_LINE_LIMIT });
+  const all = await listVendorBankingLedgerEntries(db, vendorUserId);
   const month = opts.month && /^\d{4}-\d{2}$/.test(opts.month) ? opts.month : null;
-  const inScope = month ? all.filter((entry) => entry.createdAt.startsWith(month)) : all;
-  let running = month ? all.filter((entry) => entry.createdAt.slice(0, 7) < month).reduce((sum, entry) => sum + entry.amountCents, 0) : 0;
+  const inScope = month ? all.filter((entry) => statementMonthKey(entry.createdAt) === month) : all;
+  let running = month ? all.filter((entry) => statementMonthKey(entry.createdAt) < month).reduce((sum, entry) => sum + entry.amountCents, 0) : 0;
   const openingCents = running;
   const lines: VendorStatementLine[] = inScope.map((entry) => {
     running += entry.amountCents;

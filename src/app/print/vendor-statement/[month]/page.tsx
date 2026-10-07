@@ -5,6 +5,7 @@ import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { buildVendorStatement } from "@/lib/vendor-banking/statement.server";
 import { statementMonthLabel, VENDOR_STATEMENT_EVENT_LABELS } from "@/lib/vendor-banking/statement-events";
 import { PrintButton } from "../../vendor-payout/[id]/print-button";
+import { formatPacificDate } from "@/lib/pacific-time";
 
 /**
  * A vendor's own monthly statement, printed straight from the browser (Print →
@@ -68,7 +69,7 @@ export default async function VendorStatementPrintPage({ params }: { params: Pro
           <tbody>
             {statement.lines.map((line) => (
               <tr key={line.id} className="border-b border-black/10">
-                <td className="py-2 pr-3">{new Date(line.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}</td>
+                <td className="py-2 pr-3">{formatPacificDate(line.createdAt, { month: "short", day: "numeric" })}</td>
                 <td className="py-2 pr-3">{VENDOR_STATEMENT_EVENT_LABELS[line.eventType]}</td>
                 <td className="py-2 pr-3">{line.description}</td>
                 <td className="py-2 pr-3 text-right">{usd(line.amountCents)}</td>

@@ -6,6 +6,8 @@
  * ever returned.
  */
 
+import { pacificCalendarYear } from "@/lib/pacific-time";
+
 export const VENDOR_W9_ENTITY_TYPES = [
   { value: "individual", label: "Individual / sole proprietor" },
   { value: "single_member_llc", label: "Single-member LLC" },
@@ -146,11 +148,16 @@ export type VendorTaxYearSummary = {
 
 type TaxLedgerLine = { kind: string; source: string; amountCents: number; createdAt: string };
 
-/** Earnings, fees and refunds per UTC calendar year from the vendor ledger, newest year first. */
+/**
+ * Earnings, fees and refunds per PACIFIC calendar year from the vendor ledger,
+ * newest year first. The year boundary is the one the rest of the product
+ * stamps on (`formatPacificDateTime`), so a payment settled Dec 31 after 4pm PT
+ * is reported in the year the vendor saw it, not the next one.
+ */
 export function summarizeVendorTaxYears(lines: TaxLedgerLine[]): VendorTaxYearSummary[] {
   const byYear = new Map<number, { earnings: number; fees: number; refunds: number }>();
   for (const line of lines) {
-    const year = Number(line.createdAt.slice(0, 4));
+    const year = pacificCalendarYear(line.createdAt);
     if (!Number.isFinite(year)) continue;
     const row = byYear.get(year) ?? { earnings: 0, fees: 0, refunds: 0 };
     if (line.kind === "charge") row.earnings += line.amountCents;

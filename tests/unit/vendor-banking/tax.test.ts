@@ -66,7 +66,7 @@ describe("maskTin", () => {
 });
 
 describe("tax years", () => {
-  it("summarizes earnings, fees and refunds per UTC year, newest first", () => {
+  it("summarizes earnings, fees and refunds per Pacific year, newest first", () => {
     const years = summarizeVendorTaxYears([
       { kind: "charge", source: "invoice", amountCents: 200_000, createdAt: "2026-03-01T00:00:00.000Z" },
       { kind: "platform_fee", source: "invoice", amountCents: -6_000, createdAt: "2026-03-01T00:00:01.000Z" },
@@ -78,6 +78,18 @@ describe("tax years", () => {
     expect(years.map((y) => y.year)).toEqual([2026, 2025]);
     expect(years[0]).toMatchObject({ earningsCents: 200_000, feesCents: 6_300, refundsCents: 5_000, reportableCents: 195_000 });
     expect(years[1]).toMatchObject({ earningsCents: 50_000, overThreshold: false });
+  });
+
+  it("books a payment settled Dec 31 after 4pm PT in THAT tax year, not the next one", () => {
+    const years = summarizeVendorTaxYears([
+      // 2027-01-01T00:00Z is Dec 31 2026, 4pm PT — a 2026 payment on the clock the vendor saw.
+      { kind: "charge", source: "invoice", amountCents: 300_000, createdAt: "2027-01-01T00:00:00.000Z" },
+      { kind: "charge", source: "invoice", amountCents: 100_000, createdAt: "2027-01-01T08:00:00.000Z" },
+    ]);
+    expect(years.map((y) => [y.year, y.earningsCents])).toEqual([
+      [2027, 100_000],
+      [2026, 300_000],
+    ]);
   });
 
   it("uses $600 before 2026 and $2,000 from 2026", () => {

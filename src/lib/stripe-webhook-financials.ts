@@ -402,10 +402,8 @@ export async function handleExternalAccountEvent(
       : `${external.bank_name ?? "Bank"} ••${external.last4 ?? ""}`;
     if (event.type === "account.external_account.deleted") {
       await emitVendorBankingEvent(db, { kind: "bank_removed", eventId: `external:${external.id}:removed`, vendorUserId: ownerUserId, facts: { bankLabel } });
-    } else if (external.status === "verification_failed" || external.status === "errored" || external.status === "new") {
-      if (external.status !== "new") {
-        await emitVendorBankingEvent(db, { kind: "bank_needs_verification", eventId: `external:${external.id}:${external.status}`, vendorUserId: ownerUserId, facts: { bankLabel } });
-      }
+    } else if (external.status === "verification_failed" || external.status === "errored") {
+      await emitVendorBankingEvent(db, { kind: "bank_needs_verification", eventId: `external:${external.id}:${external.status}`, vendorUserId: ownerUserId, facts: { bankLabel } });
     }
   } catch (e) {
     console.error("[stripe webhook] vendor bank notification", e instanceof Error ? e.message : e);

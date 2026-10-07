@@ -10,19 +10,42 @@ vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://app.ex
 import { audiencesForVendorBankingEvent, emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { renderVendorBankingEvent, type VendorBankingEventKind } from "@/lib/vendor-banking/events";
 import { vendorTopicForEvent } from "@/lib/vendor-notification-settings";
+import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 const KINDS: VendorBankingEventKind[] = [
   "payout_paid", "payout_failed", "payout_returned", "bank_removed", "bank_needs_verification", "account_restricted",
   "refund_sent", "refund_received", "dispute_opened", "dispute_closed", "money_held_no_bank",
 ];
 
-function db(rows: { manager?: { email: string; full_name: string } | null; payout?: { manager_user_id: string } | null } = {}) {
+/**
+ * `proplaneOps` present = the PropLane ops profile exists (a real deployment);
+ * absent = it does not, which is the fallback-to-manager path.
+ */
+function db(
+  rows: {
+    manager?: { email: string; full_name: string } | null;
+    payout?: { manager_user_id: string } | null;
+    proplaneOps?: boolean;
+  } = {},
+) {
   return {
     from(table: string) {
-      const data = table === "profiles" ? (rows.manager ?? { email: "mgr@example.com", full_name: "Test Manager" }) : ("payout" in rows ? rows.payout : { manager_user_id: "mgr_1" });
       const b: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "order", "limit"]) b[m] = () => b;
-      b.maybeSingle = async () => ({ data, error: null });
+      let byEmail = "";
+      b.select = () => b;
+      b.eq = (col: string, value: unknown) => {
+        if (col === "email") byEmail = String(value).trim().toLowerCase();
+        return b;
+      };
+      b.order = () => b;
+      b.limit = () => b;
+      b.maybeSingle = async () => {
+        if (table !== "profiles") return { data: "payout" in rows ? rows.payout : { manager_user_id: "mgr_1" }, error: null };
+        if (byEmail === PRIMARY_ADMIN_EMAIL.toLowerCase()) {
+          return { data: rows.proplaneOps ? { id: "proplane_ops", email: PRIMARY_ADMIN_EMAIL, full_name: "PropLane" } : null, error: null };
+        }
+        return { data: rows.manager ?? { id: "mgr_1", email: "mgr@example.com", full_name: "Test Manager" }, error: null };
+      };
       return b;
     },
   };
@@ -66,12 +89,32 @@ describe("emitVendorBankingEvent", () => {
     expect(input.recipients.map((r: { audience: string; userId: string }) => [r.audience, r.userId])).toEqual([["vendor", "vendor_1"], ["manager", "mgr_1"]]);
   });
 
-  it("a vendor-only moment (payout paid) goes to the vendor, sent as their latest paying manager", async () => {
-    await emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "payout:po_1:payout_paid", vendorUserId: "vendor_1", facts: { amountCents: 40_000 } });
+  it("a vendor-only moment (payout paid) goes to the vendor as a PropLane notice, never in a manager's name", async () => {
+    await emitVendorBankingEvent(db({ proplaneOps: true }) as never, { kind: "payout_paid", eventId: "payout:po_1:payout_paid", vendorUserId: "vendor_1", facts: { amountCents: 40_000 } });
     const input = h.emitAction.mock.calls[0]![1];
-    expect(input.managerUserId).toBe("mgr_1");
+    expect(input.senderUserId).toBe("proplane_ops");
+    expect(input.senderName).toBe("PropLane");
     expect(input.recipients).toHaveLength(1);
     expect(input.recipients[0]).toMatchObject({ audience: "vendor", userId: "vendor_1" });
+  });
+
+  it("reaches a vendor with no payout history at all — PropLane is the sender, so there is nobody to be missing", async () => {
+    const result = await emitVendorBankingEvent(db({ proplaneOps: true, payout: null }) as never, {
+      kind: "account_restricted", eventId: "account:acct_1:restricted", vendorUserId: "vendor_1", facts: { reason: "requirements past due" },
+    });
+    expect(result).toEqual({ sent: true });
+    const input = h.emitAction.mock.calls[0]![1];
+    expect(input.senderUserId).toBe("proplane_ops");
+    expect(input.recipients.map((r: { audience: string; userId: string }) => [r.audience, r.userId])).toEqual([["vendor", "vendor_1"]]);
+  });
+
+  it("a cross-party moment stays in the manager's name even when the PropLane identity exists", async () => {
+    await emitVendorBankingEvent(db({ proplaneOps: true }) as never, {
+      kind: "refund_sent", eventId: "refund:re_1:sent", vendorUserId: "vendor_1", managerUserId: "mgr_1", facts: { amountCents: 5_000 },
+    });
+    const input = h.emitAction.mock.calls[0]![1];
+    expect(input.senderUserId).toBe("mgr_1");
+    expect(input.senderEmail).toBe("mgr@example.com");
   });
 
   it("urgent for a failed payout and a restricted account", async () => {
@@ -88,10 +131,13 @@ describe("emitVendorBankingEvent", () => {
     spy.mockRestore();
   });
 
-  it("sends nothing when there is no manager to send as", async () => {
-    const result = await emitVendorBankingEvent(db({ payout: null }) as never, { kind: "payout_paid", eventId: "n", vendorUserId: "vendor_1", facts: {} });
+  it("a cross-party moment with no manager to send as is dropped loudly, never in silence", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await emitVendorBankingEvent(db({ payout: null }) as never, { kind: "refund_sent", eventId: "n", vendorUserId: "vendor_1", facts: {} });
     expect(result).toEqual({ sent: false });
     expect(h.emitAction).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 });
 

@@ -67,6 +67,8 @@ export type PortalPayoutBalance = {
   recoveryOutstandingCents?: number;
   recoveryReservedCents?: number;
   withdrawableCents?: number;
+  /** Cents frozen by an open dispute (server-read). Already subtracted from `availableCents`, never from `withdrawableCents`. */
+  frozenDisputeCents?: number;
   availableNote?: string;
   bank: PortalPayoutBank | null;
   schedule: {

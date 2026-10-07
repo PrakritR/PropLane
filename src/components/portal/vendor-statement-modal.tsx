@@ -18,6 +18,7 @@ import {
   VENDOR_STATEMENT_EVENT_LABELS,
   type VendorStatementEventType,
 } from "@/lib/vendor-banking/statement-events";
+import { formatPacificDate } from "@/lib/pacific-time";
 
 type StatementLine = {
   id: string;
@@ -124,7 +125,7 @@ export function VendorStatementModal({ open, onClose, month }: { open: boolean; 
                     .map((line) => (
                       <tr key={line.id} className="border-b border-border/60" data-attr="vendor-statement-row">
                         <td className="py-2 pr-3 text-muted">
-                          {new Date(line.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                          {formatPacificDate(line.createdAt, { month: "short", day: "numeric" })}
                         </td>
                         <td className="py-2 pr-3 text-foreground">
                           {line.eventType ? VENDOR_STATEMENT_EVENT_LABELS[line.eventType] : line.kind}

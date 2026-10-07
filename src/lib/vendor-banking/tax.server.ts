@@ -129,8 +129,12 @@ export async function saveVendorW9(db: SupabaseClient, vendorUserId: string, inp
   return toProfile(data as ProfileRow);
 }
 
-/** Earnings, fees and refunds per tax year, straight from the vendor ledger. */
+/**
+ * Earnings, fees and refunds per tax year, straight from the vendor ledger.
+ * The read is unlimited and paged — a 1099 total that stopped at a row cap
+ * would under-report against the reporting threshold with nothing to show for it.
+ */
 export async function readVendorTaxYears(db: SupabaseClient, vendorUserId: string): Promise<VendorTaxYearSummary[]> {
-  const entries = await listVendorBankingLedgerEntries(db, vendorUserId, { limit: 5000 });
+  const entries = await listVendorBankingLedgerEntries(db, vendorUserId);
   return summarizeVendorTaxYears(entries);
 }

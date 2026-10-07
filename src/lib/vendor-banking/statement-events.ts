@@ -9,6 +9,7 @@
  * table's check constraints.
  */
 import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
+import { pacificCalendarMonthKey, pacificStartOfDayMs } from "@/lib/pacific-time";
 
 export const VENDOR_STATEMENT_EVENT_TYPES = [
   "charge",
@@ -62,7 +63,7 @@ export function vendorStatementEventType(entry: VendorStatementEventInput): Vend
 }
 
 export type StatementMonthSummary = {
-  /** "2026-09" (UTC). */
+  /** "2026-09" (Pacific — the clock the rest of the product stamps on). */
   month: string;
   label: string;
   openingCents: number;
@@ -70,9 +71,26 @@ export type StatementMonthSummary = {
   lineCount: number;
 };
 
-/** "2026-09" for an ISO timestamp, in UTC (the ledger's month boundary). */
+/**
+ * "2026-09" for an ISO timestamp, on the PACIFIC clock — the same boundary
+ * `formatPacificDateTime` prints every other stamp on. A payment settled Dec 31
+ * at 4pm PT is a December line, not a January one, so the statement a vendor
+ * downloads matches the dates they saw in the app.
+ */
 export function statementMonthKey(iso: string): string {
-  return iso.slice(0, 7);
+  return pacificCalendarMonthKey(iso) || iso.slice(0, 7);
+}
+
+/** The half-open instant range of one Pacific calendar month ("2026-09"), for a `created_at` query. */
+export function pacificMonthWindow(month: string): { start: string; end: string } | null {
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+  const [y, m] = month.split("-").map(Number);
+  if (!y || !m || m < 1 || m > 12) return null;
+  const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+  const start = pacificStartOfDayMs(`${month}-01`);
+  const end = pacificStartOfDayMs(`${next}-01`);
+  if (start === null || end === null) return null;
+  return { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
 }
 
 export function statementMonthLabel(month: string): string {

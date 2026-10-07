@@ -443,7 +443,7 @@ export async function getVendorWorkIdentity(db: SupabaseClient, vendorUserId: st
   let smsSegmentsUsed = 0;
   let emailUsed = 0;
   if (identity) {
-    // The fair-use cap is per UTC month: only this month's events count.
+    // The fair-use cap is per Pacific calendar month: only this month's events count.
     const { data, error } = await db.from("vendor_work_identity_usage_events").select("meter,quantity")
       .eq("identity_id", identity.id).in("meter", ["outbound_email", "outbound_sms"])
       .gte("created_at", vendorNumberMonthStart().toISOString());

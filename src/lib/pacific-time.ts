@@ -54,6 +54,24 @@ export function pacificCalendarDateYmd(now: Date | number = Date.now()): string 
 }
 
 /**
+ * The Pacific calendar month (`"YYYY-MM"`) an instant falls in. Money the
+ * product books by month — a statement, a monthly cap — buckets on this, not on
+ * UTC: a payment settled Dec 31 at 4pm PT belongs to December, which is the
+ * month the vendor saw it in.
+ */
+export function pacificCalendarMonthKey(value: Date | string | number): string {
+  const ms = typeof value === "string" ? Date.parse(value) : new Date(value).getTime();
+  if (!Number.isFinite(ms)) return "";
+  return pacificCalendarDateYmd(ms).slice(0, 7);
+}
+
+/** The Pacific calendar year an instant falls in, or NaN when the value is unusable. */
+export function pacificCalendarYear(value: Date | string | number): number {
+  const key = pacificCalendarMonthKey(value);
+  return key ? Number(key.slice(0, 4)) : Number.NaN;
+}
+
+/**
  * The instant a Pacific calendar day (`YYYY-MM-DD`) begins, or null when the date is unusable.
  *
  * A bare wall date has no instant of its own, and resolving one with `new Date(y, m - 1, d)`

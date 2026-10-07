@@ -5,11 +5,12 @@
  * the settings page and the tests.
  */
 import { estimateSmsSegments } from "@/lib/sms/number-registration-policy";
+import { pacificCalendarMonthKey, pacificStartOfDayMs } from "@/lib/pacific-time";
 
 /** Dispatched on `window` when a phone is verified, so a work-number claim on the same page can open up. */
 export const PHONE_VERIFIED_EVENT = "proplane:phone-verified";
 
-/** Fair-use cap on the vendor's own text volume, in SMS segments per UTC month. */
+/** Fair-use cap on the vendor's own text volume, in SMS segments per PACIFIC calendar month. */
 export const VENDOR_NUMBER_FAIR_USE_SEGMENTS_PER_MONTH = 1000;
 
 /** A number nobody has texted through for this long is released back to the provider. */
@@ -29,9 +30,14 @@ export function vendorNumberSegments(text: string): number {
   return estimateSmsSegments(text).segmentCount;
 }
 
-/** First day of the UTC month the cap resets on. */
+/**
+ * The instant the PACIFIC calendar month the cap resets on began — the same
+ * boundary `claim_vendor_work_identity_outbound` counts usage from, and the
+ * clock the rest of the product stamps on.
+ */
 export function vendorNumberMonthStart(now: Date = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const start = pacificStartOfDayMs(`${pacificCalendarMonthKey(now)}-01`);
+  return start === null ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)) : new Date(start);
 }
 
 /** The label a forwarded text carries: "[<Workspace>] <text>". */

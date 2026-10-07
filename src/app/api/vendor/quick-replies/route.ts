@@ -29,7 +29,8 @@ export async function GET() {
     const result = await loadVendorQuickReplies(auth.db, auth.userId);
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Failed to load quick replies." }, { status: 500 });
+    console.error("[vendor/quick-replies] load failed", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Could not load your quick replies." }, { status: 500, headers: { "Cache-Control": "private, no-store" } });
   }
 }
 
@@ -45,6 +46,7 @@ export async function PUT(req: Request) {
     const replies = await saveVendorQuickReplies(auth.db, auth.userId, body.replies);
     return NextResponse.json({ replies, isStarterSet: false });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Failed to save quick replies." }, { status: 500 });
+    console.error("[vendor/quick-replies] save failed", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Could not save your quick replies." }, { status: 500 });
   }
 }

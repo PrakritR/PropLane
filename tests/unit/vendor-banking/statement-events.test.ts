@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  pacificMonthWindow,
+  statementMonthKey,
   summarizeStatementMonths,
   vendorStatementEventType,
   VENDOR_STATEMENT_EVENT_LABELS,
@@ -37,16 +39,37 @@ describe("vendorStatementEventType", () => {
 describe("summarizeStatementMonths", () => {
   it("chains opening and closing balances month to month, newest first", () => {
     const months = summarizeStatementMonths([
-      { createdAt: "2026-10-03T00:00:00.000Z", amountCents: -5_000 },
-      { createdAt: "2026-09-01T00:00:00.000Z", amountCents: 10_000 },
-      { createdAt: "2026-09-02T00:00:00.000Z", amountCents: -300 },
-      { createdAt: "2026-10-04T00:00:00.000Z", amountCents: 2_000 },
+      { createdAt: "2026-10-03T19:00:00.000Z", amountCents: -5_000 },
+      { createdAt: "2026-09-01T19:00:00.000Z", amountCents: 10_000 },
+      { createdAt: "2026-09-02T19:00:00.000Z", amountCents: -300 },
+      { createdAt: "2026-10-04T19:00:00.000Z", amountCents: 2_000 },
     ]);
     expect(months.map((m) => [m.month, m.openingCents, m.closingCents, m.lineCount])).toEqual([
       ["2026-10", 9_700, 6_700, 2],
       ["2026-09", 0, 9_700, 2],
     ]);
     expect(months[0]!.label).toBe("October 2026");
+  });
+
+  it("buckets on the PACIFIC month, so a line settled after 5pm PT on the last day stays in that month", () => {
+    // 2026-10-01T00:00Z is Sep 30, 5pm PT — September, the month the vendor saw it in.
+    expect(statementMonthKey("2026-10-01T00:00:00.000Z")).toBe("2026-09");
+    expect(statementMonthKey("2026-10-01T07:00:00.000Z")).toBe("2026-10");
+    const months = summarizeStatementMonths([
+      { createdAt: "2026-10-01T00:00:00.000Z", amountCents: 10_000 },
+      { createdAt: "2026-10-01T07:00:00.000Z", amountCents: 500 },
+    ]);
+    expect(months.map((m) => [m.month, m.lineCount])).toEqual([
+      ["2026-10", 1],
+      ["2026-09", 1],
+    ]);
+  });
+
+  it("a Pacific month window covers the whole month and nothing of the next", () => {
+    expect(pacificMonthWindow("2026-09")).toEqual({ start: "2026-09-01T07:00:00.000Z", end: "2026-10-01T07:00:00.000Z" });
+    // December into January crosses the year AND standard time.
+    expect(pacificMonthWindow("2026-12")).toEqual({ start: "2026-12-01T08:00:00.000Z", end: "2027-01-01T08:00:00.000Z" });
+    expect(pacificMonthWindow("2026-13")).toBeNull();
   });
 
   it("a month with no lines has no statement", () => {
@@ -100,6 +123,21 @@ describe("buildVendorStatement — month view", () => {
   it("a malformed month is treated as all time, never an injection", async () => {
     const statement = await buildVendorStatement(db as never, "vendor_1", { month: "2026-09'; drop" });
     expect(statement.lines).toHaveLength(4);
+  });
+
+  it("pages past the provider row cap — a long-lived vendor's closing balance is the real one", async () => {
+    const rows = Array.from({ length: 2_350 }, (_, i) =>
+      row({
+        id: `e_${String(i).padStart(5, "0")}`,
+        kind: "charge",
+        amount_cents: 100,
+        created_at: new Date(Date.UTC(2026, 0, 1, 0, 0, 0) + i * 60_000).toISOString(),
+      }),
+    );
+    const paged = makeFakeDb({ vendor_banking_ledger_entries: rows });
+    const statement = await buildVendorStatement(paged as never, "vendor_1");
+    expect(statement.lines).toHaveLength(2_350);
+    expect(statement.closingCents).toBe(235_000);
   });
 
   it("the CSV names each line by its event type and defuses formulas", () => {

@@ -31,6 +31,7 @@ import {
   dryRunCandidateNumbers,
   isVendorNumberDryRun,
 } from "@/lib/vendor-work-number-dry-run.server";
+import { vendorNumberMonthStart } from "@/lib/vendor-work-number";
 
 const KEY = "11111111-1111-4111-8111-111111111111";
 
@@ -161,8 +162,11 @@ describe("dry run: claim a number with no provider call", () => {
 });
 
 const NOW = new Date();
-const startOfThisMonth = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), 1, 0, 0, 1)).toISOString();
-const lastMonth = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), 1) - 86_400_000).toISOString();
+// The cap window is the PACIFIC calendar month, so these fixtures are anchored
+// to the same boundary the server counts from, not to the UTC one.
+const MONTH_START_MS = vendorNumberMonthStart(NOW).getTime();
+const startOfThisMonth = new Date(MONTH_START_MS + 1_000).toISOString();
+const lastMonth = new Date(MONTH_START_MS - 86_400_000).toISOString();
 
 function usageDb(events: Row[], cap = 1000): SupabaseClient {
   const fake = createFakeDb({
