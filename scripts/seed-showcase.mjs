@@ -738,6 +738,16 @@ async function main() {
     fullName: jordanP.name,
   });
   console.log(`  resident ${RESIDENT_EMAIL}`);
+  // The resident portal resolves "my manager's plan" by looking up profiles.manager_id (the
+  // resident's own AXIS id) in manager_purchases; with no row it reads Free and paywalls
+  // Services and Documents. A paid, userless row under that id keeps those sections open.
+  await must(
+    supabase.from("manager_purchases").upsert(
+      { manager_id: jordanP.axisId, email: RESIDENT_EMAIL, tier: "business", billing: "portal", promo_code: "FREE100", paid_at: iso(NOW), stripe_checkout_session_id: "seed_showcase_resident_tier" },
+      { onConflict: "manager_id" },
+    ),
+    "manager_purchases(resident tier lookup)",
+  );
 
   /* 3. Scoped cleanup: only the showcase manager's rows */
   const MANAGER_TABLES = [
