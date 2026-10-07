@@ -1,17 +1,16 @@
 "use client";
 
 /**
- * Shared panel contract for the home page's guided demo (captain 2026-10-06).
- *
- * The demo engine (`resident-lifecycle-prototypes.tsx`) only knows this file's
- * three exports: the tab lists per portal, and `DemoPanel`, which renders the
- * real portal screen for one tab. This is the MINIMAL version so the demo
- * compiles: manager tabs map to the existing static panels in `panels.tsx`,
- * every other tab renders a neutral placeholder. The full version (windowless
- * panels for every manager, resident and vendor tab) replaces this file.
+ * The home page demo's contract with its panels: every portal tab the guided
+ * demo can open, and one component that draws it. The demo engine owns the
+ * window frame, the sidebar and the stage tabs; `DemoPanel` renders only the
+ * portal screen itself (inside `BarePanelChrome`, so the lifecycle rows'
+ * window chrome and sidebar are left out), fed the shared fixtures. Nothing
+ * here saves, fetches or navigates.
  */
 
 import type { ReactNode } from "react";
+import { BarePanelChrome } from "@/components/marketing/site/product-mock/shared";
 import {
   ApplicationsPanel,
   CommunicationPanel,
@@ -21,13 +20,30 @@ import {
   ServicesPanel,
   ToursPanel,
 } from "@/components/marketing/site/product-mock/panels";
+import { CalendarPanel, PropertiesPanel, ResidentsPanel, VendorsPanel } from "@/components/marketing/site/product-mock/panels-manager-more";
+import {
+  ResidentApplicationsPanel,
+  ResidentCommunicationPanel,
+  ResidentFormsPanel,
+  ResidentHomePanel,
+  ResidentLeasePanel,
+  ResidentPaymentsPanel,
+  ResidentServicesPanel,
+} from "@/components/marketing/site/product-mock/panels-resident";
+import {
+  VendorCalendarPanel,
+  VendorCommunicationPanel,
+  VendorPaymentsPanel,
+  VendorReviewsPanel,
+  VendorServicesPanel,
+} from "@/components/marketing/site/product-mock/panels-vendor";
 
 export type DemoPortal = "manager" | "resident" | "vendor";
 export type DemoTab = { id: string; label: string; group?: string };
 
 export const DEMO_TABS: Record<DemoPortal, DemoTab[]> = {
   manager: [
-    { id: "dashboard", label: "Dashboard", group: "WORKSPACE" },
+    { id: "dashboard", label: "Dashboard" },
     { id: "properties", label: "Properties", group: "WORKSPACE" },
     { id: "tours", label: "Tours", group: "LEASING" },
     { id: "applications", label: "Applications", group: "LEASING" },
@@ -57,29 +73,46 @@ export const DEMO_TABS: Record<DemoPortal, DemoTab[]> = {
   ],
 };
 
-const MANAGER_PANELS: Record<string, () => ReactNode> = {
-  dashboard: () => <DashboardPanel />,
-  tours: () => <ToursPanel />,
-  applications: () => <ApplicationsPanel />,
-  leases: () => <LeasesPanel />,
-  payments: () => <PaymentsPanel />,
-  services: () => <ServicesPanel />,
-  communication: () => <CommunicationPanel />,
+const PANELS: Record<DemoPortal, Record<string, () => ReactNode>> = {
+  manager: {
+    dashboard: () => <DashboardPanel />,
+    properties: () => <PropertiesPanel />,
+    tours: () => <ToursPanel />,
+    applications: () => <ApplicationsPanel />,
+    leases: () => <LeasesPanel />,
+    residents: () => <ResidentsPanel />,
+    payments: () => <PaymentsPanel />,
+    services: () => <ServicesPanel />,
+    calendar: () => <CalendarPanel />,
+    communication: () => <CommunicationPanel />,
+    vendors: () => <VendorsPanel />,
+  },
+  resident: {
+    home: () => <ResidentHomePanel />,
+    applications: () => <ResidentApplicationsPanel />,
+    lease: () => <ResidentLeasePanel />,
+    payments: () => <ResidentPaymentsPanel />,
+    services: () => <ResidentServicesPanel />,
+    forms: () => <ResidentFormsPanel />,
+    communication: () => <ResidentCommunicationPanel />,
+  },
+  vendor: {
+    services: () => <VendorServicesPanel />,
+    calendar: () => <VendorCalendarPanel />,
+    payments: () => <VendorPaymentsPanel />,
+    reviews: () => <VendorReviewsPanel />,
+    communication: () => <VendorCommunicationPanel />,
+  },
 };
 
+/** The portal screen for one tab, fed fixtures. An unknown tab falls back to
+ * that portal's first, so the demo never renders an empty frame. */
 export function DemoPanel({ portal, tab }: { portal: DemoPortal; tab: string }) {
-  const render = portal === "manager" ? MANAGER_PANELS[tab] : undefined;
-  if (render) {
-    return (
-      <div className="relative w-full overflow-hidden" style={{ aspectRatio: "1280 / 780" }}>
-        {render()}
-      </div>
-    );
-  }
-  const label = DEMO_TABS[portal].find((item) => item.id === tab)?.label ?? tab;
+  const panels = PANELS[portal];
+  const render = panels[tab] ?? panels[DEMO_TABS[portal][0]!.id]!;
   return (
-    <div role="status" className="grid min-h-[320px] w-full place-items-center p-8 text-center text-[13px] text-muted">
-      Loading the {label.toLowerCase()} sample
-    </div>
+    <BarePanelChrome key={`${portal}:${tab}`}>
+      {render()}
+    </BarePanelChrome>
   );
 }
