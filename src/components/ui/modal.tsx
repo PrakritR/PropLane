@@ -691,7 +691,7 @@ export function Modal({
               resolvedPanelClassName,
               workspaceSheet &&
                 "!w-screen !max-w-none !rounded-b-none rounded-t-2xl border-x-0 border-b-0 !max-h-[min(92dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)))] pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(1.25rem,var(--native-safe-bottom,0px))]",
-              workspaceFullScreen && cn(MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto sm:!h-[calc(100dvh-40px)] sm:!max-h-[calc(100dvh-40px)] sm:!max-w-[1480px] sm:!rounded-[20px]", dense ? "px-4" : "px-5"),
+              workspaceFullScreen && cn(MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto sm:!h-[calc(100dvh-40px)] sm:!max-h-[calc(100dvh-40px)] sm:!max-w-[1480px] sm:!rounded-[var(--radius-card)]", dense ? "px-4" : "px-5"),
             )}>
               {workspaceSheet ? (
                 <div aria-hidden className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-border" />
@@ -776,7 +776,7 @@ export function Modal({
       dataAttr={dataAttr}
       panelClassName={cn(
         fullPage
-          ? cn(resolvedPanelClassName, MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto sm:!h-[calc(100dvh-40px)] sm:!max-h-[calc(100dvh-40px)] sm:!max-w-[1480px] sm:!rounded-[20px]")
+          ? cn(resolvedPanelClassName, MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto sm:!h-[calc(100dvh-40px)] sm:!max-h-[calc(100dvh-40px)] sm:!max-w-[1480px] sm:!rounded-[var(--radius-card)]")
           : cn(MODAL_PANEL_CLASS, "min-h-0 @container", resolvedPanelClassName),
       )}
     >

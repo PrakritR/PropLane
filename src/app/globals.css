@@ -3867,6 +3867,22 @@ html[data-native] [data-listing-subnav] {
 .record-action-menu [role="menuitem"][data-highlighted]:not(:disabled):not([data-disabled]) { background: rgb(92 130 244 / .12) !important; }
 .record-action-menu .text-danger { color: var(--destructive); }
 @supports not (backdrop-filter: blur(1px)) { .portal-liquid-glass { background: var(--card); } }
+/* Desktop menus are floating cards (approved shell redesign): solid white, one
+   1px border, the popover shadow, and no blurred scrim behind them. */
+@media (min-width: 1024px) {
+  html[data-theme="light"] .portal-liquid-glass {
+    background: #ffffff;
+    border: 1px solid rgba(17, 24, 39, 0.13);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: var(--shadow-pop);
+  }
+  html[data-theme="light"] .portal-menu-backdrop {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
 /* The page behind an open menu: the same weight as a modal overlay's blur, lighter tint. */
 .portal-menu-backdrop {
   background: rgba(15, 23, 42, 0.18);
