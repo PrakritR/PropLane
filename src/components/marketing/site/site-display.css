@@ -44,8 +44,7 @@
 
 .site-page > .rlp-atmosphere {
   position: sticky;
-  top: 0;
-  inset: auto;
+  inset: 0 auto auto auto;
   width: 100%;
   height: 100svh;
   margin-bottom: -100svh;
@@ -301,4 +300,10 @@
   background: rgba(255, 255, 255, 0.9);
   border-color: #8fb0d4;
   filter: none;
+}
+
+/* A hero with no lede or buttons (Support, Data deletion): tighter bottom so the
+   first block of content is not a screen away from the headline. */
+.site-page .lp-page-hero:not(:has(.lp-page-lede, .lp-cta-row)) {
+  padding-bottom: clamp(8px, 1.5vw, 20px);
 }
