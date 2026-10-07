@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUpFromLine, Download, FileText, Undo2, Settings, DollarSign } from "lucide-react";
+import { ArrowUpFromLine, CalendarDays, Download, FileText, Landmark, Undo2, DollarSign, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -44,10 +44,16 @@ import {
   buildVendorPaymentRows,
   filterVendorPaymentRows,
   formatVendorPaymentMoney,
+  vendorPaymentBucket,
+  vendorPaymentBucketCounts,
   vendorPaymentStatusOptions,
+  VENDOR_PAYMENT_BUCKETS,
+  type VendorPaymentBucket,
   type VendorPaymentRow,
 } from "@/lib/vendor-payments";
-import { VendorPaymentRowMenu } from "@/components/portal/vendor-payment-row-menu";
+import { VendorRowMenu, type VendorRowMenuItem } from "@/components/portal/vendor-row-menu";
+import { VendorSettingsGear } from "@/components/portal/vendor-settings-gear";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
@@ -69,8 +75,6 @@ import {
   type VendorInvoice,
 } from "@/lib/vendor-invoices";
 import { VendorInvoiceTimeline } from "@/components/portal/vendor-invoice-timeline";
-import { VendorRefundModal } from "@/components/portal/vendor-refund-modal";
-import { VendorStatementModal } from "@/components/portal/vendor-statement-modal";
 import { vendorPaymentDetailBreakdown, vendorPaymentFeeBreakdown, vendorPaymentStatusTimeline } from "@/lib/vendor-payments";
 import { VendorPaymentStatusTimeline } from "@/components/portal/vendor-payment-status-timeline";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
@@ -90,6 +94,8 @@ type VendorLinkedManagerOption = {
  * `income` before either ever mounts here.
  */
 function VendorFinancesChrome({
+  above,
+  destinationRow,
   actions,
   primary,
   filterRow,
@@ -97,6 +103,10 @@ function VendorFinancesChrome({
   activeFilterChips,
   children,
 }: {
+  /** The balance card — sits above the list band. */
+  above?: ReactNode;
+  /** The Pending · Paid · Overdue tabs. */
+  destinationRow?: ReactNode;
   actions?: ReactNode;
   primary?: ReactNode;
   filterRow?: ReactNode;
@@ -106,9 +116,12 @@ function VendorFinancesChrome({
 }) {
   return (
     <ManagerPortalPageShell title="Payments" hideTitleOnMobileNav compactFilterRow>
+      {above}
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
+        destinationRow={destinationRow}
+        destinationAriaLabel="Payment status"
         filterRow={filterRow}
         search={search}
         activeFilterChips={activeFilterChips}
@@ -156,8 +169,6 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
   const [loadError, setLoadError] = useState(false);
   const [destinations, setDestinations] = useState<PayoutDestinationSummary[] | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
-  const [refundOpen, setRefundOpen] = useState(false);
-  const [statementOpen, setStatementOpen] = useState(false);
 
   const loadBalance = useCallback(async () => {
     const sequence = ++loadSequence.current;
@@ -195,8 +206,8 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
   const ready = balance.setup.ready && withdrawAccounts.length > 0;
   const heldCents = balance.heldCents ?? 0;
   // VENDOR_BANKING_ENABLED signal: the balance route only ever includes
-  // feeBps once the flag is on, so this whole enhanced card (buckets, nudge,
-  // Refund/Statement) stays byte-for-byte absent with it off.
+  // feeBps once the flag is on, so this whole enhanced card (buckets, nudge)
+  // stays byte-for-byte absent with it off.
   const vendorBankingOn = typeof balance.feeBps === "number";
 
   return (
@@ -212,6 +223,11 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
               <p className="mt-1 text-2xl font-extrabold leading-none tracking-tight text-foreground" data-attr="vendor-income-balance-available">
                 {formatMoney(withdrawableCents, balance.currency)}
               </p>
+              {balance.onTheWayCents > 0 ? (
+                <p className="mt-1 text-xs text-muted" data-attr="vendor-income-on-the-way-sub">
+                  {formatMoney(balance.onTheWayCents, balance.currency)} on the way
+                </p>
+              ) : null}
             </div>
             {balance.pendingCents > 0 ? (
               <div>
@@ -244,22 +260,13 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
         )}
         {(balance.withdrawableCents ?? 0) < 0 ? <p className="text-sm text-danger" data-attr="vendor-income-provider-deficit">Provider deficit {formatMoney(-(balance.withdrawableCents ?? 0), balance.currency)}</p> : null}
         <div className="vbank-quickactions flex items-center gap-1.5">
-          {vendorBankingOn ? (
-            <PortalIconAction
-              icon={FileText}
-              label="Statement"
-              data-attr="vendor-income-balance-statement"
-              onClick={() => setStatementOpen(true)}
-            />
-          ) : null}
-          {vendorBankingOn ? (
-            <PortalIconAction
-              icon={Undo2}
-              label="Refund"
-              data-attr="vendor-income-balance-refund"
-              onClick={() => setRefundOpen(true)}
-            />
-          ) : null}
+          {/* Bank: add or change where withdrawals go — the same Add bank flow the held-funds nudge opens. */}
+          <PortalIconAction
+            icon={Landmark}
+            label="Bank"
+            data-attr="vendor-income-balance-bank"
+            onClick={() => onAddBank?.()}
+          />
           {/* VD12/VD45 — Withdraw is a top-right icon action on the balance card,
               matching the pattern already landed on Settings → Payouts and the
               Dashboard balance card; same withdraw sheet, no new money path. */}
@@ -280,7 +287,7 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
       {balance.pendingCents > 0 || balance.onTheWayCents > 0 || (balance.releasePendingCents ?? 0) > 0 || balance.payoutReconciliationPending ? (
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
           {balance.pendingCents > 0 ? <span data-attr="vendor-income-payment-pending">Pending payments {formatMoney(balance.pendingCents, balance.currency)}</span> : null}
-          {balance.onTheWayCents > 0 ? <span data-attr="vendor-income-payout-on-way">On the way to bank {formatMoney(balance.onTheWayCents, balance.currency)}</span> : null}
+          {balance.onTheWayCents > 0 && !vendorBankingOn ? <span data-attr="vendor-income-payout-on-way">On the way to bank {formatMoney(balance.onTheWayCents, balance.currency)}</span> : null}
           {(balance.releasePendingCents ?? 0) > 0 ? <span data-attr="vendor-income-release-pending">Release pending {formatMoney(balance.releasePendingCents ?? 0, balance.currency)}</span> : null}
           {balance.payoutReconciliationPending ? <span>Checking a prior withdrawal</span> : null}
         </div>
@@ -317,28 +324,22 @@ function VendorIncomeBalanceCard({ onAddBank, reloadKey = 0 }: { onAddBank?: () 
           void loadBalance();
         }}
       />
-      {vendorBankingOn ? (
-        <VendorRefundModal
-          open={refundOpen}
-          onClose={() => setRefundOpen(false)}
-          feeBps={balance.feeBps ?? 0}
-          onDone={() => void loadBalance()}
-        />
-      ) : null}
-      {vendorBankingOn ? <VendorStatementModal open={statementOpen} onClose={() => setStatementOpen(false)} /> : null}
     </div>
   );
 }
 
 /**
- * VD11 — the merged Payments list: every income row (a completed job's
- * payout) and every invoice row (a submitted bill) in one newest-first
- * surface. VD14's row menu carries View/Edit/Withdraw/Download, contextual
+ * The Payments list (VD11 merged Income and Invoices; vendor-portal-redesign-1006
+ * split it into Pending · Paid · Overdue tabs): every income row (a completed
+ * job's payout) and every invoice row (a submitted bill) as the shared row —
+ * tile · service · manager and place · glyph facts · amount · ⋯. The ⋯ carries
+ * View invoice / Edit / Withdraw / Download / Message the manager, contextual
  * on the row's kind and status.
  */
 function VendorPaymentsTable({
   rows,
   basePath,
+  today,
   onOpenEditInvoice,
   onWithdrawInvoice,
   withdrawingInvoiceId,
@@ -346,6 +347,8 @@ function VendorPaymentsTable({
 }: {
   rows: VendorPaymentRow[];
   basePath: string;
+  /** yyyy-mm-dd; a row due before it is overdue. */
+  today: string;
   onOpenEditInvoice: (invoice: VendorInvoice) => void;
   onWithdrawInvoice: (invoice: VendorInvoice) => void;
   withdrawingInvoiceId: string | null;
@@ -374,53 +377,91 @@ function VendorPaymentsTable({
             : null;
         const submittedInvoice = row.kind === "invoice" && row.invoice!.status === "submitted" ? row.invoice : null;
         const downloadable = row.statusId === "invoice:paid" || row.statusId === "invoice:approved" || row.statusId === "income:paid";
-        const rowMenu = (
-          <VendorPaymentRowMenu
-            label={row.title}
-            onView={viewHref ? () => navigate(viewHref) : undefined}
-            onEdit={submittedInvoice ? () => onOpenEditInvoice(submittedInvoice) : undefined}
-            onWithdraw={submittedInvoice ? () => onWithdrawInvoice(submittedInvoice) : undefined}
-            withdrawing={submittedInvoice ? withdrawingInvoiceId === submittedInvoice.id : false}
-            onDownload={downloadable ? () => onDownload(row) : undefined}
-          />
-        );
+        const bucket = vendorPaymentBucket(row, today);
+        const items: VendorRowMenuItem[] = [];
+        if (viewHref) {
+          items.push({
+            id: "view",
+            label: row.kind === "invoice" ? "View invoice" : "View payment",
+            onSelect: () => navigate(viewHref),
+          });
+        }
+        if (submittedInvoice) {
+          items.push({
+            id: "edit",
+            label: "Edit",
+            disabled: withdrawingInvoiceId === submittedInvoice.id,
+            onSelect: () => onOpenEditInvoice(submittedInvoice),
+          });
+          items.push({
+            id: "withdraw",
+            label: withdrawingInvoiceId === submittedInvoice.id ? "Retracting…" : "Retract invoice",
+            disabled: withdrawingInvoiceId === submittedInvoice.id,
+            onSelect: () => onWithdrawInvoice(submittedInvoice),
+          });
+        }
+        if (downloadable) items.push({ id: "download", label: "Download", onSelect: () => onDownload(row) });
+        items.push({
+          id: "message",
+          label: "Message the manager",
+          onSelect: () => navigate(`${basePath}/communication/active?compose=1`),
+        });
+        // VD43 — a paid row shows Gross and Fee as glyph facts (never a pill),
+        // with the bold figure switched to Net. Only ever true once
+        // VENDOR_BANKING_ENABLED actually took a fee on this specific payment
+        // (breakdown is null otherwise), so a row settled before the flag — or
+        // with it off — renders exactly as it did before.
+        const breakdown = vendorPaymentFeeBreakdown(row.payout);
+        const dateText =
+          bucket === "paid"
+            ? `Paid ${formatIncomeDate(row.invoice?.paidAt || row.dateIso)}`
+            : row.dueIso
+              ? `Due ${formatIncomeDate(row.dueIso)}`
+              : formatIncomeDate(row.dateIso);
         return (
-          // The ⋯ rides the row's `actions` slot: a sibling of the row's own
-          // title button (`onOpen`), vertically centred beside the figure like
-          // the studio, and never nested inside that button.
-          <div key={row.id}>
-            {(() => {
-              // VD43 — a paid row shows Gross and Fee as glyph facts (never a
-              // pill), with the bold figure switched to Net. Only ever true
-              // once VENDOR_BANKING_ENABLED actually took a fee on this
-              // specific payment (breakdown is null otherwise), so a row
-              // settled before the flag — or with it off — renders exactly as
-              // it did before this change.
-              const breakdown = vendorPaymentFeeBreakdown(row.payout);
-              const dateAndStatus = [formatIncomeDate(row.dateIso), row.statusLabel].filter(Boolean).join(" · ");
-              return (
-                <PortalPropertyRecordRow
-                  title={row.title}
-                  address={row.propertyLabel ?? undefined}
-                  facts={
-                    breakdown ? (
-                      <>
-                        <span>{dateAndStatus}</span>
-                        <PortalRowFact icon={DollarSign}>Gross {formatMoney(breakdown.grossCents, row.currency)}</PortalRowFact>
-                        <PortalRowFact icon={Undo2}>Fee {formatMoney(breakdown.feeCents, row.currency)}</PortalRowFact>
-                      </>
-                    ) : (
-                      dateAndStatus
-                    )
-                  }
-                  amount={breakdown ? formatMoney(breakdown.netCents, row.currency) : formatVendorPaymentMoney(row)}
-                  actions={rowMenu}
-                  onOpen={viewHref ? () => navigate(viewHref) : undefined}
-                  dataAttr={row.kind === "invoice" ? "vendor-invoice-row" : "vendor-income-row"}
-                />
-              );
-            })()}
-          </div>
+          <PortalPropertyRecordRow
+            key={row.id}
+            title={row.title}
+            address={row.propertyLabel ?? undefined}
+            facts={
+              <>
+                {row.managerLabel ? (
+                  <PortalRowFact icon={UserRound} srLabel="Manager">
+                    {row.managerLabel}
+                  </PortalRowFact>
+                ) : null}
+                <PortalRowFact icon={CalendarDays} srLabel={bucket === "paid" ? "Paid" : "Due"} tone={bucket === "overdue" ? "danger" : undefined}>
+                  {dateText}
+                </PortalRowFact>
+                {row.reference && row.reference !== row.title ? (
+                  <PortalRowFact icon={FileText} srLabel="Invoice">
+                    {row.reference}
+                  </PortalRowFact>
+                ) : null}
+                {bucket !== "paid" && row.statusLabel ? <span>{row.statusLabel}</span> : null}
+                {breakdown ? (
+                  <>
+                    <PortalRowFact icon={DollarSign}>Gross {formatMoney(breakdown.grossCents, row.currency)}</PortalRowFact>
+                    <PortalRowFact icon={Undo2}>Fee {formatMoney(breakdown.feeCents, row.currency)}</PortalRowFact>
+                  </>
+                ) : null}
+              </>
+            }
+            leading={
+              <span className="flex size-14 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
+                <DollarSign className="size-5" />
+              </span>
+            }
+            leadingShape="square"
+            amount={breakdown ? formatMoney(breakdown.netCents, row.currency) : formatVendorPaymentMoney(row)}
+            amountTone={bucket === "overdue" ? "bad" : undefined}
+            // The ⋯ rides the row's `actions` slot: a sibling of the row's own
+            // title button (`onOpen`), vertically centred beside the figure, and
+            // never nested inside that button.
+            actions={<VendorRowMenu label={row.title} items={items} dataAttr="vendor-payment-row-menu" />}
+            onOpen={viewHref ? () => navigate(viewHref) : undefined}
+            dataAttr={row.kind === "invoice" ? "vendor-invoice-row" : "vendor-income-row"}
+          />
         );
       })}
     </PortalRecordListSurface>
@@ -864,8 +905,8 @@ function VendorInvoiceDetailPage({
  * status timeline (`vendorPaymentStatusTimeline`). The header's Receipt
  * action opens the print-styled receipt route (`/print/vendor-payout/<id>`,
  * `window.print()` — the same house-printables/inspection pattern, never a
- * generated PDF); Refund opens a `VendorRefundModal` scoped to this one
- * payment. Both are inert (never shown) while VENDOR_BANKING_ENABLED is off,
+ * generated PDF); Refund is hidden while the vendor refund route is paused
+ * (the modal stays in the codebase for the banking rebuild). Receipt is inert (never shown) while VENDOR_BANKING_ENABLED is off,
  * signaled the same way the rest of this file already does — by `feeBps`
  * being a number on the balance snapshot.
  */
@@ -881,7 +922,6 @@ function VendorPayoutRecordPage({
   const { showToast } = useAppUi();
   const [payout, setPayout] = useState<VendorPayout | null | undefined>(undefined);
   const [balance, setBalance] = useState<PortalPayoutBalance | null>(null);
-  const [refundOpen, setRefundOpen] = useState(false);
 
   const loadPayout = useCallback(async () => {
     const result = await fetchVendorPayoutsResult();
@@ -918,29 +958,26 @@ function VendorPayoutRecordPage({
   const title = job?.title || "Payout";
   const vendorBankingOn = typeof balance?.feeBps === "number";
   const breakdown = vendorPaymentDetailBreakdown(payout);
-  const isRefundable = (payout.status === "paid" || payout.status === "partially_refunded") && breakdown.refundedGrossCents < breakdown.grossCents;
   const lastWithdrawalAt =
     balance?.history?.filter((row) => row.status === "paid").sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0]?.createdAt ?? null;
   const timelineSteps = vendorPaymentStatusTimeline(payout, {
     bankReady: balance?.setup?.ready ?? false,
     lastWithdrawalAt,
   });
-  // The registry always lists Receipt+Refund for this kind; hide Refund here
-  // when the flag is off or this specific payment cannot be refunded, rather
-  // than offering a header action that would 404/409 on click.
+  // The registry always lists Receipt+Refund for this kind. Refund is hidden
+  // for now: the vendor refund route is paused server-side (409
+  // VENDOR_REFUND_PAUSED) until the banking rebuild routes it through the
+  // central refund rail, so the header never offers an action that would 409.
+  // `VendorRefundModal` stays in the codebase for that rebuild.
   const headerActions = sections.headerActions.filter((action) => {
-    if (!vendorBankingOn) return action.id !== "receipt" && action.id !== "refund";
-    if (action.id === "refund") return isRefundable;
+    if (action.id === "refund") return false;
+    if (!vendorBankingOn) return action.id !== "receipt";
     return true;
   });
 
   function handleHeaderAction(actionId: string) {
     if (actionId === "receipt") {
       window.open(`/print/vendor-payout/${encodeURIComponent(payout!.id)}`, "_blank", "noopener");
-      return;
-    }
-    if (actionId === "refund") {
-      setRefundOpen(true);
       return;
     }
     showToast("Coming soon");
@@ -1027,17 +1064,6 @@ function VendorPayoutRecordPage({
       >
         {ownContent}
       </PortalRecordSectionChrome>
-      {vendorBankingOn ? (
-        <VendorRefundModal
-          open={refundOpen}
-          onClose={() => setRefundOpen(false)}
-          feeBps={balance?.feeBps ?? 0}
-          initialPayoutId={payout.id}
-          onDone={() => {
-            void loadPayout();
-          }}
-        />
-      ) : null}
     </PortalRecordDetailPage>
   );
 }
@@ -1059,6 +1085,7 @@ export function VendorFinancesPanel({
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   const [statusIds, setStatusIds] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
+  const [bucket, setBucket] = useState<VendorPaymentBucket>("pending");
   const [tick, setTick] = useState(0);
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
   const [payoutsByInvoiceId, setPayoutsByInvoiceId] = useState<Record<string, VendorPayout>>({});
@@ -1111,7 +1138,7 @@ export function VendorFinancesPanel({
   }, [loadInvoices]);
 
   async function withdrawInvoice(invoice: VendorInvoice) {
-    if (!(await confirm({ title: "Withdraw invoice", description: "Withdraw this invoice?", confirmLabel: "Withdraw", note: "You can submit a corrected one afterward." }))) return;
+    if (!(await confirm({ title: "Retract invoice", description: "Retract this invoice?", confirmLabel: "Retract invoice", note: "You can submit a corrected one afterward." }))) return;
     setWithdrawingId(invoice.id);
     try {
       const res = await fetch(`/api/vendor/invoices/${invoice.id}`, { method: "DELETE" });
@@ -1170,8 +1197,17 @@ export function VendorFinancesPanel({
 
   // VD11 — Income and Invoices merge into one flat, newest-first list here.
   const allRows = useMemo(
-    () => buildVendorPaymentRows(incomeRows, invoices, jobsById, payoutsByWorkOrderId, payoutsByInvoiceId),
-    [incomeRows, invoices, jobsById, payoutsByWorkOrderId, payoutsByInvoiceId],
+    () =>
+      buildVendorPaymentRows(
+        incomeRows,
+        invoices,
+        jobsById,
+        payoutsByWorkOrderId,
+        payoutsByInvoiceId,
+        // An invoice or payout with no job still has a payer when the vendor works for exactly one manager.
+        linkedManagers.length === 1 ? linkedManagers[0]!.label : null,
+      ),
+    [incomeRows, invoices, jobsById, payoutsByWorkOrderId, payoutsByInvoiceId, linkedManagers],
   );
 
   const propertyOptions = useMemo(() => buildVendorPaymentPropertyFilterOptions(allRows), [allRows]);
@@ -1187,6 +1223,19 @@ export function VendorFinancesPanel({
         query: listSearch,
       }),
     [allRows, filters.from, filters.to, propertyIds, statusIds, listSearch],
+  );
+
+  // Calendar day on the vendor's own clock — a payment due today is still pending.
+  const today = useMemo(() => {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    return `${now.getFullYear()}-${mm}-${dd}`;
+  }, []);
+  const bucketCounts = useMemo(() => vendorPaymentBucketCounts(filteredRows, today), [filteredRows, today]);
+  const bucketRows = useMemo(
+    () => filteredRows.filter((row) => vendorPaymentBucket(row, today) === bucket),
+    [filteredRows, today, bucket],
   );
 
   const [addBankOpen, setAddBankOpen] = useState(false);
@@ -1305,8 +1354,25 @@ export function VendorFinancesPanel({
     window.open(vendorExportUrl(row.kind === "invoice" ? "invoices" : "payouts", day, day), "_blank", "noopener");
   }
 
+  const bucketEmptyKey = bucket === "paid" ? "No paid payments" : bucket === "overdue" ? "Nothing overdue" : incomeEmpty.title;
+
   return (
     <VendorFinancesChrome
+      above={<VendorIncomeBalanceCard onAddBank={() => setAddBankOpen(true)} reloadKey={balanceReloadKey} />}
+      destinationRow={
+        <LocalDestinationNav
+          appearance="command"
+          activeId={bucket}
+          onChange={(id) => setBucket(id as VendorPaymentBucket)}
+          ariaLabel="Payment status"
+          items={VENDOR_PAYMENT_BUCKETS.map((tab) => ({
+            id: tab.id,
+            label: tab.label,
+            count: bucketCounts[tab.id],
+            dataAttr: `vendor-payments-tab-${tab.id}`,
+          }))}
+        />
+      }
       filterRow={filterSheet}
       search={{
         value: listSearch,
@@ -1325,21 +1391,20 @@ export function VendorFinancesPanel({
               window.location.assign(vendorExportUrl("invoices", filters.from, filters.to));
             }}
           />
-          <PortalIconAction icon={Settings} label="Payout setup" data-attr="vendor-finances-payout-setup" onClick={() => setAddBankOpen(true)} />
+          <VendorSettingsGear section="payments" label="Payout settings" basePath={basePath} dataAttr="vendor-finances-payout-setup" />
         </>
       }
       primary={requestPayment}
     >
-      <VendorIncomeBalanceCard onAddBank={() => setAddBankOpen(true)} reloadKey={balanceReloadKey} />
       {invoicesLoading ? (
         <div data-attr="vendor-payments-loading">
           <ListSkeleton rows={4} showLeading={false} />
         </div>
-      ) : filteredRows.length === 0 ? (
+      ) : bucketRows.length === 0 ? (
         <PortalListEmptyCard
-          title={filtersHideRows ? "No payments match these filters" : incomeEmpty.title}
+          title={filtersHideRows ? "No payments match these filters" : bucketEmptyKey}
           section={incomeEmpty.section}
-          tone={filtersHideRows ? "muted" : "default"}
+          tone={filtersHideRows || bucket !== "pending" ? "muted" : "default"}
           actions={[]}
           clear={
             filtersHideRows
@@ -1358,8 +1423,9 @@ export function VendorFinancesPanel({
         />
       ) : (
         <VendorPaymentsTable
-          rows={filteredRows}
+          rows={bucketRows}
           basePath={basePath}
+          today={today}
           onOpenEditInvoice={openEdit}
           onWithdrawInvoice={(invoice) => void withdrawInvoice(invoice)}
           withdrawingInvoiceId={withdrawingId}

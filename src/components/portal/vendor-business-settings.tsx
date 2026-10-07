@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Building2, Check, Copy, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
@@ -21,6 +22,7 @@ import {
   PortalSettingsAutosaveField,
   PortalSettingsFormBody,
   PortalSettingsGroup,
+  PortalSettingsRow,
   PortalSettingsSection,
   type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
@@ -55,6 +57,11 @@ export type VendorBusinessProfileView = {
   notifyNewOffers: boolean;
   notifyScheduleChanges: boolean;
   notifyPayments: boolean;
+  licenseNumber: string;
+  insuranceProvider: string;
+  insurancePolicyNumber: string;
+  /** ISO date (yyyy-mm-dd), or "" when none. */
+  insuranceExpiresAt: string;
 };
 
 export type VendorWorkspaceAccessView = {
@@ -75,6 +82,10 @@ const EMPTY: VendorBusinessProfileView = {
   notifyNewOffers: true,
   notifyScheduleChanges: true,
   notifyPayments: true,
+  licenseNumber: "",
+  insuranceProvider: "",
+  insurancePolicyNumber: "",
+  insuranceExpiresAt: "",
 };
 
 export function useVendorBusinessProfile(enabled: boolean) {
@@ -196,7 +207,7 @@ function useBusinessProfileAutosave<K extends keyof VendorBusinessProfileView>(c
   return { draft, setDraft, fieldState, fieldError, commit, sectionState };
 }
 
-const BUSINESS_PROFILE_FIELDS = ["businessName", "contactName", "serviceArea"] as const;
+const BUSINESS_PROFILE_FIELDS = ["businessName", "contactName"] as const;
 
 export function VendorBusinessProfilePane({ ctx }: { ctx: Ctx }) {
   const { draft, setDraft, fieldState, fieldError, commit, sectionState } = useBusinessProfileAutosave(
@@ -252,27 +263,149 @@ export function VendorBusinessProfilePane({ ctx }: { ctx: Ctx }) {
                 data-attr="vendor-business-contact-name"
               />
             </PortalSettingsAutosaveField>
-            <PortalSettingsAutosaveField
-              label="Service area"
-              htmlFor="vendor-business-service-area"
-              state={fieldState.serviceArea}
-              error={fieldError.serviceArea}
-              onRetry={() => void commit("serviceArea")}
-            >
-              <Input
-                id="vendor-business-service-area"
-                value={draft.serviceArea}
-                maxLength={200}
-                placeholder="Seattle · Plumbing and property maintenance"
-                onChange={(e) => setDraft({ ...draft, serviceArea: e.target.value })}
-                onBlur={() => void commit("serviceArea")}
-                data-attr="vendor-business-service-area"
-              />
-            </PortalSettingsAutosaveField>
           </PortalSettingsFormBody>
         )}
       </PortalSettingsGroup>
     </PortalSettingsSection>
+  );
+}
+
+const SERVICE_AREA_FIELDS = ["serviceArea"] as const;
+
+/**
+ * Settings → Trades & service area: ONE card of two rows in the settings kit —
+ * Service area (the existing free-text field, saved on blur) and Trades (a
+ * multi-select dropdown with an Other entry, saved on pick through the same
+ * `PATCH /api/vendor/profile { trades }`). No section subheads, no subtext.
+ */
+export function VendorTradesServiceAreaPane({
+  ctx,
+  trades,
+  tradeOptions,
+  onTradesChange,
+  tradesState,
+  loading,
+}: {
+  ctx: Ctx;
+  trades: string[];
+  tradeOptions: readonly string[];
+  onTradesChange: (next: string[]) => void;
+  tradesState: PortalSettingsSaveState;
+  loading: boolean;
+}) {
+  const { draft, setDraft, fieldState, fieldError, commit } = useBusinessProfileAutosave(ctx, SERVICE_AREA_FIELDS);
+  const areaState = fieldState.serviceArea;
+  const status = (state: PortalSettingsSaveState, error?: string) =>
+    state === "saving" ? (
+      <span className="text-xs text-muted">Saving…</span>
+    ) : state === "saved" ? (
+      <span className="text-xs font-semibold text-[var(--status-confirmed-fg,#15803d)]">Saved</span>
+    ) : state === "error" ? (
+      <span className="text-xs font-semibold text-red-600" role="alert">
+        {error ?? "Could not save."}
+      </span>
+    ) : null;
+  return (
+    <PortalSettingsGroup>
+      {ctx.loading || loading ? (
+        <div className="px-4 py-4">
+          <ListSkeleton rows={2} showLeading={false} />
+        </div>
+      ) : (
+        <>
+          <PortalSettingsRow label="Service area">
+            <div className="flex items-center justify-end gap-3">
+              {status(areaState, fieldError.serviceArea)}
+              <Input
+                id="vendor-business-service-area"
+                aria-label="Service area"
+                className="w-64 max-w-full"
+                value={draft.serviceArea}
+                maxLength={200}
+                placeholder="Seattle"
+                onChange={(e) => setDraft({ ...draft, serviceArea: e.target.value })}
+                onBlur={() => void commit("serviceArea")}
+                data-attr="vendor-business-service-area"
+              />
+            </div>
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Trades">
+            <div className="flex items-center justify-end gap-3">
+              {status(tradesState)}
+              <div className="w-64 max-w-full text-left" data-vs-trades>
+                <CheckboxMultiSelect
+                  label="Trades"
+                  hideLabel
+                  options={tradeOptions.map((option) => ({ value: option, label: option }))}
+                  selected={trades}
+                  onChange={onTradesChange}
+                  emptyLabel="Select trades"
+                  dataAttr="vendor-trades-select"
+                />
+              </div>
+            </div>
+          </PortalSettingsRow>
+        </>
+      )}
+    </PortalSettingsGroup>
+  );
+}
+
+const LICENSE_FIELDS = ["licenseNumber", "insuranceProvider", "insurancePolicyNumber", "insuranceExpiresAt"] as const;
+
+/** Settings → Licenses & insurance: the vendor's own license and coverage record (certificates upload from Documents). */
+export function VendorLicensesInsurancePane({ ctx }: { ctx: Ctx }) {
+  const { draft, setDraft, fieldState, fieldError, commit, sectionState } = useBusinessProfileAutosave(ctx, LICENSE_FIELDS);
+  const text = (field: (typeof LICENSE_FIELDS)[number], label: string, id: string, type: "text" | "date" = "text") => (
+    <PortalSettingsAutosaveField
+      label={label}
+      htmlFor={id}
+      state={fieldState[field]}
+      error={fieldError[field]}
+      onRetry={() => void commit(field)}
+    >
+      <Input
+        id={id}
+        type={type}
+        value={draft[field] ?? ""}
+        maxLength={type === "date" ? undefined : 120}
+        onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
+        onBlur={() => void commit(field)}
+        data-attr={id}
+      />
+    </PortalSettingsAutosaveField>
+  );
+  return (
+    <>
+      <PortalSettingsSection title="License" action={<SectionSaveBadge state={sectionState} />}>
+        <PortalSettingsGroup>
+          {ctx.loading ? (
+            <div className="px-4 py-4">
+              <ListSkeleton rows={1} showLeading={false} />
+            </div>
+          ) : (
+            <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
+              {text("licenseNumber", "License number", "vendor-license-number")}
+            </PortalSettingsFormBody>
+          )}
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Insurance">
+        <PortalSettingsGroup>
+          {ctx.loading ? (
+            <div className="px-4 py-4">
+              <ListSkeleton rows={3} showLeading={false} />
+            </div>
+          ) : (
+            <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
+              {text("insuranceProvider", "Provider", "vendor-insurance-provider")}
+              {text("insurancePolicyNumber", "Policy number", "vendor-insurance-policy")}
+              {text("insuranceExpiresAt", "Expires", "vendor-insurance-expires", "date")}
+            </PortalSettingsFormBody>
+          )}
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    </>
   );
 }
 

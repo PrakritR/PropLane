@@ -408,8 +408,11 @@ review dialog picks among those services. The reviewer may change their own revi
 `VENDOR_REVIEW_EDIT_WINDOW_DAYS` = **14 days** — `canEditVendorReview` is the one decision behind
 the Edit review menu item, the dialog and the PATCH route, and the route additionally filters on
 `vendorReviewEditWindowFloorIso()` so the window holds in the database too; an unreadable
-`created_at` fails closed. Nobody but the reviewer ever edits one, and the vendor
-may reply once. `vendor_reviews`
+`created_at` fails closed. Nobody but the reviewer ever edits one. The vendor replies
+through POST (first reply only, 409 over an existing one) and edits that reply through
+PATCH (`/api/vendor/reviews/<id>/reply`, scoped to their own review and to one that already
+has a reply) — Reviews ⋯ offers **Reply** / **Reply with a quick reply** until a reply
+exists, then **Edit reply**. `vendor_reviews`
 (`supabase/migrations/20260925000000_vendor_reviews.sql`), unique on
 `work_order_id`, keyed by `vendor_user_id` rather than
 `manager_vendor_records.id` — same reason as `vendor_invoices`/`vendor_payouts`
@@ -465,3 +468,66 @@ texting). What the vendor does:
   second account also verified links to neither.
 - They answer by text to that manager's work number or in the app; the manager sees
   one conversation either way. STOP stops every text from that manager's workspace.
+
+# Vendor portal redesign: Reviews, Payments, Settings and quick replies (approved plan vendor-portal-redesign-1006)
+
+The vendor lists now follow the manager list anatomy (`ui-page-structure.md` § 2): one header card
+(tabs with counts · search · icon utilities · the round blue + where the list has a create), shared
+rows (tile · title · place line · glyph facts · figure · one ⋯), no pills and no button rows under a
+row. `tests/unit/vendor-redesign-row-anatomy.test.ts` guards it.
+
+**Reviews** (`vendor-reviews-panel.tsx`). A stats strip over the header card — Average rating,
+Reviews, Needs reply, Response rate, every figure derived from the rows — then tabs All · Needs
+reply · Replied, rows `★ tile · reviewer · the review · date · ✓ Replied · ⋯`. The reviewer reads
+**"A PropLane manager"** and no service or area is shown: the vendor-safe projection
+(`VENDOR_REVIEW_PUBLIC_SELECT`) deliberately carries no manager, workspace, property or work-order
+link, and the redesign did not reverse that. Reply opens a small pop-up with the review for context,
+a ⚡ quick-reply menu and **Save reply** in the footer.
+
+**Payments** (`/vendor/financials/income`, `VendorFinancesPanel`). The balance card sits above the
+band: Available now (with "$X on the way") and Bank · Withdraw as the only header icons (the captain removed the
+balance card's Refund and Statement icons — a vendor refund flow is a separate plan; the per-payment Refund on
+a payout record page is hidden too: the vendor refund route is paused server-side with 409
+`VENDOR_REFUND_PAUSED` until the banking rebuild, and `VendorRefundModal` stays in the codebase for it; the band keeps
+its single Download). Tabs are **Pending · Paid · Overdue**
+(`vendorPaymentBucket`, `src/lib/vendor-payments.ts`): Paid = a paid invoice or payout; Overdue = an
+**unpaid, non-rejected invoice whose due date is before today** (a payment due today is still
+Pending; an invoice with no due date can never be overdue); everything else Pending (rejected
+invoices and failed payouts stay there because the vendor must act on them). The due date is the
+manager's bill's `due_date` for the invoice (`vendor_invoices.bill_id` → `manager_bills`); the GET
+`/api/vendor/invoices` route projects only that one date as `dueDate`, never the bill. Row ⋯:
+View invoice (View payment on an income row) · Edit · Retract invoice (a submitted invoice; named so it is never read as withdrawing money) · Download ·
+Message the manager (opens Communication with New message, `?compose=1`).
+
+**Gear in every vendor list band** opens the matching Settings page, never a pop-up
+(`vendor-settings-pages.ts`, `VendorSettingsGear`): Services → Trades & service area, Payments →
+Payouts, Reviews → Profile, Communication → Quick replies. `VendorSectionSettingsModal` survives as a
+redirect shim so the Services panel's existing gear lands on Trades & service area until that panel
+renders `VendorSettingsGear` itself.
+
+**Vendor Settings** (`/vendor/profile?tab=<page>`, `vendor-settings-panel.tsx`) uses the manager
+Settings layout: a rail (desktop) / link-row cards (phone) grouped **Profile** (Profile, Login &
+security, Preferences, Feedback, Account) · **Business** (Business details, Trades & service area,
+Licenses & insurance, Availability) · **Money** (Payouts, Invoicing) · **Communication** (Phone &
+notifications, Quick replies). Existing content moved, not copied: Business details = the old
+Business profile + Work contact & email; Trades & service area = the old Work capabilities + the
+service-area field; Phone & notifications = Verify your phone + Notifications; Profile = the old
+Directory listing. `payouts` and `messaging` keep their ids (setup banners and emails link to them);
+`work*`, `workspace*` and `notifications` alias forward (`VENDOR_SETTINGS_TAB_ALIASES`). Licenses &
+insurance edits the profile's license and coverage fields (certificates still upload from
+Documents); Invoicing shows the W-9 on file read-only — there was no prior vendor invoicing setting.
+
+**Quick replies.** Each vendor's own saved messages, a starter set until they save a list of their
+own ("On my way", "Running 15 minutes late", "Need photos of the issue", "Can I come by for an
+estimate?", "Job complete — invoice sent"). Stored on the vendor account in
+`notification_preferences.row_data.vendorQuickReplies` (the per-user JSON row vendor notification
+settings already use — **no migration**; `saveNotificationPreferences` preserves the key beside
+`resident` and `vendor`). `GET/PUT /api/vendor/quick-replies` resolves the vendor from the session
+(`resolveVendorPortalUserId`) and never reads an id from the request; PUT replaces the whole list
+(add, edit, delete and reorder all save as one write; max 20 replies, 500 characters each; an empty
+saved list stays empty rather than reverting to the starters). Settings → Quick replies manages them
+through the row ⋯ (Edit · Move up · Move down · Delete). **`QuickReplyMenu`**
+(`quick-reply-menu.tsx`) is the reusable ⚡ picker: `onPick(text)` hands the text to the caller, which
+inserts it with `insertQuickReplyText` so it stays editable. It is mounted in the Communication
+composer (`variant="composer"`) and the review reply; the bid note can drop it in with
+`<QuickReplyMenu onPick={...} />`. Coverage: `vendor-quick-replies*.test.ts(x)`.

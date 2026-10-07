@@ -117,11 +117,13 @@ describe("vendor portal matches manager chrome", () => {
     // "Request payment" was renamed to the shared "Add <noun>" list-band
     // primary shape (N025) — this assertion rotted after that fix landed.
     expect(finances).toContain('portalListAddPrimaryLabel("payment")');
-    expect(finances).toContain("Payout setup");
+    // The band's gear opens Settings → Payouts (vendor-portal-redesign-1006); the
+    // Bank icon on the balance card keeps the Add bank flow.
+    expect(finances).toContain('<VendorSettingsGear section="payments"');
+    expect(finances).toContain('label="Bank"');
     // Payouts is one page now, mounted at Settings → Payouts
     // (PLAN-0920-1500) — the Finances "payouts" tabId never reaches this
-    // component; `render-portal-section.tsx` redirects it first. Income still
-    // keeps a quick "Payout setup" door into payment methods.
+    // component; `render-portal-section.tsx` redirects it first. 
     expect(finances).not.toContain("PortalPayoutsPanel");
     const render = read("src/lib/render-portal-section.tsx");
     expect(render).toContain('finTab === "payouts"');

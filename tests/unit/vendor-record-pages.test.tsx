@@ -210,7 +210,7 @@ describe("vendor payout record page", () => {
     expect(screen.queryByRole("button", { name: "Refund" })).toBeNull();
   });
 
-  it("shows Receipt and Refund once VENDOR_BANKING_ENABLED is on, and Receipt opens the print route (never a Stripe redirect)", async () => {
+  it("shows Receipt (never Refund — the vendor refund route is paused) once VENDOR_BANKING_ENABLED is on, and Receipt opens the print route (never a Stripe redirect)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -232,7 +232,7 @@ describe("vendor payout record page", () => {
     await screen.findAllByText("Replace water heater");
 
     await screen.findByRole("button", { name: "Receipt" });
-    expect(screen.getByRole("button", { name: "Refund" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Refund" })).toBeNull();
 
     // The Receipt button appears as soon as `feeBps` lands, but the payout row it
     // prints is still resolving; clicking on that first paint did nothing and made

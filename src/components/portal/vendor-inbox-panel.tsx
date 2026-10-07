@@ -19,6 +19,8 @@ import { PortalListToolbar } from "@/components/portal/portal-list-toolbar";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { buildInboxThreadAssistantContext, InboxThreadAssistantStrip } from "@/components/portal/inbox-thread-assistant-strip";
 import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
+import { QuickReplyMenu } from "@/components/portal/quick-reply-menu";
+import { insertQuickReplyText } from "@/lib/vendor-quick-replies";
 import { INBOX_MAX_ATTACHMENTS, attachmentMetaFromUrls, createPendingInboxAttachment, uploadInboxAttachment, type InboxComposerAttachment } from "@/lib/inbox-attachments";
 import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
 import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
@@ -1117,6 +1119,19 @@ export const VendorInboxPanel = forwardRef<
                       dataAttr="vendor-inbox-reply"
                       trailingControls={
                         <>
+                          <QuickReplyMenu
+                            variant="composer"
+                            dataAttr="vendor-composer-quick-replies"
+                            onPick={(text) =>
+                              setReplyDraft((draft) =>
+                                insertQuickReplyText(
+                                  draft,
+                                  text,
+                                  !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined,
+                                ),
+                              )
+                            }
+                          />
                           <InboxComposerAiMenu onAsk={() => setAskAssistantSignal((n) => n + 1)} />
                           {replyChannelMenu}
                         </>
