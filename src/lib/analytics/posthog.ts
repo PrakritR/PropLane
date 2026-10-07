@@ -12,9 +12,11 @@ let initialized = false;
 function getClient(): PostHog | null {
   if (initialized) return client;
   initialized = true;
-  const key = (process.env.POSTHOG_KEY ?? process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN)?.trim();
+  // `||` not `??`: an empty-string POSTHOG_KEY must fall back to the public token.
+  const key = (process.env.POSTHOG_KEY?.trim() || process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN?.trim()) ?? "";
   if (!key) return (client = null);
-  const host = (process.env.POSTHOG_HOST ?? process.env.NEXT_PUBLIC_POSTHOG_HOST)?.trim() || "https://us.i.posthog.com";
+  const host =
+    process.env.POSTHOG_HOST?.trim() || process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim() || "https://us.i.posthog.com";
   client = new PostHog(key, { host, flushAt: 1, flushInterval: 0 });
   return client;
 }

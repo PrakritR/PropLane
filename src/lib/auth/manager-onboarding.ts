@@ -5,6 +5,7 @@ import { isAxisIntentSessionId } from "@/lib/manager-signup-intent";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { randomUUID } from "crypto";
+import { track } from "@/lib/analytics/posthog";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Reserved purchase row before the manager picks Free / Pro / Business on pricing. */
@@ -208,6 +209,18 @@ export async function finalizePendingManagerFreeTier(
     .eq("id", purchase.id);
 
   if (error) throw error;
+
+  // The one choke point every live manager signup passes through (email
+  // register, Google/Apple callbacks, pricing, get-started). Fire only on the
+  // pending -> complete transition so a repeat call never double counts.
+  if (!isManagerOnboardingComplete(purchase)) {
+    track("manager_account_created", opts.userId, {
+      manager_id: purchase.manager_id,
+      signup_method: opts.billing === "trial" ? "trial" : opts.tier === "free" ? "free_tier" : "pricing",
+      tier: opts.tier,
+      billing: opts.billing,
+    });
+  }
 
   return { sessionId, managerId: purchase.manager_id };
 }
