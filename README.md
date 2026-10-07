@@ -9,6 +9,7 @@ Property management software for listing units, screening applicants, signing le
 | **Marketing** | `/`, `/partner`, `/pricing`, `/contact` | Prospective property managers |
 | **Manager workspace** | `/portal` | Property managers (Free, Pro, Business tiers) |
 | **Resident portal** | `/resident` | Tenants linked to a manager |
+| **Property owner view** | `/portal/owner` | Investors a manager shares a house with |
 | **Admin portal** | `/admin` | Platform operators |
 | **Public apply & tour flows** | `/rent/apply`, `/rent/tours`, `/rent/listings/[id]` | Applicants (manager-shared links) |
 
@@ -26,6 +27,10 @@ applies. If your only workspace has houses, add another workspace first.
 Deleting the default passes its label to the oldest remaining workspace.
 Deleting the last empty workspace returns to **Create your first workspace**;
 adding a house with no workspace still creates **My workspace** automatically.
+
+### Property owner view (`/portal/owner`)
+
+A read-only view a manager grants per house from **Settings → Workspaces**, by inviting a member with Role → **Property owner**: Overview and Properties figures, owner statements, documents the manager marked *Share with owners*, and — only when the manager turns it on — a message thread with that manager. It is a team role inside the manager's workspace, not a portal of its own, so an owner never sees residents, applicants or vendors. Contract: [`docs/agents/co-manager-access.md`](docs/agents/co-manager-access.md) § Property owner.
 
 ### Resident portal (`/resident`)
 

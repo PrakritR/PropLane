@@ -77,9 +77,10 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 for Akhil after his explicit ship request: his prompt branch → `main`. QA on
 `staging` by default; Akhil's releases skip it under the standing policy above. Live from
 `production`.**
-Prakrit keeps six standing agent branches and the captain integration worktree
-open. His roster and integration authorization live in
-[`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md).
+Prakrit keeps a fixed set of standing agent lanes plus the captain integration
+worktree open. The lane count, the roster and integration authorization live in
+[`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) § Standing
+branches, lanes, and the promote ladder.
 Do not create a branch per prompt or delete a standing keeper after integration.
 Commit and push the assigned keeper (fast-forward only, never force). Open a PR only on request.
 If a push is not a fast-forward, stop.

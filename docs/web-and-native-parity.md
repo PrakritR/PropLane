@@ -40,6 +40,7 @@ Use this checklist (also in `src/lib/platform/parity.ts` as `PLATFORM_CHANGE_CHE
 | `src/lib/portals/resident-sections.ts` | Resident nav sections, free-tier ids, smoke-test paths |
 | `src/lib/native/portal-bottom-nav.ts` | Native bottom bar — full order (pins Settings last) plus curated per-kind primary sets (`NATIVE_BOTTOM_NAV_*_PRIMARY`) for the fixed scroll strip. The resident sets are **derived** from `RESIDENT_BOTTOM_NAV_PRIMARY`, not editable here |
 | `src/lib/resident-portal-nav.ts` | Resident stage unlocks (`STAGE_UNLOCKED_SECTIONS`) and the resident bottom-bar tabs per stage (`RESIDENT_BOTTOM_NAV_PRIMARY`) — see AGENTS.md § Resident stage unlocks |
+| `src/lib/property-owner/sections.ts` | Property owner shell nav, desktop rail and phone bottom bar (`ownerNavItems` / `ownerPrimaryNavItems`), plus the path allowlist that sends every other `/portal/*` path to `/portal/owner`. Not a portal kind — it has no `portal-bottom-nav.ts` entry. Contract: [`docs/agents/co-manager-access.md`](agents/co-manager-access.md) § Property owner |
 | `src/lib/auth/native-entry-paths.ts` | Re-exports deep-link helpers from parity |
 | `tests/unit/platform-parity.test.ts` | CI guard — sections, tier gating, push paths |
 | `tests/unit/portal-nav-order.test.ts` | CI guard — web/native nav order parity and free/paid grouping |

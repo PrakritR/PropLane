@@ -411,7 +411,7 @@ manager's invoice, or a `VP409` / `P0001` raise from `claim_vendor_invoice_payme
 a manager "already handled" when PropLane simply broke is the one answer that stops them retrying
 a payment that never happened.
 
-**Every rail claims before it charges.** Approve + pay claims (`claimWorkOrderPayout`), the
+**Every rail claims before it charges.** Approve + pay claims (`claim_work_order_vendor_payment`), the
 offline and balance invoice rails claim (`claim_vendor_invoice_payment`), and the Stripe direct
 invoice rail claims too, at the moment the embedded checkout opens — a job-linked invoice reserves
 the payout before the card is touched, so Approve + pay and the other invoice rails are refused by

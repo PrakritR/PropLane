@@ -1400,11 +1400,16 @@ again; the work email and history stay. An unconfirmed remove is held in `reconc
 re-bought. Settings: Account > **Work number & email** (`vendor-work-number-settings.tsx`);
 forwarding is `PATCH /api/vendor/work-identity {forwardToPhone}`.
 
-**Migration** `20261006200000_vendor_work_number.sql` (additive, idempotent): `forward_to_phone`,
-the cap default, the segment/month `claim_vendor_work_identity_outbound`, and
-`vendor_work_number_conversations`. Until it is applied, forwarding reads default on, the
-conversation list reads empty (a vendor's reply gets the "no manager has texted" notice), and
-the cap RPC keeps its old lifetime semantics.
+**Migrations** (both additive and idempotent). `20261006200000_vendor_work_number.sql`:
+`forward_to_phone`, the cap default, the segment/month
+`claim_vendor_work_identity_outbound`, and `vendor_work_number_conversations`. Until it is
+applied, forwarding reads default on, the conversation list reads empty (a vendor's reply
+gets the "no manager has texted" notice), and the cap RPC keeps its old lifetime semantics.
+`20261007030000_vendor_work_number_pacific_cap_month.sql` is the one that makes the month
+**Pacific**: the first cut used `date_trunc('month', now() at time zone 'utc')`, which bills
+a 5pm-PT text on the last day of the month against the next month's cap. Same signature,
+same body, one boundary — `CREATE OR REPLACE`. Without it the cap and the vendor's own usage
+figure disagree with every other money view for those seven hours.
 
 Tests: `vendor-work-number-rules`, `-claim`, `-inbound`, `-webhook`, `-lifecycle`, `-settings`,
 `vendor-work-identity-*`.

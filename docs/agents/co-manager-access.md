@@ -579,7 +579,12 @@ plan, not an admin. An owner-only account:
   `requireManagerRouteUser` return no context (401), and the module readers
   exclude its rows. The menu is not the security boundary
   (`tests/unit/property-owner-reports-auth.test.ts`,
-  `tests/unit/property-owner-server-exclusion.test.ts`).
+  `tests/unit/property-owner-server-exclusion.test.ts`). A route that decides a
+  manager role **for itself** instead of through one of those helpers — the shape
+  `/api/portal-vendors` had when it leaked shared vendor contact rows — must call
+  `refuseOwnerOnly` (403) on its own. `tests/unit/owner-only-manager-routes.test.ts`
+  walks `src/app/api/**` and fails a new route that neither refuses nor carries a
+  reviewed `EXEMPT` reason, so that list is the enumeration — do not re-copy it here.
 
 **Owner APIs** (`/api/owner/*`, one gate: `requireOwnerRoute`). The owner and the
 manager come from the authenticated membership (`loadOwnerGrants`), read fresh on
@@ -657,3 +662,27 @@ Performance, Statements and Documents back on every new house.
 sharing change, and only for a document with a house). The flag is read through
 `loadSharedWithOwnersIds`, never `DOCUMENT_SELECT_COLUMNS`, so a database that has
 not run `20261007100000_property_owner_role.sql` lists documents normally.
+
+**Deliberate deviations (captain-approved, plan `property-owner-role-1006`).**
+Do not "fix" these without asking:
+
+- **No management fee anywhere in the owner's numbers.** The by-month table's
+  **Fees** column is the *processing* fees Profitability already reports
+  (`summary.ts` `processingFees` → `feesCents`), not a management fee, and
+  `queryOwnerStatement` keeps `managementFee = 0`. That is what lets the owner's
+  net equal the manager's Profitability net for the same house and month. A
+  management-fee model has to land in Profitability first.
+- **An owner invite consumes a plan link like any teammate invite.** Owner keys
+  are their own vocabulary, but the row is still an `account_link_invites` row,
+  so `seatCapWithAddons` counts it — there is no owner exemption from the
+  per-tier link cap.
+- **`POST /api/pro/account-links/redeem` is not on `refuseOwnerOnly`'s list.**
+  Redeem is how an owner-only account accepts a *second* owner membership; the
+  manager surfaces it would unlock are each refused on their own route.
+- **Transfer ownership refuses an owner target** (409, "A Property owner can't
+  take over a workspace.") in `transferWorkspaceOwnership`, before the RPC — the
+  role is a read-only statements reader, never a manager.
+- **A revoked owner is not an error.** `loadOwnerGrants` returns no houses on the
+  next request and the shell shows *No properties are shared with you*
+  (`owner-overview.tsx`), so losing the last grant reads as an empty state, not
+  a lockout.
