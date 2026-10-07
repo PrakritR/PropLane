@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEMO_TABS } from "@/components/marketing/site/product-mock/demo-panels";
 import {
+  MANAGER_STEPS,
   PHONE_META,
   PORTAL_META,
   PORTAL_ORDER,
@@ -11,8 +12,11 @@ import {
   mirrorItems,
   phoneScriptFor,
   shownThrough,
+  stateAfter,
+  stateAtBeat,
   storyAt,
   threadItems,
+  timelineFor,
 } from "@/components/marketing/resident-lifecycle-script";
 
 /**
@@ -28,9 +32,9 @@ describe("home demo script", () => {
     expect(STORIES.vendor.map((beat) => beat.id)).toEqual(["offer", "quote", "visit", "paid"]);
   });
 
-  it("gives every beat one or two phone messages", () => {
+  it("keeps every beat short: one to three phone messages", () => {
     for (const portal of PORTAL_ORDER) {
-      for (const beat of STORIES[portal]) expect([1, 2], `${portal}:${beat.id}`).toContain(beat.messages.length);
+      for (const beat of STORIES[portal]) expect([1, 2, 3], `${portal}:${beat.id}`).toContain(beat.messages.length);
     }
   });
 
@@ -53,20 +57,20 @@ describe("home demo script", () => {
   });
 
   it("counts messages and finds the beat each one belongs to", () => {
-    expect(framesFor("manager")).toHaveLength(8);
+    expect(framesFor("manager")).toHaveLength(9);
     expect(framesFor("vendor")).toHaveLength(5);
     expect(beatAfter("manager", 0)).toBe(0);
     expect(beatAfter("manager", 2)).toBe(0);
     expect(beatAfter("manager", 3)).toBe(1);
     expect(beatAfter("manager", 999)).toBe(3);
     expect(shownThrough("manager", 0)).toBe(2);
-    expect(shownThrough("manager", 3)).toBe(8);
+    expect(shownThrough("manager", 3)).toBe(9);
   });
 
   it("derives the manager sample from the beat, and it only moves forward", () => {
     const early = storyAt("manager", 0);
     expect(early).toMatchObject({ tourAccepted: true, applicationSubmitted: false, applicationApproved: false, leaseStep: 0, rentPaid: false, service: "none" });
-    expect(storyAt("manager", 1).applicationSubmitted).toBe(true);
+    expect(storyAt("manager", 1)).toMatchObject({ applicationSubmitted: true, applicationApproved: true, leaseStep: 0 });
     expect(storyAt("manager", 2)).toMatchObject({ applicationApproved: true, leaseStep: 3, rentPaid: false });
     expect(storyAt("manager", 3)).toMatchObject({ rentPaid: true, service: "scheduled" });
     expect(storyAt("resident", 3)).toMatchObject({ rentPaid: true, service: "scheduled" });
@@ -93,5 +97,71 @@ describe("home demo script", () => {
     const early = JSON.stringify(phoneScriptFor("vendor", "quote").items);
     expect(early).not.toMatch(/Willow/i);
     expect(JSON.stringify(phoneScriptFor("vendor", "visit").items)).toMatch(/Willow/i);
+  });
+
+  describe("the manager's story is causal", () => {
+    const steps = MANAGER_STEPS;
+    const messageAt = (nth: number) => framesFor("manager")[nth]!.message;
+
+    it("puts a manager click right before every line the manager sends", () => {
+      let landed = 0;
+      steps.forEach((step, index) => {
+        if (step.kind !== "say") return;
+        const message = messageAt(landed);
+        landed += 1;
+        if (message.kind !== "in") return;
+        expect(steps[index - 1]?.kind, `message ${landed} (${message.text}) follows a click`).toBe("click");
+      });
+      expect(landed).toBe(framesFor("manager").length);
+    });
+
+    it("lands exactly the phone's messages, in every portal", () => {
+      for (const portal of PORTAL_ORDER) {
+        expect(timelineFor(portal).filter((step) => step.kind === "say")).toHaveLength(framesFor(portal).length);
+        expect(stateAfter(portal, timelineFor(portal).length).shown).toBe(framesFor(portal).length);
+      }
+    });
+
+    it("clicks only controls the panels mark, and opens only tabs the sidebar has", () => {
+      const tabs = new Set(DEMO_TABS.manager.map((tab) => tab.id));
+      const marked = new Set(["comm-approve", "applications-send", "sheet-primary", "application-row", "lease-row", "payment-row", "service-row"]);
+      for (const step of steps) {
+        if (step.kind === "nav") expect(tabs.has(step.target!), `tab ${step.target}`).toBe(true);
+        if (step.kind === "click") expect(marked.has(step.target!), `target ${step.target}`).toBe(true);
+      }
+    });
+
+    it("shows the drafted reply until the manager approves it, then books the tour", () => {
+      const draftAt = steps.findIndex((step) => step.patch?.draft === true);
+      const approveAt = steps.findIndex((step) => step.target === "comm-approve");
+      expect(draftAt).toBeGreaterThan(-1);
+      expect(approveAt).toBeGreaterThan(draftAt);
+      expect(stateAfter("manager", draftAt + 1).draft).toBe(true);
+      expect(stateAfter("manager", draftAt + 1).story.tourAccepted).toBe(false);
+      const approved = stateAfter("manager", approveAt + 1);
+      expect(approved.draft).toBe(false);
+      expect(approved.story).toMatchObject({ tourOffered: true, tourAccepted: true });
+    });
+
+    it("only moves forward: messages never leave, a story flag never turns back", () => {
+      let previous = stateAfter("manager", 0);
+      for (let count = 1; count <= steps.length; count += 1) {
+        const next = stateAfter("manager", count);
+        expect(next.shown).toBeGreaterThanOrEqual(previous.shown);
+        expect(next.story.leaseStep).toBeGreaterThanOrEqual(previous.story.leaseStep);
+        for (const flag of ["tourAccepted", "applicationSubmitted", "applicationApproved", "rentPaid"] as const) {
+          expect(Number(next.story[flag]), flag).toBeGreaterThanOrEqual(Number(previous.story[flag]));
+        }
+        previous = next;
+      }
+    });
+
+    it("starts on the Dashboard and ends each beat on a whole thing: the tab it opened", () => {
+      expect(stateAfter("manager", 0).tab).toBe("dashboard");
+      expect(stateAtBeat("manager", 0).tab).toBe("communication");
+      expect(stateAtBeat("manager", 1).tab).toBe("applications");
+      expect(stateAtBeat("manager", 2).tab).toBe("leases");
+      expect(stateAtBeat("manager", 3).tab).toBe("services");
+    });
   });
 });

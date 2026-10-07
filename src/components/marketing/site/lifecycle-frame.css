@@ -36,6 +36,25 @@
   align-self: auto;
 }
 
+/*
+ * The "Up and running" import window (switch-steps.tsx): the frame is as tall as the WHOLE scaled window
+ * plus the backdrop's own margins, so the last card ends inside it, never at its edge. The window is drawn
+ * at 1100px wide and 860px tall (`IMPORT_NATIVE_HEIGHT`), scaled to the frame's width minus its side
+ * margins (24px under sm, 40px from sm); the same margin sits above and below it.
+ */
+.sw-import-slot {
+  min-width: 0;
+  container-type: inline-size;
+}
+.sw-import-frame {
+  height: calc((100cqw - 3rem) * 0.7818 + 3rem);
+}
+@media (min-width: 640px) {
+  .sw-import-frame {
+    height: calc((100cqw - 5rem) * 0.7818 + 5rem);
+  }
+}
+
 /* Under lg: natural width, one fixed height, the screen scrolling inside it. */
 @media (max-width: 1023px) {
   .lrf-window .rlp-workspace {
