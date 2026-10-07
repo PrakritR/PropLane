@@ -210,6 +210,9 @@ describe("POST /api/stripe/webhook", () => {
 
   it("returns a retryable failure for an unmatched lost dispute without fetching its charge", async () => {
     const query = {
+      // `handleVendorBankingDispute` runs first and asks `vendor_payouts`
+      // with `.eq(...).limit(2)`; no vendor payout settled these charges.
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
       select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
     };
     query.select.mockReturnValue(query);
@@ -247,6 +250,9 @@ describe("POST /api/stripe/webhook", () => {
       from: vi.fn((table: string) => {
         if (table === "stripe_disputes") return { upsert };
         const query = {
+          // `handleVendorBankingDispute` runs first and asks `vendor_payouts`
+          // with `.eq(...).limit(2)`; no vendor payout settled these charges.
+          limit: vi.fn().mockResolvedValue({ data: [], error: null }),
           select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({
             data: table === "ledger_entries"
               ? { id: "ledger-payment", manager_user_id: "manager-ordinary", source_charge_id: "charge-row" }
@@ -283,6 +289,9 @@ describe("POST /api/stripe/webhook", () => {
       from: vi.fn((table: string) => {
         if (table === "stripe_disputes") return { upsert };
         const query = {
+          // `handleVendorBankingDispute` runs first and asks `vendor_payouts`
+          // with `.eq(...).limit(2)`; no vendor payout settled these charges.
+          limit: vi.fn().mockResolvedValue({ data: [], error: null }),
           select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({
             data: table === "ledger_entries"
               ? { id: "ledger-payment", manager_user_id: "manager-ordinary", source_charge_id: "charge-row" }
@@ -320,6 +329,9 @@ describe("POST /api/stripe/webhook", () => {
       from: vi.fn((table: string) => {
         if (table === "stripe_disputes") return { upsert };
         const query = {
+          // `handleVendorBankingDispute` runs first and asks `vendor_payouts`
+          // with `.eq(...).limit(2)`; no vendor payout settled these charges.
+          limit: vi.fn().mockResolvedValue({ data: [], error: null }),
           select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({
             data: table === "ledger_entries"
               ? { id: "ledger-test", manager_user_id: "manager-test", source_charge_id: "charge-test" }
@@ -357,6 +369,9 @@ describe("POST /api/stripe/webhook", () => {
       rpc,
       from: vi.fn((table: string) => {
         const query = {
+          // `handleVendorBankingDispute` runs first and asks `vendor_payouts`
+          // with `.eq(...).limit(2)`; no vendor payout settled these charges.
+          limit: vi.fn().mockResolvedValue({ data: [], error: null }),
           select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn(async () => ({
             data: table === "manager_comms_credit_purchases" && creditBound
               ? { id: "purchase-credit", credit_cents: 500, manager_user_id: "manager-credit" }

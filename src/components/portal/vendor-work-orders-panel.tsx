@@ -854,7 +854,12 @@ export function VendorWorkOrdersPanel({
     const hasVisit = Boolean(row.scheduled && row.scheduled !== "—") || Boolean(row.scheduledAtIso);
     const declinedJob = bid?.status === "declined" || offer?.status === "declined";
     const invoiceOwed = stage === "completed" && !invoiceSent && row.automationStatus !== "paid" && !declinedJob;
-    const photos = (hasSite || row.offerSharePhotos === true ? (row.photoDataUrls ?? []) : []).filter((src) => SAFE_PHOTO_HREF_RE.test(src.trim()));
+    // Trim once, here: testing `src.trim()` and then rendering a second
+    // `src.trim()` left the value that reaches the attribute untested, so the
+    // allowlist was no barrier at all (CodeQL js/xss-through-dom).
+    const photos = (hasSite || row.offerSharePhotos === true ? (row.photoDataUrls ?? []) : [])
+      .map((src) => src.trim())
+      .filter((src) => SAFE_PHOTO_HREF_RE.test(src));
 
     const ownContent =
       activeTab === "bid" ? (
@@ -958,12 +963,18 @@ export function VendorWorkOrdersPanel({
               keeps a locally-held row from drawing what a served one would not carry. */}
           {photos.length > 0 ? (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {photos.map((src, i) => (
-                <a key={i} href={src.trim()} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src.trim()} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
-                </a>
-              ))}
+              {/* The allowlist is re-tested on the exact value that reaches
+                  <a href> / <img src>, so it sits directly on the sinks: no
+                  other-scheme string can be drawn even if `photos` is ever
+                  rebuilt from somewhere else. */}
+              {photos.map((src, i) =>
+                SAFE_PHOTO_HREF_RE.test(src) ? (
+                  <a key={i} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-border bg-accent/30">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`Photo ${i + 1}`} className="h-28 w-full object-cover" />
+                  </a>
+                ) : null,
+              )}
             </div>
           ) : (
             <PortalListEmptyCard title="No documents yet" workspaceAware={false} dataAttr="vendor-job-documents-empty" />

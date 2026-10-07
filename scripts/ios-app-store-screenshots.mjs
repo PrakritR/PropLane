@@ -32,10 +32,24 @@ const FONT = pathToFileURL(resolve(REPO, "src/app/fonts/schibsted-grotesk-variab
 const OUT_ROOT = resolve(REPO, "app-store/screenshots");
 const MIN_PROPERTIES = 3;
 
+/**
+ * Strip SVG comments to a true fixpoint: deleting one comment can join the text
+ * around it back into a new `<!--`, so a single pass could leave a comment open
+ * in the markup that gets inlined (CodeQL js/incomplete-multi-character-sanitization).
+ * Every pass only deletes, so the string shrinks and the loop terminates.
+ */
+function withoutSvgComments(svg) {
+  let out = svg;
+  let previous;
+  do {
+    previous = out;
+    out = out.replace(/<!--[\s\S]*?-->/g, "");
+  } while (out !== previous);
+  return out;
+}
+
 /** The product's own mark (the favicon tile), so the frame can never drift from the brand. */
-const MARK_SVG = readFileSync(resolve(REPO, "src/app/icon.svg"), "utf8")
-  .replace(/<\?xml[^>]*\?>/, "")
-  .replace(/<!--[\s\S]*?-->/g, "")
+const MARK_SVG = withoutSvgComments(readFileSync(resolve(REPO, "src/app/icon.svg"), "utf8").replace(/<\?xml[^>]*\?>/, ""))
   .replace(/\swidth="32"\s+height="32"/, ' width="100%" height="100%"');
 
 /**

@@ -20,7 +20,10 @@ function slugifyName(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    // Single `-`, not `-+`: the collapse above never leaves two dashes in a
+    // row, and `-+$` rescanned the whole run from every position, so a name of
+    // many separators cost quadratic time (CodeQL js/polynomial-redos).
+    .replace(/^-|-$/g, "")
     .slice(0, 24);
   return slug.length >= 2 ? slug : "";
 }
