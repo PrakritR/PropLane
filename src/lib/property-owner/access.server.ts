@@ -119,25 +119,73 @@ export function grantedHouses(
 }
 
 /**
+ * Membership reads, memoized for the life of the client they were asked
+ * through. One send asks the same questions twice - the recipient filter
+ * (`filterRecipientsBySenderScope`) and the inbox re-scope
+ * (`applyOwnerMessageInboxScope`) both decide "is this recipient my Property
+ * owner?" - and `loadOwnerGrants` is 2 + one-per-link queries each time. The
+ * service-role client is built per request, so keying on it keeps the memo
+ * request-scoped and collectable, with a short TTL in case one is ever held
+ * longer; a rejected read is dropped, never cached.
+ */
+type MemoEntry<T> = { at: number; value: Promise<T> };
+
+/** A membership answer is reused for one burst of work, never for a later request. */
+const MEMBERSHIP_MEMO_TTL_MS = 5_000;
+
+function memoByClient<T>(
+  store: WeakMap<object, Map<string, MemoEntry<T>>>,
+  db: SupabaseClient,
+  key: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  let byKey = store.get(db as unknown as object);
+  if (!byKey) {
+    byKey = new Map<string, MemoEntry<T>>();
+    store.set(db as unknown as object, byKey);
+  }
+  const existing = byKey.get(key);
+  if (existing && Date.now() - existing.at < MEMBERSHIP_MEMO_TTL_MS) return existing.value;
+  const value = run().catch((error) => {
+    byKey!.delete(key);
+    throw error;
+  });
+  byKey.set(key, { at: Date.now(), value });
+  return value;
+}
+
+const GRANTS_BY_CLIENT = new WeakMap<object, Map<string, MemoEntry<OwnerGrant[]>>>();
+const OWNER_INVITEES_BY_CLIENT = new WeakMap<object, Map<string, MemoEntry<Set<string>>>>();
+
+/** `loadOwnerGrants`, asked at most once per user per client. */
+export function loadOwnerGrantsOnce(db: SupabaseClient, userId: string): Promise<OwnerGrant[]> {
+  const uid = userId.trim();
+  if (!uid) return Promise.resolve([]);
+  return memoByClient(GRANTS_BY_CLIENT, db, uid, () => loadOwnerGrants(db, uid));
+}
+
+/**
  * Accepted Property owner memberships this manager granted, as invitee user
  * ids. A candidate list only: `managerMayMessageOwner` decides each one.
  */
 export async function ownerInviteeIdsForManagers(db: SupabaseClient, managerIds: string[]): Promise<Set<string>> {
-  const out = new Set<string>();
-  const inviters = [...new Set(managerIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
-  if (inviters.length === 0) return out;
-  const { data, error } = await db
-    .from("account_link_invites")
-    .select("invitee_user_id, team_role")
-    .in("inviter_user_id", inviters)
-    .eq("status", "accepted")
-    .eq("team_role", "property_owner");
-  if (error) return out;
-  for (const row of (data ?? []) as { invitee_user_id?: unknown }[]) {
-    const id = String(row.invitee_user_id ?? "").trim();
-    if (id) out.add(id);
-  }
-  return out;
+  const inviters = [...new Set(managerIds.map((id) => String(id ?? "").trim()).filter(Boolean))].sort();
+  if (inviters.length === 0) return new Set<string>();
+  return memoByClient(OWNER_INVITEES_BY_CLIENT, db, inviters.join("|"), async () => {
+    const out = new Set<string>();
+    const { data, error } = await db
+      .from("account_link_invites")
+      .select("invitee_user_id, team_role")
+      .in("inviter_user_id", inviters)
+      .eq("status", "accepted")
+      .eq("team_role", "property_owner");
+    if (error) return out;
+    for (const row of (data ?? []) as { invitee_user_id?: unknown }[]) {
+      const id = String(row.invitee_user_id ?? "").trim();
+      if (id) out.add(id);
+    }
+    return out;
+  });
 }
 
 /**
@@ -185,8 +233,12 @@ export async function applyOwnerMessageInboxScope<T extends { userId: string | n
   sender: { userId: string; role: string | null | undefined },
   recipients: T[],
 ): Promise<T[]> {
+  // `admin` is in the list because the team dogfoods on multi-role accounts:
+  // the inviting manager of an owner membership can be an account whose
+  // `profiles.role` is "admin", and the scope being corrected belongs to the
+  // RECIPIENT, so the sender's own label must not decide it.
   const role = String(sender.role ?? "").trim().toLowerCase();
-  if (!["manager", "owner", "pro"].includes(role)) return recipients;
+  if (!["manager", "owner", "pro", "admin"].includes(role)) return recipients;
   const owners = await ownerMessagingRecipientIdsForManager(db, sender.userId, recipients.map((r) => r.userId));
   if (owners.size === 0) return recipients;
   return recipients.map((recipient) =>
@@ -210,7 +262,7 @@ export async function managerMayMessageOwner(
   const owner = ownerUserId.trim();
   if (!manager || !owner) return false;
   try {
-    const grants = await loadOwnerGrants(db, owner);
+    const grants = await loadOwnerGrantsOnce(db, owner);
     return grantedHouses(grants, "messages").some((house) => house.managerUserId === manager);
   } catch {
     return false;
@@ -315,7 +367,17 @@ export async function ownerAccessStateFor(db: SupabaseClient, userId: string): P
 export async function withholdManagerSurface(db: SupabaseClient, userId: string): Promise<boolean> {
   try {
     return (await ownerAccessStateFor(db, userId)).ownerOnly;
-  } catch {
+  } catch (error) {
+    // Denying is right, but silently denying every manager route during an
+    // `account_link_invites` outage would present as a bare 401/404 with
+    // nothing to point at the cause. Class, message and the user id only.
+    console.error(
+      "[security] owner_membership_unreadable: withholding the manager surface",
+      JSON.stringify({
+        userId,
+        error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      }),
+    );
     return true;
   }
 }

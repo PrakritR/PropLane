@@ -11,10 +11,12 @@
  *  - the number a manager texted a service link to is shown back to them.
  */
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyOwnerMessageInboxScope,
+  loadOwnerGrantsOnce,
+  managerMayMessageOwner,
   ownerMessagingRecipientIdsForManager,
   OWNER_MESSAGE_INBOX_SCOPE,
   withholdManagerSurface,
@@ -91,6 +93,32 @@ describe("the manager's reply lands where the owner reads", () => {
     ).toBe(RESIDENT_INBOX_SCOPE);
   });
 
+  it("re-scopes for an admin-labelled sender too, because the scope belongs to the recipient", async () => {
+    // The team dogfoods on multi-role accounts: the inviting manager of an
+    // owner membership can be an account whose `profiles.role` is "admin".
+    const recipients = [{ userId: OWNER, email: "dana@example.com", scope: RESIDENT_INBOX_SCOPE }];
+    const out = await applyOwnerMessageInboxScope(makeFakeDb(tables()), { userId: MANAGER, role: "admin" }, recipients);
+    expect(out[0]!.scope).toBe(OWNER_MESSAGE_INBOX_SCOPE);
+  });
+
+  it("asks the membership once per burst, not once per caller", async () => {
+    const reads: Record<string, number> = {};
+    const db = makeFakeDb(tables(), { reads });
+    // What one send does: the recipient filter decides, then the re-scope does.
+    expect(await managerMayMessageOwner(db, MANAGER, OWNER)).toBe(true);
+    expect([...(await ownerMessagingRecipientIdsForManager(db, MANAGER, [OWNER]))]).toEqual([OWNER]);
+    // `loadOwnerGrants` is 2 + one-per-link reads; memoized it runs once, and
+    // the candidate list is one query however often it is asked.
+    expect(reads.manager_property_records).toBe(1);
+    expect(reads.account_link_invites).toBe(2);
+    expect(await loadOwnerGrantsOnce(db, OWNER)).toHaveLength(1);
+    expect(reads.manager_property_records).toBe(1);
+    // A different client starts clean.
+    const fresh: Record<string, number> = {};
+    await managerMayMessageOwner(makeFakeDb(tables(), { reads: fresh }), MANAGER, OWNER);
+    expect(fresh.manager_property_records).toBe(1);
+  });
+
   it("names only the owners of this manager's own memberships", async () => {
     const db = makeFakeDb(tables());
     expect([...(await ownerMessagingRecipientIdsForManager(db, MANAGER, [OWNER, "resident-9"]))]).toEqual([OWNER]);
@@ -112,7 +140,39 @@ describe("the manager's reply lands where the owner reads", () => {
 });
 
 describe("a membership that cannot be read withholds the manager surface", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("leaves a plain manager alone when the reads succeed", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A manager with no owner row at all: the overwhelmingly common case.
+    expect(await withholdManagerSurface(makeFakeDb({ account_link_invites: [] }), MANAGER)).toBe(false);
+    // ...and one with houses, a plan and a teammate seat of their own.
+    const busy = makeFakeDb({
+      account_link_invites: [{ id: "l", invitee_user_id: MANAGER, status: "accepted", team_role: "admin" }],
+      manager_property_records: [{ id: HOUSE, manager_user_id: MANAGER }],
+      manager_purchases: [{ id: "p", user_id: MANAGER }],
+      profile_roles: [{ user_id: MANAGER, role: "manager" }],
+      profiles: [{ id: MANAGER, email: "manager@example.com" }],
+    });
+    expect(await withholdManagerSurface(busy, MANAGER)).toBe(false);
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it("logs the denial so a membership outage is diagnosable", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const broken = makeFakeDb({ account_link_invites: [] }, { errors: { account_link_invites: { message: "boom" } } });
+    expect(await withholdManagerSurface(broken, MANAGER)).toBe(true);
+    expect(logged).toHaveBeenCalledTimes(1);
+    const [message, payload] = logged.mock.calls[0] as [string, string];
+    expect(message).toContain("owner_membership_unreadable");
+    expect(JSON.parse(payload)).toMatchObject({ userId: MANAGER });
+    expect(JSON.parse(payload).error).toContain("OwnerAccessUnavailableError");
+  });
+
   it("withholdManagerSurface answers true for an unreadable membership and for an owner-only account", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const broken = makeFakeDb({ account_link_invites: [] }, { errors: { account_link_invites: { message: "boom" } } });
     expect(await withholdManagerSurface(broken, MANAGER)).toBe(true);
     const owner = makeFakeDb({

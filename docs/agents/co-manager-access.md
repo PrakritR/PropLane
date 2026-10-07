@@ -615,14 +615,20 @@ from the membership too (`applyOwnerMessageInboxScope` →
 `OWNER_MESSAGE_INBOX_SCOPE`, on both send paths): `scopeForRole` reads the
 legacy singular `profiles.role`, so an owner whose account was created as a
 resident would have had the reply filed in their resident inbox, where the
-owner portal never looks.
+owner portal never looks. The re-scope runs for an `admin`-labelled sender too
+— the scope belongs to the RECIPIENT, and the inviting manager of a membership
+can be a multi-role account — and the membership reads behind it are memoized
+per client (`loadOwnerGrantsOnce`), so the filter and the re-scope do not each
+pay for `loadOwnerGrants`.
 
 **A membership that cannot be read denies.** `getOwnerAccessState` throws
 `OwnerAccessUnavailableError` rather than answering "no owner row": that answer
 would hand an owner-only account the manager shell and wave it past
 `refuseOwnerOnly`, which turns the error into a 503. Every manager-side caller
 asks `withholdManagerSurface` instead of reading `ownerOnly`, so the error
-denies (no manager context) rather than throwing into a render; the two page
+denies (no manager context) rather than throwing into a render, and logs
+`[security] owner_membership_unreadable` with the error class and the user id
+so a sustained outage is not a silent 401 everywhere; the two page
 shells (`src/app/portal/layout.tsx`, `renderPortalSection`) show
 `PortalAccessUnavailable` — neither portal — and `requireOwnerPage` stays on the
 owner page with Messages shut. The layout redirects to `/portal/owner` when it

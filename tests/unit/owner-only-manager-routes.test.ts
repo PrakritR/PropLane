@@ -22,9 +22,14 @@ const MANAGER_AUTH_HELPERS: { name: string; ownerAware: boolean; provenBy: strin
   { name: "resolvePortalInboxThreadScope", ownerAware: true, provenBy: "src/lib/portal-inbox-thread-scope.ts" },
 ];
 
-/** A route deciding a manager role for itself, rather than through a helper above. */
+/**
+ * A route deciding a manager role for itself, rather than through a helper
+ * above. Every idiom the repo actually uses, including the commonest one -
+ * `roleList.includes("manager")` next to a legacy `profiles.role` fallback -
+ * which an earlier version of this pattern missed for 28 routes.
+ */
 const OWN_MANAGER_ROLE_CHECK =
-  /(role\s*(!==|===)\s*"(manager|pro)")|(hasRole\((?:access|ctx|portal)[^)]*,\s*"manager"\))|(\["manager",\s*"pro"[^\]]*\]\.includes)|(userIsPropertyPortalManager\()/;
+  /(role\s*(!==|===)\s*"(manager|pro)")|(hasRole\((?:access|ctx|portal)[^)]*,\s*"manager"\))|(\["manager",\s*"pro"[^\]]*\]\.includes)|(userIsPropertyPortalManager\()|(\.includes\("manager"\))|(hasManagerRole\()/;
 
 /** A route refuses on its own when it reaches the owner membership by any of these. */
 const OWN_REFUSAL = ["refuseOwnerOnly", "ownerAccessStateFor", "withholdManagerSurface"];
@@ -35,6 +40,8 @@ const REASONS = {
   notManagerSurface:
     "not a manager surface: the caller is a resident, vendor, public token or admin, and the manager role appears only as a branch inside that flow",
   ownerUpgradePath: "this IS how an account stops being owner-only, so refusing it would strip the way out",
+  scopedSend:
+    "a send whose recipients go through filterRecipientsBySenderScope, which reaches a Property owner only as the manager of that owner's own membership",
 } as const;
 
 /** Routes that authenticate themselves (or on a non-owner-aware helper) and were reviewed. */
@@ -80,6 +87,37 @@ const EXEMPT: Record<string, keyof typeof REASONS> = {
   "portal/vendor-removal-draft/route.ts": "ownAccountOnly",
   "pro/purge-orphaned-co-manager-links/route.ts": "ownAccountOnly",
   "vendor/availability/route.ts": "ownAccountOnly",
+  // The `roleList.includes("manager")` family: a settings / calendar / scheduled
+  // surface that resolves everything from the caller's own id and gates each
+  // house through a co-manager grant an owner row never holds.
+  "auth/manager-google-services/route.ts": "ownAccountOnly",
+  "portal/automated-messages/route.ts": "ownAccountOnly",
+  "portal/automation-settings/route.ts": "ownAccountOnly",
+  "portal/channel-calendar/bookings/route.ts": "ownAccountOnly",
+  "portal/channel-calendar/connections/route.ts": "ownAccountOnly",
+  "portal/channel-calendar/sync/route.ts": "ownAccountOnly",
+  "portal/data-export/route.ts": "ownAccountOnly",
+  "portal/google-calendar/connect/route.ts": "ownAccountOnly",
+  "portal/google-calendar/events/route.ts": "ownAccountOnly",
+  "portal/google-calendar/link-session/route.ts": "ownAccountOnly",
+  "portal/google-calendar/pending-changes/[id]/route.ts": "ownAccountOnly",
+  "portal/google-calendar/pending-changes/route.ts": "ownAccountOnly",
+  "portal/google-calendar/route.ts": "ownAccountOnly",
+  "portal/lease-automation-settings/route.ts": "ownAccountOnly",
+  "portal/manager-listing-late-fee-settings/route.ts": "ownAccountOnly",
+  "portal/manager-manual-payment-settings/route.ts": "ownAccountOnly",
+  "portal/manager-tour-settings/route.ts": "ownAccountOnly",
+  "portal/property-access-info/route.ts": "ownAccountOnly",
+  "portal/reminder-settings/route.ts": "ownAccountOnly",
+  "portal/scheduled-inbox-messages/[id]/route.ts": "ownAccountOnly",
+  "portal/scheduled-inbox-messages/[id]/send-now/route.ts": "scopedSend",
+  "portal/scheduled-inbox-messages/route.ts": "scopedSend",
+  "portal/scheduled-messages/[id]/route.ts": "ownAccountOnly",
+  "portal/scheduled-messages/[id]/send-now/route.ts": "scopedSend",
+  "portal/scheduled-messages/route.ts": "scopedSend",
+  "portal/service-automation-settings/route.ts": "ownAccountOnly",
+  "portal/task-automation-settings/route.ts": "ownAccountOnly",
+  "portal/tour-reminders/route.ts": "ownAccountOnly",
 };
 
 function routeFiles(dir: string, out: string[] = []): string[] {
@@ -133,6 +171,10 @@ describe("manager routes refuse an owner-only account", () => {
     expect(OWN_MANAGER_ROLE_CHECK.test(sample)).toBe(true);
     expect(OWN_MANAGER_ROLE_CHECK.test('if (role !== "manager") return;')).toBe(true);
     expect(OWN_MANAGER_ROLE_CHECK.test('if (!hasRole(ctx, "manager")) return;')).toBe(true);
+    // The family that used to slip through: a role LIST plus the legacy column.
+    expect(OWN_MANAGER_ROLE_CHECK.test('const isManager = roleList.includes("manager") || legacy === "admin";')).toBe(true);
+    expect(OWN_MANAGER_ROLE_CHECK.test("if (hasManagerRole(allRoles)) return ctx;")).toBe(true);
+    expect(OWN_MANAGER_ROLE_CHECK.test(read("src/app/api/portal/data-export/route.ts"))).toBe(true);
     // ...and does not fire on a route that never names the role.
     expect(OWN_MANAGER_ROLE_CHECK.test('const role = "x";')).toBe(false);
     // A route authorized by row ownership instead of a role is not this class:
