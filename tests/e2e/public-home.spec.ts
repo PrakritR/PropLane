@@ -1,9 +1,18 @@
 import { test, expect } from "@playwright/test";
 import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 
+/** Open the home page and wait for React to hydrate the demo, so a click is never lost to the server HTML. */
+async function goHome(page: import("@playwright/test").Page) {
+  await page.goto("/");
+  await page.waitForFunction(() => {
+    const node = document.querySelector("#resident-lifecycle-walkthrough button");
+    return Boolean(node && Object.keys(node).some((key) => key.startsWith("__reactProps")));
+  });
+}
+
 test.describe("Public home", () => {
   test("loads the landing hero and both doors", async ({ page }) => {
-    await page.goto("/");
+    await goHome(page);
     await expect(page.getByRole("heading", { level: 1, name: /your ai property management assistant/i })).toBeVisible();
     const hero = page.locator(".rlp-hero");
     await expect(hero.getByRole("link", { name: /start free/i })).toHaveAttribute("href", "/auth/create-account");
@@ -15,7 +24,7 @@ test.describe("Public home", () => {
 
   test("the first screen shows the headline, the three buttons and the manager Dashboard", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/");
+    await goHome(page);
     const hero = page.locator(".rlp-hero");
     await expect(hero.getByRole("heading", { level: 1 })).toBeInViewport();
     await expect(hero.locator(".rlp-hero-actions a")).toHaveCount(3);
@@ -33,7 +42,7 @@ test.describe("Public home", () => {
   test("on a phone the headline and buttons come first and the window follows", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const page = await context.newPage();
-    await page.goto("/");
+    await goHome(page);
     const hero = page.locator(".rlp-hero");
     const heading = await hero.getByRole("heading", { level: 1 }).boundingBox();
     const actions = await hero.locator(".rlp-hero-actions").boundingBox();
@@ -44,14 +53,14 @@ test.describe("Public home", () => {
   });
 
   test("header carries Pricing and Why PropLane as tabs", async ({ page }) => {
-    await page.goto("/");
+    await goHome(page);
     const nav = page.locator("#axis-public-navbar");
     await expect(nav.getByRole("link", { name: /^pricing$/i }).first()).toHaveAttribute("href", "/pricing");
     await expect(nav.getByRole("link", { name: /^why proplane$/i }).first()).toHaveAttribute("href", "/why-proplane");
   });
 
   test("FAQ answers every question and closes the page", async ({ page }) => {
-    await page.goto("/");
+    await goHome(page);
 
     const faq = page.getByRole("region", { name: "Questions, answered", exact: true });
     await expect(faq).toBeVisible();
@@ -83,7 +92,7 @@ test.describe("Public home", () => {
   });
 
   test("pricing teaser reads the three plans from the tier table", async ({ page }) => {
-    await page.goto("/");
+    await goHome(page);
     const pricing = page.locator("#pricing");
     await pricing.scrollIntoViewIfNeeded();
     for (const tier of MANAGER_PLAN_TIERS) {
@@ -96,7 +105,7 @@ test.describe("Public home", () => {
     test.use({ contextOptions: { reducedMotion: "reduce" } });
 
     const openDemo = async (page: import("@playwright/test").Page) => {
-      await page.goto("/");
+      await goHome(page);
       const section = page.locator("#resident-lifecycle-walkthrough");
       await section.scrollIntoViewIfNeeded();
       return section;
@@ -135,7 +144,7 @@ test.describe("Public home", () => {
           if (portal === "Manager portal" && tab === "Communication") {
             await expect(section.locator(".rlp-live-communication")).toBeVisible();
           } else {
-            const frame = section.locator("[data-demo-panel]");
+            const frame = section.locator(".rlp-panel-frame[data-demo-panel]");
             await expect(frame).toHaveAttribute("data-demo-panel", new RegExp(`^${portal.split(" ")[0]!.toLowerCase()}:`));
             await expect(frame.locator("> *")).not.toHaveCount(0);
           }
@@ -177,7 +186,7 @@ test.describe("Public home", () => {
     test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
     test("plays each step on its own, and pauses while the pointer is over the stage", async ({ page }) => {
-      await page.goto("/");
+      await goHome(page);
       const section = page.locator("#resident-lifecycle-walkthrough");
       await section.scrollIntoViewIfNeeded();
       await page.mouse.move(2, 2);
@@ -198,7 +207,7 @@ test.describe("Public home", () => {
     test.use({ contextOptions: { reducedMotion: "reduce" } });
 
     test("the homepage guides the local sample from reply through service and can replay", async ({ page }) => {
-      await page.goto("/");
+      await goHome(page);
       const section = page.locator("#resident-lifecycle-walkthrough");
       await section.scrollIntoViewIfNeeded();
       await expect(section.getByText("Sample demo")).toBeVisible();
@@ -214,7 +223,7 @@ test.describe("Public home", () => {
     });
 
     test("busy transitions preserve drafts and the signing preview, then replay cancels timers", async ({ page }) => {
-      await page.goto("/");
+      await goHome(page);
       const section = page.locator("#resident-lifecycle-walkthrough");
       await section.getByRole("button", { name: "Start the story" }).click();
       const action = (target: string) => section.locator(`[data-guide-target="${target}"]`);
@@ -259,7 +268,7 @@ test.describe("Public home", () => {
     });
 
     test("a phone reply submitted during a chapter transition is kept", async ({ page }) => {
-      await page.goto("/");
+      await goHome(page);
       const section = page.locator("#resident-lifecycle-walkthrough");
       await section.getByRole("button", { name: "Start the story" }).click();
       const action = (target: string) => section.locator(`[data-guide-target="${target}"]`);
@@ -280,7 +289,7 @@ test.describe("Public home", () => {
   test("nothing overflows sideways on a phone", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 320, height: 800 } });
     const page = await context.newPage();
-    await page.goto("/");
+    await goHome(page);
     await page.waitForTimeout(500);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(1);
