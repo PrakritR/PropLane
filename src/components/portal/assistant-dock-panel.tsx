@@ -142,7 +142,7 @@ export function AssistantDockPanel({
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-primary/15 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)]",
+        "flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border bg-card",
         className,
       )}
       data-attr="assistant-dock-panel"
@@ -189,7 +189,7 @@ export function AssistantDockPanel({
         ) : null}
       <div
         ref={scrollRef}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-[18px] py-3.5"
       >
         {!hasConversation && smsTestActive ? (
           <p className="m-auto max-w-sm rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-center text-xs leading-relaxed text-muted">
@@ -219,7 +219,7 @@ export function AssistantDockPanel({
           void sendWithContext();
         }}
         className={cn(
-          "shrink-0 border-t border-border/60 bg-card px-3 pb-3 pt-3",
+          "shrink-0 bg-card px-3.5 pb-3.5 pt-2.5",
           pinnedComposer && "sticky bottom-0 z-10",
         )}
       >

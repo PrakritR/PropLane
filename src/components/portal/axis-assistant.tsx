@@ -308,7 +308,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
       : undefined;
 
   const assistantPanelClassName = cn(
-    "axis-assistant-panel glass-card fixed z-[66] flex h-[min(38rem,calc(100dvh-7.5rem))] flex-col overflow-hidden border border-primary/15 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45),0_0_0_1px_rgba(47,107,255,0.08)] backdrop-blur-xl outline-none",
+    "axis-assistant-panel fixed z-[66] flex h-[min(38rem,calc(100dvh-7.5rem))] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-pop)] outline-none",
     keyboardOpen && "axis-assistant-panel--keyboard",
   );
 
@@ -377,7 +377,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
             <div
               ref={scrollRef}
               className={cn(
-                "flex flex-col overflow-y-auto px-3 py-3 [html[data-native]_&]:py-2",
+                "flex flex-col overflow-y-auto px-[18px] py-3.5 [html[data-native]_&]:py-2",
                 hasConversation ? "min-h-0 flex-1" : "min-h-0 flex-1 [html[data-native]_&]:flex-none",
               )}
             >
@@ -417,7 +417,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
               e.preventDefault();
               void send();
             }}
-            className="shrink-0 border-t border-border/60 bg-background/60 px-3 pb-3 pt-3 backdrop-blur-sm [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom))]"
+            className="shrink-0 bg-card px-3.5 pb-3.5 pt-2.5 [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom))]"
           >
             {pendingAction ? (
               <AssistantPendingActionCard
