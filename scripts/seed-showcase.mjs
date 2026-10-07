@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Showcase seed: the home page's sample story ("Seattle Homes", Avery Morgan,
- * Jordan Rivera, Pacific Plumbing) as REAL rows on the dev/test Supabase
+ * Showcase seed: the home page's sample story ("Seattle Homes", Manager,
+ * Resident, Pacific Plumbing) as REAL rows on the dev/test Supabase
  * project, so a capture script can screenshot every portal page with data.
  *
  *   npm run seed:showcase
@@ -81,7 +81,7 @@ const usdWhole = (n) => `$${Number(n).toLocaleString("en-US")}`;
 
 const MANAGER_EMAIL = "showcase.manager@test.proplane.local";
 const MANAGER_PASSWORD = "ShowcaseManager123!";
-const MANAGER_NAME = "Avery Morgan";
+const MANAGER_NAME = "Manager";
 const WORKSPACE_NAME = "Seattle Homes";
 const RESIDENT_EMAIL = "showcase.resident@test.proplane.local";
 const RESIDENT_PASSWORD = "ShowcaseResident123!";
@@ -334,7 +334,7 @@ const firstOfMonth = (n) => {
 };
 
 const PEOPLE = [
-  { key: "jordan", name: "Jordan Rivera", email: RESIDENT_EMAIL, prop: "showcase-willow", room: "Room 3", bucket: "approved", lease: "signed", income: 62000, current: true, since: firstOfMonth(1), login: true },
+  { key: "jordan", name: "Resident", email: RESIDENT_EMAIL, prop: "showcase-willow", room: "Room 3", bucket: "approved", lease: "signed", income: 62000, current: true, since: firstOfMonth(1), login: true },
   { key: "priya", name: "Priya Nair", email: "priya.nair@example.com", prop: "showcase-willow", room: "Room 1", bucket: "approved", lease: "signed", income: 78000, current: true, since: firstOfMonth(3) },
   { key: "tomas", name: "Tomas Alvarez", email: "tomas.alvarez@example.com", prop: "showcase-willow", room: "Room 2", bucket: "approved", lease: "signed", income: 71000, current: true, since: firstOfMonth(2) },
   { key: "liam", name: "Liam Foster", email: "liam.foster@example.com", prop: "showcase-alder", room: "Room 1", bucket: "approved", lease: "signed", income: 88000, current: true, since: firstOfMonth(2) },
@@ -973,7 +973,20 @@ function tinyPdf(title, lines = []) {
   return Buffer.from(out, "latin1");
 }
 
+const ensuredBuckets = new Set();
+/** Private bucket, created only when the dev/test project lacks it (its migration may not have run there). */
+async function ensureBucket(bucket) {
+  if (ensuredBuckets.has(bucket)) return;
+  ensuredBuckets.add(bucket);
+  const { data } = await supabase.storage.getBucket(bucket);
+  if (data) return;
+  const { error } = await supabase.storage.createBucket(bucket, { public: false });
+  if (error) console.warn(`  (bucket ${bucket} not created: ${error.message})`);
+  else console.log(`  created private bucket ${bucket} on dev/test`);
+}
+
 async function uploadPdf(bucket, objectPath, title, lines) {
+  await ensureBucket(bucket);
   const bytes = tinyPdf(title, lines);
   const { error } = await supabase.storage.from(bucket).upload(objectPath, bytes, { contentType: "application/pdf", upsert: true });
   if (error) {
@@ -1026,7 +1039,7 @@ async function seedRest({ managerUserId, workspaceId }) {
   /* ── Vendor account + directory ── */
   const vendorUserId = await ensureShowcaseUser(VENDOR_EMAIL, VENDOR_PASSWORD, "vendor", {
     managerId: "AXIS-SHOWVENDOR",
-    fullName: "Marcus Lee",
+    fullName: "Vendor",
   });
   console.log(`  vendor ${VENDOR_EMAIL}`);
 
@@ -1042,7 +1055,16 @@ async function seedRest({ managerUserId, workspaceId }) {
   await must(supabase.from("resident_move_in_forms").delete().eq("manager_user_id", managerUserId), "clean forms");
   await must(supabase.from("manager_promotion_records").delete().eq("manager_user_id", managerUserId), "clean promotion");
   await must(supabase.from("manager_documents").delete().eq("manager_user_id", managerUserId), "clean documents");
-  await must(supabase.from("portal_schedule_records").delete().eq("manager_user_id", managerUserId), "clean schedule");
+  // The shared singletons (planned events, partner inquiries) hold other managers' items too: never delete them,
+  // mergeSingleton below only swaps out this manager's own entries.
+  await must(
+    supabase
+      .from("portal_schedule_records")
+      .delete()
+      .eq("manager_user_id", managerUserId)
+      .not("id", "in", "(axis_admin_planned_events_v1,axis_admin_partner_inquiries_v1)"),
+    "clean schedule",
+  );
   await must(supabase.from("vendor_availability_rules").delete().eq("vendor_user_id", vendorUserId), "clean availability");
   await must(supabase.from("portal_inbox_thread_records").delete().eq("owner_user_id", vendorUserId), "clean vendor inbox");
   await must(supabase.from("portal_inbox_thread_records").delete().eq("owner_user_id", person("jordan").userId), "clean resident inbox");
@@ -1107,7 +1129,7 @@ async function seedRest({ managerUserId, workspaceId }) {
       {
         user_id: vendorUserId,
         business_name: "Pacific Plumbing",
-        contact_name: "Marcus Lee",
+        contact_name: "Vendor",
         work_email: "office@pacificplumbing.example",
         work_phone: "(206) 555-0142",
         service_area: "Seattle, WA",
@@ -1478,7 +1500,7 @@ async function seedRest({ managerUserId, workspaceId }) {
   mkTour("zoe", "Zoe Patterson", "zoe.patterson@example.com", "(206) 555-0172", "showcase-maple", "Unit B", at(6, 10), "upcoming");
   mkTour("mina", "Mina Chen", "mina.chen@example.com", "(206) 555-0181", "showcase-maple", "Unit A", at(4, 11), "upcoming");
   mkTour("chris", "Chris Nakamura", "chris.n@example.com", "(206) 555-0107", "showcase-fremont", "Studio", at(-9, 13), "past");
-  mkTour("jordan", "Jordan Rivera", RESIDENT_EMAIL, "(206) 555-0186", "showcase-willow", "Room 3", at(-20, 17, 30), "past");
+  mkTour("jordan", "Resident", RESIDENT_EMAIL, "(206) 555-0186", "showcase-willow", "Room 3", at(-20, 17, 30), "past");
 
   // Service visits are also on the calendar via the work orders above. Tasks (and their calendar mirrors):
   const taskBase = { assignee: { type: "team", id: managerUserId, name: MANAGER_NAME }, completed: false, createdAt: iso(daysFromNow(-5)), updatedAt: iso(daysFromNow(-1)) };
@@ -1698,7 +1720,7 @@ async function seedRest({ managerUserId, workspaceId }) {
       { name: MGR, email: MANAGER_EMAIL },
       "Willow Court",
       [
-        m("Jordan Rivera", "The kitchen faucet is dripping. Water is collecting under the cabinet.", at(-2, 9, 14), true),
+        m(jordan.name, "The kitchen faucet is dripping. Water is collecting under the cabinet.", at(-2, 9, 14), true),
         m(MGR, "A vendor is booked to look at the kitchen faucet on Thursday.", at(-1, 9, 40), false),
       ],
       { unread: true },
