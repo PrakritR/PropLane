@@ -1291,7 +1291,6 @@ export function VendorFinancesPanel({
         <VendorRefundModal
           open={refundPayoutId !== null}
           onClose={() => setRefundPayoutId(null)}
-          feeBps={refundConfig.feeBps}
           initialPayoutId={refundPayoutId}
           onDone={() => {
             setRefundPayoutId(null);
