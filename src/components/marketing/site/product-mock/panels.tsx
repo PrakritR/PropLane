@@ -321,14 +321,6 @@ const LEASE_TABS = [
   { id: "completed" as const, label: "Signed" },
 ];
 
-/** Same tone map `pro-leases.tsx` draws its pipeline progress segments in. */
-const LEASE_SEGMENT_TONE: Record<LeaseFixtureRow["bucket"], string> = {
-  manager: "bg-amber-400",
-  resident: "bg-sky-400",
-  signed: "bg-violet-400",
-  completed: "bg-emerald-500",
-};
-
 export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
   const world = worldFor(story);
   const jordan = world.story.applicationApproved ? world.leases[0]!.bucket : null;
@@ -344,7 +336,6 @@ export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
     for (const r of world.leases) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
   }, [world]);
-  const total = world.leases.length;
   const rows = useMemo(
     () => filterBySearch(world.leases.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.place}`.toLowerCase() })), search),
     [world, bucket, search],
@@ -355,22 +346,6 @@ export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
       <PortalSidebarFixture active="leases" />
       <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Leases">
-          <div className="mb-2 rounded-xl border border-border bg-card px-3.5 py-2.5">
-            <p className="text-[13px] font-medium text-foreground">{counts.completed} of {total} leases signed</p>
-            <div className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-accent/40">
-              {(["manager", "resident", "signed", "completed"] as const).map((id) =>
-                counts[id] > 0 ? (
-                  <span
-                    key={id}
-                    className={LEASE_SEGMENT_TONE[id]}
-                    style={{ width: `${(counts[id] / total) * 100}%` }}
-                    role="img"
-                    aria-label={`${LEASE_TABS.find((t) => t.id === id)?.label}: ${counts[id]}`}
-                  />
-                ) : null,
-              )}
-            </div>
-          </div>
           <PortalListControlStack
             variant="command"
             destinationRow={

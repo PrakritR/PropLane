@@ -60,10 +60,9 @@ describe("product mock panels — tabs actually change the rows", () => {
     expect(screen.getByText("Dana Reyes")).toBeInTheDocument();
   });
 
-  it("Leases: the pipeline progress bar reads N of TOTAL signed, both counted from the rows", () => {
+  it("Leases: no pipeline progress bar on the home page (captain, Oct 7)", () => {
     render(<LeasesPanel />);
-    const signed = LEASE_ROWS.filter((r) => r.bucket === "completed").length;
-    expect(screen.getByText(`${signed} of ${LEASE_ROWS.length} leases signed`)).toBeInTheDocument();
+    expect(screen.queryByText(/leases signed/)).toBeNull();
   });
 
   it("Payments: Overdue shows unpaid September rent; Paid shows charges with a paid date instead", () => {
