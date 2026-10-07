@@ -4,10 +4,43 @@ import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 test.describe("Public home", () => {
   test("loads the landing hero and both doors", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1, name: /from first question to feeling at home/i })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /your ai property management assistant/i })).toBeVisible();
     const hero = page.locator(".rlp-hero");
     await expect(hero.getByRole("link", { name: /start free/i })).toHaveAttribute("href", "/auth/create-account");
     await expect(hero.getByRole("link", { name: /book a demo/i })).toHaveAttribute("href", "/contact?tab=schedule");
+    await expect(hero.locator(".rlp-hero-actions a")).toHaveCount(3);
+    // The demo lives in the hero: there is no separate "One conversation" section any more.
+    await expect(page.getByRole("heading", { name: /one conversation\. every next step/i })).toHaveCount(0);
+  });
+
+  test("the first screen shows the headline, the three buttons and the manager Dashboard", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    const hero = page.locator(".rlp-hero");
+    await expect(hero.getByRole("heading", { level: 1 })).toBeInViewport();
+    await expect(hero.locator(".rlp-hero-actions a")).toHaveCount(3);
+    for (const link of await hero.locator(".rlp-hero-actions a").all()) await expect(link).toBeInViewport();
+    const window = hero.locator("#resident-lifecycle-workspace");
+    await expect(window).toBeInViewport({ ratio: 0.6 });
+    await expect(hero.getByRole("button", { name: "Dashboard", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(hero.getByText("Welcome back")).toBeInViewport();
+    // The sidebar's group label comes before the item it labels.
+    const label = await hero.getByText("WORKSPACE", { exact: true }).boundingBox();
+    const dashboard = await hero.getByRole("button", { name: "Dashboard", exact: true }).boundingBox();
+    expect(label!.y).toBeLessThan(dashboard!.y);
+  });
+
+  test("on a phone the headline and buttons come first and the window follows", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    await page.goto("/");
+    const hero = page.locator(".rlp-hero");
+    const heading = await hero.getByRole("heading", { level: 1 }).boundingBox();
+    const actions = await hero.locator(".rlp-hero-actions").boundingBox();
+    const window = await hero.locator("#resident-lifecycle-workspace").boundingBox();
+    expect(heading!.y).toBeLessThan(actions!.y);
+    expect(actions!.y + actions!.height).toBeLessThanOrEqual(window!.y + 1);
+    await context.close();
   });
 
   test("header carries Pricing and Why PropLane as tabs", async ({ page }) => {
@@ -129,10 +162,12 @@ test.describe("Public home", () => {
       await expect(section.getByRole("button", { name: "Tours", exact: true })).toHaveAttribute("aria-current", "page");
     });
 
-    test("reduced motion never autoplays", async ({ page }) => {
+    test("reduced motion never autoplays: the Dashboard stays until the story is started", async ({ page }) => {
       const section = await openDemo(page);
       await page.mouse.move(2, 2);
       await page.waitForTimeout(4500);
+      await expect(section.getByRole("button", { name: "Dashboard", exact: true })).toHaveAttribute("aria-current", "page");
+      await section.getByRole("button", { name: "Start the story" }).click();
       await expect(section.getByRole("tab", { name: /Message$/ })).toHaveAttribute("aria-selected", "true");
       await expect(section.locator('[data-guide-target="suggest"]')).toHaveAttribute("data-guide-active", "true");
     });
@@ -167,6 +202,7 @@ test.describe("Public home", () => {
       const section = page.locator("#resident-lifecycle-walkthrough");
       await section.scrollIntoViewIfNeeded();
       await expect(section.getByText("Sample demo")).toBeVisible();
+      await section.getByRole("button", { name: "Start the story" }).click();
       for (const target of ["suggest", "send", "accept-tour", "approve", "send-lease", "open-lease", "resident-sign", "manager-sign", "service"]) {
         const action = section.locator(`[data-guide-target="${target}"]`);
         await expect(action).toHaveAttribute("data-guide-active", "true");
@@ -180,6 +216,7 @@ test.describe("Public home", () => {
     test("busy transitions preserve drafts and the signing preview, then replay cancels timers", async ({ page }) => {
       await page.goto("/");
       const section = page.locator("#resident-lifecycle-walkthrough");
+      await section.getByRole("button", { name: "Start the story" }).click();
       const action = (target: string) => section.locator(`[data-guide-target="${target}"]`);
       const draft = section.locator(".rlp-compose input[aria-label='Write a reply']");
       const prepared = "Yes, Room 3 is available. Thursday at 5:30 PM Pacific is offered for a tour. Reply YES to confirm that time.";
@@ -224,6 +261,7 @@ test.describe("Public home", () => {
     test("a phone reply submitted during a chapter transition is kept", async ({ page }) => {
       await page.goto("/");
       const section = page.locator("#resident-lifecycle-walkthrough");
+      await section.getByRole("button", { name: "Start the story" }).click();
       const action = (target: string) => section.locator(`[data-guide-target="${target}"]`);
       const reply = "I can visit Thursday after work.";
       const phoneComposer = section.locator(".rl-phone-composer");

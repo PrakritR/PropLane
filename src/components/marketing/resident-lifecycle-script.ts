@@ -33,7 +33,7 @@ export const PORTAL_META: Record<
   manager: {
     label: "Manager portal",
     product: "Property",
-    workspace: "Willow Court LLC",
+    workspace: "Seattle Homes",
     profile: { name: "Avery Morgan", initials: "AM" },
     assistant: true,
     workspaceLabel: "Manager workspace",
@@ -44,7 +44,7 @@ export const PORTAL_META: Record<
   resident: {
     label: "Resident portal",
     product: "Resident",
-    workspace: "61 Willow Court",
+    workspace: "Seattle Homes",
     profile: { name: "Jordan Rivera", initials: "JR" },
     assistant: false,
     workspaceLabel: "Resident portal",
@@ -54,7 +54,7 @@ export const PORTAL_META: Record<
   vendor: {
     label: "Vendor portal",
     product: "Vendor",
-    workspace: "Northwind Plumbing",
+    workspace: "Pacific Plumbing",
     profile: { name: "Marcus Lee", initials: "ML" },
     assistant: true,
     workspaceLabel: "Vendor portal",
@@ -62,6 +62,9 @@ export const PORTAL_META: Record<
     opening: "A service offer arrives",
   },
 };
+
+/** The manager's Communication list: Jordan's thread and one other prospect, both at homes in the portfolio. */
+export const COMMUNICATION_THREADS = ["Jordan Rivera", "Mina Chen"] as const;
 
 export const SUGGESTED_REPLY =
   "Yes, Room 3 is available. Thursday at 5:30 PM Pacific is offered for a tour. Reply YES to confirm that time.";
@@ -190,8 +193,12 @@ export function managerScript(beat: number, statePhase: number, sentReply: strin
     chapter,
     messages,
     suggestedReply: phase >= 1,
+    tourOffered: phase >= 2,
     tourAccepted: phase >= 3,
+    applicationSubmitted: phase >= 3,
     applicationApproved: phase >= 4,
+    rentPaid: stageIndex >= rent,
+    vendorBooked: stageIndex >= repair,
     leaseStep: (phase >= 8 ? 3 : phase >= 7 ? 2 : phase >= 5 ? 1 : 0) as 0 | 1 | 2 | 3,
     serviceRecord: phase >= 9 ? SERVICE_RECORD : null,
   };
@@ -212,7 +219,7 @@ export type PhoneScript = {
   items: PhoneItem[];
 };
 
-const JORDAN_PHONE = { caption: "Jordan’s phone", initials: "AM", name: "Avery Morgan", sub: "Willow Court" };
+const JORDAN_PHONE = { caption: "Jordan’s phone", initials: "AM", name: "Avery Morgan", sub: "Seattle Homes" };
 const VENDOR_PHONE = { caption: "Marcus’s phone", initials: "PL", name: "PropLane", sub: "Service offers" };
 
 /** Resident stage id -> what Jordan's phone shows (the manager's side of the thread). */
@@ -252,11 +259,11 @@ const RESIDENT_PHONE: Record<string, PhoneItem[]> = {
 const VENDOR_PHONE_ITEMS: Record<string, PhoneItem[]> = {
   offer: [
     { kind: "time", text: "New service offer" },
-    { kind: "in", text: "New service in Oakland, CA: kitchen faucet leak. Reply with your quote and when you can come." },
+    { kind: "in", text: "New service in Wallingford, Seattle: kitchen faucet leak. Reply with your quote and when you can come." },
   ],
   quote: [
     { kind: "time", text: "New service offer" },
-    { kind: "in", text: "New service in Oakland, CA: kitchen faucet leak. Reply with your quote and when you can come." },
+    { kind: "in", text: "New service in Wallingford, Seattle: kitchen faucet leak. Reply with your quote and when you can come." },
     { kind: "out", text: "I can come Thursday at 9:00 AM. $180." },
     { kind: "in", text: "Quote received. Avery will confirm." },
   ],

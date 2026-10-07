@@ -16,7 +16,7 @@
  * `shared.tsx` and `docs/agents/marketing-mocks.md`).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
   CalendarDays,
@@ -51,16 +51,7 @@ import {
   InboxTwoPane,
 } from "@/components/portal/portal-inbox-ui";
 import {
-  APPLICATION_ROWS,
   COMM_CONVERSATIONS,
-  DASHBOARD_ATTENTION,
-  DASHBOARD_KPIS,
-  DASHBOARD_PROPERTIES,
-  DASHBOARD_UPCOMING,
-  LEASE_ROWS,
-  PAYMENT_ROWS,
-  SERVICE_ROWS,
-  TOUR_ROWS,
   type ApplicationFixtureRow,
   type CommConversationFixture,
   type LeaseFixtureRow,
@@ -69,6 +60,16 @@ import {
   type TourFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
 import { FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
+
+/** A panel mounted while the story is running keeps showing Jordan's row: when the
+ * story moves his record to another tab, the panel follows it. */
+function useFollow<T>(target: T | null, set: (value: T) => void) {
+  useEffect(() => {
+    if (target !== null) set(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+}
 
 /** The real kebab: `RowSelectCheckbox` only renders `RecordActionMenu` when
  * the enclosing surface got `bulkActions` — two static, no-op actions is
@@ -96,8 +97,11 @@ const TOUR_TABS = [
   { id: "past" as const, label: "Past" },
 ];
 
-export function ToursPanel() {
-  const [bucket, setBucket] = useState<TourFixtureRow["bucket"]>("upcoming");
+export function ToursPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.tourOffered ? (world.story.tourAccepted ? "upcoming" : "pending") : null;
+  const [bucket, setBucket] = useState<TourFixtureRow["bucket"]>(jordan ?? "upcoming");
+  useFollow<TourFixtureRow["bucket"]>(jordan, setBucket);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<TourFixtureRow | null>(null);
   const [adding, setAdding] = useState(false);
@@ -106,12 +110,12 @@ export function ToursPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { pending: 0, upcoming: 0, past: 0 };
-    for (const r of TOUR_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
+    for (const r of world.tours) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
-  }, []);
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(TOUR_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.guest} ${r.place}`.toLowerCase() })), search),
-    [bucket, search],
+    () => filterBySearch(world.tours.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.guest} ${r.place}`.toLowerCase() })), search),
+    [world, bucket, search],
   );
 
   return (
@@ -199,8 +203,11 @@ const APPLICATION_TABS = [
   { id: "rejected" as const, label: "Rejected" },
 ];
 
-export function ApplicationsPanel() {
-  const [bucket, setBucket] = useState<ApplicationFixtureRow["bucket"]>("pending");
+export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.applicationSubmitted ? (world.story.applicationApproved ? "approved" : "pending") : null;
+  const [bucket, setBucket] = useState<ApplicationFixtureRow["bucket"]>(jordan ?? "pending");
+  useFollow<ApplicationFixtureRow["bucket"]>(jordan, setBucket);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<ApplicationFixtureRow | null>(null);
   const [adding, setAdding] = useState(false);
@@ -209,12 +216,12 @@ export function ApplicationsPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { incomplete: 0, pending: 0, approved: 0, rejected: 0 };
-    for (const r of APPLICATION_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
+    for (const r of world.applications) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
-  }, []);
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(APPLICATION_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.name} ${r.property}`.toLowerCase() })), search),
-    [bucket, search],
+    () => filterBySearch(world.applications.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.name} ${r.property}`.toLowerCase() })), search),
+    [world, bucket, search],
   );
 
   return (
@@ -308,8 +315,11 @@ const LEASE_SEGMENT_TONE: Record<LeaseFixtureRow["bucket"], string> = {
   completed: "bg-emerald-500",
 };
 
-export function LeasesPanel() {
-  const [bucket, setBucket] = useState<LeaseFixtureRow["bucket"]>("signed");
+export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.applicationApproved ? world.leases[0]!.bucket : null;
+  const [bucket, setBucket] = useState<LeaseFixtureRow["bucket"]>(jordan ?? "signed");
+  useFollow<LeaseFixtureRow["bucket"]>(jordan, setBucket);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<LeaseFixtureRow | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -317,13 +327,13 @@ export function LeasesPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { manager: 0, resident: 0, signed: 0, completed: 0 };
-    for (const r of LEASE_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
+    for (const r of world.leases) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
-  }, []);
-  const total = LEASE_ROWS.length;
+  }, [world]);
+  const total = world.leases.length;
   const rows = useMemo(
-    () => filterBySearch(LEASE_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.place}`.toLowerCase() })), search),
-    [bucket, search],
+    () => filterBySearch(world.leases.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.place}`.toLowerCase() })), search),
+    [world, bucket, search],
   );
 
   return (
@@ -409,8 +419,11 @@ const PAYMENT_TABS = [
   { id: "paid" as const, label: "Paid" },
 ];
 
-export function PaymentsPanel() {
-  const [bucket, setBucket] = useState<PaymentFixtureRow["bucket"]>("overdue");
+export function PaymentsPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.leaseStep === 3 ? (world.story.rentPaid ? "paid" : "pending") : null;
+  const [bucket, setBucket] = useState<PaymentFixtureRow["bucket"]>(jordan ?? "overdue");
+  useFollow<PaymentFixtureRow["bucket"]>(jordan, setBucket);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<PaymentFixtureRow | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -418,12 +431,12 @@ export function PaymentsPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { pending: 0, overdue: 0, paid: 0 };
-    for (const r of PAYMENT_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
+    for (const r of world.payments) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
-  }, []);
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(PAYMENT_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.property}`.toLowerCase() })), search),
-    [bucket, search],
+    () => filterBySearch(world.payments.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.property}`.toLowerCase() })), search),
+    [world, bucket, search],
   );
 
   return (
@@ -490,8 +503,11 @@ const SERVICE_TABS = [
   { id: "declined" as const, label: "Declined" },
 ];
 
-export function ServicesPanel() {
-  const [state, setState] = useState<ServiceFixtureRow["state"]>("scheduled");
+export function ServicesPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.service === "none" ? null : world.services[0]!.state;
+  const [state, setState] = useState<ServiceFixtureRow["state"]>(jordan ?? "scheduled");
+  useFollow<ServiceFixtureRow["state"]>(jordan, setState);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<ServiceFixtureRow | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -499,12 +515,12 @@ export function ServicesPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { open: 0, scheduled: 0, done: 0, declined: 0 };
-    for (const r of SERVICE_ROWS) c[r.state] = (c[r.state] ?? 0) + 1;
+    for (const r of world.services) c[r.state] = (c[r.state] ?? 0) + 1;
     return c;
-  }, []);
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(SERVICE_ROWS.filter((r) => r.state === state).map((r) => ({ ...r, search: `${r.title} ${r.resident} ${r.property}`.toLowerCase() })), search),
-    [state, search],
+    () => filterBySearch(world.services.filter((r) => r.state === state).map((r) => ({ ...r, search: `${r.title} ${r.resident} ${r.property}`.toLowerCase() })), search),
+    [world, state, search],
   );
 
   return (
@@ -561,9 +577,10 @@ export function ServicesPanel() {
 
 /* ───────────────────────────── Dashboard (hero) ───────────────────────────── */
 
-export function DashboardPanel() {
+export function DashboardPanel({ story }: { story?: DemoStory } = {}) {
   const [nowMs] = useState(() => Date.now());
-  const propertyCards: PortfolioPropertyCardData[] = DASHBOARD_PROPERTIES.map((p) => ({
+  const { dashboard } = worldFor(story);
+  const propertyCards: PortfolioPropertyCardData[] = dashboard.properties.map((p) => ({
     key: p.id,
     stage: "listed",
     title: p.title,
@@ -580,14 +597,14 @@ export function DashboardPanel() {
       <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
         <p className="mb-3 text-[15px] font-bold text-foreground">Welcome back</p>
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <KpiCard label="Occupancy" value={DASHBOARD_KPIS.occupancy.value} unit={DASHBOARD_KPIS.occupancy.unit} href="#" dataAttr="dashboard-metric-occupied" />
-          <KpiCard label="Rent collected" value={DASHBOARD_KPIS.rentCollected.value} unit={DASHBOARD_KPIS.rentCollected.unit} href="#" dataAttr="dashboard-metric-collected" />
-          <KpiCard label="Open requests" value={DASHBOARD_KPIS.openRequests.value} unit={DASHBOARD_KPIS.openRequests.unit} href="#" dataAttr="dashboard-metric-open-requests" />
-          <KpiCard label="Applications ready" value={DASHBOARD_KPIS.applicationsReady.value} unit={DASHBOARD_KPIS.applicationsReady.unit} href="#" dataAttr="dashboard-metric-applications" />
+          <KpiCard label="Occupancy" value={dashboard.occupancy.value} unit={dashboard.occupancy.unit} href="#" dataAttr="dashboard-metric-occupied" />
+          <KpiCard label="Rent collected" value={dashboard.rentCollected.value} unit={dashboard.rentCollected.unit} href="#" dataAttr="dashboard-metric-collected" />
+          <KpiCard label="Open requests" value={dashboard.openRequests.value} unit={dashboard.openRequests.unit} href="#" dataAttr="dashboard-metric-open-requests" />
+          <KpiCard label="Applications ready" value={dashboard.applicationsReady.value} unit={dashboard.applicationsReady.unit} href="#" dataAttr="dashboard-metric-applications" />
         </div>
         <div className="mb-4 grid gap-3 sm:grid-cols-2">
-          <AttentionPanel rows={DASHBOARD_ATTENTION} />
-          <UpcomingPanel rows={DASHBOARD_UPCOMING} nowMs={nowMs} calendarHref="#" />
+          <AttentionPanel rows={dashboard.attention} />
+          <UpcomingPanel rows={dashboard.upcoming} nowMs={nowMs} calendarHref="#" />
         </div>
         <PortfolioPropertiesSection cards={propertyCards} basePath="/portal" />
       </div>

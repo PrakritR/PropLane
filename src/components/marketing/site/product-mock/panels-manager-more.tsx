@@ -14,7 +14,7 @@
  * `pro-vendors-panel.tsx`.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
   CalendarDays,
@@ -47,20 +47,17 @@ import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { type GridBand, type GridWindow } from "@/lib/calendar-grid";
 import {
-  CALENDAR_ITEMS,
   CALENDAR_NOW_MIN,
   CALENDAR_TODAY,
   CALENDAR_WEEK,
   CATALOG_VENDORS,
-  PROPERTY_ROWS,
-  RESIDENT_ROWS,
-  VENDOR_ROWS,
   type CalendarFixtureItem,
   type PropertyFixtureRow,
   type ResidentFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
 import { countBy, FixtureListScreen, FixtureMenuItems, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
 import { FixtureField, FixtureSheet, PortalSidebarFixture, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
 
 /* ───────────────────────────── Properties ───────────────────────────── */
 
@@ -80,7 +77,8 @@ function PropertyTile() {
   );
 }
 
-export function PropertiesPanel() {
+export function PropertiesPanel({ story }: { story?: DemoStory } = {}) {
+  const { properties: PROPERTY_ROWS } = worldFor(story);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<PropertyFixtureRow | null>(null);
@@ -89,7 +87,7 @@ export function PropertiesPanel() {
   const counts = useMemo(() => {
     const c = countBy(PROPERTY_ROWS, (r) => r.stage, ["listed", "unlisted", "draft"]);
     return { all: PROPERTY_ROWS.length, ...c };
-  }, []);
+  }, [PROPERTY_ROWS]);
   const rows = PROPERTY_ROWS.filter((r) => (tab === "all" || r.stage === tab) && matchesSearch(search, r.title, r.street, r.neighborhood));
 
   return (
@@ -149,13 +147,18 @@ const RESIDENT_TABS = [
   { id: "past", label: "Past" },
 ];
 
-export function ResidentsPanel() {
-  const [tab, setTab] = useState<ResidentFixtureRow["tab"]>("current");
+export function ResidentsPanel({ story }: { story?: DemoStory } = {}) {
+  const { residents: RESIDENT_ROWS, story: progress } = worldFor(story);
+  const jordan = progress.applicationSubmitted ? (progress.applicationApproved && progress.leaseStep === 3 ? "current" : "potential") : null;
+  const [tab, setTab] = useState<ResidentFixtureRow["tab"]>(jordan ?? "current");
+  useEffect(() => {
+    if (jordan !== null) setTab(jordan);
+  }, [jordan]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<ResidentFixtureRow | null>(null);
   const { show, node: toastNode } = useFixtureToast();
 
-  const counts = useMemo(() => countBy(RESIDENT_ROWS, (r) => r.tab, ["potential", "current", "past"]), []);
+  const counts = useMemo(() => countBy(RESIDENT_ROWS, (r) => r.tab, ["potential", "current", "past"]), [RESIDENT_ROWS]);
   const rows = RESIDENT_ROWS.filter((r) => r.tab === tab && matchesSearch(search, r.name, r.email, r.place));
 
   return (
@@ -265,7 +268,8 @@ function clock(min: number): string {
   return `${hour}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
 }
 
-export function CalendarPanel() {
+export function CalendarPanel({ story }: { story?: DemoStory } = {}) {
+  const { calendar: CALENDAR_ITEMS } = worldFor(story);
   const [tab, setTab] = useState("all");
   const [view, setView] = useState("week");
   const [search, setSearch] = useState("");
@@ -275,12 +279,12 @@ export function CalendarPanel() {
   const counts = useMemo(() => {
     const c = countBy(CALENDAR_ITEMS, (r) => r.kind, ["tour", "service", "task"]);
     return { all: CALENDAR_ITEMS.length, tours: c.tour, services: c.service, tasks: c.task };
-  }, []);
+  }, [CALENDAR_ITEMS]);
 
   const items = useMemo(() => {
     const kind = KIND_BY_TAB[tab];
     return CALENDAR_ITEMS.filter((i) => (!kind || i.kind === kind) && matchesSearch(search, i.title, i.place)).map(toGridItem);
-  }, [tab, search]);
+  }, [CALENDAR_ITEMS, tab, search]);
 
   // Weekdays are open 9 to 5 by default; Saturday carries a typed tour window.
   const bandsByDate = useMemo(() => {
@@ -409,7 +413,8 @@ const VENDOR_TABS = [
   { id: "catalog", label: "PropLane vendors" },
 ];
 
-export function VendorsPanel() {
+export function VendorsPanel({ story }: { story?: DemoStory } = {}) {
+  const { vendors: VENDOR_ROWS } = worldFor(story);
   const [tab, setTab] = useState("yours");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<{ title: string; fields: Array<[string, string]> } | null>(null);

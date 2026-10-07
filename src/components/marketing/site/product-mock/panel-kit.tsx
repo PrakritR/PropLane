@@ -159,7 +159,7 @@ export function FixtureInboxScreen({
   searchPlaceholder?: string;
 }) {
   const [segment, setSegment] = useState<"active" | "archived">("active");
-  const [selectedId, setSelectedId] = useState(conversations.find((c) => c.segment === "active")?.id ?? conversations[0]!.id);
+  const [selectedId, setSelectedId] = useState(conversations.find((c) => c.segment === "active")?.id ?? conversations[0]?.id ?? "");
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [sent, setSent] = useState<Record<string, { id: string; author: string; body: string; at: string; direction: "outbound" }[]>>({});

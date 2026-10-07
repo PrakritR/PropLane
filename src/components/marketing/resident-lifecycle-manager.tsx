@@ -11,7 +11,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Check, ChevronRight, MessageSquare, MoreHorizontal, Paperclip, Plus, Search, Send, Sparkles, X } from "lucide-react";
 import { ResidentLifecycleDialog } from "./resident-lifecycle-dialog";
-import { SUGGESTED_REPLY, type Chapter, type SampleMessage } from "./resident-lifecycle-script";
+import { COMMUNICATION_THREADS, SUGGESTED_REPLY, type Chapter, type SampleMessage } from "./resident-lifecycle-script";
 
 export type { Chapter, SampleMessage };
 
@@ -57,7 +57,7 @@ export function ManagerCommunication({
   const [thread, setThread] = useState("Jordan Rivera");
   const [draft, setDraft] = useState(initialDraft);
   const [minaMessages, setMinaMessages] = useState<SampleMessage[]>([
-    { from: "resident", text: "Could I tour 14 Cedar Lane on Friday?", stage: "message" },
+    { from: "resident", text: "Could I tour Maple Duplex on Friday?", stage: "message" },
     { from: "manager", text: "Friday at 11:00 AM is available.", stage: "message" },
   ]);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -99,7 +99,7 @@ export function ManagerCommunication({
     }
   };
   const showJordan = "Jordan Rivera 61 Willow Court Room 3".toLowerCase().includes(query.toLowerCase());
-  const showMina = "Mina Chen 14 Cedar Lane Tour question".toLowerCase().includes(query.toLowerCase());
+  const showMina = "Mina Chen Maple Duplex Tour question".toLowerCase().includes(query.toLowerCase());
   const matches = Number(showJordan) + Number(showMina);
 
   return (
@@ -130,7 +130,7 @@ export function ManagerCommunication({
             className={tab === label ? "rlp-tab-active" : ""}
             onClick={() => setTab(label)}
           >
-            {label} <small>{label === "Active" ? 2 : 0}</small>
+            {label} <small>{label === "Active" ? COMMUNICATION_THREADS.length : 0}</small>
           </button>
         ))}
       </div>
@@ -148,12 +148,12 @@ export function ManagerCommunication({
             <X aria-hidden />
           </button>
         ) : null}
-        <span>{tab === "Active" ? 2 : 0} records</span>
+        <span>{tab === "Active" ? COMMUNICATION_THREADS.length : 0} records</span>
       </div>
       {searchOpen ? (
         <div className="rlp-search-suggestions">
           <strong>Find a record</strong>
-          {["Jordan Rivera", "Mina Chen"].map((name) => (
+          {COMMUNICATION_THREADS.map((name) => (
             <button
               type="button"
               key={name}
@@ -187,7 +187,7 @@ export function ManagerCommunication({
                 <button type="button" className={thread === "Mina Chen" ? "rlp-contact-active" : ""} onClick={() => setThread("Mina Chen")}>
                   <span>MC</span>
                   <strong>Mina Chen</strong>
-                  <small>14 Cedar Lane · Tour question</small>
+                  <small>Maple Duplex · Tour question</small>
                 </button>
                 <button type="button" className="rlp-contact-more" aria-label="More actions for Mina Chen" onClick={() => {}}>
                   <MoreHorizontal aria-hidden />
@@ -201,7 +201,7 @@ export function ManagerCommunication({
               <span>{thread === "Jordan Rivera" ? "JR" : "MC"}</span>
               <div>
                 <strong>{thread}</strong>
-                <small>{thread === "Jordan Rivera" ? "Prospect · 61 Willow Court" : "Prospect · 14 Cedar Lane"}</small>
+                <small>{thread === "Jordan Rivera" ? "Prospect · 61 Willow Court" : "Prospect · Maple Duplex"}</small>
               </div>
               {iconAction("Conversation actions", <MoreHorizontal aria-hidden />, () =>
                 setMenu(menu === "conversation" ? null : "conversation"),
@@ -400,7 +400,7 @@ export function ManagerActionStrip({
           <small>Jordan Rivera · Room 3 · Resident request</small>
           <strong>
             {serviceRecord.title}
-            {vendorOffered ? " · Offered to Northwind Plumbing" : " · New in the queue"}
+            {vendorOffered ? " · Pacific Plumbing booked Thu 9:00 AM" : " · New in the queue"}
           </strong>
         </div>
       </div>

@@ -3,7 +3,9 @@
 /**
  * The home page hero and the guided demo beneath it (captain 2026-10-06).
  *
- * The hero is Akhil's. The demo plays his guided sample (a prospect's message
+ * The hero is Akhil's headline and three buttons, with the demo itself in the
+ * same first screen, directly under them (the manager portal's Dashboard shows
+ * first, then the story plays). The demo plays his guided sample (a prospect's message
  * through tour, application, lease and move-in) and extends it into a demo
  * "through the platform": a Manager, Resident and Vendor portal switcher, a
  * tab per stage with a progress bar that fills while the stage plays, autoplay
@@ -28,11 +30,13 @@ import Link from "next/link";
 import { AppStoreBadge } from "@/components/marketing/app-store-badge";
 import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
+import { managerStory, residentStory, vendorStory, worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
 import { ManagerActionStrip, ManagerCommunication } from "./resident-lifecycle-manager";
 import { ResidentLifecyclePhone } from "./resident-lifecycle-phone";
 import { ResidentLifecycleAtmosphere } from "./resident-lifecycle-atmosphere";
 import { ResidentLifecycleWorkspace } from "./resident-lifecycle-workspace";
 import {
+  COMMUNICATION_THREADS,
   MANAGER_DONE_BEAT,
   MANAGER_STEPS,
   PORTAL_META,
@@ -75,6 +79,8 @@ export function ResidentLifecyclePrototypes() {
   const [extra, setExtra] = useState<SampleMessage[]>([]);
   const [sentReply, setSentReply] = useState(SUGGESTED_REPLY);
   const [tabOverride, setTabOverride] = useState<string | null>(null);
+  /** The first three seconds show the manager's Dashboard before the story starts. */
+  const [intro, setIntro] = useState(true);
   const [exploring, setExploring] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activity, setActivity] = useState<string[]>([]);
@@ -99,10 +105,27 @@ export function ResidentLifecyclePrototypes() {
   const statePhase = pending !== null ? Math.max(beat, pending + 1) : beat;
   const script = portal === "manager" ? managerScript(beat, statePhase, sentReply) : null;
   const activeStep = portal === "manager" ? current.step : undefined;
-  const activeTab = tabOverride ?? current.tab;
+  const introShowing = intro && portal === "manager" && beat === 0;
+  const activeTab = tabOverride ?? (introShowing ? "dashboard" : current.tab);
+  const story: DemoStory =
+    portal === "manager" && script
+      ? managerStory({
+          tourOffered: script.tourOffered,
+          tourAccepted: script.tourAccepted,
+          applicationSubmitted: script.applicationSubmitted,
+          applicationApproved: script.applicationApproved,
+          leaseStep: script.leaseStep,
+          rentPaid: script.rentPaid,
+          vendorBooked: script.vendorBooked,
+          hasServiceRecord: Boolean(script.serviceRecord),
+        })
+      : portal === "resident"
+        ? residentStory(stage.id)
+        : vendorStory(stage.id);
+  const sidebarBadges = portal === "manager" ? { ...worldFor(story).badges, communication: COMMUNICATION_THREADS.length } : undefined;
   const playing = !reduced && !exploring && !hovered && !focused && inView;
-  const guideTarget = exploring || busy ? undefined : activeStep?.target;
-  const guideInstruction = exploring || busy ? undefined : activeStep?.instruction;
+  const guideTarget = exploring || busy || introShowing ? undefined : activeStep?.target;
+  const guideInstruction = exploring || busy || introShowing ? undefined : activeStep?.instruction;
   const finished = portal === "manager" && beat >= MANAGER_DONE_BEAT;
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
@@ -159,6 +182,7 @@ export function ResidentLifecyclePrototypes() {
   const resetStory = (nextPortal: DemoPortal) => {
     clearTimers();
     elapsed.current = 0;
+    setIntro(nextPortal === "manager" && nextPortal !== portal);
     setPortal(nextPortal);
     setBeat(0);
     setPending(null);
@@ -176,6 +200,7 @@ export function ResidentLifecyclePrototypes() {
   };
   const jumpToStage = (index: number) => {
     clearTimers();
+    setIntro(false);
     setExploring(false);
     setGuideEntered(true);
     setJumpVersion((value) => value + 1);
@@ -184,6 +209,11 @@ export function ResidentLifecyclePrototypes() {
   const selectTab = (tab: string) => {
     setTabOverride(tab);
     setExploring(true);
+    setIntro(false);
+  };
+  const startStory = () => {
+    elapsed.current = 0;
+    setIntro(false);
   };
 
   /** Take a guided step (or any step ahead of the current one: it implies the ones before it). */
@@ -226,6 +256,11 @@ export function ResidentLifecyclePrototypes() {
     elapsed.current += dt;
     const spent = elapsed.current;
     const bar = stageTabsRef.current?.querySelector<HTMLElement>('[data-state="active"]');
+    if (introShowing) {
+      bar?.style.setProperty("--p", "0");
+      if (spent >= BEAT_MS) startStory();
+      return;
+    }
     bar?.style.setProperty("--p", String(Math.min(1, (beat - stage.first + Math.min(spent / BEAT_MS, 0.97)) / stage.count)));
     if (activeStep) {
       if (busyRef.current || spent < CLICK_AT_MS) return;
@@ -259,19 +294,26 @@ export function ResidentLifecyclePrototypes() {
   const messages = [...(script?.messages ?? []), ...extra];
   const repairStage = TRACKS.manager.stages.findIndex((item) => item.id === "repair");
   const isCommunication = portal === "manager" && activeTab === "communication";
-  const guideText = exploring ? "Explore the sample at your pace" : busy ? activity.at(-1) : (activeStep?.instruction ?? current.caption);
+  const guideText = exploring
+    ? "Explore the sample at your pace"
+    : busy
+      ? activity.at(-1)
+      : introShowing
+        ? "Your workspace at a glance"
+        : (activeStep?.instruction ?? current.caption);
   const stageTabId = (id: string) => `demo-stage-${portal}-${id}`;
 
   return (
     <div className="rlp-page">
-      <section className="rlp-hero" aria-labelledby="rlp-hero-title">
+      <section
+        id="resident-lifecycle-walkthrough"
+        ref={sectionRef}
+        className="rlp-hero"
+        aria-labelledby="rlp-hero-title"
+      >
         <ResidentLifecycleAtmosphere />
         <div className="rlp-hero-copy">
-          <h1 id="rlp-hero-title">
-            Your AI property
-            <br />
-            management assistant.
-          </h1>
+          <h1 id="rlp-hero-title">Your AI property management assistant.</h1>
           <div className="rlp-hero-actions">
             <Link href={GET_STARTED_HREF} data-attr="home-hero-get-started">
               Start free - no card
@@ -282,201 +324,198 @@ export function ResidentLifecyclePrototypes() {
             <AppStoreBadge tone="dark" size="lg" dataAttr="home-hero-app-store" className="rlp-app-store" />
           </div>
         </div>
-      </section>
-      <section id="resident-lifecycle-walkthrough" ref={sectionRef} className="rlp-walkthrough" aria-labelledby="rlp-walkthrough-title">
-        <div className="rlp-walkthrough-heading">
-          <h2 id="rlp-walkthrough-title">One conversation. Every next step.</h2>
-        </div>
-        <div className="rlp-demo-controls">
-          <div className="rlp-portal-switch" role="tablist" aria-label="Portal" onKeyDown={tablistKeys}>
-            {PORTAL_ORDER.map((id) => (
-              <button
-                type="button"
-                role="tab"
-                key={id}
-                id={`demo-portal-${id}`}
-                aria-selected={portal === id}
-                tabIndex={portal === id ? 0 : -1}
-                className="rlp-portal-tab"
-                data-attr={`home-demo-portal-${id}`}
-                onClick={() => portal !== id && resetStory(id)}
-              >
-                {PORTAL_META[id].label}
-              </button>
-            ))}
-          </div>
+        <div className="rlp-hero-stage">
           <div
-            ref={stageTabsRef}
-            className="rlp-stage-tabs"
-            role="tablist"
-            aria-label={`${meta.label} stages`}
-            style={{ "--stages": track.stages.length } as CSSProperties}
-            onKeyDown={tablistKeys}
+            id="rlp-demo-stage"
+            role="tabpanel"
+            aria-labelledby={stageTabId(stage.id)}
+            className="rlp-dual-view"
+            onPointerEnter={() => setHovered(true)}
+            onPointerLeave={() => setHovered(false)}
+            onFocus={() => setFocused(true)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+            }}
           >
-            {track.stages.map((item, index) => {
-              const selected = index === current.stage;
-              return (
-                <button
-                  type="button"
-                  role="tab"
-                  key={item.id}
-                  id={stageTabId(item.id)}
-                  aria-selected={selected}
-                  aria-controls="rlp-demo-stage"
-                  tabIndex={selected ? 0 : -1}
-                  className="rlp-stage-tab"
-                  data-state={selected ? "active" : index < current.stage ? "done" : "todo"}
-                  data-attr={`home-demo-stage-${item.id}`}
-                  style={selected && reduced ? ({ "--p": 1 } as CSSProperties) : undefined}
-                  onClick={() => jumpToStage(index)}
-                >
-                  <small>{index + 1}</small>
-                  <span>{item.label}</span>
-                  <i className="rlp-stage-bar" aria-hidden>
-                    <b />
-                  </i>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="rlp-guide-line" aria-live={playing ? "off" : "polite"}>
-          <div className="rlp-guide-copy">
-            <span className="rlp-sample-tag">Sample demo</span>
-            <strong>
-              {finished && !exploring && !busy ? <Check aria-hidden /> : null}
-              {guideText}
-            </strong>
-          </div>
-          <div className="rlp-guide-actions">
-            {finished ? (
-              <button type="button" onClick={replay}>
-                <RotateCcw aria-hidden /> Replay
-              </button>
-            ) : exploring ? (
-              <button type="button" onClick={restartGuide}>
-                Restart guide
-              </button>
-            ) : (
-              <button type="button" onClick={() => setExploring(true)}>
-                Explore freely
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="rlp-dual-labels">
-          <span>{meta.workspaceLabel}</span>
-          <span>{meta.phoneCaption}</span>
-        </div>
-        <div
-          id="rlp-demo-stage"
-          role="tabpanel"
-          aria-labelledby={stageTabId(stage.id)}
-          className="rlp-dual-view"
-          onPointerEnter={() => setHovered(true)}
-          onPointerLeave={() => setHovered(false)}
-          onFocus={() => setFocused(true)}
-          onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
-          }}
-        >
-          <ResidentLifecycleWorkspace
-            portal={portal}
-            tabs={DEMO_TABS[portal]}
-            active={activeTab}
-            badges={script && !script.applicationApproved ? { applications: 2 } : undefined}
-            onSelect={selectTab}
-            panel={!isCommunication}
-          >
-            {isCommunication && script ? (
-              <ManagerCommunication
-                key={`comm-${viewVersion}-${jumpVersion}`}
+            <ResidentLifecycleWorkspace
+              portal={portal}
+              tabs={DEMO_TABS[portal]}
+              active={activeTab}
+              badges={sidebarBadges}
+              onSelect={selectTab}
+              panel={!isCommunication}
+            >
+              {isCommunication && script ? (
+                <ManagerCommunication
+                  key={`comm-${viewVersion}-${jumpVersion}`}
+                  messages={messages}
+                  chapter={script.chapter}
+                  suggestedReply={script.suggestedReply}
+                  initialDraft={script.suggestedReply && statePhase < 2 ? SUGGESTED_REPLY : ""}
+                  busy={busy}
+                  guideTarget={guideTarget}
+                  guideInstruction={guideInstruction}
+                  onSuggest={() => act("suggest")}
+                  onReply={managerReply}
+                />
+              ) : (
+                <>
+                  <div className="rlp-panel-frame" data-demo-panel={`${portal}:${activeTab}`}>
+                    <DemoPanel key={`${portal}-${activeTab}`} portal={portal} tab={activeTab} story={story} stage={stage.id} />
+                  </div>
+                  {script ? (
+                    <div className="rlp-panel-strip">
+                      <ManagerActionStrip
+                        tab={activeTab}
+                        tourAccepted={script.tourAccepted}
+                        applicationApproved={script.applicationApproved}
+                        leaseStep={script.leaseStep}
+                        serviceRecord={script.serviceRecord}
+                        vendorOffered={current.stage >= repairStage}
+                        guideTarget={guideTarget}
+                        guideInstruction={guideInstruction}
+                        busy={busy}
+                        onApprove={() => act("approve")}
+                        onSendLease={() => act("send-lease")}
+                        onManagerSign={() => act("manager-sign")}
+                        onChapter={(chapter) => goToBeat(Math.max(beat, firstBeatOfChapter(chapter)))}
+                        onOpenTab={selectTab}
+                      />
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </ResidentLifecycleWorkspace>
+            {script ? (
+              <ResidentLifecyclePhone
+                key={`phone-${script.chapter}-${viewVersion}-${jumpVersion}`}
+                stage={script.chapter}
+                tourAccepted={script.tourAccepted}
+                applicationApproved={script.applicationApproved}
+                leaseStep={script.leaseStep}
+                serviceCreated={Boolean(script.serviceRecord)}
                 messages={messages}
-                chapter={script.chapter}
-                suggestedReply={script.suggestedReply}
-                initialDraft={script.suggestedReply && statePhase < 2 ? SUGGESTED_REPLY : ""}
                 busy={busy}
                 guideTarget={guideTarget}
                 guideInstruction={guideInstruction}
-                onSuggest={() => act("suggest")}
-                onReply={managerReply}
+                onAcceptTour={() => act("accept-tour")}
+                onOpenLease={() => act("open-lease")}
+                onResidentSign={() => act("resident-sign")}
+                onCreateService={() => act("service")}
+                onReply={phoneReply}
               />
             ) : (
-              <>
-                <div className="rlp-panel-frame" data-demo-panel={`${portal}:${activeTab}`}>
-                  <DemoPanel key={`${portal}-${activeTab}`} portal={portal} tab={activeTab} />
-                </div>
-                {script ? (
-                  <div className="rlp-panel-strip">
-                    <ManagerActionStrip
-                      tab={activeTab}
-                      tourAccepted={script.tourAccepted}
-                      applicationApproved={script.applicationApproved}
-                      leaseStep={script.leaseStep}
-                      serviceRecord={script.serviceRecord}
-                      vendorOffered={current.stage >= repairStage}
-                      guideTarget={guideTarget}
-                      guideInstruction={guideInstruction}
-                      busy={busy}
-                      onApprove={() => act("approve")}
-                      onSendLease={() => act("send-lease")}
-                      onManagerSign={() => act("manager-sign")}
-                      onChapter={(chapter) => goToBeat(Math.max(beat, firstBeatOfChapter(chapter)))}
-                      onOpenTab={selectTab}
-                    />
-                  </div>
-                ) : null}
-              </>
+              <ResidentLifecyclePhone
+                key={`phone-${portal}-${stage.id}-${viewVersion}-${jumpVersion}`}
+                stage="message"
+                tourAccepted={false}
+                applicationApproved={false}
+                leaseStep={0}
+                serviceCreated={false}
+                messages={[]}
+                busy={false}
+                script={phoneScriptFor(portal as Exclude<DemoPortal, "manager">, stage.id)}
+                onAcceptTour={() => false}
+                onOpenLease={() => false}
+                onResidentSign={() => false}
+                onCreateService={() => false}
+                onReply={() => true}
+              />
             )}
-          </ResidentLifecycleWorkspace>
-          {script ? (
-            <ResidentLifecyclePhone
-              key={`phone-${script.chapter}-${viewVersion}-${jumpVersion}`}
-              stage={script.chapter}
-              tourAccepted={script.tourAccepted}
-              applicationApproved={script.applicationApproved}
-              leaseStep={script.leaseStep}
-              serviceCreated={Boolean(script.serviceRecord)}
-              messages={messages}
-              busy={busy}
-              guideTarget={guideTarget}
-              guideInstruction={guideInstruction}
-              onAcceptTour={() => act("accept-tour")}
-              onOpenLease={() => act("open-lease")}
-              onResidentSign={() => act("resident-sign")}
-              onCreateService={() => act("service")}
-              onReply={phoneReply}
-            />
-          ) : (
-            <ResidentLifecyclePhone
-              key={`phone-${portal}-${stage.id}-${viewVersion}-${jumpVersion}`}
-              stage="message"
-              tourAccepted={false}
-              applicationApproved={false}
-              leaseStep={0}
-              serviceCreated={false}
-              messages={[]}
-              busy={false}
-              script={phoneScriptFor(portal as Exclude<DemoPortal, "manager">, stage.id)}
-              onAcceptTour={() => false}
-              onOpenLease={() => false}
-              onResidentSign={() => false}
-              onCreateService={() => false}
-              onReply={() => true}
-            />
-          )}
-        </div>
-        <div className="rlp-activity" aria-label="Sample activity" aria-live="off">
-          <span className="rlp-activity-label">ACTIVITY</span>
-          {activity.length ? (
-            activity.map((item, index) => (
-              <span key={`${item}-${index}`} className={index === activity.length - 1 ? "rlp-activity-current" : ""}>
-                {item}
-              </span>
-            ))
-          ) : (
-            <span>{meta.opening}</span>
-          )}
+          </div>
+          <div className="rlp-demo-controls">
+            <div className="rlp-portal-switch" role="tablist" aria-label="Portal" onKeyDown={tablistKeys}>
+              {PORTAL_ORDER.map((id) => (
+                <button
+                  type="button"
+                  role="tab"
+                  key={id}
+                  id={`demo-portal-${id}`}
+                  aria-selected={portal === id}
+                  tabIndex={portal === id ? 0 : -1}
+                  className="rlp-portal-tab"
+                  data-attr={`home-demo-portal-${id}`}
+                  onClick={() => portal !== id && resetStory(id)}
+                >
+                  {PORTAL_META[id].label}
+                </button>
+              ))}
+            </div>
+            <div
+              ref={stageTabsRef}
+              className="rlp-stage-tabs"
+              role="tablist"
+              aria-label={`${meta.label} stages`}
+              style={{ "--stages": track.stages.length } as CSSProperties}
+              onKeyDown={tablistKeys}
+            >
+              {track.stages.map((item, index) => {
+                const selected = index === current.stage;
+                return (
+                  <button
+                    type="button"
+                    role="tab"
+                    key={item.id}
+                    id={stageTabId(item.id)}
+                    aria-selected={selected}
+                    aria-controls="rlp-demo-stage"
+                    tabIndex={selected ? 0 : -1}
+                    className="rlp-stage-tab"
+                    data-state={selected ? "active" : index < current.stage ? "done" : "todo"}
+                    data-attr={`home-demo-stage-${item.id}`}
+                    style={selected && reduced && !introShowing ? ({ "--p": 1 } as CSSProperties) : undefined}
+                    onClick={() => jumpToStage(index)}
+                  >
+                    <small>{index + 1}</small>
+                    <span>{item.label}</span>
+                    <i className="rlp-stage-bar" aria-hidden>
+                      <b />
+                    </i>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rlp-guide-line" aria-live={playing ? "off" : "polite"}>
+            <div className="rlp-guide-copy">
+              <span className="rlp-sample-tag">Sample demo</span>
+              <strong>
+                {finished && !exploring && !busy ? <Check aria-hidden /> : null}
+                {guideText}
+              </strong>
+            </div>
+            <div className="rlp-guide-actions">
+              {finished ? (
+                <button type="button" onClick={replay}>
+                  <RotateCcw aria-hidden /> Replay
+                </button>
+              ) : exploring ? (
+                <button type="button" onClick={restartGuide}>
+                  Restart guide
+                </button>
+              ) : introShowing ? (
+                <button type="button" onClick={startStory}>
+                  Start the story
+                </button>
+              ) : (
+                <button type="button" onClick={() => setExploring(true)}>
+                  Explore freely
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="rlp-activity" aria-label="Sample activity" aria-live="off">
+            <span className="rlp-activity-label">ACTIVITY</span>
+            {activity.length ? (
+              activity.map((item, index) => (
+                <span key={`${item}-${index}`} className={index === activity.length - 1 ? "rlp-activity-current" : ""}>
+                  {item}
+                </span>
+              ))
+            ) : (
+              <span>{meta.opening}</span>
+            )}
+          </div>
         </div>
       </section>
     </div>
