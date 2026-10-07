@@ -15,7 +15,11 @@ import {
   startOfWeekMonday,
   toLocalDateStr,
 } from "@/lib/demo-admin-scheduling";
+import { GRID_HOUR_PX } from "@/lib/calendar-grid";
 import { managerKindAvailabilityStorageKey } from "@/lib/manager-availability-kinds";
+
+/** Pointer offsets were written for 60 px hours; scale them to the real hour height. */
+const yAt = (px60: number) => Math.round((px60 * GRID_HOUR_PX) / 60);
 import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
 
 const USER = "mgr-1";
@@ -189,10 +193,10 @@ describe("drag to add, then Save", () => {
     mount("all");
     const col = document.querySelector(`[data-day="${MON}"]`)!;
     // 8 am window start: 130 px = 10:10, 190 px = 11:10 → 10 to 11:30 am.
-    fireEvent.pointerDown(col, { button: 0, pointerType: "mouse", pointerId: 1, clientY: 130, clientX: 5 });
-    fireEvent.pointerMove(window, { pointerType: "mouse", pointerId: 1, clientY: 190 });
+    fireEvent.pointerDown(col, { button: 0, pointerType: "mouse", pointerId: 1, clientY: yAt(130), clientX: 5 });
+    fireEvent.pointerMove(window, { pointerType: "mouse", pointerId: 1, clientY: yAt(190) });
     expect(document.querySelector('[data-attr="calendar-drag-ghost"]')?.textContent).toBe("10 – 11:30 am");
-    fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: 190 });
+    fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: yAt(190) });
     const dialog = await screen.findByRole("dialog", { name: "Your availability" });
     expect(within(dialog).getAllByText("Tours").length).toBeGreaterThan(0);
     expect(within(dialog).queryByText("Everything")).toBeNull();
@@ -205,9 +209,9 @@ describe("drag to add, then Save", () => {
   it("Save writes Tours to every house, and only Tours (C2-CALA2)", async () => {
     mount("all");
     const col = document.querySelector(`[data-day="${MON}"]`)!;
-    fireEvent.pointerDown(col, { button: 0, pointerType: "mouse", pointerId: 1, clientY: 130, clientX: 5 });
-    fireEvent.pointerMove(window, { pointerType: "mouse", pointerId: 1, clientY: 190 });
-    fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: 190 });
+    fireEvent.pointerDown(col, { button: 0, pointerType: "mouse", pointerId: 1, clientY: yAt(130), clientX: 5 });
+    fireEvent.pointerMove(window, { pointerType: "mouse", pointerId: 1, clientY: yAt(190) });
+    fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: yAt(190) });
     const dialog = await screen.findByRole("dialog", { name: "Your availability" });
     fireEvent.click(within(dialog).getByText("Add availability", { selector: "button" }));
     await waitFor(() => expect(writes.length).toBeGreaterThanOrEqual(2));

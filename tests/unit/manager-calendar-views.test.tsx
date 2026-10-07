@@ -17,7 +17,10 @@ import {
   meetingToGridItems,
   type CalendarGridItem,
 } from "@/components/portal/manager-calendar-views";
-import { bandsForTab, fitGridWindow, type GridBand } from "@/lib/calendar-grid";
+import { GRID_HOUR_PX, bandsForTab, fitGridWindow, type GridBand } from "@/lib/calendar-grid";
+
+/** Pointer offsets below were written for 60 px hours; scale them to the real hour height. */
+const yAt = (px60: number) => Math.round((px60 * GRID_HOUR_PX) / 60);
 
 afterEach(cleanup);
 
@@ -134,7 +137,8 @@ describe("CalendarTimeGrid", () => {
     expect(document.querySelectorAll('[data-attr="calendar-now-line"]')).toHaveLength(1);
     const col = document.querySelector('[data-day="2026-09-24"]')!;
     expect(col.querySelector('[data-attr="calendar-now-line"]')).toBeTruthy();
-    expect(col.className).toContain("bg-primary/[0.05]");
+    const todayHeader = document.querySelector('[data-attr="calendar-day-header"][data-date="2026-09-24"] span')!;
+    expect(todayHeader.className).toContain("text-primary");
   });
 
   it("keeps a due-date task in the All day row, still openable", () => {
@@ -157,7 +161,7 @@ describe("CalendarTimeGrid", () => {
   it("day headers carry the weekday and date only, with no open/booked counts", () => {
     renderGrid();
     const header = document.querySelector('[data-attr="calendar-day-header"][data-date="2026-09-24"]')!;
-    expect(header.textContent).toBe("Thu24");
+    expect(header.textContent).toBe("Thu 24");
     expect(document.body.textContent).not.toMatch(/\d+ open|booked/i);
   });
 
@@ -216,12 +220,12 @@ describe("CalendarTimeGrid", () => {
       const onDragAdd = vi.fn();
       renderGrid({ onDragAdd });
       const col = document.querySelector('[data-day="2026-09-23"]')!;
-      // Window starts at 8 am; 60 px per hour. 130 px = 10:10 (the 10 am half hour);
+      // Window starts at 8 am; offsets scaled from 60 px per hour. 130 px = 10:10 (the 10 am half hour);
       // 245 px = 12:05 (the 12 pm half hour) — so the band covers 10 am to 12:30 pm.
-      drag(col, 130, 245);
+      drag(col, yAt(130), yAt(245));
       const ghost = document.querySelector('[data-attr="calendar-drag-ghost"]');
       expect(ghost?.textContent).toBe("10 am – 12:30 pm");
-      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: 245 });
+      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: yAt(245) });
       expect(onDragAdd).toHaveBeenCalledWith("2026-09-23", 10 * 60, 12 * 60 + 30);
       expect(document.querySelector('[data-attr="calendar-drag-ghost"]')).toBeNull();
     });
@@ -230,13 +234,13 @@ describe("CalendarTimeGrid", () => {
       const onDragAdd = vi.fn();
       renderGrid({ onDragAdd });
       const col = document.querySelector('[data-day="2026-09-23"]')!;
-      fireEvent.pointerDown(col, { button: 0, pointerType: "mouse", pointerId: 1, clientY: 100, clientX: 10 });
-      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: 100 });
+      fireEvent.pointerDown(col, { button: 0, pointerType: "mouse", pointerId: 1, clientY: yAt(100), clientX: 10 });
+      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: yAt(100) });
       expect(onDragAdd).not.toHaveBeenCalled();
       const block = document.querySelector('[data-attr="calendar-event-block"]')!;
-      fireEvent.pointerDown(block, { button: 0, pointerType: "mouse", pointerId: 2, clientY: 100, clientX: 10 });
-      fireEvent.pointerMove(window, { pointerType: "mouse", pointerId: 2, clientY: 200 });
-      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 2, clientY: 200 });
+      fireEvent.pointerDown(block, { button: 0, pointerType: "mouse", pointerId: 2, clientY: yAt(100), clientX: 10 });
+      fireEvent.pointerMove(window, { pointerType: "mouse", pointerId: 2, clientY: yAt(200) });
+      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 2, clientY: yAt(200) });
       expect(onDragAdd).not.toHaveBeenCalled();
     });
 
@@ -244,9 +248,9 @@ describe("CalendarTimeGrid", () => {
       const onDragAdd = vi.fn();
       renderGrid({ onDragAdd });
       const col = document.querySelector('[data-day="2026-09-23"]')!;
-      drag(col, 130, 245);
+      drag(col, yAt(130), yAt(245));
       fireEvent.keyDown(window, { key: "Escape" });
-      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: 245 });
+      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: yAt(245) });
       expect(onDragAdd).not.toHaveBeenCalled();
     });
 
@@ -254,8 +258,8 @@ describe("CalendarTimeGrid", () => {
       const onDragAdd = vi.fn();
       renderGrid({ onDragAdd, canEditAvailability: false });
       const col = document.querySelector('[data-day="2026-09-23"]')!;
-      drag(col, 130, 245);
-      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: 245 });
+      drag(col, yAt(130), yAt(245));
+      fireEvent.pointerUp(window, { pointerType: "mouse", pointerId: 1, clientY: yAt(245) });
       expect(onDragAdd).not.toHaveBeenCalled();
     });
   });

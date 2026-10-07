@@ -2,7 +2,8 @@
 //
 // The Calendar header is one row (studio-redesign-0929 C2-CALP1/CALP2/CALP7):
 // All / Tours / Services / Tasks tabs with counts (no dots), then
-// Search, < Today > with the range, the view dropdown, Filter, the clock and +.
+// Search, Filter, the clock and +; Day / Week / Month underline tabs and the
+// range with its chevrons ride in a toolbar row above the grid.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -44,26 +45,31 @@ describe("tab dots", () => {
 });
 
 describe("one header row", () => {
-  it("orders the controls < Today > + range + view, then Filter, the clock and +", () => {
-    const nav = page.indexOf('data-slot="calendar-nav-host"');
-    const filter = page.indexOf("{calendarFilterSheet}", nav);
+  it("orders the band Filter, the clock and +, then the toolbar row above the grid holds the view tabs and the range", () => {
+    const filter = page.indexOf("{calendarFilterSheet}");
     const clock = page.indexOf('data-slot="calendar-week-actions-host"');
     const plus = page.indexOf('data-slot="calendar-primary-action-host"');
-    expect(nav).toBeGreaterThan(0);
-    expect(filter).toBeGreaterThan(nav);
+    expect(filter).toBeGreaterThan(0);
     expect(clock).toBeGreaterThan(filter);
     expect(plus).toBeGreaterThan(clock);
+    expect(page).not.toContain('data-slot="calendar-nav-host"');
+    const studio = panels.slice(panels.indexOf("if (studioActive) {"), panels.indexOf("if (compactAvailability) {"));
+    const toolbar = studio.indexOf('data-attr="calendar-toolbar"');
+    const range = studio.indexOf('data-attr="calendar-range-label"');
+    expect(toolbar).toBeGreaterThan(0);
+    expect(range).toBeGreaterThan(toolbar);
   });
 
-  it("has no second control row: no 6 am - 10 pm pickers, no ← → arrows, no Day/Week/Month pills", () => {
+  it("has no second control row: no 6 am - 10 pm pickers, no arrows, no Day/Week/Month pills", () => {
     const studio = panels.slice(panels.indexOf("if (studioActive) {"), panels.indexOf("if (compactAvailability) {"));
     expect(studio).toContain("<ChevronLeft");
     expect(studio).toContain("<ChevronRight");
     expect(studio).not.toContain("renderTimeWindowControl");
     expect(studio).not.toContain("PortalSegmentedControl");
     expect(studio).not.toContain("←");
-    expect(studio).toContain('label="Calendar view"');
-    // The view picker is a dropdown, never a raw select.
+    // Day / Week / Month are underline tabs (a picker on a phone), never a raw select.
+    expect(studio).toContain("<LocalDestinationNav");
+    expect(studio).toContain('ariaLabel="Calendar view"');
     expect(studio).not.toContain("<Select");
   });
 
@@ -82,9 +88,8 @@ describe("one header row", () => {
     for (const label of ["New tour", "New task", "New service"]) expect(studio).toContain(label);
   });
 
-  it("a phone keeps the nav controls under the header card and defaults to Agenda, remembered per device", () => {
-    expect(page).toContain("max-sm:hidden");
-    expect(panels).toContain("const hostedNav = Boolean(navControlsHost) && !phone;");
+  it("a phone folds the view tabs into a picker and defaults to Agenda, remembered per device", () => {
+    expect(panels).toContain("<LocalDestinationNav");
     const pref = readFileSync(join(process.cwd(), "src/lib/manager-calendar-view-preference.ts"), "utf8");
     expect(pref).toContain('return isPhone ? "agenda" : "week";');
     expect(pref).toContain("managerCalendarViewStorageKey(isPhone)");
