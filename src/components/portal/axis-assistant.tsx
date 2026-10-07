@@ -457,6 +457,7 @@ export function AxisAssistant({
   endpoint,
   smsTestPortal,
   dockable = false,
+  disabled = false,
   children,
 }: {
   managerName?: string | null;
@@ -476,6 +477,12 @@ export function AxisAssistant({
    * pin control that leads nowhere.
    */
   dockable?: boolean;
+  /**
+   * Mount nothing: no launcher, no panel, no capability lookup. A "View as"
+   * support session sets this, because the assistant acts as the signed-in
+   * account and every agent route is a write the session may not make.
+   */
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const { userId, ready: authReady } = useManagerUserId();
@@ -535,7 +542,7 @@ export function AxisAssistant({
   const [smsCapabilityAttempt, setSmsCapabilityAttempt] = useState(0);
 
   useEffect(() => {
-    if (!smsTestPortal || !authReady || !userId || isDemoModeActive()) return;
+    if (disabled || !smsTestPortal || !authReady || !userId || isDemoModeActive()) return;
     const controller = new AbortController();
     const isCurrent = () => !controller.signal.aborted
       && propertyCatalogScopeKey() === catalogScopeKey;
@@ -582,7 +589,7 @@ export function AxisAssistant({
       })
       .finally(() => update({ loading: false }));
     return () => controller.abort();
-  }, [authReady, userId, catalogScopeKey, capabilityScopeKey, smsCapabilityAttempt, smsTestPortal]);
+  }, [authReady, disabled, userId, catalogScopeKey, capabilityScopeKey, smsCapabilityAttempt, smsTestPortal]);
 
   const smsTestEndpoint = smsTestPortal
     ? `/api/agent/sms-test?portal=${smsTestPortal}${smsState.targetId ? `&targetListingId=${encodeURIComponent(smsState.targetId)}` : ""}`
@@ -612,6 +619,8 @@ export function AxisAssistant({
         },
       }
     : undefined;
+
+  if (disabled) return <>{children}</>;
 
   return (
     <PortalAssistantConfigProvider endpoint={activeEndpoint} managerName={managerName ?? null} smsTest={smsTestConfig}>

@@ -38,6 +38,8 @@ import { WorkspaceProvider } from "@/components/portal/workspace-provider";
 import { TestAccountBanner } from "@/components/portal/test-account-banner";
 import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
 import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
+import { ViewAsBanner } from "@/components/portal/view-as-banner";
+import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
 
 export default async function PropertyPortalLayout({ children }: { children: React.ReactNode }) {
   // A production admin (founder/ops) identity must not cross into the property
@@ -87,9 +89,13 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
     return <TestAccountUnavailable state={testWorkspace.state} />;
   }
 
+  // A "View as" support session: banner on top, assistant and its dock off.
+  const viewAs = await getViewAsBannerState();
+
   return (
-    <AxisAssistant managerName={profile?.full_name ?? null} smsTestPortal="manager" dockable>
+    <AxisAssistant managerName={profile?.full_name ?? null} smsTestPortal="manager" dockable disabled={Boolean(viewAs)}>
       <div className={PORTAL_SHELL_ROOT_CLASS}>
+        {viewAs ? <ViewAsBanner {...viewAs} /> : null}
         <WorkspaceProvider>
         <SurfaceThemeDefault theme="light" />
         <PortalDataPrefetch kind="pro" />
@@ -161,10 +167,12 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
           </div>
           {/* Opt-in, desktop-only assistant rail. Renders nothing on the `popup`
               default, so the content column above keeps the full width. */}
-          <PortalAssistantDockRail
-            managerName={profile?.full_name ?? null}
-            initialCollapsed={assistantDockCollapsed}
-          />
+          {viewAs ? null : (
+            <PortalAssistantDockRail
+              managerName={profile?.full_name ?? null}
+              initialCollapsed={assistantDockCollapsed}
+            />
+          )}
         </div>
         </WorkspaceProvider>
       </div>

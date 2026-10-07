@@ -30,6 +30,8 @@ import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { TestAccountBanner } from "@/components/portal/test-account-banner";
 import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
 import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
+import { ViewAsBanner } from "@/components/portal/view-as-banner";
+import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
 
 function isResidentApplicationsApplyPath(pathname: string): boolean {
   return pathname === "/resident/applications/apply";
@@ -65,11 +67,15 @@ export default async function ResidentLayout({ children }: { children: React.Rea
     return <TestAccountUnavailable state={testWorkspace.state} />;
   }
 
+  // A "View as" support session: banner on top, assistant off.
+  const viewAs = await getViewAsBannerState();
+
   return (
     // The resident assistant must carry its own role-scoped endpoint: the default manager endpoint
     // 401s for residents (captain, Oct 7: residents get Ask PropLane like vendors).
-    <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null}>
+    <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null} disabled={Boolean(viewAs)}>
     <div className={PORTAL_SHELL_ROOT_CLASS}>
+      {viewAs ? <ViewAsBanner {...viewAs} /> : null}
       <SurfaceThemeDefault theme="light" />
       <PortalDataPrefetch kind="resident" />
       <PortalSessionKeepalive />
