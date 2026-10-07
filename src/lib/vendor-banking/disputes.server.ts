@@ -40,6 +40,17 @@ export async function readVendorFrozenDisputeCents(db: SupabaseClient, vendorUse
   return (data ?? []).reduce((sum, row) => sum + (Number((row as { frozen_cents: number }).frozen_cents) || 0), 0);
 }
 
+/** Stripe charge ids under an open (frozen) dispute for this vendor: their held money must not be released. */
+export async function readFrozenDisputeChargeIds(db: SupabaseClient, vendorUserId: string): Promise<Set<string>> {
+  const { data, error } = await db
+    .from("vendor_banking_disputes")
+    .select("stripe_charge_id")
+    .eq("vendor_user_id", vendorUserId)
+    .gt("frozen_cents", 0);
+  if (error) throw new Error(`Could not read frozen dispute charges: ${error.message}`);
+  return new Set((data ?? []).map((row) => String((row as { stripe_charge_id: string }).stripe_charge_id)));
+}
+
 /**
  * `charge.dispute.created|updated|closed` for a charge a vendor payout settled on.
  * Returns true when the charge is a vendor payout's (the caller then skips the manager

@@ -109,11 +109,8 @@ describe("isVendorPaymentRefundable", () => {
 });
 
 describe("the one Instant fee constant", () => {
-  it("quotes 1.5% with a $0.50 minimum", () => {
-    expect(vendorInstantWithdrawFeeQuoteCents(20_000)).toBe(300);
-    expect(vendorInstantWithdrawFeeQuoteCents(1_000)).toBe(50);
-    expect(vendorInstantWithdrawFeeQuoteCents(0)).toBe(0);
-    expect(vendorInstantWithdrawFeeQuoteCents(-5)).toBe(0);
+  it("quotes $0: the fee is not collectable, so it is never quoted or booked", () => {
+    for (const cents of [20_000, 1_000, 0, -5]) expect(vendorInstantWithdrawFeeQuoteCents(cents)).toBe(0);
   });
 
   it("the server fee and the label come from the same constants", () => {
@@ -123,6 +120,30 @@ describe("the one Instant fee constant", () => {
     } finally {
       vi.unstubAllEnvs();
     }
-    expect(VENDOR_INSTANT_WITHDRAW_FEE_LABEL).toBe("1.5% fee · $0.50 minimum");
+    expect(VENDOR_INSTANT_WITHDRAW_FEE_LABEL).toBe("No PropLane fee");
+  });
+});
+
+describe("frozen dispute money", () => {
+  const base = {
+    availableCents: 100_000, withdrawableCents: 100_000, pendingCents: 0, onTheWayCents: 0, heldCents: 0,
+    setup: { ready: true, identity: "done", bank: "done" },
+  };
+  it("leaves Available and shows under Held with the reason Disputed", () => {
+    const figures = deriveVendorFinancesFigures({ ...base, frozenDisputeCents: 30_000 });
+    expect(figures.availableCents).toBe(70_000);
+    expect(figures.heldCents).toBe(30_000);
+    expect(figures.heldReason).toBe("Disputed");
+  });
+  it("combines with an existing hold reason and never moves more than Available", () => {
+    const figures = deriveVendorFinancesFigures({ ...base, withdrawableCents: 10_000, availableCents: 10_000, heldCents: 5_000, frozenDisputeCents: 30_000 });
+    expect(figures.availableCents).toBe(0);
+    expect(figures.heldCents).toBe(15_000);
+    expect(figures.heldReason).toBe("Held by PropLane · Disputed");
+  });
+  it("withdrawable is Available minus frozen, so the disabled reason and the server agree", () => {
+    expect(vendorWithdrawableCents({ availableCents: 100, withdrawableCents: 100, frozenDisputeCents: 40 })).toBe(60);
+    expect(vendorWithdrawableCents({ availableCents: 100, withdrawableCents: 100, frozenDisputeCents: 400 })).toBe(0);
+    expect(vendorWithdrawDisabledReason({ ...base, frozenDisputeCents: 100_000 }, true)).toBe("Nothing available to withdraw");
   });
 });

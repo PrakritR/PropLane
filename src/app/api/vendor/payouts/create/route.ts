@@ -7,6 +7,7 @@ import { createInAppPayout, stripePayoutErrorResponse } from "@/lib/stripe-payou
 import { validateCreatePayoutRequestBody, type PayoutMethod } from "@/lib/stripe-payouts";
 import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { vendorInstantWithdrawFeeCents } from "@/lib/platform-fees";
+import { readVendorFrozenDisputeCents } from "@/lib/vendor-banking/disputes.server";
 import { recordVendorWithdrawalLedger } from "@/lib/vendor-banking/withdrawal-ledger.server";
 
 export const runtime = "nodejs";
@@ -35,12 +36,16 @@ export async function POST(req: Request) {
     }
 
     try {
+      // Server side, never client-trusted: money frozen by an open dispute cannot be withdrawn,
+      // so the amount is checked against Available minus frozen. A read failure refuses.
+      const reservedCents = vendorBankingEnabled() ? await readVendorFrozenDisputeCents(db, access.actor.userId) : 0;
       const stripe = getStripe();
       const result = await createInAppPayout(stripe, db, {
         accountId,
         ownerUserId: access.actor.userId,
         vendorUserId: access.actor.userId,
         input: validated.input,
+        reservedCents,
         // VD-studio ground truth (payout-withdraw-sheet.tsx): vendor Instant
         // withdrawals carry PropLane's own 1.5% fee (min $0.50), distinct
         // from the shared 1% Stripe-cost fee every other Instant payout

@@ -6,6 +6,25 @@ import { isStripeConnectAccountAccessError, resolveManagerConnectAccountId } fro
 import { readPayoutSnapshot, snapshotWithPlatformHolds, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 import { vendorBankingEnabled, vendorRefundsEnabled } from "@/lib/vendor-banking/flag";
 import { vendorPayFeeBps } from "@/lib/platform-fees";
+import { readVendorFrozenDisputeCents } from "@/lib/vendor-banking/disputes.server";
+import type { PayoutSnapshot } from "@/lib/stripe-payouts.server";
+
+/**
+ * Money frozen by an open dispute leaves Available and the withdrawable figure; the finances
+ * derivation shows it under Held as "Disputed". `frozenDisputeCents` rides along so the client
+ * derives from the same number the withdraw route enforces.
+ */
+async function withFrozenDisputes(db: ReturnType<typeof createSupabaseServiceRoleClient>, vendorUserId: string, snapshot: PayoutSnapshot) {
+  if (!vendorBankingEnabled()) return snapshot;
+  const frozenDisputeCents = await readVendorFrozenDisputeCents(db, vendorUserId);
+  if (frozenDisputeCents <= 0) return { ...snapshot, frozenDisputeCents: 0 };
+  return {
+    ...snapshot,
+    frozenDisputeCents,
+    availableCents: Math.max(0, snapshot.availableCents - frozenDisputeCents),
+    instantAvailableCents: Math.max(0, snapshot.instantAvailableCents - frozenDisputeCents),
+  };
+}
 
 /**
  * Additive: the vendor pay fee rate (0 with the flag off) and whether the refund
@@ -32,7 +51,7 @@ export async function GET() {
     const db = createSupabaseServiceRoleClient();
     const accountId = await resolveManagerConnectAccountId(db, access.actor.userId);
     if (!accountId) {
-      return NextResponse.json({ ...(await snapshotWithPlatformHolds(db, access.actor.userId)), ...vendorBankingExtras() });
+      return NextResponse.json({ ...(await withFrozenDisputes(db, access.actor.userId, await snapshotWithPlatformHolds(db, access.actor.userId))), ...vendorBankingExtras() });
     }
 
     try {
@@ -42,7 +61,7 @@ export async function GET() {
         ownerUserId: access.actor.userId,
         portal: "vendor",
       });
-      return NextResponse.json({ ...snapshot, ...vendorBankingExtras() });
+      return NextResponse.json({ ...(await withFrozenDisputes(db, access.actor.userId, snapshot)), ...vendorBankingExtras() });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {

@@ -13,6 +13,8 @@ export type VendorFinancesSnapshotInput = {
   pendingCents: number;
   onTheWayCents: number;
   heldCents?: number;
+  /** Cents frozen by open disputes (server-read). Leaves Available and shows under Held as "Disputed". */
+  frozenDisputeCents?: number;
   releasePendingCents?: number;
   recoveryOutstandingCents?: number;
   recoveryReservedCents?: number;
@@ -42,17 +44,27 @@ export type VendorFinancesBanner = {
   actionLabel: string | null;
 };
 
-export function vendorWithdrawableCents(snapshot: Pick<VendorFinancesSnapshotInput, "availableCents" | "withdrawableCents">): number {
-  return Math.max(0, snapshot.withdrawableCents ?? snapshot.availableCents);
+/** What the vendor can actually withdraw: the account's available balance less money frozen by an open dispute. */
+export function vendorWithdrawableCents(
+  snapshot: Pick<VendorFinancesSnapshotInput, "availableCents" | "withdrawableCents" | "frozenDisputeCents">,
+): number {
+  return Math.max(0, (snapshot.withdrawableCents ?? snapshot.availableCents) - Math.max(0, snapshot.frozenDisputeCents ?? 0));
 }
 
 export function deriveVendorFinancesFigures(snapshot: VendorFinancesSnapshotInput): VendorFinancesFigures {
-  const heldCents = Math.max(0, snapshot.heldCents ?? 0);
+  const baseHeldCents = Math.max(0, snapshot.heldCents ?? 0);
+  // Only the part of the freeze that actually came out of Available moves under Held; the rest
+  // was already inside the platform hold and is counted there.
+  const frozenFromAvailable = Math.min(
+    Math.max(0, snapshot.frozenDisputeCents ?? 0),
+    Math.max(0, snapshot.withdrawableCents ?? snapshot.availableCents),
+  );
+  const heldCents = baseHeldCents + frozenFromAvailable;
   const releasePending = Math.max(0, snapshot.releasePendingCents ?? 0);
   const providerDeficit = Math.max(0, -(snapshot.withdrawableCents ?? 0));
   const recovery = Math.max(0, snapshot.recoveryOutstandingCents ?? 0);
   let heldReason: string | null = null;
-  if (heldCents > 0) {
+  if (baseHeldCents > 0) {
     if (!snapshot.setup.ready) {
       heldReason = snapshot.setup.bank === "needed" ? "Until you add a bank" : "Until your identity is verified";
     } else if (releasePending > 0) {
@@ -61,6 +73,7 @@ export function deriveVendorFinancesFigures(snapshot: VendorFinancesSnapshotInpu
       heldReason = "Held by PropLane";
     }
   }
+  if (frozenFromAvailable > 0) heldReason = heldReason ? `${heldReason} · Disputed` : "Disputed";
   return {
     availableCents: vendorWithdrawableCents(snapshot),
     pendingCents: Math.max(0, snapshot.pendingCents),
