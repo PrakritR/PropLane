@@ -16,6 +16,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -31,7 +32,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Search, Send, Sparkles, House, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Phone, Plus, Search, Send, Sparkles, House, X } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -910,18 +911,18 @@ export function InboxListSegmentRail({
 }
 
 /**
- * Circular outline icon button for the thread header (edit, archive, delete).
+ * Ghost icon button for the thread header (edit, archive, delete).
  *
  * One class so the header reads as a row of matching controls rather than a
  * text pill beside a bare glyph, and so every portal's header looks the same.
  * Always pair it with an `aria-label` — these carry no visible text.
  */
 export const INBOX_THREAD_ICON_BTN =
-  "flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full border border-border bg-card text-muted transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40";
+  "flex size-8 shrink-0 touch-manipulation items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40";
 
 /** Destructive variant of {@link INBOX_THREAD_ICON_BTN} — text-only red, never a filled red. */
 export const INBOX_THREAD_ICON_BTN_DANGER =
-  "flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full border border-border bg-card text-muted transition-colors hover:border-danger/30 hover:bg-danger/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40";
+  "flex size-8 shrink-0 touch-manipulation items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-danger/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40";
 
 /** Scrollable body for a conversation list pane (inbox split view). */
 export const INBOX_LIST_SCROLL =
@@ -1420,9 +1421,39 @@ export function InboxListHeader({
   );
 }
 
-/** A single chat bubble — outbound right (cobalt), inbound left (gray).
- * Assistant ice is left in the PropLane Assistant conversation and right in
- * person-thread notices (reminders) so those still read as sent. */
+/**
+ * The clock part of a stored stamp ("Aug 3, 5:31 PM" -> "5:31 PM"). Read from the string, never
+ * re-parsed: a canonical stamp is already Pacific wall time and a viewer-local re-parse would shift it.
+ * An ISO instant is formatted in Pacific; anything else is shown as written.
+ */
+export function inboxMessageClock(at: string): string {
+  const raw = String(at ?? "").trim();
+  const canonical = /^[A-Za-z]{3} \d{1,2}, (\d{1,2}:\d{2}\s?(?:AM|PM))$/.exec(raw);
+  if (canonical) return canonical[1]!;
+  if (/^\d{4}-\d\d-\d\dT/.test(raw) && !Number.isNaN(Date.parse(raw))) {
+    return formatInboxListNarrowTime(raw);
+  }
+  return raw;
+}
+
+/** "via" line under a message: a phone or mail glyph and the channel's word. */
+function InboxViaLine({ channel }: { channel: InboxChannel }) {
+  const Glyph = channel === "email" || channel === "gmail" ? Mail : channel === "sms" || channel === "whatsapp" ? Phone : MessageSquare;
+  const label = channel === "sms" ? "Text" : INBOX_CHANNEL_LABEL[channel];
+  return (
+    <span className="inline-flex items-center gap-1" data-inbox-via={channel}>
+      <Glyph className="size-3 shrink-0" strokeWidth={2} aria-hidden data-inbox-channel-glyph={channel} />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+/**
+ * One message in an open thread, Slack-style: a 32px tile, the author's name and the clock on
+ * one line, the text, and a quiet "via" line. Every turn sits on the left; who sent it is the
+ * name (and `data-inbox-bubble-align`, which stays "end" for the viewer's own turns).
+ * A run of turns from one sender shows the name once.
+ */
 export function InboxBubble({
   message,
   showAuthor = false,
@@ -1437,9 +1468,9 @@ export function InboxBubble({
   cluster?: InboxBubbleClusterPosition;
   showMeta?: boolean;
   showChannel?: boolean;
-  /** First bubble of a left-aligned run — the only one that gets an avatar. */
+  /** First message of a run — the only one that shows the tile and the name. */
   showAvatar?: boolean;
-  /** True only for the PropLane Assistant conversation — AI sits on the left. */
+  /** True only for the PropLane Assistant conversation. Kept so callers need not change. */
   alignAssistantStart?: boolean;
 }) {
   if (message.direction === "system" || message.automated) {
@@ -1456,7 +1487,7 @@ export function InboxBubble({
       <span className="shrink-0 text-xs text-muted">{at}</span>
       <span className="w-4 shrink-0">{event.href ? <ChevronRight className="h-4 w-4" aria-hidden /> : null}</span>
     </>;
-    const className = "my-1 flex min-h-11 w-full min-w-0 items-center gap-2 rounded-xl bg-secondary/70 px-3 py-2 text-sm text-foreground";
+    const className = "my-1 flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg bg-secondary/70 px-3 py-2 text-sm text-foreground";
     return event.href ? <a href={event.href} className={className} data-inbox-bubble-kind="system" aria-label={event.title}>{content}</a>
       : <div className={className} data-inbox-bubble-kind="system">{content}</div>;
   }
@@ -1466,7 +1497,9 @@ export function InboxBubble({
   const channel = message.channel;
   const sending = message.delivery === "sending";
   const failed = message.delivery === "failed";
-  const radius = inboxBubbleClusterRadius(alignEnd, cluster);
+  const startsRun = cluster === "single" || cluster === "first" || showAvatar;
+  const author = assistant ? "PropLane" : message.author || "?";
+  const clock = inboxMessageClock(message.at);
 
   const readReceipt =
     outbound &&
@@ -1475,57 +1508,40 @@ export function InboxBubble({
     (message.delivery === "sent" || message.delivery === undefined) &&
     (message.readByRecipient === true || (message.status?.toLowerCase().includes("read") ?? false));
 
-  const metaCaption = (() => {
-    if (failed) return "Couldn't send";
-    if (sending) return "Sending…";
-    if (message.status) return message.status;
-    if (outbound) {
-      const narrow = formatInboxListNarrowTime(message.at);
-      if (narrow) return narrow;
-    }
-    return message.at;
-  })();
+  const statusText = failed ? "Couldn't send" : sending ? "Sending…" : message.status || "";
+  const showDeliveryTick = outbound && !sending && !failed && (message.delivery === "sent" || message.delivery === undefined);
+  const showViaLine =
+    showMeta && ((showChannel && channel != null) || Boolean(statusText) || showDeliveryTick);
 
-  const fillClass = outbound
-    ? "portal-inbox-outbound-bubble text-white"
-    : assistant
-      ? "portal-inbox-assistant-bubble"
-      : "border border-border bg-secondary text-foreground";
-
-  // `min-w-0` + `ml-auto`/`mr-auto` so long URLs cannot expand the row and
-  // leave outbound (blue) bubbles sitting on the left.
-  // The avatar rail is reserved on EVERY left bubble, not only the one that
-  // draws it, so a run stays flush instead of stepping left mid-cluster.
-  const showRail = !alignEnd;
   return (
-    <div className="flex w-full min-w-0 items-end gap-2">
-      {showRail ? (
-        showAvatar ? (
-          <InboxAvatar
-            name={message.author || "?"}
-            className={`h-7 w-7 text-[10px] max-md:h-6 max-md:w-6 max-md:text-[9px] ${
-              showMeta && metaCaption ? "mb-6" : "mb-0.5"
-            }`}
-          />
+    <div className="flex w-full min-w-0 gap-2.5" title={startsRun ? undefined : message.at}>
+      {startsRun ? (
+        assistant ? (
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden>
+            <Sparkles className="size-4" />
+          </span>
         ) : (
-          <span className="h-7 w-7 shrink-0 max-md:h-6 max-md:w-6" aria-hidden />
+          <InboxAvatar tile name={author} className="size-8 rounded-lg" />
         )
-      ) : null}
+      ) : (
+        <span className="size-8 shrink-0" aria-hidden />
+      )}
       <div
-        className={`portal-inbox-bubble-wrap flex min-w-0 flex-col ${
-          alignEnd ? "ml-auto items-end" : "mr-auto items-start"
-        }`}
+        className="portal-inbox-bubble-wrap min-w-0 flex-1"
         data-inbox-bubble-align={alignEnd ? "end" : "start"}
         data-inbox-bubble-kind={message.direction}
       >
-        {showAuthor && message.direction === "inbound" && cluster === "single" ? (
-          <span className="mb-1 px-1 text-[11px] font-medium text-muted">{message.author}</span>
+        {startsRun ? (
+          <p className="flex min-w-0 items-baseline gap-1.5 text-sm leading-snug text-foreground">
+            <span className="truncate font-[650]" data-inbox-author>{author}</span>
+            {clock ? <span className="shrink-0 text-xs font-normal text-muted/80">{clock}</span> : null}
+          </p>
         ) : null}
         <div
-          className={`portal-inbox-inbound-bubble w-full px-4 py-2.5 text-[15px] leading-relaxed sm:text-base ${radius} ${fillClass} ${sending ? "opacity-80" : ""} ${failed ? "ring-2 ring-rose-400/50" : ""}`}
+          className={`portal-inbox-inbound-bubble min-w-0 text-sm leading-[1.45] text-foreground/85 ${sending ? "opacity-70" : ""} ${failed ? "text-rose-600" : ""}`}
         >
           {message.subject ? (
-            <p className="mb-1 break-words font-semibold [overflow-wrap:anywhere]" data-inbox-bubble-subject>
+            <p className="mb-0.5 break-words font-semibold text-foreground [overflow-wrap:anywhere]" data-inbox-bubble-subject>
               {message.subject}
             </p>
           ) : null}
@@ -1539,25 +1555,23 @@ export function InboxBubble({
           {message.attachments?.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
               {message.attachments.map((att) => (
-                <InboxAttachmentChip key={att.url} att={att} outbound={outbound} />
+                <InboxAttachmentChip key={att.url} att={att} outbound={false} />
               ))}
             </div>
           ) : null}
         </div>
-        {showMeta && metaCaption ? (
-          <span
-            className={`mt-1 flex max-w-full items-center gap-1.5 px-1 text-[11px] text-muted ${
-              alignEnd ? "flex-row-reverse" : ""
-            }`}
-          >
-            {showChannel && channel ? <InboxChannelTag channel={channel} /> : null}
-            <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{metaCaption}</span>
-            {outbound && !sending && !failed ? (
+        {showViaLine ? (
+          <span className="mt-px flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] leading-snug text-muted/80">
+            {showChannel && channel ? <InboxViaLine channel={channel} /> : null}
+            {statusText ? (
+              <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{statusText}</span>
+            ) : null}
+            {showDeliveryTick ? (
               readReceipt ? (
-                <CheckCheck className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.2} aria-hidden />
-              ) : message.delivery === "sent" || message.delivery === undefined ? (
-                <Check className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.2} aria-hidden />
-              ) : null
+                <CheckCheck className="size-3.5 shrink-0" strokeWidth={2.2} aria-label="Read" />
+              ) : (
+                <Check className="size-3.5 shrink-0" strokeWidth={2.2} aria-label="Sent" />
+              )
             ) : null}
           </span>
         ) : null}
@@ -1583,7 +1597,7 @@ export function InboxMessageTimeline({
         item.type === "day" ? (
           <div
             key={item.key}
-            className="my-3 w-full text-center text-xs font-medium text-muted/80 first:mt-0"
+            className="my-3.5 flex w-full items-center gap-2.5 text-xs font-semibold text-muted/80 before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border first:mt-0"
             data-inbox-day-separator
           >
             {item.label}
@@ -1805,7 +1819,7 @@ export function InboxReplyChannelPicker({
 
 /** Shared thread-reply field + send affordance — keep identical across email/SMS/resident chat. */
 export const PORTAL_INBOX_COMPOSER_INPUT_CLASS =
-  "portal-inbox-composer-input box-border block h-10 max-h-[162px] min-h-10 w-full min-w-0 resize-none overflow-y-auto rounded-[1.4rem] border border-input bg-card px-4 py-2 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60 md:h-11 md:min-h-11 md:px-4.5 md:py-2";
+  "portal-inbox-composer-input box-border block max-h-[162px] min-h-11 w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-3 pb-1 pt-2.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted/70 focus:outline-none focus:ring-0 disabled:opacity-60";
 
 /** Six 24px lines, 8px vertical padding each side, 1px border each side. */
 export const PORTAL_INBOX_COMPOSER_MAX_HEIGHT_PX = 6 * 24 + 16 + 2;
@@ -1822,8 +1836,7 @@ export function composerAutoHeight(scrollHeight: number, hasText: boolean): numb
 }
 
 export const PORTAL_INBOX_COMPOSER_SEND_CLASS =
-  "portal-inbox-composer-send flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_8px_18px_-8px_color-mix(in_srgb,var(--btn-primary)_70%,transparent)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 md:h-11 md:w-11";
-
+  "portal-inbox-composer-send ml-auto flex size-[30px] shrink-0 touch-manipulation items-center justify-center rounded-[7px] bg-[var(--btn-primary)] text-primary-foreground transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 max-md:size-9";
 
 /** Persistent composer pinned to the bottom of an open thread. */
 export function InboxComposer({
@@ -1903,18 +1916,19 @@ export function InboxComposer({
   const resolvedChannel = channelControl ?? null;
   return (
     <div
-      className="portal-inbox-composer shrink-0 border-t border-border/80 bg-card max-md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] md:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
+      className="portal-inbox-composer shrink-0 bg-card max-md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
     >
       {channelBar ?? null}
       <form
-        className="px-2 py-1 max-md:py-0.5 md:px-2.5 md:py-1.5"
+        className="px-3.5 pb-3.5 pt-2.5 max-md:px-2.5 max-md:pb-1.5 max-md:pt-1.5"
         onSubmit={(e) => {
           e.preventDefault();
           if (canSend) onSubmit();
         }}
       >
+        <div className="portal-inbox-composer-card overflow-hidden rounded-[10px] border border-input bg-card transition-[border-color,box-shadow] focus-within:border-primary/40 focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--primary)_12%,transparent)]">
         {attachments?.length ? (
-          <div className="mb-2 flex flex-wrap gap-2 px-1">
+          <div className="flex flex-wrap gap-2 px-3 pt-2.5">
             {attachments.map((att) => {
               const showImage = att.isImage !== false && Boolean(att.previewUrl) && !/\.pdf$/i.test(att.fileName);
               return (
@@ -1953,20 +1967,39 @@ export function InboxComposer({
             manager Communication. A full-width row above the field was the old
             record-page layout and is what the captain called out. On a phone the
             channel menu collapses to the icon (`InboxComposerChannelMenu`). */}
+        <textarea
+          ref={inputRef}
+          rows={composerRows}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          disabled={disabled}
+          enterKeyHint="send"
+          data-attr={dataAttr}
+          className={PORTAL_INBOX_COMPOSER_INPUT_CLASS}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (canSend) onSubmit();
+            }
+          }}
+        />
+        {/* The tools row under the field: attach, then the tools (✦ · schedule · channel),
+            Send at the far right. On a phone the channel menu collapses to its icon. */}
         <div
           className={cn(
-            "portal-inbox-composer-row flex flex-nowrap items-end gap-2",
-            (trailingControls || resolvedChannel) && "max-sm:gap-1 sm:max-md:gap-1.5 max-md:flex-nowrap",
+            "portal-inbox-composer-row flex flex-nowrap items-center gap-0.5 px-1.5 pb-1.5 pt-0.5",
+            (trailingControls || resolvedChannel) && "max-sm:gap-0",
           )}
         >
-          {leadingControl}
           {onAttachmentsPick ? (
             <label
-              className={cn(
-                "flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-11 md:w-11",
-              )}
+              className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/80 transition-colors hover:bg-foreground/[0.06] hover:text-foreground max-md:size-9"
+              title="Attach"
             >
-              <Paperclip className="h-4 w-4" strokeWidth={2} />
+              <Paperclip className="size-4" strokeWidth={2} />
+              <span className="sr-only">Attach</span>
               <input
                 type="file"
                 accept={INBOX_ATTACHMENT_ACCEPT}
@@ -1981,32 +2014,11 @@ export function InboxComposer({
               />
             </label>
           ) : null}
-          <div className="relative flex min-w-0 flex-1 items-end self-end">
-            <textarea
-              ref={inputRef}
-              rows={composerRows}
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder={placeholder}
-              maxLength={maxLength}
-              disabled={disabled}
-              enterKeyHint="send"
-              data-attr={dataAttr}
-              // With tools in the row, a phone has no width to spare for the
-              // emoji picker; the keyboard has one.
-              className={`${PORTAL_INBOX_COMPOSER_INPUT_CLASS} ${resolvedChannel ? "pr-12" : ""}`}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (canSend) onSubmit();
-                }
-              }}
-            />
-            {resolvedChannel ? <div className="absolute bottom-1 right-1">{resolvedChannel}</div> : null}
-          </div>
+          {leadingControl}
           {trailingControls || resolvedChannel ? (
-            <div className="flex shrink-0 items-center gap-1 max-sm:gap-0 md:gap-1.5" data-attr="inbox-composer-tools">
+            <div className="flex min-w-0 shrink items-center gap-0.5 max-sm:gap-0" data-attr="inbox-composer-tools">
               {trailingControls}
+              {resolvedChannel}
             </div>
           ) : null}
           <button
@@ -2019,12 +2031,13 @@ export function InboxComposer({
             {sending ? (
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/40 border-t-current" />
             ) : (
-              <Send className="h-4 w-4 translate-x-[1px]" strokeWidth={2} />
+              <Send className="size-4 translate-x-[1px]" strokeWidth={2} />
             )}
           </button>
         </div>
+        </div>
         {hint || maxLength || onAutoSendChange ? (
-          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 px-1">
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               {onAutoSendChange ? (
                 <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-foreground">
@@ -3179,7 +3192,7 @@ export function InboxThreadView({
     <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>
       {showHeader ? (
       <header
-        className="portal-inbox-thread-header sticky top-0 z-10 flex shrink-0 items-center gap-0.5 border-b border-border bg-card px-2 py-2 max-md:py-2 md:gap-1 md:px-4 md:py-3 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))] max-md:[padding-top:max(0.5rem,env(safe-area-inset-top,0px))]"
+        className="portal-inbox-thread-header sticky top-0 z-10 flex shrink-0 items-center gap-0.5 border-b border-border bg-card px-2 py-2 max-md:py-2 md:gap-1 md:py-2.5 md:pl-[18px] md:pr-3.5 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))] max-md:[padding-top:max(0.5rem,env(safe-area-inset-top,0px))]"
       >
         {onBack ? (
           <button
@@ -3196,20 +3209,20 @@ export function InboxThreadView({
         {!hideIdentityHeader ? (
           <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1">
             {avatarName ? (
-              <InboxAvatar name={avatarName} className="h-9 w-9 text-[11px] md:h-11 md:w-11 md:text-[13px]" />
+              <InboxAvatar tile name={avatarName} className="size-8 rounded-lg" />
             ) : null}
             <div className="min-w-0">
-              <p className="truncate text-[15px] font-bold tracking-[-0.01em] text-foreground md:text-base">
+              <p className="truncate text-[15px] font-bold leading-tight tracking-[-0.01em] text-foreground">
                 {title}
               </p>
-              {subtitle ? <p className="mt-0.5 truncate text-[13px] text-muted">{subtitle}</p> : null}
+              {subtitle ? <p className="mt-px truncate text-[12.5px] leading-tight text-muted">{subtitle}</p> : null}
             </div>
           </div>
         ) : (
           <div className="min-w-0 flex-1" />
         )}
         {headerActions || inFullScreenPane ? (
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-0.5">
             {headerActions}
             <InboxFullScreenAction />
           </div>
@@ -3223,8 +3236,8 @@ export function InboxThreadView({
         onScroll={pageScroll ? undefined : handleThreadScroll}
         className={
           pageScroll
-            ? "portal-inbox-thread-body flex flex-col bg-background/40 px-2 py-2 md:px-3 md:py-3"
-            : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-background/40 px-2 py-2 [-webkit-overflow-scrolling:touch] md:px-3 md:py-3"
+            ? "portal-inbox-thread-body flex flex-col px-3 py-3 md:px-[18px] md:py-3.5"
+            : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch] md:px-[18px] md:py-3.5"
         }
       >
         {messages.length === 0 && !beforeMessages && !afterMessages ? (
@@ -3249,6 +3262,20 @@ export function InboxThreadView({
 
       {composer ? <div className="shrink-0">{composer}</div> : null}
     </div>
+  );
+}
+
+/** True from `px` wide up. False on the server, before hydration, and wherever matchMedia is absent. */
+function useMinWidth(px: number): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window === "undefined" || !window.matchMedia) return () => {};
+      const list = window.matchMedia(`(min-width: ${px}px)`);
+      list.addEventListener("change", onChange);
+      return () => list.removeEventListener("change", onChange);
+    },
+    () => (typeof window === "undefined" || !window.matchMedia ? false : window.matchMedia(`(min-width: ${px}px)`).matches),
+    () => false,
   );
 }
 
@@ -3464,7 +3491,9 @@ export function InboxTwoPane({
     : split
       ? "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl"
       : "";
-  const showDetails = flat && details != null && threadOpen && !listHidden;
+  // The details column is drawn only where it fits (1280px up); below that it is not in the DOM at all.
+  const detailsFit = useMinWidth(1280);
+  const showDetails = flat && details != null && threadOpen && !listHidden && detailsFit;
   return (
     <div
       ref={rootRef}
