@@ -9,7 +9,8 @@ import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
-import { SiteFaq, type SiteFaqItem } from "@/components/marketing/site/faq";
+import { TrackOnMount } from "@/components/analytics/track-on-mount";
+import { SiteFaq,type SiteFaqItem } from "@/components/marketing/site/faq";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import { CellValue, Check, Dash, COMPARE } from "@/components/marketing/site/pricing-compare-data";
 import {
@@ -344,6 +345,7 @@ export default async function PricingPage({
 
   return (
     <div className="relative min-h-0 flex-1 pb-16 md:pb-0">
+      <TrackOnMount event="pricing_viewed" properties={{ billing: annual ? "annual" : "monthly" }} />
       <section className="border-b border-border/70 pb-12 pt-14 sm:pt-16 lg:pt-20" aria-labelledby="pricing-title">
         <div className={`${SITE_MEASURE} flex flex-col items-center text-center`}>
           <SiteHeading as="h1" id="pricing-title">

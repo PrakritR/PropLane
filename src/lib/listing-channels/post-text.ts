@@ -16,6 +16,7 @@ import {
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { buildManagerListingUrl } from "@/lib/manager-property-links";
 import { listingChannelDef, type ListingChannelId } from "@/lib/listing-channels/registry";
+import { listingAttributionLine } from "@/lib/listing-attribution";
 
 export type ListingPostContact = { phone: string | null; email: string | null };
 
@@ -78,15 +79,18 @@ export type ListingPostText =
 
 /**
  * Headline, price, rooms, the first selling points, the public listing link and the work contact.
- * Each channel trims the BODY to its own limit; the link and contact lines are never cut.
+ * Each channel trims the BODY to its own limit; the link, contact and attribution lines are never cut.
+ * `attribution` is resolved by the caller (workspace setting + effective plan, see
+ * `src/lib/listing-attribution.server.ts`); this builder stays pure and just obeys it.
  */
 export function buildListingPostText(args: {
   property: MockProperty;
   origin: string;
   contact: ListingPostContact;
   channel: ListingChannelId;
+  attribution: boolean;
 }): ListingPostText {
-  const { property, origin, contact, channel } = args;
+  const { property, origin, contact, channel, attribution } = args;
   const phone = clean(contact.phone);
   if (!phone) return { ok: false, reason: "no_work_number" };
   const email = clean(contact.email);
@@ -115,7 +119,9 @@ export function buildListingPostText(args: {
 
   const link = buildManagerListingUrl(origin, property.id);
   const contactLine = ["Text " + phone, email ? `Email ${email}` : ""].filter(Boolean).join(" · ");
-  const tail = [`Details and photos: ${link}`, contactLine].join("\n");
+  const contactBlock = [`Details and photos: ${link}`, contactLine].join("\n");
+  const attributionBlock = attribution ? listingAttributionLine(origin) : "";
+  const tail = [contactBlock, attributionBlock].filter(Boolean).join("\n\n");
 
   const limit = listingChannelDef(channel)?.textLimit ?? 2000;
   const head = [headline, where, factsLine].filter(Boolean).join("\n");

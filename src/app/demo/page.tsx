@@ -1,3 +1,4 @@
+import { TrackOnMount } from "@/components/analytics/track-on-mount";
 import { DemoManagerShell } from "@/app/demo/demo-manager-shell";
 import { DemoResetScroll } from "@/app/demo/demo-reset-scroll";
 import type { DemoPortalRole } from "@/lib/demo/demo-session";
@@ -44,6 +45,7 @@ export default async function DemoPage({
   const params = await searchParams;
   return (
     <>
+      <TrackOnMount event="demo_opened" skipWhenEmbedded />
       <DemoResetScroll />
       <DemoManagerShell
         initialRole={readRole(params.role)}

@@ -20,6 +20,8 @@ export type ListingChannelsStatus = {
   channels: { id: ListingChannelId; availability: ListingChannelAvailability }[];
   meta: { configured: boolean; connected: boolean; pageName: string | null; igUsername: string | null; revoked: boolean };
   workContact: { phone: string | null; email: string | null };
+  /** "Listed with PropLane": whether the line is included, and whether the plan pins it on. */
+  attribution?: { enabled: boolean; forced: boolean };
   posts: ListingChannelPostRow[];
   property: { id: string; live: boolean; holdReasons: ListingHoldReason[]; postTexts: Record<string, string> } | null;
 };
@@ -76,7 +78,7 @@ export function useListingChannels(propertyId?: string) {
 }
 
 export async function postListingChannelWrite(
-  path: "toggle" | "mark-posted",
+  path: "toggle" | "mark-posted" | "attribution",
   body: Record<string, unknown>,
 ): Promise<{ ok: boolean; error?: string }> {
   try {

@@ -9,6 +9,7 @@ import {
   Home,
   MapPin,
   Megaphone,
+  Send,
   Share2,
   Sofa,
   Undo2,
@@ -287,8 +288,18 @@ export function PropertyListingSitesPanel({ propertyId, zillow }: { propertyId: 
 export function WorkspaceListingSitesPanel() {
   const workspaceCtx = useWorkspaces();
   const propertyIds = useMemo(() => workspaceCtx?.active?.propertyIds ?? [], [workspaceCtx?.active?.propertyIds]);
-  const { status } = useListingChannels();
+  const { status, refresh } = useListingChannels();
+  const { showToast } = useAppUi();
   const [group, setGroup] = useState<ListingChannelGroup>("automatic");
+  const [attributionSaving, setAttributionSaving] = useState(false);
+
+  const setAttribution = async (show: boolean) => {
+    setAttributionSaving(true);
+    const res = await postListingChannelWrite("attribution", { show, workspaceId: status?.workspaceId });
+    if (!res.ok) showToast(res.error ?? "Could not save.");
+    await refresh();
+    setAttributionSaving(false);
+  };
 
   const total = propertyIds.length;
   const countFor = (channel: ListingChannelId, state: "posted" | "posted_by_me") =>
@@ -298,6 +309,21 @@ export function WorkspaceListingSitesPanel() {
 
   return (
     <div data-attr="promotion-listing-sites">
+      <IntegrationRow
+        icon={Send}
+        tone="text-primary"
+        name="Show Listed with PropLane"
+        dataAttr="promotion-listed-with-proplane-row"
+        action={
+          <PortalSettingsToggle
+            checked={status?.attribution?.enabled ?? true}
+            onChange={(next) => void setAttribution(next)}
+            label="Show Listed with PropLane"
+            disabled={!status || status.attribution?.forced !== false || !status.canManage || attributionSaving}
+            dataAttr="promotion-listed-with-proplane-toggle"
+          />
+        }
+      />
       <GroupNav active={group} onChange={setGroup} dataAttrPrefix="promotion-listing-sites-tab" />
       {group === "automatic"
         ? listingChannelsByGroup("automatic").map((def) => {

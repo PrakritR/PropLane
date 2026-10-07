@@ -33,6 +33,7 @@ import {
   type LeasingPipelineState,
   type PublicSigningContext,
 } from "@/lib/leasing-pipeline-preferences";
+import { resolveListingAttributionByOwnerWorkspace } from "@/lib/listing-attribution.server";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -512,6 +513,8 @@ export function publicListingProjection(
   property: MockProperty,
   workspaceForm?: WorkspaceApplicationFormTemplate | null,
   signingContext?: PublicSigningContext | null,
+  /** Server-resolved "Listed with PropLane" visibility; omitted or false adds nothing. */
+  showAttribution?: boolean,
 ): MockProperty {
   const sub = property.listingSubmission;
   const resolvedSub = sub && sub.v === 1 ? applyEffectiveApplicationForm(sub, workspaceForm ?? null) : sub;
@@ -531,6 +534,7 @@ export function publicListingProjection(
             : {}),
         }
       : {}),
+    ...(showAttribution === true ? { showProPlaneAttribution: true as const } : {}),
     // Says what this payload IS, so the browser cache it lands in can tell it
     // apart from the owner's authoritative copy of the same listing. See
     // `cachePublicExtraListings`.
@@ -668,6 +672,10 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
   } catch {
     /* fall back to application-first / no lease fee for every listing */
   }
+  const attributionByOwnerWorkspace = await resolveListingAttributionByOwnerWorkspace(
+    db,
+    visibleListings.map((l) => ({ ownerUserId: l.managerUserId ?? "", workspaceId: l.workspaceId ?? null })),
+  );
   return visibleListings.map((listing) =>
     publicListingProjection(
       listing,
@@ -676,6 +684,7 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
         listing.managerUserId ? pipelineStatesByManagerId.get(listing.managerUserId) : undefined,
         listing.id,
       ),
+      attributionByOwnerWorkspace.get(`${listing.managerUserId ?? ""}:${listing.workspaceId ?? ""}`) ?? false,
     ),
   );
 }

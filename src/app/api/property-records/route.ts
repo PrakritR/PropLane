@@ -730,6 +730,11 @@ export async function POST(req: Request) {
       }
     }
 
+    // Funnel: a listing going live for the first time on this record (not every later save).
+    if (body.status === "live" && existingStatus !== "live") {
+      track("listing_published", user.id, { property_id: id });
+    }
+
     // Listing sites: publish / update / unpublish follows the save. Queued after the response;
     // a failure here never fails the save (the cron retries).
     scheduleListingChannelSync(db, id);
