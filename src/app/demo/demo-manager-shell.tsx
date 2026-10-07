@@ -7,6 +7,7 @@ import { DemoSectionRenderer } from "@/components/demo/demo-section-renderer";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { WorkspaceProvider } from "@/components/portal/workspace-provider";
 import { PortalContainerProvider } from "@/components/ui/portal-container-context";
 import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-conversation-context";
@@ -155,8 +156,8 @@ const ROLE_SWITCH_LABEL: Partial<Record<DemoPortalRole, string>> = {
   resident: "Switch to Property portal",
 };
 
-/** The real "Ask PropLane" pill's own `data-attr`, from portal-top-bar.tsx. */
-const ASK_PROPLANE_PILL_SELECTOR = '[data-attr="portal-ask-proplane"]';
+/** The top strip's right-hand assistant-panel button, from portal-top-bar.tsx. */
+const ASK_PROPLANE_PILL_SELECTOR = '[data-attr="portal-assistant-panel"]';
 
 /**
  * The docked assistant — the real `AssistantDockPanel`, not a hand-rolled
@@ -375,10 +376,18 @@ export function DemoManagerShell({
           >
             <DemoRoleSwitchControl role={portalRole} onChange={switchRole} />
             <WorkspaceProvider>
+              <PortalTopBar
+                kind={definition.kind}
+                basePath={definition.basePath}
+                definition={definition}
+                subscriptionTier="paid"
+                name={displayName}
+                email={displayEmail}
+              />
               <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
+                <PortalWorkspaceRail kind={definition.kind} basePath={definition.basePath} name={displayName} email={displayEmail} />
                 <PortalSidebar definition={definition} subscriptionTier="paid" initialCollapsed={false} />
                 <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                  <PortalTopBar kind={definition.kind} basePath={definition.basePath} name={displayName} email={displayEmail} />
                   <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
                     <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
                       <PortalMobileNavBar definition={definition} name={displayName} email={displayEmail} />

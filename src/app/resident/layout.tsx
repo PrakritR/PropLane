@@ -12,6 +12,7 @@ import { ResidentProspectHandoffOnMount } from "@/components/portal/resident-pro
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
@@ -74,8 +75,24 @@ export default async function ResidentLayout({ children }: { children: React.Rea
       <PortalSessionKeepalive />
       <PortalClientSessionGuard />
       <RateAppPrompt reporterRole="resident" />
+      <PortalTopBar
+        kind={residentPortal.kind}
+        basePath={residentPortal.basePath}
+        definition={residentPortal}
+        subscriptionTier={managerSubscriptionTier}
+        residentNavStage={residentNavStage}
+        initialSidebarCollapsed={sidebarCollapsed}
+        name={profile?.full_name ?? null}
+        email={profile?.email ?? null}
+      />
       <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
         <PortalSkipLink />
+        <PortalWorkspaceRail
+          kind={residentPortal.kind}
+          basePath={residentPortal.basePath}
+          name={profile?.full_name ?? null}
+          email={profile?.email ?? null}
+        />
         <PortalSidebar
           definition={residentPortal}
           subscriptionTier={managerSubscriptionTier}
@@ -84,12 +101,6 @@ export default async function ResidentLayout({ children }: { children: React.Rea
           residentNavStage={residentNavStage}
         />
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <PortalTopBar
-            kind={residentPortal.kind}
-            basePath={residentPortal.basePath}
-            name={profile?.full_name ?? null}
-            email={profile?.email ?? null}
-          />
           {testWorkspace.kind === "classified" ? <TestAccountBanner state={testWorkspace.state} /> : null}
           <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
             <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>

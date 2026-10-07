@@ -49,9 +49,11 @@ describe("Settings has no sidebar entry anywhere — account menu only", () => {
     });
   }
 
-  it("the account menu (top bar) keeps its own Settings link", () => {
+  it("the account menu (rail avatar) keeps its own Settings link", () => {
+    // The account menu moved from the old top bar to the workspace rail's avatar
+    // (portal-account-menu.tsx); Settings is still reachable only from there.
     const topBarSrc = readFileSync(
-      join(process.cwd(), "src/components/portal/portal-top-bar.tsx"),
+      join(process.cwd(), "src/components/portal/portal-account-menu.tsx"),
       "utf8",
     );
     expect(topBarSrc).toContain("${basePath}/profile");

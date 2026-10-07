@@ -8,6 +8,7 @@ import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { VendorMessagingSetupBanner } from "@/components/portal/vendor-messaging-setup-banner";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import {
@@ -40,8 +41,23 @@ export default async function VendorLayout({ children }: { children: React.React
       <PortalClientSessionGuard />
       <PendingServiceLinkRedeemer />
       <RateAppPrompt reporterRole="vendor" />
+      <PortalTopBar
+        kind={vendorPortal.kind}
+        basePath={vendorPortal.basePath}
+        definition={vendorPortal}
+        subscriptionTier={null}
+        initialSidebarCollapsed={sidebarCollapsed}
+        name={profile?.full_name ?? null}
+        email={profile?.email ?? null}
+      />
       <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
         <PortalSkipLink />
+        <PortalWorkspaceRail
+          kind={vendorPortal.kind}
+          basePath={vendorPortal.basePath}
+          name={profile?.full_name ?? null}
+          email={profile?.email ?? null}
+        />
         <PortalSidebar
           definition={vendorPortal}
           subscriptionTier={null}
@@ -49,12 +65,6 @@ export default async function VendorLayout({ children }: { children: React.React
           initialCollapsed={sidebarCollapsed}
         />
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <PortalTopBar
-            kind={vendorPortal.kind}
-            basePath={vendorPortal.basePath}
-            name={profile?.full_name ?? null}
-            email={profile?.email ?? null}
-          />
           <VendorMessagingSetupBanner />
           <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
             <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
