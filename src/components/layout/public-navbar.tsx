@@ -396,11 +396,16 @@ export function PublicNavbar() {
     <div
       id="axis-public-navbar"
       className={cn(
-        "sticky top-0 z-50 pt-[env(safe-area-inset-top,0px)] transition-[background-color,box-shadow,backdrop-filter] duration-200",
+        "sticky top-0 z-50 pt-[env(safe-area-inset-top,0px)] transition-[background-color,box-shadow,backdrop-filter] duration-200 ease-out",
         !isHome && "border-b border-border bg-background",
         // Same 56px as the bordered bar: the border is a shadow so the home hero can sit right under it.
         isHome && !pastTop && "bg-transparent",
         isHome && pastTop && "bg-background/80 shadow-[0_1px_0_var(--border)] backdrop-blur-md",
+        // Hover, keyboard focus or any open menu turns the WHOLE bar into the dropdown's own opaque
+        // surface (bg-popover), so the strip never reads as see-through above a solid panel. It
+        // relaxes back to transparent at the top of the page once the pointer and focus leave.
+        isHome &&
+          "hover:bg-popover hover:shadow-[0_1px_0_var(--border)] hover:backdrop-blur-none has-[:focus-visible]:bg-popover has-[:focus-visible]:shadow-[0_1px_0_var(--border)] has-[:focus-visible]:backdrop-blur-none has-[[data-state=open]]:bg-popover has-[[data-state=open]]:shadow-[0_1px_0_var(--border)] has-[[data-state=open]]:backdrop-blur-none",
       )}
     >
       <Navbar1

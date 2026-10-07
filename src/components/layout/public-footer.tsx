@@ -50,10 +50,10 @@ const FOOTER_COLUMNS: { heading: string; links: { href: string; label: string }[
 
 /** The home page's eyebrow style, in the footer's column heads. */
 const columnHeading =
-  "text-[12px] font-extrabold uppercase tracking-[0.16em] text-[#1f64a8]";
+  "text-[12px] font-extrabold uppercase tracking-[0.16em] text-[#1a5190]";
 
 const footerLinkClass =
-  "block text-[15px] font-normal text-muted transition-[color,opacity] duration-200 hover:text-primary hover:opacity-95";
+  "block text-[15px] font-normal text-[#2c4260] transition-[color,opacity] duration-200 hover:text-primary hover:opacity-95";
 
 /**
  * Full-bleed footer gutters — the columns run the width of the page chrome
@@ -134,9 +134,9 @@ function SocialRow({ className = "" }: { className?: string }) {
 export function PublicFooter({ compact = false }: { compact?: boolean }) {
   if (compact) {
     return (
-      <footer className="border-t border-[#c5d8ea]/70 bg-transparent">
+      <footer data-site-footer className="relative z-10 border-t border-[#c5d8ea] bg-[#eaf2fa]">
         <div className="px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-6">
-          <div className="mx-auto flex max-w-6xl flex-col items-center justify-center gap-1 text-center text-[12px] font-normal text-muted sm:flex-row sm:items-center sm:justify-between sm:text-left">
+          <div className="mx-auto flex max-w-6xl flex-col items-center justify-center gap-1 text-center text-[12px] font-normal text-[#3a4d68] sm:flex-row sm:items-center sm:justify-between sm:text-left">
             <span>© 2026 PropLane. All rights reserved.</span>
             <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 sm:justify-end">
               <Link href="/privacy" className="transition-colors hover:text-primary">
@@ -166,7 +166,10 @@ export function PublicFooter({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <footer className="border-t border-[#c5d8ea] bg-gradient-to-b from-[#eaf2fa] to-[#dae7f3]">
+    <footer
+      data-site-footer
+      className="relative z-10 border-t border-[#c5d8ea] bg-gradient-to-b from-[#eaf2fa] to-[#dae7f3] text-[#2c4260]"
+    >
       <div className={`${footerShell} pb-8 pt-10`}>
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-[#c5d8ea] pb-7">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
@@ -226,7 +229,7 @@ export function PublicFooter({ compact = false }: { compact?: boolean }) {
 
       <div className="border-t border-[#c5d8ea] py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div
-          className={`${footerShell} flex flex-col items-center justify-center gap-1.5 text-center text-[13px] font-normal text-muted sm:flex-row sm:items-center sm:justify-between sm:text-left`}
+          className={`${footerShell} flex flex-col items-center justify-center gap-1.5 text-center text-[13px] font-normal text-[#3a4d68] sm:flex-row sm:items-center sm:justify-between sm:text-left`}
         >
           <span>© 2026 PropLane. All rights reserved.</span>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 sm:justify-end">

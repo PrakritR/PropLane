@@ -301,7 +301,7 @@ function DesktopMenuItem({ item }: { item: NavbarMenuItem }) {
   if (item.groups) {
     return (
       <NavigationMenuItem>
-        <NavigationMenuTrigger className={cn(item.active && "bg-card text-primary", !item.active && "text-foreground/85")}>
+        <NavigationMenuTrigger className={cn(item.active ? "bg-card text-primary" : "bg-transparent text-foreground/85")}>
           {item.title}
         </NavigationMenuTrigger>
         <NavigationMenuContent>
