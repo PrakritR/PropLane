@@ -4124,6 +4124,23 @@ html[data-theme="light"] .portal-shell .glass-card {
     margin-inline: -2rem;
   }
 }
+/* The bleed's negative margins reach into <main>'s 2rem padding. The sticky-chrome
+   and communication surfaces clip .portal-main-inner (overflow: hidden), which cut
+   the header's first 2rem off at every desktop width: "romotion", "ll 0", half a +.
+   When the page shell's header or a list band bleeds, the inner stops clipping; <main>
+   (overflow-x: clip) and the pane's own scroller still bound everything. */
+@media (min-width: 1024px) {
+  html[data-portal-sticky-chrome] .portal-main-inner:has(> [data-slot="portal-page-shell"] > [data-slot="page-header"]),
+  html[data-communication-surface] .portal-main-inner:has(> [data-slot="portal-page-shell"] > [data-slot="page-header"]) {
+    overflow: visible;
+  }
+  /* Communication's panes carry lg:-mx-8 to meet the column edges; the inbox wrapper
+     clipped them to the padded column, cutting "Active", the work-number box and the
+     right pane's edge. <main> still bounds them. */
+  html[data-communication-surface] .portal-communication-inbox:not(.portal-resident-detail-inbox) {
+    overflow: visible;
+  }
+}
 @media (max-width: 1023px) {
   [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
   [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
