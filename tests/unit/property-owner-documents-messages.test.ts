@@ -160,12 +160,16 @@ describe("owner messages", () => {
       portal_inbox_thread_records: [
         { scope: "axis_portal_inbox_manager_v1", owner_user_id: OWNER, participant_email: null, created_at: "2026-10-01T10:00:00Z", row_data: { id: "s1", body: "Is the roof done?", email: "manager@example.com", folder: "sent" } },
         { scope: "axis_portal_inbox_manager_v1", owner_user_id: OWNER, participant_email: null, created_at: "2026-10-01T11:00:00Z", row_data: { id: "i1", body: "Yes", email: "manager@example.com", folder: "inbox" } },
+        // A later turn appends to `messages` while the root stays in `body`.
+        { scope: "axis_portal_inbox_manager_v1", owner_user_id: OWNER, participant_email: null, created_at: "2026-10-01T10:30:00Z", row_data: { id: "r0", body: "Root", folder: "sent", email: "manager@example.com", messages: [{ id: "r1", body: "Reply", at: "2026-10-01T10:45:00Z", outbound: false }] } },
         { scope: "axis_portal_inbox_manager_v1", owner_user_id: OWNER, participant_email: null, created_at: "2026-10-01T12:00:00Z", row_data: { id: "x1", body: "someone else", email: "resident@example.com", folder: "inbox" } },
       ],
     });
     const conversations = await loadOwnerConversations(db, OWNER, grants(true, true));
     expect(conversations[0]!.messages).toEqual([
       { id: "s1", body: "Is the roof done?", at: "2026-10-01T10:00:00Z", fromMe: true },
+      { id: "r0", body: "Root", at: "2026-10-01T10:30:00Z", fromMe: true },
+      { id: "r1", body: "Reply", at: "2026-10-01T10:45:00Z", fromMe: false },
       { id: "i1", body: "Yes", at: "2026-10-01T11:00:00Z", fromMe: false },
     ]);
   });

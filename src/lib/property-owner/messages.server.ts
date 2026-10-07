@@ -48,26 +48,28 @@ export async function loadOwnerConversations(
         .eq("owner_user_id", ownerUserId)
         .limit(200);
       if (error) throw new Error("Could not load messages.");
-      for (const row of data ?? []) {
+      // Rows oldest first; within a row the root comes before its later turns.
+      // (Turn `at` labels are display strings, so they are never sorted on.)
+      const rows = [...(data ?? [])].sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
+      for (const row of rows) {
         const rowData = (row.row_data ?? {}) as { messages?: unknown; email?: unknown; body?: unknown; folder?: unknown; id?: unknown };
         // Only the counterparty is this manager: the thread's participant, or (a
         // one-message row the inbox writes per send) the address on the row.
         const counterparty = String(row.participant_email ?? rowData.email ?? "").trim().toLowerCase();
         if (counterparty !== manager.email) continue;
-        const list = rowData.messages;
-        if (!Array.isArray(list)) {
-          // One-message row: `folder` says which side wrote it.
-          const body = typeof rowData.body === "string" ? rowData.body : "";
-          if (body.trim()) {
-            messages.push({
-              id: String(rowData.id ?? ""),
-              body,
-              at: String(row.created_at ?? ""),
-              fromMe: rowData.folder === "sent",
-            });
-          }
-          continue;
+        // The row's own body is the first turn (`folder` says which side wrote
+        // it); later turns of the same conversation append to `messages`.
+        const rootBody = typeof rowData.body === "string" ? rowData.body : "";
+        if (rootBody.trim()) {
+          messages.push({
+            id: String(rowData.id ?? ""),
+            body: rootBody,
+            at: String(row.created_at ?? ""),
+            fromMe: rowData.folder === "sent",
+          });
         }
+        const list = rowData.messages;
+        if (!Array.isArray(list)) continue;
         for (const raw of list) {
           const m = raw as { id?: unknown; body?: unknown; at?: unknown; outbound?: unknown; from?: unknown };
           const body = typeof m.body === "string" ? m.body : "";
@@ -79,7 +81,6 @@ export async function loadOwnerConversations(
         }
       }
     }
-    messages.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
     out.push({ conversationId: grant.linkId, messages });
   }
   return out;
