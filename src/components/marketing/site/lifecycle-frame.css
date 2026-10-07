@@ -3,7 +3,7 @@
   position: relative;
   min-height: 0;
   overflow: hidden;
-  padding: clamp(14px, 3vw, 28px);
+  padding: 6px 8px 22px;
   border: 0;
   border-radius: 0;
   background: transparent;

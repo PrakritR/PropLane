@@ -2366,6 +2366,7 @@ button.rlp-table-row {
   overflow-y: auto;
 }
 .rlp-dual-view .rlp-panel-frame {
+  display: flex;
   flex: 0 0 auto;
   min-height: 100%;
   overflow: visible;

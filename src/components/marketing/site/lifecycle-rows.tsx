@@ -154,7 +154,7 @@ function LifecycleRow({ row, flip }: { row: LifecycleRowDef; flip: boolean }) {
         // the right regardless of `flip` (captain's screenshot: every panel
         // on the right). Phone: always text first, then panel — `order-1`/
         // `order-2` below the `lg:` breakpoint never change with `flip`.
-        flip ? "lg:grid-cols-[minmax(0,0.66fr)_minmax(0,0.34fr)]" : "lg:grid-cols-[minmax(0,0.34fr)_minmax(0,0.66fr)]",
+        flip ? "lg:grid-cols-[minmax(0,0.7fr)_minmax(0,0.3fr)]" : "lg:grid-cols-[minmax(0,0.3fr)_minmax(0,0.7fr)]",
       )}
     >
       <div className={cn("order-1", flip ? "lg:order-2" : "lg:order-1")}>{textCell}</div>

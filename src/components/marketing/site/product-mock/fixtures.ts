@@ -802,7 +802,7 @@ export const AREA_BY_PROPERTY: Record<string, string> = {
 export const RESIDENT_NAME = "Jordan";
 /** The resident's own account label in their portal and message thread (people are shown by role). */
 export const RESIDENT_SELF = "Resident";
-export const RESIDENT_EMAIL = "jordan.rivera@example.com";
+export const RESIDENT_EMAIL = "jordan@example.com";
 export const RESIDENT_HOME = {
   property: "Willow Court",
   address: "61 Willow Court",
