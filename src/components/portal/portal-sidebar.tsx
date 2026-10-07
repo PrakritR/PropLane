@@ -48,144 +48,28 @@ import {
   PORTAL_NATIVE_BOTTOM_NAV_ITEM_CLASS,
   PORTAL_NATIVE_BOTTOM_NAV_LABEL_CLASS,
 } from "@/lib/portal-layout-classes";
-import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/portal-sidebar-cookie";
+import {
+  getPortalSidebarCollapsed,
+  subscribePortalSidebarCollapsed,
+  syncPortalSidebarCollapsedAttribute,
+} from "@/lib/portal-sidebar-collapse-store";
+import { useSidebarConversations } from "@/components/portal/use-sidebar-conversations";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } from "@/lib/portals/nav-groups";
-import { PAYMENT_BUCKETS } from "@/lib/portal-detail-routes";
+import {
+  buildPortalNavItems,
+  type PortalSidebarNavItem,
+  type PortalSidebarNavSubItem,
+} from "@/components/portal/portal-nav-model";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
 import { cn } from "@/lib/utils";
-import { ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, SquarePen } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
-import { PortalHelpPanel } from "@/components/portal/portal-help-panel";
-
-function hrefForSection(def: PortalDefinition, section: string) {
-  const meta = def.sections.find((s) => s.section === section);
-  if (!meta) return def.basePath;
-  if (section === "communication") {
-    if (def.basePath === "/portal" || def.basePath === "/resident" || def.basePath === "/vendor") {
-      return `${def.basePath}/communication/active`;
-    }
-    return `${def.basePath}/communication`;
-  }
-  if (!meta.tabs.length) return `${def.basePath}/${section}`;
-  // Most tabbed sections use `/section/tab` only. Bucketed queues (applications,
-  // tours, payments) declare `tabs: []` in the registry and own their own href
-  // builders — do not append `/pending` here or Finances/Documents 404.
-  if (section === "tasks") return `${def.basePath}/tasks`;
-  return `${def.basePath}/${section}/${meta.tabs[0].id}`;
-}
-
-type PortalSidebarNavSubItem = {
-  sectionTabId: string;
-  label: string;
-  href: string;
-  prefetchHrefs: string[];
-};
-
-type PortalSidebarNavItem = {
-  section: string;
-  label: string;
-  href: string;
-  prefetchHrefs: string[];
-  sectionTabId?: string;
-  subItems?: PortalSidebarNavSubItem[];
-};
-
-function buildPortalNavItems(
-  definition: PortalDefinition,
-  visibleSections: PortalDefinition["sections"],
-  showNativeChrome: boolean,
-  residentNavStage: ResidentPortalNavStage | undefined,
-): PortalSidebarNavItem[] {
-  return visibleSections
-    .filter((section) => {
-      if (isAppNavHiddenInNativeShell(definition.kind, section.section, showNativeChrome)) {
-        return false;
-      }
-      if (
-        definition.kind === "resident" &&
-        residentNavStage &&
-        !residentNavSectionVisibleInNav(section.section, residentNavStage)
-      ) {
-        return false;
-      }
-      return true;
-    })
-    .flatMap((section) => {
-      if (
-        section.section === "payments" &&
-        section.tabs.some((tab) => tab.id === "incoming" || tab.id === "outgoing")
-      ) {
-        const tabs = section.tabs.filter((tab) => tab.id === "incoming" || tab.id === "outgoing");
-        return [
-          {
-            section: section.section,
-            label: section.label,
-            href: `${definition.basePath}/payments/incoming/pending`,
-            prefetchHrefs: PAYMENT_BUCKETS.flatMap((bucket) =>
-              tabs.map((tab) => `${definition.basePath}/payments/${tab.id}/${bucket}`),
-            ),
-            subItems: tabs.map((tab) => ({
-              sectionTabId: tab.id,
-              label: tab.label,
-              href: `${definition.basePath}/payments/${tab.id}/pending`,
-              prefetchHrefs: PAYMENT_BUCKETS.map(
-                (bucket) => `${definition.basePath}/payments/${tab.id}/${bucket}`,
-              ),
-            })),
-          },
-        ];
-      }
-      if (definition.kind === "vendor" && section.section === "financials" && section.tabs.length > 1) {
-        // Finances (vendor-banking-1006): Balance & payouts · Payments · Refunds ·
-        // Statements · Tax info nest under the one Finances row, like manager Payments.
-        return [
-          {
-            section: section.section,
-            label: section.label,
-            href: `${definition.basePath}/financials/${section.tabs[0]!.id}`,
-            prefetchHrefs: section.tabs.map((tab) => `${definition.basePath}/financials/${tab.id}`),
-            subItems: section.tabs.map((tab) => ({
-              sectionTabId: tab.id,
-              label: tab.label,
-              href: `${definition.basePath}/financials/${tab.id}`,
-              prefetchHrefs: [`${definition.basePath}/financials/${tab.id}`],
-            })),
-          },
-        ];
-      }
-      if (section.section === "applications") {
-        // Screening nests inside the application record's own Screening tab now
-        // (docs/agents/record-page.md, PLAN-0920-1058 area 1c) — no second
-        // sidebar sub-item for it.
-        const appBase = `${definition.basePath}/applications/pending`;
-        return [
-          {
-            section: section.section,
-            label: section.label,
-            href: appBase,
-            prefetchHrefs: [appBase],
-          },
-        ];
-      }
-      const tabPrefetchHrefs =
-        section.tabs.length > 0
-          ? section.tabs.map((tab) => `${definition.basePath}/${section.section}/${tab.id}`)
-          : [`${definition.basePath}/${section.section}`];
-      return [
-        {
-          section: section.section,
-          label: section.label,
-          href: hrefForSection(definition, section.section),
-          prefetchHrefs: tabPrefetchHrefs,
-        },
-      ];
-    });
-}
 
 function portalBrandCopy(kind: PortalKind): { subtitle: string; ariaLabel: string } {
   switch (kind) {
@@ -200,15 +84,17 @@ function portalBrandCopy(kind: PortalKind): { subtitle: string; ariaLabel: strin
   }
 }
 
-function navLinkClass(active: boolean, locked?: boolean) {
-  return [
-    "group relative flex min-h-8 items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[14.5px] font-medium leading-5 tracking-[-0.01em] transition-colors duration-150",
+function navLinkClass(active: boolean, locked?: boolean, unread?: boolean) {
+  return cn(
+    "group relative flex h-8 items-center justify-between gap-2 rounded-[7px] px-2 text-[15px] leading-5 tracking-[-0.003em] transition-colors duration-100",
     active
-      ? "bg-[var(--portal-active-bg,var(--secondary))] font-semibold text-primary"
+      ? "bg-[var(--portal-sidebar-active-bg,#e9effe)] font-semibold text-[var(--portal-sidebar-active-fg,#1f55e0)]"
       : locked
-        ? "text-muted/70 hover:bg-[var(--portal-active-bg,var(--secondary))]/70 hover:text-muted"
-        : "text-muted hover:bg-[var(--portal-active-bg,var(--secondary))]/70 hover:text-primary",
-  ].join(" ");
+        ? "font-normal text-[#3c414b]/50 hover:bg-[rgba(17,24,39,0.045)]"
+        : unread
+          ? "font-[650] text-foreground hover:bg-[rgba(17,24,39,0.045)]"
+          : "font-normal text-[#3c414b] hover:bg-[rgba(17,24,39,0.045)]",
+  );
 }
 
 function NavLockIcon({ className }: { className?: string }) {
@@ -263,12 +149,39 @@ export function PortalSidebar({
     session.userId,
   );
   const navCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
-  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  // The collapse control lives in the top strip; both read one shared store.
+  const collapsed = useSyncExternalStore(
+    subscribePortalSidebarCollapsed,
+    () => getPortalSidebarCollapsed(initialCollapsed),
+    () => initialCollapsed,
+  );
   const [expandableNavOpen, setExpandableNavOpen] = useState<Record<string, boolean>>({});
-  // N087 (captain 2026-09-27): the standalone "Send feedback" footer item is
-  // gone in every portal; "Need help?" opens a panel with the help center
-  // link plus the feedback form inline instead.
-  const [helpOpen, setHelpOpen] = useState(false);
+  // Group headings collapse; the closed set persists per portal (best effort).
+  const groupsStorageKey = `portal-nav-closed-groups:${definition.kind}`;
+  const [closedGroups, setClosedGroups] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(groupsStorageKey);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      if (Array.isArray(parsed)) setClosedGroups(parsed.filter((v): v is string => typeof v === "string"));
+    } catch {
+      /* storage unavailable: every group stays open */
+    }
+  }, [groupsStorageKey]);
+  const toggleGroup = useCallback(
+    (id: string) => {
+      setClosedGroups((prev) => {
+        const next = prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id];
+        try {
+          window.localStorage.setItem(groupsStorageKey, JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+    },
+    [groupsStorageKey],
+  );
 
   const activeSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
@@ -332,29 +245,9 @@ export function PortalSidebar({
   }, [activeSectionSubTab]);
 
   const navGroups = useMemo(() => groupNavItems(definition.kind, navItems), [definition.kind, navItems]);
-  // A trailing "account" or "more" group (unassigned sections) gets pinned to
-  // the bottom of the sidebar, just above "Need help?". Settings (profile) has
-  // no sidebar row at all — see `SIDEBAR_EXCLUDED_SECTIONS` in `nav-groups.ts`.
-  const firstTrailingGroupIdx = useMemo(
-    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more"),
-    [navGroups],
-  );
-
   useEffect(() => {
-    if (collapsed) {
-      document.documentElement.setAttribute("data-portal-sidebar-collapsed", "");
-    } else {
-      document.documentElement.removeAttribute("data-portal-sidebar-collapsed");
-    }
+    syncPortalSidebarCollapsedAttribute(collapsed);
   }, [collapsed]);
-
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
-      return next;
-    });
-  };
 
   const showNavIcons =
     definition.kind === "admin" ||
@@ -701,9 +594,10 @@ export function PortalSidebar({
     const groupActive = isNavItemActive(item);
     const expanded = expandableNavOpen[item.section] ?? false;
     const subnavId = `portal-${item.section}-subnav`;
+    const unread = !locked && tone === "alert" && count > 0;
 
     return (
-      <div key={`${item.section}-group`} className="flex flex-col gap-1">
+      <div key={`${item.section}-group`} className="flex flex-col gap-px">
         <button
           type="button"
           onClick={() =>
@@ -711,16 +605,11 @@ export function PortalSidebar({
           }
           aria-expanded={expanded}
           aria-controls={subnavId}
-          className={cn(
-            navLinkClass(groupActive, locked),
-            "w-full border-0 bg-transparent text-left",
-          )}
+          className={cn(navLinkClass(groupActive, locked, unread), "w-full border-0 bg-transparent text-left")}
         >
-          <span className="flex min-w-0 flex-1 items-center gap-2.5">
+          <span className="flex min-w-0 flex-1 items-center gap-[9px]">
             {showNavIcons ? (
-              <span className={groupActive ? "text-primary" : locked ? "opacity-60" : "opacity-80"} aria-hidden>
-                <PortalNavIcon section={item.section} className="h-[17px] w-[17px] shrink-0" active={groupActive} />
-              </span>
+              <PortalNavIcon section={item.section} className="size-4 shrink-0" strokeWidth={1.75} />
             ) : null}
             <span className="min-w-0 truncate">{item.label}</span>
           </span>
@@ -735,60 +624,58 @@ export function PortalSidebar({
           </span>
         </button>
         {expanded ? (
-          <div id={subnavId} className="ml-1 flex flex-col gap-1 border-l border-border/70 pl-2">
+          <div id={subnavId} className="ml-3 flex flex-col gap-px border-l border-border pl-2">
             {item.subItems!.map((sub) => {
-            const active = isSubNavActive(item.section, sub);
-            const subLocked = locked;
-            const subBody = (
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                {showNavIcons ? (
-                  <span className={active ? "text-primary" : subLocked ? "opacity-60" : "opacity-80"} aria-hidden>
+              const active = isSubNavActive(item.section, sub);
+              const subLocked = locked;
+              const subBody = (
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  {showNavIcons ? (
                     <PortalNavIcon
                       section={item.section}
                       sectionTabId={sub.sectionTabId}
-                      className="h-[15px] w-[15px] shrink-0"
-                      active={active}
+                      className="size-[15px] shrink-0"
+                      strokeWidth={1.75}
                     />
-                  </span>
-                ) : null}
-                <span className="min-w-0 truncate">{sub.label}</span>
-              </span>
-            );
-            if (subLocked && !isSectionLockNavigable(item.section)) {
-              return (
-                <span
-                  key={sub.sectionTabId}
-                  className={cn(navLinkClass(false, true), "cursor-not-allowed")}
-                  title={lockAriaLabel(sub.label, true, item.section)}
-                  aria-label={lockAriaLabel(sub.label, true, item.section)}
-                  role="link"
-                  aria-disabled="true"
-                >
-                  {subBody}
+                  ) : null}
+                  <span className="min-w-0 truncate">{sub.label}</span>
                 </span>
               );
-            }
-            return (
-              <Link
-                key={sub.sectionTabId}
-                href={sub.href}
-                prefetch={portalBackgroundPrefetchEnabled()}
-                onMouseEnter={
-                  portalIntentPrefetchEnabled()
-                    ? () => {
-                        prefetchPortalHref(router, sub.href);
-                        for (const href of sub.prefetchHrefs) prefetchPortalHref(router, href);
-                      }
-                    : undefined
-                }
-                className={navLinkClass(active, subLocked)}
-                aria-label={lockAriaLabel(sub.label, subLocked, item.section)}
-                aria-current={active ? "page" : undefined}
-              >
-                {subBody}
-              </Link>
-            );
-          })}
+              if (subLocked && !isSectionLockNavigable(item.section)) {
+                return (
+                  <span
+                    key={sub.sectionTabId}
+                    className={cn(navLinkClass(false, true), "cursor-not-allowed")}
+                    title={lockAriaLabel(sub.label, true, item.section)}
+                    aria-label={lockAriaLabel(sub.label, true, item.section)}
+                    role="link"
+                    aria-disabled="true"
+                  >
+                    {subBody}
+                  </span>
+                );
+              }
+              return (
+                <Link
+                  key={sub.sectionTabId}
+                  href={sub.href}
+                  prefetch={portalBackgroundPrefetchEnabled()}
+                  onMouseEnter={
+                    portalIntentPrefetchEnabled()
+                      ? () => {
+                          prefetchPortalHref(router, sub.href);
+                          for (const href of sub.prefetchHrefs) prefetchPortalHref(router, href);
+                        }
+                      : undefined
+                  }
+                  className={navLinkClass(active, subLocked)}
+                  aria-label={lockAriaLabel(sub.label, subLocked, item.section)}
+                  aria-current={active ? "page" : undefined}
+                >
+                  {subBody}
+                </Link>
+              );
+            })}
           </div>
         ) : null}
       </div>
@@ -801,13 +688,13 @@ export function PortalSidebar({
     const locked = isSectionLocked(s.section);
     const count = navCounts[s.section]?.count ?? 0;
     const tone = navCounts[s.section]?.tone ?? "muted";
+    // An unread / overdue (alert) count makes the row bold ink with a red badge.
+    const unread = !locked && tone === "alert" && count > 0;
     const body = (
       <>
-        <span className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span className="flex min-w-0 flex-1 items-center gap-[9px]">
           {showNavIcons ? (
-            <span className={active ? "text-primary" : locked ? "opacity-60" : "opacity-80"} aria-hidden>
-              <PortalNavIcon section={s.section} sectionTabId={s.sectionTabId} className="h-[17px] w-[17px] shrink-0" active={active} />
-            </span>
+            <PortalNavIcon section={s.section} sectionTabId={s.sectionTabId} className="size-4 shrink-0" strokeWidth={1.75} />
           ) : null}
           <span className="min-w-0 truncate">{s.label}</span>
         </span>
@@ -850,78 +737,11 @@ export function PortalSidebar({
               }
             : undefined
         }
-        className={navLinkClass(active, locked)}
+        className={navLinkClass(active, locked, unread)}
         aria-label={lockAriaLabel(s.label, locked, s.section)}
         aria-current={active ? "page" : undefined}
       >
         {body}
-      </Link>
-    );
-  };
-
-  const renderRailLink = (s: PortalSidebarNavItem) => {
-    const href = resolveNavItemHref(s);
-    const active = isNavItemActive(s);
-    const locked = isSectionLocked(s.section);
-    const count = navCounts[s.section]?.count ?? 0;
-    const tone = navCounts[s.section]?.tone ?? "muted";
-    const railClass = cn(
-      "relative grid h-9 w-9 place-items-center rounded-[8px] transition-colors duration-150",
-      active
-        ? "bg-[var(--portal-active-bg,var(--secondary))] text-primary"
-        : locked
-          ? "cursor-not-allowed text-muted/60"
-          : "text-muted hover:bg-[var(--secondary)]/60 hover:text-foreground",
-    );
-    const icon = (
-      <>
-        <PortalNavIcon section={s.section} sectionTabId={s.sectionTabId} className="h-[17px] w-[17px] shrink-0" active={active} />
-        {!locked && count > 0 ? (
-          <span
-            className={cn(
-              "absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full",
-              tone === "alert" ? "bg-primary" : "bg-muted",
-            )}
-            aria-hidden
-          />
-        ) : null}
-        {locked ? <NavLockIcon className="absolute right-0.5 top-0.5 h-2.5 w-2.5 text-muted" /> : null}
-      </>
-    );
-    if (locked && !isSectionLockNavigable(s.section)) {
-      return (
-        <span
-          key={`${s.section}-${s.sectionTabId ?? "default"}`}
-          // The collapsed rail is icon-only, so `title={s.label}` dropped the
-          // reason entirely — carry the same tooltip the expanded row shows.
-          title={lockAriaLabel(s.label, true, s.section)}
-          aria-label={lockAriaLabel(s.label, true, s.section)}
-          aria-disabled="true"
-          className={railClass}
-        >
-          {icon}
-        </span>
-      );
-    }
-    return (
-      <Link
-        key={`${s.section}-${s.sectionTabId ?? "default"}`}
-        href={href}
-        prefetch={portalBackgroundPrefetchEnabled()}
-        onMouseEnter={
-          portalIntentPrefetchEnabled()
-            ? () => {
-                prefetchPortalHref(router, href);
-                for (const prefetchHref of s.prefetchHrefs) prefetchPortalHref(router, prefetchHref);
-              }
-            : undefined
-        }
-        title={s.label}
-        aria-label={lockAriaLabel(s.label, locked, s.section)}
-        aria-current={active ? "page" : undefined}
-        className={railClass}
-      >
-        {icon}
       </Link>
     );
   };
@@ -931,151 +751,147 @@ export function PortalSidebar({
   // Property portal: show the portal name instead of the billing tier.
   const headerSubtitle = rawSubtitle === "Pro" || rawSubtitle === "Business" ? "Property" : rawSubtitle;
 
+  const workspaces = useWorkspaces();
+  const activeHouseCount = workspaces?.active?.livePropertyCount ?? null;
+  // "Property · 2 houses" from the data the workspace switcher already holds; the
+  // other portals just say who they are.
+  const headerSubLine =
+    isWorkspacePortal && workspaces?.active
+      ? `${headerSubtitle} · ${activeHouseCount ?? 0} ${activeHouseCount === 1 ? "house" : "houses"}`
+      : headerSubtitle;
+
+  // New message: the existing Communication compose, reached through the
+  // communication route's own `?compose=1` entry (manager, vendor, resident).
+  const communicationLocked = isSectionLocked("communication") && !isSectionLockNavigable("communication");
+  const hasCommunication = definition.sections.some((section) => section.section === "communication");
+  const newMessageHref = `${definition.basePath}/communication/active?compose=1`;
+  const showNewMessage = definition.kind !== "admin" && hasCommunication && !communicationLocked;
+
+  const conversations = useSidebarConversations({
+    kind: definition.kind,
+    basePath: definition.basePath,
+    enabled: definition.kind !== "admin" && hasCommunication && !communicationLocked,
+    smsUiEnabled,
+  });
+  const conversationsClosed = closedGroups.includes("conversations");
+  const headingClass =
+    "flex w-full items-center gap-1 rounded-[6px] border-0 bg-transparent px-2 py-[3px] text-left text-[12px] font-semibold text-[#7a808b] transition-colors hover:bg-[rgba(17,24,39,0.045)]";
+
   const desktopAside = (
     <aside
+      aria-hidden={collapsed || undefined}
       className={cn(
-        "relative z-40 hidden h-full min-h-0 shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg,var(--background))] glass-nav lg:flex",
-        collapsed ? "w-[58px]" : "w-[224px]",
+        "relative z-40 hidden h-full min-h-0 w-[248px] shrink-0 self-stretch flex-col overflow-hidden border-r border-border bg-[var(--portal-sidebar-bg,#f6f7f9)]",
+        // Collapsed sidebar = rail + content only.
+        collapsed ? "lg:hidden" : "lg:flex",
       )}
+      data-slot="portal-sidebar"
     >
-      {collapsed ? (
-        <div className="flex shrink-0 flex-col items-center gap-1 border-b border-border py-2">
-          {/*
-           * A manager's sidebar opens with the WORKSPACE, not the product: one
-           * block that says which portfolio this is (avatar · name · role and
-           * property count) and switches it — the way Linear and Loom open. It
-           * replaces the logo row, the "PROPERTY" badge and the separate "My
-           * workspace" box that used to stack above the nav.
-           */}
-          {isWorkspacePortal ? <WorkspaceSwitcher compact /> : null}
+      <div className="flex shrink-0 items-start gap-1.5 pb-2 pl-3.5 pr-2.5 pt-3">
+        <div className="min-w-0 flex-1">
+          {isWorkspacePortal ? (
+            <WorkspaceSwitcher variant="sidebar" />
+          ) : (
+            <p className="truncate text-[16px] font-bold tracking-[-0.02em] text-foreground">PropLane</p>
+          )}
+          <p className="mt-0.5 flex items-center gap-[5px] text-[12px] text-[#7a808b]">
+            <b aria-hidden className="inline-block size-1.5 rounded-full bg-[#22a06b]" />
+            <span className="min-w-0 truncate">{headerSubLine}</span>
+          </p>
+        </div>
+        {showNewMessage ? (
           <button
             type="button"
-            onClick={toggleCollapsed}
-            aria-label="Expand sidebar"
-            aria-expanded={false}
-            className="grid h-8 w-8 place-items-center rounded-[8px] text-muted transition-colors duration-150 hover:bg-[var(--secondary)]/60 hover:text-foreground"
+            onClick={() => navigate(newMessageHref)}
+            aria-label="New message"
+            title="New message"
+            data-attr="portal-sidebar-new-message"
+            className="grid size-[30px] shrink-0 place-items-center rounded-[7px] border border-[rgba(17,24,39,0.13)] bg-white text-[#3c414b] outline-none transition hover:bg-[#f7f8fa] focus-visible:ring-2 focus-visible:ring-primary/30"
           >
-            <ChevronsRight className="h-4 w-4" aria-hidden />
+            <SquarePen className="size-4" strokeWidth={1.75} aria-hidden />
           </button>
-        </div>
-      ) : isWorkspacePortal ? (
-        <div className="flex h-14 shrink-0 items-center gap-0.5 border-b border-border pl-1.5 pr-1.5">
-          <WorkspaceSwitcher />
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            aria-label="Collapse sidebar"
-            aria-expanded
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] text-muted/70 transition-colors duration-150 hover:bg-[var(--secondary)]/60 hover:text-foreground"
-          >
-            <ChevronsLeft className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-      ) : (
-        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-3">
-          <Link
-            href="/"
-            prefetch
-            aria-label="PropLane home"
-            className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-90"
-          >
-            <AxisLogoMark size="compact" />
-            <span className="min-w-0 leading-tight">
-              <span className="block text-[15px] font-bold tracking-[-0.03em] text-foreground">PropLane</span>
-              <span className="mt-0.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-muted">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#23936c]" aria-hidden />
-                {headerSubtitle}
-              </span>
-            </span>
-          </Link>
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            aria-label="Collapse sidebar"
-            aria-expanded
-            className="ml-auto grid h-7 w-7 place-items-center rounded-[8px] text-muted transition-colors duration-150 hover:bg-[var(--secondary)]/60 hover:text-foreground"
-          >
-            <ChevronsLeft className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-      )}
+        ) : null}
+      </div>
 
-      {collapsed ? (
-        <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-contain px-2 py-2.5" aria-label="Portal sections">
-          {navGroups.map((group, i) => (
-            <div
-              key={group.id}
-              className={cn("flex w-full flex-col items-center gap-1", i === firstTrailingGroupIdx && "mt-auto")}
-            >
-              {i > 0 ? <div className="my-1 h-px w-6 bg-border" aria-hidden /> : null}
-              {group.items.map((s) => renderRailLink(s))}
-            </div>
-          ))}
-        </nav>
-      ) : (
-        <nav className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overscroll-contain px-2 py-2.5" aria-label="Portal sections">
-          {navGroups.map((group, i) => (
-            <div
-              key={group.id}
-              className={cn(
-                "flex flex-col gap-px",
-                i === firstTrailingGroupIdx && "mt-auto border-t border-border pt-2",
-              )}
-            >
-              {group.label ? (
-                <p className="px-2.5 pb-1 pt-3 text-[11px] font-extrabold uppercase leading-[15px] tracking-[0.09em] text-muted">
-                  {group.label}
-                </p>
-              ) : null}
-              {group.items.map((s) => renderDesktopLink(s))}
-            </div>
-          ))}
-        </nav>
-      )}
-
-      {/*
-       * Help sits OUTSIDE the nav so it stays pinned while a long section list
-       * scrolls behind it. N087 (captain 2026-09-27): the standalone "Send
-       * feedback" row that used to sit below this is gone in every portal —
-       * this button now opens a panel with the help center link plus the
-       * feedback form inline, instead of linking straight to `/support`.
-       */}
-      <button
-        type="button"
-        onClick={() => setHelpOpen(true)}
-        data-attr="portal-sidebar-help"
-        className={cn(
-          "shrink-0 border-t border-border text-left text-muted transition-colors hover:text-foreground",
-          collapsed
-            ? "grid h-[52px] place-items-center"
-            : "flex items-start gap-2.5 px-4 py-3.5",
-        )}
-        title={collapsed ? "Need help?" : undefined}
-        aria-label={collapsed ? "Need help?" : undefined}
+      <nav
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 pb-3 pt-1 [scrollbar-width:thin]"
+        aria-label="Portal sections"
       >
-        <HelpCircle className="h-[19px] w-[19px] shrink-0 lg:mt-0.5" aria-hidden />
-        {collapsed ? null : (
-          <span className="min-w-0">
-            <span className="block text-[13.5px] font-semibold text-foreground">Need help?</span>
-            <span className="block text-[12px]">Help center and feedback</span>
-          </span>
-        )}
-      </button>
+        {navGroups.map((group) => {
+          const closed = Boolean(group.label) && closedGroups.includes(group.id);
+          // The active row stays visible even inside a collapsed group.
+          const visibleItems = closed ? group.items.filter((item) => isNavItemActive(item)) : group.items;
+          return (
+            <div key={group.id} className={cn("flex flex-col gap-px", group.label && "mt-3")} data-nav-group={group.id}>
+              {group.label ? (
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.id)}
+                  aria-expanded={!closed}
+                  data-attr={`portal-nav-group-${group.id}`}
+                  className={headingClass}
+                >
+                  <ChevronDown
+                    className={cn("size-3 shrink-0 transition-transform duration-150", closed && "-rotate-90")}
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                  {group.label}
+                </button>
+              ) : null}
+              {visibleItems.map((s) => renderDesktopLink(s))}
+            </div>
+          );
+        })}
+
+        {conversations.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-px" data-nav-group="conversations">
+            <button
+              type="button"
+              onClick={() => toggleGroup("conversations")}
+              aria-expanded={!conversationsClosed}
+              data-attr="portal-nav-group-conversations"
+              className={headingClass}
+            >
+              <ChevronDown
+                className={cn("size-3 shrink-0 transition-transform duration-150", conversationsClosed && "-rotate-90")}
+                strokeWidth={2}
+                aria-hidden
+              />
+              Conversations
+            </button>
+            {conversationsClosed
+              ? null
+              : conversations.map((conversation) => (
+                  <Link
+                    key={conversation.id}
+                    href={conversation.href}
+                    prefetch={false}
+                    data-attr="portal-sidebar-conversation"
+                    aria-label={conversation.unread ? `${conversation.name}, unread` : conversation.name}
+                    className={cn(navLinkClass(pathname === conversation.href || pathname.startsWith(`${conversation.href}/`), false, conversation.unread))}
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-[9px]">
+                      <span
+                        aria-hidden
+                        className="grid size-5 shrink-0 place-items-center rounded-[5px] bg-[#eaf0fe] text-[9px] font-bold text-[#1e4fd6]"
+                      >
+                        {conversation.initials}
+                      </span>
+                      <span className="min-w-0 truncate">{conversation.name}</span>
+                    </span>
+                    {conversation.unread ? <span className="size-1.5 shrink-0 rounded-full bg-[#d92d20]" aria-hidden /> : null}
+                  </Link>
+                ))}
+          </div>
+        ) : null}
+      </nav>
     </aside>
   );
 
   return (
     <>
       {desktopAside}
-
-      <PortalHelpPanel
-        open={helpOpen}
-        onClose={() => setHelpOpen(false)}
-        reporterRole={definition.kind}
-        reporterUserId={session.userId}
-        reporterEmail={session.email ?? ""}
-        reporterName={session.email ?? ""}
-      />
 
       <div className="shrink-0 lg:hidden">
         <div className={PORTAL_MOBILE_CHROME_CLASS}>

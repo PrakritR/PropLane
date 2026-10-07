@@ -4,6 +4,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 import { MessageSquarePlus } from "lucide-react";
 
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
@@ -234,6 +235,14 @@ export function ManagerCommunication({
     },
     [loadSmsRecipients],
   );
+
+  // `?compose=1` (the sidebar's New message button) opens the same compose the + does.
+  const wantsCompose = useSearchParams()?.get("compose") === "1";
+  useEffect(() => {
+    if (wantsCompose) openCompose("email");
+    // Only the URL flag drives this; openCompose is stable per recipients loader.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsCompose]);
 
   const handleComposeSent = useCallback(
     async (result: { email: boolean; sms: boolean; primaryRecipientEmail?: string }) => {
