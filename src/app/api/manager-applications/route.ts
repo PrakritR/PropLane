@@ -1,7 +1,7 @@
 import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
 import { persistRenamedApplicationRecord, type ApplicationRecordSnapshot } from "@/lib/security/application-record-normalization.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
 import { buildResidentSetupHref } from "@/lib/auth/resident-setup-token";
@@ -860,6 +860,58 @@ async function assertCanDeleteApplicationRecords(
   return "Unauthorized.";
 }
 
+const BACKFILL_MAX_ROWS_PER_CALL = 3;
+const BACKFILL_ATTEMPT_TTL_MS = 10 * 60 * 1000;
+const BACKFILL_ATTEMPTED_MAX = 2000;
+const backfillAttemptedAt = new Map<string, number>();
+
+/** Fire-and-forget backfill of approved applications with no resident profile. Never throws. */
+function scheduleApprovedResidentBackfill(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  scopedRows: DemoApplicantRow[],
+): void {
+  try {
+    const now = Date.now();
+    for (const [id, at] of backfillAttemptedAt) {
+      if (now - at >= BACKFILL_ATTEMPT_TTL_MS) backfillAttemptedAt.delete(id);
+    }
+    const approved = scopedRows.filter(
+      (r) => r.bucket === "approved" && r.email?.trim().includes("@") && !backfillAttemptedAt.has(r.id),
+    );
+    if (approved.length === 0) return;
+
+    const work = async () => {
+      // One batch profiles read finds the rows that are really missing an account;
+      // only those count toward the per-call cap, so a long approved list of
+      // provisioned residents never starves the one that needs it.
+      const emails = [...new Set(approved.map((r) => r.email!.trim().toLowerCase()))];
+      const { data: existing } = await db.from("profiles").select("email").in("email", emails);
+      const existingSet = new Set((existing ?? []).map((p) => (p.email ?? "").trim().toLowerCase()).filter(Boolean));
+      const unprovisioned = approved
+        .filter((r) => !existingSet.has(r.email!.trim().toLowerCase()))
+        .slice(0, BACKFILL_MAX_ROWS_PER_CALL);
+      const at = Date.now();
+      for (const row of unprovisioned) backfillAttemptedAt.set(row.id, at);
+      while (backfillAttemptedAt.size > BACKFILL_ATTEMPTED_MAX) {
+        const oldest = backfillAttemptedAt.keys().next().value;
+        if (oldest === undefined) break;
+        backfillAttemptedAt.delete(oldest);
+      }
+      await Promise.allSettled(unprovisioned.map((row) => provisionApprovedResidentAccount(db, row).catch(
+        bestEffortFailed("approved resident account provisioning", { application: row.id }),
+      )));
+    };
+    const run = () => work().catch(bestEffortFailed("approved resident backfill"));
+    try {
+      after(run);
+    } catch {
+      void run();
+    }
+  } catch {
+    /* best-effort; the read response is unaffected */
+  }
+}
+
 export async function GET(req: Request) {
   try {
     const user = await sessionUser();
@@ -962,21 +1014,12 @@ export async function GET(req: Request) {
           )
         : rows;
 
-    // Provision approved residents that were never provisioned (e.g. restored via SQL migration).
-    // One batch profiles query finds which are missing; parallel provisioning handles only those.
-    // This runs synchronously so accounts exist by the time the client fetches portal statuses.
-    const approved = scopedRows.filter((r) => r.bucket === "approved" && r.email?.trim().includes("@"));
-    if (approved.length > 0) {
-      const emails = [...new Set(approved.map((r) => r.email!.trim().toLowerCase()))];
-      const { data: existing } = await db.from("profiles").select("email").in("email", emails);
-      const existingSet = new Set((existing ?? []).map((p) => (p.email ?? "").trim().toLowerCase()).filter(Boolean));
-      const unprovisioned = approved.filter((r) => !existingSet.has(r.email!.trim().toLowerCase()));
-      if (unprovisioned.length > 0) {
-        await Promise.allSettled(unprovisioned.map((row) => provisionApprovedResidentAccount(db, row).catch(
-            bestEffortFailed("approved resident account provisioning", { application: row.id }),
-          )));
-      }
-    }
+    // Approved residents are provisioned when the approval is WRITTEN (persist path
+    // above). This read only backfills rows that were never provisioned (restored
+    // via SQL migration, or a write-time failure) and is read-only for the caller:
+    // bounded, after the response, never awaited, one attempt per row per 10 min.
+    // It used to run inline and its auth lookup (listUsers) cost seconds per call.
+    scheduleApprovedResidentBackfill(db, scopedRows);
 
     return NextResponse.json({ rows: scopedRows }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {

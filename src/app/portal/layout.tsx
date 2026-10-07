@@ -48,7 +48,13 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
   // other path, typed or followed from an old link, lands on their Overview.
   // The menu is not the boundary (the manager APIs refuse them on the server);
   // this is the page half of the same rule.
-  const session = await getServerSessionProfile();
+  // The two cookie reads need no identity, so they ride along with the session
+  // lookup instead of waiting behind the owner and nav lookups below.
+  const [session, sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
+    getServerSessionProfile(),
+    getSidebarCollapsed(),
+    getAssistantDockCollapsed(),
+  ]);
   if (session.user) {
     let owner: OwnerAccessState;
     try {
@@ -68,13 +74,14 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
     }
   }
 
-  const [nav, { profile, user }, sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
+  // Past the owner gate: the nav definition and the test-workspace
+  // classification are independent of each other, so they resolve together.
+  // `session` is already resolved (and request-cached), so `user` is known.
+  const { profile, user } = session;
+  const [nav, testWorkspace] = await Promise.all([
     buildProPortalDefinition(),
-    getServerSessionProfile(),
-    getSidebarCollapsed(),
-    getAssistantDockCollapsed(),
+    user ? resolveTestWorkspaceClassification(user.id) : Promise.resolve({ kind: "normal" as const }),
   ]);
-  const testWorkspace = user ? await resolveTestWorkspaceClassification(user.id) : { kind: "normal" as const };
   if (testWorkspace.kind === "classified" && (testWorkspace.state !== "active" || !isTestWorkspaceFeatureEnabled())) {
     return <TestAccountUnavailable state={testWorkspace.state} />;
   }

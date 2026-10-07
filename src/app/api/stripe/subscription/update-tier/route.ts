@@ -16,6 +16,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { assertManagerPriceMatchesRateCard, readManagerSubscriptionPriceContext } from "@/lib/stripe/resolve-manager-price";
+import { invalidateManagerTierCache } from "@/lib/manager-tier-sync-cache";
 import { reconcileManagerPurchaseWithStripe } from "@/lib/manager-stripe-subscription-sync";
 import {
   stripeSubscriptionIsBillable,
@@ -41,7 +42,21 @@ function clearScheduleMetadata(meta: Record<string, string>): Record<string, str
   };
 }
 
+/**
+ * Every path below may rewrite the purchase row, so the cross-request tier-sync
+ * cache is dropped for the signed-in manager once the handler finishes (success,
+ * early return or throw) and the next tier read reconciles fresh.
+ */
 export async function POST(req: Request) {
+  const ctx: { userId: string | null } = { userId: null };
+  try {
+    return await handleUpdateTier(req, ctx);
+  } finally {
+    if (ctx.userId) invalidateManagerTierCache(ctx.userId);
+  }
+}
+
+async function handleUpdateTier(req: Request, ctx: { userId: string | null }) {
   try {
     const supabaseAuth = await createSupabaseServerClient();
     const {
@@ -50,6 +65,7 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    ctx.userId = user.id;
 
     const body = (await req.json().catch(() => null)) as
       | { tier?: string; billing?: string; resume?: boolean; action?: string; promo?: string }

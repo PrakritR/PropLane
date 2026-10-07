@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/shared-get-cache";
 import { useEffect, useState } from "react";
 import { Mail, MessageSquare } from "lucide-react";
 
@@ -32,8 +33,12 @@ export function ManagerMessageChannelsPanel({ onManage }: { onManage?: () => voi
   useEffect(() => {
     const controller = new AbortController();
     const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
-    const read = async (url: string): Promise<unknown> => {
+    const read = async (url: string, shared = false): Promise<unknown> => {
       try {
+        if (shared) {
+          const res = await sharedGet(url);
+          return res.ok ? res.data : null;
+        }
         const res = await fetch(url, { credentials: "include", cache: "no-store", signal: controller.signal });
         return res.ok ? await res.json().catch(() => null) : null;
       } catch {
@@ -42,7 +47,7 @@ export function ManagerMessageChannelsPanel({ onManage }: { onManage?: () => voi
     };
     void (async () => {
       const [numberBody, emailBody] = await Promise.all([
-        read(`/api/manager/messaging-number${query}`),
+        read(`/api/manager/messaging-number${query}`, true),
         read(`/api/manager/assistant-email${query}`),
       ]);
       if (controller.signal.aborted) return;

@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-const { renderPortalSection } = await import("@/lib/render-portal-section");
+const { renderPortalSection } = await import("@/lib/render-portal-section/vendor");
 const { resolveVendorSettingsTab } = await import("@/lib/portals/vendor-settings-pages");
 
 async function target(tabParts?: string[], searchParams?: Record<string, string>) {

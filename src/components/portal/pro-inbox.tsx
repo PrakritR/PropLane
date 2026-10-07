@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/shared-get-cache";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Archive, ArchiveRestore, Eraser, Info, MailOpen, Phone, Trash2, UserRound } from "lucide-react";
@@ -359,8 +360,8 @@ export const ManagerInbox = forwardRef<
   useEffect(() => {
     if (isDemoModeActive()) return;
     let cancelled = false;
-    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
+    void sharedGet("/api/manager/messaging-number")
+      .then((res) => (res.ok ? res.data : null))
       .then((body) => {
         if (cancelled || !body || typeof body !== "object") return;
         const status = body as {

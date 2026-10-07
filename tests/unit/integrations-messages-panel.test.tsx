@@ -7,6 +7,7 @@ vi.mock("@/components/portal/workspace-provider", () => ({
 }));
 
 import { ManagerMessageChannelsPanel, formatWorkNumber } from "@/components/portal/integrations-messages-panel";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 
 const emailStatus = (address: string | null, canUse = true) => ({
   provisioningAvailable: true, sendingAvailable: true, receivingAvailable: true, storageReady: true, planTier: "paid",
@@ -24,6 +25,7 @@ function stubFetch(number: string | null, email: ReturnType<typeof emailStatus>)
 }
 
 afterEach(() => {
+  resetSharedGets();
   cleanup();
   vi.unstubAllGlobals();
 });

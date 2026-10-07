@@ -31,6 +31,9 @@ export function VendorMessagingSetupBanner() {
   }, []);
 
   useEffect(() => {
+    // A dismissed banner never renders again, so it never needs the answer: skip the request on
+    // every vendor page for a vendor who dismissed it (`null` = localStorage not read yet).
+    if (dismissed !== false) return;
     if (isDemoModeActive()) return;
     let cancelled = false;
     void fetch("/api/manager/phone", { credentials: "include", cache: "no-store" })
@@ -43,7 +46,7 @@ export function VendorMessagingSetupBanner() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dismissed]);
 
   if (dismissed !== false) return null;
   if (!needsVerification) return null;

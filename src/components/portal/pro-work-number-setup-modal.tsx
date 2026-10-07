@@ -23,7 +23,7 @@ import {
 import { workNumberStatusWord } from "@/lib/sms/work-number-status";
 import { WORK_CONTACT_ANNOUNCE_EVENT } from "@/lib/work-contact-announce";
 
-import { invalidateSharedGets, writeThroughFetch } from "@/lib/shared-get-cache";
+import { invalidateSharedGets, sharedGet, writeThroughFetch } from "@/lib/shared-get-cache";
 
 const ENDPOINT = "/api/manager/messaging-number";
 
@@ -366,11 +366,8 @@ export function WorkNumberSetupModal({
     if (!open || !provisioning) return;
     const interval = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      void fetch(`${ENDPOINT}?workspaceId=${encodeURIComponent(workspaceId)}`, {
-        credentials: "include",
-        cache: "no-store",
-      })
-        .then(async (res) => (res.ok ? ((await res.json()) as ManagerMessagingNumberStatus) : null))
+      void sharedGet(`${ENDPOINT}?workspaceId=${encodeURIComponent(workspaceId)}`, { force: true })
+        .then((res) => (res.ok ? (res.data as ManagerMessagingNumberStatus | null) : null))
         .then((body) => {
           if (!body) return;
           // Provisioning finished somewhere else in this page's lifetime: whatever read this route

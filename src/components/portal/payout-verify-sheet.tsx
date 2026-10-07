@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { loadStripe } from "@stripe/stripe-js";
+import { getStripe } from "@/lib/stripe-browser";
 import { AlertCircle, CheckCircle2, Clock, ShieldAlert } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 export type VerifyFieldType = "text" | "date" | "address" | "select" | "document" | "tel" | "email";
 
@@ -243,7 +242,7 @@ export function PayoutVerifySheet({
   async function submit() {
     if (!requirements) return;
     setError(null);
-    const stripe = await stripePromise;
+    const stripe = await getStripe();
     if (!stripe) {
       setError("Could not start Stripe.");
       return;

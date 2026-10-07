@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { track } from "@/lib/analytics/posthog";
 import { applyRevenueCatWebhookEvent } from "@/lib/manager-apple-subscription-sync";
 import type { RevenueCatWebhookEvent } from "@/lib/manager-apple-webhook";
+import { invalidateManagerTierCache } from "@/lib/manager-tier-sync-cache";
 import { reconcileManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -49,6 +50,9 @@ export async function POST(req: Request) {
 
   try {
     const { decision } = await applyRevenueCatWebhookEvent(event);
+    // The Apple grant/downgrade just changed purchase state: the next tier read
+    // must reconcile fresh instead of reusing a sync from before the event.
+    if (decision.action !== "ignore") invalidateManagerTierCache(decision.appUserId);
     if (decision.action !== "ignore") {
       const smsEntitlement = await reconcileManagerSmsEntitlement(
         createSupabaseServiceRoleClient(),

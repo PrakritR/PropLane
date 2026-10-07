@@ -21,7 +21,7 @@ export async function GET(request?: NextRequest) {
     const rooms = await loadPublicRoomOccupancy(db, listings);
     return NextResponse.json({ rooms }, { headers: { "Cache-Control": fresh
       ? "private, no-store"
-      : "public, s-maxage=60, stale-while-revalidate=120" } });
+      : "public, s-maxage=60, stale-while-revalidate=300" } });
   } catch {
     return NextResponse.json({ error: "Could not load room availability." }, { status: 503 });
   }

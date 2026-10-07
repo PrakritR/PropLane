@@ -1,4 +1,3 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import {
   LEASE_ESIGN_CONSENT_TEXT,
   LEASE_ESIGN_CONSENT_VERSION,
@@ -91,6 +90,7 @@ function riderLines(ctx: LeaseGenerationContext): string[] {
  * page after the base PDF and before the electronic-signature certificate.
  */
 export async function buildLeaseTermsRiderPdf(ctx: LeaseGenerationContext): Promise<Uint8Array> {
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -133,6 +133,7 @@ export async function appendLeaseTermsRiderToPdf(
   originalDataUrl: string,
   ctx: LeaseGenerationContext,
 ): Promise<string> {
+  const { PDFDocument } = await import("pdf-lib");
   const baseDoc = await PDFDocument.load(dataUrlToBytes(originalDataUrl));
   const riderDoc = await PDFDocument.load(await buildLeaseTermsRiderPdf(ctx));
   const pages = await baseDoc.copyPages(riderDoc, riderDoc.getPageIndices());
@@ -153,6 +154,7 @@ function signatureEvidenceLines(row: LeasePipelineRow, role: "resident" | "manag
 }
 
 export async function buildLeaseSignaturePagePdf(row: LeasePipelineRow): Promise<Uint8Array> {
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -245,6 +247,7 @@ export async function buildLeaseSignaturePagePdf(row: LeasePipelineRow): Promise
 }
 
 export async function appendSignaturePageToPdf(originalDataUrl: string, row: LeasePipelineRow): Promise<string> {
+  const { PDFDocument } = await import("pdf-lib");
   const baseDoc = await PDFDocument.load(dataUrlToBytes(originalDataUrl));
   const sigBytes = await buildLeaseSignaturePagePdf(row);
   const sigDoc = await PDFDocument.load(sigBytes);
@@ -283,6 +286,7 @@ export async function appendSignaturePageToPdfBytes(
   baseBytes: Uint8Array,
   row: LeasePipelineRow,
 ): Promise<Uint8Array> {
+  const { PDFDocument } = await import("pdf-lib");
   const baseDoc = await PDFDocument.load(baseBytes);
   const sigBytes = await buildLeaseSignaturePagePdf(row);
   const sigDoc = await PDFDocument.load(sigBytes);
@@ -326,6 +330,7 @@ export function htmlToPlainTextParagraphs(html: string): string[] {
  * needed; it never invents or summarizes content.
  */
 export async function buildLeaseBodyTextPdf(paragraphs: string[]): Promise<Uint8Array> {
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const margin = 54;

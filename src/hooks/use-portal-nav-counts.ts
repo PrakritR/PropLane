@@ -59,6 +59,7 @@ import {
 } from "@/lib/portal-inbox-storage";
 import { readBugFeedbackRows } from "@/lib/portal-bug-feedback";
 import { prefetchPortalData } from "@/lib/portal-data-store";
+import { runWhenIdle } from "@/lib/run-when-idle";
 import type { PortalKind } from "@/lib/portal-types";
 import { managerPaymentBucketCounts, readManagerPaymentsLedgerCharges } from "@/lib/manager-payments-scope";
 import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
@@ -124,16 +125,23 @@ export function usePortalNavCounts(
   const bump = useCallback(() => setTick((n) => n + 1), []);
 
   useEffect(() => {
+    let cancelPrefetch: () => void = () => {};
     if (kind === "admin") {
       void syncScheduleRecordsFromServer().then(() => bump());
     } else if (kind === "manager" || kind === "pro") {
-      void prefetchPortalData(kind, userId ?? undefined)
-        .then(() => bump())
-        .catch(() => {});
+      // Same deferral as `PortalDataPrefetch`: the section's own requests go first, and both
+      // callers share one prefetch through the store's TTL promise.
+      cancelPrefetch = runWhenIdle(() => {
+        void prefetchPortalData(kind, userId ?? undefined)
+          .then(() => bump())
+          .catch(() => {});
+      });
     } else if (kind === "resident") {
-      void prefetchPortalData(kind)
-        .then(() => bump())
-        .catch(() => {});
+      cancelPrefetch = runWhenIdle(() => {
+        void prefetchPortalData(kind)
+          .then(() => bump())
+          .catch(() => {});
+      });
     }
 
     window.addEventListener(PROPERTY_PIPELINE_EVENT, bump);
@@ -152,6 +160,7 @@ export function usePortalNavCounts(
     window.addEventListener(MANAGER_SMS_OPENED_CHANGED_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
+      cancelPrefetch();
       window.removeEventListener(MANAGER_TASKS_EVENT, bump);
       window.removeEventListener(LEASE_PIPELINE_EVENT, bump);
       window.removeEventListener(HOUSEHOLD_CHARGES_EVENT, bump);

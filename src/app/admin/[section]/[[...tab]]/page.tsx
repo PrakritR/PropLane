@@ -1,4 +1,4 @@
-import { renderPortalSection } from "@/lib/render-portal-section";
+import { renderPortalSection } from "@/lib/render-portal-section/admin";
 import { notFound } from "next/navigation";
 
 /** Session/cookies-backed admin sections must not be statically prerendered. */

@@ -37,6 +37,7 @@ import { invalidateManagerAutomationSettingsCache } from "@/lib/manager-automati
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
+import { resetSharedGets } from "@/lib/shared-get-cache";
 
 const readyNumber: ManagerMessagingNumberStatus = {
   mode: "automatic",
@@ -75,6 +76,7 @@ const readyEmail: ManagerAssistantEmailStatus = {
 };
 
 afterEach(() => {
+  resetSharedGets();
   cleanup();
   showToast.mockReset();
   vi.unstubAllGlobals();

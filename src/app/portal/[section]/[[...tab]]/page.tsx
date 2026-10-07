@@ -1,4 +1,4 @@
-import { renderPortalSection } from "@/lib/render-portal-section";
+import { renderPortalSection } from "@/lib/render-portal-section/manager";
 
 export default async function PropertyPortalSectionPage({
   params,

@@ -36,7 +36,7 @@ vi.mock("@/lib/auth/server-profile", () => ({
   getServerSessionProfile: vi.fn(async () => ({ profile: null, user: null })),
 }));
 
-const { renderPortalSection } = await import("@/lib/render-portal-section");
+const { renderPortalSection } = await import("@/lib/render-portal-section/admin");
 
 async function redirectTargetFor(tabParts?: string[]): Promise<string> {
   try {

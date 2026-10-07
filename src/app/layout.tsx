@@ -2,7 +2,7 @@ import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { AuthOAuthErrorHandler } from "@/components/auth/auth-oauth-error-handler";
 import { NavigationTiming } from "@/components/analytics/navigation-timing";
-import { GeneralAssistant } from "@/components/general/general-assistant";
+import { GeneralAssistantLazy } from "@/components/general/general-assistant-lazy";
 import { NativeAppGate } from "@/components/native/native-app-gate";
 import { NativeBridge } from "@/components/native/native-bridge";
 import { CAPACITOR_BOOTSTRAP_SCRIPT, THEME_BOOTSTRAP_SCRIPT } from "@/lib/bootstrap-scripts";
@@ -89,7 +89,7 @@ export default function RootLayout({
             <NativeBridge />
             <NativeAppGate>{children}</NativeAppGate>
             {/* Public-page assistant: bottom-right FAB + popup panel (portal uses AxisAssistant). */}
-            <GeneralAssistant />
+            <GeneralAssistantLazy />
           </AppUiProvider>
         </ThemeProvider>
       </body>

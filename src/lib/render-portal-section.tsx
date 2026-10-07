@@ -1,4 +1,3 @@
-import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/portal/inspections-panel";
 import { getOwnerAccessState } from "@/lib/property-owner/access.server";
 import { PortalAccessUnavailable } from "@/components/portal/portal-access-unavailable";
 import { OWNER_HOME_PATH } from "@/lib/property-owner/sections";
@@ -12,69 +11,12 @@ import {
   type ResidentDocumentTab,
 } from "@/lib/resident-documents-tabs";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
-import { AdminDashboard } from "@/components/portal/admin-dashboard";
-import { ManagerDashboard } from "@/components/portal/pro-dashboard";
-import { ManagerLeases } from "@/components/portal/pro-leases";
-import { ManagerPayments } from "@/components/portal/pro-payments";
-import { ManagerPromotion } from "@/components/portal/pro-promotion";
-import { ManagerMobileAppPanel } from "@/components/portal/pro-mobile-app-panel";
-import QRCode from "qrcode";
-import { iosAppDownloadUrl } from "@/lib/ios-app-download";
-import { ManagerProfile } from "@/components/portal/pro-profile";
-import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
-import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
-import { AdminAxisUsersClient } from "@/components/portal/admin-axis-users-client";
-import { AdminTestWorkspacesClient } from "@/components/portal/admin-test-workspaces-client";
-import { AdminPropertiesClient } from "@/components/portal/admin-properties-client";
-import { AdminEventsClient } from "@/components/portal/admin-events-client";
-import { AdminProfileSection } from "@/components/portal/admin-profile-section";
-import { AdminCommunication } from "@/components/portal/admin-communication";
-import { AdminBugFeedbackClient } from "@/components/portal/admin-bug-feedback-client";
-import { ResidentDashboard } from "@/components/portal/resident-dashboard";
-import { ResidentMoveInPanel } from "@/components/portal/resident-move-in-panel";
-import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
-import { ResidentFormsSection } from "@/components/portal/move-in-forms/resident-move-in-forms";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
-import { ResidentCommunication } from "@/components/portal/resident-communication";
-import { VendorCommunication } from "@/components/portal/vendor-communication";
-import { ResidentPaymentsPanel } from "@/components/portal/resident-payments-panel";
-import { ResidentDocumentsPanel } from "@/components/portal/resident-documents-panel";
-import { ResidentApplicationsPanel } from "@/components/portal/resident-applications-panel";
-import { ResidentTourPanel } from "@/components/portal/resident-tour-panel";
-import { ResidentLeasePanel } from "@/components/portal/resident-lease-panel";
-import { ResidentProfileSection } from "@/components/portal/resident-profile-section";
-import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
-import { VendorDashboard } from "@/components/portal/vendor-dashboard";
-import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
-import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
-import { VendorBalancePanel, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
-import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";
-import { VendorStatementsPanel } from "@/components/portal/vendor-statements-panel";
-import { VendorTaxPanel } from "@/components/portal/vendor-tax-panel";
-import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
-import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
-import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
-import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
 import { resolveVendorSettingsTab } from "@/lib/portals/vendor-settings-pages";
 import { resolveSettingsRedirectHubTab } from "@/lib/portal-settings-section";
-import {
-  loadManagerAllServicesPanel,
-  loadManagerTaskList,
-  loadManagerTours,
-  loadManagerBookings,
-  loadManagerApplications,
-  loadManagerDocumentsPanel,
-  loadManagerFinancesPanel,
-  loadManagerCommunication,
-  loadManagerFormsPage,
-  loadManagerProperties,
-  loadManagerResidents,
-  loadManagerVendorsPanel,
-  loadPortalCalendar,
-  loadResidentServicesPanel,
-} from "@/lib/portal-panel-imports";
+import type { PortalPanels } from "@/lib/render-portal-section/panels";
 import type { Crumb } from "@/components/layout/breadcrumbs";
 import type { TabItem } from "@/components/ui/tabs";
 import type { ReactNode } from "react";
@@ -107,6 +49,13 @@ import {
   isTestWorkspaceFeatureEnabled,
   requireTrustedTestWorkspaceOperator,
 } from "@/lib/test-workspaces/index.server";
+
+/**
+ * Shared routing for every portal catch-all page: redirects, legacy rewrites, guards and
+ * the section -> panel mapping. It imports NO panel. Each portal's own module
+ * (`src/lib/render-portal-section/{manager,vendor,resident,admin}.tsx`) supplies only the
+ * panels that portal renders, so a page's module graph carries its own screens and nothing else.
+ */
 
 const LEGACY_FINANCIALS_TAB_MAP: Record<string, string> = {
   "rent-roll": "income",
@@ -153,6 +102,7 @@ function legacyTabMapLookup<T extends string>(map: Record<string, T>, key: strin
 }
 
 async function renderManagerFinancesSection(
+  panels: Required<PortalPanels>,
   section: string,
   tabParts: string[] | undefined,
   basePath: string,
@@ -181,7 +131,7 @@ async function renderManagerFinancesSection(
     if (mapped) redirect(`${basePath}/financials/${mapped}`);
     notFound();
   }
-  const ManagerFinancesPanel = await loadManagerFinancesPanel();
+  const ManagerFinancesPanel = await panels.loadManagerFinancesPanel();
   return subscriptionGated(
     <ManagerFinancesPanel tabId={finTab} basePath={basePath} />,
     kind,
@@ -191,6 +141,7 @@ async function renderManagerFinancesSection(
 }
 
 async function renderManagerDocumentsSection(
+  panels: Required<PortalPanels>,
   section: string,
   tabParts: string[] | undefined,
   basePath: string,
@@ -219,7 +170,7 @@ async function renderManagerDocumentsSection(
     if (detailTabRaw && detailTab !== detailTabRaw) {
       redirect(`${basePath}/documents/${encodeURIComponent(documentId)}/${detailTab}`);
     }
-    const ManagerDocumentsPanel = await loadManagerDocumentsPanel();
+    const ManagerDocumentsPanel = await panels.loadManagerDocumentsPanel();
     return subscriptionGated(
       <ManagerDocumentsPanel
         tabId="library"
@@ -242,7 +193,7 @@ async function renderManagerDocumentsSection(
     docTab === "applications" && tabParts.length === 2
       ? decodeURIComponent(tabParts[1]!)
       : undefined;
-  const ManagerDocumentsPanel = await loadManagerDocumentsPanel();
+  const ManagerDocumentsPanel = await panels.loadManagerDocumentsPanel();
   return subscriptionGated(
     <ManagerDocumentsPanel tabId={docTab} basePath={basePath} applicationId={applicationId} />,
     kind,
@@ -307,18 +258,50 @@ function searchSuffix(searchParams?: PortalSearchParams, extra?: Record<string, 
   return qs ? `?${qs}` : "";
 }
 
-export async function renderPortalSection(
+export async function renderPortalSectionWith(
+  portalPanels: PortalPanels,
   kind: PortalKind,
   section: string,
   tabParts?: string[],
   searchParams?: PortalSearchParams,
 ) {
+  // Each portal module supplies only its own panels; a branch below only runs for the portal
+  // that supplied the panel it renders (the section branches are keyed on `kind`).
+  const panels = portalPanels as Required<PortalPanels>;
+  const {
+    ManagerInspectionsPage, ResidentInspectionsPage, AdminDashboard, ManagerDashboard, ManagerLeases,
+    ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
+    AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
+    AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
+    AdminBugFeedbackClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
+    ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
+    ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentTourPanel, ResidentLeasePanel,
+    ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
+    VendorFinancesPanel, VendorBalancePanel, VendorWithdrawalDetail, VendorRefundsPanel,
+    VendorStatementsPanel, VendorTaxPanel, VendorDocumentsPanel, VendorSettingsPanel,
+    VendorReviewsPanel, ManagerPortalPageShell, loadManagerAllServicesPanel, loadManagerTaskList,
+    loadManagerTours, loadManagerBookings, loadManagerApplications, loadManagerCommunication,
+    loadManagerFormsPage, loadManagerProperties, loadManagerResidents, loadManagerVendorsPanel,
+    loadManagerOutgoingInvoicesPanel, loadPortalCalendar, loadResidentServicesPanel,
+  } = panels;
+
   // A Property owner (an owner-only account) is sent to their Overview for
   // every manager section — runs before anything else can redirect them into
   // a manager surface. The layout enforces the same rule for the routes that
   // have their own directory; this is the dynamic-section half.
   if (kind === "pro" || kind === "manager") {
-    const { user } = await getServerSessionProfile();
+    // The session, the acting user id and the plan tier do not depend on each other, so they are
+    // read together instead of one after another. Every reader is request-cached: the reads further
+    // down reuse these promises, so nothing is fetched twice and nothing new is fetched. A warmed
+    // lookup that settles in a redirect is swallowed here and surfaces again at its original read.
+    const proRenderContext = kind === "pro" ? getProPortalRenderContext() : null;
+    proRenderContext?.catch(() => undefined);
+    const [{ user }, managerUserId] = await Promise.all([
+      getServerSessionProfile(),
+      kind === "manager" ? getEffectiveUserIdForPortal("manager") : Promise.resolve(null),
+    ]);
+    const managerTierWarm = managerUserId ? getManagerPortalNavSubscriptionTier(managerUserId) : null;
+    managerTierWarm?.catch(() => undefined);
     if (user) {
       let ownerOnly: boolean;
       try {
@@ -1095,7 +1078,7 @@ export async function renderPortalSection(
       if (outgoingTab === "payment") {
         const paymentSection = tabParts[2];
         if (tabParts.length < 2 || tabParts.length > 3 || (paymentSection !== undefined && paymentSection !== "communication")) notFound();
-        const { ManagerOutgoingInvoicesPanel } = await import("@/components/portal/manager-outgoing-invoices-panel");
+        const ManagerOutgoingInvoicesPanel = await loadManagerOutgoingInvoicesPanel();
         return subscriptionGated(
           <ManagerOutgoingInvoicesPanel
             tabId="to-pay"
@@ -1107,7 +1090,7 @@ export async function renderPortalSection(
         );
       }
       if (tabParts.length !== 1 || !["to-pay", "scheduled", "paid"].includes(outgoingTab)) notFound();
-      const { ManagerOutgoingInvoicesPanel } = await import("@/components/portal/manager-outgoing-invoices-panel");
+      const ManagerOutgoingInvoicesPanel = await loadManagerOutgoingInvoicesPanel();
       return subscriptionGated(
         <ManagerOutgoingInvoicesPanel tabId={outgoingTab} basePath={def.basePath} />,
         kind, "outgoing", managerOwnerSubscriptionTier,
@@ -1177,6 +1160,7 @@ export async function renderPortalSection(
     }
 
     const financesView = await renderManagerFinancesSection(
+      panels,
       section,
       tabParts,
       def.basePath,
@@ -1185,6 +1169,7 @@ export async function renderPortalSection(
     );
     if (financesView) return financesView;
     const documentsView = await renderManagerDocumentsSection(
+      panels,
       section,
       tabParts,
       def.basePath,
@@ -1496,11 +1481,7 @@ export async function renderPortalSection(
       // phone-dock layout with a fast desktop-to-phone handoff, generated
       // server-side from the same canonical download URL the App Store badge
       // uses (same pattern as the public /app page and the house print sheets).
-      const qrCodeSvg = await QRCode.toString(iosAppDownloadUrl(), {
-        type: "svg",
-        margin: 0,
-        color: { dark: "#0b1120", light: "#ffffff00" },
-      });
+      const qrCodeSvg = await buildManagerAppQrSvg();
       return subscriptionGated(<ManagerMobileAppPanel qrCodeSvg={qrCodeSvg} />, kind, "app", managerOwnerSubscriptionTier);
     }
     if (section === "profile") {

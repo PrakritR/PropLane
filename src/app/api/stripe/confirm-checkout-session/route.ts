@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { reconcileManagerPurchaseWithStripe } from "@/lib/manager-stripe-subscription-sync";
 import { adoptPaidPortalCheckoutForOwner, checkoutSessionIndicatesPaidPurchase, recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
+import { invalidateManagerTierCache } from "@/lib/manager-tier-sync-cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 
@@ -40,12 +41,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, processing: true }, { status: 202 });
     }
 
-    await adoptPaidPortalCheckoutForOwner(session, user.id);
-    await recordPaidManagerCheckoutSession(session);
+    invalidateManagerTierCache(user.id);
     try {
-      await reconcileManagerPurchaseWithStripe(user.id);
-    } catch {
-      /* best-effort; GET /subscription will retry sync */
+      await adoptPaidPortalCheckoutForOwner(session, user.id);
+      await recordPaidManagerCheckoutSession(session);
+      try {
+        await reconcileManagerPurchaseWithStripe(user.id);
+      } catch {
+        /* best-effort; GET /subscription will retry sync */
+      }
+    } finally {
+      // The purchase just changed: the next tier read must sync fresh.
+      invalidateManagerTierCache(user.id);
     }
     return NextResponse.json({ ok: true });
   } catch (e) {
