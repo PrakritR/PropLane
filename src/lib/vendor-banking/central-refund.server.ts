@@ -55,7 +55,8 @@ const REQUEST_SELECT =
 
 function mapRefundReason(reason: string | undefined): Stripe.RefundCreateParams.Reason {
   const r = reason?.trim().toLowerCase();
-  if (r === "duplicate" || r === "fraudulent") return r;
+  if (r?.startsWith("duplicate")) return "duplicate";
+  if (r === "fraudulent") return r;
   return "requested_by_customer";
 }
 
@@ -599,4 +600,63 @@ async function refundDestinationChargePayout(
   await settleVendorRefundBooks(db, input.attemptKey, { legacyDirect: true });
   const r = row as RefundRequestRow;
   return { ok: true, status: "succeeded", requestId: r.id, grossCents: result.requestedGrossCents, feeShareCents: result.feeShareCents, netDebitCents: result.netDebitCents, replay: false };
+}
+
+export type VendorRefundListItem = {
+  id: string;
+  status: "pending" | "succeeded" | "failed";
+  grossCents: number;
+  feeShareCents: number;
+  netDebitCents: number;
+  reason: string;
+  createdAt: string;
+  paymentLabel: string;
+  managerLabel: string;
+};
+
+/** The Refunds tab rows: the vendor's own requests with the payment and manager named. Scoped to the vendor. */
+export async function listVendorRefundsForDisplay(db: SupabaseClient, vendorUserId: string): Promise<VendorRefundListItem[]> {
+  const requests = await listVendorRefundRequests(db, vendorUserId);
+  if (requests.length === 0) return [];
+  const payoutIds = [...new Set(requests.map((r) => r.payout_id))];
+  const managerIds = [...new Set(requests.map((r) => r.manager_user_id))];
+  const [payouts, managers] = await Promise.all([
+    db.from("vendor_payouts").select("id, invoice_id, work_order_id").eq("vendor_user_id", vendorUserId).in("id", payoutIds),
+    db.from("profiles").select("id, full_name, email").in("id", managerIds),
+  ]);
+  const payoutRows = (payouts.data ?? []) as Array<{ id: string; invoice_id: string | null; work_order_id: string | null }>;
+  const invoiceIds = payoutRows.map((p) => p.invoice_id).filter((v): v is string => Boolean(v));
+  const workOrderIds = payoutRows.map((p) => p.work_order_id).filter((v): v is string => Boolean(v));
+  const [invoices, workOrders] = await Promise.all([
+    invoiceIds.length
+      ? db.from("vendor_invoices").select("id, invoice_number").eq("vendor_user_id", vendorUserId).in("id", invoiceIds)
+      : Promise.resolve({ data: [] as unknown[] }),
+    workOrderIds.length
+      ? db.from("portal_work_order_records").select("id, row_data").in("id", workOrderIds)
+      : Promise.resolve({ data: [] as unknown[] }),
+  ]);
+  const invoiceNumber = new Map(((invoices.data ?? []) as Array<{ id: string; invoice_number: string | null }>).map((i) => [i.id, i.invoice_number ?? ""]));
+  const workOrderTitle = new Map(
+    ((workOrders.data ?? []) as Array<{ id: string; row_data: { title?: string } | null }>).map((w) => [w.id, w.row_data?.title ?? ""]),
+  );
+  const managerName = new Map(
+    ((managers.data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>).map((m) => [m.id, m.full_name?.trim() || "Manager"]),
+  );
+  const labelForPayout = new Map(
+    payoutRows.map((p) => [
+      p.id,
+      (p.invoice_id ? invoiceNumber.get(p.invoice_id) : "") || (p.work_order_id ? workOrderTitle.get(p.work_order_id) : "") || "Payment",
+    ]),
+  );
+  return requests.map((r) => ({
+    id: r.id,
+    status: r.status,
+    grossCents: r.gross_cents,
+    feeShareCents: r.fee_share_cents,
+    netDebitCents: r.net_debit_cents,
+    reason: r.reason,
+    createdAt: r.created_at,
+    paymentLabel: labelForPayout.get(r.payout_id) ?? "Payment",
+    managerLabel: managerName.get(r.manager_user_id) ?? "Manager",
+  }));
 }

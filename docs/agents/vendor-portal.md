@@ -578,9 +578,9 @@ a ⚡ quick-reply menu and **Save reply** in the footer.
 
 **Payments** (`/vendor/financials/income`, `VendorFinancesPanel`). The balance card sits above the
 band: Available now (with "$X on the way") and Bank · Withdraw as the only header icons (the captain removed the
-balance card's Refund and Statement icons — a vendor refund flow is a separate plan; the per-payment Refund on
-a payout record page is hidden too: the vendor refund route is paused server-side with 409
-`VENDOR_REFUND_PAUSED` until the banking rebuild, and `VendorRefundModal` stays in the codebase for it; the band keeps
+balance card's Refund and Statement icons; refunds live on Finances → Refunds, and the per-payment Refund on
+a payout record page is shown only when `VENDOR_REFUNDS_ENABLED` is on — the route is off by default and answers 409
+`VENDOR_REFUND_PAUSED`; the refund itself runs on the central refund rail, see `financials.md` § Vendor refunds). The band keeps
 its single Download). Tabs are **Pending · Paid · Overdue**
 (`vendorPaymentBucket`, `src/lib/vendor-payments.ts`): Paid = a paid invoice or payout; Overdue = an
 **unpaid, non-rejected invoice whose due date is before today** (a payment due today is still
@@ -623,3 +623,22 @@ through the row ⋯ (Edit · Move up · Move down · Delete). **`QuickReplyMenu`
 inserts it with `insertQuickReplyText` so it stays editable. It is mounted in the Communication
 composer (`variant="composer"`) and the review reply; the bid note can drop it in with
 `<QuickReplyMenu onPick={...} />`. Coverage: `vendor-quick-replies*.test.ts(x)`.
+
+## Refunds, disputes and money notifications (vendor-banking-1006 part B)
+
+**Refunds tab** (`VendorRefundsPanel`, `src/components/portal/vendor-refunds-panel.tsx`, mounted by the Finances section by
+`basePath`): the vendor's refund requests (`GET /api/vendor/refunds`, scoped to `vendor_user_id`), pending · succeeded ·
+failed as glyph facts on the shared record row, the round + opening **Refund a payment**
+(`VendorRefundModal`): full or partial amount, a reason dropdown, and the preview *Manager gets back · PropLane fee
+returned to you · From your balance*. The cap and refusals (already withdrawn, frozen by a dispute, fully refunded) come
+from `GET /api/vendor/payouts/[id]/refund`; `POST` takes only the gross amount and reason and requires an
+`Idempotency-Key`. The server recomputes every figure — the modal's preview never decides anything. Rules and books:
+[`financials.md`](financials.md) § Vendor refunds, disputes and notifications.
+
+**A refund the vendor cannot cover is refused, not shorted.** Released money already withdrawn is not recoverable, so the
+central path refuses it (the legacy destination-charge path still records a shortfall drawn from the next payments).
+
+**Disputes**: a dispute on a charge one of the vendor's payments settled on freezes that amount (it cannot be refunded;
+the balance snapshot must subtract `readVendorFrozenDisputeCents` from what can be withdrawn), and is released when won or
+debited when lost. Both the vendor and the manager are told. **Notifications** for payouts, bank, account and money held
+use the automated-communication spine under the vendor's Settings → Notifications → Payments topic.
