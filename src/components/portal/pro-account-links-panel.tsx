@@ -24,6 +24,7 @@ import {
 } from "@/components/portal/workspace-invite-link-strip";
 import {
   WorkspacePermissionsFields,
+  OwnerPermissionsEditor,
   RoleCapabilitiesList,
   CoManagerPermissionsEditor,
   WorkspaceGrantFields,
@@ -1799,7 +1800,24 @@ export function ProAccountLinksPanel({
                 workspace={memberWorkspace ? { name: memberWorkspace.name, houseCount: memberWorkspace.propertyIds.length } : null}
                 houseOptions={workspaceHouseOptions}
               />
-              {draft.teamRole === "custom" ? (
+              {draft.teamRole === "property_owner" ? (
+                <OwnerPermissionsEditor
+                  value={draft.workspaceDefaultPermissions}
+                  disabled={readOnly}
+                  onChange={(next) => {
+                    // The role stays Property owner whatever the four rows say; it is never re-inferred.
+                    queueDraft({
+                      ...draft,
+                      workspaceDefaultPermissions: next,
+                      propertyCoManagerPermissions: normalizePropertyCoManagerPermissions(
+                        Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, next])),
+                        draft.assignedPropertyIds,
+                      ),
+                    });
+                  }}
+                  onReset={() => applyRole("property_owner")}
+                />
+              ) : draft.teamRole === "custom" ? (
                 <>
                   <CoManagerPermissionsEditor
                     hideRole

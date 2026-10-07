@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { inviteLinkUnusableMessage, type InviteLinkUnusableReason, MANAGER_ROLE_REQUIRED_CODE } from "@/lib/invite-links/invite-link-model";
 import { firstNameFromDisplay, inviteAcceptSubtitle, inviteAcceptTitle } from "@/lib/invite-links/invite-accept-copy";
@@ -45,6 +46,10 @@ export default function InviteLinkClient({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [needManagerAccount, setNeedManagerAccount] = useState(false);
+  // Property owner invite: sign up inline (an owner needs no manager account).
+  const [ownerName, setOwnerName] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerPassword, setOwnerPassword] = useState("");
 
   const invitePath = `/invite/${token}`;
   const createManagerHref = `/auth/create-account?mode=create&role=manager&tier=free&next=${encodeURIComponent(invitePath)}`;
@@ -155,6 +160,11 @@ export default function InviteLinkClient({ token }: { token: string }) {
         setError(body.error ?? "Could not accept this invite.");
         return;
       }
+      if (preview?.teamRole === "property_owner") {
+        // An owner has no workspace to switch into: they land on their Overview.
+        router.replace("/portal/owner");
+        return;
+      }
       await selectJoinedWorkspace(body.workspaceId);
       router.replace("/portal/dashboard");
     } catch {
@@ -162,7 +172,40 @@ export default function InviteLinkClient({ token }: { token: string }) {
     } finally {
       setBusy(false);
     }
-  }, [router, selectJoinedWorkspace, token]);
+  }, [router, selectJoinedWorkspace, token, preview?.teamRole]);
+
+  const createOwnerAccountAndJoin = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: ownerEmail, password: ownerPassword, fullName: ownerName }),
+      });
+      const out = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(out.error ?? "Could not create your account.");
+        return;
+      }
+      const supabase = createSupabaseBrowserClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: ownerEmail.trim().toLowerCase(),
+        password: ownerPassword,
+      });
+      if (signInError) {
+        setError("Account created. Sign in to finish joining.");
+        return;
+      }
+      setSignedIn(true);
+    } catch {
+      setError("Could not create your account.");
+      return;
+    } finally {
+      setBusy(false);
+    }
+    await accept();
+  };
 
   if (notFound) {
     return (
@@ -315,7 +358,44 @@ export default function InviteLinkClient({ token }: { token: string }) {
       {error ? <p className="mt-4 text-center text-sm text-rose-600">{error}</p> : null}
 
       <div className="mt-6">
-        {signedIn === false ? (
+        {signedIn === false && preview.teamRole === "property_owner" ? (
+          <form
+            className="grid gap-3"
+            data-attr="invite-link-owner-signup"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void createOwnerAccountAndJoin();
+            }}
+          >
+            <Input aria-label="Your name" placeholder="Your name" autoComplete="name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
+            <Input aria-label="Email" placeholder="Email" type="email" autoComplete="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} />
+            <Input
+              aria-label="Password"
+              placeholder="Password"
+              type="password"
+              autoComplete="new-password"
+              value={ownerPassword}
+              onChange={(e) => setOwnerPassword(e.target.value)}
+            />
+            <Button
+              type="submit"
+              className="w-full rounded-full py-2.5 text-[15px] font-semibold"
+              data-attr="invite-link-owner-create"
+              loading={busy}
+              disabled={!ownerEmail.includes("@") || ownerPassword.length < 8}
+            >
+              Create account and join
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full rounded-full py-2.5 text-[15px] font-semibold"
+              onClick={() => router.push(`/auth/sign-in?next=${encodeURIComponent(invitePath)}`)}
+            >
+              Sign in instead
+            </Button>
+          </form>
+        ) : signedIn === false ? (
           <Button
             type="button"
             className="w-full rounded-full py-2.5 text-[15px] font-semibold"
@@ -344,7 +424,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
                 : `Join ${workspaceLabel}`}
           </Button>
         )}
-        {!isResident ? (
+        {!isResident && preview.teamRole !== "property_owner" ? (
           <Button
             type="button"
             variant="outline"
@@ -357,13 +437,13 @@ export default function InviteLinkClient({ token }: { token: string }) {
         ) : null}
       </div>
 
-      <p className="mt-4 text-center text-xs text-muted">
+      {preview.teamRole === "property_owner" ? null : <p className="mt-4 text-center text-xs text-muted">
         {isResident
           ? "This sends a request to your property manager. Nothing on your account changes until they confirm it."
           : isVendor
             ? "Accepting adds you to their vendor directory so they can send you services."
             : "Joining adds this workspace to your portal. Communication credits for work inside it follow the owner’s plan."}
-      </p>
+      </p>}
     </AuthCard>
   );
 }

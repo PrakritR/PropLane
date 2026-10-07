@@ -20,17 +20,104 @@ import {
   TEAM_ROLE_LABELS,
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
+import { Button } from "@/components/ui/button";
 import {
   CO_MANAGER_PERMISSION_OPTIONS,
+  OWNER_PERMISSION_OPTIONS,
   type CoManagerPermissionId,
   type CoManagerPermissions,
+  type OwnerPermissionId,
 } from "@/lib/co-manager-permissions";
 import type { WorkspaceCoManagerGrant } from "@/lib/workspace-co-manager-permissions";
+
+function ownerKeyOn(grant: CoManagerPermissions, id: OwnerPermissionId): boolean {
+  return levelsToAccess(grantToLevels(grant[id])) !== "none";
+}
+
+/** The "Property owner can" table: plain Yes / No, in the words an owner would use. */
+function ownerCapabilityRows(grant: CoManagerPermissions): { label: string; value: string; on: boolean }[] {
+  const performance = ownerKeyOn(grant, "ownerPerformance");
+  const statements = ownerKeyOn(grant, "ownerStatements");
+  const documents = ownerKeyOn(grant, "ownerDocuments");
+  const messages = ownerKeyOn(grant, "ownerMessages");
+  const yn = (on: boolean) => ({ value: on ? "Yes" : "No", on });
+  return [
+    { label: "See income, expenses and net income", ...yn(performance) },
+    { label: "See occupancy (units, not names)", ...yn(performance) },
+    { label: "Download monthly statements", ...yn(statements) },
+    { label: "Open documents you share with owners", ...yn(documents) },
+    { label: "Message you", ...yn(messages) },
+    { label: "See residents, applications or forms", ...yn(false) },
+    { label: "See vendors or service details", ...yn(false) },
+    { label: "Invite and edit members", ...yn(false) },
+    { label: "Change anything", ...yn(false) },
+  ];
+}
+
+const OWNER_ROW_LABELS: Record<OwnerPermissionId, { label: string; on: string }> = {
+  ownerPerformance: { label: "Performance", on: "View" },
+  ownerStatements: { label: "Statements", on: "View" },
+  ownerDocuments: { label: "Documents", on: "Shared with owners" },
+  ownerMessages: { label: "Messages", on: "View" },
+};
+
+/**
+ * What one Property owner sees: four rows and Reset to default. Module keys do
+ * not exist for this role, so none is shown. "No access" is stored explicitly
+ * (`{ notification: false }`) so a row turned off is never mistaken for one
+ * the manager has not set.
+ */
+export function OwnerPermissionsEditor({
+  value,
+  onChange,
+  onReset,
+  disabled,
+}: {
+  value: CoManagerPermissions;
+  onChange: (next: CoManagerPermissions) => void;
+  onReset: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="space-y-3" data-attr="owner-permissions-editor">
+      {OWNER_PERMISSION_OPTIONS.map(({ id }) => {
+        const copy = OWNER_ROW_LABELS[id];
+        const on = ownerKeyOn(value, id);
+        return (
+          <FieldSingleSelect
+            key={id}
+            label={copy.label}
+            options={[
+              { value: "on", label: copy.on },
+              { value: "off", label: "No access" },
+            ]}
+            value={on ? "on" : "off"}
+            disabled={disabled}
+            dataAttr={`owner-permission-${id}`}
+            onChange={(next) => {
+              const out: CoManagerPermissions = { ...value };
+              out[id] = next === "on" ? { read: true, notification: true } : { notification: false };
+              onChange(out);
+            }}
+          />
+        );
+      })}
+      <div>
+        <Button type="button" variant="outline" disabled={disabled} onClick={onReset} data-attr="owner-permissions-reset">
+          Reset to default
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 /** Role → the row's chips: what the person can do in each module, read-only. */
 export function RoleCapabilitiesList({ role, grant }: { role: TeamRoleId; grant: CoManagerPermissions }) {
   const rights = workspaceRightsForRole(role);
-  const rows: { label: string; value: string; on: boolean }[] = [
+  const rows: { label: string; value: string; on: boolean }[] =
+    role === "property_owner"
+      ? ownerCapabilityRows(grant)
+      : [
     { label: "Invite and edit members", value: rights.members ? "Yes" : "No", on: rights.members },
     { label: "Add and move houses in this workspace", value: rights.houses ? "Yes" : "No", on: rights.houses },
     ...CO_MANAGER_PERMISSION_OPTIONS.map(({ id, label }) => {

@@ -28,6 +28,7 @@ import { parseInviteRecipient } from "@/lib/invite-recipient";
 import {
   WorkspacePermissionsFields,
   CoManagerPermissionsEditor,
+  RoleCapabilitiesList,
   WorkspaceGrantFields,
 } from "@/components/portal/workspace-permissions-fields";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
@@ -528,6 +529,10 @@ export function WorkspaceInviteSheet({
           houseScopeDataAttr="workspace-invite-houses"
           selectedHousesDataAttr="workspace-invite-selected-houses"
         />
+
+        {role === "property_owner" ? (
+          <RoleCapabilitiesList role={role} grant={effectivePermissions} />
+        ) : null}
 
         {role === "custom" ? (
           <>
