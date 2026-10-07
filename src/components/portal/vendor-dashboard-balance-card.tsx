@@ -78,14 +78,14 @@ export function VendorDashboardBalanceCard() {
   const heldCents = figures.heldCents;
   const heldLabel = `${HELD_PHRASE[figures.heldReasonKind]}${figures.hasDisputeFreeze ? " (Disputed)" : ""}`;
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm" data-attr="vendor-dashboard-balance">
+    <div className="rounded-[10px] border border-border bg-card px-4 py-3.5" data-attr="vendor-dashboard-balance">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+          <p className="text-[13px] font-[550] text-muted">
             Available to withdraw
           </p>
           <p
-            className="mt-1 text-[26px] font-extrabold leading-none tracking-tight text-foreground"
+            className="my-1 text-[26px] font-[650] leading-[1.15] tracking-[-0.03em] text-foreground"
             data-attr="vendor-dashboard-balance-available"
           >
             {formatMoney(withdrawableCents, balance.currency)}
