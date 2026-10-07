@@ -10,7 +10,7 @@ type Variant = "primary" | "secondary" | "ghost" | "danger" | "outline" | "metal
 
 const variants: Record<Variant, string> = {
   primary:
-    "text-white shadow-[0_8px_20px_-8px_color-mix(in_srgb,var(--btn-primary)_60%,transparent)] hover:brightness-110 active:scale-[0.99]",
+    "text-white shadow-none hover:brightness-110 active:scale-[0.99] lg:hover:brightness-90",
   metallic:
     "text-[#08142e] shadow-[0_6px_16px_-6px_rgba(0,0,0,0.25)] hover:brightness-105 active:scale-[0.99]",
   secondary:
@@ -20,7 +20,7 @@ const variants: Record<Variant, string> = {
   danger:
     "bg-transparent text-danger shadow-none hover:bg-danger/5 active:scale-[0.99]",
   outline:
-    "border border-border bg-card/80 text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-primary/30 hover:bg-card active:scale-[0.99] [html[data-theme=dark]_&]:portal-outline-control",
+    "border border-border bg-card/80 text-foreground shadow-none hover:border-primary/30 hover:bg-card active:scale-[0.99] [html[data-theme=dark]_&]:portal-outline-control",
 };
 
 /**
@@ -207,7 +207,7 @@ export function Button({
 
   return (
     <Comp
-      className={`inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold outline-none ring-primary/0 transition-[transform,box-shadow,filter,background-color,border-color] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 ${variants[variant]} ${className}`}
+      className={`inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold outline-none lg:h-8 lg:min-h-8 lg:rounded-[var(--radius-control)] lg:px-3.5 lg:py-0 lg:text-[13.5px] ring-primary/0 transition-[transform,box-shadow,filter,background-color,border-color] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 ${variants[variant]} ${className}`}
       style={
         isPrimary
           ? { background: "var(--btn-primary)", ...style }

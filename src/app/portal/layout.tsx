@@ -14,6 +14,7 @@ import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalHorizontalScrollRoot } from "@/components/portal/portal-horizontal-scroll";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -91,8 +92,23 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
         <PropertyPipelineAccountSync />
         <AccountLinksSync />
         <RateAppPrompt reporterRole="manager" />
+        <PortalTopBar
+          kind={nav.definition.kind}
+          basePath={nav.definition.basePath}
+          definition={nav.definition}
+          subscriptionTier={nav.subscriptionTier}
+          initialSidebarCollapsed={sidebarCollapsed}
+          name={profile?.full_name ?? null}
+          email={profile?.email ?? null}
+        />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
           <PortalSkipLink />
+          <PortalWorkspaceRail
+            kind={nav.definition.kind}
+            basePath={nav.definition.basePath}
+            name={profile?.full_name ?? null}
+            email={profile?.email ?? null}
+          />
           <PortalSidebar
             definition={nav.definition}
             subscriptionTier={nav.subscriptionTier}
@@ -101,12 +117,6 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
             smsUiEnabled={isSmsCommUiEnabled()}
           />
           <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <PortalTopBar
-              kind={nav.definition.kind}
-              basePath={nav.definition.basePath}
-              name={profile?.full_name ?? null}
-              email={profile?.email ?? null}
-            />
             {testWorkspace.kind === "classified" ? <TestAccountBanner state={testWorkspace.state} /> : null}
             {/* `showPlanBanner` has been computed for this all along; nothing
                 rendered it, so a lapsed trial took residents, leases, inbox and

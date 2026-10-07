@@ -75,7 +75,7 @@ export function WorkspaceSwitcher({
   variant = "header",
 }: {
   compact?: boolean;
-  variant?: "header" | "mobile";
+  variant?: "header" | "mobile" | "sidebar";
 }) {
   const ctx = useWorkspaces();
   const pathname = usePathname();
@@ -104,7 +104,28 @@ export function WorkspaceSwitcher({
   );
 
   const trigger =
-    variant === "mobile" ? (
+    variant === "sidebar" ? (
+      // The redesigned sidebar header: the workspace name at 16px/700 with a
+      // chevron, opening this same menu. The "Property · N houses" line under it
+      // belongs to the sidebar header, not to this trigger.
+      <button
+        type="button"
+        className="-ml-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-left text-[16px] font-bold tracking-[-0.02em] text-foreground outline-none transition hover:bg-[rgba(17,24,39,0.045)] focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-70"
+        aria-label={`Switch workspace: ${name}`}
+        disabled={ctx.loading}
+        data-attr="workspace-switcher"
+      >
+        {ctx.loading ? (
+          <span
+            className="inline-block h-[1em] w-24 animate-pulse rounded-full bg-accent/60 motion-reduce:animate-none"
+            aria-hidden
+          />
+        ) : (
+          <span className="min-w-0 truncate">{name}</span>
+        )}
+        <ChevronDown className="size-3.5 shrink-0 text-muted" strokeWidth={2} aria-hidden />
+      </button>
+    ) : variant === "mobile" ? (
       <button
         type="button"
         className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-lg px-1 text-left text-base font-semibold tracking-[-0.02em] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/30"

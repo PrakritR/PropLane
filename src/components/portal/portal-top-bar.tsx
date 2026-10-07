@@ -1,217 +1,147 @@
 "use client";
 
-import { ChevronDown, Settings } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { startTransition, useCallback, useEffect, useSyncExternalStore, useState } from "react";
-import { ThemeToggle } from "@/components/layout/theme-toggle";
-import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
-import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
-import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
+import { PanelLeft, PanelRight, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { track } from "@/lib/analytics/track-client";
-import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
-import { useAxisAssistantDock } from "@/components/portal/axis-assistant";
+  PortalCommandPalette,
+  portalPaletteActions,
+} from "@/components/portal/portal-command-palette";
+import { useAssistantLauncher } from "@/components/portal/use-assistant-launcher";
+import { usePortalJumpItems } from "@/components/portal/use-portal-jump-items";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
-  collapseAssistantDock,
-  expandAssistantDock,
-  getAssistantDockCollapsed,
-  subscribeAssistantDockCollapsed,
-} from "@/lib/axis-assistant/dock-store";
-import {
-  closeAxisAssistant,
-  getAxisAssistantOpen,
-  openAxisAssistant,
-  subscribeAxisAssistantOpen,
-} from "@/lib/axis-assistant/open-store";
-import type { PortalKind } from "@/lib/portal-types";
+  getPortalSidebarCollapsed,
+  subscribePortalSidebarCollapsed,
+  togglePortalSidebarCollapsed,
+} from "@/lib/portal-sidebar-collapse-store";
+import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
+import type { ResidentPortalNavStage } from "@/lib/resident-portal-nav";
 
-/**
- * The full-height assistant rail is the desktop destination for the top-bar
- * action and ⌘K. It is `lg`-only, so smaller viewports retain the popup fallback
- * rather than attempting to focus an off-screen composer.
- */
-function initials(name: string | null, email: string | null): string {
-  const src = (name ?? "").trim() || (email ?? "").trim();
-  if (!src) return "?";
-  const parts = src.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-  return src.slice(0, 2).toUpperCase();
+/** "Ask PropLane or search <this>" for the portals that have no workspace to name. */
+function portalDisplayName(kind: PortalKind): string {
+  switch (kind) {
+    case "resident":
+      return "Resident portal";
+    case "vendor":
+      return "Vendor portal";
+    case "admin":
+      return "Admin portal";
+    default:
+      return "PropLane";
+  }
 }
 
 /**
- * The Ask PropLane pill and its ⌘K shortcut. Rendered for every portal kind
- * (manager, vendor and resident each mount `AxisAssistant` on their own role-scoped endpoint).
- */
-function AskPropLaneButton() {
-  const assistantOpen = useSyncExternalStore(
-    subscribeAxisAssistantOpen,
-    getAxisAssistantOpen,
-    () => false,
-  );
-  const { dockable, mode } = useAxisAssistantDock();
-  const dockCollapsed = useSyncExternalStore(
-    subscribeAssistantDockCollapsed,
-    getAssistantDockCollapsed,
-    () => true,
-  );
-  // Ask PropLane is the one control for both presentations: a docked, expanded
-  // rail counts as "open" here too, so the button toggles it closed just like
-  // the popup — there is no separate expand affordance any more (N085).
-  const dockRailOpen = dockable && mode === "docked" && !dockCollapsed;
-  const assistantVisible = assistantOpen || dockRailOpen;
-
-  const openAskProPlane = useCallback(() => {
-    track("assistant_opened");
-
-    const dockInput = document.getElementById(ASSISTANT_DOCK_INPUT_ID) as HTMLTextAreaElement | null;
-    if (dockInput?.offsetParent) {
-      dockInput.focus();
-      return;
-    }
-
-    // The rail is intentionally `lg`-only and only takes over when the SAVED
-    // preference says "docked" — Ask PropLane opens whatever the manager last
-    // chose (Settings or the popup's pin), never forcing a mode switch.
-    if (dockable && mode === "docked" && window.matchMedia?.("(min-width: 1024px)").matches) {
-      expandAssistantDock();
-      closeAxisAssistant();
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          (document.getElementById(ASSISTANT_DOCK_INPUT_ID) as HTMLTextAreaElement | null)?.focus();
-        });
-      });
-      return;
-    }
-
-    startTransition(() => {
-      openAxisAssistant();
-    });
-  }, [dockable, mode]);
-
-  // The one toggle for both presentations (N085): open when neither is
-  // showing, close whichever is showing when clicked (or ⌘K'd) again.
-  const toggleAssistant = useCallback(() => {
-    const dockInput = document.getElementById(ASSISTANT_DOCK_INPUT_ID) as HTMLTextAreaElement | null;
-    if (assistantOpen) {
-      closeAxisAssistant();
-      return;
-    }
-    // An open rail closes like its ✕: the docked preference stays.
-    if (dockInput?.offsetParent) {
-      collapseAssistantDock();
-      return;
-    }
-    openAskProPlane();
-  }, [assistantOpen, openAskProPlane]);
-
-  // ⌘K / Ctrl+K toggles the assistant, matching the visible keyboard chip and
-  // the button's own click behavior. Only this shortcut is claimed; nothing
-  // else in the app binds ⌘K.
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === "k" || event.key === "K")) {
-        event.preventDefault();
-        toggleAssistant();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [toggleAssistant]);
-
-  return (
-    <button
-        type="button"
-        onClick={toggleAssistant}
-        data-attr="portal-ask-proplane"
-        aria-label={assistantOpen ? "Close PropLane Assistant" : "Ask PropLane"}
-        aria-expanded={assistantVisible}
-        aria-keyshortcuts="Meta+K Control+K"
-        className="group flex items-center gap-2 rounded-[10px] border border-border bg-card py-1.5 pl-2.5 pr-2 text-[14px] font-medium text-muted outline-none transition hover:border-primary/30 hover:bg-[var(--portal-active-bg,var(--accent))]/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-      >
-        <span aria-hidden className="text-[14px] leading-none text-primary">
-          ✦
-        </span>
-        <span className="tracking-[-0.01em]">Ask PropLane</span>
-        <kbd className="ml-0.5 hidden items-center rounded-[5px] border border-border bg-[var(--secondary)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted lg:inline-flex">
-          ⌘K
-        </kbd>
-      </button>
-  );
-}
-
-/**
- * Slim desktop top bar (`lg+`) with Ask PropLane and the account menu. On phones
- * and tablets, this bar is hidden — {@link PortalMobileNavBar} owns the page
- * title and profile avatar without a duplicate assistant strip above it.
+ * The portal's top strip (desktop, `lg+`): a full-width 40px dark bar that
+ * replaced the old header row. Left, the collapse-sidebar control; centre, the
+ * "Ask PropLane or search <workspace>" bar (click it or press Cmd/Ctrl+K to open
+ * the command palette); right, a button that opens the assistant panel. The
+ * avatar / account menu moved to the bottom of the workspace rail, so nothing
+ * else lives here. On phones and tablets this strip is hidden - the mobile nav
+ * bar and the assistant FAB own those jobs.
  */
 export function PortalTopBar({
   kind,
   basePath,
-  name,
-  email,
+  definition,
+  subscriptionTier,
+  residentNavStage,
+  initialSidebarCollapsed = false,
 }: {
   kind: PortalKind;
   basePath: string;
-  name: string | null;
-  email: string | null;
+  definition: PortalDefinition;
+  subscriptionTier?: "free" | "paid" | null;
+  residentNavStage?: ResidentPortalNavStage;
+  initialSidebarCollapsed?: boolean;
+  /** Retained for call-site compatibility; the account menu now lives in the rail. */
+  name?: string | null;
+  email?: string | null;
 }) {
-  const router = useRouter();
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const displayName = (name ?? "").trim() || (email ?? "").trim() || "Account";
+  const navigate = usePortalNavigate();
+  const workspaces = useWorkspaces();
+  const launcher = useAssistantLauncher();
+  const jumpItems = usePortalJumpItems({ definition, subscriptionTier, residentNavStage });
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  const collapsed = useSyncExternalStore(
+    subscribePortalSidebarCollapsed,
+    () => getPortalSidebarCollapsed(initialSidebarCollapsed),
+    () => initialSidebarCollapsed,
+  );
+
+  const isWorkspacePortal = kind === "manager" || kind === "pro";
+  const workspaceName = isWorkspacePortal && workspaces && !workspaces.loading ? workspaces.active?.name : undefined;
+  const searchTarget = workspaceName?.trim() || portalDisplayName(kind);
+
+  // Cmd/Ctrl+K opens (or closes) the palette. Only this shortcut is claimed.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === "k" || event.key === "K")) {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const onAsk = useCallback((query: string) => launcher.ask(query), [launcher]);
+
   return (
-    <header className="hidden h-14 shrink-0 items-center justify-end gap-3 border-b border-border bg-background px-4 sm:px-5 lg:flex">
-      <AskPropLaneButton />
+    <header
+      className="hidden h-10 shrink-0 items-center gap-2 bg-[var(--portal-strip-bg,#101828)] px-2.5 text-[var(--portal-strip-fg,#c7ccd6)] lg:flex"
+      data-slot="portal-top-strip"
+    >
+      <button
+        type="button"
+        onClick={() => togglePortalSidebarCollapsed(initialSidebarCollapsed)}
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        aria-expanded={!collapsed}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        data-attr="portal-sidebar-toggle"
+        className="grid size-7 shrink-0 place-items-center rounded-[6px] text-inherit opacity-85 outline-none transition hover:bg-white/10 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-white/50"
+      >
+        <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden />
+      </button>
 
-      <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
-        <DropdownMenuTrigger
-          className="hidden items-center gap-2 rounded-[10px] border border-border bg-card py-1 pl-1 pr-2.5 text-foreground outline-none transition hover:border-primary/30 hover:bg-[var(--portal-active-bg,var(--accent))]/60 focus-visible:ring-2 focus-visible:ring-primary/40 md:flex"
-          aria-label="Account menu"
-        >
-          <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[var(--portal-avatar-bg,var(--primary))] text-[12px] font-extrabold text-[var(--portal-avatar-fg,#fff)]">
-            {initials(name, email)}
-          </span>
-          <ChevronDown className="h-4 w-4 text-muted" aria-hidden />
-        </DropdownMenuTrigger>
+      <button
+        type="button"
+        onClick={() => setPaletteOpen(true)}
+        data-attr="portal-ask-proplane"
+        aria-label="Ask PropLane or search"
+        aria-haspopup="dialog"
+        aria-keyshortcuts="Meta+K Control+K"
+        className="mx-auto flex h-7 min-w-0 flex-[0_1_560px] cursor-pointer items-center gap-2 rounded-[7px] border border-white/[0.12] bg-white/10 px-2.5 text-[13px] text-inherit outline-none transition hover:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/50"
+      >
+        <Sparkles className="size-3.5 shrink-0 text-[#8fb0ff]" strokeWidth={1.75} aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-left">Ask PropLane or search {searchTarget}</span>
+        <kbd className="ml-auto shrink-0 rounded-[4px] border border-white/20 px-[5px] text-[11px] font-normal leading-4 opacity-80">
+          ⌘K
+        </kbd>
+      </button>
 
-        <DropdownMenuContent>
-          <div className="border-b border-border px-3 pb-2.5 pt-1.5">
-            <p className="truncate text-[13.5px] font-semibold text-foreground">{displayName}</p>
-            {email ? <p className="truncate text-[12px] text-muted">{email}</p> : null}
-          </div>
+      <button
+        type="button"
+        onClick={launcher.toggle}
+        aria-label={launcher.assistantOpen ? "Close PropLane Assistant" : "Open PropLane Assistant"}
+        aria-expanded={launcher.assistantVisible}
+        title="PropLane Assistant"
+        data-attr="portal-assistant-panel"
+        className="grid size-7 shrink-0 place-items-center rounded-[6px] text-inherit opacity-85 outline-none transition hover:bg-white/10 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-white/50"
+      >
+        <PanelRight className="size-4" strokeWidth={1.75} aria-hidden />
+      </button>
 
-          <DropdownMenuItem
-            data-attr="portal-top-bar-settings"
-            onSelect={(event) => {
-              event.preventDefault();
-              router.push(`${basePath}/profile`);
-            }}
-          >
-            <Settings aria-hidden />
-            Settings
-          </DropdownMenuItem>
-
-          {DARK_MODE_ENABLED ? (
-            <div className="flex items-center justify-between gap-3 px-3 py-2">
-              <span className="text-[13.5px] font-medium text-foreground">Appearance</span>
-              <ThemeToggle />
-            </div>
-          ) : null}
-
-          <div className="px-1">
-            <PortalRoleSwitcher currentKind={kind} />
-          </div>
-
-          <DropdownMenuSeparator />
-
-          <PortalSignOutButton onRequestConfirm={() => setProfileMenuOpen(false)} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] font-medium text-red-600 transition hover:bg-accent/70 disabled:opacity-60" />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <PortalCommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        jumpItems={jumpItems}
+        actions={portalPaletteActions(basePath, kind)}
+        onAsk={onAsk}
+        onNavigate={navigate}
+      />
     </header>
   );
 }

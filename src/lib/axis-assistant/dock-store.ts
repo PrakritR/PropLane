@@ -95,13 +95,13 @@ export function undockAssistantFromRail(): void {
 }
 
 /**
- * A closing rail unmounts the ✕ that had focus; hand it to the top bar's Ask
- * PropLane, the control that reopens the assistant.
+ * A closing rail unmounts the ✕ that had focus; hand it to the top strip's
+ * assistant-panel button, the control that reopens the assistant.
  */
 export function focusAskPropLane(): void {
   if (typeof document === "undefined") return;
   requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>('[data-attr="portal-ask-proplane"]')?.focus();
+    document.querySelector<HTMLElement>('[data-attr="portal-assistant-panel"]')?.focus();
   });
 }
 

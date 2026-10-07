@@ -95,9 +95,11 @@ describe("Inspections left the manager sidebar", () => {
     expect(PORTAL_SECTION_CO_MANAGER_PERMISSION.forms).toBe("residents");
   });
 
-  it("groups Forms right after Residents under Tenancy, and the native bar lists it there too", () => {
-    const grouped = groupNavItems("pro", [{ section: "residents" }, { section: "forms" }, { section: "payments" }]);
-    expect(grouped.find((g) => g.id === "tenancy")?.items.map((i) => i.section)).toEqual(["residents", "forms", "payments"]);
+  it("groups Forms with the leasing paperwork (right after Leases), and the native bar still lists it right after Residents", () => {
+    // Phase 1 shell regroup: the sidebar's Leasing group is Tours, Application, Leases, Forms.
+    const grouped = groupNavItems("pro", [{ section: "residents" }, { section: "forms" }, { section: "leases" }]);
+    expect(grouped.find((g) => g.id === "leasing")?.items.map((i) => i.section)).toEqual(["leases", "forms"]);
+    expect(grouped.find((g) => g.id === "people")?.items.map((i) => i.section)).toEqual(["residents"]);
     const order = NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER as readonly string[];
     expect(order[order.indexOf("residents") + 1]).toBe("forms");
   });

@@ -69,7 +69,7 @@ export function DropdownMenuContent({
           collisionPadding={resolvedCollisionPadding}
           className={cn(
             // Above PortalDialog / ModalShell (z-[90]) so row ⋯ menus stay clickable on sheets.
-            "z-[10060] min-w-[min(14rem,calc(100vw-24px))] max-w-[calc(100vw-24px)] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-1.5 text-foreground shadow-[0_12px_32px_-8px_rgba(20,28,48,0.22)]",
+            "z-[10060] min-w-[min(14rem,calc(100vw-24px))] max-w-[calc(100vw-24px)] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-1.5 text-foreground shadow-[0_12px_32px_-8px_rgba(20,28,48,0.22)] lg:rounded-[var(--radius-menu)] lg:p-[5px] lg:shadow-[var(--shadow-pop)]",
             "origin-[var(--radix-dropdown-menu-content-transform-origin)]",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
             "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
@@ -93,7 +93,7 @@ export function DropdownMenuItem({
   return (
     <DropdownMenuPrimitive.Item
       className={cn(
-        "flex min-h-11 cursor-pointer select-none items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13.5px] font-medium outline-none transition focus:bg-accent/70 focus:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>svg]:h-[16px] [&>svg]:w-[16px] [&>svg]:shrink-0 [&>svg]:text-muted",
+        "flex min-h-11 cursor-pointer select-none items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13.5px] font-medium outline-none transition lg:min-h-0 lg:rounded-[var(--radius-control)] lg:px-[9px] lg:py-[7px] lg:text-[14px] lg:font-normal focus:bg-accent/70 focus:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>svg]:h-[16px] [&>svg]:w-[16px] [&>svg]:shrink-0 [&>svg]:text-muted",
         inset && "pl-8",
         className,
       )}
@@ -111,7 +111,7 @@ export function DropdownMenuSubTrigger({
   return (
     <DropdownMenuPrimitive.SubTrigger
       className={cn(
-        "flex min-h-11 cursor-pointer select-none items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13.5px] font-medium outline-none transition focus:bg-accent/70 focus:text-foreground data-[state=open]:bg-accent/70 data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "flex min-h-11 cursor-pointer select-none items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13.5px] font-medium outline-none transition lg:min-h-0 lg:rounded-[var(--radius-control)] lg:px-[9px] lg:py-[7px] lg:text-[14px] lg:font-normal focus:bg-accent/70 focus:text-foreground data-[state=open]:bg-accent/70 data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         className,
       )}
       {...props}
@@ -132,7 +132,7 @@ export function DropdownMenuSubContent({
       <DropdownMenuPrimitive.SubContent
         sideOffset={sideOffset}
         className={cn(
-          "z-[10060] min-w-[min(12rem,calc(100vw-24px))] max-w-[calc(100vw-24px)] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-1.5 text-foreground shadow-[0_12px_32px_-8px_rgba(20,28,48,0.22)]",
+          "z-[10060] min-w-[min(12rem,calc(100vw-24px))] max-w-[calc(100vw-24px)] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-1.5 text-foreground shadow-[0_12px_32px_-8px_rgba(20,28,48,0.22)] lg:rounded-[var(--radius-menu)] lg:p-[5px] lg:shadow-[var(--shadow-pop)]",
           "origin-[var(--radix-dropdown-menu-content-transform-origin)]",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "duration-[220ms] ease-[cubic-bezier(.22,1,.36,1)] data-[state=closed]:duration-[120ms]",
@@ -152,7 +152,7 @@ export function DropdownMenuLabel({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Label>) {
   return (
     <DropdownMenuPrimitive.Label
-      className={cn("px-3 py-1.5", className)}
+      className={cn("px-3 py-1.5 lg:px-[9px] lg:pb-1 lg:pt-1.5 lg:text-[12px] lg:text-muted", className)}
       {...props}
     />
   );

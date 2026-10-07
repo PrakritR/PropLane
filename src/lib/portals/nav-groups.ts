@@ -54,17 +54,21 @@ export function isAppNavHiddenInNativeShell(kind: PortalKind, section: string, i
   return inNativeShell && (kind === "manager" || kind === "pro") && section === "app";
 }
 
+/*
+ * Phase 1 shell redesign (approved plan dashboard-redesign-1007): four short
+ * headed groups under an unheaded home group. Labels and section ids are
+ * unchanged, only the bucketing moved. `payments` is "Incoming payments",
+ * `outgoing` is "Outgoing payments" and `financials` is "Finances".
+ * `app` (the download page) is deliberately not a sidebar row; it stays
+ * routable from Settings and the native shell never showed it anyway.
+ * Team (co-managers) is Settings -> Workspaces only; `/portal/teams` redirects.
+ */
 const PRO_GROUPS: NavGroupConfig[] = [
-  // Portfolio first: the workspace's own two destinations sit above the lifecycle
-  // groups. `app` (the download page) is deliberately not a sidebar row any more —
-  // it stays routable from Settings and the native shell never showed it anyway.
-  { id: "workspace", label: "Workspace", sections: ["dashboard", "properties"] },
-  { id: "leasing", label: "Leasing", sections: ["tours", "applications", "leases"] },
-  { id: "tenancy", label: "Tenancy", sections: ["residents", "forms", "payments", "services"] },
-  { id: "operations", label: "Operations", sections: ["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"] },
-  { id: "marketing", label: "Marketing", sections: ["promotion"] },
-  // Team (co-managers) is Settings → Workspaces only; `/portal/teams` redirects.
-  { id: "finances", label: "Finances", sections: ["financials", "documents"] },
+  { id: "home", label: null, sections: ["dashboard", "tasks", "calendar", "communication"] },
+  { id: "portfolio", label: "Portfolio", sections: ["properties", "bookings", "promotion"] },
+  { id: "leasing", label: "Leasing", sections: ["tours", "applications", "leases", "forms"] },
+  { id: "people", label: "People", sections: ["residents", "vendors", "services"] },
+  { id: "money", label: "Money", sections: ["payments", "outgoing", "financials", "documents"] },
 ];
 
 const ADMIN_GROUPS: NavGroupConfig[] = [
@@ -74,18 +78,18 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
   { id: "operations", label: "Operations", sections: ["events", "communication", "bugs-feedback"] },
 ];
 
+// `move-in` is the resident's "My home" row (label "My home").
 const RESIDENT_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard", "tour", "applications"] },
-  { id: "my-home", label: "My home", sections: ["lease", "forms", "move-in", "services"] },
-  { id: "finances", label: "Finances", sections: ["payments", "documents"] },
-  { id: "messages", label: "Messages", sections: ["communication"] },
+  { id: "home", label: null, sections: ["dashboard", "communication"] },
+  { id: "my-home", label: "My home", sections: ["move-in", "lease", "forms", "services"] },
+  { id: "applying", label: "Applying", sections: ["tour", "applications"] },
+  { id: "money", label: "Money", sections: ["payments", "documents"] },
 ];
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard"] },
-  { id: "work", label: "Work", sections: ["work-orders", "calendar", "reviews"] },
-  { id: "operations", label: "Operations", sections: ["communication"] },
-  { id: "finances", label: "Finances", sections: ["financials", "documents"] },
+  { id: "home", label: null, sections: ["dashboard", "communication", "calendar"] },
+  { id: "work", label: "Work", sections: ["work-orders", "reviews"] },
+  { id: "money", label: "Money", sections: ["financials", "documents"] },
 ];
 
 export const PORTAL_NAV_GROUPS: Record<PortalKind, NavGroupConfig[]> = {

@@ -311,7 +311,12 @@ export const ResidentInboxPanel = forwardRef<
     // passive effect, which takes the whole panel down rather than just skipping
     // the compose deep-link this effect exists to honour.
     const propertyId = searchParams?.get("propertyId")?.trim() ?? "";
-    if (searchParams?.get("compose") !== "1" || !propertyId) return;
+    if (searchParams?.get("compose") !== "1") return;
+    // No property named (the sidebar's New message button): the same blank compose the panel's own button opens.
+    if (!propertyId) {
+      setComposeOpen(true);
+      return;
+    }
     setComposeDraft(residentListingManagerMessageDraft(propertyId));
     setComposeOpen(true);
   }, [searchParams]);

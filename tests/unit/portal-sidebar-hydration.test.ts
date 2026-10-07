@@ -7,6 +7,13 @@ const PORTAL_SIDEBAR_SOURCE = readFileSync(
   "utf8",
 );
 
+// The row-building helpers moved out of the sidebar into the shared nav model
+// (the command palette's JUMP TO reads the same rows).
+const PORTAL_NAV_MODEL_SOURCE = readFileSync(
+  join(process.cwd(), "src/components/portal/portal-nav-model.ts"),
+  "utf8",
+);
+
 const PORTAL_NAV_CLIENT_SOURCE = readFileSync(
   join(process.cwd(), "src/lib/portal-nav-client.ts"),
   "utf8",
@@ -33,9 +40,9 @@ describe("portal sidebar native hydration", () => {
     // The nesting is built inline from the section's own tabs now; there is no
     // named `renderPaymentsNavGroup` helper any more. What matters is unchanged:
     // Payments is a parent row with incoming/outgoing children beneath it.
-    expect(PORTAL_SIDEBAR_SOURCE).toContain("subItems:");
-    expect(PORTAL_SIDEBAR_SOURCE).toMatch(/section\.section === "payments"/);
-    expect(PORTAL_SIDEBAR_SOURCE).toContain("/payments/incoming/pending");
+    expect(PORTAL_NAV_MODEL_SOURCE).toContain("subItems:");
+    expect(PORTAL_NAV_MODEL_SOURCE).toMatch(/section\.section === "payments"/);
+    expect(PORTAL_NAV_MODEL_SOURCE).toContain("/payments/incoming/pending");
     // The payments-specific helpers (`isPaymentSubNavActive`, `paymentsNavExpanded`)
     // were generalised: any section with `subItems` is expandable, active state
     // comes from `isNavItemActive`, and open state from `expandableNavOpen`
