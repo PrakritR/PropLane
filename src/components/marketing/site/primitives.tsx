@@ -41,6 +41,7 @@ export function SiteSection({
   return (
     <section
       id={id}
+      data-site-tone={tone}
       aria-label={ariaLabel}
       aria-labelledby={ariaLabelledBy}
       className={cn(
@@ -56,7 +57,7 @@ export function SiteSection({
 
 export function SiteEyebrow({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn("text-[12.5px] font-bold uppercase tracking-[0.08em] text-primary", className)}>{children}</p>
+    <p className={cn("text-[12px] font-extrabold uppercase tracking-[0.16em] text-[color:var(--site-accent,#2863f0)]", className)}>{children}</p>
   );
 }
 
@@ -75,11 +76,12 @@ export function SiteHeading({
     <Tag
       id={id}
       className={cn(
+        "site-display text-[color:var(--site-ink,#17181a)]",
         Tag === "h1"
-          ? "text-[clamp(2.4rem,5.4vw,3.9rem)] font-bold leading-[1.02] tracking-[-0.035em] text-foreground"
+          ? "text-[clamp(2.7rem,6.3vw,5.4rem)] font-[730] leading-[1.04] tracking-[-0.04em] text-balance"
           : Tag === "h2"
-            ? "text-[clamp(1.75rem,3.4vw,2.5rem)] font-bold leading-[1.08] tracking-[-0.03em] text-foreground"
-            : "text-[19px] font-bold leading-snug tracking-tight text-foreground",
+            ? "text-[clamp(1.9rem,3.6vw,3rem)] font-bold leading-[1.1] tracking-[-0.032em] text-balance"
+            : "text-[19px] font-bold leading-snug tracking-tight",
         className,
       )}
     >
@@ -119,18 +121,63 @@ export function SiteIntro({
   );
 }
 
+/**
+ * The page opener every public page shares: a centered headline in the display
+ * face (put the second line in `<span className="site-accent">` for the home
+ * page's two-tone headline), a short lede, then the page's own buttons.
+ */
+export function SitePageHero({
+  eyebrow,
+  title,
+  lede,
+  actions,
+  note,
+  wide = false,
+  id,
+  className,
+}: {
+  eyebrow?: ReactNode;
+  title: ReactNode;
+  lede?: ReactNode;
+  actions?: ReactNode;
+  note?: ReactNode;
+  /** A longer headline: widens the line measure. */
+  wide?: boolean;
+  id?: string;
+  className?: string;
+}) {
+  return (
+    <header className={cn("site-hero", className)}>
+      <div className={SITE_MEASURE}>
+        {eyebrow ? <p className="site-hero-eyebrow">{eyebrow}</p> : null}
+        <h1 id={id} className={wide ? "site-hero-wide" : undefined}>
+          {title}
+        </h1>
+        {lede ? <p className="site-hero-lede">{lede}</p> : null}
+        {actions ? <div className="site-hero-actions">{actions}</div> : null}
+        {note ? <p className="site-hero-note">{note}</p> : null}
+      </div>
+    </header>
+  );
+}
+
+/**
+ * The home hero's button set (captain 2026-10-07: every public page matches it):
+ * 52px, 9px radius, a solid blue primary with a soft glow, an outlined blue
+ * secondary. Labels stay whatever each page already says.
+ */
 const BTN_BASE =
-  "inline-flex min-h-[46px] items-center justify-center gap-2 rounded-full px-6 text-[14.5px] font-bold transition-[transform,box-shadow,filter,background-color] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+  "inline-flex min-h-[52px] items-center justify-center gap-2 rounded-[9px] border px-[22px] text-[14px] font-[750] no-underline transition-[transform,box-shadow,background-color,border-color] duration-100 ease-out hover:-translate-y-0.5 active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1769bd]/30";
 
 export const SITE_BTN_PRIMARY = cn(
   BTN_BASE,
-  "bg-primary text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] hover:-translate-y-0.5 hover:brightness-105 active:translate-y-px",
+  "border-[#1769bd] bg-[#1769bd] text-white shadow-[0_12px_22px_#1769bd24] hover:bg-[#0f5aa8]",
 );
 export const SITE_BTN_SECONDARY = cn(
   BTN_BASE,
-  "border border-border bg-card text-foreground hover:border-foreground/25 hover:bg-accent/40",
+  "border-[#b7cce3] bg-white/60 text-[#285887] hover:border-[#8fb0d4] hover:bg-white/90",
 );
-export const SITE_BTN_LARGE = "min-h-[52px] px-8 text-[15.5px]";
+export const SITE_BTN_LARGE = "min-h-[56px] px-8 text-[15px]";
 
 /**
  * The two doors, on every page: Start free (the $0 plan, no card) and Book a
@@ -145,6 +192,7 @@ export function SiteCtaPair({
   secondaryHref = BOOK_DEMO_HREF,
   secondaryLabel = "Book a demo",
   large = false,
+  align = "start",
   className,
   note,
 }: {
@@ -155,13 +203,15 @@ export function SiteCtaPair({
   secondaryHref?: string;
   secondaryLabel?: string;
   large?: boolean;
+  /** `center` for a centered hero. */
+  align?: "start" | "center";
   className?: string;
   /** The fine print under the buttons: "Free for one home · no card". */
   note?: ReactNode;
 }) {
   return (
-    <div className={cn("flex flex-col items-start gap-3", className)}>
-      <div className="flex flex-wrap items-center gap-3">
+    <div className={cn("flex flex-col gap-3", align === "center" ? "items-center" : "items-start", className)}>
+      <div className={cn("flex flex-wrap items-center gap-3.5", align === "center" && "justify-center")}>
         <Link href={primaryHref} data-attr={primaryAttr} className={cn(SITE_BTN_PRIMARY, large && SITE_BTN_LARGE)}>
           {primaryLabel}
         </Link>
