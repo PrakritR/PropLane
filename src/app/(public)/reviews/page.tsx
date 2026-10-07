@@ -4,6 +4,7 @@ import { BOOK_DEMO_HREF, PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-con
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import { SitePageHero, SiteSection } from "@/components/marketing/site/primitives";
 import { SitePage } from "@/components/marketing/site/site-page";
+import "@/components/marketing/site/page-polish.css";
 
 export const metadata: Metadata = {
   title: "Reviews",
@@ -51,14 +52,14 @@ export default function ReviewsPage() {
       <SiteSection ariaLabel="What we can promise">
         <div className="grid gap-4 md:grid-cols-3">
           {TRUE_CLAIMS.map((c) => (
-            <div key={c.value} className="rounded-2xl border border-border bg-card p-7">
-              <p className="text-[56px] font-bold leading-none tracking-[-0.04em] text-primary">{c.value}</p>
+            <div key={c.value} className="reviews-claim rounded-3xl border border-border bg-card p-7 sm:p-8">
+              <p className="site-display text-[64px] font-bold leading-none tracking-[-0.045em] text-primary">{c.value}</p>
               <p className="mt-4 text-[15.5px] font-semibold leading-snug text-foreground">{c.label}</p>
               <p className="mt-2 text-[13px] text-muted">{c.note}</p>
             </div>
           ))}
         </div>
-        <div className="mt-6 rounded-2xl border border-dashed border-border bg-[var(--pl-surface-muted)] p-7 text-center [html[data-theme=dark]_&]:bg-white/[0.03]">
+        <div className="mt-6 rounded-3xl border border-dashed border-border bg-[var(--pl-surface-muted)] p-8 text-center [html[data-theme=dark]_&]:bg-white/[0.03]">
           <p className="text-[17px] font-bold tracking-tight text-foreground">Using PropLane? Tell us how it went.</p>
           <p className="mx-auto mt-2 max-w-[52ch] text-[14.5px] leading-relaxed text-muted">
             A sentence is enough. We publish it here with your first name and role, only once you say so.

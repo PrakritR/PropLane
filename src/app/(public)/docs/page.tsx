@@ -4,6 +4,7 @@ import { DocsScrollspyNav, type DocsNavGroup } from "@/components/docs/docs-scro
 import { BOOK_DEMO_HREF } from "@/lib/marketing/public-contact";
 import { SitePage } from "@/components/marketing/site/site-page";
 import { SitePageHero } from "@/components/marketing/site/primitives";
+import "@/components/marketing/site/page-polish.css";
 
 export const metadata: Metadata = {
   title: "Docs",
@@ -58,6 +59,21 @@ export default function DocsPage() {
         title="Documentation"
         lede="A practical guide to running rentals with PropLane. This page covers the workflows available today."
       />
+
+      {/* Topic cards: every section of the guide, one tap from the landing (same anchors as the rail). */}
+      <nav aria-label="Browse topics" className="mx-auto max-w-6xl px-5 pb-10 sm:px-6" data-attr="docs-topic-grid">
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {NAV_GROUPS.flatMap((g) => g.links.map((l) => ({ ...l, group: g.group }))).map((l) => (
+            <li key={l.id}>
+              <a href={`#${l.id}`} className="docs-topic-card" data-attr={`docs-topic-${l.id}`}>
+                <span className="docs-topic-kicker">{l.group}</span>
+                <span className="docs-topic-label">{l.label}</span>
+                <span aria-hidden className="docs-topic-arrow">→</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
 
       {/* Docs shell: sticky nav + content */}
       <div className="relative mx-auto grid max-w-6xl gap-10 px-5 pb-24 sm:px-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-14">

@@ -1,0 +1,459 @@
+/*
+ * Auth split screen (captain 2026-10-07, Linktree sign-up as the target).
+ *
+ * Wide web windows get a 50/50 split: the form on a white left half, a bold
+ * PropLane-blue brand panel (wavy atmosphere + a collage of tilted product
+ * cards) on the right. Below `lg`, in the native shells, and on the wide plan
+ * chooser the panel is hidden and the screens keep the single-column look they
+ * already had. Layout and visuals only; no control, label or route lives here.
+ */
+
+.auth-split-form {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+}
+
+.auth-brand-panel {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    background: #fff;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) > .rlp-atmosphere,
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) > .chrome-substrate-full,
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) > [class*="chrome-substrate"] {
+    display: none !important;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-split-form {
+    height: 100%;
+    background: #fff;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-brand-panel {
+    display: block;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-main {
+    padding: 4.5rem 2rem 2.5rem;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel {
+    max-width: 420px;
+  }
+
+  /* Large rounded fields, as in the reference. */
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel
+    :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea) {
+    min-height: 52px;
+    border-radius: 14px;
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 1024px) {
+  /* The frosted card and its blue edge ring drop out: the white half is the surface. */
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-card-shell > div:first-child:not(.auth-card) {
+    display: none;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-card:not(.auth-card-blend) {
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-card:not(.auth-card-blend) > div:first-child:empty {
+    display: none;
+  }
+
+  /* Big bold title, left aligned like the reference. */
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel h1 {
+    text-align: left;
+    font-size: 2.5rem;
+    font-weight: 740;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    color: var(--site-ink, #132b47);
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel h1 + p {
+    text-align: left;
+    margin-left: 0;
+    margin-right: 0;
+    max-width: none;
+    font-size: 15px;
+  }
+
+  /* Pill OAuth buttons and the primary at the same generous height as the fields. */
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel .auth-oauth-stack > button,
+  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel .btn-cobalt {
+    min-height: 52px;
+  }
+}
+
+/* ------------------------------ brand panel ------------------------------ */
+
+.auth-brand-panel {
+  --s: 1;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  height: 100%;
+  color: #fff;
+  background:
+    radial-gradient(ellipse 70% 55% at 85% 8%, rgba(120, 175, 255, 0.55), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 0% 100%, rgba(10, 45, 150, 0.7), transparent 70%),
+    linear-gradient(150deg, #3a74ff 0%, #2358e8 42%, #1238a6 100%);
+}
+
+/* The home hero's own atmosphere, recoloured to read on blue instead of the pale site field. */
+.auth-brand-panel .rlp-atmosphere {
+  background: transparent;
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+
+.auth-brand-panel .rlp-atmosphere::before,
+.auth-brand-panel .rlp-atmosphere::after {
+  display: none;
+}
+
+.auth-brand-panel .rlp-atmosphere canvas {
+  opacity: 0.6;
+}
+
+.auth-brand-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 46%, rgba(255, 255, 255, 0.22), transparent 52%);
+}
+
+.auth-brand-stage {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 50%;
+  width: 600px;
+  height: 660px;
+  transform: translate(-50%, -50%) scale(var(--s));
+  transform-origin: center;
+}
+
+@media (min-width: 1024px) {
+  .auth-brand-panel {
+    --s: 0.68;
+  }
+}
+@media (min-width: 1280px) {
+  .auth-brand-panel {
+    --s: 0.88;
+  }
+}
+@media (min-width: 1600px) {
+  .auth-brand-panel {
+    --s: 1;
+  }
+}
+@media (min-width: 1024px) and (max-height: 780px) {
+  .auth-brand-panel {
+    --s: 0.7;
+  }
+}
+
+/* Every card: white surface, soft blue shadow, tilted. */
+.auth-brand-phone,
+.auth-brand-row-card,
+.auth-brand-chip,
+.auth-brand-service,
+.auth-brand-badge {
+  position: absolute;
+  background: #fff;
+  color: #132b47;
+  box-shadow:
+    0 30px 60px -24px rgba(6, 28, 100, 0.65),
+    0 2px 6px rgba(6, 28, 100, 0.18);
+}
+
+.auth-brand-phone {
+  left: 36px;
+  top: 52px;
+  width: 258px;
+  height: 520px;
+  padding: 14px 14px 16px;
+  border: 7px solid #0d1b3d;
+  border-radius: 42px;
+  transform: rotate(-7deg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: auth-brand-float 9s ease-in-out infinite;
+}
+
+.auth-brand-phone-notch {
+  align-self: center;
+  width: 70px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: 999px;
+  background: #0d1b3d;
+}
+
+.auth-brand-phone-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e3ebf5;
+}
+
+.auth-brand-phone-avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: #e6efff;
+  color: #1f64e8;
+}
+
+.auth-brand-phone-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.auth-brand-thread {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.auth-brand-bubble {
+  margin: 0;
+  max-width: 82%;
+  padding: 9px 12px;
+  border-radius: 18px;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.auth-brand-bubble-in {
+  align-self: flex-start;
+  border-bottom-left-radius: 5px;
+  background: #eef3fa;
+}
+
+.auth-brand-bubble-out {
+  align-self: flex-end;
+  border-bottom-right-radius: 5px;
+  background: #2f6bff;
+  color: #fff;
+}
+
+.auth-brand-phone-composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px 9px 14px;
+  border: 1px solid #dbe4ef;
+  border-radius: 999px;
+  color: #8397b0;
+  font-size: 12.5px;
+}
+
+.auth-brand-phone-composer i {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #2f6bff;
+}
+
+.auth-brand-row-card {
+  right: 0;
+  top: 70px;
+  display: flex;
+  width: 318px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  transform: rotate(5deg);
+  animation: auth-brand-float 10s ease-in-out -3s infinite;
+}
+
+.auth-brand-row-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #e6efff;
+  color: #1f64e8;
+}
+
+.auth-brand-row-body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.auth-brand-row-body strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.auth-brand-row-body small {
+  color: #6b7f99;
+  font-size: 12px;
+}
+
+.auth-brand-row-facts {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.auth-brand-row-facts em {
+  color: #44597a;
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.auth-brand-row-figure {
+  font-size: 17px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.auth-brand-chip {
+  left: 262px;
+  top: 340px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px 12px 12px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  transform: rotate(-5deg);
+  animation: auth-brand-float 8s ease-in-out -1s infinite;
+}
+
+.auth-brand-chip b {
+  margin-left: 4px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.auth-brand-chip-check {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #1f9d63;
+  color: #fff;
+}
+
+.auth-brand-service {
+  right: 14px;
+  top: 468px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px 12px 12px;
+  border-radius: 18px;
+  transform: rotate(4deg);
+  animation: auth-brand-float 11s ease-in-out -5s infinite;
+}
+
+.auth-brand-service-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #fff1dc;
+  color: #c2680a;
+}
+
+.auth-brand-service strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.auth-brand-service small {
+  display: block;
+  color: #6b7f99;
+  font-size: 12px;
+}
+
+.auth-brand-badge {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 999px;
+  color: #1f64e8;
+}
+
+.auth-brand-badge-a {
+  left: -2px;
+  top: 6px;
+  transform: rotate(-12deg);
+  animation: auth-brand-float 7s ease-in-out -2s infinite;
+}
+
+.auth-brand-badge-b {
+  left: 236px;
+  top: 600px;
+  transform: rotate(9deg);
+  animation: auth-brand-float 9s ease-in-out -4s infinite;
+}
+
+.auth-brand-badge-c {
+  right: 150px;
+  top: 4px;
+  transform: rotate(8deg);
+  color: #c2680a;
+  animation: auth-brand-float 8s ease-in-out -6s infinite;
+}
+
+@keyframes auth-brand-float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-brand-panel * {
+    animation: none !important;
+  }
+}
