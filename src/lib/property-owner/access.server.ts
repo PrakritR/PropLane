@@ -6,7 +6,7 @@ import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib
 import { hasCoManagerPermissionLevel, type OwnerPermissionId } from "@/lib/co-manager-permissions";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
-import { parseHouseScope, effectiveHouseIds } from "@/lib/workspaces/membership";
+import { effectiveHouseIds } from "@/lib/workspaces/membership";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /**
@@ -77,12 +77,16 @@ export async function loadOwnerGrants(db: SupabaseClient, userId: string): Promi
     const { data: owned, error: ownedError } = assigned.length === 0 && !workspaceId ? { data: [], error: null } : await query;
     if (ownedError) throw new Error("Could not load owner houses.");
     const reach = effectiveHouseIds({
-      houseScope: parseHouseScope(link.house_scope),
+      // An owner is never "all houses": a legacy "all" row reaches only its
+      // assigned houses, never the workspace's later-added ones.
+      houseScope: "selected",
       assignedPropertyIds: assigned,
       workspacePropertyIds: (owned ?? []).map((r) => String(r.id)),
     });
 
-    const map = readPropertyPermissionsFromRow(link as Parameters<typeof readPropertyPermissionsFromRow>[0]);
+    // Forced to "selected" so the flat all-houses fallback never turns owner keys
+    // on for a house with no per-house entry.
+    const map = readPropertyPermissionsFromRow({ ...link, house_scope: "selected" } as Parameters<typeof readPropertyPermissionsFromRow>[0]);
     const houses: OwnerHouseGrant[] = [];
     for (const propertyId of reach) {
       const perms = map[propertyId];

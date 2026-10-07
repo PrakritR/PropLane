@@ -62,13 +62,13 @@ describe("loadOwnerGrants", () => {
     expect(ids).not.toContain("house-c");
   });
 
-  it("an All-houses owner reaches the workspace's houses, but only where the keys fall back to the role", async () => {
+  it("a legacy All-houses owner row reaches only houses with an explicit per-house key, never the flat fallback", async () => {
     const db = makeFakeDb({
       account_link_invites: [
         link({
           house_scope: "all",
           assigned_property_ids: ["house-a", "house-b", "house-c"],
-          property_co_manager_permissions: { "house-b": { ownerPerformance: OFF } },
+          property_co_manager_permissions: { "house-a": { ownerPerformance: ON }, "house-b": { ownerPerformance: OFF } },
           co_manager_permissions: { ownerPerformance: ON, ownerStatements: ON, ownerDocuments: ON },
         }),
       ],
@@ -77,8 +77,8 @@ describe("loadOwnerGrants", () => {
     });
     const grants = await loadOwnerGrants(db, OWNER);
     const ids = grants[0]!.houses.map((h) => h.propertyId).sort();
-    // house-a and house-c fall back to the flat grant; house-b was set off explicitly.
-    expect(ids).toEqual(["house-a", "house-c"]);
+    // house-a is explicit; house-b is off; house-c has no entry and the flat grant no longer fills it.
+    expect(ids).toEqual(["house-a"]);
   });
 
   it("ignores everyone else's membership, a pending row, a non-owner role and a revoked owner", async () => {

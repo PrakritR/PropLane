@@ -40,7 +40,7 @@ import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces
 
 import { asStringArray, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
-import { parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
+import { OWNER_NEEDS_HOUSE_ERROR, OWNER_SELECTED_ONLY_ERROR, parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
 import {
   actorWorkspaceStanding,
   ownerDefaultWorkspaceId,
@@ -272,7 +272,7 @@ export async function POST(req: Request) {
     void body?.tabKind;
     const skipInviteNotification = body?.skipInviteNotification === true;
     let assignedPropertyIds = asStringArray(body?.assignedPropertyIds);
-    const houseScope: HouseScope = parseHouseScope(body?.houseScope);
+    let houseScope: HouseScope = parseHouseScope(body?.houseScope);
     const requestedWorkspaceId = typeof body?.workspaceId === "string" ? body.workspaceId.trim() || null : null;
     let payoutPercentForManager = Math.min(
       100,
@@ -287,6 +287,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: parsedTeamRole.error }, { status: 400 });
     }
     let teamRole: TeamRoleId = parsedTeamRole.role ?? "custom";
+    if (teamRole === "property_owner") {
+      // An owner never follows later-added houses: reject an explicit "all",
+      // coerce a defaulted scope, and require a house somebody actually chose.
+      if (parseHouseScope(body?.houseScope) === "all") {
+        return NextResponse.json({ error: OWNER_SELECTED_ONLY_ERROR }, { status: 400 });
+      }
+      houseScope = "selected";
+      if (assignedPropertyIds.length === 0) {
+        return NextResponse.json({ error: OWNER_NEEDS_HOUSE_ERROR }, { status: 400 });
+      }
+    }
     if (teamRole !== "custom") {
       propertyCoManagerPermissions = stampTeamRoleOnProperties(
         teamRole,
