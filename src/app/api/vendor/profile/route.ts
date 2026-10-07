@@ -35,7 +35,7 @@ export async function GET() {
 
     const [own, { data: profileRow }] = await Promise.all([
       resolveOwnVendorRecord(auth.db, auth.userId),
-      auth.db.from("profiles").select("phone, preferred_language, sms_consent_at").eq("id", auth.userId).maybeSingle(),
+      auth.db.from("profiles").select("phone, preferred_language, sms_consent_at, phone_verified_at").eq("id", auth.userId).maybeSingle(),
     ]);
     return NextResponse.json({
       profile: own?.row ?? null,
@@ -44,6 +44,7 @@ export async function GET() {
         phone: (profileRow?.phone as string | null) ?? "",
         preferredLanguage: (profileRow?.preferred_language as string | null) ?? "",
         smsConsent: Boolean(profileRow?.sms_consent_at),
+        phoneVerifiedAt: (profileRow?.phone_verified_at as string | null) ?? null,
       },
     });
   } catch (e) {

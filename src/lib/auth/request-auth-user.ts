@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
+import { isReadMethod, type FastRequestUser } from "@/lib/auth/request-user-fast.server";
 import { getUserOrRejection } from "@/lib/auth/session-rejection";
 
 /**
@@ -14,10 +15,22 @@ import { getUserOrRejection } from "@/lib/auth/session-rejection";
  * which of those it was previously required minting a token by hand and
  * comparing two servers.
  */
+export async function getRequestAuthUser(supabase: SupabaseClient, req: NextRequest): Promise<User | null>;
+/**
+ * `{ fast: true }` is honored ONLY for GET/HEAD requests without a Bearer
+ * token (any other method silently keeps `getUser()`), and returns just
+ * id/email/metadata/role from the verified token claims.
+ */
 export async function getRequestAuthUser(
   supabase: SupabaseClient,
   req: NextRequest,
-): Promise<User | null> {
+  opts: { fast?: boolean },
+): Promise<User | FastRequestUser | null>;
+export async function getRequestAuthUser(
+  supabase: SupabaseClient,
+  req: NextRequest,
+  opts?: { fast?: boolean },
+): Promise<User | FastRequestUser | null> {
   const path = (() => {
     try {
       return new URL(req.url).pathname;
@@ -49,6 +62,7 @@ export async function getRequestAuthUser(
     return tokenUser;
   }
 
-  const { user } = await getUserOrRejection(supabase, path);
+  const fast = opts?.fast === true && isReadMethod(req.method);
+  const { user } = await getUserOrRejection(supabase, path, { fast });
   return user;
 }

@@ -17,7 +17,7 @@ export type ManagerDoorCountPayload = {
  * a snapshot; it is display-only and never used to price an actual charge.
  */
 export async function GET() {
-  const auth = await requireManagerRouteUser();
+  const auth = await requireManagerRouteUser({ fast: true });
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
 
   const counted = await loadManagerDoorCount(auth.db, auth.userId);

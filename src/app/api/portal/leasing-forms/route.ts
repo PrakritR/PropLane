@@ -11,7 +11,7 @@ const MAX_BODY_BYTES = 2_000_000;
 /** The workspace Forms library: every application and lease form defined once (`leasing-forms-library.ts`). */
 export async function GET() {
   try {
-    const ctx = await requireManagerRouteUser();
+    const ctx = await requireManagerRouteUser({ fast: true });
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const library = await loadLeasingFormsLibrary(ctx.db, ctx.userId);
     return NextResponse.json({ library });

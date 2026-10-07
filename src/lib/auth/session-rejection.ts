@@ -3,6 +3,8 @@ import "server-only";
 import { cookies } from "next/headers";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
+import { getRequestUserFast, type FastRequestUser } from "@/lib/auth/request-user-fast.server";
+
 /**
  * Why a session was rejected — the thing a bare 401 does not tell you.
  *
@@ -66,7 +68,27 @@ function classify(message: string | undefined, cookie: AuthRejection["cookie"]):
 export async function getUserOrRejection(
   supabase: SupabaseClient,
   where: string,
-): Promise<{ user: User | null; rejection?: AuthRejection }> {
+): Promise<{ user: User | null; rejection?: AuthRejection }>;
+/**
+ * `{ fast: true }` (GET/HEAD handlers only) reads the verified token claims
+ * instead of calling GoTrue; the user it returns carries only
+ * id/email/metadata/role. A claims failure falls back to `getUser()` so the
+ * rejection reason is still logged and the answer is still authoritative.
+ */
+export async function getUserOrRejection(
+  supabase: SupabaseClient,
+  where: string,
+  opts: { fast?: boolean },
+): Promise<{ user: User | FastRequestUser | null; rejection?: AuthRejection }>;
+export async function getUserOrRejection(
+  supabase: SupabaseClient,
+  where: string,
+  opts?: { fast?: boolean },
+): Promise<{ user: User | FastRequestUser | null; rejection?: AuthRejection }> {
+  if (opts?.fast === true) {
+    const fast = await getRequestUserFast(supabase);
+    if (fast) return { user: fast };
+  }
   const { data, error } = await supabase.auth.getUser();
   if (data?.user) return { user: data.user };
 

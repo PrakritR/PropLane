@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
+import { getRequestUserFast } from "@/lib/auth/request-user-fast.server";
 import { track } from "@/lib/analytics/posthog";
 import { mapVendorInvoiceRow, VENDOR_INVOICE_SELECT } from "@/lib/vendor-invoices";
 import {
@@ -15,14 +16,19 @@ import { workOrderEvent } from "@/lib/work-order-events.server";
 
 export const runtime = "nodejs";
 
-async function requireVendor(): Promise<
+/** `fast` (GET only): identity from the verified token claims, not a GoTrue round trip. Mutations keep `getUser()`. */
+async function requireVendor(opts?: { fast?: boolean }): Promise<
   | { ok: true; userId: string; email: string; db: ReturnType<typeof createSupabaseServiceRoleClient> }
   | { ok: false; status: number; error: string }
 > {
   const auth = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await auth.auth.getUser();
+  let user: { email?: string | null } | null = opts?.fast === true ? await getRequestUserFast(auth) : null;
+  if (!user) {
+    const {
+      data: { user: fresh },
+    } = await auth.auth.getUser();
+    user = fresh;
+  }
   if (!user) return { ok: false, status: 401, error: "Unauthorized." };
   const access = await resolveVendorPortalUserId();
   if (!access.ok) return { ok: false, status: access.status, error: access.status === 401 ? "Unauthorized." : "Forbidden." };
@@ -32,7 +38,7 @@ async function requireVendor(): Promise<
 /** Returns the signed-in vendor's own invoices, most recent first. */
 export async function GET() {
   try {
-    const gate = await requireVendor();
+    const gate = await requireVendor({ fast: true });
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
     const [invoicesResult, linkedManagers] = await Promise.all([

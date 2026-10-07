@@ -39,7 +39,7 @@ async function loadTerminology(db: SupabaseClient, ownerUserId: string, workspac
 
 export async function GET(req: Request) {
   try {
-    const ctx = await requireManagerRouteUser();
+    const ctx = await requireManagerRouteUser({ fast: true });
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const scope = resolveSettingsScopeParams(req.url);
     const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, { module: "applications", level: "read" });

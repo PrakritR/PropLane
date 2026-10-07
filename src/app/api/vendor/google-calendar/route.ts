@@ -13,6 +13,7 @@ import {
   warmGoogleCalendarOAuthConfig,
 } from "@/lib/google-calendar/settings";
 import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
+import { getRequestUserFast } from "@/lib/auth/request-user-fast.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -26,13 +27,18 @@ export const runtime = "nodejs";
  * the same reuse-by-userId pattern documented for vendor Stripe Connect in
  * docs/agents/vendor-portal.md Phase 3) — no new table or migration needed.
  */
-async function requireVendor() {
+async function requireVendor(opts?: { fast?: boolean }) {
   const resolved = await resolveVendorPortalUserId();
   if (!resolved.ok) return null;
   const auth = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await auth.auth.getUser();
+  // `fast` (GET only): identity from the verified token claims; mutations keep `getUser()`.
+  let user: { id: string; email?: string | null } | null = opts?.fast === true ? await getRequestUserFast(auth) : null;
+  if (!user) {
+    const {
+      data: { user: fresh },
+    } = await auth.auth.getUser();
+    user = fresh;
+  }
   return { db: createSupabaseServiceRoleClient(), userId: resolved.userId, user };
 }
 
@@ -41,7 +47,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const browserOrigin = url.searchParams.get("origin")?.trim() || url.origin;
     await warmGoogleCalendarOAuthConfig();
-    const ctx = await requireVendor();
+    const ctx = await requireVendor({ fast: true });
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     await assertGoogleCalendarProviderAllowed(ctx.db, ctx.userId, "settings_read");
     const schemaReady = await isGoogleCalendarSchemaReady(ctx.db);

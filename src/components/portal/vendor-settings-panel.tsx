@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
+import { invalidateSharedGets, sharedGet, writeThroughFetch } from "@/lib/shared-get-cache";
+import { PHONE_VERIFIED_EVENT } from "@/lib/vendor-work-number";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Building2,
@@ -190,16 +192,28 @@ export function VendorSettingsPanel() {
     directoryTimers.current[key] = setTimeout(revert, 2000);
   }, []);
 
+  // Verifying the phone (the Messaging block) changes `contact.phoneVerifiedAt`: drop the shared
+  // read so the next reader (the portal banner, this pane) asks the server.
   useEffect(() => {
     if (demo) return;
-    void fetch("/api/vendor/profile", { credentials: "include" })
-      .then((r) => r.json())
+    const onVerified = () => invalidateSharedGets("/api/vendor/profile");
+    window.addEventListener(PHONE_VERIFIED_EVENT, onVerified);
+    return () => window.removeEventListener(PHONE_VERIFIED_EVENT, onVerified);
+  }, [demo]);
+
+  useEffect(() => {
+    if (demo) return;
+    void sharedGet("/api/vendor/profile")
       .then(
-        (data: {
-          profile?: VendorProfileApiRow | null;
-          linked?: boolean;
-          contact?: { phone?: string; preferredLanguage?: string; smsConsent?: boolean };
-        }) => {
+        (r) =>
+          (r.ok ? r.data ?? {} : {}) as {
+            profile?: VendorProfileApiRow | null;
+            linked?: boolean;
+            contact?: { phone?: string; preferredLanguage?: string; smsConsent?: boolean };
+          },
+      )
+      .then(
+        (data) => {
           setUnlinked(data.linked === false);
           const p = data.profile;
           const contact = data.contact;
@@ -248,7 +262,7 @@ export function VendorSettingsPanel() {
       return;
     }
     try {
-      const res = await fetch("/api/vendor/profile", {
+      const res = await writeThroughFetch("/api/vendor/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -280,7 +294,7 @@ export function VendorSettingsPanel() {
       return;
     }
     try {
-      const res = await fetch("/api/vendor/profile", {
+      const res = await writeThroughFetch("/api/vendor/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -316,7 +330,7 @@ export function VendorSettingsPanel() {
       return;
     }
     try {
-      const res = await fetch("/api/vendor/profile", {
+      const res = await writeThroughFetch("/api/vendor/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

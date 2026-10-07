@@ -140,7 +140,7 @@ async function resolveWaiverCodeScope(
 
 export async function GET(req: Request) {
   try {
-    const ctx = await requireManagerRouteUser();
+    const ctx = await requireManagerRouteUser({ fast: true });
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const scope = resolveSettingsScopeParams(req.url);
     const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, {

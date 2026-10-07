@@ -21,7 +21,7 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
  * `docs/agents/rent-reporting.md` "Billing".
  */
 export async function GET() {
-  const auth = await requireManagerRouteUser();
+  const auth = await requireManagerRouteUser({ fast: true });
   if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const tierResult = await getEffectiveManagerSkuTier(auth.userId);
   if (!tierResult.ok) return NextResponse.json({ error: tierResult.error }, { status: 503 });

@@ -13,7 +13,7 @@ function dayParam(raw: string | null): string | null {
 
 export async function GET(req: Request) {
   try {
-    const actor = await requireManagerRouteUser();
+    const actor = await requireManagerRouteUser({ fast: true });
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const url = new URL(req.url);

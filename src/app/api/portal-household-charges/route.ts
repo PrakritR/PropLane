@@ -78,25 +78,69 @@ async function getUserContext() {
   };
 }
 
-export async function GET() {
+/** Higher bound so a high-volume manager's older paid rows stay in the snapshot (missing paid rows
+ * would vanish from the UI; the server-side paid-sticky guard already prevents any revert). */
+const CHARGE_READ_LIMIT = 2000;
+const RENT_PROFILE_READ_LIMIT = 500;
+/** Incremental reads start this far BEFORE the client's watermark so a row committed at the clock
+ * edge of the previous read is never missed; the client merges by id, so a repeat is harmless. */
+const INCREMENTAL_OVERLAP_MS = 2000;
+
+/**
+ * `?updatedSince=<ISO>` -> the inclusive lower bound for an incremental read, or null for a full
+ * read. Anything that is not a real, plausible date is ignored (full read), never an error: a bad
+ * watermark must degrade to the authoritative answer, not to an empty one.
+ */
+function incrementalCutoffFromRequest(req: Request | undefined, nowMs: number): string | null {
+  if (!req) return null;
+  let raw: string | null = null;
+  try {
+    raw = new URL(req.url).searchParams.get("updatedSince");
+  } catch {
+    return null;
+  }
+  if (!raw || !/^\d{4}-\d{2}-\d{2}T/.test(raw)) return null;
+  const ms = Date.parse(raw);
+  // A watermark from the future (clock skew, tampering) would hide everything newer than now.
+  if (!Number.isFinite(ms) || ms > nowMs + 60_000 || ms < Date.UTC(2000, 0, 1)) return null;
+  return new Date(ms - INCREMENTAL_OVERLAP_MS).toISOString();
+}
+
+export async function GET(req?: Request) {
   try {
     const ctx = await getUserContext();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const { db, user } = ctx;
 
-    let chargeQuery = db
-      .from("portal_household_charge_records")
-      .select("id, row_data, manager_user_id, updated_at")
-      .order("updated_at", { ascending: false })
-      // Higher bound so a high-volume manager's older paid rows stay in the
-      // snapshot (missing paid rows would vanish from the UI; the server-side
-      // paid-sticky guard already prevents any revert).
-      .limit(2000);
-    let profileQuery = db
-      .from("portal_recurring_rent_profile_records")
-      .select("id, row_data, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(500);
+    // Taken BEFORE any read: a row committed while the query runs has updated_at >= this value, so
+    // the client's next incremental read (minus the overlap) can never skip it.
+    const syncedAtMs = Date.now();
+    const syncedAt = new Date(syncedAtMs).toISOString();
+    const incrementalCutoff = incrementalCutoffFromRequest(req, syncedAtMs);
+
+    const buildQueries = (since: string | null, scopeOr: string | null) => {
+      let charges = db
+        .from("portal_household_charge_records")
+        .select("id, row_data, manager_user_id, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(CHARGE_READ_LIMIT);
+      let profiles = db
+        .from("portal_recurring_rent_profile_records")
+        .select("id, row_data, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(RENT_PROFILE_READ_LIMIT);
+      // Scope first, window second: the window only ever narrows what the scope already allows.
+      if (scopeOr) {
+        charges = charges.or(scopeOr);
+        profiles = profiles.or(scopeOr);
+      }
+      if (since) {
+        charges = charges.gte("updated_at", since);
+        profiles = profiles.gte("updated_at", since);
+      }
+      return [charges, profiles] as const;
+    };
+    let scopeOr: string | null = null;
 
     // Resolved once per request: the active workspace narrows a manager's own
     // rows below (both the direct query here and the co-manager fetch), and
@@ -124,15 +168,25 @@ export async function GET() {
       const branches = [managerClause, `resident_user_id.eq.${user.id}`, `resident_email.eq.${user.email}`].filter(
         (clause): clause is string => Boolean(clause),
       );
-      chargeQuery = chargeQuery.or(branches.join(","));
-      profileQuery = profileQuery.or(branches.join(","));
+      scopeOr = branches.join(",");
     } else {
       // Resident — match by user_id or email
-      chargeQuery = chargeQuery.or(`resident_user_id.eq.${user.id},resident_email.eq.${user.email}`);
-      profileQuery = profileQuery.or(`resident_user_id.eq.${user.id},resident_email.eq.${user.email}`);
+      scopeOr = `resident_user_id.eq.${user.id},resident_email.eq.${user.email}`;
     }
 
-    const [chargeResult, profileResult] = await Promise.all([chargeQuery, profileQuery]);
+    let incremental = incrementalCutoff !== null;
+    let [chargeResult, profileResult] = await Promise.all(buildQueries(incrementalCutoff, scopeOr));
+    // An incremental window that fills the row cap may have been truncated, and the client would
+    // treat the missing rows as unchanged. Answer with the full read instead.
+    if (
+      incremental &&
+      !chargeResult.error &&
+      !profileResult.error &&
+      ((chargeResult.data ?? []).length >= CHARGE_READ_LIMIT || (profileResult.data ?? []).length >= RENT_PROFILE_READ_LIMIT)
+    ) {
+      incremental = false;
+      [chargeResult, profileResult] = await Promise.all(buildQueries(null, scopeOr));
+    }
     if (chargeResult.error) return NextResponse.json({ error: chargeResult.error.message }, { status: 500 });
     if (profileResult.error) return NextResponse.json({ error: profileResult.error.message }, { status: 500 });
 
@@ -152,7 +206,16 @@ export async function GET() {
           { propertyColumns: ["property_id"], workspaceScope },
         );
         const seen = new Set(chargeRows.map((row) => row.id));
-        chargeRows = [...chargeRows, ...linkedRows.filter((row) => row.id && !seen.has(row.id))];
+        // The shared loader has no time window, so an incremental read narrows its rows here.
+        const cutoffMs = incremental && incrementalCutoff ? Date.parse(incrementalCutoff) : null;
+        const linkedInWindow =
+          cutoffMs === null
+            ? linkedRows
+            : linkedRows.filter((row) => {
+                const updatedMs = typeof row.updated_at === "string" ? Date.parse(row.updated_at) : NaN;
+                return Number.isFinite(updatedMs) && updatedMs >= cutoffMs;
+              });
+        chargeRows = [...chargeRows, ...linkedInWindow.filter((row) => row.id && !seen.has(row.id))];
       }
     }
 
@@ -191,7 +254,13 @@ export async function GET() {
     // The viewer's role travels with the read so the browser store can refuse a
     // write it is not allowed to make (PRP-391) instead of discovering it from a
     // 403. The POST guard below is still the authority; this is the second copy.
-    return NextResponse.json({ charges, rentProfiles, viewerRole: user.role });
+    return NextResponse.json({
+      charges,
+      rentProfiles,
+      viewerRole: user.role,
+      syncedAt,
+      ...(incremental ? { incremental: true } : {}),
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load charges.";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -26,6 +26,7 @@ import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
 import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { sharedGet } from "@/lib/shared-get-cache";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
   appendReplyToInboxThread,
@@ -206,9 +207,9 @@ export const VendorInboxPanel = forwardRef<
   useEffect(() => {
     if (isDemoModeActive()) return;
     let active = true;
-    void fetch("/api/vendor/profile", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : { profile: null }))
-      .then((data: { profile?: { name?: string; email?: string } | null }) => {
+    void sharedGet("/api/vendor/profile")
+      .then((res) => (res.ok ? res.data : { profile: null }) as { profile?: { name?: string; email?: string } | null })
+      .then((data) => {
         if (!active || !data.profile) return;
         const name = String(data.profile.name ?? "").trim();
         const email = String(data.profile.email ?? "").trim();
