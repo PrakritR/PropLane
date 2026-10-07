@@ -37,11 +37,15 @@ export type OwnerStatementDocument = {
   propertyLabel: string;
   lines: OwnerStatementLine[];
   distribution: string;
-  billsDue: string;
+  /** Omitted for the owner's own copy: unpaid bills are an operational (vendor) figure. */
+  billsDue?: string;
 };
 
 const OWNER_STATEMENT_FOOTER =
   "Prepared from PropLane property records for the period shown. Distribution reflects cash collected less expenses paid, management fee, and reserve holdback. Unpaid bills (AP) are shown for information and are not yet deducted from cash.";
+
+const OWNER_STATEMENT_FOOTER_OWNER_COPY =
+  "Prepared from PropLane property records for the period shown. Distribution reflects cash collected less expenses paid, management fee, and reserve holdback.";
 
 type Cursor = { theme: PdfTheme; page: PDFPage; y: number };
 
@@ -99,12 +103,15 @@ export async function buildOwnerStatementPdf(doc: OwnerStatementDocument): Promi
   reserve(cursor, 30 + 12);
   cursor.y = drawHighlightLine(cursor.page, cursor.theme, { label: "Net distribution to owner", value: doc.distribution, x: PDF_PAGE.margin, y: cursor.y, width: CONTENT_WIDTH });
   cursor.y -= 10;
-  line(cursor, `Unpaid bills (AP) outstanding: ${doc.billsDue}`, 9);
-  cursor.y -= 6;
+  if (doc.billsDue !== undefined) {
+    line(cursor, `Unpaid bills (AP) outstanding: ${doc.billsDue}`, 9);
+    cursor.y -= 6;
+  }
 
-  reserve(cursor, 10 + wrappedTextHeight(theme.regular, OWNER_STATEMENT_FOOTER, 8.5, CONTENT_WIDTH));
+  const footer = doc.billsDue !== undefined ? OWNER_STATEMENT_FOOTER : OWNER_STATEMENT_FOOTER_OWNER_COPY;
+  reserve(cursor, 10 + wrappedTextHeight(theme.regular, footer, 8.5, CONTENT_WIDTH));
   cursor.y -= 10;
-  drawWrappedText(cursor.page, OWNER_STATEMENT_FOOTER, PDF_PAGE.margin, cursor.y, 8.5, theme.regular, CONTENT_WIDTH, PDF_COLORS.muted);
+  drawWrappedText(cursor.page, footer, PDF_PAGE.margin, cursor.y, 8.5, theme.regular, CONTENT_WIDTH, PDF_COLORS.muted);
 
   drawStandardFooter(theme, CONTENT_WIDTH);
   return theme.pdf.save();
