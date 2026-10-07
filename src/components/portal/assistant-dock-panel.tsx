@@ -10,11 +10,13 @@ import {
   AssistantMessageList,
   AssistantPanelHeader,
   MANAGER_ASSISTANT_ENDPOINT,
+  RESIDENT_ASSISTANT_ENDPOINT,
   VENDOR_ASSISTANT_ENDPOINT,
 } from "@/components/portal/assistant-panel-chrome";
 import {
   AssistantPendingActionCard,
   AssistantResolvedActionFlash,
+  RESIDENT_ASSISTANT_SUGGESTIONS,
   VENDOR_ASSISTANT_SUGGESTIONS,
 } from "@/components/portal/assistant-shared";
 import { useOptionalAssistantConversation } from "@/lib/axis-assistant/assistant-conversation-context";
@@ -111,6 +113,7 @@ export function AssistantDockPanel({
   const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
   const hint = contextHint?.trim() || null;
   const isVendorAssistant = endpoint === VENDOR_ASSISTANT_ENDPOINT;
+  const isResidentAssistant = endpoint === RESIDENT_ASSISTANT_ENDPOINT;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -201,7 +204,7 @@ export function AssistantDockPanel({
             showQueue={endpoint === MANAGER_ASSISTANT_ENDPOINT && !hint && !composerHint?.trim()}
             onPick={(prompt) => void sendWithContext(prompt)}
             disabled={loading}
-            suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : undefined}
+            suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : isResidentAssistant ? RESIDENT_ASSISTANT_SUGGESTIONS : undefined}
           />
         ) : (
           <AssistantMessageList messages={visibleMessages} ratings={ratings} onRate={submitFeedback} loading={loading} />
@@ -243,7 +246,7 @@ export function AssistantDockPanel({
           inputRef={inputRef}
           inputId={inputId}
           inputAriaLabel="Ask the PropLane Assistant about your portfolio"
-          placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : "Ask about your portfolio…"}
+          placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : isResidentAssistant ? "Ask about your home…" : "Ask about your portfolio…"}
           allowAttachments={!smsTestActive}
 
           onSend={() => void sendWithContext()}

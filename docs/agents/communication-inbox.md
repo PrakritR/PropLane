@@ -342,7 +342,8 @@ conversations) plus the archive toggle. Invariants:
   (`InboxComposerScheduleMenu` in `resident-inbox-panel`), while
   `PortalMessageScheduleFields` stays `hidden` for `portal === "resident"` in
   `inbox-scoped-compose-modal.tsx`. Scheduled rows stay cancel-only (no inline
-  edit). Residents have no assistant anywhere (see
+  edit). The resident thread composer has no assistant strip or AI draft (the
+  Ask PropLane pill in the top bar is the resident assistant, see
   [`../ai-assistant.md`](../ai-assistant.md)); `hideAssistantFab` on
   `PortalCommunicationShell` is what keeps the FAB and in-thread strip off a
   manager's resident-detail Communication tab.
