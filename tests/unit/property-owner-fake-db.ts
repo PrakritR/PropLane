@@ -5,7 +5,7 @@ export function makeFakeDb(tables: Record<string, Row[]>) {
   return {
     from(table: string) {
       const filters: ((row: Row) => boolean)[] = [];
-      let rows = () => (tables[table] ?? []).filter((row) => filters.every((f) => f(row)));
+      const rows = () => (tables[table] ?? []).filter((row) => filters.every((f) => f(row)));
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq: (col: string, value: unknown) => {

@@ -107,6 +107,8 @@ export default function InviteLinkClient({ token }: { token: string }) {
     }
   }, []);
 
+  const isOwnerInvite = preview?.teamRole === "property_owner";
+
   const accept = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -160,7 +162,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
         setError(body.error ?? "Could not accept this invite.");
         return;
       }
-      if (preview?.teamRole === "property_owner") {
+      if (isOwnerInvite) {
         // An owner has no workspace to switch into: they land on their Overview.
         router.replace("/portal/owner");
         return;
@@ -172,7 +174,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
     } finally {
       setBusy(false);
     }
-  }, [router, selectJoinedWorkspace, token, preview?.teamRole]);
+  }, [router, selectJoinedWorkspace, token, isOwnerInvite]);
 
   const createOwnerAccountAndJoin = async () => {
     setBusy(true);
