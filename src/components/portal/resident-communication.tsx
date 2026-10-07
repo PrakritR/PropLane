@@ -39,6 +39,7 @@ import {
   inboxMessageOutbound,
   loadPersistedInbox,
   residentPhoneStateFor,
+  retryWhileStale,
   syncPersistedInboxFromServerWithStatus,
 } from "@/lib/portal-inbox-storage";
 import { buildActiveCommunicationThreads, emailThreadJoinKeys } from "@/lib/communication-active-rows";
@@ -202,10 +203,15 @@ function ResidentUnifiedInbox({
     setInitialListViewerId(viewerId);
     setInitialListState("loading");
     const [inbox, smsOk] = await Promise.all([
-      syncPersistedInboxFromServerWithStatus(RESIDENT_INBOX_STORAGE_KEY),
+      retryWhileStale(() => syncPersistedInboxFromServerWithStatus(RESIDENT_INBOX_STORAGE_KEY)),
       smsUiEnabled ? loadResidentSms(requestGeneration) : Promise.resolve(true),
     ]);
-    if (requestGeneration !== initialLoadGeneration.current || inbox.stale) return;
+    if (requestGeneration !== initialLoadGeneration.current) return;
+    // Still stale after the retries: surface the Retry state rather than a skeleton that never resolves.
+    if (inbox.stale) {
+      setInitialListState("error");
+      return;
+    }
     if (inbox.ok) {
       setEmailThreads(inbox.rows);
       setPhoneState(residentPhoneStateFor(RESIDENT_INBOX_STORAGE_KEY));
