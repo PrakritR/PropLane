@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   Bath,
   BedDouble,
@@ -102,7 +102,13 @@ export function PropertyHouseDetailsListPanel({
   onPersist,
   showToast,
   earlierNotes,
+  statusNote,
+  splitOffer,
 }: {
+  /** The quiet autosave line; drawn right-aligned in the tools line beside the record count (no footer bar). */
+  statusNote?: ReactNode;
+  /** Old free-text that looks splittable: a row at the top of The house (Review the split / Not now in its menu). */
+  splitOffer?: { onReview: () => void; onDismiss: () => void };
   /** Legacy free-text (General house info / House rules) — an "Earlier notes" row in The house, only when it has content. */
   earlierNotes?: { onOpen: () => void };
   propertyId: string;
@@ -398,6 +404,7 @@ export function PropertyHouseDetailsListPanel({
               dataAttr: "property-house-details-search",
             }}
             primary={addPrimary}
+            activeFilterChips={statusNote}
           />
         }
         isEmpty={
@@ -596,6 +603,25 @@ export function PropertyHouseDetailsListPanel({
 
         {activeTab === "house" ? (
           <>
+            {splitOffer ? (
+              <PortalPropertyRecordRow
+                title="Details found in your old notes"
+                leading={<PortalRowIconTile icon={Sparkles} />}
+                leadingShape="square"
+                onOpen={splitOffer.onReview}
+                dataAttr="house-info-split-banner"
+                facts={rowFacts([{ icon: FileText, text: "Codes, Wi-Fi and rules", sr: "Found" }])}
+                actions={
+                  <RowActionsMenu
+                    label="Details found in your old notes"
+                    items={[
+                      { id: "review", label: "Review the split", onSelect: splitOffer.onReview },
+                      { id: "dismiss", label: "Not now", onSelect: splitOffer.onDismiss },
+                    ]}
+                  />
+                }
+              />
+            ) : null}
             {matches(`Property facts ${propertyFactsSummary(sub)}`) ? (
               <PortalPropertyRecordRow
                 title="Property facts"

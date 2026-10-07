@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { PropertyServicesOffersPanel, offerPriceFact } from "@/components/portal/property-services-offers-panel";
 import { ZillowRentalNetworkRow } from "@/components/portal/zillow-rental-network-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
@@ -156,7 +156,7 @@ describe("Services tab: Long term / Short term", () => {
     showToast: () => {},
   });
 
-  it("shows a both-stay service in both tabs and the others only in theirs; the both fact carries the arrows glyph", () => {
+  it("shows a both-stay service in both tabs and the others only in theirs; the both fact carries the arrows glyph", async () => {
     const { container } = render(<PropertyServicesOffersPanel {...props(bothStaySub())} />);
     const rowTitles = () => [...container.querySelectorAll(".portal-property-row")].map((r) => r.querySelector("p")?.textContent);
     expect(rowTitles()).toEqual(["Cleaning", "Parking"]);
@@ -164,8 +164,13 @@ describe("Services tab: Long term / Short term", () => {
     fireEvent.click(within(container).getByRole("button", { name: /^Short term/ }));
     expect(rowTitles()).toEqual(["Cleaning", "Linen change"]);
     // Quick add offers the presets this property does not carry yet, and no request list renders here.
-    expect(container.querySelector('[data-attr="property-services-quick-add"]')!.textContent).toContain("Early check-in");
-    expect(container.querySelector('[data-attr="property-services-quick-add"]')!.textContent).not.toContain("Cleaning");
+    // The presets live in the round + menu (blank "Add service" first), not in a separate Quick add row.
+    expect(container.querySelector('[data-attr="property-services-quick-add"]')).toBeNull();
+    fireEvent.keyDown(within(container).getByRole("button", { name: "Add service" }), { key: "ArrowDown" });
+    const menu = (await screen.findAllByRole("menuitem")).map((item) => item.textContent ?? "");
+    expect(menu[0]).toBe("Add service");
+    expect(menu.join("|")).toContain("Early check-in");
+    expect(menu.join("|")).not.toContain("Cleaning");
     expect(container.querySelector('[data-attr="work-order-list-row"]')).toBeNull();
   });
 

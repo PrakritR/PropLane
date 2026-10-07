@@ -215,70 +215,43 @@ export function ManagerPropertyHouseDetailsPanel({
     setReviewOpen(false);
   };
 
-  return (
-    <PortalPropertyDetailSection
-      actions={
-        // No Save button (AXI-164) — but silence is not an option either. With
-        // the button gone this line is the ONLY signal that the typing is
-        // persisted, and the error state is the only way a failed write is
-        // distinguishable from a saved one.
-        <p
-          className={
-            status === "error"
-              ? "text-xs font-medium text-red-600"
-              : "text-xs text-muted"
-          }
-          role="status"
-          aria-live="polite"
-          data-attr="house-details-autosave-status"
-        >
-          {status === "saving"
-            ? "Saving…"
-            : status === "error"
-              ? "Couldn't save — check your connection"
-              : dirty
-                ? "Unsaved changes"
-                : status === "saved"
-                  ? "Saved"
-                  : ""}
-        </p>
-      }
-    >
-      <div className="space-y-4">
-        {offerSplit ? (
-          <div
-            className="flex flex-wrap items-center gap-3 rounded-2xl border border-primary/35 bg-[var(--pl-accent-soft)] px-4 py-3"
-            data-attr="house-info-split-banner"
-          >
-            <div className="min-w-[220px] flex-1">
-              <p className="text-sm font-semibold text-foreground">We found details in your old notes</p>
-              <p className="text-xs text-muted">
-                Codes, Wi-Fi and rules look like they belong in the sections below. Nothing changes until you apply it.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
-              onClick={() => setReviewOpen(true)}
-              data-attr="house-info-split-review"
-            >
-              Review the split
-            </button>
-            <button
-              type="button"
-              className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted hover:text-foreground"
-              onClick={() => setSplitDismissed(true)}
-            >
-              Not now
-            </button>
-          </div>
-        ) : null}
+  const statusText =
+    status === "saving"
+      ? "Saving…"
+      : status === "error"
+        ? "Couldn't save — check your connection"
+        : dirty
+          ? "Unsaved changes"
+          : status === "saved"
+            ? "Saved"
+            : "";
 
+  return (
+    <PortalPropertyDetailSection>
+      <div className="space-y-4">
         <PropertyHouseDetailsListPanel
           propertyId={propertyId ?? ""}
           sub={sub}
           houseInfo={draft.houseInfo}
           managerNotes={draft.houseDescription}
+          statusNote={
+            // No Save button (AXI-164) and no footer bar — but silence is not an option either. This quiet line
+            // in the tools line is the ONLY signal that the typing is persisted, and the error state is the
+            // only way a failed write is distinguishable from a saved one.
+            statusText ? (
+              <p
+                className={status === "error" ? "text-[12.5px] font-medium text-red-600" : "text-[12.5px] text-muted/75"}
+                role="status"
+                aria-live="polite"
+                data-attr="house-details-autosave-status"
+              >
+                {statusText}
+              </p>
+            ) : (
+              <span role="status" aria-live="polite" data-attr="house-details-autosave-status" />
+            )
+          }
+          splitOffer={offerSplit ? { onReview: () => setReviewOpen(true), onDismiss: () => setSplitDismissed(true) } : undefined}
           earlierNotes={
             draft.generalHouseInfo || draft.houseRulesText ? { onOpen: () => setEarlierNotesOpen(true) } : undefined
           }
