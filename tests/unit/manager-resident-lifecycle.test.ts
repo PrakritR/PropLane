@@ -93,4 +93,23 @@ describe("manager-resident-lifecycle", () => {
     expect(buildResidentLifecycle(input({ leaseRows: [draft] }) as never, hrefs).next).toMatchObject({ kind: "callback", label: "Send lease", actionId: "send-lease" });
     expect(buildResidentLifecycle(input({}) as never, hrefs).next?.description).toBeTruthy();
   });
+
+  // balanceDue is a dollar label; the lifecycle used to treat it as cents and showed $5.25 for $525.
+  it("reads an overdue balance label in dollars, not cents", () => {
+    const snap = buildResidentLifecycle(
+      {
+        directoryStage: "current",
+        application: null,
+        leaseRows: [],
+        ledgerRows: [
+          { id: "c1", bucket: "overdue", balanceDue: "$525.00", amount: "$1,050.00", residentName: "Jamie", dueDate: "2026-10-01" } as never,
+        ],
+        hasPortalAccount: true,
+      },
+      hrefs,
+    );
+    const text = JSON.stringify(snap);
+    expect(text).toContain("$525");
+    expect(text).not.toContain("$5.25");
+  });
 });
