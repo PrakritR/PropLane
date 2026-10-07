@@ -41,9 +41,9 @@ export async function SiteAppPage() {
         }
       />
     <div className={`${SITE_MEASURE} pb-20`}>
-      <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-14">
+      <div className="grid items-center gap-8">
         <div className="min-w-0">
-          <div className="flex items-center gap-4 rounded-2xl border border-border bg-card/90 p-4 sm:max-w-[440px]">
+          <div className="flex items-center gap-4 mx-auto w-full rounded-2xl border border-border bg-card/90 p-4 sm:max-w-[440px]">
             <div
               className="h-[84px] w-[84px] shrink-0 rounded-lg bg-white p-1.5 [&>svg]:h-full [&>svg]:w-full"
               aria-label={`QR code that opens ${url}`}
