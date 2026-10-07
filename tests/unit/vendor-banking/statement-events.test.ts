@@ -19,6 +19,7 @@ describe("vendorStatementEventType", () => {
     [{ kind: "refund", source: "refund", description: "x" }, "refund"],
     [{ kind: "refund", source: "hold_expiry", description: "Returned" }, "hold_expiry"],
     [{ kind: "adjustment", source: "hold_expiry", description: "fee reversed" }, "hold_expiry"],
+    [{ kind: "dispute", source: "dispute", description: "Dispute lost — debited" }, "dispute"],
     [{ kind: "adjustment", source: "adjustment", description: "Dispute opened — frozen" }, "dispute"],
     [{ kind: "adjustment", source: "adjustment", description: "Goodwill" }, "adjustment"],
   ])("classifies %j as %s", (entry, type) => {

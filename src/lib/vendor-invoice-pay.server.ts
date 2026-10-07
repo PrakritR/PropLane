@@ -14,6 +14,7 @@ import { vendorBankingEnabled } from "@/lib/vendor-banking/flag";
 import { vendorPayFeeCents } from "@/lib/platform-fees";
 import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 import { recordVendorBankingChargeAndFee } from "@/lib/vendor-banking/ledger.server";
+import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { recordVendorServiceFeeRevenue } from "@/lib/vendor-banking/platform-revenue.server";
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
 import { assertNoCrossRailPayout, authorizeOutgoingInvoice, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
@@ -335,6 +336,16 @@ export async function completeVendorInvoicePaymentFromStripeSession(
         source: "invoice",
         sourceId: invoiceId,
       });
+  }
+  if (isHold) {
+    // Paid with no bank to receive it: the money waits on PropLane. Tell the vendor once.
+    await emitVendorBankingEvent(db, {
+      kind: "money_held_no_bank",
+      eventId: `held:invoice:${invoiceId}`,
+      vendorUserId,
+      managerUserId,
+      facts: { amountCents: invoiceCents - platformFeeCents },
+    });
   }
   if (verifiedHoldId) await releaseVerifiedPlatformHoldsForOwner(db, {
     ownerUserId: vendorUserId, holdId: verifiedHoldId, stripe,

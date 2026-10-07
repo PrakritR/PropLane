@@ -118,6 +118,11 @@ export const DELETE_ORDER = [
   "work_order_reference_counters",
   // References portal_work_order_records (cascade), same as vendor_invoices/vendor_payouts.
   "vendor_reviews",
+  // vendor-banking-1006: refund requests, disputes and expense reversals reference vendor_payouts /
+  // vendor_invoices, so they go first.
+  "vendor_payout_refunds",
+  "vendor_banking_disputes",
+  "manager_expense_reversals",
   "vendor_invoices",
   // Source arbitration children precede both their payout and held-charge
   // parents. The source refund evidence table has only opaque Stripe ids and

@@ -398,6 +398,26 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"] },
   },
   {
+    // vendor-banking-1006: a vendor's refund request and a dispute on their charge are
+    // financial history (the money moved on the central rail), preserved like the ledger.
+    table: "vendor_payout_refunds",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
+    table: "vendor_banking_disputes",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
+  },
+  {
+    // The manager's expense reversal for a vendor refund: books history, kept with the GL.
+    table: "manager_expense_reversals",
+    phase: 1,
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+  },
+  {
     table: "vendor_tax_profiles",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

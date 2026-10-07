@@ -42,6 +42,8 @@ export type VendorStatementEventInput = { kind: string; source: string; descript
 export function vendorStatementEventType(entry: VendorStatementEventInput): VendorStatementEventType {
   if (entry.source === "hold_expiry") return "hold_expiry";
   if (entry.kind === "platform_fee") return entry.source === "withdrawal" ? "instant_fee" : "fee";
+  if (entry.kind === "dispute" || entry.source === "dispute") return "dispute";
+  // Legacy: a dispute booked as an adjustment before the real `dispute` kind existed.
   if (entry.kind === "adjustment" && /^dispute\b/i.test(entry.description.trim())) return "dispute";
   switch (entry.kind) {
     case "charge":

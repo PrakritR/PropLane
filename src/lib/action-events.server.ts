@@ -33,6 +33,8 @@ export type ActionEventDomain =
   | "message"
   /** Move-in forms: sent, reminded and submitted (`move-in-form-events.server.ts`). */
   | "move_in_form"
+  /** Vendor banking: payouts, bank/account state, refunds and disputes (`vendor-banking/events.server.ts`). */
+  | "vendor_banking"
   /** WS5: team-only, no resident/vendor/manager side. */
   | "availability";
 /**

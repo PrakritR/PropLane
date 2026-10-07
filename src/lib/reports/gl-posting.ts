@@ -319,6 +319,38 @@ export async function postGlExpenseEntry(db: SupabaseClient, input: GlExpenseInp
   });
 }
 
+export type GlVendorRefundReversalInput = {
+  managerUserId: string;
+  /** The central refund's stable attempt key: the journal is idempotent on it. */
+  attemptKey: string;
+  categoryCode: string;
+  amountCents: number;
+  entryDate: string;
+  propertyId?: string | null;
+  vendorId?: string | null;
+  memo?: string | null;
+};
+
+/** A vendor sent a manager's payment back: DR operating cash, CR the expense category it was booked to. */
+export async function postGlVendorRefundReversal(
+  db: SupabaseClient,
+  input: GlVendorRefundReversalInput,
+): Promise<string | null> {
+  if (input.amountCents <= 0) return null;
+  return insertJournalEntry(db, {
+    managerUserId: input.managerUserId,
+    propertyId: input.propertyId,
+    entryDate: input.entryDate,
+    memo: input.memo ?? `Vendor refund ${input.attemptKey}`,
+    sourceType: "refund",
+    sourceId: `vendor-refund:${input.attemptKey}`,
+    lines: [
+      { accountCode: "operating_cash", debitCents: input.amountCents, creditCents: 0, propertyId: input.propertyId, vendorId: input.vendorId, memo: input.memo },
+      { accountCode: input.categoryCode, debitCents: 0, creditCents: input.amountCents, propertyId: input.propertyId, vendorId: input.vendorId, memo: input.memo },
+    ],
+  });
+}
+
 export type GlDepositDispositionInput = {
   managerUserId: string;
   sourceId: string;
