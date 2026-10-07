@@ -323,6 +323,7 @@ test.describe("Public home", () => {
     });
 
     test("the phone follows the portal: Manager's phone for the resident, Vendor's phone for the vendor", async ({ page }) => {
+      test.slow();
       await goHome(page);
       const demo = page.locator("#rlp-demo-stage");
       await page.mouse.move(2, 2);
@@ -338,6 +339,9 @@ test.describe("Public home", () => {
         await page.getByRole("menuitem", { name: via }).click();
         await expect(page.getByText(caption, { exact: true })).toBeVisible();
       }
+      // Choosing a portal from the menu must not freeze the story: the phone keeps typing and landing messages.
+      await page.mouse.move(2, 2);
+      await expect(page.locator(".rlp-story-phone .rl-phone-message:not(.rl-phone-typing)").first()).toBeVisible({ timeout: 15_000 });
     });
   });
 

@@ -161,6 +161,8 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
     setShown(reduced ? shownThrough(nextPortal, 0) : 0);
     setTyping(!reduced);
     setTabOverride(null);
+    // The menu item that was focused is gone; no blur follows its removal.
+    setFocused(false);
   };
 
   // The phone: the lines so far from its owner's side, drawn from the other side for the resident portal.
@@ -201,7 +203,10 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
             data-demo-portal={portal}
             onPointerEnter={() => setHovered(true)}
             onPointerLeave={() => setHovered(false)}
-            onFocus={() => setFocused(true)}
+            // Only keyboard focus pauses the story: a mouse click on the sidebar must not freeze the phone.
+            onFocus={(event) => {
+              if (event.target.matches(":focus-visible")) setFocused(true);
+            }}
             onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
             }}
