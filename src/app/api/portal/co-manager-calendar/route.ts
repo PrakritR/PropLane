@@ -15,6 +15,7 @@ import {
 import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import { readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { calendarPersonLabel } from "@/lib/calendar-people";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 export const runtime = "nodejs";
 
@@ -125,6 +126,7 @@ export async function GET(req: Request) {
         "inviter_user_id, invitee_user_id, inviter_axis_id, invitee_axis_id, inviter_display_name, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope, team_role",
       )
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       // Only links that reach THIS house, narrowed in the database: the owner of a large portfolio
       // holds one accepted link per teammate per house, and the calendar needs the handful on this
       // one. `assigned_property_ids` is a jsonb array of ids, kept current for "all" scopes too -

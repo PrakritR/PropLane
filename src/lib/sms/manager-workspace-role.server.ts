@@ -2,6 +2,7 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listViewerWorkspaces, loadWorkspaceById, resolveActiveWorkspace, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 /** Accepted co-manager links where this user is the invitee (linked workspace, no owned rows). */
 export async function getAcceptedCoManagerInviterIds(
@@ -13,7 +14,8 @@ export async function getAcceptedCoManagerInviterIds(
     .from("account_link_invites")
     .select("inviter_user_id")
     .eq("invitee_user_id", userId)
-    .eq("status", "accepted");
+    .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER);
   if (error) {
     if (opts.throwOnError) throw new Error("Co-manager workspace links unavailable.");
     return [];
@@ -112,7 +114,8 @@ export async function listWorkspaceOwnersForCoManager(
     .from("account_link_invites")
     .select("inviter_user_id, assigned_property_ids")
     .eq("invitee_user_id", coManagerUserId)
-    .eq("status", "accepted");
+    .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER);
   if (error) {
     if (opts.throwOnError) throw new Error("Co-manager workspace links unavailable.");
     return [];

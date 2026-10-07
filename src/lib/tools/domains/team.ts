@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../registry";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 /**
  * Accepted co-manager account link (account_link_invites). Mirrors the fields
@@ -36,6 +37,7 @@ export const listCoManagersTool = defineTool({
         "id, inviter_user_id, invitee_user_id, inviter_display_name, invitee_display_name, assigned_property_ids, created_at, responded_at",
       )
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .or(`inviter_user_id.eq.${ctx.landlordId},invitee_user_id.eq.${ctx.landlordId}`);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as AccountLinkRow[];

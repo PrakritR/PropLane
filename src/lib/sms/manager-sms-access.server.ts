@@ -9,6 +9,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import { normalizeE164 } from "@/lib/phone-e164";
 import type { PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 type LinkRow = {
   inviter_user_id?: string | null;
@@ -43,6 +44,7 @@ async function loadIncomingAssignedProperties(
     .from("account_link_invites")
     .select(`inviter_user_id, ${INVITE_PERMISSION_COLUMNS}`)
     .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER)
     .eq("invitee_user_id", invitee);
   if (inviterUserId?.trim()) query = query.eq("inviter_user_id", inviterUserId.trim());
   // Authenticated private-workspace SMS tests must never inherit a normal or
@@ -167,6 +169,7 @@ export async function resolveManagerSmsInboundIdentity(
     .from("account_link_invites")
     .select("invitee_user_id")
     .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER)
     .eq("inviter_user_id", workNumberOwnerId);
   if (inviteError) throw new Error("Manager invitee identity unavailable.");
   const inviteeIds = [

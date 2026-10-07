@@ -14,6 +14,7 @@ import { intersectPropertyScopes } from "@/lib/reports/workspace-scope";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadWorkspaces } from "@/lib/workspaces/server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -51,7 +52,8 @@ export async function linkedOwnerForProperty(
     .from("account_link_invites")
     .select("inviter_user_id, assigned_property_ids")
     .eq("invitee_user_id", userId)
-    .eq("status", "accepted");
+    .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER);
   for (const row of data ?? []) {
     const ids = Array.isArray(row.assigned_property_ids) ? row.assigned_property_ids.map(String) : [];
     if (ids.includes(pid) && row.inviter_user_id) return String(row.inviter_user_id);
@@ -106,6 +108,7 @@ export async function linkedOwnerScopeForModule(
       .from("account_link_invites")
       .select(`inviter_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .eq("invitee_user_id", userId);
     if (error) {
       if (options.throwOnError) throw error;

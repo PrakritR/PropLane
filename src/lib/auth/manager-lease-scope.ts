@@ -10,6 +10,7 @@ import {
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -60,6 +61,7 @@ export async function collectLinkedPropertyIdsForUser(db: ServiceClient, userId:
       .from("account_link_invites")
       .select("inviter_user_id, assigned_property_ids")
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .eq("invitee_user_id", userId);
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
       // Contract unchanged (still the empty set = no linked access), but a real
@@ -118,6 +120,7 @@ export async function collectLinkedPropertyPermissionsForUser(
       .from("account_link_invites")
       .select(`inviter_user_id, invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .eq("invitee_user_id", userId);
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
       if (strict) throw new Error(`Co-manager link permissions lookup failed: ${error.message}`);

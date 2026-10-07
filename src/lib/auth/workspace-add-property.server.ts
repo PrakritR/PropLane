@@ -4,6 +4,7 @@ import { parseTeamRole } from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
 import { workspaceRightsForMembership } from "@/lib/workspaces/membership";
 import { ensureDefaultWorkspaceId } from "@/lib/workspaces/active.server";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 export type CreateListingOwnerResult =
   | {
@@ -92,6 +93,7 @@ export async function resolveCreateListingOwner(
     .eq("invitee_user_id", caller)
     .eq("inviter_user_id", ownerUserId)
     .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER)
     .eq("workspace_id", String(workspace.data.id));
   if (links.error) {
     return { ok: false, status: 503, error: "Could not verify workspace access." };

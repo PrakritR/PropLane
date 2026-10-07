@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // client-safe one. Importing both from the latter did not resolve.
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
 import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 export type ManagerEmailInboundIdentity = {
   workNumberOwnerId: string;
@@ -63,6 +64,7 @@ export async function resolveManagerEmailInboundIdentity(
     .from("account_link_invites")
     .select("invitee_user_id")
     .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER)
     .eq("inviter_user_id", workNumberOwnerId);
   if (inviteError) return null;
 

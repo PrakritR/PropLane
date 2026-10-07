@@ -10,6 +10,7 @@ import {
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 /** Shared singleton holding every manager's tour inquiries (see tour-inquiry.server). */
 const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
@@ -108,6 +109,7 @@ async function accountLinkCoManagerIdsForManagers(
       .from("account_link_invites")
       .select("invitee_user_id, workspace_id")
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .in("inviter_user_id", managerIds);
     for (const row of (data ?? []) as { invitee_user_id?: unknown; workspace_id?: unknown }[]) {
       const rowWorkspace = String(row.workspace_id ?? "").trim();
@@ -133,6 +135,7 @@ async function coManagerInviterIdsForInvitee(
       .from("account_link_invites")
       .select("inviter_user_id")
       .in("status", ["pending", "accepted"])
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .eq("invitee_user_id", inviteeUserId);
     for (const row of data ?? []) {
       const id = String(row.inviter_user_id ?? "").trim();

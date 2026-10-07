@@ -1,5 +1,6 @@
 import "server-only";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -20,6 +21,7 @@ async function relatedWorkspaceUserIds(db: ServiceClient, requestorUserId: strin
       .from("account_link_invites")
       .select("inviter_user_id, invitee_user_id, status")
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .or(`inviter_user_id.eq.${requestorUserId},invitee_user_id.eq.${requestorUserId}`);
     for (const row of (data ?? []) as { inviter_user_id?: unknown; invitee_user_id?: unknown }[]) {
       if (typeof row.inviter_user_id === "string" && row.inviter_user_id.trim()) ids.add(row.inviter_user_id.trim());

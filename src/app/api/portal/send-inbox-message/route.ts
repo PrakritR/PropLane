@@ -75,6 +75,7 @@ import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 export const runtime = "nodejs";
 
@@ -137,6 +138,7 @@ async function resolveBroadcastRecipients(
       .from("account_link_invites")
       .select("invitee_user_id")
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .in("inviter_user_id", managerIds);
     const inviteeIds = [...new Set((links ?? []).map((row) => String(row.invitee_user_id ?? "").trim()).filter(Boolean))];
     if (inviteeIds.length === 0) return;

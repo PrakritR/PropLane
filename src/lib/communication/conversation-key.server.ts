@@ -12,6 +12,7 @@ import {
   type ConversationFlag,
   type DerivedConversationKey,
 } from "@/lib/communication/conversation-key";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 /**
  * THE conversation-key resolver. Every writer that stores a person-thread asks
@@ -87,6 +88,7 @@ async function managerMayUseWorkspace(db: Db, managerUserId: string, workspaceOw
     .eq("invitee_user_id", managerUserId)
     .eq("inviter_user_id", workspaceOwnerId)
     .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER)
     .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
     .limit(1);
   return !error && Array.isArray(data) && data.length > 0;
@@ -156,6 +158,7 @@ export async function resolveWorkspaceContext(
       .select("inviter_user_id, workspace_id")
       .eq("invitee_user_id", manager)
       .eq("status", "accepted")
+      .or(NOT_PROPERTY_OWNER_LINK_FILTER)
       .not("workspace_id", "is", null);
     const distinct = new Map<string, string>();
     for (const link of links ?? []) {

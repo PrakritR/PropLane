@@ -3,6 +3,7 @@ import "server-only";
 import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { NOT_PROPERTY_OWNER_LINK_FILTER } from "@/lib/co-manager-team-roles";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -58,7 +59,8 @@ export async function coManagerHasOwnerBankAccountAccess(
     .select(INVITE_PERMISSION_COLUMNS)
     .eq("invitee_user_id", coManagerUserId)
     .eq("inviter_user_id", ownerUserId)
-    .eq("status", "accepted");
+    .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER);
   for (const link of links ?? []) {
     const assigned = Array.isArray(link.assigned_property_ids) ? link.assigned_property_ids.map(String) : [];
     const perms = readPropertyPermissionsFromRow(link as Parameters<typeof readPropertyPermissionsFromRow>[0]);
@@ -103,7 +105,8 @@ export async function resolveStripePayoutContext(
     .from("account_link_invites")
     .select("inviter_user_id")
     .eq("invitee_user_id", uid)
-    .eq("status", "accepted");
+    .eq("status", "accepted")
+    .or(NOT_PROPERTY_OWNER_LINK_FILTER);
   if (linkError) {
     return {
       payoutOwnerUserId: "",

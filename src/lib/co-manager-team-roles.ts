@@ -7,7 +7,9 @@
  */
 import {
   CO_MANAGER_PERMISSION_OPTIONS,
+  OWNER_PERMISSION_OPTIONS,
   normalizeCoManagerPermissions,
+  onlyOwnerPermissions,
   type CoManagerPermissionGrant,
   type CoManagerPermissionId,
   type CoManagerPermissions,
@@ -15,6 +17,7 @@ import {
 } from "@/lib/co-manager-permissions";
 
 export const TEAM_ROLE_IDS = [
+  "property_owner",
   "viewer",
   "leasing",
   "property_manager",
@@ -30,6 +33,7 @@ export type TeamRoleId = (typeof TEAM_ROLE_IDS)[number];
 export type CoManagerTeamRole = TeamRoleId;
 
 export const TEAM_ROLE_LABELS: Record<TeamRoleId, string> = {
+  property_owner: "Property owner",
   viewer: "Viewer",
   leasing: "Leasing",
   property_manager: "Property manager",
@@ -78,7 +82,32 @@ function allModules(level: StampLevel): CoManagerPermissions {
   return out;
 }
 
+/** Owner keys at View, Messages off: the Property owner default. */
+const OWNER_DEFAULT_STAMP: CoManagerPermissions = {
+  ownerPerformance: { ...VIEW },
+  ownerStatements: { ...VIEW },
+  ownerDocuments: { ...VIEW },
+};
+
+/** The one role that is not a manager: an investor who reads their own houses' results. */
+export function isPropertyOwnerRole(role: unknown): boolean {
+  return role === "property_owner";
+}
+
+/**
+ * What a stored/requested map becomes for `role`. A Property owner holds ONLY
+ * owner keys (a forged module grant is dropped); every other role never
+ * carries an owner key.
+ */
+export function permissionsForRole(role: TeamRoleId | null | undefined, perms: CoManagerPermissions): CoManagerPermissions {
+  if (role === "property_owner") return onlyOwnerPermissions(perms);
+  const out: CoManagerPermissions = { ...perms };
+  for (const { id } of OWNER_PERMISSION_OPTIONS) delete out[id];
+  return out;
+}
+
 const ROLE_STAMPS: Record<Exclude<TeamRoleId, "custom">, CoManagerPermissions> = {
+  property_owner: OWNER_DEFAULT_STAMP,
   viewer: allModules("view"),
   leasing: stampFromSpec({
     applications: "edit",
@@ -158,7 +187,7 @@ export function permissionsMatchTeamRole(actual: CoManagerPermissions, role: Tea
   if (!stamp) return false;
   const a = normalizeCoManagerPermissions(actual);
   const s = normalizeCoManagerPermissions(stamp);
-  for (const { id } of CO_MANAGER_PERMISSION_OPTIONS) {
+  for (const { id } of [...CO_MANAGER_PERMISSION_OPTIONS, ...OWNER_PERMISSION_OPTIONS]) {
     if (grantFingerprint(a[id]) !== grantFingerprint(s[id])) return false;
   }
   return true;
@@ -197,3 +226,17 @@ export function teamRoleListLabel(role: TeamRoleId | string | null | undefined):
   if (!parsed.ok || parsed.role == null) return "Co-manager";
   return TEAM_ROLE_LABELS[parsed.role];
 }
+
+/**
+ * PostgREST `.or()` filter that keeps every membership row EXCEPT a Property
+ * owner's. `neq` alone would also drop legacy rows whose `team_role` is NULL,
+ * so the NULL branch is explicit.
+ *
+ * Every reader that treats an accepted `account_link_invites` row as "this
+ * person is a teammate of the inviter" (recipients, SMS/email access, tier
+ * inheritance, linked houses…) applies this. An owner is an investor reading
+ * their own houses' results, never a teammate; the owner readers
+ * (`src/lib/property-owner/*`) are the only code that look at those rows.
+ * `tests/unit/property-owner-link-readers.test.ts` fails a reader that forgets it.
+ */
+export const NOT_PROPERTY_OWNER_LINK_FILTER = "team_role.is.null,team_role.neq.property_owner";
