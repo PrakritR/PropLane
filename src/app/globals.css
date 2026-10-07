@@ -4091,37 +4091,44 @@ html[data-theme="light"] .portal-shell .glass-card {
    A list page is a header band on white: title row, underline tabs, one tools
    line, then rows edge to edge. The page shell keeps the main column's padding
    for everything else; only the header, the command band and the rows bleed to
-   the column edges, and only on a page that actually has a command band. */
+   the column edges, and only on a page whose command band is a direct child of
+   the page body (a panel that wraps its band in its own card keeps that card). */
 @media (min-width: 1024px) {
-  [data-slot="portal-page-shell"]:has([data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > [data-slot="page-header"] {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > [data-slot="page-header"] {
     margin: -2rem -2rem 0;
     padding: 14px 22px 0;
     background: var(--background);
   }
-  [data-slot="portal-page-shell"]:has([data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > [data-slot="page-header"] + * {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > [data-slot="page-header"] + * {
     margin-top: 0;
   }
-  [data-slot="portal-page-shell"]:has([data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]) {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]) {
     margin-inline: -2rem;
     padding-top: 10px;
   }
-  [data-slot="portal-page-shell"]:has([data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) .portal-list-page-scroll {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) .portal-list-page-scroll {
     margin-inline: -2rem;
     padding-inline: 2rem;
   }
-  [data-slot="portal-page-shell"]:has([data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) [data-slot="portal-record-list-surface"] {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-record-list-surface"],
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-record-list-surface"] {
     margin-inline: -2rem;
   }
 }
 @media (max-width: 1023px) {
-  [data-slot="portal-page-shell"]:has([data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]) {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]) {
     margin-inline: -1rem;
   }
-  [data-slot="portal-page-shell"]:has([data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) .portal-list-page-scroll {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) .portal-list-page-scroll {
     margin-inline: -1rem;
     padding-inline: 1rem;
   }
-  [data-slot="portal-page-shell"]:has([data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) [data-slot="portal-record-list-surface"] {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-record-list-surface"],
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-record-list-surface"] {
     margin-inline: -1rem;
   }
 }
