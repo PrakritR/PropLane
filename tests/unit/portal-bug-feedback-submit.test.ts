@@ -235,3 +235,14 @@ describe("portal-bug-feedback route: feedback submit", () => {
     expect(asAdmin.rows.map((r) => r.id).sort()).toEqual(["bf-mine", "bf-someone-elses"]);
   });
 });
+
+describe("portal-record-api: empty replace", () => {
+  it("returns 200 { ok, upserted: 0 } for replace with no rows, still 400 for upsert without a row", async () => {
+    const { POST } = await import("@/app/api/portal-bug-feedback/route");
+    const empty = await POST(post({ action: "replace", rows: [] }));
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({ ok: true, upserted: 0 });
+    const missing = await POST(post({ action: "upsert" }));
+    expect(missing.status).toBe(400);
+  });
+});
