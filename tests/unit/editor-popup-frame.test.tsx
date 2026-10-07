@@ -108,7 +108,7 @@ describe("the four popups use the shared frame parts", () => {
     expect(src("src/components/portal/move-in-forms/move-in-form-live-preview.tsx")).toContain('heading="Resident sees"');
     expect(src(POPUPS.lease)).toContain("<WorkspacePreviewTitle>Lease preview</WorkspacePreviewTitle>");
     // The pricing receipt titles its card with PanelSection, which draws the identical heading style.
-    const frameStyle = /text-\[11\.5px\] font-bold uppercase tracking-\[0\.06em\] text-muted/;
+    const frameStyle = /text-xs font-semibold text-muted/;
     expect(src("src/components/portal/add-workspace/frame.tsx")).toMatch(frameStyle);
     expect(src("src/components/portal/listing-wizard-v2/wizard-primitives.tsx")).toMatch(frameStyle);
     expect(src("src/components/portal/listing-wizard-v2/listing-side-panel.tsx")).toContain('<PanelSection title="What a resident pays">');

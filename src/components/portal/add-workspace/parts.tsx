@@ -19,7 +19,7 @@ import { WorkspaceFileCard, WorkspaceHeaderUploadPresent } from "./upload-action
 
 /* ─────────────────────────── controls ─────────────────────────── */
 
-export const WIZARD_LABEL_CLASS = "mb-1.5 block text-[12.5px] font-bold normal-case tracking-normal text-foreground";
+export const WIZARD_LABEL_CLASS = "mb-[5px] block text-[13px] font-semibold normal-case tracking-normal text-foreground";
 
 /** The settings-kit single-select, labelled like every other wizard field. */
 export function WizardSelect({ required, ...props }: Parameters<typeof FieldSingleSelect>[0] & { required?: boolean }) {
@@ -62,9 +62,9 @@ export function WizardSection({
   dataAttr?: string;
 }) {
   return (
-    <section data-attr={dataAttr} className={cn("mb-4 overflow-hidden rounded-2xl border border-border bg-card", className)}>
-      <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
-        <h3 className="text-[14px] font-bold tracking-tight text-foreground">{title}</h3>
+    <section data-attr={dataAttr} className={cn("mb-4 overflow-hidden rounded-[10px] border border-border bg-card", className)}>
+      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <h3 className="text-[14px] font-semibold tracking-tight text-foreground">{title}</h3>
         {chip ? <span className="shrink-0">{chip}</span> : null}
       </div>
       <div className="px-4 py-4">{children}</div>
@@ -117,7 +117,7 @@ export function WizardLockedField({
     <div className="block" data-locked="1" title={lockTip}>
       <span className={WIZARD_LABEL_CLASS}>{label}</span>
       <div
-        className="flex min-h-10 items-center justify-between gap-2 rounded-xl border border-border bg-[var(--pl-canvas)] px-3 text-[13px] text-muted"
+        className="flex min-h-10 items-center justify-between gap-2 rounded-lg border border-[var(--input)] bg-[var(--pl-canvas)] px-3 text-[13px] text-muted"
         aria-label={`${label}: ${typeof value === "string" ? value : ""}. ${lockTip}`}
       >
         <span className="text-foreground">{value}</span>
@@ -144,7 +144,7 @@ export function WizardField({
   const id = useId();
   return (
     <label data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className={cn("block", className)}>
-      <span className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-foreground">
+      <span className="mb-[5px] flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
         {label}
         {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
         {mark ? <span className="ml-1 inline-flex font-normal">{mark}</span> : null}
@@ -200,7 +200,7 @@ export function WizardStepper({
   dataAttr?: string;
 }) {
   return (
-    <span className="inline-flex h-10 items-center overflow-hidden rounded-full border border-border" role="group" aria-label={label} data-attr={dataAttr}>
+    <span className="inline-flex h-9 items-center overflow-hidden rounded-lg border border-[var(--input)]" role="group" aria-label={label} data-attr={dataAttr}>
       <button
         type="button"
         onClick={() => onChange(Math.max(min, value - 1))}
@@ -275,7 +275,7 @@ export function FileStartStrip({
   );
   if (state.kind === "reading") {
     return (
-      <div data-attr={dataAttr} data-state="reading" className="mb-5 flex items-center gap-3.5 rounded-2xl border-[1.5px] border-primary bg-card px-4 py-3">
+      <div data-attr={dataAttr} data-state="reading" className="mb-5 flex items-center gap-3.5 rounded-[10px] border-[1.5px] border-primary bg-card px-4 py-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[var(--pl-blue-deep)]">
           <Upload className="h-[18px] w-[18px]" aria-hidden />
         </span>
@@ -293,7 +293,7 @@ export function FileStartStrip({
   }
   if (state.kind === "read") {
     return (
-      <div data-attr={dataAttr} data-state="read" className="mb-5 flex flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-primary/40 bg-primary/[0.06] px-4 py-3 sm:flex-nowrap">
+      <div data-attr={dataAttr} data-state="read" className="mb-5 flex flex-wrap items-center gap-3.5 rounded-[10px] border-[1.5px] border-primary/40 bg-primary/[0.06] px-4 py-3 sm:flex-nowrap">
         {input}
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-white">
           <Upload className="h-[18px] w-[18px]" aria-hidden />
@@ -308,7 +308,7 @@ export function FileStartStrip({
             onClick={() => fileRef.current?.click()}
             disabled={disabled}
             data-attr={`${dataAttr}-another`}
-            className="min-h-[40px] rounded-full border border-border bg-card px-4 text-[13px] font-bold text-foreground hover:bg-accent/40 disabled:opacity-50"
+            className="min-h-[40px] rounded-lg border border-[var(--input)] bg-card px-4 text-[13px] font-semibold text-foreground hover:bg-foreground/[0.035] disabled:opacity-50"
           >
             Add another
           </button>
@@ -389,7 +389,7 @@ export function AddFoot({ label, onClick, dataAttr }: { label: string; onClick: 
       type="button"
       onClick={onClick}
       data-attr={dataAttr}
-      className="mt-3 w-full rounded-xl border-[1.5px] border-dashed border-border px-3 py-3 text-center text-[13.5px] font-bold text-primary hover:border-primary/50"
+      className="mt-3 w-full rounded-lg border-[1.5px] border-dashed border-border px-3 py-3 text-center text-[13.5px] font-bold text-primary hover:border-primary/50"
     >
       {label}
     </button>
@@ -415,8 +415,8 @@ export function ReviewCard({
   dataAttr?: string;
 }) {
   return (
-    <section data-attr={dataAttr} className="mb-3 overflow-hidden rounded-2xl border border-border bg-card">
-      <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
+    <section data-attr={dataAttr} className="mb-3 overflow-hidden rounded-[10px] border border-border bg-card">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <h3 className="text-[14px] font-bold text-foreground">{title}</h3>
         <span className="flex items-center gap-2.5">
           <WizardChip tone={status === "complete" ? "ok" : status === "incomplete" ? "warn" : "ok"}>
@@ -459,8 +459,8 @@ export function PreviewPanel({
 }) {
   return (
     <section>
-      <h3 className="mb-2 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">{title}</h3>
-      <div className="rounded-2xl border border-border bg-card p-3.5">
+      <h3 className="mb-2.5 text-xs font-semibold text-muted">{title}</h3>
+      <div className="rounded-[10px] border border-border bg-card p-3.5">
         <div className="text-[15px] font-bold text-foreground">{name}</div>
         {sub ? <div className="text-[12.5px] text-muted">{sub}</div> : null}
         <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[13px]">
@@ -472,7 +472,7 @@ export function PreviewPanel({
           ))}
         </div>
         <div className="mt-3.5 border-t border-border/60 pt-3">
-          <h4 className="mb-1.5 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">{createsHeading}</h4>
+          <h4 className="mb-1.5 text-xs font-semibold text-muted">{createsHeading}</h4>
           {creates.map((c, i) => (
             <div key={i} className="flex items-start gap-2 py-1 text-[13px] text-foreground">
               <span

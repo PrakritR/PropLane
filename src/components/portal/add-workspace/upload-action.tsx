@@ -130,7 +130,7 @@ export function WorkspaceFileCard({ accept, onPick, onPickMany, fileName, inputD
       }} />
       {canCapture ? <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Take photo" disabled={off} onChange={(event) => take(event, false)} /> : null}
       {canCapture ? <input ref={scanRef} type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Scan document" disabled={off || scanning} onChange={(event) => take(event, true)} /> : null}
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[var(--pl-blue-deep)]">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-card text-[var(--pl-blue-deep)]">
         <Upload className="h-[18px] w-[18px]" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">
