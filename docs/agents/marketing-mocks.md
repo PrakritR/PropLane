@@ -63,6 +63,20 @@ that tab.
 - **Nothing writes.** No network request, nothing saved; a vendor is never shown
   the street address before a quote is accepted (offers say the general area).
 
+## The /app page's phones follow `app-store/screenshots`
+
+Captain 2026-10-07: the `/app` page shows the iPhone app as four equal phones side
+by side (no QR-code card, no staggered pair), and they must never go stale. The
+phones are NOT hand-drawn and NOT a separate copy: `site/app-page.tsx` imports four
+files from `app-store/screenshots/iphone-6.9` through one manifest
+(`APP_PAGE_SHOTS`). `npm run app-store:shots` (see `app-store/README.md`) re-shoots
+those files from the live portal, so a portal redesign plus a re-shoot updates the
+page with no edit here, and the same commit that ships the new store screenshots
+ships the new page. To show a different screen, edit the manifest (file name + alt
+text); the file names come from `GALLERY` in `scripts/ios-app-store-screenshots.mjs`.
+The facts line under the badge (iOS version from `IOS_APP_MINIMUM_OS`, same account,
+free) is checked against `docs/mobile-app.md`; change them together.
+
 ## Marketing mocks must use portal-accurate copy
 
 Every OTHER hand-drawn product mock on the marketing site — the homepage
