@@ -202,6 +202,19 @@ export function PortalSidebarFixture({
   );
 }
 
+/**
+ * Marks the row it wraps for the home demo's cursor (`data-demo-target`): the wrapper draws no box
+ * of its own (`display: contents`), so a list lays out exactly as it did, and the cursor aims at the
+ * row's own button inside it.
+ */
+export function DemoTarget({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <div className="contents" data-demo-target={id}>
+      {children}
+    </div>
+  );
+}
+
 /** A tiny, non-persisting confirmation toast — closes itself after a beat. */
 export function useFixtureToast() {
   const [text, setText] = useState<string | null>(null);
@@ -254,6 +267,7 @@ export function FixtureSheet({
           <div className="mt-4 flex justify-end">
             <button
               type="button"
+              data-demo-target="sheet-primary"
               onClick={onPrimary}
               className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-white"
             >

@@ -52,6 +52,7 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import {
   COMM_CONVERSATIONS,
+  RESIDENT_NAME,
   type ApplicationFixtureRow,
   type CommConversationFixture,
   type LeaseFixtureRow,
@@ -59,7 +60,7 @@ import {
   type ServiceFixtureRow,
   type TourFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
-import { FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { DemoTarget, FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
 import { worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
 
 /** A panel mounted while the story is running keeps showing Jordan's row: when the
@@ -211,6 +212,7 @@ export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<ApplicationFixtureRow | null>(null);
   const [adding, setAdding] = useState(false);
+  const [sending, setSending] = useState(false);
   const { show, node: toastNode } = useFixtureToast();
   const kebab = useFixtureKebab(show, "Application");
 
@@ -243,7 +245,12 @@ export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
             actions={
               <>
                 <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
-                <PortalIconAction icon={Share2} label="Send application link" onClick={() => show("Application link copied")} />
+                <PortalIconAction
+                  icon={Share2}
+                  label="Send application"
+                  data-demo-target="applications-send"
+                  onClick={() => setSending(true)}
+                />
                 <PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />
               </>
             }
@@ -255,8 +262,8 @@ export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
             bulkActions={kebab}
           >
             {rows.map((row) => (
+              <DemoTarget id="application-row" key={row.id}>
               <PortalApplicantRecordRow
-                key={row.id}
                 name={row.name}
                 address={`${row.property} · ${row.unit}`}
                 facts={
@@ -276,6 +283,7 @@ export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
                 onOpen={() => setSelected(row)}
                 dataAttr="application-list-row"
               />
+              </DemoTarget>
             ))}
           </PortalRecordListSurface>
         </ManagerPortalPageShell>
@@ -288,6 +296,12 @@ export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
             <FixtureField label="Stage" value={selected.stage} />
           </>
         ) : null}
+      </FixtureSheet>
+      <FixtureSheet open={sending} title="Send application" onClose={() => setSending(false)} primaryLabel="Send" onPrimary={() => { show("Application link sent"); setSending(false); }}>
+        <FixtureField label="To" value={`${RESIDENT_NAME} · (206) 555-0186`} />
+        <FixtureField label="Home" value="61 Willow Court · Room 3" />
+        <FixtureField label="Send via" value="SMS" />
+        <FixtureField label="Message" value="Apply for Room 3 — PropLane" />
       </FixtureSheet>
       <FixtureSheet open={adding} title="Add application" onClose={() => setAdding(false)} primaryLabel="Save" onPrimary={() => { show("Application added"); setAdding(false); }}>
         <FixtureField label="Property" value="Fremont Studio" />
@@ -372,21 +386,22 @@ export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
           />
           <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "No leases here", section: bucket }} bulkActions={kebab}>
             {rows.map((row) => (
-              <PortalApplicantRecordRow
-                key={row.id}
-                name={row.resident}
-                address={row.place}
-                facts={
-                  <>
-                    <PortalRowFact icon={Mail}>{row.email}</PortalRowFact>
-                    <PortalRowFact icon={CalendarDays}>{row.stage}</PortalRowFact>
-                    <PortalRowFact icon={Clock}>{row.updated}</PortalRowFact>
-                  </>
-                }
-                onSelectedChange={() => undefined}
-                onOpen={() => setSelected(row)}
-                dataAttr="lease-list-row"
-              />
+              <DemoTarget id="lease-row" key={row.id}>
+                <PortalApplicantRecordRow
+                  name={row.resident}
+                  address={row.place}
+                  facts={
+                    <>
+                      <PortalRowFact icon={Mail}>{row.email}</PortalRowFact>
+                      <PortalRowFact icon={CalendarDays}>{row.stage}</PortalRowFact>
+                      <PortalRowFact icon={Clock}>{row.updated}</PortalRowFact>
+                    </>
+                  }
+                  onSelectedChange={() => undefined}
+                  onOpen={() => setSelected(row)}
+                  dataAttr="lease-list-row"
+                />
+              </DemoTarget>
             ))}
           </PortalRecordListSurface>
         </ManagerPortalPageShell>
@@ -395,8 +410,11 @@ export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
         open={!!selected}
         title={selected?.resident ?? ""}
         onClose={() => setSelected(null)}
-        primaryLabel="Countersign"
-        onPrimary={() => { show("Lease executed — deposit charge sent"); setSelected(null); }}
+        primaryLabel={selected?.bucket === "manager" ? "Send lease" : selected?.bucket === "signed" ? "Countersign" : undefined}
+        onPrimary={() => {
+          show(selected?.bucket === "manager" ? "Lease sent for signature" : "Lease executed — deposit charge sent");
+          setSelected(null);
+        }}
       >
         {selected ? (
           <>
@@ -459,17 +477,18 @@ export function PaymentsPanel({ story }: { story?: DemoStory } = {}) {
           />
           <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "No charges here", section: bucket }} bulkActions={kebab}>
             {rows.map((row) => (
-              <PortalApplicantRecordRow
-                key={row.id}
-                name={row.resident}
-                address={`${row.chargeTitle} · ${row.property}`}
-                facts={<PortalRowFact icon={CalendarDays}>{row.due}</PortalRowFact>}
-                amount={row.amount}
-                amountTone={row.tone}
-                onSelectedChange={() => undefined}
-                onOpen={() => setSelected(row)}
-                dataAttr="payment-list-row"
-              />
+              <DemoTarget id="payment-row" key={row.id}>
+                <PortalApplicantRecordRow
+                  name={row.resident}
+                  address={`${row.chargeTitle} · ${row.property}`}
+                  facts={<PortalRowFact icon={CalendarDays}>{row.due}</PortalRowFact>}
+                  amount={row.amount}
+                  amountTone={row.tone}
+                  onSelectedChange={() => undefined}
+                  onOpen={() => setSelected(row)}
+                  dataAttr="payment-list-row"
+                />
+              </DemoTarget>
             ))}
           </PortalRecordListSurface>
         </ManagerPortalPageShell>
@@ -478,8 +497,11 @@ export function PaymentsPanel({ story }: { story?: DemoStory } = {}) {
         open={!!selected}
         title={selected?.resident ?? ""}
         onClose={() => setSelected(null)}
-        primaryLabel={selected?.bucket === "paid" ? undefined : "Mark paid"}
-        onPrimary={() => { show(`${selected?.amount} paid — ${selected?.resident}`); setSelected(null); }}
+        primaryLabel={selected?.bucket === "paid" ? undefined : selected?.bucket === "pending" ? "Send reminder" : "Mark paid"}
+        onPrimary={() => {
+          show(selected?.bucket === "pending" ? `Reminder sent — ${selected?.resident}` : `${selected?.amount} paid — ${selected?.resident}`);
+          setSelected(null);
+        }}
       >
         {selected ? (
           <>
@@ -543,14 +565,15 @@ export function ServicesPanel({ story }: { story?: DemoStory } = {}) {
           />
           <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "Nothing here", section: state }} bulkActions={kebab}>
             {rows.map((row) => (
-              <PortalServiceRecordRow
-                key={row.id}
-                title={row.title}
-                subtitle={`${row.kind === "add-on" ? "Add-on service" : "Maintenance"} · ${row.property} · ${row.resident} · ${row.detail}`}
-                onSelectedChange={() => undefined}
-                onOpen={() => setSelected(row)}
-                dataAttr="service-list-row"
-              />
+              <DemoTarget id="service-row" key={row.id}>
+                <PortalServiceRecordRow
+                  title={row.title}
+                  subtitle={`${row.kind === "add-on" ? "Add-on service" : "Maintenance"} · ${row.property} · ${row.resident} · ${row.detail}`}
+                  onSelectedChange={() => undefined}
+                  onOpen={() => setSelected(row)}
+                  dataAttr="service-list-row"
+                />
+              </DemoTarget>
             ))}
           </PortalRecordListSurface>
         </ManagerPortalPageShell>

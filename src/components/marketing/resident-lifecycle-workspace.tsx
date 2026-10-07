@@ -182,6 +182,47 @@ export function ResidentLifecycleWorkspace({
   children: ReactNode;
 }) {
   const meta = PORTAL_META[portal];
+  const mainRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  // The screen scrolls inside a fixed-size window (nothing is cut off, nothing grows it): while any
+  // scroller in the screen has more below, the window's bottom edge fades out and a chevron says so;
+  // once everything is in view both go away. (A list scrolls in its own `.portal-list-page-scroll`.)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const main = mainRef.current;
+    if (!canvas || !main) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      let more = false;
+      for (const el of [canvas, ...Array.from(canvas.querySelectorAll<HTMLElement>("*"))]) {
+        if (el.scrollHeight - el.clientHeight < 6 || !/(auto|scroll)/.test(getComputedStyle(el).overflowY)) continue;
+        if (el.scrollHeight - el.scrollTop - el.clientHeight > 6) {
+          more = true;
+          break;
+        }
+      }
+      main.dataset.scroll = more ? "more" : "end";
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    // `scroll` does not bubble: capture it to hear every scroller inside the screen.
+    canvas.addEventListener("scroll", schedule, { passive: true, capture: true });
+    const resize = new ResizeObserver(schedule);
+    resize.observe(canvas);
+    const mutations = new MutationObserver(schedule);
+    mutations.observe(canvas, { childList: true, subtree: true });
+    return () => {
+      canvas.removeEventListener("scroll", schedule, { capture: true });
+      resize.disconnect();
+      mutations.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
   return (
     <section
       id="resident-lifecycle-workspace"
@@ -216,6 +257,7 @@ export function ResidentLifecycleWorkspace({
                     aria-label={tab.label}
                     aria-current={active === tab.id ? "page" : undefined}
                     data-demo-tab={tab.id}
+                    data-demo-target={`nav-${tab.id}`}
                     onClick={() => onSelect(tab.id)}
                   >
                     <Icon aria-hidden />
@@ -233,14 +275,14 @@ export function ResidentLifecycleWorkspace({
           <ChevronDown aria-hidden />
         </button>
       </aside>
-      <div className="rlp-main">
+      <div className="rlp-main" ref={mainRef}>
         <header className="rlp-topbar">
           <button type="button" className="rlp-assistant" onClick={() => {}}>
             <Sparkles aria-hidden /> Ask PropLane <kbd>⌘K</kbd>
           </button>
           <AccountMenu portal={portal} onSwitchPortal={onSwitchPortal} onOpenChange={onMenuOpenChange} />
         </header>
-        <div id="rlp-workspace-panel" className={panel ? "rlp-canvas rlp-canvas-panel" : "rlp-canvas"}>
+        <div id="rlp-workspace-panel" ref={canvasRef} className={panel ? "rlp-canvas rlp-canvas-panel" : "rlp-canvas"}>
           {children}
         </div>
       </div>

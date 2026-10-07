@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, type FormEvent } from "react";
-import { MoreHorizontal, Paperclip, Plus, Search, Send, X } from "lucide-react";
+import { Check, MoreHorizontal, Paperclip, Pencil, Plus, Search, Send, Sparkles, X } from "lucide-react";
 import { ResidentLifecycleDialog } from "./resident-lifecycle-dialog";
 import { COMMUNICATION_THREADS, type SampleMessage } from "./resident-lifecycle-script";
 
@@ -24,12 +24,16 @@ type CommunicationProps = {
   messages: SampleMessage[];
   /** The other party is typing the next message (the phone shows the same). */
   typing?: boolean;
+  /** A reply PropLane drafted for the manager to approve (writes wait for the manager's confirm). */
+  draft?: string | null;
+  /** The manager approved the draft: it is sent and lands on the prospect's phone. */
+  onApprove?: () => void;
   onReply(text: string): boolean;
 };
 
 const PROSPECT = COMMUNICATION_THREADS[0];
 
-export function ManagerCommunication({ messages, typing = false, onReply }: CommunicationProps) {
+export function ManagerCommunication({ messages, typing = false, draft: proposed = null, onApprove, onReply }: CommunicationProps) {
   const [tab, setTab] = useState("Active");
   const [query, setQuery] = useState("");
   const [thread, setThread] = useState<string>(PROSPECT);
@@ -212,6 +216,23 @@ export function ManagerCommunication({ messages, typing = false, onReply }: Comm
                 </div>
               ) : null}
             </div>
+            {proposed && thread === PROSPECT ? (
+              <div className="rlp-draft" role="group" aria-label="Reply drafted by PropLane">
+                <div className="rlp-draft-head">
+                  <Sparkles aria-hidden />
+                  <strong>PropLane drafted a reply</strong>
+                </div>
+                <p>{proposed}</p>
+                <div className="rlp-draft-actions">
+                  <button type="button" className="rlp-draft-approve" data-demo-target="comm-approve" onClick={() => onApprove?.()}>
+                    <Check aria-hidden /> Approve &amp; send
+                  </button>
+                  <button type="button" onClick={() => setDraft(proposed)}>
+                    <Pencil aria-hidden /> Edit
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <form className="rlp-compose" onSubmit={send}>
               {iconAction("Attach file", <Paperclip aria-hidden />, () => {})}
               <label className="rlp-channel-select">
