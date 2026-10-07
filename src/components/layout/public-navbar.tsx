@@ -166,10 +166,15 @@ export function PublicNavbar() {
       const items: NavbarMenuItem[] = [
         {
           title: "Product",
-          url: "/#product",
+          url: "/#lifecycle",
           active: productActive && !docsActive && !contactActive && !pricingActive && !whyActive,
           dataAttr: "nav-product",
-          intro: { title: "Explore Product", url: "/#product", dataAttr: "nav-product-intro" },
+          intro: {
+            title: "Explore Product",
+            url: "/#lifecycle",
+            dataAttr: "nav-product-intro",
+            body: "One place to run your rentals. Managers, residents and vendors each get their own sign-in.",
+          },
           groups: [
             {
               heading: "Portals",
@@ -204,15 +209,15 @@ export function PublicNavbar() {
               heading: "Features",
               items: [
                 {
-                  title: "Leasing",
-                  url: "/partner#partner-rows-title",
-                  description: "Listings, tours, applications, e-sign",
+                  title: "Forms",
+                  url: "/partner#partner-forms",
+                  description: "Applications, leases and other forms",
                   icon: <ClipboardList strokeWidth={2} aria-hidden />,
-                  dataAttr: "nav-product-leasing",
+                  dataAttr: "nav-product-forms",
                 },
                 {
                   title: "Payments",
-                  url: "/partner#partner-rows-title",
+                  url: "/partner#partner-payments",
                   description: "Charges, reminders, deposits, books",
                   icon: <CreditCard strokeWidth={2} aria-hidden />,
                   dataAttr: "nav-product-payments",
@@ -226,7 +231,7 @@ export function PublicNavbar() {
                 },
                 {
                   title: "Communication",
-                  url: "/#product",
+                  url: "/partner#partner-communication",
                   description: "Email, SMS, in-app — one thread",
                   icon: <MessageSquareText strokeWidth={2} aria-hidden />,
                   dataAttr: "nav-product-inbox",

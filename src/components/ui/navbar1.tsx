@@ -43,7 +43,7 @@ export interface NavbarMenuItem {
    */
   groups?: { heading: string; items: NavbarMenuItem[] }[];
   /** A large leading link in its own column, before the groups (e.g. "Explore Product"). */
-  intro?: { title: string; url: string; dataAttr?: string };
+  intro?: { title: string; url: string; dataAttr?: string; body?: string };
   featured?: ReactNode;
   active?: boolean;
   activeChildHref?: string;
@@ -316,7 +316,12 @@ function DesktopMenuItem({ item }: { item: NavbarMenuItem }) {
                 data-attr={item.intro.dataAttr}
                 className="flex w-[220px] shrink-0 flex-col justify-between rounded-2xl bg-primary/[0.06] p-5 no-underline transition-colors hover:bg-primary/[0.09]"
               >
-                <span className="text-[19px] font-bold leading-tight tracking-[-0.01em] text-foreground">{item.intro.title}</span>
+                <span>
+                  <span className="block text-[19px] font-bold leading-tight tracking-[-0.01em] text-foreground">{item.intro.title}</span>
+                  {item.intro.body ? (
+                    <span className="mt-2.5 block text-[13px] font-normal leading-snug text-muted">{item.intro.body}</span>
+                  ) : null}
+                </span>
                 <span className="mt-4 inline-flex items-center gap-1 text-[13px] font-bold text-primary">
                   Explore <ArrowUpRightIcon className="size-3.5" />
                 </span>

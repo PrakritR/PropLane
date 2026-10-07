@@ -3,6 +3,8 @@ import { SiteEyebrow } from "@/components/marketing/site/primitives";
 import { cn } from "@/lib/utils";
 
 export type SiteFeatureRow = {
+  /** Anchor for deep links (e.g. the Product menu's feature links). */
+  id?: string;
   eyebrow: string;
   title: string;
   body: ReactNode;
@@ -19,8 +21,9 @@ export function SiteFeatureRows({ rows }: { rows: SiteFeatureRow[] }) {
       {rows.map((row, i) => (
         <div
           key={row.title}
+          id={row.id}
           className={cn(
-            "grid items-center gap-8 lg:grid-cols-2 lg:gap-16",
+            "grid scroll-mt-24 items-center gap-8 lg:grid-cols-2 lg:gap-16",
             i % 2 === 1 && "lg:[&>*:first-child]:order-2",
           )}
         >
