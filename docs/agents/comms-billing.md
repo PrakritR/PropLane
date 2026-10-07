@@ -35,7 +35,7 @@ see [financials.md](financials.md) § PropLane service fee). Two meters stay sep
   delivers; the outbox row, credit key and consent are the manager's).
 - **Vendor side:** forwards to the vendor's phone, routed replies and "Reply to" prompts leave
   the vendor's number through `deliverVendorWorkIdentity`, which "knows nothing about manager
-  billing". They are capped at **1,000 SMS segments per UTC month** per number (fair use),
+  billing". They are capped at **1,000 SMS segments per Pacific calendar month** per number (fair use),
   reserved atomically in `claim_vendor_work_identity_outbound`; at the cap forwarding and
   replies pause with a notice in Settings while inbound keeps arriving in PropLane.
 

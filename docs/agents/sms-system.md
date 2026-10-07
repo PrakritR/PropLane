@@ -1384,7 +1384,7 @@ before every forward, and the manager send reads it before queueing. The first-t
 attestation and footer are unchanged.
 
 **Fair use.** Vendor-side texts (forwards, routed replies, prompts) are covered by the
-service fee, capped at **1,000 SMS segments per UTC month** per number
+service fee, capped at **1,000 SMS segments per Pacific calendar month** per number
 (`VENDOR_NUMBER_FAIR_USE_SEGMENTS_PER_MONTH`; `vendor_work_identity_runtime.outbound_message_cap`
 is the live knob and the migration seeds it to 1000). Segments are estimated like the carrier
 bills (`estimateSmsSegments`: GSM 160/153, UCS-2 70/67); the same count is made in the

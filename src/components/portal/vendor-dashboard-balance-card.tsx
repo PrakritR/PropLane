@@ -85,7 +85,7 @@ export function VendorDashboardBalanceCard() {
           {balance.pendingCents > 0 ? <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-payment-pending">{formatMoney(balance.pendingCents, balance.currency)} pending payment</p> : null}
           {heldCents > 0 ? (
             <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-balance-held">
-              {formatMoney(heldCents, balance.currency)} held by PropLane{figures.heldReason?.includes("Disputed") ? " (Disputed)" : ""}
+              {formatMoney(heldCents, balance.currency)} held{figures.heldReason ? ` — ${figures.heldReason}` : ""}
             </p>
           ) : null}
           {(balance.releasePendingCents ?? 0) > 0 ? <p className="mt-1.5 text-xs text-muted" data-attr="vendor-dashboard-release-pending">{formatMoney(balance.releasePendingCents ?? 0, balance.currency)} release pending</p> : null}

@@ -75,3 +75,27 @@ end;
 $$;
 revoke execute on function public.claim_vendor_work_identity_outbound(uuid,uuid,uuid,text,text,text,text,text,text) from public, anon, authenticated;
 grant execute on function public.claim_vendor_work_identity_outbound(uuid,uuid,uuid,text,text,text,text,text,text) to service_role;
+
+-- The nightly vendor-banking reconciliation wants two AGGREGATES, not rows:
+-- the list of vendors with any ledger activity, and one vendor's running
+-- total. Reading them as rows meant paging the whole table into Node every
+-- night (Supabase free-plan egress is a constraint - AGENTS.md § Performance
+-- & egress). Both are read-only, service-role only, and safe to re-run; the
+-- existing (vendor_user_id, created_at) index already serves them.
+create or replace function public.vendor_banking_ledger_vendor_ids()
+returns setof uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select distinct vendor_user_id from public.vendor_banking_ledger_entries;
+$$;
+revoke execute on function public.vendor_banking_ledger_vendor_ids() from public, anon, authenticated;
+grant execute on function public.vendor_banking_ledger_vendor_ids() to service_role;
+
+create or replace function public.vendor_banking_ledger_total_cents(p_vendor_user_id uuid)
+returns bigint
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(sum(e.amount_cents), 0)::bigint
+  from public.vendor_banking_ledger_entries e
+  where e.vendor_user_id = p_vendor_user_id;
+$$;
+revoke execute on function public.vendor_banking_ledger_total_cents(uuid) from public, anon, authenticated;
+grant execute on function public.vendor_banking_ledger_total_cents(uuid) to service_role;

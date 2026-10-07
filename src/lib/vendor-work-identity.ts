@@ -34,12 +34,12 @@ export type VendorWorkIdentityChannel = {
 };
 
 export type VendorWorkIdentityUsage = {
-  /** Texts sent this UTC month (outbound SMS segments for the number; emails count one each). */
+  /** Texts sent this Pacific calendar month (outbound SMS segments for the number; emails count one each). */
   outboundUsed: number;
   /** Fair-use cap per month. */
   outboundCap: number;
   capState: "available" | "exhausted" | "unconfigured";
-  /** SMS segments this UTC month - what "Texts this month X of 1,000" shows. */
+  /** SMS segments this Pacific calendar month - what "Texts this month X of 1,000" shows. */
   smsSegmentsUsed: number;
 };
 

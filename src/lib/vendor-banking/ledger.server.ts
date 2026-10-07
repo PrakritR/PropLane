@@ -2,7 +2,6 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { vendorServiceFeeDescription } from "@/lib/platform-fees";
-import { pacificMonthWindow } from "@/lib/vendor-banking/statement-events";
 
 /**
  * Every statement line kind vendor banking ever writes. `charge` and
@@ -195,57 +194,54 @@ async function readAllLedgerPages<T>(build: () => PagedQuery, failure: string): 
 
 /**
  * Every statement line for this vendor, OLDEST first (a running balance is only
- * meaningful in order), optionally scoped to one Pacific calendar month
- * ("2026-09") — the same month boundary `statementMonthKey` buckets on.
+ * meaningful in order).
  *
  * There is deliberately no row cap: the caller gets the whole ledger or an
- * error, never a truncated one that reads as a complete statement.
+ * error, never a truncated one that reads as a complete statement. Callers that
+ * want one month (`buildVendorStatement`) still read everything, because the
+ * opening balance is every line BEFORE that month.
  */
 export async function listVendorBankingLedgerEntries(
   db: SupabaseClient,
   vendorUserId: string,
-  opts: { month?: string | null } = {},
 ): Promise<VendorBankingLedgerEntry[]> {
-  const month = opts.month && /^\d{4}-\d{2}$/.test(opts.month) ? opts.month : null;
-  const window = month ? pacificMonthWindow(month) : null;
-  const rows = await readAllLedgerPages<LedgerRow>(() => {
-    let query = db
-      .from("vendor_banking_ledger_entries")
-      .select("id, vendor_user_id, manager_user_id, kind, amount_cents, source, source_id, description, stripe_object_id, created_at")
-      .eq("vendor_user_id", vendorUserId)
-      // `created_at` alone is not unique, and a page boundary inside a tie
-      // would drop or repeat a line; `id` makes the order total.
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true });
-    if (window) query = query.gte("created_at", window.start).lt("created_at", window.end);
-    return query as unknown as PagedQuery;
-  }, "Could not read the vendor banking ledger");
+  const rows = await readAllLedgerPages<LedgerRow>(
+    () =>
+      db
+        .from("vendor_banking_ledger_entries")
+        .select("id, vendor_user_id, manager_user_id, kind, amount_cents, source, source_id, description, stripe_object_id, created_at")
+        .eq("vendor_user_id", vendorUserId)
+        // `created_at` alone is not unique, and a page boundary inside a tie
+        // would drop or repeat a line; `id` makes the order total.
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true }) as unknown as PagedQuery,
+    "Could not read the vendor banking ledger",
+  );
   return rows.map((row) => fromRow(row));
 }
 
-/** Running total across every ledger line for this vendor — the reconciliation job's "our side" number. */
+/**
+ * Running total across every ledger line for this vendor — the reconciliation
+ * job's "our side" number. Summed in the DATABASE: the nightly cron asks this
+ * once per vendor, and dragging every row across the wire to add them up is
+ * egress the free plan cannot spend (AGENTS.md § Performance & egress).
+ */
 export async function sumVendorBankingLedgerCents(db: SupabaseClient, vendorUserId: string): Promise<number> {
-  const rows = await readAllLedgerPages<{ amount_cents: number; id: string }>(
-    () =>
-      db
-        .from("vendor_banking_ledger_entries")
-        .select("id, amount_cents")
-        .eq("vendor_user_id", vendorUserId)
-        .order("id", { ascending: true }) as unknown as PagedQuery,
-    "Could not sum the vendor banking ledger",
-  );
-  return rows.reduce((sum, row) => sum + (Number(row.amount_cents) || 0), 0);
+  const { data, error } = await db.rpc("vendor_banking_ledger_total_cents", { p_vendor_user_id: vendorUserId });
+  if (error) throw new Error(`Could not sum the vendor banking ledger: ${error.message}`);
+  return Number(data ?? 0) || 0;
 }
 
-/** Every vendor with at least one ledger line — the reconciliation cron's fan-out list. */
+/** Every vendor with at least one ledger line — the reconciliation cron's fan-out list, deduped in the database. */
 export async function listVendorUserIdsWithLedgerActivity(db: SupabaseClient): Promise<string[]> {
-  const rows = await readAllLedgerPages<{ vendor_user_id: string; id: string }>(
-    () =>
-      db
-        .from("vendor_banking_ledger_entries")
-        .select("id, vendor_user_id")
-        .order("id", { ascending: true }) as unknown as PagedQuery,
-    "Could not list vendor banking ledger vendors",
-  );
-  return [...new Set(rows.map((row) => String(row.vendor_user_id)))];
+  const { data, error } = await db.rpc("vendor_banking_ledger_vendor_ids");
+  if (error) throw new Error(`Could not list vendor banking ledger vendors: ${error.message}`);
+  const rows = (data ?? []) as Array<{ vendor_user_id?: unknown } | string>;
+  return [
+    ...new Set(
+      rows
+        .map((row) => String(typeof row === "string" ? row : row?.vendor_user_id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
 }

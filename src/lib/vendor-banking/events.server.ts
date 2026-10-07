@@ -75,18 +75,37 @@ const PROPLANE_SENT_KINDS: ReadonlySet<VendorBankingEventKind> = new Set([
   "money_held_no_bank",
 ]);
 
-/** PropLane's own ops identity, the sender of a PropLane system notice. Null when the account is absent. */
+/**
+ * PropLane's own ops identity, the sender of a PropLane system notice.
+ *
+ * `profiles.email` carries no unique constraint (see `primary-admin.ts`), so
+ * this takes the OLDEST matching row rather than asking for exactly one — two
+ * rows must not disable the whole PropLane-sender path. A read failure and a
+ * missing identity are logged separately: both send the notice down the
+ * manager fallback, and neither is normal operation.
+ */
 async function proplaneSystemSender(
   db: SupabaseClient,
 ): Promise<{ userId: string; email: string; name: string } | null> {
-  const { data } = await db
+  const { data, error } = await db
     .from("profiles")
     .select("id, email")
     .eq("email", PRIMARY_ADMIN_EMAIL.trim().toLowerCase())
-    .maybeSingle();
-  const userId = String((data as { id?: string } | null)?.id ?? "").trim();
-  const email = String((data as { email?: string } | null)?.email ?? "").trim().toLowerCase();
-  return userId && email ? { userId, email, name: "PropLane" } : null;
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(1);
+  if (error) {
+    console.error("[vendor-banking] could not resolve the PropLane sender:", error.message);
+    return null;
+  }
+  const row = (data as Array<{ id?: string; email?: string }> | null)?.[0] ?? null;
+  const userId = String(row?.id ?? "").trim();
+  const email = String(row?.email ?? "").trim().toLowerCase();
+  if (!userId || !email) {
+    console.error(`[vendor-banking] no PropLane ops profile for ${PRIMARY_ADMIN_EMAIL}; falling back to the manager rail`);
+    return null;
+  }
+  return { userId, email, name: "PropLane" };
 }
 
 /** The manager a cross-party notice is sent as: the vendor's most recent paying manager. */
@@ -158,6 +177,11 @@ export async function emitVendorBankingEvent(
       senderEmail: sender.email,
       senderName: sender.name,
       urgent: input.kind === "payout_failed" || input.kind === "account_restricted" || input.kind === "payout_returned",
+      // PropLane's own notice about the vendor's account: no workspace owns
+      // it, so no manager's automation switch, template or draft-for-review
+      // setting may mute, rewrite or hold it. The vendor's own notification
+      // preferences and quiet hours still apply.
+      systemNotice: system !== null,
       payload: { kind: input.kind },
       recipients,
     });

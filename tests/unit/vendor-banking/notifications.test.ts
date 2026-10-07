@@ -39,12 +39,19 @@ function db(
       };
       b.order = () => b;
       b.limit = () => b;
-      b.maybeSingle = async () => {
-        if (table !== "profiles") return { data: "payout" in rows ? rows.payout : { manager_user_id: "mgr_1" }, error: null };
+      const one = () => {
+        if (table !== "profiles") return "payout" in rows ? rows.payout : { manager_user_id: "mgr_1" };
         if (byEmail === PRIMARY_ADMIN_EMAIL.toLowerCase()) {
-          return { data: rows.proplaneOps ? { id: "proplane_ops", email: PRIMARY_ADMIN_EMAIL, full_name: "PropLane" } : null, error: null };
+          return rows.proplaneOps ? { id: "proplane_ops", email: PRIMARY_ADMIN_EMAIL, full_name: "PropLane" } : null;
         }
-        return { data: rows.manager ?? { id: "mgr_1", email: "mgr@example.com", full_name: "Test Manager" }, error: null };
+        return rows.manager ?? { id: "mgr_1", email: "mgr@example.com", full_name: "Test Manager" };
+      };
+      b.maybeSingle = async () => ({ data: one(), error: null });
+      // `.limit(1)` without `.maybeSingle()` resolves to ROWS — the shape the
+      // PropLane sender lookup reads, so two matching profiles cannot error.
+      b.then = (resolve: (v: unknown) => unknown) => {
+        const row = one();
+        return Promise.resolve({ data: row ? [row] : [], error: null }).then(resolve);
       };
       return b;
     },
@@ -96,6 +103,36 @@ describe("emitVendorBankingEvent", () => {
     expect(input.senderName).toBe("PropLane");
     expect(input.recipients).toHaveLength(1);
     expect(input.recipients[0]).toMatchObject({ audience: "vendor", userId: "vendor_1" });
+  });
+
+  it("every PropLane-sent kind rides as a system notice, so no workspace's automation settings can mute or hold it", async () => {
+    const proplaneSent: VendorBankingEventKind[] = [
+      "payout_paid", "payout_failed", "payout_returned", "bank_removed",
+      "bank_needs_verification", "account_restricted", "money_held_no_bank",
+    ];
+    for (const kind of proplaneSent) {
+      h.emitAction.mockReset();
+      await emitVendorBankingEvent(db({ proplaneOps: true }) as never, { kind, eventId: `e:${kind}`, vendorUserId: "vendor_1", facts: { amountCents: 1_000 } });
+      const input = h.emitAction.mock.calls[0]![1];
+      expect(input.systemNotice, kind).toBe(true);
+      expect(input.recipients.every((r: { draftForReview?: boolean }) => r.draftForReview !== true), kind).toBe(true);
+    }
+  });
+
+  it("a cross-party notice keeps the real manager id and stays on the manager-automation rail", async () => {
+    await emitVendorBankingEvent(db({ proplaneOps: true }) as never, {
+      kind: "dispute_opened", eventId: "dispute:dp_2:opened", vendorUserId: "vendor_1", managerUserId: "mgr_1", facts: { amountCents: 20_500 },
+    });
+    const input = h.emitAction.mock.calls[0]![1];
+    expect(input.managerUserId).toBe("mgr_1");
+    expect(input.systemNotice).toBe(false);
+  });
+
+  it("falling back to the manager rail is NOT a system notice — that workspace's settings do apply", async () => {
+    await emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "fallback", vendorUserId: "vendor_1", facts: {} });
+    const input = h.emitAction.mock.calls[0]![1];
+    expect(input.managerUserId).toBe("mgr_1");
+    expect(input.systemNotice).toBe(false);
   });
 
   it("reaches a vendor with no payout history at all — PropLane is the sender, so there is nobody to be missing", async () => {

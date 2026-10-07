@@ -257,7 +257,7 @@ export function responseFor(input: {
   emailConfigured: boolean;
   smsConfigured: boolean;
   outboundUsed: number;
-  /** This UTC month's SMS segments / emails. Default to `outboundUsed` (callers that only know one total). */
+  /** This Pacific calendar month's SMS segments / emails. Default to `outboundUsed` (callers that only know one total). */
   smsSegmentsUsed?: number;
   emailUsed?: number;
   /** Whether the vendor's profile phone is verified. Omitted = not gating (older callers/fixtures). */

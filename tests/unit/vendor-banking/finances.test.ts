@@ -26,6 +26,8 @@ describe("deriveVendorFinancesFigures", () => {
       pendingCents: 52_000,
       heldCents: 0,
       heldReason: null,
+      frozenDisputeCents: 0,
+      hasDisputeFreeze: false,
       onTheWayCents: 0,
       owedToPropLaneCents: 0,
     });
@@ -134,6 +136,16 @@ describe("frozen dispute money", () => {
     expect(figures.availableCents).toBe(70_000);
     expect(figures.heldCents).toBe(30_000);
     expect(figures.heldReason).toBe("Disputed");
+  });
+
+  it("reports the freeze as a fact, so a surface never has to read the display copy", () => {
+    const frozen = deriveVendorFinancesFigures({ ...base, frozenDisputeCents: 30_000 });
+    expect(frozen).toMatchObject({ frozenDisputeCents: 30_000, hasDisputeFreeze: true });
+    const clean = deriveVendorFinancesFigures({ ...base, heldCents: 5_000 });
+    expect(clean).toMatchObject({ frozenDisputeCents: 0, hasDisputeFreeze: false });
+    // Capped at Available: only what actually left Available is reported frozen.
+    const capped = deriveVendorFinancesFigures({ ...base, availableCents: 10_000, withdrawableCents: 10_000, frozenDisputeCents: 30_000 });
+    expect(capped).toMatchObject({ frozenDisputeCents: 10_000, hasDisputeFreeze: true });
   });
   it("combines with an existing hold reason and never moves more than Available", () => {
     const figures = deriveVendorFinancesFigures({ ...base, withdrawableCents: 10_000, availableCents: 10_000, heldCents: 5_000, frozenDisputeCents: 30_000 });

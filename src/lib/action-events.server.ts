@@ -97,6 +97,19 @@ export function teamRecipientKey(ownerUserId: string): string {
   return `team:${ownerUserId.trim()}`;
 }
 
+/**
+ * Marks a stored event as PropLane's own notice. Read back on retry so a
+ * delivery that failed its first attempt is never turned into a manager draft
+ * after the fact (`retryDueActionEventDeliveries`).
+ */
+export const SYSTEM_NOTICE_PAYLOAD_KEY = "__systemNotice";
+
+function isSystemNoticePayload(payload: unknown): boolean {
+  return Boolean(
+    payload && typeof payload === "object" && (payload as Record<string, unknown>)[SYSTEM_NOTICE_PAYLOAD_KEY] === true,
+  );
+}
+
 function payloadPropertyId(payload: unknown): string | null {
   const value = payload && typeof payload === "object" ? (payload as { propertyId?: unknown }).propertyId : null;
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -472,27 +485,43 @@ export async function emitActionEvent(
      * copy in `rendered` is what goes out.
      */
     templateContext?: Record<string, string>;
+    /**
+     * PropLane speaking for itself, not for a workspace: skips the
+     * manager-automation rail entirely (no per-event on/off switch, no
+     * manager template, no draft-for-review), because no manager authored
+     * this and none may mute it. `managerUserId` on such an event is only the
+     * PropLane side of the thread. The recipient's OWN preferences — vendor
+     * topic switches, quiet hours — still apply downstream. Persisted on the
+     * event so a retry takes the same path.
+     */
+    systemNotice?: boolean;
   },
 ): Promise<ActionEventResult> {
   const eventKey = input.eventId.trim();
   if (!eventKey) throw new Error("emitActionEvent requires an idempotency eventId");
   const now = input.now ?? new Date();
   const propertyId = payloadPropertyId(input.payload);
+  const systemNotice = input.systemNotice === true;
   // The manager's per-event switch and template, and the workspace's
   // auto-send vs draft-for-review choice. Loaded once per event; a read
-  // failure means "defaults", never "silence".
-  const [automated, sendMode] = await Promise.all([
-    loadAutomatedMessageSettings(db, input.managerUserId).catch(() => null),
-    resolveAutomationSendModeForEvent(db, { managerUserId: input.managerUserId, propertyId }),
-  ]);
+  // failure means "defaults", never "silence". A system notice skips both:
+  // no workspace owns it, so none may rewrite, mute or hold it.
+  const [automated, sendMode] = systemNotice
+    ? ([null, { partyFacing: "send", team: "send" }] as const)
+    : await Promise.all([
+        loadAutomatedMessageSettings(db, input.managerUserId).catch(() => null),
+        resolveAutomationSendModeForEvent(db, { managerUserId: input.managerUserId, propertyId }),
+      ]);
   const recipients = input.recipients.flatMap((recipient) => {
-    const applied = applyAutomatedMessageSetting(automated, {
-      domain: input.domain,
-      event: input.event,
-      audience: recipient.audience,
-      rendered: recipient.rendered,
-      context: input.templateContext,
-    });
+    const applied = systemNotice
+      ? recipient.rendered
+      : applyAutomatedMessageSetting(automated, {
+          domain: input.domain,
+          event: input.event,
+          audience: recipient.audience,
+          rendered: recipient.rendered,
+          context: input.templateContext,
+        });
     if (!applied) return [];
     // Draft-for-review is decided HERE, for every domain, from the workspace
     // setting — a party-facing copy under `partyFacing: "draft"` and a team
@@ -516,7 +545,7 @@ export async function emitActionEvent(
     sender_email: input.senderEmail.trim().toLowerCase(),
     sender_name: input.senderName?.trim() || null,
     occurred_at: input.occurredAt ?? now.toISOString(),
-    payload: input.payload ?? {},
+    payload: systemNotice ? { ...(input.payload ?? {}), [SYSTEM_NOTICE_PAYLOAD_KEY]: true } : input.payload ?? {},
     sms_test_actor_user_id: smsTest?.actorUserId ?? null,
     sms_test_manager_user_id: smsTest?.managerUserId ?? null,
     sms_test_session_id: smsTest?.sessionId ?? null,
@@ -667,7 +696,7 @@ export async function retryDueActionEventDeliveries(
     // row that has already gone out (a channel retry) is never turned into a
     // draft after the fact.
     let draftForReview = Boolean(row.draft_for_review);
-    if (!draftForReview && row.status === "pending" && Number(row.attempts ?? 0) === 0) {
+    if (!draftForReview && !isSystemNoticePayload(event.payload) && row.status === "pending" && Number(row.attempts ?? 0) === 0) {
       const partyFacing = audience === "resident" || audience === "vendor";
       if (partyFacing || audience === "team") {
         const key = `${event.event_key}`;

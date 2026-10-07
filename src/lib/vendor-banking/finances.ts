@@ -28,8 +28,12 @@ export type VendorFinancesFigures = {
   availableCents: number;
   pendingCents: number;
   heldCents: number;
-  /** Why money is held — null when nothing is held. */
+  /** Why money is held — null when nothing is held. Display copy; never branch on it. */
   heldReason: string | null;
+  /** Of `heldCents`, the part frozen by an open dispute that came out of Available. */
+  frozenDisputeCents: number;
+  /** True when any of `heldCents` is a dispute freeze — the fact behind the "Disputed" wording. */
+  hasDisputeFreeze: boolean;
   onTheWayCents: number;
   /** What the vendor owes PropLane (refund shortfall recovery plus any provider deficit). */
   owedToPropLaneCents: number;
@@ -79,6 +83,8 @@ export function deriveVendorFinancesFigures(snapshot: VendorFinancesSnapshotInpu
     pendingCents: Math.max(0, snapshot.pendingCents),
     heldCents,
     heldReason,
+    frozenDisputeCents: frozenFromAvailable,
+    hasDisputeFreeze: frozenFromAvailable > 0,
     onTheWayCents: Math.max(0, snapshot.onTheWayCents),
     owedToPropLaneCents: providerDeficit + recovery,
   };
