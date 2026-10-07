@@ -101,7 +101,7 @@ export function PortalTopBar({
         aria-expanded={!collapsed}
         title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         data-attr="portal-sidebar-toggle"
-        className="grid size-7 shrink-0 place-items-center rounded-[6px] text-inherit opacity-85 outline-none transition hover:bg-white/10 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-white/50"
+        className="grid size-7 min-h-0 shrink-0 place-items-center rounded-[6px] text-inherit opacity-85 outline-none transition hover:bg-white/10 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-white/50"
       >
         <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden />
       </button>
@@ -113,7 +113,7 @@ export function PortalTopBar({
         aria-label="Ask PropLane or search"
         aria-haspopup="dialog"
         aria-keyshortcuts="Meta+K Control+K"
-        className="mx-auto flex h-7 min-w-0 flex-[0_1_560px] cursor-pointer items-center gap-2 rounded-[7px] border border-white/[0.12] bg-white/10 px-2.5 text-[13px] text-inherit outline-none transition hover:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/50"
+        className="mx-auto my-auto flex h-7 min-h-0 min-w-0 flex-[0_1_560px] cursor-pointer items-center gap-2 rounded-[7px] border border-white/[0.12] bg-white/10 px-2.5 text-[13px] text-inherit outline-none transition hover:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/50"
       >
         <Sparkles className="size-3.5 shrink-0 text-[#8fb0ff]" strokeWidth={1.75} aria-hidden />
         <span className="min-w-0 flex-1 truncate text-left">Ask PropLane or search {searchTarget}</span>
@@ -129,7 +129,7 @@ export function PortalTopBar({
         aria-expanded={launcher.assistantVisible}
         title="PropLane Assistant"
         data-attr="portal-assistant-panel"
-        className="grid size-7 shrink-0 place-items-center rounded-[6px] text-inherit opacity-85 outline-none transition hover:bg-white/10 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-white/50"
+        className="grid size-7 min-h-0 shrink-0 place-items-center rounded-[6px] text-inherit opacity-85 outline-none transition hover:bg-white/10 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-white/50"
       >
         <PanelRight className="size-4" strokeWidth={1.75} aria-hidden />
       </button>

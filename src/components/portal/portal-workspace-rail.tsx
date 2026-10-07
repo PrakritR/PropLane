@@ -13,7 +13,7 @@ import type { PortalKind } from "@/lib/portal-types";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 import { cn } from "@/lib/utils";
 import { useWorkspaces } from "./workspace-provider";
-import { workspaceInitials } from "./workspace-switcher";
+import { workspaceInitials, workspaceTileLabels } from "./workspace-switcher";
 
 /** Same disambiguation the switcher menu uses: a shared workspace names its owner. */
 function tileTitle(workspace: PortalWorkspace): string {
@@ -76,7 +76,8 @@ export function PortalWorkspaceRail({
         </span>
       );
     }
-    return ctx.workspaces.map((workspace) => {
+    const tileLabels = workspaceTileLabels(ctx.workspaces.map((workspace) => workspace.name));
+    return ctx.workspaces.map((workspace, index) => {
       const active = workspace.id === ctx.active?.id;
       const title = tileTitle(workspace);
       return (
@@ -99,7 +100,7 @@ export function PortalWorkspaceRail({
               : "bg-[#2b3448] text-white",
           )}
         >
-          {workspaceInitials(workspace.name)}
+          {tileLabels[index]}
         </button>
       );
     });

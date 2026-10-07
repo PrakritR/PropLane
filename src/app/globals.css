@@ -73,7 +73,7 @@
   --portal-surface-dark: #0b1120;
   --portal-surface-light: var(--pl-white-muted);
   /* Flat page canvas behind portal cards (the redesign's soft gray). */
-  --portal-canvas: #f5f7fb;
+  --portal-canvas: #ffffff;
   --status-pending-fg: #a34a06; /* 5.3:1 on --status-pending-bg (PRP-184 #2) */
   --status-pending-bg: #fdf0d5;
   --status-approved-fg: #2456d6; /* 5.3:1 on --status-approved-bg; --pl-blue measured 3.8 (PRP-184 #2) */

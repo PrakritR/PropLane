@@ -30,6 +30,32 @@ export function workspaceInitials(name: string): string {
 }
 
 /**
+ * Rail tile labels for a list of workspaces. Two workspaces that share initials
+ * ("Seattle Homes", "Sunset Heights") would be indistinguishable tiles, so a
+ * colliding tile takes the first two letters of its second word ("HO", "HE"),
+ * and when that still collides, a running digit is appended ("HO1", "HO2").
+ */
+export function workspaceTileLabels(names: readonly string[]): string[] {
+  const base = names.map((name) => workspaceInitials(name));
+  const count = (labels: string[], label: string) => labels.filter((l) => l === label).length;
+  const second = base.map((label, index) => {
+    if (count(base, label) < 2) return label;
+    const words = names[index]!
+      .split(/\s+/)
+      .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+      .filter(Boolean);
+    return words.length > 1 ? words[1]!.slice(0, 2).toUpperCase() : label;
+  });
+  const seen = new Map<string, number>();
+  return second.map((label) => {
+    if (count(second, label) < 2) return label;
+    const n = (seen.get(label) ?? 0) + 1;
+    seen.set(label, n);
+    return `${label}${n}`;
+  });
+}
+
+/**
  * Top-left workspace control.
  *
  * The `header` variant is the sidebar's first block, the way Linear and Loom
