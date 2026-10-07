@@ -111,11 +111,14 @@
 [data-demo-hover] {
   outline: 2px solid rgba(23, 105, 214, 0.42);
   outline-offset: 2px;
-  border-radius: 8px;
-  background-color: rgba(23, 105, 214, 0.07);
   transition:
     outline-color 150ms ease,
     background-color 150ms ease;
+}
+/* A row (never a filled button) also takes the soft tint a real hover gives it. */
+button[data-attr$="-list-row"][data-demo-hover] {
+  border-radius: 10px;
+  background-color: rgba(23, 105, 214, 0.06);
 }
 .rlp-dual-view .rlp-nav-item[data-demo-hover] {
   background: #eaf3ff;
@@ -191,6 +194,11 @@
 }
 .rlp-cursor[data-flip-y="true"] .rlp-cursor-label {
   top: -26px;
+}
+
+/* A sample sheet (Send application, Approve, Send lease, ...) is an opaque card: rows never show through its text. */
+.rlp-panel-frame [role="dialog"] > div {
+  background-color: #fff;
 }
 
 /* ───────── Nothing cut off (round 7): the screen scrolls inside the fixed window, and says so ───────── */
