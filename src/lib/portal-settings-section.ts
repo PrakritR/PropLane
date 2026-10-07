@@ -114,3 +114,15 @@ export function managerSettingsGearHref(target: ManagerSettingsGearTarget, baseP
   const { tab, anchor } = MANAGER_SETTINGS_GEAR_TARGETS[target];
   return `${basePath}/profile?tab=${tab}#${anchor}`;
 }
+
+/** The four sections of Settings -> Integrations (`INTEGRATIONS_TABS`), as the `&integration=` deep-link value. */
+export type ManagerIntegrationsSection = "messages" | "bookings" | "posting" | "google";
+
+/**
+ * Where a list page's Integrations icon goes: the Integrations page, scrolled to the section the
+ * page's data comes from (Calendar -> google, Bookings -> bookings, Promotion -> posting,
+ * Communication -> messages). `docs/agents/integrations.md`.
+ */
+export function managerIntegrationsHref(section: ManagerIntegrationsSection, basePath = "/portal"): string {
+  return `${basePath}/profile?tab=spreadsheets&integration=${section}`;
+}

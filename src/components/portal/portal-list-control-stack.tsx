@@ -12,6 +12,7 @@ import {
   Copy,
   Download,
   Phone,
+  Plug,
   RefreshCw,
   Bell,
   Search,
@@ -56,6 +57,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Phone, // Set up messaging
   CalendarClock, // Availability (Calendar band)
   Download, // Export CSV (N025)
+  Plug, // Integrations (Calendar, Bookings, Promotion, Communication)
   Coins, // Plan credit (admin Accounts, S27)
   Upload, // Upload / Import (documents, leases, properties)
   Send, // Send application link (Applications band)

@@ -4057,46 +4057,9 @@ export function PortalCalendarPanels({
     );
 
     const copyToHousesDisabledStudio = !onCopyWeekToHouses || !otherProperties?.length;
-    const availabilityMenu =
-      canEditWeekStudio || extraAvailabilityAction ? (
-        <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <PortalIconAction icon={Clock} label="Availability" data-attr="calendar-availability-menu" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" data-attr="calendar-availability-menu-content">
-              {canEditWeekStudio ? (
-                <>
-                  <DropdownMenuItem data-attr="calendar-add-availability" onSelect={() => openAddAvailability()}>
-                    Add availability
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem data-attr="calendar-copy-previous-week" onSelect={copyPreviousWeek}>
-                    Copy previous week
-                  </DropdownMenuItem>
-                  <DropdownMenuItem data-attr="calendar-clear-week" onSelect={clearCurrentWeek}>
-                    Clear week
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-attr="calendar-copy-to-houses"
-                    disabled={copyToHousesDisabledStudio}
-                    onSelect={() => {
-                      setSelectedHouseIds(new Set());
-                      setCopyToHousesScope("week");
-                      setUpdateToHousesOpen(true);
-                    }}
-                  >
-                    {copyToHousesDisabledStudio ? "Add another house to copy availability" : "Copy to houses"}
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-              {canEditWeekStudio && extraAvailabilityAction ? <DropdownMenuSeparator /> : null}
-              {extraAvailabilityAction ? <div className="px-1 py-1">{extraAvailabilityAction}</div> : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      ) : null;
 
+    // ONE round + (captain, Oct 7): New tour · New task · New service · Add availability, then the
+    // week tools the separate Availability (clock) icon used to hold, then Connect Google Calendar.
     const renderAddMenu = (trigger: ReactNode) => (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
@@ -4123,6 +4086,37 @@ export function PortalCalendarPanels({
           <DropdownMenuItem data-attr="calendar-create-service" onSelect={() => setAddServiceOpen(true)}>
             New service
           </DropdownMenuItem>
+          {canEditWeekStudio ? (
+            <>
+              <DropdownMenuItem data-attr="calendar-add-availability" onSelect={() => openAddAvailability()}>
+                Add availability
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem data-attr="calendar-copy-previous-week" onSelect={copyPreviousWeek}>
+                Copy previous week
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="calendar-clear-week" onSelect={clearCurrentWeek}>
+                Clear week
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-attr="calendar-copy-to-houses"
+                disabled={copyToHousesDisabledStudio}
+                onSelect={() => {
+                  setSelectedHouseIds(new Set());
+                  setCopyToHousesScope("week");
+                  setUpdateToHousesOpen(true);
+                }}
+              >
+                {copyToHousesDisabledStudio ? "Add another house to copy availability" : "Copy to houses"}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          {extraAvailabilityAction ? (
+            <>
+              <DropdownMenuSeparator />
+              <div className="px-1 py-1">{extraAvailabilityAction}</div>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -4256,7 +4250,6 @@ export function PortalCalendarPanels({
           ) : null}
           {body}
         </div>
-        {weekActionsHost ? createPortal(availabilityMenu, weekActionsHost) : availabilityMenu}
         {weekPrimaryActionHost ? createPortal(addAction, weekPrimaryActionHost) : addAction}
         <CalendarAvailabilityDialog
           open={Boolean(availDialog)}

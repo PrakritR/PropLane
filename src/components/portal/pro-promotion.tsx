@@ -1,4 +1,5 @@
 "use client";
+import { ManagerIntegrationsAction } from "@/components/portal/manager-integrations-action";
 import { promotionWorkContactLine } from "@/lib/promotion-default-sync";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
@@ -900,7 +901,14 @@ export function ManagerPromotion({
     </PortalFilterSortSheet>
   );
 
-  const promotionCommandActions = <>{promotionFilterSheet}</>;
+  // Listing sites is the tab whose rows come from an integration (Posting); Text and Image are
+  // assets PropLane drafts itself, so the Integrations icon rides only that tab.
+  const promotionCommandActions = (
+    <>
+      {promotionFilterSheet}
+      {showSites ? <ManagerIntegrationsAction section="posting" dataAttr="promotion-integrations" /> : null}
+    </>
+  );
 
   const promotionPrimaryAction = (
     <PortalPrimaryIconAction

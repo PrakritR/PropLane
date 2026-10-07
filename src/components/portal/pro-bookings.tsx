@@ -1,5 +1,6 @@
 "use client";
 
+import { ManagerIntegrationsAction } from "@/components/portal/manager-integrations-action";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { BookingsCancelDialog } from "@/components/portal/bookings-cancel-dialog";
@@ -401,6 +402,7 @@ function useBookingsWorkspace({
         <>
           {propertyFilterSheet}
           {roomFilterSheet}
+          <ManagerIntegrationsAction section="bookings" dataAttr="bookings-integrations" />
         </>
       }
       primary={
