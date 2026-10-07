@@ -60,8 +60,8 @@ describe("one sample world", () => {
     const tour = worldFor(managerAt(0));
     expect(tour.tours.find((t) => t.guest === RESIDENT_NAME)?.bucket).toBe("upcoming");
     expect(tour.applications.some((a) => a.name === RESIDENT_NAME)).toBe(false);
-    // Beat 2: the application is in and pending; he is a potential resident.
-    const applied = worldFor(managerAt(1));
+    // Beat 2, once the resident has applied and before the manager approves: pending; he is a potential resident.
+    const applied = worldFor({ ...managerAt(0), applicationSubmitted: true });
     expect(applied.applications.find((a) => a.name === RESIDENT_NAME)?.bucket).toBe("pending");
     expect(applied.residents.find((r) => r.name === RESIDENT_NAME)?.tab).toBe("potential");
     // Beat 3: approved and signed by both; he is a current resident and October rent is a pending charge.
@@ -97,9 +97,9 @@ describe("one sample world", () => {
     // Tour: the tour is booked, nothing is applied for yet.
     expect(worldFor(stage("tour")).tours.find((t) => t.guest === RESIDENT_NAME)?.bucket).toBe("upcoming");
     expect(phoneScriptFor("resident", "tour").items.some((i) => i.kind === "card" && i.eyebrow.startsWith("TOUR"))).toBe(true);
-    // Apply: one sent application.
+    // Apply: the manager sent the link, and the resident submitted.
     expect(worldFor(stage("apply")).applications.find((a) => a.name === RESIDENT_NAME)?.bucket).toBe("pending");
-    expect(phoneScriptFor("resident", "apply").items.some((i) => i.kind === "card" && i.title === "Rental application")).toBe(true);
+    expect(phoneScriptFor("resident", "apply").items.some((i) => i.kind === "card" && i.title === "Apply for Room 3 — PropLane")).toBe(true);
     // Sign: the lease is signed.
     expect(stage("sign").leaseStep).toBe(3);
     expect(phoneScriptFor("resident", "sign").items.some((i) => i.kind === "out" && i.text.startsWith("Signed"))).toBe(true);

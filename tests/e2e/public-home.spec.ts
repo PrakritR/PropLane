@@ -134,7 +134,9 @@ test.describe("Public home", () => {
 
     test("no stage chrome: no portal switcher, stage tabs, guide line or activity row", async ({ page }) => {
       const section = await openDemo(page);
-      await expect(section.getByRole("tablist")).toHaveCount(0);
+      // The first beat opens Communication, whose own Active / Archived tabs are the only tab list on screen.
+      await expect(section.getByRole("tablist")).toHaveCount(1);
+      await expect(section.getByRole("tablist")).toHaveAttribute("aria-label", "Communication views");
       await expect(section.locator(".rlp-stage-tabs, .rlp-portal-switch, .rlp-guide-line, .rlp-activity")).toHaveCount(0);
       for (const gone of ["Sample demo", "Explore freely", "Start the story", "Restart guide", "ACTIVITY"]) {
         await expect(section.getByText(gone, { exact: true })).toHaveCount(0);
@@ -196,8 +198,11 @@ test.describe("Public home", () => {
       const section = await openDemo(page);
       await page.mouse.move(2, 2);
       await page.waitForTimeout(4500);
-      await expect(section.getByRole("button", { name: "Tours", exact: true })).toHaveAttribute("aria-current", "page");
+      await expect(section.getByRole("button", { name: "Communication", exact: true })).toHaveAttribute("aria-current", "page");
       await expect(page.locator(".rlp-hero-stage")).toHaveCSS("transform", "none");
+      // Still means still: no cursor is drawn, and nothing moves on its own.
+      await expect(page.locator(".rlp-cursor")).toHaveCount(0);
+      await expect(section).toHaveAttribute("data-demo-cursor", "off");
       // The phone shows the first beat, still: no typing indicator.
       await expect(page.locator("[data-phone-typing]")).toHaveCount(0);
       await expect(page.locator(".rlp-story-phone .rl-phone-message")).toHaveCount(2);
@@ -215,10 +220,10 @@ test.describe("Public home", () => {
       await page.mouse.move(2, 2);
       const current = demo.locator(".rlp-nav-item[aria-current='page']");
       await expect(current).toHaveAttribute("aria-label", "Dashboard");
-      // Beat 1: the prospect asks and books a tour (Tours); beat 2: applies (Applications).
-      await expect(current).toHaveAttribute("aria-label", "Tours", { timeout: 20_000 });
+      // Beat 1: the prospect texts and the manager approves the reply in Communication; beat 2: Applications.
+      await expect(current).toHaveAttribute("aria-label", "Communication", { timeout: 20_000 });
       await expect(demo).toHaveAttribute("data-demo-beat", "0");
-      await expect(current).toHaveAttribute("aria-label", "Applications", { timeout: 20_000 });
+      await expect(current).toHaveAttribute("aria-label", "Applications", { timeout: 30_000 });
       await expect(demo).toHaveAttribute("data-demo-beat", "1");
       // Hovering the window pauses the story.
       await demo.hover();
@@ -230,6 +235,57 @@ test.describe("Public home", () => {
       await page.mouse.move(2, 2);
       await page.waitForTimeout(4500);
       await expect(current).toHaveAttribute("aria-label", "Properties");
+    });
+
+    test("the story is manager-led: a cursor clicks Send application, and only then does the phone get the apply link", async ({ page }) => {
+      test.slow();
+      await goHome(page);
+      const demo = page.locator("#rlp-demo-stage");
+      const phone = page.locator(".rlp-story-phone");
+      const link = phone.getByText("Apply for Room 3 — PropLane");
+      await demo.scrollIntoViewIfNeeded();
+      await page.mouse.move(2, 2);
+      // The Manager cursor appears, opens Communication and approves PropLane's drafted reply: the tour lands on the phone.
+      await expect(page.locator(".rlp-cursor[data-visible='true'] .rlp-cursor-label")).toHaveText("Manager", { timeout: 20_000 });
+      await expect(demo.getByText("PropLane drafted a reply")).toBeVisible({ timeout: 20_000 });
+      await expect(phone.getByText("Thursday, 5:30 PM")).toHaveCount(0);
+      await expect(phone.getByText("Thursday, 5:30 PM")).toBeVisible({ timeout: 15_000 });
+      // It opens Applications and clicks Send application. The link is not on the phone until that click has happened.
+      const sheet = demo.getByRole("dialog", { name: "Send application" });
+      await expect(sheet).toBeVisible({ timeout: 30_000 });
+      await expect(link).toHaveCount(0);
+      // The cursor sends it: the sheet closes and the link card arrives on the resident's phone.
+      await expect(sheet).toBeHidden({ timeout: 15_000 });
+      await expect(link).toBeVisible({ timeout: 15_000 });
+      // The resident applies: the new pending application shows in the window, and the cursor opens it to approve.
+      await expect(demo.getByText("jordan@example.com")).toBeVisible({ timeout: 20_000 });
+      const approve = demo.getByRole("dialog", { name: "Jordan" });
+      await expect(approve).toBeVisible({ timeout: 20_000 });
+      await expect(approve.getByRole("button", { name: "Approve" })).toBeVisible();
+      await expect(approve).toBeHidden({ timeout: 15_000 });
+    });
+
+    test("hovering the window pauses the cursor, and it stays inside the window, never over the phone", async ({ page }) => {
+      test.slow();
+      await goHome(page);
+      const demo = page.locator("#rlp-demo-stage");
+      await demo.scrollIntoViewIfNeeded();
+      await page.mouse.move(2, 2);
+      const cursor = page.locator(".rlp-cursor");
+      await expect(cursor).toHaveAttribute("data-visible", "true", { timeout: 20_000 });
+      const inside = async () => {
+        const stage = (await demo.boundingBox())!;
+        const at = (await cursor.boundingBox())!;
+        return at.x >= stage.x - 2 && at.x <= stage.x + stage.width + 2 && at.y >= stage.y - 2 && at.y <= stage.y + stage.height + 2;
+      };
+      expect(await inside()).toBe(true);
+      await demo.hover({ position: { x: 600, y: 30 } });
+      await page.waitForTimeout(1800);
+      const first = await cursor.boundingBox();
+      await page.waitForTimeout(2500);
+      const second = await cursor.boundingBox();
+      expect(second).toEqual(first);
+      expect(await inside()).toBe(true);
     });
 
     test("the phone is always typing: a typing indicator, then the message, then the next one", async ({ page }) => {
@@ -374,6 +430,56 @@ test.describe("Public home", () => {
       expect(bands).toEqual([]);
       await expect(page.locator(".lrf-stage").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(page.locator("footer").last()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    });
+  });
+
+  test.describe("nothing is cut off", () => {
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      test(`the Replaces strip shows every item whole and the import window ends on its last card at ${viewport.width}px`, async ({ browser }) => {
+        const context = await browser.newContext({ viewport, reducedMotion: "reduce" });
+        const page = await context.newPage();
+        await goHome(page);
+        // Every Replaces item sits inside the strip: nothing runs past its right edge.
+        const strip = page.locator("ul", { has: page.getByText("a ledger") });
+        await strip.scrollIntoViewIfNeeded();
+        const box = (await strip.boundingBox())!;
+        for (const item of await strip.locator("li").all()) {
+          const at = (await item.boundingBox())!;
+          expect(at.x + at.width, "item ends inside the strip").toBeLessThanOrEqual(box.x + box.width + 1);
+        }
+        // The import window is drawn whole, with room below it inside its frame.
+        const frame = page.locator(".sw-import-frame");
+        await frame.scrollIntoViewIfNeeded();
+        const frameBox = (await frame.boundingBox())!;
+        const windowBox = (await frame.locator(".pm-window").boundingBox())!;
+        expect(windowBox.y + windowBox.height).toBeLessThanOrEqual(frameBox.y + frameBox.height - 8);
+        // Nothing inside the window scrolls: the last card is not clipped by an inner scroller.
+        const clipped = await frame.evaluate((node) =>
+          [...node.querySelectorAll<HTMLElement>("*")].some(
+            (el) => /(auto|scroll)/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 1,
+          ),
+        );
+        expect(clipped).toBe(false);
+        await context.close();
+      });
+    }
+
+    test("a window that scrolls says so: a fade and a chevron at the bottom while more is below", async ({ browser }) => {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+      const page = await context.newPage();
+      await goHome(page);
+      const demo = page.locator("#rlp-demo-stage");
+      await demo.scrollIntoViewIfNeeded();
+      await demo.getByRole("button", { name: "Applications", exact: true }).click();
+      const main = demo.locator(".rlp-main");
+      await expect(main).toHaveAttribute("data-scroll", /more|end/);
+      const fade = async () => Number(await main.evaluate((node) => getComputedStyle(node, "::after").opacity));
+      // The fade is on exactly while the screen has more below it.
+      await expect.poll(async () => ((await main.getAttribute("data-scroll")) === "more" ? 1 : 0)).toBe(await fade());
+      await context.close();
     });
   });
 

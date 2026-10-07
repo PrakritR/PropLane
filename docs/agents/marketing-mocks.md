@@ -38,13 +38,45 @@ that tab.
 - **Four beats, no more.** `resident-lifecycle-script.ts` holds `STORIES`: a
   prospect asks and books a tour, applies, signs the lease, pays rent and gets a
   repair booked (manager and resident); offer, quote, visit, paid (vendor).
-  Each beat is one or two phone messages and the matching real panel.
-- **One number drives the screen**: how many phone messages have arrived. The
-  clock types a message (typing indicator), lands it, holds, types the next, and
-  starts over, so a message is always typing. The window follows the beat; a
-  sidebar click pins that tab (the window stops autoplaying, the phone does
-  not). Hover or focus inside the window and an open account menu pause the
-  clock; `prefers-reduced-motion` runs no clock and shows the first beat still.
+  Each beat is one to three phone messages and the matching real panel.
+- **The story is causal and manager-led** (captain 2026-10-07, round 7).
+  `MANAGER_STEPS` in `resident-lifecycle-script.ts` is the whole manager story as
+  a list of steps (`wait`, `say` a phone message, `nav` to a sidebar tab, `click` a
+  control); everything on screen is the fold of the steps that are done
+  (`stateAfter`). Every phone line the manager sends sits right after a click the
+  manager made in the window: Approve the drafted reply -> tour confirmation;
+  Send application -> the "Apply for Room 3 — PropLane" link (the lead-invite
+  subject, `lead-invite-email.ts`); Send lease -> "Sign your lease"; Send reminder
+  -> the rent reminder; Dispatch vendor -> the plumber booked. The resident's own
+  lines (texting, applying, signing, paying, reporting a leak) land between, and the
+  panels' rows follow them (the new pending application, lease stage, paid, the open
+  service). A writing click waits for the manager, as the product does. Add a step
+  there, never a phone line on its own. `tests/unit/home-demo-script.test.ts` pins
+  "every `in` line follows a click".
+- **The cursor** (`resident-lifecycle-cursor.tsx`): a pointer with a role label
+  ("Manager") glides to a control, the control shows a hover outline
+  (`[data-demo-hover]`), a ripple rings out, and the engine calls the control's real
+  `.click()`, so the panels' own handlers open the sheet or move the row. Targets are
+  found by `data-demo-target="<id>"` and must stay on the exact controls whenever a
+  panel is redrawn: `nav-<tab>` (sidebar), `comm-approve`, `applications-send`,
+  `sheet-primary`, `application-row`, `lease-row`, `payment-row`, `service-row` (a
+  row wrapper marked with `DemoTarget`, which draws no box). A target that never
+  renders is skipped, so the story never stalls. The cursor scrolls the target into
+  view inside the window (never the page), lives in an overlay inside the window so it
+  cannot cover the phone, leaves when a visitor pins a tab, and is not drawn at all
+  under `prefers-reduced-motion`. Only the manager's window has a cursor.
+- **The clock**: a step runs, then the next; after the last, the story starts over.
+  The window follows the beat; a sidebar click pins that tab (the cursor leaves, the
+  window stops autoplaying, the phone does not). Hover or focus inside the window and
+  an open account menu pause the clock; `prefers-reduced-motion` runs no clock and
+  shows the first beat still, with no cursor.
+- **Nothing is cut off.** A frame that holds a whole thing (the import window in
+  `switch-steps.tsx`, drawn at 1100x860 inside a frame sized to it) ends on its last
+  card. A fixed-size scrolling window (the hero and every row) fades out at its bottom
+  edge and shows a chevron while more is below (`data-scroll` on `.rlp-main`, measured
+  from every scroller inside the screen), and both go when everything is in view. The
+  Replaces strip wraps instead of scrolling; the phone's sidebar strip fades at its
+  edge; a placeholder that does not fit ends in an ellipsis.
 - **One phone, sticky.** `ResidentLifecyclePrototypes` takes the replaces strip
   and the lifecycle rows as `children`, so the phone beside the window stays on
   screen (sticky from `lg`, inline under the window below it) through the hero,

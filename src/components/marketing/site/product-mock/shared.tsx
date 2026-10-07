@@ -99,6 +99,7 @@ export function ProductWindow({
   children,
   nativeWidth = 1280,
   nativeHeight = 820,
+  whole = false,
 }: {
   path: string;
   children: ReactNode;
@@ -106,6 +107,8 @@ export function ProductWindow({
   nativeWidth?: number;
   /** The real page height before scaling — taller than the visible panel on purpose; the extra crops at the bottom. */
   nativeHeight?: number;
+  /** The whole window is shown (its frame is sized to it), so every corner is rounded instead of cropping at the bottom. */
+  whole?: boolean;
 }) {
   const { ref, scale } = useContainerScale(nativeWidth);
   const bare = useContext(BarePanelChromeContext);
@@ -119,7 +122,10 @@ export function ProductWindow({
   return (
     <div ref={ref} className="pm-window absolute inset-x-6 top-6 sm:inset-x-10 sm:top-10" style={{ height: nativeHeight * scale }}>
       <div
-        className="flex origin-top-left flex-col overflow-hidden rounded-t-2xl border border-black/[0.06] bg-card shadow-[0_50px_100px_-40px_rgba(15,23,42,0.45)]"
+        className={cn(
+          "flex origin-top-left flex-col overflow-hidden border border-black/[0.06] bg-card shadow-[0_50px_100px_-40px_rgba(15,23,42,0.45)]",
+          whole ? "rounded-2xl" : "rounded-t-2xl",
+        )}
         style={{ width: nativeWidth, height: nativeHeight, transform: `scale(${scale})` }}
       >
         <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-[var(--pl-surface-muted)] px-3.5 py-2.5">
@@ -202,6 +208,19 @@ export function PortalSidebarFixture({
   );
 }
 
+/**
+ * Marks the row it wraps for the home demo's cursor (`data-demo-target`): the wrapper draws no box
+ * of its own (`display: contents`), so a list lays out exactly as it did, and the cursor aims at the
+ * row's own button inside it.
+ */
+export function DemoTarget({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <div className="contents" data-demo-target={id}>
+      {children}
+    </div>
+  );
+}
+
 /** A tiny, non-persisting confirmation toast — closes itself after a beat. */
 export function useFixtureToast() {
   const [text, setText] = useState<string | null>(null);
@@ -254,6 +273,7 @@ export function FixtureSheet({
           <div className="mt-4 flex justify-end">
             <button
               type="button"
+              data-demo-target="sheet-primary"
               onClick={onPrimary}
               className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-white"
             >
