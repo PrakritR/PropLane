@@ -204,7 +204,38 @@ export type ManagerDocumentDTO = {
   signedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Whether a Property owner of this document's house may open it. Read through
+   * `loadSharedWithOwnersIds`, never `DOCUMENT_SELECT_COLUMNS`: a missing column
+   * must not break every document list on an environment that has not run the
+   * property-owner migration yet.
+   */
+  sharedWithOwners?: boolean;
 };
+
+/**
+ * Which of `ids` are shared with Property owners. Tolerates a database without
+ * the column (migration not applied): that reads as "none shared", never an error.
+ */
+export async function loadSharedWithOwnersIds(
+  db: { from: (table: string) => any }, // eslint-disable-line @typescript-eslint/no-explicit-any
+  ids: string[],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (ids.length === 0) return out;
+  try {
+    const { data, error } = await db
+      .from("manager_documents")
+      .select("id, shared_with_owners")
+      .in("id", ids)
+      .eq("shared_with_owners", true);
+    if (error) return out;
+    for (const row of (data ?? []) as { id: string }[]) out.add(String(row.id));
+  } catch {
+    /* column or table missing */
+  }
+  return out;
+}
 
 export function documentSignatureBadgeTone(
   status: DocumentSignatureStatus | null | undefined,
