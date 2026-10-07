@@ -24,12 +24,22 @@ export type VendorFinancesSnapshotInput = {
   bank?: unknown | null;
 };
 
+/**
+ * What a PropLane hold is waiting for, as a fact rather than a sentence, so a
+ * surface can word it for its own layout without reading `heldReason`'s copy.
+ * `none` means nothing sits on a PropLane hold (any held figure is a dispute
+ * freeze on the vendor's own Stripe balance).
+ */
+export type VendorHeldReasonKind = "none" | "proplane" | "awaiting_bank" | "awaiting_identity" | "releasing";
+
 export type VendorFinancesFigures = {
   availableCents: number;
   pendingCents: number;
   heldCents: number;
   /** Why money is held — null when nothing is held. Display copy; never branch on it. */
   heldReason: string | null;
+  /** The same answer as `heldReason`, as a fact a surface may branch on. */
+  heldReasonKind: VendorHeldReasonKind;
   /** Of `heldCents`, the part frozen by an open dispute that came out of Available. */
   frozenDisputeCents: number;
   /** True when any of `heldCents` is a dispute freeze — the fact behind the "Disputed" wording. */
@@ -55,6 +65,14 @@ export function vendorWithdrawableCents(
   return Math.max(0, (snapshot.withdrawableCents ?? snapshot.availableCents) - Math.max(0, snapshot.frozenDisputeCents ?? 0));
 }
 
+const HELD_REASON_COPY: Record<VendorHeldReasonKind, string | null> = {
+  none: null,
+  proplane: "Held by PropLane",
+  awaiting_bank: "Until you add a bank",
+  awaiting_identity: "Until your identity is verified",
+  releasing: "Being released to your account",
+};
+
 export function deriveVendorFinancesFigures(snapshot: VendorFinancesSnapshotInput): VendorFinancesFigures {
   const baseHeldCents = Math.max(0, snapshot.heldCents ?? 0);
   // Only the part of the freeze that actually came out of Available moves under Held; the rest
@@ -67,22 +85,24 @@ export function deriveVendorFinancesFigures(snapshot: VendorFinancesSnapshotInpu
   const releasePending = Math.max(0, snapshot.releasePendingCents ?? 0);
   const providerDeficit = Math.max(0, -(snapshot.withdrawableCents ?? 0));
   const recovery = Math.max(0, snapshot.recoveryOutstandingCents ?? 0);
-  let heldReason: string | null = null;
+  let heldReasonKind: VendorHeldReasonKind = "none";
   if (baseHeldCents > 0) {
     if (!snapshot.setup.ready) {
-      heldReason = snapshot.setup.bank === "needed" ? "Until you add a bank" : "Until your identity is verified";
+      heldReasonKind = snapshot.setup.bank === "needed" ? "awaiting_bank" : "awaiting_identity";
     } else if (releasePending > 0) {
-      heldReason = "Being released to your account";
+      heldReasonKind = "releasing";
     } else {
-      heldReason = "Held by PropLane";
+      heldReasonKind = "proplane";
     }
   }
+  let heldReason = HELD_REASON_COPY[heldReasonKind];
   if (frozenFromAvailable > 0) heldReason = heldReason ? `${heldReason} · Disputed` : "Disputed";
   return {
     availableCents: vendorWithdrawableCents(snapshot),
     pendingCents: Math.max(0, snapshot.pendingCents),
     heldCents,
     heldReason,
+    heldReasonKind,
     frozenDisputeCents: frozenFromAvailable,
     hasDisputeFreeze: frozenFromAvailable > 0,
     onTheWayCents: Math.max(0, snapshot.onTheWayCents),

@@ -147,6 +147,19 @@ describe("system notices bypass the manager-automation rail", () => {
     expect(tables.action_event_deliveries[0]).toMatchObject({ draft_for_review: false, status: "delivered" });
   });
 
+  it("a recipient that asks to be drafted is still sent: a notice no workspace owns is not approvable", async () => {
+    const { db, tables } = fakeDb();
+    await emitActionEvent(db, {
+      ...base,
+      eventId: "system-no-draft",
+      systemNotice: true,
+      recipients: [{ ...base.recipients[0]!, draftForReview: true }],
+    });
+    expect(queueDraft).not.toHaveBeenCalled();
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(tables.action_event_deliveries[0]).toMatchObject({ draft_for_review: false, status: "delivered" });
+  });
+
   it("the copy that goes out is PropLane's own, never a manager's template", async () => {
     const { db } = fakeDb();
     await emitActionEvent(db, { ...base, eventId: "system-copy", systemNotice: true });

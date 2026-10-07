@@ -75,6 +75,9 @@ const PROPLANE_SENT_KINDS: ReadonlySet<VendorBankingEventKind> = new Set([
   "money_held_no_bank",
 ]);
 
+/** The name a PropLane system notice goes out under, whatever account backs it. */
+const PROPLANE_SENDER_NAME = "PropLane";
+
 /**
  * PropLane's own ops identity, the sender of a PropLane system notice.
  *
@@ -102,10 +105,12 @@ async function proplaneSystemSender(
   const userId = String(row?.id ?? "").trim();
   const email = String(row?.email ?? "").trim().toLowerCase();
   if (!userId || !email) {
-    console.error(`[vendor-banking] no PropLane ops profile for ${PRIMARY_ADMIN_EMAIL}; falling back to the manager rail`);
+    console.error(
+      `[vendor-banking] no PropLane ops profile for ${PRIMARY_ADMIN_EMAIL}; a PropLane notice will use the manager account for plumbing only`,
+    );
     return null;
   }
-  return { userId, email, name: "PropLane" };
+  return { userId, email, name: PROPLANE_SENDER_NAME };
 }
 
 /** The manager a cross-party notice is sent as: the vendor's most recent paying manager. */
@@ -133,9 +138,14 @@ export async function emitVendorBankingEvent(
   },
 ): Promise<{ sent: boolean }> {
   try {
-    // A PropLane-sent kind goes out as PropLane. Only if that identity is
-    // missing does it fall back to the manager rail, so the notice still lands.
-    const system = PROPLANE_SENT_KINDS.has(input.kind) ? await proplaneSystemSender(db) : null;
+    // Whether a manager authored this moment is a property of the KIND, never
+    // of which account happens to be available as the From address. A
+    // PropLane-sent kind is PropLane's own notice even on a database with no
+    // ops profile: the manager account is then plumbing (the bus needs a real
+    // user id for the thread and the foreign key), while the vendor still sees
+    // PropLane's address and name, and no workspace's settings gate it.
+    const proplaneSent = PROPLANE_SENT_KINDS.has(input.kind);
+    const system = proplaneSent ? await proplaneSystemSender(db) : null;
     let sender: { userId: string; email: string; name?: string } | null = system;
     if (!sender) {
       const managerUserId = input.managerUserId ?? (await latestPayingManagerId(db, input.vendorUserId));
@@ -146,7 +156,9 @@ export async function emitVendorBankingEvent(
         );
         return { sent: false };
       }
-      sender = { userId: managerUserId, email: contact.email, name: contact.name };
+      sender = proplaneSent
+        ? { userId: managerUserId, email: PRIMARY_ADMIN_EMAIL.trim().toLowerCase(), name: PROPLANE_SENDER_NAME }
+        : { userId: managerUserId, email: contact.email, name: contact.name };
     }
     const base = resolveEmailLinkBaseUrl().replace(/\/$/, "");
     const senderUserId = sender.userId;
@@ -181,7 +193,7 @@ export async function emitVendorBankingEvent(
       // it, so no manager's automation switch, template or draft-for-review
       // setting may mute, rewrite or hold it. The vendor's own notification
       // preferences and quiet hours still apply.
-      systemNotice: system !== null,
+      systemNotice: proplaneSent,
       payload: { kind: input.kind },
       recipients,
     });

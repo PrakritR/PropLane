@@ -18,6 +18,7 @@ import {
   type TeamNoticeModule,
 } from "@/lib/team-comms.server";
 import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
+import { DEFAULT_AUTOMATION_SEND_MODE_SETTINGS } from "@/lib/automation-send-mode";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import { currentSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
@@ -507,7 +508,7 @@ export async function emitActionEvent(
   // failure means "defaults", never "silence". A system notice skips both:
   // no workspace owns it, so none may rewrite, mute or hold it.
   const [automated, sendMode] = systemNotice
-    ? ([null, { partyFacing: "send", team: "send" }] as const)
+    ? ([null, DEFAULT_AUTOMATION_SEND_MODE_SETTINGS] as const)
     : await Promise.all([
         loadAutomatedMessageSettings(db, input.managerUserId).catch(() => null),
         resolveAutomationSendModeForEvent(db, { managerUserId: input.managerUserId, propertyId }),
@@ -527,10 +528,12 @@ export async function emitActionEvent(
     // setting — a party-facing copy under `partyFacing: "draft"` and a team
     // copy under `team: "draft"` are queued for approval instead of sent.
     const partyFacing = recipient.audience === "resident" || recipient.audience === "vendor";
+    // A system notice is never a draft: there is no workspace to approve it.
     const draftForReview =
-      recipient.draftForReview === true ||
-      (partyFacing && sendMode.partyFacing === "draft") ||
-      (recipient.audience === "team" && sendMode.team === "draft");
+      !systemNotice &&
+      (recipient.draftForReview === true ||
+        (partyFacing && sendMode.partyFacing === "draft") ||
+        (recipient.audience === "team" && sendMode.team === "draft"));
     return [{ ...recipient, rendered: applied, draftForReview }];
   });
   const smsTest = currentSmsTestProvenance();

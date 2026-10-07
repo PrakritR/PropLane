@@ -26,6 +26,7 @@ describe("deriveVendorFinancesFigures", () => {
       pendingCents: 52_000,
       heldCents: 0,
       heldReason: null,
+      heldReasonKind: "none",
       frozenDisputeCents: 0,
       hasDisputeFreeze: false,
       onTheWayCents: 0,
@@ -45,6 +46,17 @@ describe("deriveVendorFinancesFigures", () => {
     expect(deriveVendorFinancesFigures({ ...base, setup: { ready: false, identity: "needed", bank: "done" } }).heldReason).toBe("Until your identity is verified");
     expect(deriveVendorFinancesFigures({ ...base, releasePendingCents: 500 }).heldReason).toBe("Being released to your account");
     expect(deriveVendorFinancesFigures(base).heldReason).toBe("Held by PropLane");
+  });
+
+  it("answers the same question as a fact, so a surface can word it for its own layout", () => {
+    const base = { ...READY, withdrawableCents: 0, heldCents: 20_500 };
+    expect(deriveVendorFinancesFigures({ ...base, setup: { ready: false, identity: "done", bank: "needed" } }).heldReasonKind).toBe("awaiting_bank");
+    expect(deriveVendorFinancesFigures({ ...base, setup: { ready: false, identity: "needed", bank: "done" } }).heldReasonKind).toBe("awaiting_identity");
+    expect(deriveVendorFinancesFigures({ ...base, releasePendingCents: 500 }).heldReasonKind).toBe("releasing");
+    expect(deriveVendorFinancesFigures(base).heldReasonKind).toBe("proplane");
+    // Nothing on a PropLane hold: the held figure is entirely a freeze on the vendor's own balance.
+    const frozenOnly = deriveVendorFinancesFigures({ ...READY, heldCents: 0, frozenDisputeCents: 1_000 });
+    expect(frozenOnly).toMatchObject({ heldReasonKind: "none", hasDisputeFreeze: true });
   });
 
   it("owed to PropLane is the provider deficit plus outstanding recovery", () => {

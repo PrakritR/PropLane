@@ -32,6 +32,13 @@ export async function GET(req: Request) {
   }
   const db = createSupabaseServiceRoleClient();
   const stripe = getStripe();
-  const result = await reconcileAllVendorBankingLedgers(stripe, db);
-  return NextResponse.json({ ...result, enabled: true });
+  try {
+    const result = await reconcileAllVendorBankingLedgers(stripe, db);
+    return NextResponse.json({ ...result, enabled: true });
+  } catch (e) {
+    // The stamp is advisory and the next run re-reads everything, so a failed
+    // run is logged and reported, never an unhandled crash out of the route.
+    console.error("[cron/vendor-banking-reconcile] run failed:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Reconciliation run failed." }, { status: 500 });
+  }
 }

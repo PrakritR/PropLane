@@ -111,11 +111,14 @@ describe("emitVendorBankingEvent", () => {
       "bank_needs_verification", "account_restricted", "money_held_no_bank",
     ];
     for (const kind of proplaneSent) {
-      h.emitAction.mockReset();
-      await emitVendorBankingEvent(db({ proplaneOps: true }) as never, { kind, eventId: `e:${kind}`, vendorUserId: "vendor_1", facts: { amountCents: 1_000 } });
-      const input = h.emitAction.mock.calls[0]![1];
-      expect(input.systemNotice, kind).toBe(true);
-      expect(input.recipients.every((r: { draftForReview?: boolean }) => r.draftForReview !== true), kind).toBe(true);
+      for (const proplaneOps of [true, false]) {
+        h.emitAction.mockReset();
+        await emitVendorBankingEvent(db({ proplaneOps }) as never, { kind, eventId: `e:${kind}`, vendorUserId: "vendor_1", facts: { amountCents: 1_000 } });
+        const input = h.emitAction.mock.calls[0]![1];
+        expect(input.systemNotice, kind).toBe(true);
+        expect(input.senderName, kind).toBe("PropLane");
+        expect(input.recipients.every((r: { draftForReview?: boolean }) => r.draftForReview !== true), kind).toBe(true);
+      }
     }
   });
 
@@ -128,11 +131,23 @@ describe("emitVendorBankingEvent", () => {
     expect(input.systemNotice).toBe(false);
   });
 
-  it("falling back to the manager rail is NOT a system notice — that workspace's settings do apply", async () => {
+  it("stays a system notice with no ops profile: the manager account is plumbing, the From is still PropLane", async () => {
     await emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "fallback", vendorUserId: "vendor_1", facts: {} });
     const input = h.emitAction.mock.calls[0]![1];
-    expect(input.managerUserId).toBe("mgr_1");
-    expect(input.systemNotice).toBe(false);
+    expect(input.systemNotice).toBe(true);
+    expect(input.senderEmail).toBe(PRIMARY_ADMIN_EMAIL.toLowerCase());
+    expect(input.senderName).toBe("PropLane");
+    expect(input.recipients.map((r: { audience: string; userId: string }) => [r.audience, r.userId])).toEqual([["vendor", "vendor_1"]]);
+  });
+
+  it("the system-notice decision is the KIND, never whether the ops profile resolved", async () => {
+    for (const proplaneOps of [true, false]) {
+      h.emitAction.mockReset();
+      await emitVendorBankingEvent(db({ proplaneOps }) as never, {
+        kind: "account_restricted", eventId: `ops:${proplaneOps}`, vendorUserId: "vendor_1", facts: { reason: "requirements past due" },
+      });
+      expect(h.emitAction.mock.calls[0]![1].systemNotice, String(proplaneOps)).toBe(true);
+    }
   });
 
   it("reaches a vendor with no payout history at all — PropLane is the sender, so there is nobody to be missing", async () => {
@@ -165,6 +180,17 @@ describe("emitVendorBankingEvent", () => {
     h.emitAction.mockRejectedValue(new Error("bus down"));
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await expect(emitVendorBankingEvent(db() as never, { kind: "payout_paid", eventId: "z", vendorUserId: "vendor_1", facts: {} })).resolves.toEqual({ sent: false });
+    spy.mockRestore();
+  });
+
+  it("a PropLane-sent kind with neither an ops profile nor a manager is dropped loudly, never in silence", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await emitVendorBankingEvent(db({ payout: null }) as never, {
+      kind: "account_restricted", eventId: "nobody", vendorUserId: "vendor_1", facts: {},
+    });
+    expect(result).toEqual({ sent: false });
+    expect(h.emitAction).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
 
