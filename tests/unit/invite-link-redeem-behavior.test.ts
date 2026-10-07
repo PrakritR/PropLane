@@ -339,7 +339,10 @@ describe("redeeming a Property owner invite link", () => {
     expect(invite.property_co_manager_permissions).toEqual({ "prop-1": { ownerStatements: { read: true, notification: true } } });
     // The login exists with the portal role row, and nothing else: no plan, no purchase, no workspace.
     expect(inserted.profile_roles).toEqual([{ user_id: "peer-1", role: "manager" }]);
-    expect(inserted.profiles?.[0]).toMatchObject({ id: "peer-1", role: "manager" });
+    // `profiles.role` is the role the account was CREATED as (legacy, singular):
+    // this redeemer signed up as a resident and keeps that, with the manager
+    // portal row above as the actual grant.
+    expect(inserted.profiles?.[0]).toMatchObject({ id: "peer-1", role: "resident" });
     expect(inserted.manager_purchases).toBeUndefined();
     expect(inserted.portal_workspaces).toBeUndefined();
   });

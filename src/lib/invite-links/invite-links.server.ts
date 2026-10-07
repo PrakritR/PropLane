@@ -40,7 +40,7 @@ function storedTeamRole(raw: unknown): TeamRoleId | null {
 }
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
-import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
+import { flatTeamRoleGrant, stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
@@ -1161,7 +1161,7 @@ export async function redeemInviteLink(
       // joins later (see `readPropertyPermissionsFromRow`). Leaving this
       // empty made every later-joined house read as no access.
       co_manager_permissions:
-        (redeemedRole ? stampTeamRolePermissions(redeemedRole) : null) ??
+        flatTeamRoleGrant(redeemedRole, normalizedPropertyMap) ??
         flatCoManagerPermissionsFromProperty(normalizedPropertyMap),
       workspace_id: workspaceId,
       // Workspace rights follow the role now; nothing is switched on by default.

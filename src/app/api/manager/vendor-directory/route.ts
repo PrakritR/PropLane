@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadDirectoryListedVendors } from "@/lib/vendor-directory.server";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,10 @@ export async function GET(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
+    // Shared vendor contact rows from other accounts, exactly what
+    // `/api/portal-vendors` refuses an owner-only account for.
+    const ownerRefusal = await refuseOwnerOnly(db, ctx.user.id);
+    if (ownerRefusal) return ownerRefusal;
     const url = new URL(req.url);
     const minRatingRaw = url.searchParams.get("minRating");
     const minRating = minRatingRaw ? Number(minRatingRaw) : undefined;

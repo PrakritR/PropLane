@@ -1,5 +1,6 @@
 vi.mock("@/lib/property-owner/access.server", () => ({
   ownerAccessStateFor: async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false }),
+  withholdManagerSurface: async () => false,
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";

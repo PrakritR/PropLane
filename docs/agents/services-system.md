@@ -319,7 +319,9 @@ stranger may read) is in [`vendor-portal.md`](vendor-portal.md) § The work boar
   That matters because `phone` is identity to the inbound pipeline - `findVendorByPhone` and
   `resolveVendorNumberSenderPhone` skip any `origin: "service_link"` row that is not `phoneVerified`
   (`rosterPhoneIdentifiesVendor`) and read in a deterministic order, so a forwarded link cannot file the real
-  recipient's texts under someone else's vendor account (`tests/unit/service-link-phone-binding.test.ts`).
+  recipient's texts under someone else's vendor account (`tests/unit/service-link-phone-binding.test.ts`). The manager still
+  sees the number they typed: the Vendors row and the vendor record draw it as the plain fact **Texted to <phone>** while the
+  row has no `phone` of its own.
 - **Never public:** the street address, unit, resident, entry notes and any cost. The public page, the text itself and
   the board all read `publicServiceProjection` (an allowlist; `tests/unit/public-service-projection.test.ts`). The address
   reaches a vendor only after hire, through the existing hired-vendor row.

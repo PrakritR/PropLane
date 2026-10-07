@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ownerAccessStateFor } from "@/lib/property-owner/access.server";
+import { withholdManagerSurface } from "@/lib/property-owner/access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -38,6 +38,6 @@ export async function requireManagerRouteUser(): Promise<{ db: SupabaseClient; u
   if (!isManager) return null;
   // A Property owner carries the manager role row only to load the owner
   // shell; they are not a manager and every manager-portal API refuses them.
-  if ((await ownerAccessStateFor(db, user.id)).ownerOnly) return null;
+  if (await withholdManagerSurface(db, user.id)) return null;
   return { db, userId: user.id };
 }

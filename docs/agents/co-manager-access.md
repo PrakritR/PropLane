@@ -610,13 +610,23 @@ reply has its own allowance in `filterRecipientsBySenderScope`
 that owner's membership has Messages on for a house of that manager's. The
 owner's reader takes the counterparty from `row_data.email` (the person the
 thread is WITH on both copies), not from `participant_email`, which is the
-owner's own address on a received row.
+owner's own address on a received row. The owner's COPY of that reply is scoped
+from the membership too (`applyOwnerMessageInboxScope` →
+`OWNER_MESSAGE_INBOX_SCOPE`, on both send paths): `scopeForRole` reads the
+legacy singular `profiles.role`, so an owner whose account was created as a
+resident would have had the reply filed in their resident inbox, where the
+owner portal never looks.
 
 **A membership that cannot be read denies.** `getOwnerAccessState` throws
 `OwnerAccessUnavailableError` rather than answering "no owner row": that answer
 would hand an owner-only account the manager shell and wave it past
-`refuseOwnerOnly`, which turns the error into a 503. The portal layout redirects
-to `/portal/owner` when it cannot see the requested path at all.
+`refuseOwnerOnly`, which turns the error into a 503. Every manager-side caller
+asks `withholdManagerSurface` instead of reading `ownerOnly`, so the error
+denies (no manager context) rather than throwing into a render; the two page
+shells (`src/app/portal/layout.tsx`, `renderPortalSection`) show
+`PortalAccessUnavailable` — neither portal — and `requireOwnerPage` stays on the
+owner page with Messages shut. The layout redirects to `/portal/owner` when it
+cannot see the requested path at all.
 
 **A delegate may not share what they cannot see.** Owner keys are not module
 grants, so the module cap carries neither a check nor a value for them and both
@@ -627,6 +637,14 @@ nothing but `teams: edit` cannot hand an investor the books. An owner invite als
 never starts from "All houses": the investor's houses are picked on purpose.
 Accepting an owner invite does not rewrite `profiles.role` — an existing
 resident or vendor keeps the role their account was created as.
+
+**The flat grant is the keys the manager set.** `readPropertyPermissionsFromRow`
+falls back to the flat `co_manager_permissions` column for a house an "all
+houses" row picks up later, so a Property owner's column is
+`flatTeamRoleGrant` (one place, used by invite, mint redeem and edit) — the
+link's own owner keys, with "No access" kept EXPLICIT as
+`{ notification: false }` — never the role default, which would hand
+Performance, Statements and Documents back on every new house.
 
 **Manager side.** Documents row ⋯ menu: *Share with owners* / *Stop sharing*
 (`PATCH /api/manager-documents/[id] { sharedWithOwners }`, owner-only like every

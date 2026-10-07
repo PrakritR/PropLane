@@ -9,6 +9,7 @@ import {
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
+import { applyOwnerMessageInboxScope } from "@/lib/property-owner/access.server";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { loadThreadConversation, propertyLabelFor, replyRecipientsMatchThread } from "@/lib/communication/conversation-key.server";
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
@@ -558,6 +559,12 @@ export async function POST(req: Request) {
       }
       recipients = allowed;
     }
+
+    // A Property owner's copy belongs in the scope their Messages page reads,
+    // which `scopeForRole` cannot know: the legacy singular `profiles.role` of
+    // an owner who first signed up as a resident still says "resident". The
+    // membership decides, and only for that one recipient.
+    recipients = await applyOwnerMessageInboxScope(db, { userId: user.id, role: senderRole }, recipients);
 
     // One more gate before anything is written: the thread being replied into
     // must belong to the person being messaged. Without it a reply could be

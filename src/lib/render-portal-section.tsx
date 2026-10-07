@@ -1,5 +1,6 @@
 import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/portal/inspections-panel";
 import { getOwnerAccessState } from "@/lib/property-owner/access.server";
+import { PortalAccessUnavailable } from "@/components/portal/portal-access-unavailable";
 import { OWNER_HOME_PATH } from "@/lib/property-owner/sections";
 import {
   parseResidentInspectionTypeFilter,
@@ -317,7 +318,17 @@ export async function renderPortalSection(
   // have their own directory; this is the dynamic-section half.
   if (kind === "pro" || kind === "manager") {
     const { user } = await getServerSessionProfile();
-    if (user && (await getOwnerAccessState(user.id)).ownerOnly) redirect(OWNER_HOME_PATH);
+    if (user) {
+      let ownerOnly: boolean;
+      try {
+        ownerOnly = (await getOwnerAccessState(user.id)).ownerOnly;
+      } catch {
+        // Neither shell: a membership we could not read must not decide in
+        // favour of the manager surface.
+        return <PortalAccessUnavailable />;
+      }
+      if (ownerOnly) redirect(OWNER_HOME_PATH);
+    }
   }
 
   const def = await getPortalDefinition(kind);

@@ -2,10 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { grantedHouses, type OwnerGrant } from "@/lib/property-owner/access.server";
+import { grantedHouses, OWNER_MESSAGE_INBOX_SCOPE, type OwnerGrant } from "@/lib/property-owner/access.server";
 import type { OwnerConversation, OwnerMessage } from "@/lib/property-owner/projection";
 
-const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
+const MANAGER_INBOX_SCOPE = OWNER_MESSAGE_INBOX_SCOPE;
 const MAX_BODY = 4000;
 
 
@@ -45,9 +45,12 @@ export async function loadOwnerConversations(
     .select("row_data, participant_email, created_at")
     .eq("scope", MANAGER_INBOX_SCOPE)
     .eq("owner_user_id", ownerUserId)
+    .order("created_at", { ascending: false })
     .limit(200);
   if (error) throw new Error("Could not load messages.");
-  // Rows oldest first; within a row the root comes before its later turns.
+  // Newest 200 in SQL (the limit must not throw away the rows this page is
+  // about), then oldest first for display: within a row the root comes before
+  // its later turns.
   // (Turn `at` labels are display strings, so they are never sorted on.)
   const rows = [...(data ?? [])].sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
   for (const grant of allowed) {

@@ -18,11 +18,11 @@ import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
 import {
   applyRoleToPropertyPermissions,
+  flatTeamRoleGrant,
   inferInviteTeamRole,
   parseTeamRole,
   permissionsMatchTeamRole,
   stampTeamRoleOnProperties,
-  stampTeamRolePermissions,
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
@@ -419,7 +419,7 @@ export async function POST(req: Request) {
 
     // Workspace rights follow the role; only a Custom row keeps explicit flags.
     const workspacePermissions = teamRole === "custom" ? normalizeWorkspacePermissions(body?.workspacePermissions) : {};
-    const stampedFlat = stampTeamRolePermissions(teamRole);
+    const stampedFlat = flatTeamRoleGrant(teamRole, propertyCoManagerPermissions);
     const coManagerPermissions: CoManagerPermissions = stampedFlat
       ? stampedFlat
       : Object.keys(

@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 // so both verbs must refuse it.
 describe("/api/portal-vendors refuses a Property owner", () => {
   const src = readFileSync("src/app/api/portal-vendors/route.ts", "utf8");
-  it("checks ownerOnly in GET and POST", () => {
-    expect(src.match(/ownerAccessStateFor\(db, user\.id\)\)\.ownerOnly/g)?.length).toBe(2);
+  it("refuses in GET and POST, and answers 503 when the membership cannot be read", () => {
+    expect(src.match(/refuseOwnerOnly\(db, user\.id\)/g)?.length).toBe(2);
+    const helper = readFileSync("src/lib/property-owner/route-auth.server.ts", "utf8");
+    expect(helper).toMatch(/export async function refuseOwnerOnly[\s\S]*status: 403/);
+    expect(helper).toMatch(/export async function refuseOwnerOnly[\s\S]*status: 503/);
   });
 });

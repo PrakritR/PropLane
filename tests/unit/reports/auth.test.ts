@@ -37,6 +37,7 @@ vi.mock("@/lib/supabase/service", () => ({
 // A Property owner is refused a manager context; these cases are not owners.
 vi.mock("@/lib/property-owner/access.server", () => ({
   ownerAccessStateFor: vi.fn(async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false })),
+  withholdManagerSurface: vi.fn(async () => false),
 }));
 
 vi.mock("@/lib/auth/admin-preview", () => ({

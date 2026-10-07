@@ -10,10 +10,10 @@ import {
 } from "@/lib/co-manager-permissions";
 import {
   applyRoleToPropertyPermissions,
+  flatTeamRoleGrant,
   inferInviteTeamRole,
   parseTeamRole,
   stampTeamRoleOnProperties,
-  stampTeamRolePermissions,
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
@@ -312,7 +312,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           : body?.workspacePermissions !== undefined
             ? normalizeWorkspacePermissions(body.workspacePermissions)
             : normalizeWorkspacePermissions(invite.workspace_permissions);
-      const stampedWorkspace = stampTeamRolePermissions(nextTeamRole);
+      const stampedWorkspace = flatTeamRoleGrant(nextTeamRole, nextPropertyPerms);
       const nextWorkspaceDefaults =
         stampedWorkspace ??
         (body?.coManagerPermissions !== undefined && body?.propertyId === undefined

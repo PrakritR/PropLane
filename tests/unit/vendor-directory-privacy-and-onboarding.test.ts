@@ -22,6 +22,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/vendor-own-record", () => ({ resolveOwnVendorRecords: mocks.resolveOwnVendorRecords }));
+// Both directory routes now refuse an owner-only account (they hand out other
+// accounts' vendor rows); the membership read is not part of what is tested here.
+vi.mock("@/lib/property-owner/access.server", () => ({
+  ownerAccessStateFor: vi.fn(async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false })),
+}));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: mocks.isAdminUser }));
 // Keep hasRole/hasAdminRole REAL (they're pure `ctx.roles.includes(...)`
 // checks) — only the context resolution itself is mocked, so the routes'

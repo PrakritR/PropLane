@@ -141,6 +141,60 @@ export async function ownerInviteeIdsForManagers(db: SupabaseClient, managerIds:
 }
 
 /**
+ * The inbox scope the owner Messages page reads
+ * (`loadOwnerConversations`). The owner's copy of a manager's reply must be
+ * written HERE, whatever the legacy singular `profiles.role` column says: an
+ * owner who signed up as a resident years ago still keeps
+ * `profiles.role = "resident"`, and `scopeForRole` would file the reply in
+ * their resident inbox, where the owner portal never looks. It is the manager
+ * scope on purpose - reading the manager INBOX PAGE is refused separately
+ * (`refuseOwnerOnly` on `/api/portal-inbox-threads`).
+ */
+export const OWNER_MESSAGE_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
+
+/**
+ * Of these recipient user ids, the ones that are Property owners of the
+ * sending manager's OWN membership with Messages on. Resolved from the
+ * membership, never from a request or from `profiles.role`.
+ */
+export async function ownerMessagingRecipientIdsForManager(
+  db: SupabaseClient,
+  managerUserId: string,
+  recipientUserIds: (string | null | undefined)[],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  const manager = String(managerUserId ?? "").trim();
+  const ids = [...new Set(recipientUserIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+  if (!manager || ids.length === 0) return out;
+  const candidates = await ownerInviteeIdsForManagers(db, [manager]);
+  if (candidates.size === 0) return out;
+  for (const id of ids) {
+    if (!candidates.has(id)) continue;
+    if (await managerMayMessageOwner(db, manager, id)) out.add(id);
+  }
+  return out;
+}
+
+/**
+ * Re-scope the inbox copy of any recipient who is a Property owner of this
+ * sender's own membership. Every other recipient is returned untouched, so a
+ * resident stays in the resident scope and a vendor in the vendor scope.
+ */
+export async function applyOwnerMessageInboxScope<T extends { userId: string | null; scope: string }>(
+  db: SupabaseClient,
+  sender: { userId: string; role: string | null | undefined },
+  recipients: T[],
+): Promise<T[]> {
+  const role = String(sender.role ?? "").trim().toLowerCase();
+  if (!["manager", "owner", "pro"].includes(role)) return recipients;
+  const owners = await ownerMessagingRecipientIdsForManager(db, sender.userId, recipients.map((r) => r.userId));
+  if (owners.size === 0) return recipients;
+  return recipients.map((recipient) =>
+    recipient.userId && owners.has(recipient.userId) ? { ...recipient, scope: OWNER_MESSAGE_INBOX_SCOPE } : recipient,
+  );
+}
+
+/**
  * May this manager write to this Property owner's thread? Only when the owner's
  * OWN membership has Messages on for a house of this manager's. Resolved from
  * the membership (`loadOwnerGrants`), never from the request: it is the mirror
@@ -247,4 +301,21 @@ export const getOwnerAccessState = cache(async (userId: string): Promise<OwnerAc
 /** Uncached form for API routes that already hold a service client. */
 export async function ownerAccessStateFor(db: SupabaseClient, userId: string): Promise<OwnerAccessState> {
   return resolveOwnerAccessState(db, userId);
+}
+
+/**
+ * "Withhold the manager surface from this account?" - true for an owner-only
+ * account AND for a membership that could not be read at all. Every
+ * manager-side caller asks this instead of reading `ownerOnly` directly, so a
+ * transient `account_link_invites` failure denies rather than either handing
+ * over the manager surface or throwing an uncaught error into a page render.
+ * The callers that must tell the two apart (`refuseOwnerOnly`: 403 vs 503)
+ * catch `OwnerAccessUnavailableError` themselves.
+ */
+export async function withholdManagerSurface(db: SupabaseClient, userId: string): Promise<boolean> {
+  try {
+    return (await ownerAccessStateFor(db, userId)).ownerOnly;
+  } catch {
+    return true;
+  }
 }

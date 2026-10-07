@@ -8,6 +8,7 @@
 import {
   CO_MANAGER_PERMISSION_OPTIONS,
   OWNER_PERMISSION_OPTIONS,
+  hasCoManagerPermissionLevel,
   normalizeCoManagerPermissions,
   onlyOwnerPermissions,
   type CoManagerPermissionGrant,
@@ -153,6 +154,47 @@ const ROLE_STAMPS: Record<Exclude<TeamRoleId, "custom">, CoManagerPermissions> =
 export function stampTeamRolePermissions(role: TeamRoleId): CoManagerPermissions | null {
   if (role === "custom") return null;
   return { ...ROLE_STAMPS[role] };
+}
+
+/**
+ * The flat `co_manager_permissions` column a membership stores, or null when
+ * the caller must fall back to its own value (Custom).
+ *
+ * For every role but Property owner that is the role stamp. An owner's is the
+ * per-house keys the manager ACTUALLY set, because
+ * `readPropertyPermissionsFromRow` falls back to this column for a house an
+ * "all houses" row picks up later: a stamped role default would hand
+ * Performance, Statements and Documents back on every new house after the
+ * manager turned those keys off. Every write path (invite, mint redeem, edit)
+ * goes through here so the three cannot disagree.
+ */
+export function flatTeamRoleGrant(
+  role: TeamRoleId | null | undefined,
+  propertyPerms: PropertyCoManagerPermissions,
+): CoManagerPermissions | null {
+  if (!role || role === "custom") return null;
+  if (role === "property_owner") return ownerFlatGrant(propertyPerms);
+  return stampTeamRolePermissions(role);
+}
+
+/**
+ * One owner key per house map, collapsed: on where any house has it on, and
+ * EXPLICITLY off (`{ notification: false }`) where a house says so. The off
+ * form matters as much as the on form - a key that merely goes missing reads as
+ * *unset*, and `stampTeamRoleOnProperties` fills an unset house from the role
+ * default, which is how a manager's "No access" came back on its own.
+ */
+function ownerFlatGrant(propertyPerms: PropertyCoManagerPermissions): CoManagerPermissions {
+  const maps = Object.values(propertyPerms ?? {}).map((map) => normalizeCoManagerPermissions(map));
+  const out: CoManagerPermissions = {};
+  for (const { id } of OWNER_PERMISSION_OPTIONS) {
+    if (maps.some((map) => hasCoManagerPermissionLevel(map, id, "read"))) {
+      out[id] = { read: true, notification: true };
+    } else if (maps.some((map) => map[id] !== undefined)) {
+      out[id] = { notification: false };
+    }
+  }
+  return out;
 }
 
 /** Apply a named role stamp to every assigned house. Custom leaves the map alone. */

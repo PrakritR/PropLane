@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
 import { onlineDirectoryHits } from "@/lib/vendor-issue-search";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
@@ -14,6 +16,9 @@ export async function GET(req: Request) {
   if (!hasRole(ctx, "manager") && !hasAdminRole(ctx)) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
+  // Vendor name / trade / phone / city for accounts that are not the caller's.
+  const ownerRefusal = await refuseOwnerOnly(createSupabaseServiceRoleClient(), ctx.user.id);
+  if (ownerRefusal) return ownerRefusal;
 
   const url = new URL(req.url);
   const issue = url.searchParams.get("issue")?.trim() ?? url.searchParams.get("q")?.trim() ?? "";

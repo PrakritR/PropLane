@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,9 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
+    // Copying another account's vendor onto a roster is not an owner's to do.
+    const ownerRefusal = await refuseOwnerOnly(db, ctx.user.id);
+    if (ownerRefusal) return ownerRefusal;
     const body = (await req.json().catch(() => null)) as { vendorUserId?: string } | null;
     const vendorUserId = body?.vendorUserId?.trim();
     if (!vendorUserId) return NextResponse.json({ error: "vendorUserId required." }, { status: 400 });

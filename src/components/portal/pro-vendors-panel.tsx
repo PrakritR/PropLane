@@ -4,8 +4,9 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 
-import { ArrowUpRight, FileCheck2, Filter, Mail, MapPin, Phone, Settings, ShieldCheck, Star, UserRound, Wrench } from "lucide-react";
+import { ArrowUpRight, FileCheck2, Filter, Mail, MapPin, MessageSquare, Phone, Settings, ShieldCheck, Star, UserRound, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -112,6 +113,18 @@ export function ManagerVendorsToolbar({
       data-attr={vendorsSettingsEntry.dataAttr}
     />
   );
+}
+
+/**
+ * The number the manager texted a service link to, while the roster row still
+ * has no phone of its own. It is the manager's own typing shown back to them -
+ * never identity: a forwarded link means the redeemer may be someone else, so
+ * `rosterPhoneIdentifiesVendor` keeps it out of every routing and sending path.
+ */
+function vendorLinkPhoneFact(row: ManagerVendorRow): string | undefined {
+  if (row.phone?.trim()) return undefined;
+  const label = formatSmsPhoneLabel(row.linkPhone);
+  return label ? `Texted to ${label}` : undefined;
 }
 
 function vendorRowMeta(row: ManagerVendorRow): string | undefined {
@@ -1149,6 +1162,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         {visibleVendors.map((row) => {
           const phone = row.phone.trim();
           const email = row.email.trim();
+          const linkPhoneFact = vendorLinkPhoneFact(row);
           const meta = vendorRowMeta(row);
           const reviewAggregate = row.vendorUserId ? reviewAggregatesByVendorUserId[row.vendorUserId] : undefined;
           const serviceCount = row.vendorUserId ? serviceCountByVendorUserId[row.vendorUserId] ?? 0 : 0;
@@ -1179,11 +1193,16 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               // "—" stays only for the unused count/rating/money state.
               address={row.trade.trim() || "Not set"}
               facts={
-                phone || email || meta || reviewFact ? (
+                phone || linkPhoneFact || email || meta || reviewFact ? (
                   <>
                     {phone ? (
                       <PortalRowFact icon={Phone} srLabel="Phone">
                         {phone}
+                      </PortalRowFact>
+                    ) : null}
+                    {linkPhoneFact ? (
+                      <PortalRowFact icon={MessageSquare} srLabel="Texted to">
+                        {linkPhoneFact}
                       </PortalRowFact>
                     ) : null}
                     {email ? (

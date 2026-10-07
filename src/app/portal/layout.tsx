@@ -18,7 +18,8 @@ import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { OwnerPortalShell } from "@/components/owner/owner-portal-shell";
-import { getOwnerAccessState } from "@/lib/property-owner/access.server";
+import { getOwnerAccessState, type OwnerAccessState } from "@/lib/property-owner/access.server";
+import { PortalAccessUnavailable } from "@/components/portal/portal-access-unavailable";
 import { OWNER_HOME_PATH, ownerRedirectFor } from "@/lib/property-owner/sections";
 import { assertPropertyPortalAccess } from "@/lib/auth/portal-access";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
@@ -49,7 +50,12 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
   // this is the page half of the same rule.
   const session = await getServerSessionProfile();
   if (session.user) {
-    const owner = await getOwnerAccessState(session.user.id);
+    let owner: OwnerAccessState;
+    try {
+      owner = await getOwnerAccessState(session.user.id);
+    } catch {
+      return <PortalAccessUnavailable />;
+    }
     if (owner.ownerOnly) {
       const pathname = (await headers()).get("x-pathname") ?? "";
       // No path to judge means we cannot say this page is one of theirs, so the
