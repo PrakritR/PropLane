@@ -30,10 +30,11 @@ import { useIsClient } from "@/hooks/use-is-client";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
+  InboxListHeader,
   InboxListSegmentTabs,
   InboxThreadEmpty,
   InboxThreadSkeleton,
@@ -1399,19 +1400,33 @@ export function ManagerUnifiedInbox({
     if (listRows.length === 0 && !routeThreadId) setMobileThreadOpen(false);
   }, [initialListReady, listRows, listSegment, routeThreadId, selectedKey, selectedRow, selectionContext]);
 
+  // Filter, the round + and "Delete all archived" are the page's own tools: they sit on the
+  // title row (the shell's slot). With no slot (a test, /demo) they render beside the search.
+  const listControls =
+    canDeleteAllArchived || listActions || listPrimary ? (
+      <div className="flex shrink-0 items-center gap-1 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+        {canDeleteAllArchived ? (
+          <PortalIconAction
+            icon={Trash2}
+            label="Delete all archived"
+            tone="danger"
+            data-attr="unified-inbox-delete-all-archived"
+            onClick={() => void bulk.handleDeleteAllArchived()}
+          />
+        ) : null}
+        {listActions}
+        {listPrimary}
+      </div>
+    ) : null;
+  const listControlsPublished = usePublishTitleActions(listControls, listChrome === "internal" && listControls != null);
+
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <div
-        className="mx-2 mb-2 mt-2 shrink-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:mx-3"
-        data-attr="communication-list-header-card"
-      >
+      <div className="shrink-0" data-attr="communication-list-header-card">
         <ManagerWorkNumberCard />
         {listChrome === "internal" ? (
-          <PortalListControlStack
-            variant="command"
-            embedded
-            className="border-0 bg-transparent px-2 pb-2 pt-0 shadow-none sm:px-2.5"
-            destinationRow={
+          <InboxListHeader
+            tabs={
               <InboxListSegmentTabs
                 commBase={commBase}
                 value={listSegmentProp}
@@ -1424,27 +1439,12 @@ export function ManagerUnifiedInbox({
             search={{
               value: query,
               onChange: setQuery,
-              placeholder: "Search",
+              placeholder: "Search communication",
               ariaLabel: "Search contacts or messages",
               dataAttr: "unified-inbox-search",
             }}
-            actions={
-              canDeleteAllArchived || listActions ? (
-                <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
-                  {canDeleteAllArchived ? (
-                    <PortalIconAction
-                      icon={Trash2}
-                      label="Delete all archived"
-                      tone="danger"
-                      data-attr="unified-inbox-delete-all-archived"
-                      onClick={() => void bulk.handleDeleteAllArchived()}
-                    />
-                  ) : null}
-                  {listActions}
-                </div>
-              ) : undefined
-            }
-            primary={listPrimary}
+            count={initialListReady ? listRows.length : undefined}
+            trailing={listControlsPublished ? null : listControls}
           />
         ) : null}
       </div>
@@ -1488,6 +1488,7 @@ export function ManagerUnifiedInbox({
             <InboxConversationRow
               key={row.key}
               listVariant="manager"
+              appearance="flat"
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
               preview={row.preview}
@@ -1804,7 +1805,7 @@ export function ManagerUnifiedInbox({
   return (
     <>
       <InboxTwoPane
-        panes="split"
+        panes="flat"
         heightMode="viewport"
         fillViewport={threadOpen}
         fillParent

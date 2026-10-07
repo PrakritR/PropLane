@@ -31,7 +31,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Send, Sparkles, House, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Search, Send, Sparkles, House, X } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -981,7 +981,32 @@ export function inboxAvatarRampIndex(name: string): number {
  * it. Concatenated, both classes landed on the element with tied specificity
  * and the 40px default silently won.
  */
-export function InboxAvatar({ name, className = "" }: { name: string; className?: string }) {
+export function InboxAvatar({
+  name,
+  className = "",
+  tile = false,
+}: {
+  name: string;
+  className?: string;
+  /**
+   * The redesigned tile: a soft primary wash with primary initials and no
+   * gradient or shadow. The caller owns the size and the corner radius.
+   */
+  tile?: boolean;
+}) {
+  if (tile) {
+    return (
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center bg-primary/10 text-[11px] font-bold tracking-[0.02em] text-primary",
+          className,
+        )}
+        aria-hidden
+      >
+        {inboxInitials(name)}
+      </div>
+    );
+  }
   const [from, to] = INBOX_AVATAR_RAMP[inboxAvatarRampIndex(name)]!;
   return (
     <div
@@ -1015,6 +1040,7 @@ export function InboxConversationRow({
   channelBadge,
   trailing,
   listVariant = "default",
+  appearance = "default",
 }: {
   name: string;
   subtitle?: string;
@@ -1022,6 +1048,12 @@ export function InboxConversationRow({
   time: string;
   /** Manager Communication list — avatar, name, preview, stamp; no property/category line. */
   listVariant?: "default" | "manager";
+  /**
+   * `flat` is the redesigned Communication row (34px tile, name + stamp on one
+   * line, one-line preview, a 6px dot for unread). Every Communication list
+   * passes it; `listVariant="manager"` implies it.
+   */
+  appearance?: "default" | "flat";
   /** Unread threads show an Instagram-style dot on the right. */
   unread?: boolean;
   /**
@@ -1065,6 +1097,82 @@ export function InboxConversationRow({
   const isEmptyPreview = /^no messages yet\.?$/i.test(preview.trim());
   const managerList = listVariant === "manager";
   const showMetaLine = !managerList && (address || category || recordChip);
+  if (managerList || appearance === "flat") {
+    return (
+      <div
+        className={cn(
+          "portal-inbox-row group relative flex items-start gap-1 border-b border-border/60 px-3.5 py-2.5 transition-colors",
+          selected ? "portal-inbox-row--selected bg-primary/[0.07]" : "hover:bg-foreground/[0.035]",
+        )}
+        data-unread={unread ? "true" : undefined}
+      >
+        {leading}
+        {unread ? (
+          <span className="absolute left-[5px] top-6 size-1.5 rounded-full bg-primary" aria-label="Unread" />
+        ) : null}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <button
+            type="button"
+            onClick={onOpen}
+            title={managerList ? name : subtitle || name}
+            className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
+          >
+            <InboxAvatar tile name={name} className="size-[34px] rounded-[9px]" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-1.5">
+                <p className={`min-w-0 truncate text-sm leading-tight text-foreground ${unread ? "font-bold" : "font-semibold"}`}>
+                  <span className="truncate">{name}</span>
+                </p>
+                <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11.5px] tabular-nums text-muted">
+                  {time}
+                  {unread && unreadCount && unreadCount > 0 ? (
+                    <span className="shrink-0 text-[11px] font-semibold text-primary" aria-label={`${unreadCount} unread`}>
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+              {preview.trim() ? (
+                <p
+                  className={`mt-0.5 min-w-0 truncate text-[13px] ${
+                    isEmptyPreview ? "italic text-muted/70" : unread ? "text-foreground/80" : "text-muted"
+                  }`}
+                >
+                  {previewPrefix ?? ""}
+                  {preview}
+                </p>
+              ) : null}
+            </div>
+          </button>
+          {showMetaLine ? (
+            <div className="mt-0.5 flex items-center gap-2 pl-[44px]">
+              {address ? (
+                <span className="flex min-w-0 items-center gap-1 text-xs text-muted"><House className="h-3 w-3 shrink-0" aria-hidden /><span className="truncate">{address}</span></span>
+              ) : null}
+              {category ? <span className="shrink-0 text-xs text-muted">{category}</span> : null}
+              {recordChip ? (
+                recordChip.href ? (
+                  <Link
+                    href={recordChip.href}
+                    onClick={(event) => event.stopPropagation()}
+                    className="min-w-0 truncate text-xs text-primary hover:underline"
+                    data-attr="inbox-record-chip"
+                  >
+                    {recordChip.label}
+                  </Link>
+                ) : (
+                  <span className="min-w-0 truncate text-xs text-muted" data-attr="inbox-record-chip">
+                    {recordChip.label}
+                  </span>
+                )
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {trailing ? <div className="shrink-0 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">{trailing}</div> : null}
+      </div>
+    );
+  }
   return (
     <div
       className={`portal-inbox-row group flex items-center gap-2 border-b border-border/50 px-3 transition-colors max-md:gap-1.5 max-md:px-2.5 ${
@@ -1246,6 +1354,68 @@ export function InboxListSegmentTabs({
           },
         ]}
       />
+    </div>
+  );
+}
+
+/**
+ * The list column's header under the work identity boxes: underline tabs with
+ * counts on a hairline, then one search line with the derived record count.
+ * Manager, resident and vendor Communication all draw it, so the three lists
+ * cannot drift. Controls that are not tabs or search (Filter, the round +)
+ * belong on the page title row; a list passes them as `trailing` only when
+ * there is no title row to host them.
+ */
+export function InboxListHeader({
+  tabs,
+  search,
+  count,
+  trailing,
+}: {
+  /** Normally an {@link InboxListSegmentTabs}. */
+  tabs: ReactNode;
+  search: {
+    value: string;
+    onChange: (value: string) => void;
+    placeholder: string;
+    ariaLabel: string;
+    dataAttr: string;
+  };
+  /** Rows on screen right now; omitted until the list is ready. */
+  count?: number;
+  trailing?: ReactNode;
+}) {
+  return (
+    <div className="shrink-0" data-attr="communication-list-header">
+      <div className="border-b border-border px-3.5" data-attr="communication-list-tabs">
+        {tabs}
+      </div>
+      <div className="flex min-w-0 items-center gap-2 border-b border-border px-3.5 py-1.5">
+        <div className="relative min-w-0 flex-1">
+          <Search
+            className="pointer-events-none absolute left-0 top-1/2 size-4 -translate-y-1/2 text-muted/70"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          <Input
+            type="search"
+            name="q"
+            value={search.value}
+            onChange={(e) => search.onChange(e.target.value)}
+            placeholder={search.placeholder}
+            aria-label={search.ariaLabel}
+            className="portal-inbox-search h-[30px] min-h-[30px] w-full rounded-md border-0 bg-transparent py-0 pl-6 pr-1 text-[13.5px] shadow-none outline-none focus:bg-transparent focus:ring-0 max-lg:min-h-11"
+            data-attr={search.dataAttr}
+            data-search=""
+          />
+        </div>
+        {count != null && count > 0 ? (
+          <span className="shrink-0 text-[12.5px] tabular-nums text-muted/75" data-slot="inbox-list-count">
+            {count} {count === 1 ? "record" : "records"}
+          </span>
+        ) : null}
+        {trailing}
+      </div>
     </div>
   );
 }
@@ -3111,8 +3281,15 @@ export function InboxTwoPane({
    * `split` draws the list and thread as two separate cards with a gutter —
    * Communication only. Opt-in on purpose: this component has nine callers and
    * only the three Communication pages want two cards.
+   * `flat` is the redesigned Communication body: no outer cards, three panes
+   * (320px list, thread, 280px details) divided by hairlines.
    */
   panes = "joined",
+  /**
+   * `panes="flat"` only: a contact-details column at the right edge, drawn from
+   * 1280px up while a conversation is open. Below that it is not rendered.
+   */
+  details,
   /** A thread-only pane (`listHidden`) that still offers Full screen — a record page's Communication section. */
   fullScreenable = false,
 }: {
@@ -3126,10 +3303,14 @@ export function InboxTwoPane({
   mobileCompact?: boolean;
   fillViewport?: boolean;
   fillParent?: boolean;
-  panes?: "joined" | "split";
+  panes?: "joined" | "split" | "flat";
+  details?: ReactNode;
   fullScreenable?: boolean;
 }) {
-  const split = panes === "split";
+  const flat = panes === "flat";
+  // `flat` shares every behaviour of `split` (full screen, mobile list/thread
+  // swap, viewport measuring) and differs only in drawing: no cards, no gutter.
+  const split = panes === "split" || flat;
   const rootRef = useRef<HTMLDivElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
 
@@ -3278,13 +3459,16 @@ export function InboxTwoPane({
   const rootCard = split
     ? ""
     : "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl max-md:border-x-0 max-md:shadow-none";
-  const paneCard = split
-    ? "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl"
-    : "";
+  const paneCard = flat
+    ? ""
+    : split
+      ? "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl"
+      : "";
+  const showDetails = flat && details != null && threadOpen && !listHidden;
   return (
     <div
       ref={rootRef}
-      className={`portal-inbox-two-pane ${rootCard} ${flowLayout || split ? "overflow-visible" : "overflow-hidden"} ${flexFillMobile || flexFillLayout ? "flex min-h-0 flex-1 flex-col" : ""} ${fullScreenDrawn ? "z-30 bg-background" : ""} ${className}`}
+      className={`portal-inbox-two-pane ${rootCard} ${flowLayout || (split && !flat) ? "overflow-visible" : "overflow-hidden"} ${flexFillMobile || flexFillLayout ? "flex min-h-0 flex-1 flex-col" : ""} ${fullScreenDrawn ? "z-30 bg-background" : ""} ${className}`}
       style={
         fullScreenDrawn && fullScreenRect
           ? {
@@ -3300,7 +3484,7 @@ export function InboxTwoPane({
       }
       data-full-screen={fullScreenDrawn ? "true" : undefined}
       data-attr="portal-inbox-two-pane"
-      data-panes={split ? "split" : undefined}
+      data-panes={flat ? "flat" : split ? "split" : undefined}
       data-fill-viewport={flexFillMobile ? "true" : undefined}
       data-height-mode={flowLayout ? "flow" : undefined}
     >
@@ -3308,7 +3492,11 @@ export function InboxTwoPane({
         className={`grid min-h-0 flex-1 ${flowLayout ? "" : "h-full grid-rows-[minmax(0,1fr)]"} ${
           listHidden || fullScreenDrawn
             ? "grid-cols-1"
-            : split
+            : flat
+              ? showDetails
+                ? "lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_280px]"
+                : "lg:grid-cols-[320px_minmax(0,1fr)]"
+              : split
               // Column gap only. Below `lg` exactly one pane is display:none and
               // contributes nothing, but a row gap would silently subtract from
               // the pane height at every breakpoint.
@@ -3318,16 +3506,25 @@ export function InboxTwoPane({
       >
         <section
           className={`portal-inbox-list-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${
-            split ? paneCard : "border-border lg:border-r"
+            flat ? "border-border lg:border-r" : split ? paneCard : "border-border lg:border-r"
           } ${listHidden || fullScreenDrawn ? "hidden" : threadOpen ? "hidden lg:flex" : "flex"}`}
         >
           {list}
         </section>
         <section
-          className={`portal-inbox-thread-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
+          className={`portal-inbox-thread-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${showDetails ? "border-border xl:border-r" : ""} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
         >
           <InboxFullScreenContext.Provider value={fullScreenCtx}>{thread}</InboxFullScreenContext.Provider>
         </section>
+        {showDetails && !fullScreenDrawn ? (
+          <aside
+            className="portal-inbox-details-pane hidden h-full min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain xl:flex"
+            data-attr="inbox-details-pane"
+            aria-label="Contact details"
+          >
+            {details}
+          </aside>
+        ) : null}
       </div>
     </div>
   );

@@ -8,7 +8,6 @@
  */
 import { useEffect, useState } from "react";
 import { PortalInboxContactCard } from "@/components/portal/portal-inbox-contact-card";
-import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import { usePortalSession } from "@/hooks/use-portal-session";
 
 export function ResidentCommunicationIdentityCard() {
@@ -37,11 +36,11 @@ export function ResidentCommunicationIdentityCard() {
   if (!value) return null;
 
   return (
-    <div className="shrink-0" data-attr="resident-communication-identity">
+    <div className="grid shrink-0 grid-cols-2 gap-2 px-3.5 pb-1 pt-3" data-attr="resident-communication-identity">
       <PortalInboxContactCard
+        frame="box"
         value={value}
         label="You"
-        leading={<InboxAvatar name={value} className="h-9 w-9 text-[12px]" />}
         secondary={name && email ? { value: email, label: "Email" } : undefined}
       />
     </div>
