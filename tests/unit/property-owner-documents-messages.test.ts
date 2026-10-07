@@ -114,7 +114,7 @@ describe("owner messages", () => {
     const db = makeFakeDb({ profiles: [{ id: OWNER, email: "dana@example.com", full_name: "Dana" }] });
     await sendOwnerMessage(db, OWNER, grants(true, true), { conversationId: "link-1", body: "  Is the roof done?  " });
     expect(delivered).toHaveLength(1);
-    expect(delivered[0]).toMatchObject({ senderUserId: OWNER, toUserIds: [MANAGER], text: "Is the roof done?", deliverViaEmail: false, deliverViaSms: false });
+    expect(delivered[0]).toMatchObject({ senderUserId: OWNER, toUserIds: [MANAGER], text: "Is the roof done?", deliverViaEmail: false, deliverViaSms: false, recipientsAuthorizedByCaller: true });
     expect(delivered[0]!.toEmails).toBeUndefined();
     expect(delivered[0]!.broadcastCategories).toBeUndefined();
   });
@@ -150,5 +150,23 @@ describe("owner messages", () => {
     ]);
     expect(JSON.stringify(conversations)).not.toContain("resident secret");
     expect(JSON.stringify(conversations)).not.toContain("manager's own copy");
+  });
+  it("reads the one-message rows the inbox writes per send (no participant_email, folder says the side)", async () => {
+    const db = makeFakeDb({
+      profiles: [
+        { id: OWNER, email: "dana@example.com", full_name: "Dana" },
+        { id: MANAGER, email: "manager@example.com", full_name: "Mgr" },
+      ],
+      portal_inbox_thread_records: [
+        { scope: "axis_portal_inbox_manager_v1", owner_user_id: OWNER, participant_email: null, created_at: "2026-10-01T10:00:00Z", row_data: { id: "s1", body: "Is the roof done?", email: "manager@example.com", folder: "sent" } },
+        { scope: "axis_portal_inbox_manager_v1", owner_user_id: OWNER, participant_email: null, created_at: "2026-10-01T11:00:00Z", row_data: { id: "i1", body: "Yes", email: "manager@example.com", folder: "inbox" } },
+        { scope: "axis_portal_inbox_manager_v1", owner_user_id: OWNER, participant_email: null, created_at: "2026-10-01T12:00:00Z", row_data: { id: "x1", body: "someone else", email: "resident@example.com", folder: "inbox" } },
+      ],
+    });
+    const conversations = await loadOwnerConversations(db, OWNER, grants(true, true));
+    expect(conversations[0]!.messages).toEqual([
+      { id: "s1", body: "Is the roof done?", at: "2026-10-01T10:00:00Z", fromMe: true },
+      { id: "i1", body: "Yes", at: "2026-10-01T11:00:00Z", fromMe: false },
+    ]);
   });
 });

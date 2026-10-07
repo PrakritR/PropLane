@@ -981,6 +981,14 @@ export async function deliverPortalInboxMessage(
      * the un-narrowed behaviour (a legacy row, or an unpartitioned account).
      */
     senderWorkspaceId?: string | null;
+    /**
+     * The caller already proved the recipient set from an authoritative grant
+     * (a Property owner writing to the manager of their OWN membership), so
+     * the sender-connection filter is skipped. The filter cannot see that
+     * connection by design: owner rows are not teammate rows. Never set this
+     * from request input.
+     */
+    recipientsAuthorizedByCaller?: boolean;
   },
 ): Promise<
   | { ok: true; recipientCount: number; emailOutcomes: InboxEmailOutcome[]; smsOutcomes: InboxSmsOutcome[] }
@@ -1039,7 +1047,10 @@ export async function deliverPortalInboxMessage(
   // sends are authored by managers or admins; an out-of-scope recipient is rejected
   // here too. Admins are unrestricted — fall back to the role-membership check
   // (mirrors send-inbox-message) since profiles.role may not literally be "admin".
-  const senderIsAdmin = senderRole === "admin" || (await userHoldsAdminRole(db, opts.senderUserId));
+  const senderIsAdmin =
+    opts.recipientsAuthorizedByCaller === true ||
+    senderRole === "admin" ||
+    (await userHoldsAdminRole(db, opts.senderUserId));
   if (!senderIsAdmin) {
     // Same narrowing the interactive route applies: the workspace this send
     // speaks for plus the houses the sender is granted.

@@ -43,15 +43,31 @@ export async function loadOwnerConversations(
     if (manager.email) {
       const { data, error } = await db
         .from("portal_inbox_thread_records")
-        .select("row_data")
+        .select("row_data, participant_email, created_at")
         .eq("scope", MANAGER_INBOX_SCOPE)
         .eq("owner_user_id", ownerUserId)
-        .ilike("participant_email", manager.email)
-        .limit(20);
+        .limit(200);
       if (error) throw new Error("Could not load messages.");
       for (const row of data ?? []) {
-        const list = (row.row_data as { messages?: unknown } | null)?.messages;
-        if (!Array.isArray(list)) continue;
+        const rowData = (row.row_data ?? {}) as { messages?: unknown; email?: unknown; body?: unknown; folder?: unknown; id?: unknown };
+        // Only the counterparty is this manager: the thread's participant, or (a
+        // one-message row the inbox writes per send) the address on the row.
+        const counterparty = String(row.participant_email ?? rowData.email ?? "").trim().toLowerCase();
+        if (counterparty !== manager.email) continue;
+        const list = rowData.messages;
+        if (!Array.isArray(list)) {
+          // One-message row: `folder` says which side wrote it.
+          const body = typeof rowData.body === "string" ? rowData.body : "";
+          if (body.trim()) {
+            messages.push({
+              id: String(rowData.id ?? ""),
+              body,
+              at: String(row.created_at ?? ""),
+              fromMe: rowData.folder === "sent",
+            });
+          }
+          continue;
+        }
         for (const raw of list) {
           const m = raw as { id?: unknown; body?: unknown; at?: unknown; outbound?: unknown; from?: unknown };
           const body = typeof m.body === "string" ? m.body : "";
@@ -107,6 +123,8 @@ export async function sendOwnerMessage(
     deliverViaEmail: false,
     deliverViaSms: false,
     senderRole: "manager",
+    // The manager comes from the owner's own membership, never the request.
+    recipientsAuthorizedByCaller: true,
   });
   if (!result.ok) throw new OwnerMessageError("Could not send your message.", 502);
 }
