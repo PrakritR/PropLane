@@ -7,6 +7,7 @@ import { CommunicationRowActions } from "@/components/portal/communication-row-a
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PenSquare } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
@@ -545,6 +546,8 @@ export function VendorCommunication({
       if (inboxRef.current || tries > 20) {
         inboxRef.current?.openCompose();
         clearInterval(timer);
+        // One-shot: consume the flag so the next New message click is a real URL change.
+        consumeComposeQueryParam();
       }
     }, 100);
     return () => clearInterval(timer);

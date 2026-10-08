@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { Archive, ArchiveRestore, Mail, MailOpen, MessageSquare, Phone, Trash2 } from "lucide-react";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { useSearchParams } from "next/navigation";
+import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
@@ -315,10 +316,13 @@ export const ResidentInboxPanel = forwardRef<
     // No property named (the sidebar's New message button): the same blank compose the panel's own button opens.
     if (!propertyId) {
       setComposeOpen(true);
+      consumeComposeQueryParam();
       return;
     }
     setComposeDraft(residentListingManagerMessageDraft(propertyId));
     setComposeOpen(true);
+    // One-shot: consume the flag so the next New message click is a real URL change.
+    consumeComposeQueryParam();
   }, [searchParams]);
 
   useEffect(() => {

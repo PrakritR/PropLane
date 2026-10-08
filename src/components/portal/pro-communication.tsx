@@ -5,6 +5,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { MessageSquarePlus } from "lucide-react";
 
 import { useSearchParams } from "next/navigation";
+import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
@@ -239,7 +240,10 @@ export function ManagerCommunication({
   // `?compose=1` (the sidebar's New message button) opens the same compose the + does.
   const wantsCompose = useSearchParams()?.get("compose") === "1";
   useEffect(() => {
-    if (wantsCompose) openCompose("email");
+    if (!wantsCompose) return;
+    openCompose("email");
+    // One-shot: consume the flag so the next New message click is a real URL change.
+    consumeComposeQueryParam();
     // Only the URL flag drives this; openCompose is stable per recipients loader.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantsCompose]);
