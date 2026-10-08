@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, FileCheck2, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { Building2, FileCheck2, MessageSquareText, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
@@ -11,6 +12,10 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { VendorWorkNumberSettings } from "@/components/portal/vendor-work-number-settings";
+import { CopyIconAction } from "@/components/portal/portal-icon-action";
+import { copyTextToClipboard } from "@/lib/manager-property-links";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { vendorSettingsHref } from "@/lib/portals/vendor-settings-pages";
 
 type OnboardingProfile = {
   businessName: string;
@@ -63,6 +68,8 @@ export function VendorOnboardingFlow() {
   const [zipsDraft, setZipsDraft] = useState("");
   const [licenseFile, setLicenseFile] = useState<File | null>(null);
   const [insuranceFile, setInsuranceFile] = useState<File | null>(null);
+  /** The number the server gave the vendor on Finish; set only when one was allocated. */
+  const [doneNumber, setDoneNumber] = useState<string | null>(null);
   const licenseInputRef = useRef<HTMLInputElement | null>(null);
   const insuranceInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -130,15 +137,27 @@ export function VendorOnboardingFlow() {
           insurancePolicyNumber: profile.insurancePolicyNumber,
           insuranceExpiresAt: profile.insuranceExpiresAt ?? null,
           directoryListed: profile.directoryListed,
+          ...(finish ? { finishOnboarding: true } : {}),
         }),
       });
-      const data = (await res.json()) as { profile?: OnboardingProfile; error?: string };
+      const data = (await res.json()) as {
+        profile?: OnboardingProfile;
+        error?: string;
+        workNumber?: { status?: string; phoneNumber?: string };
+      };
       if (!res.ok) throw new Error(data.error ?? "Could not save onboarding.");
       setLicenseFile(null);
       setInsuranceFile(null);
       if (data.profile) setProfile((cur) => ({ ...cur, ...data.profile }));
       showToast(finish ? "You're set up." : "Saved.");
-      if (finish) router.push("/vendor/dashboard");
+      if (finish) {
+        const allocated = data.workNumber?.phoneNumber;
+        if (allocated && (data.workNumber?.status === "provisioned" || data.workNumber?.status === "already")) {
+          setDoneNumber(allocated);
+        } else {
+          router.push("/vendor/dashboard");
+        }
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not save onboarding.");
     } finally {
@@ -148,6 +167,48 @@ export function VendorOnboardingFlow() {
 
   if (loading) {
     return <p className="px-4 py-8 text-sm text-muted">Loading…</p>;
+  }
+
+  if (doneNumber) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4 px-4 py-6 sm:px-0" data-attr="vendor-onboarding-done">
+        <h1 className="text-xl font-semibold text-foreground">You&apos;re set up</h1>
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4" data-attr="vendor-onboarding-done-number">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary" aria-hidden>
+            <MessageSquareText className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">Your work number</p>
+            <p className="text-sm text-muted" data-attr="vendor-onboarding-done-number-value">
+              {formatSmsPhoneLabel(doneNumber) ?? doneNumber}
+            </p>
+          </div>
+          <CopyIconAction
+            label="Copy work number"
+            onCopy={() => copyTextToClipboard(doneNumber).then((ok) => ok && showToast("Work number copied."))}
+            data-attr="vendor-onboarding-done-number-copy"
+          />
+        </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4" data-attr="vendor-onboarding-done-ai-info">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary" aria-hidden>
+            <Sparkles className="size-4" />
+          </span>
+          <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">AI info</p>
+          <Link
+            href={vendorSettingsHref("ai-info")}
+            className="text-sm font-semibold text-primary underline-offset-2 hover:underline"
+            data-attr="vendor-onboarding-done-ai-info-link"
+          >
+            Set up
+          </Link>
+        </div>
+        <div className="flex justify-end">
+          <Button type="button" onClick={() => router.push("/vendor/dashboard")} data-attr="vendor-onboarding-done-dashboard">
+            Go to dashboard
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (

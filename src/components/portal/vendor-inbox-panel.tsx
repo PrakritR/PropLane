@@ -926,6 +926,7 @@ export const VendorInboxPanel = forwardRef<
       return {
         id: m.id,
         automated: m.automated,
+        sentByAi: m.sentByAi,
         eventTitle: m.subject,
         author: m.from,
         body: fields.body,

@@ -249,6 +249,7 @@ or `src/lib/agent/`.
 | Vendor SMS | `buildVendorAgentContext` | `vendorWorkOrderAgentRegistry` | inbound webhook |
 | Prospect SMS | `buildLeasingSmsAgentContext` | `leasingSmsAgentRegistry` | inbound webhook |
 | Manager SMS | `resolveManagerSmsAgentContext` | `buildManagerSmsRegistry` | inbound webhook |
+| Vendor number AI | `buildVendorNumberAiContext` | `vendorNumberAiRegistry` | inbound webhook |
 
 Resident row scoping is not uniform: charges/leases have `resident_user_id` +
 `resident_email`; work orders/service requests have email only. Use the two

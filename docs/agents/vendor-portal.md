@@ -304,6 +304,21 @@ talked to, or get a numbered "Reply to" prompt. A number idle for 60 days is rel
 routing rules, cap, release and dry run: [`sms-system.md`](sms-system.md) § Vendor work number; the fee:
 [`financials.md`](financials.md) § PropLane service fee.
 
+### Number at signup, AI info, and the AI on the number (Oct 8)
+
+Finishing onboarding (`vendor-onboarding.tsx` Finish -> `PATCH /api/vendor/business-profile` with
+`finishOnboarding: true`) gives a vendor with a verified phone a number automatically, picked on the
+server near the phone's area code (`provisionVendorWorkNumberAtSignup`); the client never names a
+number. The response carries `workNumber`; when one was allocated the page shows "You're set up" with
+the number (copy icon) and an AI info "Set up" link, otherwise it goes to the dashboard and Settings >
+Work number & email keeps the picker. The whole path stays behind the existing vendor-number gates and
+enables nothing by itself. Settings > Business > **AI info** (`vendor-ai-info-settings.tsx`) holds
+Hours, Rates, How to book, Emergencies and Anything else (`vendor_business_profiles.ai_info` jsonb, five
+keys, 1000 characters each, validated in `parseVendorAiInfoPatch`; saved through the business-profile
+route with the service role pinned to the signed-in vendor), plus the read-only service area and trades.
+Texts from clients and residents to the number get an answer-only AI built from those answers; managers
+never do. Rules, limits and hand-off: [`sms-system.md`](sms-system.md) § Vendor-number AI.
+
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 
 **Connect account reuses the manager's column.** `profiles.stripe_connect_account_id`

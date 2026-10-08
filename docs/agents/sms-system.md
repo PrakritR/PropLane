@@ -1369,7 +1369,40 @@ before manager-number ownership; never spends credit; works with the SMS UI flag
   The held message is not kept: they resend with the number first. Nobody has ever texted
   the number -> a one-line notice. A routed reply leaves the vendor's number for the manager's
   line and is shown in the vendor's inbox as their own text.
-- From anyone else: stored, never forwarded.
+- From anyone else (a client, a resident, a stranger): stored, never forwarded, and answered
+  by the **vendor-number AI** (below) when the vendor wrote AI info.
+
+**Vendor-number AI (Oct 8, plan `vendor-work-number-ai-1008`).** After the text is stored,
+`ingestVendorWorkIdentitySms` returns `afterResponse` and `/api/twilio/inbound` runs it in
+`after()` (Twilio already has its TwiML). It is scheduled only when the sender is NOT a manager:
+`resolveOwnedWorkNumber(from)` finds no manager work line, the sender is not another vendor's
+number (two AIs would loop), not a `profiles` phone whose account holds a `manager`/`admin`
+role, the text is not empty, and the webhook is not a retry (`stored.action !== "skipped"`).
+An unreadable lookup means no AI. The turn (`runVendorNumberAiReply`,
+`src/lib/agent/vendor-number-ai.server.ts`) is answer-only: its own context
+(`VendorNumberAiContext`) and registry (`vendorNumberAiRegistry` = `get_vendor_info` +
+`handoff_to_vendor`, the one write, allowlisted), traced with `traceAgentTurn` stamped with the
+vendor's user id. It states only the vendor's business details plus
+`vendor_business_profiles.ai_info` (hours, rates, how_to_book, emergency, extra). A vendor with
+no AI info, no model key, or a model error gets nothing sent (the text is still in the inbox).
+The reply leaves through `deliverVendorWorkIdentity` from the vendor's own number (key
+`vendor-ai:<sid>`), so it counts against the monthly cap and respects STOP/opt-out/quiet-hour
+rules; a blocked send is not an error. Per-sender limit: 5 AI replies per hour, counted from
+`vendor_work_identity_outbox` (`vendor-ai:%` keys to that recipient, not blocked); the sixth is
+not sent and the vendor is notified instead. The first reply to a sender opens with
+"AI assistant for <business>:"; the inbox copy is stamped `sentByAi` ("Sent by AI").
+`handoff_to_vendor` writes an automated "Needs you" note in that inbox thread and, with
+forwarding on, texts the vendor's verified phone; it never texts the sender. STOP/START/HELP
+never reach this code (the webhook handles them first).
+
+**Number at signup.** `provisionVendorWorkNumberAtSignup`
+(`vendor-work-number-signup.server.ts`) runs when vendor onboarding is finished
+(`PATCH /api/vendor/business-profile` with `finishOnboarding`): a vendor with a verified phone and
+no number gets a local candidate searched on the server (verified phone's area code, else the first
+service zip), a server-minted claim, and `setupVendorWorkIdentity` under the idempotency key
+`signup:<userId>` (UUID v5). It takes no number from the client and soft-fails; every gate above
+(runtime switch, provider env, `SMS_PROVISIONING_ENABLED` or dry run, verified phone, one number
+per vendor, capacity) still applies, so with the vendor-number switch off it buys nothing.
 
 **Vendor -> manager line.** In the manager webhook, a sender that is a vendor's ready
 PropLane number is mapped to the vendor's roster phone for that workspace owner

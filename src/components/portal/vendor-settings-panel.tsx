@@ -17,6 +17,7 @@ import {
   Phone,
   Settings,
   ShieldCheck,
+  Sparkles,
   UserRound,
   Wrench,
   Zap,
@@ -66,6 +67,7 @@ import { DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, isDemoModeActive } from "@/lib/dem
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { VendorIntegrationsSettings } from "@/components/portal/vendor-integrations-settings";
 import { VendorWorkNumberSettings } from "@/components/portal/vendor-work-number-settings";
+import { VendorAiInfoPane } from "@/components/portal/vendor-ai-info-settings";
 
 const SETTINGS_TAB_PARAM = "tab";
 
@@ -87,6 +89,7 @@ const VENDOR_SETTINGS_PAGE_ICONS: Record<VendorSettingsPageId, ComponentType<{ c
   business: Building2,
   capabilities: Wrench,
   licenses: ShieldCheck,
+  "ai-info": Sparkles,
   integrations: CalendarSync,
   payouts: Landmark,
   invoicing: FileText,
@@ -444,6 +447,8 @@ export function VendorSettingsPanel() {
         );
       case "licenses":
         return <VendorLicensesInsurancePane ctx={business} />;
+      case "ai-info":
+        return <VendorAiInfoPane ctx={business} />;
       case "invoicing":
         return <VendorInvoicingSettings />;
       case "quick-replies":

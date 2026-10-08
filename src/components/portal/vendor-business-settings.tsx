@@ -27,6 +27,7 @@ import {
   type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
 import type { VendorWorkIdentityResponse } from "@/lib/vendor-work-identity";
+import type { VendorAiInfo } from "@/lib/vendor-ai-info";
 
 /** Section-title badge, matching `PortalSettingsAutosaveField`'s own indicator styling. */
 export function SectionSaveBadge({ state }: { state: PortalSettingsSaveState }) {
@@ -62,6 +63,9 @@ export type VendorBusinessProfileView = {
   insurancePolicyNumber: string;
   /** ISO date (yyyy-mm-dd), or "" when none. */
   insuranceExpiresAt: string;
+  /** Read-only here: the trades picker lives on Trades & service area. */
+  trades?: string[];
+  aiInfo?: VendorAiInfo;
 };
 
 export type VendorWorkspaceAccessView = {
