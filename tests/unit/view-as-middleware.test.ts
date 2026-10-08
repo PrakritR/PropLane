@@ -79,6 +79,20 @@ describe("middleware read-only guard while viewing as", () => {
     expect(await res.json()).toEqual({ error: "read_only_view_as" });
   });
 
+  it("refuses a CSV / PDF download asked for by a query parameter, but not the JSON read", async () => {
+    const good = await signViewAsToken(payload(), SECRET);
+    for (const path of [
+      "/api/vendor/payouts/statement?format=csv",
+      "/api/reports/property-worksheet?period=2026-10&format=pdf",
+    ]) {
+      const res = await middleware(await request("GET", path, good));
+      expect(res.status, path).toBe(403);
+      expect(await res.json()).toEqual({ error: "read_only_view_as" });
+    }
+    const allowed = await middleware(await request("GET", "/api/vendor/payouts/statement?summary=1", good));
+    expect(allowed.status).not.toBe(403);
+  });
+
   it("vendor sessions are read-only too", async () => {
     const good = await signViewAsToken(payload({ portal: "vendor" }), SECRET);
     const res = await middleware(await request("POST", "/api/vendor/invoices", good));
