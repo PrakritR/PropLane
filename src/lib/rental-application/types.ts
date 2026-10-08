@@ -1,6 +1,7 @@
 import type { ManagerCustomApplicationFieldType } from "@/lib/manager-listing-submission";
 
-export const RENTAL_WIZARD_STEP_COUNT = 11;
+/** Your lease, About you, Where you live, Work and income, References, More details, Review sign and pay. */
+export const RENTAL_WIZARD_STEP_COUNT = 7;
 
 export { RENTAL_WIZARD_STEP_SCHEMA } from "./wizard-step-schema";
 

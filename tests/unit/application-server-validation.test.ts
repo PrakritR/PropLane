@@ -94,7 +94,7 @@ describe("the submit paths use it", () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
 
-    const REVIEW_STEP = 10;
+    const REVIEW_STEP = 7;
     expect(SUBMIT_VALIDATION_STEPS).toContain(REVIEW_STEP);
 
     const wizard = readFileSync(

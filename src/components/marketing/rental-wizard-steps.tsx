@@ -1,7 +1,7 @@
 "use client";
 
-import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
-import { Children, Fragment, isValidElement, type ReactNode } from "react";
+import { applicationRentalTypeFor, leaseTermDisplayLabel } from "@/lib/rental-application/lease-terms";
+import { Children, Fragment, isValidElement, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -37,15 +37,24 @@ import {
   listingOfferedLeaseTerms,
   roomSelectOptionsWithNone,
 } from "@/lib/rental-application/data";
-import { addMonthsToDateString, longTermLengthFor } from "@/lib/rental-application/long-term-length";
-import { LONG_TERM_LEASE_TERM, sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
+import { addMonthsToDateString } from "@/lib/rental-application/long-term-length";
+import { sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import {
-  APPLICANT_TERM_PLACEHOLDER,
-  applicantChoiceFromStored,
-  applicantTermOptions,
-  storedTermForApplicant,
-  type ApplicantTerm,
-} from "@/lib/rental-application/applicant-lease-term";
+  CUSTOM_DATES_LENGTH_VALUE,
+  effectiveLeaseKind,
+  leaseKindPatch,
+  leaseKindsOffered,
+  leaseLengthLabel,
+  lengthPatch,
+  lengthValueFromForm,
+  longTermLengthOptions,
+  monthsOfLengthValue,
+  showLeaseKindToggle,
+  defaultStoredTermForKind,
+  type LeaseKind,
+} from "@/lib/rental-application/lease-choice";
+import { previousAddressApplies } from "@/lib/rental-application/previous-address";
+import { RENTAL_WIZARD_STEP_COUNT } from "@/lib/rental-application/types";
 import {
   applicantListingQuote,
   formatQuoteMoney,
@@ -178,6 +187,12 @@ export type WizardStepsProps = {
   };
   /** Manager id resolved from the server fee preview when the browser catalog missed it. */
   resolvedManagerUserId?: string;
+  /**
+   * Every answer and the signature are valid, so the card form may open. Defaults to true; the wizard turns
+   * it off on the last step until the application could be submitted, so a fee is never paid for an
+   * application the server would then refuse.
+   */
+  paymentReady?: boolean;
   /** Waiver-code entry (a named part of the fee step, not a buried field). */
   waiverCodeBusy?: boolean;
   waiverCodeError?: string | null;
@@ -243,9 +258,11 @@ function ReviewSection({
     <section className="rounded-2xl border border-border bg-accent/30 p-5">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">{title}</h3>
-        <button type="button" onClick={() => onEdit(stepTarget)} className="shrink-0 text-sm font-semibold text-primary hover:underline">
-          Edit
-        </button>
+        {stepTarget < RENTAL_WIZARD_STEP_COUNT ? (
+          <button type="button" onClick={() => onEdit(stepTarget)} className="shrink-0 text-sm font-semibold text-primary hover:underline">
+            Edit
+          </button>
+        ) : null}
       </div>
       <dl className="mt-4 space-y-3 text-sm">{children}</dl>
     </section>
@@ -357,9 +374,316 @@ function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: L
   );
 }
 
+type LeaseTypeAndDatesProps = {
+  form: RentalWizardFormState;
+  errors: RentalWizardErrors;
+  patch: (p: Partial<RentalWizardFormState>) => void;
+  /** The property's OFFERED stored terms (plus the one already chosen, so a resumed answer stays selectable). */
+  offeredStored: readonly string[];
+  fixedLengths: readonly number[];
+  showTermQuestion: boolean;
+  showDatesQuestion: boolean;
+  termQuestionId?: string;
+  termLabel: string;
+  termRequired?: boolean;
+  startLabel: string;
+  startRequired?: boolean;
+  /** Writes a stored term with everything that follows from it (stay type, bundle, room slot) and `extra`. */
+  onTerm: (storedTerm: string, extra?: Partial<RentalWizardFormState>) => void;
+  shortStayCard: ReactNode;
+  houseRulesAck: string;
+  availabilityNotes: ReactNode;
+};
+
+/**
+ * "Your lease": the Long-term / Short-term toggle and exactly the date fields that type needs.
+ *
+ *   Long-term   Move-in, Length (the property's fixed lengths, Custom dates, Month-to-month when offered) and,
+ *               for Custom dates, a Move-out date.
+ *   Short-term  Check-in, check-out, the times and the house-rules acknowledgement.
+ *
+ * A property that offers one side only shows no toggle. Switching sides keeps the property and rooms and
+ * clears only the dates.
+ */
+function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
+  const { form, errors, patch, offeredStored, fixedLengths, onTerm } = props;
+  // "Custom dates" is a choice before it is a date, so it is remembered here (per property) until a move-out
+  // date is typed; everything else is read back from the stored term and dates.
+  const [customFor, setCustomFor] = useState("");
+  const kind = effectiveLeaseKind(form, offeredStored);
+  const toggle = showLeaseKindToggle(offeredStored);
+  const lengthOptions = longTermLengthOptions(offeredStored, fixedLengths);
+  const soleLength = lengthOptions.length === 1 ? lengthOptions[0]!.value : "";
+  const lengthValue =
+    lengthValueFromForm(form, fixedLengths, customFor === form.propertyId && form.propertyId !== "") || soleLength;
+  const needsMoveOut = lengthValue === CUSTOM_DATES_LENGTH_VALUE;
+  const shortForm = form.rentalType === "short_term";
+
+  const pickKind = (next: LeaseKind) => {
+    if (next === kind) return;
+    setCustomFor("");
+    const patchForKind = leaseKindPatch(next, offeredStored);
+    onTerm(patchForKind.leaseTerm, { leaseStart: patchForKind.leaseStart, leaseEnd: patchForKind.leaseEnd });
+  };
+
+  const pickLength = (value: string) => {
+    setCustomFor(value === CUSTOM_DATES_LENGTH_VALUE ? form.propertyId : "");
+    if (!value) {
+      onTerm(defaultStoredTermForKind("long", offeredStored), { leaseEnd: "" });
+      return;
+    }
+    const next = lengthPatch(value, offeredStored, form.leaseStart);
+    onTerm(next.leaseTerm, {
+      leaseEnd: value === CUSTOM_DATES_LENGTH_VALUE ? form.leaseEnd : next.leaseEnd,
+    });
+  };
+
+  /** A link or draft that arrives with no stored term starts on its side's term the moment a date is typed. */
+  const pickStart = (next: string) => {
+    if (kind && !form.leaseTerm.trim()) {
+      onTerm(defaultStoredTermForKind(kind, offeredStored), { leaseStart: next });
+      return;
+    }
+    const months = monthsOfLengthValue(lengthValue);
+    patch(months ? { leaseStart: next, leaseEnd: addMonthsToDateString(next, months) } : { leaseStart: next });
+  };
+
+  return (
+    <div className="space-y-6">
+      {props.showTermQuestion && toggle ? (
+        <div className="space-y-2" data-wizard-field="leaseTerm" data-application-question-id={props.termQuestionId}>
+          <Label required={props.termRequired}>{props.termLabel}</Label>
+          <div role="radiogroup" aria-label={props.termLabel} className={groupRoleStack}>
+            {(["long", "short"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={kind === option}
+                className={kind === option ? choiceActive : choiceIdle}
+                data-attr={`rental-wizard-lease-kind-${option}`}
+                onClick={() => pickKind(option)}
+              >
+                {option === "long" ? "Long-term" : "Short-term"}
+              </button>
+            ))}
+          </div>
+          <FieldError msg={errors.leaseTerm} />
+        </div>
+      ) : errors.leaseTerm ? (
+        <div data-wizard-field="leaseTerm">
+          <FieldError msg={errors.leaseTerm} />
+        </div>
+      ) : null}
+
+      {kind === "short" ? props.shortStayCard : null}
+
+      {props.showDatesQuestion && kind === "long" ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="leaseStart" required={props.startRequired}>{props.startLabel}</Label>
+            <DateField
+              id="leaseStart"
+              min="2020-01-01"
+              max="2035-12-31"
+              value={form.leaseStart}
+              onChange={pickStart}
+              className={errors.leaseStart ? "border-red-400 ring-2 ring-red-100" : ""}
+            />
+            <FieldError msg={errors.leaseStart} />
+          </div>
+          {lengthOptions.length > 1 ? (
+            <div className="space-y-2" data-wizard-field="longTermLength">
+              <Label htmlFor="longTermLength" required>Length</Label>
+              <Select
+                id="longTermLength"
+                value={lengthValue}
+                onChange={(e) => pickLength(e.target.value)}
+                className={errors.leaseEnd && !needsMoveOut ? "border-red-400 ring-2 ring-red-100" : ""}
+              >
+                <option value="">Pick a length…</option>
+                {lengthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              {!needsMoveOut ? <FieldError msg={errors.leaseEnd ? "Pick a lease length." : undefined} /> : null}
+            </div>
+          ) : null}
+          {needsMoveOut ? (
+            <div className="space-y-2" data-wizard-field="leaseEnd">
+              <Label htmlFor="leaseEnd" required>Move-out date</Label>
+              <DateField
+                id="leaseEnd"
+                min="2020-01-01"
+                max="2040-12-31"
+                value={form.leaseEnd}
+                onChange={(next) => patch({ leaseEnd: next })}
+                className={errors.leaseEnd ? "border-red-400 ring-2 ring-red-100" : ""}
+              />
+              <FieldError msg={errors.leaseEnd} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {props.showDatesQuestion && kind === "short" ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="leaseStart" required={props.startRequired}>Check-in date</Label>
+            <DateField
+              id="leaseStart"
+              min="2020-01-01"
+              max="2035-12-31"
+              value={form.leaseStart}
+              onChange={pickStart}
+              className={errors.leaseStart ? "border-red-400 ring-2 ring-red-100" : ""}
+            />
+            <FieldError msg={errors.leaseStart} />
+          </div>
+          <div className="space-y-2" data-wizard-field="leaseEnd">
+            <Label htmlFor="leaseEnd" required>Check-out date</Label>
+            <DateField
+              id="leaseEnd"
+              min="2020-01-01"
+              max="2040-12-31"
+              value={form.leaseEnd}
+              onChange={(next) => patch({ leaseEnd: next })}
+              className={errors.leaseEnd ? "border-red-400 ring-2 ring-red-100" : ""}
+            />
+            <FieldError msg={errors.leaseEnd} />
+          </div>
+        </div>
+      ) : null}
+
+      {kind ? props.availabilityNotes : null}
+
+      {shortForm ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="shortTermCheckInTime" required>
+              Check-in time
+            </Label>
+            <Input
+              id="shortTermCheckInTime"
+              type="time"
+              value={form.shortTermCheckInTime}
+              onChange={(e) => patch({ shortTermCheckInTime: e.target.value })}
+              className={errors.shortTermCheckInTime ? "border-red-400 ring-2 ring-red-100" : ""}
+            />
+            <FieldError msg={errors.shortTermCheckInTime} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="shortTermCheckOutTime" required>
+              Check-out time
+            </Label>
+            <Input
+              id="shortTermCheckOutTime"
+              type="time"
+              value={form.shortTermCheckOutTime}
+              onChange={(e) => patch({ shortTermCheckOutTime: e.target.value })}
+              className={errors.shortTermCheckOutTime ? "border-red-400 ring-2 ring-red-100" : ""}
+            />
+            <FieldError msg={errors.shortTermCheckOutTime} />
+          </div>
+        </div>
+      ) : null}
+
+      {shortForm ? (
+        <label
+          className="flex items-start gap-3 rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground"
+          htmlFor="shortTermRulesAck"
+          data-wizard-field="shortTermRulesAck"
+        >
+          <input
+            id="shortTermRulesAck"
+            type="checkbox"
+            checked={form.shortTermRulesAck}
+            onChange={(e) => patch({ shortTermRulesAck: e.target.checked })}
+            className="mt-1 h-4 w-4 shrink-0"
+            data-attr="short-term-rules-ack"
+          />
+          <span>
+            {props.houseRulesAck}
+            {errors.shortTermRulesAck ? (
+              <span className="mt-1 block text-red-500">{errors.shortTermRulesAck}</span>
+            ) : null}
+          </span>
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * One screen of the 7-step application: the sections it holds, stacked. The body components below are written
+ * per SECTION (the pieces the 11-step application had as screens); a step composes them.
+ *
+ *   1 Your lease              property, Long-term or Short-term, dates, rooms, what you pay, household
+ *   2 About you               signer information
+ *   3 Where you live          current address, and the previous address when the current one is under 2 years
+ *   4 Work and income         5 References   6 More details
+ *   7 Review, sign and pay    summary with Edit links, consent and signature, then the fee (none: Submit)
+ */
 export function RentalWizardStepBody(p: WizardStepsProps) {
+  const { step, form, mode = "public" } = p;
+  const section = (n: number) => <RentalWizardSectionBody {...p} section={n} />;
+  if (step === 1) return section(1);
+  if (step === 2) return section(2);
+  if (step === 3) {
+    // Questions the template turned off leave no section to show; no previous address is asked of someone
+    // who has lived at the current one for two years or more.
+    const listing = getPropertyById(form.propertyId)?.listingSubmission;
+    const config = p.applicationConfigOverride ?? applicationConfigForApplicant(
+      listing?.v === 1 ? listing : undefined,
+      applicationRentalTypeFor(form.rentalType),
+      form.applicationTemplateId,
+      form.applicationTemplateVersion,
+    ).config;
+    const asksPrevious = resolveListingApplicationFields(config, normalizeCustomApplicationFields)
+      .some((field) => field.section === "previous_address");
+    if (!asksPrevious || !previousAddressApplies(form)) return section(4);
+    return (
+      <div className="space-y-8">
+        <SectionHeading>Current address</SectionHeading>
+        {section(4)}
+        <SectionHeading>Previous address</SectionHeading>
+        {section(5)}
+      </div>
+    );
+  }
+  if (step === 4) return section(6);
+  if (step === 5) return section(7);
+  if (step === 6) return section(8);
+  if (step === 7) {
+    // A manager filling the form on someone's behalf, and an applicant editing a submitted application, never
+    // pay here: the fee belongs to the applicant's own submit.
+    const asksFee = mode !== "manager" && mode !== "editor";
+    return (
+      <div className="space-y-10">
+        <div className="space-y-4">
+          <SectionHeading>Review</SectionHeading>
+          {section(10)}
+        </div>
+        <div className="space-y-4">
+          <SectionHeading>Consent and signature</SectionHeading>
+          {section(9)}
+        </div>
+        {asksFee ? section(11) : null}
+      </div>
+    );
+  }
+  return null;
+}
+
+function SectionHeading({ children }: { children: ReactNode }) {
+  return <h3 className="text-base font-bold tracking-tight text-foreground">{children}</h3>;
+}
+
+function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
   const {
-    step,
+    section: step,
     form,
     errors,
     mode = "public",
@@ -374,6 +698,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     waiverCodeError,
     onApplyWaiverCode,
     applyReturnPath,
+    paymentReady = true,
     resolvedManagerUserId = "",
     onEnsureApplicationId,
     savedApplicationId = "",
@@ -418,22 +743,22 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   const photosReadOnly = mode === "editor";
   const getApplicationId = p.getApplicationId ?? (() => form.email.trim().toLowerCase() || "");
 
-  // Manager custom questions render inside their configured section's step
-  // (untagged → step 8, `DEFAULT_CUSTOM_FIELD_SECTION_ID`).
+  // Manager custom questions render inside their configured section (untagged → More details,
+  // `DEFAULT_CUSTOM_FIELD_SECTION_ID`). Most sections ask theirs inline, in the manager's order. The
+  // household, property and review sections have no inline slot, so they are asked in this block at the
+  // end of their screen.
   //
-  // The range must cover EVERY step a section can map to — `household` is step 1
-  // and `review` is step 10, and both were outside the old 2–9 window. Validation
-  // has no such window: `validateRentalWizardStep` asks for the answer on
-  // whatever step the question is tagged to, so a required question in either
-  // section made Continue do nothing at all, with no field on screen to fix and
-  // no error text anywhere (the household step is the FIRST one, so an
-  // application could not be started or edited past it).
-  const stepManagerQuestions = (() => {
-    if (!CUSTOM_QUESTION_WIZARD_STEPS.has(step)) return null;
+  // Validation has no such limit: `validateRentalWizardStep` asks for the answer on whatever step the
+  // question is tagged to, so a required question in a section that rendered nowhere made Continue do
+  // nothing at all, with no field on screen to fix and no error text anywhere.
+  const managerQuestionsBlock = (sections: readonly string[]) => {
+    const wizardStep = applicationWizardStepForSection(sections[0]);
+    if (!CUSTOM_QUESTION_WIZARD_STEPS.has(wizardStep)) return null;
     const stepProp = getPropertyById(form.propertyId);
     const fields = customFieldsForWizardStep(
       listingCustomApplicationFields(applicationConfig),
-      step,
+      wizardStep,
+      { onlySections: sections },
     ).filter((field) => !isCustomFieldHiddenByCondition(field, form.customFieldAnswers));
     if (fields.length === 0) return null;
     return (
@@ -461,7 +786,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         ))}
       </div>
     );
-  })();
+  };
 
   const autofillBanner =
     savedAutofillAvailable && onApplySavedAutofill && step === 2 ? (
@@ -509,10 +834,19 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
       chosenLeaseTerm && !offeredLeaseTerms.includes(chosenLeaseTerm)
         ? sortLeaseTermsCanonical([...offeredLeaseTerms, chosenLeaseTerm])
         : offeredLeaseTerms;
-    const applicantTermChoices = applicantTermOptions(offeredStored);
-    const applicantChoice = applicantChoiceFromStored(form.leaseTerm);
-    /** Writes the STORED term the applicant's pick translates to, with everything that follows from it. */
-    const applyStoredLeaseTerm = (v: string) => {
+    const longTermLengths = form.propertyId.trim() ? listingLongTermLengths(form.propertyId) : [];
+    const room1ApprovedConflict = form.roomChoice1
+      ? isRoomApprovedConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
+      : false;
+    const room1PendingConflict = !room1ApprovedConflict && form.roomChoice1
+      ? isRoomPendingConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
+      : false;
+    /**
+     * Writes the STORED term the applicant's pick translates to, with everything that follows from it.
+     * `extra` carries what rides along with the pick: the dates a Long/Short switch clears, or the end
+     * date a Length produces.
+     */
+    const applyStoredLeaseTerm = (v: string, extra: Partial<RentalWizardFormState> = {}) => {
       // The single dropdown carries short-term as one option; rentalType is
       // derived from the choice so the two can never contradict each other.
       const rentalType = v === SHORT_TERM_LEASE_TERM ? "short_term" : "standard";
@@ -528,22 +862,14 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             leaseTerm: v,
           })
         : {};
-      patch(
-        v === "Month-to-Month"
-          ? {
-              leaseTerm: v,
-              leaseEnd: "",
-              rentalType,
-              ...(keepBundle ? {} : { bundleId: "" }),
-              ...slotPatch,
-            }
-          : {
-              leaseTerm: v,
-              rentalType,
-              ...(keepBundle ? {} : { bundleId: "" }),
-              ...slotPatch,
-            },
-      );
+      patch({
+        leaseTerm: v,
+        ...(v === "Month-to-Month" ? { leaseEnd: "" } : {}),
+        rentalType,
+        ...(keepBundle ? {} : { bundleId: "" }),
+        ...slotPatch,
+        ...extra,
+      });
     };
     /**
      * The ranked 1st/2nd/3rd choices offer only rooms that are ACTUALLY
@@ -649,14 +975,21 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 ? roomSelectOptionsWithNone(pid, { includeUnavailable: true }).filter((o) => o.value !== "")
                 : [];
               const autoRoom = isEntire ? pid : wholeUnit && unitOpts.length <= 1 ? (unitOpts[0]?.value ?? pid) : "";
+              // A property that offers only one side (long-term only, or short stays only) has nothing to
+              // toggle: start on its term, as the link prefill does for a sole term.
+              const pickedOffered = pid ? listingOfferedLeaseTerms(pid) : [];
+              const pickedKinds = leaseKindsOffered(pickedOffered);
+              const soleKind: LeaseKind | null =
+                pickedKinds.long && !pickedKinds.short ? "long" : pickedKinds.short && !pickedKinds.long ? "short" : null;
+              const prefill = pid && soleKind ? leaseKindPatch(soleKind, pickedOffered) : null;
               patch({
                 propertyId: pid,
                 bundleId: "",
                 roomChoice1: autoRoom,
                 roomChoice2: "",
                 roomChoice3: "",
-                leaseTerm: "",
-                rentalType: "standard",
+                leaseTerm: prefill?.leaseTerm ?? "",
+                rentalType: prefill?.rentalType ?? "standard",
                 residentSlot: undefined,
                 managerRentOverride: "",
                 managerUtilitiesOverride: "",
@@ -674,38 +1007,26 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         </div>
         </WizardFieldGate>
 
-        <WizardFieldGate fieldKey="leaseTerm" enabled={showWizardField}>
-        <div className="space-y-2" data-wizard-field="leaseTerm" data-application-question-id={termQuestion?.id}>
-          <Label htmlFor="leaseTerm" required={termQuestion?.required}>{termQuestion?.label ?? "Lease term"}</Label>
-          {/*
-            ONE select, listing only the lease types the property enabled (Long-term, Short-term, Custom,
-            Month-to-month). The stored `leaseTerm` is translated at this edge (`applicant-lease-term.ts`);
-            the dates step then asks for exactly what the type needs.
-          */}
-          <Select
-            id="leaseTerm"
-            value={applicantChoice}
-            onChange={(e) => {
-              const picked = e.target.value as ApplicantTerm | "";
-              if (!picked) {
-                applyStoredLeaseTerm("");
-                return;
-              }
-              applyStoredLeaseTerm(
-                storedTermForApplicant({ offered: offeredStored, term: picked }),
-              );
-            }}
-            className={errors.leaseTerm ? "border-red-400 ring-2 ring-red-100" : ""}
-          >
-            <option value="">{APPLICANT_TERM_PLACEHOLDER}</option>
-            {applicantTermChoices.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-          <FieldError msg={errors.leaseTerm} />
-          {form.rentalType === "short_term" ? (
+        {/*
+          Lease type and dates in one block: a Long-term / Short-term toggle (only when the property offers
+          both), then exactly the fields that type needs. The stored `leaseTerm` is translated at this edge
+          (`lease-choice.ts`), so leases, pricing and existing applications read the same.
+        */}
+        <LeaseTypeAndDates
+          form={form}
+          errors={errors}
+          patch={patch}
+          offeredStored={offeredStored}
+          fixedLengths={longTermLengths}
+          showTermQuestion={showWizardField("leaseTerm")}
+          showDatesQuestion={showWizardField("leaseStart")}
+          termQuestionId={termQuestion?.id}
+          termLabel={termQuestion?.label ?? "Lease term"}
+          termRequired={termQuestion?.required}
+          startLabel={pairedInputLabel(datesQuestion, "Move-in date")}
+          startRequired={datesQuestion?.required}
+          onTerm={applyStoredLeaseTerm}
+          shortStayCard={
             <div className="rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground">
               <p>
                 Daily cost: <span className="font-semibold">{selectedProperty?.listingSubmission?.shortTermDailyCost || "Set by host"}</span>
@@ -716,9 +1037,29 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 <p className="mt-1 text-muted">{selectedProperty.listingSubmission.shortTermRequirements.trim()}</p>
               ) : null}
             </div>
-          ) : null}
-        </div>
-        </WizardFieldGate>
+          }
+          houseRulesAck={
+            selectedProperty?.listingSubmission?.shortTermRequirements?.trim()
+              ? "I have read and agree to follow the host's house rules for this short-term stay shown above."
+              : "I have read and agree to follow the host's house rules for this short-term stay."
+          }
+          availabilityNotes={
+            <>
+              {showAvailabilityWarnings && showWizardField("roomChoice1") && room1ApprovedConflict ? (
+                <p className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
+                  This room is not available for your selected dates. Choose another room or adjust your move-in dates before
+                  applying.
+                </p>
+              ) : null}
+              {showAvailabilityWarnings && showWizardField("roomChoice1") && !room1ApprovedConflict && room1PendingConflict ? (
+                <p className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
+                  Warning: someone else has already applied for your first-choice room on these dates, but you can still submit this
+                  application.
+                </p>
+              ) : null}
+            </>
+          }
+        />
 
         {bundleOptions.length > 0 ? (
           <div className="space-y-2" data-wizard-field="bundleId">
@@ -1171,146 +1512,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           ))}
         </div>
 
-        {stepManagerQuestions}
-      </div>
-    );
-  }
-
-  if (step === 3) {
-    void occupancySyncEpoch;
-    const selectedProperty = getPropertyById(form.propertyId);
-    const datesQuestion = standardQuestion("property", "leaseStart");
-    const longTermLengths = form.propertyId.trim() ? listingLongTermLengths(form.propertyId) : [];
-    const room1ApprovedConflict = form.roomChoice1
-      ? isRoomApprovedConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
-      : false;
-    const room1PendingConflict = !room1ApprovedConflict && form.roomChoice1
-      ? isRoomPendingConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
-      : false;
-    return (
-      <div className="space-y-8">
-        <WizardFieldGate fieldKey="leaseStart" enabled={showWizardField}>
-        <div className={form.leaseTerm === "Month-to-Month" ? "space-y-2" : "grid gap-4 sm:grid-cols-2"}>
-          <div className="space-y-2">
-            <Label htmlFor="leaseStart" required={datesQuestion?.required}>{pairedInputLabel(datesQuestion, form.rentalType === "short_term" ? "Check-in date" : "Lease start date")}</Label>
-            <DateField
-              id="leaseStart"
-              min="2020-01-01"
-              max="2035-12-31"
-              value={form.leaseStart}
-              onChange={(next) => patch({ leaseStart: next })}
-              className={errors.leaseStart ? "border-red-400 ring-2 ring-red-100" : ""}
-            />
-            <FieldError msg={errors.leaseStart} />
-          </div>
-          {form.leaseTerm === LONG_TERM_LEASE_TERM && longTermLengths.length > 0 ? (
-            <div className="space-y-2" data-wizard-field="longTermLength">
-              <Label htmlFor="longTermLength">Lease length</Label>
-              <Select
-                id="longTermLength"
-                value={longTermLengthFor(form.leaseStart, form.leaseEnd, longTermLengths)}
-                onChange={(e) => {
-                  const months = Number(e.target.value);
-                  if (!months || !form.leaseStart) return;
-                  patch({ leaseEnd: addMonthsToDateString(form.leaseStart, months) });
-                }}
-              >
-                <option value="">Pick a length…</option>
-                {longTermLengths.map((months) => (
-                  <option key={months} value={String(months)}>
-                    {months} months
-                  </option>
-                ))}
-              </Select>
-              <p className="text-xs text-muted">The manager offers these lengths; picking one fills the end date from your move-in date.</p>
-            </div>
-          ) : null}
-          {form.leaseTerm !== "Month-to-Month" ? (
-            <div className="space-y-2">
-              <Label htmlFor="leaseEnd" required>
-                {form.rentalType === "short_term" ? "Check-out date" : "Lease end date"}
-              </Label>
-              <DateField
-                id="leaseEnd"
-                min="2020-01-01"
-                max="2040-12-31"
-                value={form.leaseEnd}
-                onChange={(next) => patch({ leaseEnd: next })}
-                className={errors.leaseEnd ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.leaseEnd} />
-            </div>
-          ) : null}
-        </div>
-        </WizardFieldGate>
-        {showAvailabilityWarnings && showWizardField("roomChoice1") && room1ApprovedConflict ? (
-          <p className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
-            This room is not available for your selected dates. Choose another room or adjust your move-in dates before
-            applying.
-          </p>
-        ) : null}
-        {showAvailabilityWarnings && showWizardField("roomChoice1") && !room1ApprovedConflict && room1PendingConflict ? (
-          <p className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
-            Warning: someone else has already applied for your first-choice room on these dates, but you can still submit this
-            application.
-          </p>
-        ) : null}
-        {form.rentalType === "short_term" ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="shortTermCheckInTime" required>
-                Check-in time
-              </Label>
-              <Input
-                id="shortTermCheckInTime"
-                type="time"
-                value={form.shortTermCheckInTime}
-                onChange={(e) => patch({ shortTermCheckInTime: e.target.value })}
-                className={errors.shortTermCheckInTime ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.shortTermCheckInTime} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="shortTermCheckOutTime" required>
-                Check-out time
-              </Label>
-              <Input
-                id="shortTermCheckOutTime"
-                type="time"
-                value={form.shortTermCheckOutTime}
-                onChange={(e) => patch({ shortTermCheckOutTime: e.target.value })}
-                className={errors.shortTermCheckOutTime ? "border-red-400 ring-2 ring-red-100" : ""}
-              />
-              <FieldError msg={errors.shortTermCheckOutTime} />
-            </div>
-          </div>
-        ) : null}
-
-        {form.rentalType === "short_term" ? (
-          <label
-            className="flex items-start gap-3 rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground"
-            htmlFor="shortTermRulesAck"
-          >
-            <input
-              id="shortTermRulesAck"
-              type="checkbox"
-              checked={form.shortTermRulesAck}
-              onChange={(e) => patch({ shortTermRulesAck: e.target.checked })}
-              className="mt-1 h-4 w-4 shrink-0"
-              data-attr="short-term-rules-ack"
-            />
-            <span>
-              {`I have read and agree to follow the host's house rules for this short-term stay${
-                selectedProperty?.listingSubmission?.shortTermRequirements?.trim() ? " shown above" : ""
-              }.`}
-              {errors.shortTermRulesAck ? (
-                <span className="mt-1 block text-red-500">{errors.shortTermRulesAck}</span>
-              ) : null}
-            </span>
-          </label>
-        ) : null}
-
-        {stepManagerQuestions}
+        {managerQuestionsBlock(["household", "property"])}
       </div>
     );
   }
@@ -1492,7 +1694,17 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="currentMoveIn" required={dates?.required}>{pairedInputLabel(dates, "Current move-in date")}</Label>
-            <DateField id="currentMoveIn" value={form.currentMoveIn} onChange={(next) => patch({ currentMoveIn: next })} />
+            <DateField
+              id="currentMoveIn"
+              value={form.currentMoveIn}
+              onChange={(next) => {
+                // Two years or more at this address: no previous address is asked, and the stored answer says so
+                // for the review, the PDF and the manager. Crossing back under two years asks it again.
+                const asked = previousAddressApplies(form);
+                const willAsk = previousAddressApplies({ currentMoveIn: next });
+                patch(asked === willAsk ? { currentMoveIn: next } : { currentMoveIn: next, noPreviousAddress: !willAsk });
+              }}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="currentMoveOut" optional>
@@ -1962,11 +2174,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const showHouseholdReview = showCosignerReview || showGroupReview;
     const reviewGroupQuestion = standardQuestion("household", "applyingAsGroup");
     const reviewCosignerQuestion = standardQuestion("household", "hasCosigner");
+    const reviewIsShort = effectiveLeaseKind(form, form.propertyId.trim() ? listingOfferedLeaseTerms(form.propertyId) : []) === "short";
+    const reviewLengthLabel = reviewIsShort
+      ? ""
+      : leaseLengthLabel(form, form.propertyId.trim() ? listingLongTermLengths(form.propertyId) : []);
     return (
       <div className="space-y-8">
-        <div>
-          <StepIntro>Confirm everything below, then continue to the application fee step.</StepIntro>
-        </div>
         <div className="space-y-4" data-jr-review-answers>
           {showHouseholdReview ? (
             <ReviewSection title="Household application" stepTarget={1} onEdit={editFromReview}>
@@ -1983,7 +2196,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               ) : null}
             </ReviewSection>
           ) : null}
-          {activeStepSet.has(3) ? (
           <ReviewSection title="Property information" stepTarget={1} onEdit={editFromReview}>
             <ReviewRow k="Property" v={displayOrDash(prop?.title)} />
             {reviewBundleLabel ? (
@@ -1997,9 +2209,10 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             ) : (
               <ReviewRow k="Unit" v={displayOrDash(roomLabel(form.roomChoice1))} />
             )}
-            <ReviewRow k="Lease term" v={displayOrDash(form.leaseTerm)} />
-            <ReviewRow k={form.rentalType === "short_term" ? "Check-in date" : "Lease start"} v={displayOrDash(form.leaseStart)} />
-            {form.leaseTerm !== "Month-to-Month" ? <ReviewRow k={form.rentalType === "short_term" ? "Check-out date" : "Lease end"} v={displayOrDash(form.leaseEnd)} /> : null}
+            <ReviewRow k="Lease term" v={displayOrDash(leaseTermDisplayLabel(form.leaseTerm))} />
+            {reviewLengthLabel ? <ReviewRow k="Length" v={reviewLengthLabel} /> : null}
+            <ReviewRow k={reviewIsShort ? "Check-in date" : "Move-in date"} v={displayOrDash(form.leaseStart)} />
+            {form.leaseTerm !== "Month-to-Month" ? <ReviewRow k={reviewIsShort ? "Check-out date" : "Move-out date"} v={displayOrDash(form.leaseEnd)} /> : null}
             {form.rentalType === "short_term" ? (
               <>
                 <ReviewRow k="Check-in time" v={displayOrDash(form.shortTermCheckInTime)} />
@@ -2008,9 +2221,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               </>
             ) : null}
           </ReviewSection>
-          ) : null}
           {prop?.listingSubmission?.v === 1 ? (
-            activeStepSet.has(3) ? (
             <ReviewSection title="Housing charges (this listing)" stepTarget={1} onEdit={editFromReview}>
               <ReviewRow
                 k="Application fee"
@@ -2062,15 +2273,14 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 );
               })()}
             </ReviewSection>
-            ) : null
-          ) : activeStepSet.has(3) ? (
+          ) : (
             <ReviewSection title="Housing charges" stepTarget={1} onEdit={editFromReview}>
               <ReviewRow
                 k="Listing fees"
                 v="This property has not published detailed fee lines yet. Confirm dollar amounts with the property manager before you pay or sign."
               />
             </ReviewSection>
-          ) : null}
+          )}
           {activeStepSet.has(2) ? (
           <ReviewSection title="Signer information" stepTarget={2} onEdit={editFromReview}>
             {showWizardField("fullLegalName") ? <ReviewRow k="Legal name" v={displayOrDash(form.fullLegalName)} /> : null}
@@ -2081,8 +2291,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             {showWizardField("driversLicense") ? <ReviewRow k="ID number" v={displayOrDash(form.driversLicense)} /> : null}
           </ReviewSection>
           ) : null}
-          {activeStepSet.has(4) || activeStepSet.has(5) ? (
-          <ReviewSection title="Address history" stepTarget={4} onEdit={editFromReview}>
+          {activeStepSet.has(3) ? (
+          <ReviewSection title="Address history" stepTarget={3} onEdit={editFromReview}>
             <ReviewRow
               k="Current address"
               v={displayOrDash(
@@ -2100,7 +2310,9 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               v={displayOrDash([form.currentMoveIn, form.currentMoveOut].filter(Boolean).join(" → "))}
             />
             <ReviewRow k="Reason for leaving (current)" v={displayOrDash(form.currentReasonLeaving)} />
-            {form.noPreviousAddress ? (
+            {!previousAddressApplies(form) ? (
+              <ReviewRow k="Previous address" v="Not needed (2 or more years at the current address)" />
+            ) : form.noPreviousAddress ? (
               <ReviewRow k="Previous address" v="Not provided (none reported)" />
             ) : (
               <>
@@ -2125,8 +2337,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             )}
           </ReviewSection>
           ) : null}
-          {activeStepSet.has(6) ? (
-          <ReviewSection title="Employment and income" stepTarget={6} onEdit={editFromReview}>
+          {activeStepSet.has(4) ? (
+          <ReviewSection title="Employment and income" stepTarget={4} onEdit={editFromReview}>
             <ReviewRow k="Not employed" v={form.notEmployed ? "Yes" : "No"} />
             <ReviewRow k="Employer" v={displayOrDash(form.employer)} />
             <ReviewRow k="Employer address" v={displayOrDash(form.employerAddress)} />
@@ -2138,14 +2350,14 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <ReviewRow k="Other income" v={displayOrDash(form.otherIncome)} />
           </ReviewSection>
           ) : null}
-          {activeStepSet.has(7) ? (
-          <ReviewSection title="References" stepTarget={7} onEdit={editFromReview}>
+          {activeStepSet.has(5) ? (
+          <ReviewSection title="References" stepTarget={5} onEdit={editFromReview}>
             <ReviewRow k="Reference 1" v={displayOrDash(`${form.ref1Name} · ${form.ref1Relationship} · ${form.ref1Phone}`)} />
             <ReviewRow k="Reference 2" v={form.ref2Name.trim() ? displayOrDash(`${form.ref2Name} · ${form.ref2Relationship} · ${form.ref2Phone}`) : displayOrDash("")} />
           </ReviewSection>
           ) : null}
-          {activeStepSet.has(8) ? (
-          <ReviewSection title="Additional details" stepTarget={8} onEdit={editFromReview}>
+          {activeStepSet.has(6) ? (
+          <ReviewSection title="Additional details" stepTarget={6} onEdit={editFromReview}>
             <ReviewRow k="Occupants" v={displayOrDash(form.occupancyCount)} />
             <ReviewRow k="Pets" v={displayOrDash(form.pets)} />
             <ReviewRow k="Eviction" v={form.evictionHistory === "yes" ? `Yes: ${form.evictionDetails}` : form.evictionHistory === "no" ? "No" : "—"} />
@@ -2165,24 +2377,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               ))}
             </ReviewSection>
           ))}
-          {activeStepSet.has(9) ? (
-          <ReviewSection title="Consent and signature" stepTarget={9} onEdit={editFromReview}>
-            {showWizardField("consentCredit") ? (
-              <ReviewRow k="Credit / background" v={form.consentCredit ? "Authorized" : "Not checked"} />
-            ) : null}
-            <ReviewRow k="Accuracy confirmed" v={form.consentTruth ? "Yes" : "Not checked"} />
-            <ReviewRow k="Signature" v={displayOrDash(form.digitalSignature)} />
-            <ReviewRow k="Date signed" v={displayOrDash(form.dateSigned)} />
-          </ReviewSection>
-          ) : null}
         </div>
 
         {/* A question tagged to the Review section is asked here — the summary
             above only ECHOES answers, so without this the review step validated
             an answer it never collected. */}
-        {stepManagerQuestions}
-
-        <p className="text-center text-xs text-muted">Next: application fee confirmation before final submit.</p>
+        {managerQuestionsBlock(["review"])}
       </div>
     );
   }
@@ -2205,8 +2405,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         : undefined;
     const feeDeclined = feeCharge?.status === "failed";
     // C174: the last step before the applicant pays is where "what do I owe, and when" has to be
-    // unavoidable — the SAME resolver the review step (10) and the room-picker (step 3) already
-    // call, so the deposit/first-month numbers here can never disagree with the lease itself.
+    // unavoidable — the SAME resolver the lease step's room picker already calls, so the
+    // deposit/first-month numbers here can never disagree with the lease itself.
     const payFeeQuote =
       prop?.listingSubmission?.v === 1 && form.roomChoice1.trim()
         ? applicantListingQuote(prop.listingSubmission, {
@@ -2314,6 +2514,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           applicationFeeGate.pending ? (
             <div className="flex min-h-[80px] items-center justify-center rounded-2xl border border-border bg-card text-sm text-muted">
               Confirming the application fee…
+            </div>
+          ) : !paymentReady ? (
+            // Payment opens once every answer and the signature above are valid, so a fee is never paid
+            // for an application the server would then refuse to take.
+            <div className="rounded-2xl border px-4 py-4 text-sm portal-banner-info" data-attr="application-fee-awaiting-signature">
+              Finish the signature above to pay the application fee.
             </div>
           ) : mode !== "editor" && form.propertyId && form.email.includes("@") && managerUserIdForPay ? (
             // Inline (embedded) card payment for BOTH apply surfaces (public

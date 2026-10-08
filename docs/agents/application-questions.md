@@ -6,6 +6,24 @@ application asks, and the forms an answer can pull in behind it. Stay types,
 [`lease-generation.md`](lease-generation.md); the move-in form product itself
 belongs to [`move-in-forms.md`](move-in-forms.md).
 
+## The applicant sees seven steps
+
+Your lease · About you · Where you live · Work and income · References · More details · Review, sign and pay
+(`RENTAL_WIZARD_STEP_COUNT`, titles in `wizard-step-titles.ts`). A question's **section** decides its step
+(`RENTAL_APPLICATION_SECTIONS[].wizardStep`): household and property share Your lease, current and previous address
+share Where you live, consent and review share the last step. A step the template leaves with no question is skipped
+(`activeApplicationWizardSteps`).
+
+- **Your lease** asks the property, a Long-term / Short-term toggle (only when the property offers both), then the
+  dates that type needs (`lease-choice.ts`). Long-term: Move-in + Length (fixed lengths, Custom dates, Month-to-month
+  only when offered). Short-term: check-in, check-out, times, house rules. Stored values never change
+  ("Long-term", "Short-Term Stay", "Custom", "Month-to-Month"), and `validate.ts` still refuses a term the property
+  does not offer. Custom dates stores "Custom" only when the property offers it.
+- **Where you live** asks the previous address only under two years at the current one (`previous-address.ts`).
+- **Review, sign and pay** opens the card form only once the whole application would pass the submit gate.
+- A draft saved by an older wizard carries `wizardStepSchema`; `normalizePersistedWizardStep` maps its step onto
+  the current one (`wizard-step-schema.ts`).
+
 ## Everything is editable
 
 The question editor is shared by the application and the move-in form

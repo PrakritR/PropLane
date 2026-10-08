@@ -927,15 +927,15 @@ export function isWizardFormFieldEnabled(
 }
 
 /**
- * Wizard steps that carry at least one visible question for a resolved config
- * slice. Household / review / fee (1, 10, 11) are structural and always
- * present; section steps (2-9) appear only when they still have an enabled
- * enabled built-in or custom question. This is what lets the short-term form
+ * Wizard steps (1-7) that carry at least one visible question for a resolved config
+ * slice. Your lease (1) and Review, sign and pay (7) are structural and always
+ * present; the others (2 About you, 3 Where you live, 4 Work and income, 5 References,
+ * 6 More details) appear only when they still have an enabled built-in or custom question. This is what lets the short-term form
  * quietly skip the screening sections its curated default turns off — and bring
  * a section back the moment a manager re-enables a question in it. The applicant
  * never sees a total, so a shorter step list simply reads as a shorter form.
  */
-const ALWAYS_ACTIVE_WIZARD_STEPS: readonly number[] = [1, 10, 11];
+const ALWAYS_ACTIVE_WIZARD_STEPS: readonly number[] = [1, 7];
 
 export function activeApplicationWizardSteps(
   sub:

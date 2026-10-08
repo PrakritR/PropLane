@@ -51,20 +51,29 @@ describe("application section catalog", () => {
   it("maps every section to a valid applicant wizard step (household before property)", () => {
     for (const section of RENTAL_APPLICATION_SECTIONS) {
       expect(section.wizardStep).toBeGreaterThanOrEqual(1);
-      expect(section.wizardStep).toBeLessThanOrEqual(10);
+      expect(section.wizardStep).toBeLessThanOrEqual(7);
     }
-    expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "household")?.wizardStep).toBe(1);
-    expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "personal")?.wizardStep).toBe(2);
-    expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "property")?.wizardStep).toBe(3);
-    expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "review")?.wizardStep).toBe(10);
+    // The 7-step application: Your lease holds household and property, Where you live holds both
+    // addresses, Review, sign and pay holds consent and review.
+    const stepOf = (id: string) => RENTAL_APPLICATION_SECTIONS.find((s) => s.id === id)?.wizardStep;
+    expect(stepOf("household")).toBe(1);
+    expect(stepOf("property")).toBe(1);
+    expect(stepOf("personal")).toBe(2);
+    expect(stepOf("current_address")).toBe(3);
+    expect(stepOf("previous_address")).toBe(3);
+    expect(stepOf("employment")).toBe(4);
+    expect(stepOf("references")).toBe(5);
+    expect(stepOf("additional")).toBe(6);
+    expect(stepOf("consent")).toBe(7);
+    expect(stepOf("review")).toBe(7);
   });
 
-  // Additional details is step 8 (consent is 9) since the wizard was renumbered.
+  // Additional details is step 6 (More details) in the 7-step application.
   it("routes untagged and unknown sections to the Additional details step", () => {
-    expect(applicationWizardStepForSection(undefined)).toBe(8);
-    expect(applicationWizardStepForSection("bogus")).toBe(8);
+    expect(applicationWizardStepForSection(undefined)).toBe(6);
+    expect(applicationWizardStepForSection("bogus")).toBe(6);
     expect(applicationWizardStepForSection("household")).toBe(1);
-    expect(applicationWizardStepForSection("property")).toBe(3);
+    expect(applicationWizardStepForSection("property")).toBe(1);
   });
 });
 
@@ -85,11 +94,24 @@ describe("custom application field sections", () => {
     expect(normalized.find((f) => f.id === "d")?.section).toBeUndefined();
   });
 
-  it("asks each question on its section's step; untagged fall back to Additional details (step 8)", () => {
+  it("asks each question on its section's step; untagged fall back to Additional details (step 6)", () => {
     const normalized = normalizeCustomApplicationFields(fields);
-    expect(customFieldsForWizardStep(normalized, 3).map((f) => f.id)).toEqual(["a"]);
-    expect(customFieldsForWizardStep(normalized, 8).map((f) => f.id)).toEqual(["b", "c"]);
+    expect(customFieldsForWizardStep(normalized, 1).map((f) => f.id)).toEqual(["a"]);
+    expect(customFieldsForWizardStep(normalized, 6).map((f) => f.id)).toEqual(["b", "c"]);
     expect(customFieldsForWizardStep(normalized, 4)).toEqual([]);
+  });
+
+  it("a step can ask only some of its sections, or leave one out (the previous address when it is not asked)", () => {
+    const normalized = normalizeCustomApplicationFields([
+      { id: "h", key: "h", label: "Household?", type: "text", required: false, options: [], section: "household" },
+      { id: "p", key: "p", label: "Property?", type: "text", required: false, options: [], section: "property" },
+      { id: "c", key: "c", label: "Current?", type: "text", required: false, options: [], section: "current_address" },
+      { id: "v", key: "v", label: "Previous?", type: "text", required: false, options: [], section: "previous_address" },
+    ]);
+    expect(customFieldsForWizardStep(normalized, 1).map((f) => f.id)).toEqual(["h", "p"]);
+    expect(customFieldsForWizardStep(normalized, 1, { onlySections: ["household"] }).map((f) => f.id)).toEqual(["h"]);
+    expect(customFieldsForWizardStep(normalized, 3).map((f) => f.id)).toEqual(["c", "v"]);
+    expect(customFieldsForWizardStep(normalized, 3, { skipSections: ["previous_address"] }).map((f) => f.id)).toEqual(["c"]);
   });
 
   it("ignores custom questions when the property uses the standard application", () => {

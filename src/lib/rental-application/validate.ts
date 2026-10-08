@@ -33,6 +33,7 @@ import {
   firstChoiceSlotIsTaken,
 } from "./data";
 import { acceptedLeaseTermsFromStored } from "./lease-terms";
+import { previousAddressRequired } from "./previous-address";
 import type { RentalWizardErrors, RentalWizardFormState } from "./types";
 import { digitsOnly, parseMoneyInput } from "./masks";
 import { customFieldsForWizardStep, listingCustomApplicationFields, validateCustomFieldAnswers } from "./custom-fields";
@@ -163,10 +164,12 @@ export function validateRentalWizardStep(
   const fieldRequired = (key: string) => isWizardFormFieldRequired(configSlice, key);
   const fieldEnabled = (key: string) => isWizardFormFieldEnabled(configSlice, key);
   const e = validateStandardWizardStep(step, f, fieldRequired, prop, fieldEnabled);
-  // Manager custom questions are asked inside their configured section's step (untagged → step 8).
+  // Manager custom questions are asked inside their configured section's step (untagged → step 6, More
+  // details). A previous-address question is only asked when the previous address is.
   const stepCustomFields = customFieldsForWizardStep(
     listingCustomApplicationFields(configSlice),
     step,
+    previousAddressRequired(f) ? undefined : { skipSections: ["previous_address"] },
   );
   if (stepCustomFields.length > 0) {
     Object.assign(e, validateCustomFieldAnswers(stepCustomFields, f.customFieldAnswers));
@@ -197,7 +200,51 @@ export function hasLeaseChoiceError(errors: RentalWizardErrors): boolean {
   return LEASE_CHOICE_ERROR_KEYS.some((key) => Boolean(errors[key]));
 }
 
+/**
+ * Built-in validation for one step of the 7-step application:
+ *   1 Your lease (household, property, lease type, dates, rooms)   2 About you
+ *   3 Where you live (current address, previous address when asked)   4 Work and income
+ *   5 References   6 More details   7 Review, sign and pay (consent and signature)
+ * Each step runs the sections it holds (`validateStandardWizardSection`), so a missing date is an error on
+ * step 1 and a missing signature an error on step 7.
+ */
 export function validateStandardWizardStep(
+  step: number,
+  f: RentalWizardFormState,
+  fieldRequired: (key: string) => boolean = () => true,
+  prop?: Pick<MockProperty, "id" | "listingSubmission">,
+  fieldEnabled: (key: string) => boolean = () => true,
+): RentalWizardErrors {
+  const section = (n: number) => validateStandardWizardSection(n, f, fieldRequired, prop, fieldEnabled);
+  switch (step) {
+    case 1:
+      // A co-signer fills the co-signer form, not this one.
+      if (f.applicantRole === "cosigner") return {};
+      return { ...section(1), ...section(3) };
+    case 2:
+      return section(2);
+    case 3:
+      return previousAddressRequired(f) ? { ...section(4), ...section(5) } : section(4);
+    case 4:
+      return section(6);
+    case 5:
+      return section(7);
+    case 6:
+      return section(8);
+    case 7:
+      return section(9);
+    default:
+      return {};
+  }
+}
+
+/**
+ * The sections the validators below are written against, numbered as the 11-step application numbered its
+ * screens (1 household and lease choice, 2 signer, 3 property dates, 4 current address, 5 previous address,
+ * 6 employment, 7 references, 8 additional, 9 consent, 11 fee). The 7-step wizard composes them in
+ * `validateStandardWizardStep`; nothing outside this file asks for a section directly except tests.
+ */
+export function validateStandardWizardSection(
   step: number,
   f: RentalWizardFormState,
   fieldRequired: (key: string) => boolean = () => true,
@@ -216,7 +263,7 @@ export function validateStandardWizardStep(
     Object.assign(
       e,
       pickLeaseChoiceErrors(
-        validateStandardWizardStep(3, { ...f, leaseStart: "", leaseEnd: "" }, fieldRequired, prop, fieldEnabled),
+        validateStandardWizardSection(3, { ...f, leaseStart: "", leaseEnd: "" }, fieldRequired, prop, fieldEnabled),
       ),
     );
     if (fieldRequired("hasCosigner") && f.hasCosigner === null) {
@@ -436,7 +483,7 @@ export function validateStandardWizardStep(
   }
 
   if (step === 5) {
-    if (f.noPreviousAddress) return e;
+    if (!previousAddressRequired(f)) return e;
     if (fieldRequired("prevLandlordName") && !f.prevLandlordName.trim()) e.prevLandlordName = "Previous landlord name is required.";
     if (fieldRequired("prevLandlordPhone") && !f.prevLandlordPhone.trim()) e.prevLandlordPhone = "Previous landlord phone is required.";
     if (fieldRequired("prevMoveIn") && !f.prevMoveIn.trim()) e.prevMoveIn = "Move-in date is required.";

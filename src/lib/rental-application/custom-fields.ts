@@ -8,7 +8,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { isCompletePhoneNumber } from "@/lib/phone-number-field";
-import { applicationWizardStepForSection, RENTAL_APPLICATION_SECTIONS } from "./application-sections";
+import { applicationWizardStepForSection, DEFAULT_CUSTOM_FIELD_SECTION_ID, RENTAL_APPLICATION_SECTIONS } from "./application-sections";
 import { resolveListingApplicationFields } from "./application-field-catalog";
 import type { ApplicationPhotoAttachment, RentalCustomFieldAnswer } from "./types";
 
@@ -44,8 +44,20 @@ export function listingCustomApplicationFields(
 export function customFieldsForWizardStep(
   fields: ManagerCustomApplicationField[],
   step: number,
+  options?: {
+    /** Sections left out (the previous address when it is not being asked). */
+    skipSections?: readonly string[];
+    /** Only these sections (the lease step's own block asks household and property questions, not every one). */
+    onlySections?: readonly string[];
+  },
 ): ManagerCustomApplicationField[] {
-  return fields.filter((f) => applicationWizardStepForSection(f.section) === step);
+  return fields.filter((f) => {
+    if (applicationWizardStepForSection(f.section) !== step) return false;
+    const section = f.section ?? DEFAULT_CUSTOM_FIELD_SECTION_ID;
+    if (options?.skipSections?.includes(section)) return false;
+    if (options?.onlySections && !options.onlySections.includes(section)) return false;
+    return true;
+  });
 }
 
 /** Manager-defined question types answered with an uploaded file (attachment metadata, never bytes). */

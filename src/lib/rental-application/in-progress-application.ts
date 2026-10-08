@@ -24,6 +24,7 @@ import {
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { residentTermOfRentalType } from "@/lib/resident-term-split";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import { RENTAL_WIZARD_STEP_SCHEMA } from "@/lib/rental-application/wizard-step-schema";
 
 // The draft-shape vocabulary lives in `draft-shape.ts` so
 // `manager-applications-storage.ts` can read it without importing this module
@@ -276,6 +277,11 @@ export function buildInProgressApplicationRow(input: {
     ...(typeof input.wizardStep === "number" ? { wizardStep: input.wizardStep } : {}),
     ...(typeof input.wizardMaxStepReached === "number"
       ? { wizardMaxStepReached: input.wizardMaxStepReached }
+      : {}),
+    // The steps written here are numbered for the CURRENT wizard. A form resumed from an older draft still
+    // carries that draft's schema, so stamp it fresh whenever a live position is injected.
+    ...(typeof input.wizardStep === "number" || typeof input.wizardMaxStepReached === "number"
+      ? { wizardStepSchema: RENTAL_WIZARD_STEP_SCHEMA }
       : {}),
   };
 

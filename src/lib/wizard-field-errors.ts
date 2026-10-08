@@ -41,17 +41,31 @@ export function scrollToFirstWizardFieldError(
   }
 }
 
+/** Fields to scroll to, per step of the 7-step application, in the order they appear on the screen. */
 export const RENTAL_WIZARD_STEP_FIELD_ORDER: Record<number, string[]> = {
-  1: ["propertyId", "leaseTerm", "bundleId", "roomChoice1", "roomChoice2", "roomChoice3", "hasCosigner", "applyingAsGroup", "groupLeaderAppId"],
+  1: [
+    "propertyId",
+    "leaseTerm",
+    "leaseStart",
+    "longTermLength",
+    "leaseEnd",
+    "shortTermCheckInTime",
+    "shortTermCheckOutTime",
+    "shortTermRulesAck",
+    "bundleId",
+    "roomChoice1",
+    "roomChoice2",
+    "roomChoice3",
+    "hasCosigner",
+    "applyingAsGroup",
+    "groupLeaderAppId",
+  ],
   2: ["fullLegalName", "phone", "email", "dateOfBirth", "ssn", "driversLicense"],
-  3: ["leaseStart", "leaseEnd", "shortTermCheckInTime", "shortTermCheckOutTime", "shortTermRulesAck"],
-  4: ["currentStreet", "currentCity", "currentState", "currentZip", "currentMoveIn"],
-  5: ["prevStreet", "prevCity", "prevState", "prevZip"],
-  6: ["employer", "monthlyIncome", "annualIncome", "otherIncome"],
-  7: ["ref1Name", "ref1Relationship", "ref1Phone"],
-  8: ["occupancyCount", "evictionHistory", "bankruptcyHistory", "criminalHistory"],
-  9: ["consentCredit", "consentTruth", "digitalSignature", "dateSigned"],
-  11: [],
+  3: ["currentStreet", "currentCity", "currentState", "currentZip", "currentMoveIn", "prevStreet", "prevCity", "prevState", "prevZip"],
+  4: ["employer", "monthlyIncome", "annualIncome", "otherIncome"],
+  5: ["ref1Name", "ref1Relationship", "ref1Phone"],
+  6: ["occupancyCount", "evictionHistory", "bankruptcyHistory", "criminalHistory"],
+  7: ["consentCredit", "consentTruth", "digitalSignature", "dateSigned"],
 };
 
 export const LISTING_STEP_FIELD_ORDER: Record<number, string[]> = {

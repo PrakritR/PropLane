@@ -302,11 +302,9 @@ describe("public apply — resume after reload", () => {
 
     await mountWizard();
     expect(loadRentalWizardDraftAxisId()).toBe(shortId);
-    fireEvent.click(screen.getByRole("button", { name: "Select a lease term" }));
+    // The draft is on the Short-term side; the toggle on "Your lease" switches it back to Long-term.
     await act(async () => {
-      const option = screen.getByRole("option", { name: "Long-term" });
-      fireEvent.pointerDown(option, { pointerId: 1, clientX: 0, clientY: 0 });
-      fireEvent.pointerUp(option, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.click(screen.getByRole("radio", { name: "Long-term" }));
     });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(fetchCalls.some((call) => call.url.includes("/api/portal/application-resume") && JSON.parse(call.body ?? "{}").id === standardId)).toBe(true);

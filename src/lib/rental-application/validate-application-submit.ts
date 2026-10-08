@@ -15,14 +15,14 @@ import type { RentalWizardErrors, RentalWizardFormState } from "@/lib/rental-app
 import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
 
 /**
- * Every non-payment step that can carry applicant-entered content.
+ * Every step of the 7-step application that can carry applicant-entered content.
  *
  * Keep the client submit gate and the server persistence gate on this shared
- * list. Step 11 is intentionally excluded: payment is verified by its own
- * server routes, while application-answer validation must not depend on a
- * browser-side payment snapshot.
+ * list. Step 7 (Review, sign and pay) validates only the consent and signature:
+ * payment is verified by its own server routes, while application-answer
+ * validation must not depend on a browser-side payment snapshot.
  */
-export const SUBMIT_VALIDATION_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+export const SUBMIT_VALIDATION_STEPS = [1, 2, 3, 4, 5, 6, 7] as const;
 
 function mergeApplicationForm(application: Partial<RentalWizardFormState>): RentalWizardFormState {
   return { ...createInitialRentalWizardState(), ...application };

@@ -265,7 +265,7 @@ describe("a lease type the property did not enable is rejected", () => {
   const leaseTermError = (terms: string[], leaseTerm: string, rentalType: "standard" | "short_term" = "standard") => {
     const property = listing(terms);
     const form = { ...createInitialRentalWizardState(), propertyId: property.id, leaseTerm, rentalType, leaseStart: "2099-01-01", leaseEnd: "2099-12-31" };
-    return validateRentalWizardStep(3, form, { property }).leaseTerm;
+    return validateRentalWizardStep(1, form, { property }).leaseTerm;
   };
 
   it("pure test: only enabled types are offered", () => {
