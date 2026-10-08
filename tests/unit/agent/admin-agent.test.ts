@@ -208,6 +208,7 @@ describe("adminAgentRegistry", () => {
       billing: "monthly",
       paid_at: daysAgo(40),
       promo_code: null,
+      stripe_promotion_code: null,
       stripe_customer_id: null,
       stripe_subscription_id: null,
       stripe_checkout_session_id: `cs_${user_id}`,
@@ -229,7 +230,7 @@ describe("adminAgentRegistry", () => {
         purchase("paid", { stripe_subscription_id: "sub_1" }),
         purchase("trialSoon", { billing: "trial", paid_at: daysAgo(10) }),
         purchase("trialLater", { billing: "trial", paid_at: daysAgo(3) }),
-        purchase("promo", { stripe_subscription_id: "sub_2", promo_code: "FREEFIRST" }),
+        purchase("promo", { stripe_subscription_id: "sub_2", stripe_promotion_code: "FREEFIRST" }),
         purchase("comp", { stripe_subscription_id: "sub_3" }),
         purchase("lapsed", { billing: "trial", paid_at: daysAgo(40) }),
       ]);

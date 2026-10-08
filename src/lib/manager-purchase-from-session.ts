@@ -228,7 +228,9 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
     tier: tierMeta,
     billing: billingMeta,
     // The code typed on the pricing form, else the one redeemed in Checkout's own promotion-code field.
-    promo_code: (await resolveCheckoutSessionPromoCode(session)) ?? session.metadata?.promo ?? null,
+    // It goes in stripe_promotion_code, NEVER promo_code: promo_code is the payment-waiver column
+    // (isWaiverGrantedManagerPurchase), so a discount code there would keep paid access after cancelling.
+    stripe_promotion_code: (await resolveCheckoutSessionPromoCode(session)) ?? null,
     paid_at: new Date().toISOString(),
     full_name: session.metadata?.full_name?.trim() || null,
     ...(email ? { email } : {}),

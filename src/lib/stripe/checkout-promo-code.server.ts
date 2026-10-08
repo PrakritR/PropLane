@@ -8,7 +8,7 @@ import { normalizePromoCodeInput } from "@/lib/stripe-promos";
  * The promotion code a completed Checkout session redeemed, as the text the customer typed
  * (uppercase), or null when it redeemed none.
  *
- * `manager_purchases.promo_code` is what the admin Subscribers and Promo codes pages read to say
+ * `manager_purchases.stripe_promotion_code` (never `promo_code`, the waiver column) is what the admin Subscribers and Promo codes pages read to say
  * "this account came in on FREEFIRST". The pricing form already stamps `metadata.promo` for a code
  * typed there; a code typed into Stripe's own "Add promotion code" field never reaches our metadata,
  * so it is read from the session's discounts instead. A lookup failure never blocks fulfillment: the

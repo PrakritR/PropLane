@@ -38,13 +38,14 @@ export type SubscriberRow = {
 type PurchaseRow = ManagerPurchaseRowRecord & {
   email: string | null;
   promo_code: string | null;
+  stripe_promotion_code: string | null;
   apple_original_transaction_id: string | null;
 };
 
 /** Which subscriber bucket a derived billing row belongs to. Exported for the unit test. */
 export function subscriberBucketOf(
   row: AdminBillingRow,
-  purchase: { billing: string | null; promoCode: string | null } | null,
+  purchase: { billing: string | null; promoCode: string | null; stripePromotionCode?: string | null } | null,
 ): SubscriberBucket | null {
   if (row.planUnknown) return null;
   const billing = String(purchase?.billing ?? "").trim().toLowerCase();
@@ -52,7 +53,7 @@ export function subscriberBucketOf(
   if (row.complimentary || billing === "admin") return "comp";
   if (row.onTrial) return "trial";
   if (row.tier === "free" || row.tier === null) return "free";
-  if (String(purchase?.promoCode ?? "").trim()) return "promo";
+  if (String(purchase?.stripePromotionCode ?? "").trim() || String(purchase?.promoCode ?? "").trim()) return "promo";
   return "paid";
 }
 
@@ -67,7 +68,7 @@ export async function loadManagerSubscribers(db: SupabaseClient, nowMs = Date.no
       db
         .from("manager_purchases")
         .select(
-          "id, user_id, email, tier, billing, paid_at, promo_code, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, apple_original_transaction_id",
+          "id, user_id, email, tier, billing, paid_at, promo_code, stripe_promotion_code, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, apple_original_transaction_id",
         )
         .not("user_id", "is", null)
         .order("id")
@@ -115,7 +116,7 @@ export async function loadManagerSubscribers(db: SupabaseClient, nowMs = Date.no
       commsHasPaymentMethod: false,
       nowMs,
     });
-    const bucket = subscriberBucketOf(derived, best ? { billing: best.billing, promoCode: best.promo_code } : null);
+    const bucket = subscriberBucketOf(derived, best ? { billing: best.billing, promoCode: best.promo_code, stripePromotionCode: best.stripe_promotion_code } : null);
     if (!bucket) continue;
     rows.push({
       id: profile.id,

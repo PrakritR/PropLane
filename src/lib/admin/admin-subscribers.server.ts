@@ -39,6 +39,7 @@ type PurchaseRow = {
   billing: string | null;
   paid_at: string | null;
   promo_code: string | null;
+  stripe_promotion_code: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   stripe_checkout_session_id: string | null;
@@ -59,7 +60,7 @@ export type SubscriberPopulation = {
 };
 
 const PURCHASE_SELECT =
-  "id, user_id, email, tier, billing, paid_at, promo_code, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, apple_original_transaction_id";
+  "id, user_id, email, tier, billing, paid_at, promo_code, stripe_promotion_code, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, apple_original_transaction_id";
 
 async function loadOverrides(db: SupabaseClient): Promise<Map<string, ManagerBillingOverrides>> {
   const out = new Map<string, ManagerBillingOverrides>();
@@ -122,6 +123,7 @@ export async function loadSubscriberPopulation(db: SupabaseClient, nowMs = Date.
           billing: best.billing,
           paidAt: best.paid_at,
           promoCode: best.promo_code,
+          stripePromotionCode: best.stripe_promotion_code,
           stripeSubscriptionId: best.stripe_subscription_id,
           stripeCustomerId: best.stripe_customer_id,
           stripeCheckoutSessionId: best.stripe_checkout_session_id,

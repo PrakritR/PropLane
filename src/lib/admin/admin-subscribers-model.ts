@@ -42,7 +42,10 @@ export type SubscriberPurchase = {
   tier: string | null;
   billing: string | null;
   paidAt: string | null;
+  /** `manager_purchases.promo_code`: the payment-waiver column. Grants access; never a checkout code. */
   promoCode: string | null;
+  /** `manager_purchases.stripe_promotion_code`: the code redeemed at Stripe Checkout. Display only. */
+  stripePromotionCode?: string | null;
   stripeSubscriptionId: string | null;
   stripeCustomerId: string | null;
   stripeCheckoutSessionId: string | null;
@@ -142,7 +145,10 @@ export function classifySubscriber(input: SubscriberInput): SubscriberRow | null
   if (derived.planUnknown) return null;
 
   const paidTier = derived.tier === "pro" || derived.tier === "business";
-  const promoCode = trimmed(purchase?.promoCode) || null;
+  const waiverCode = trimmed(purchase?.promoCode) || null;
+  const checkoutCode = trimmed(purchase?.stripePromotionCode) || null;
+  // The Promo bucket reads the redeemed Stripe code; a waiver account (promo_code) stays where it was.
+  const promoCode = checkoutCode ?? waiverCode;
   const grant = isAdminGrant(purchase);
   const source = subscriberSource(purchase);
 

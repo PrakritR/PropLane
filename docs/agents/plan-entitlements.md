@@ -36,6 +36,20 @@ on an account with five listings and no paywall anywhere).
   A validated promo waiver (FREE100 / `promo_code` on the purchase row) **is
   paid**, same as Stripe or Apple. Managers enter promo codes on checkout (and
   signup), never on the Billing & plan page.
+  **Promo codes are Stripe-native, and two columns must never be confused.**
+  `manager_purchases.promo_code` is the payment-WAIVER column (FREE100 /
+  WAIVEPROCESS1 / onboarding grants): any non-empty value is paid access with no
+  Stripe subscription behind it (`isWaiverGrantedManagerPurchase`). A code a
+  customer redeems at Stripe Checkout (FREEFIRST, a staff-made code) is recorded
+  in `manager_purchases.stripe_promotion_code`
+  (`resolveCheckoutSessionPromoCode` -> `recordPaidManagerCheckoutSession`), which
+  is display / reporting only and never grants anything. Writing a checkout code
+  into `promo_code` would keep a cancelled FREEFIRST customer on paid access for
+  free. The admin Subscribers Promo bucket, the account record's Promo fact and
+  the admin assistant's `subscriber_counts` read `stripe_promotion_code`; a waiver
+  account stays where it was counted before. Coverage:
+  `tests/unit/manager-purchase-from-session.test.ts`,
+  `admin-subscribers.test.ts`.
   Omitting `billing`
   and `paidAt` keeps the older behaviour for a caller with no billing row to
   read. **Staff can extend that trial, and it is live**: with no Stripe
@@ -394,7 +408,7 @@ is **Paid**, and an account whose purchase could not be read is counted
 nowhere (never filed as Free). Order, first match wins: Complimentary (the
 staff `complimentary` override, or a `billing: admin|portal` / `admin_` grant
 with no payment behind it) → Trial (`billing: trial`, unexpired) → Promo (paid
-plan + `promo_code`) → Paid → Free. A Stripe subscription still inside its
+plan + `stripe_promotion_code`, or a `promo_code` waiver) → Paid → Free. A Stripe subscription still inside its
 Checkout trial days is **Paid** here because that is what enforcement says; the
 Trial tab is the no-card signup trial. MRR is the sum of the Paid bucket at
 list price (`RATE_CARD` base plan, annual / 12; per-door overage is not

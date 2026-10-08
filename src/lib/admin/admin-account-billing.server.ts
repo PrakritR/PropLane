@@ -87,6 +87,7 @@ type PurchaseRow = {
   stripe_subscription_id: string | null;
   stripe_checkout_session_id: string | null;
   promo_code: string | null;
+  stripe_promotion_code?: string | null;
   apple_original_transaction_id: string | null;
 };
 
@@ -135,7 +136,7 @@ async function readPurchase(db: SupabaseClient, managerUserId: string): Promise<
   const { data, error } = await db
     .from("manager_purchases")
     .select(
-      "id, tier, billing, paid_at, user_id, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, promo_code, apple_original_transaction_id",
+      "id, tier, billing, paid_at, user_id, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, promo_code, stripe_promotion_code, apple_original_transaction_id",
     )
     .eq("user_id", managerUserId);
   // An unreadable plan is not the Free plan: the caller turns this into a 500, never a default.
@@ -225,7 +226,8 @@ function databasePlan(
     renewsLabel: "Renews",
     trialEndsAt,
     complimentary: overrides.complimentary,
-    promoCode: text(purchase?.promo_code) || null,
+    // The code the customer redeemed at checkout, else the waiver code. Display only.
+    promoCode: text(purchase?.stripe_promotion_code) || text(purchase?.promo_code) || null,
   };
 }
 
