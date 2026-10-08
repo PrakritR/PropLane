@@ -900,19 +900,34 @@ export function InboxListSegmentRail({
  * Always pair it with an `aria-label` — these carry no visible text.
  */
 export const INBOX_THREAD_ICON_BTN =
-  "flex size-8 shrink-0 touch-manipulation items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40";
+  "flex size-8 max-md:size-11 shrink-0 touch-manipulation items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40";
 
 /** Destructive variant of {@link INBOX_THREAD_ICON_BTN} — text-only red, never a filled red. */
 export const INBOX_THREAD_ICON_BTN_DANGER =
-  "flex size-8 shrink-0 touch-manipulation items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-danger/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40";
+  "flex size-8 max-md:size-11 shrink-0 touch-manipulation items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-danger/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40";
 
 /** Scrollable body for a conversation list pane (inbox split view). */
 export const INBOX_LIST_SCROLL =
   "min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 [-webkit-overflow-scrolling:touch]";
 
-/** Full-page record lists — let #portal-main-content scroll (no nested panel). */
+/**
+ * Full-page record lists — let #portal-main-content scroll (no nested panel).
+ * On a phone the bottom bar is cleared ONCE, by #portal-main-content's own bottom pad
+ * (`--portal-mobile-scroll-bottom-inset`, the measured bar + safe area + gap); this body only
+ * adds a small tail so the last row never kisses it. Adding the inset here too stacked ~230px.
+ */
 export const PORTAL_LIST_PAGE_BODY =
-  "portal-list-page-body w-full min-w-0 pb-4 max-lg:pb-[calc(5.5rem+var(--portal-mobile-scroll-bottom-inset,0px))] lg:pb-5";
+  "portal-list-page-body w-full min-w-0 pb-4 max-lg:pb-2 lg:pb-5";
+
+/**
+ * A name made only of digits and punctuation ("+1 (206) 555-0123") has no
+ * initials — the first two characters would render as "+(". Such a contact is
+ * drawn with a phone glyph instead (see {@link InboxAvatar}).
+ */
+export function inboxNameIsPhoneLike(name: string): boolean {
+  const bare = name.trim().replace(/^(to|from):\s*/i, "");
+  return /\d/.test(bare) && !/\p{L}/u.test(bare);
+}
 
 export function inboxInitials(name: string): string {
   const parts = name
@@ -921,6 +936,7 @@ export function inboxInitials(name: string): string {
     .split(/\s+/)
     .filter(Boolean);
   if (parts.length === 0) return "?";
+  if (!/\p{L}/u.test(parts.join(""))) return "?";
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }
@@ -986,7 +1002,7 @@ export function InboxAvatar({
         )}
         aria-hidden
       >
-        {inboxInitials(name)}
+        {inboxAvatarGlyph(name)}
       </div>
     );
   }
@@ -1000,9 +1016,22 @@ export function InboxAvatar({
       style={{ background: `linear-gradient(160deg, ${from} 0%, ${to} 100%)` }}
       aria-hidden
     >
-      {inboxInitials(name)}
+      {inboxAvatarGlyph(name)}
     </div>
   );
+}
+
+/** Initials, or a phone glyph for a contact known only by number. */
+function inboxAvatarGlyph(name: string): ReactNode {
+  if (inboxNameIsPhoneLike(name)) {
+    return <Phone className="size-[1.1em] shrink-0" strokeWidth={2.25} data-inbox-avatar-glyph="phone" />;
+  }
+  return inboxInitials(name);
+}
+
+/** A phone shows the length counter only once the limit is near (past 80%), never as a standing 0/1600. */
+export function shouldShowComposerCounter(length: number, maxLength: number | undefined): boolean {
+  return Boolean(maxLength) && length > maxLength! * 0.8;
 }
 
 /** One row in the left conversation list. */
@@ -1828,7 +1857,7 @@ export function composerAutoHeight(scrollHeight: number, hasText: boolean): numb
 }
 
 export const PORTAL_INBOX_COMPOSER_SEND_CLASS =
-  "portal-inbox-composer-send ml-auto flex size-[30px] shrink-0 touch-manipulation items-center justify-center rounded-[7px] bg-[var(--btn-primary)] text-primary-foreground transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 max-md:size-9";
+  "portal-inbox-composer-send ml-auto flex size-[30px] shrink-0 touch-manipulation items-center justify-center rounded-[7px] bg-[var(--btn-primary)] text-primary-foreground transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 max-md:size-11";
 
 /** Persistent composer pinned to the bottom of an open thread. */
 export function InboxComposer({
@@ -1906,6 +1935,7 @@ export function InboxComposer({
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
   const canSend = !sending && !disabled && (value.trim().length > 0 || hasReadyAttachment);
   const resolvedChannel = channelControl ?? null;
+  const showPhoneCounter = shouldShowComposerCounter(value.trim().length, maxLength);
   return (
     <div
       className="portal-inbox-composer shrink-0 bg-card max-md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
@@ -1987,7 +2017,7 @@ export function InboxComposer({
         >
           {onAttachmentsPick ? (
             <label
-              className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/80 transition-colors hover:bg-foreground/[0.06] hover:text-foreground max-md:size-9"
+              className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-foreground/80 transition-colors hover:bg-foreground/[0.06] hover:text-foreground max-md:size-11"
               title="Attach"
             >
               <Paperclip className="size-4" strokeWidth={2} />
@@ -2013,6 +2043,14 @@ export function InboxComposer({
               {resolvedChannel}
             </div>
           ) : null}
+          {showPhoneCounter ? (
+            <span
+              className="ml-auto shrink-0 pr-1 text-[11px] tabular-nums text-muted md:hidden"
+              data-attr="inbox-composer-counter"
+            >
+              {value.trim().length}/{maxLength}
+            </span>
+          ) : null}
           <button
             type="submit"
             disabled={!canSend}
@@ -2029,7 +2067,13 @@ export function InboxComposer({
         </div>
         </div>
         {hint || maxLength || onAutoSendChange ? (
-          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
+          <div
+            className={cn(
+              "mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1",
+              // A phone shows the counter in the tools row past 80%; with nothing else to say the band goes.
+              !hint && !onAutoSendChange && "max-md:hidden",
+            )}
+          >
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               {onAutoSendChange ? (
                 <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-foreground">
@@ -2046,7 +2090,7 @@ export function InboxComposer({
               <span className="text-[11px] text-muted">{hint}</span>
             </div>
             {maxLength ? (
-              <span className="text-[11px] tabular-nums text-muted">
+              <span className="text-[11px] tabular-nums text-muted max-md:hidden">
                 {value.trim().length}/{maxLength}
               </span>
             ) : null}
@@ -3246,7 +3290,7 @@ export function InboxThreadView({
           <button
             type="button"
             onClick={onBack}
-            className={`flex min-h-8 shrink-0 items-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary ${paneColumns === 1 ? "" : paneColumns ? "hidden" : "lg:hidden"}`}
+            className={`flex min-h-8 shrink-0 items-center justify-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary max-md:min-h-11 max-md:min-w-11 ${paneColumns === 1 ? "" : paneColumns ? "hidden" : "lg:hidden"}`}
             aria-label="Back to conversations"
             data-attr="inbox-thread-back"
           >

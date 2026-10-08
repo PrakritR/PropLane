@@ -36,6 +36,7 @@ export function CommunicationFilterSortFields({
   hideHouse = false,
   hideRole = false,
   hideAbout = false,
+  showScheduled = false,
 }: {
   propertyOptions: { value: string; label: string }[];
   roleOptions: { value: CommunicationFilterRole; label: string }[];
@@ -50,6 +51,8 @@ export function CommunicationFilterSortFields({
   hideRole?: boolean;
   /** A surface whose conversations carry no record link drops the About filter. */
   hideAbout?: boolean;
+  /** Phone-only Scheduled list view in the Status filter. */
+  showScheduled?: boolean;
 }) {
   const [draftFilters, setDraftFilters] = usePortalFilterDraft(
     filters,
@@ -67,6 +70,7 @@ export function CommunicationFilterSortFields({
         value={draftFilters.status ?? "active"}
         onChange={(status) => setDraftFilters({ ...draftFilters, status })}
         hideArchived={hideArchived}
+        showScheduled={showScheduled}
       />
       {hideHouse ? null : <FilterCollapsibleSection
         sectionId="house"

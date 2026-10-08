@@ -12,6 +12,7 @@ import {
   selectCommunicationThreadUrl,
 } from "@/lib/portal-communication-nav";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
+import { ManagerInboxSchedulePanel } from "@/components/portal/pro-inbox-schedule-panel";
 import { managerInboxAdapter } from "@/components/portal/communication-adapters/manager-inbox-adapter";
 import type { CommunicationInboxAdapter } from "@/lib/communication/inbox-adapter";
 import { ManagerSmsPanel, smsOutboundPreviewPrefix, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
@@ -297,8 +298,12 @@ export function ManagerUnifiedInbox({
   const resolvedSmsRouteRef = useRef<{ requested: string; canonical: string; context: string } | null>(null);
   const explicitlyOpened = useRef<{ key: string; context: string } | null>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
-  const statusFilter =
+  const requestedStatus =
     threadFilters?.status ?? (listSegmentProp === "unread" ? "unread" : "active");
+  // "Scheduled" (a phone Filter choice) swaps the list body for the Schedule panel; every other
+  // filter still sees the plain Active list underneath.
+  const scheduledView = requestedStatus === "scheduled";
+  const statusFilter = requestedStatus === "scheduled" ? "active" : requestedStatus;
   // Active | Archived is the URL tab. Filter unread/read refines inside that
   // folder and must not collapse Archived back to Active.
   const folder: Extract<InboxListSegment, "active" | "archived"> =
@@ -1451,6 +1456,15 @@ export function ManagerUnifiedInbox({
         {listPrimary}
       </div>
     ) : null;
+  const smsRecipientEmails = useMemo(
+    () =>
+      new Set(
+        smsResidents
+          .filter((r) => r.phone?.trim() && r.residentEmail?.trim())
+          .map((r) => (r.residentEmail ?? "").trim().toLowerCase()),
+      ),
+    [smsResidents],
+  );
   const listControlsPublished = usePublishTitleActions(listControls, listChrome === "internal" && listControls != null);
 
   const listPane = (
@@ -1482,7 +1496,15 @@ export function ManagerUnifiedInbox({
         ) : null}
       </div>
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
-        {!initialListReady ? (
+        {scheduledView ? (
+          <div className="p-3" data-attr="communication-scheduled-view">
+            <ManagerInboxSchedulePanel
+              portalBase={commBase.replace(/\/communication$/, "")}
+              smsUiEnabled={smsUiEnabled}
+              smsRecipientEmails={smsRecipientEmails}
+            />
+          </div>
+        ) : !initialListReady ? (
           <CommunicationInboxInitialState
             error={initialListState === "error"}
             onRetry={retryInitialList}
@@ -1543,7 +1565,7 @@ export function ManagerUnifiedInbox({
             />
           ))
         )}
-        {smsNextCursor ? (
+        {smsNextCursor && !scheduledView ? (
           <div className="flex justify-center border-t border-border px-3 py-3">
             <button
               type="button"
