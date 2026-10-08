@@ -47,16 +47,17 @@ describe.each(["manager", "resident", "vendor"] as DemoPortal[])("demo sidebar f
 });
 
 describe("the one nested row", () => {
-  it("draws the vendor's Finances with the real sub-rows (Balance & payouts, Payments, Refunds, Statements, Tax info)", () => {
+  it("draws the vendor's Finances as one row with no sub-rows, like the real nav", () => {
     const finances = DEMO_TABS.vendor.find((tab) => tab.id === "financials")!;
     const real = vendorPortal.sections.find((section) => section.section === "financials")!;
-    expect(finances.subItems?.map((sub) => sub.label)).toEqual(real.tabs.map((tab) => tab.label));
+    expect(real.tabs).toEqual([]);
+    expect(finances.subItems ?? []).toEqual([]);
   });
 
   it("nests nothing else", () => {
     const nested = (Object.keys(DEMO_TABS) as DemoPortal[]).flatMap((portal) =>
       DEMO_TABS[portal].filter((tab) => tab.subItems?.length).map((tab) => `${portal}:${tab.id}`),
     );
-    expect(nested).toEqual(["vendor:financials"]);
+    expect(nested).toEqual([]);
   });
 });

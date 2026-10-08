@@ -6,7 +6,7 @@
  * Pending / Succeeded / Failed are glyph facts, never a pill. The Finances shell (another
  * module) mounts this by `basePath`; the round + opens the "Refund a payment" pop-up.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CalendarDays, Check, Clock, Undo2, UserRound } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
@@ -31,8 +31,15 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function VendorRefundsPanel(props: { basePath: string }) {
-  const { basePath } = props;
+export function VendorRefundsPanel(props: {
+  basePath: string;
+  /** A tab of the Finances page: the page's header card owns the round + and the padding. */
+  embedded?: boolean;
+  /** Bumped by the page's + to open the "Refund a payment" pop-up. */
+  addRequest?: number;
+  onEnabledChange?: (enabled: boolean) => void;
+}) {
+  const { basePath, embedded = false, addRequest = 0, onEnabledChange } = props;
   const [refunds, setRefunds] = useState<Refund[] | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -58,11 +65,23 @@ export function VendorRefundsPanel(props: { basePath: string }) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    onEnabledChange?.(enabled);
+  }, [enabled, onEnabledChange]);
+
+  const lastAddRequest = useRef(addRequest);
+  useEffect(() => {
+    if (addRequest !== lastAddRequest.current) {
+      lastAddRequest.current = addRequest;
+      if (enabled) setModalOpen(true);
+    }
+  }, [addRequest, enabled]);
+
   if (state === "loading") return <p className="py-10 text-center text-sm">Loading refunds…</p>;
   if (state === "error") return <p className="py-10 text-center text-sm">Could not load refunds.</p>;
 
   return (
-    <div className="px-3 pb-6 sm:px-4" data-attr="vendor-refunds-panel" data-base-path={basePath}>
+    <div className={embedded ? "pb-6" : "px-3 pb-6 sm:px-4"} data-attr="vendor-refunds-panel" data-base-path={basePath}>
       <PortalRecordListSurface
         isEmpty={!refunds || refunds.length === 0}
         emptyCard={{ title: "No refunds yet", section: "payments", tone: "muted" }}

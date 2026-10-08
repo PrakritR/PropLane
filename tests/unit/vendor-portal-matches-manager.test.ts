@@ -23,8 +23,7 @@ describe("vendor portal matches manager chrome", () => {
     expect(vendorPortal.sections.some((s) => s.label === "Inbox")).toBe(false);
     const finances = vendorPortal.sections.find((s) => s.section === "financials");
     expect(finances?.label).toBe("Finances");
-    expect(finances?.tabs.map((t) => t.label)).toEqual(["Overview", "Balance & payouts", "Refunds"]);
-    expect(finances?.tabs.map((t) => t.id)).toEqual(["overview", "balance", "refunds"]);
+    expect(finances?.tabs).toEqual([]);
   });
 
   it("native bar is Services · Calendar · Dashboard · Communication", () => {
@@ -133,8 +132,8 @@ describe("vendor portal matches manager chrome", () => {
     expect(finances).not.toContain("PortalPayoutsPanel");
     const render = read("src/lib/render-portal-section.tsx");
     expect(render).toContain('finTab === "payouts"');
-    // Settings › Payouts keeps only bank accounts + schedule; the bare payouts id now opens Balance & payouts.
-    expect(render).toContain("${def.basePath}/financials/balance");
+    // Settings › Payouts keeps only bank accounts + schedule; the bare balance id aliases into Payouts.
+    expect(render).toContain("${def.basePath}/financials/payouts");
     expect(finances).not.toContain("ReportFilterBar");
     expect(finances).toContain("VendorQuoteWizard");
     expect(read("src/components/portal/vendor-quote-wizard.tsx")).not.toContain("VendorAddChooser");

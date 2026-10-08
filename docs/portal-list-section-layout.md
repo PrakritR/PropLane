@@ -22,7 +22,7 @@ primary as a filled blue circle, last** (`PortalListControlStack primary=`):
   Vendor catalog `BookOpen` · Payment setup `Wrench` ·
   Set up messaging `Phone` · Export CSV `Download` · Plan credit `Coins`
   (admin Accounts only — a global per-plan default, not a per-row action) ·
-  Send application link `Send` (Applications). **No `Upload` utility on a list
+  Send application link `Send` (Applications) · Bank `Landmark` and Withdraw `ArrowUpFromLine` (vendor Finances band). **No `Upload` utility on a list
   command bar** (captain, Oct 6): reading a file in belongs to the Add pop-up's own
   "Start from a file" card, so Properties lost Import your portfolio and Leases and
   Applications lost their Upload glyph — see

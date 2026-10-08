@@ -39,12 +39,12 @@ async function redirectOf(tabs: string[] | undefined): Promise<string | null> {
 }
 
 describe("vendor Finances routing", () => {
-  it("registers Overview, Balance & payouts and Refunds under one Finances section", () => {
+  it("is ONE nav item with no sub-items; Overview, Payouts and Refunds are in-page tabs", () => {
     const section = vendorPortal.sections.find((s) => s.section === "financials")!;
     expect(section.label).toBe("Finances");
-    expect(section.tabs.map((t) => t.id)).toEqual(["overview", "balance", "refunds"]);
-    for (const tab of section.tabs) {
-      expect(VENDOR_PORTAL_SMOKE_PATHS.some((p) => p.path === `/vendor/financials/${tab.id}`)).toBe(true);
+    expect(section.tabs).toEqual([]);
+    for (const tab of ["overview", "payouts", "refunds"]) {
+      expect(VENDOR_PORTAL_SMOKE_PATHS.some((p) => p.path === `/vendor/financials/${tab}`)).toBe(true);
     }
   });
 
@@ -53,11 +53,15 @@ describe("vendor Finances routing", () => {
     expect(await redirectOf([])).toBe("/vendor/financials/overview");
   });
 
-  it.each(["overview", "balance", "refunds"])("renders the %s tab", async (tab) => {
+  it.each(["overview", "payouts", "refunds"])("renders the %s tab", async (tab) => {
     expect(await renderPortalSection("vendor", "financials", [tab])).toBeTruthy();
   });
 
-  it("renders a withdrawal's own page under Balance", async () => {
+  it("the old Balance & payouts URL aliases into the Payouts tab", async () => {
+    expect(await redirectOf(["balance"])).toBe("/vendor/financials/payouts");
+  });
+
+  it("renders a withdrawal's own page under the old balance path", async () => {
     expect(await renderPortalSection("vendor", "financials", ["balance", "po_123"])).toBeTruthy();
   });
 
@@ -68,10 +72,10 @@ describe("vendor Finances routing", () => {
     } catch (error) {
       expect((error as RedirectError).to).toBe("/vendor/payments/pending");
     }
-    // /financials/invoices (bare) and /financials/income -> Incoming payments; /financials/payouts (bare) -> Balance & payouts
+    // /financials/invoices (bare) and /financials/income -> Incoming payments; /financials/payouts (bare) is the Payouts tab
     expect(await redirectOf(["invoices"])).toBe("/vendor/payments/pending");
     expect(await redirectOf(["income"])).toBe("/vendor/payments/pending");
-    expect(await redirectOf(["payouts"])).toBe("/vendor/financials/balance");
+    expect(await redirectOf(["payouts"])).toBeNull();
     // Statements and Tax info moved into Documents
     expect(await redirectOf(["statements"])).toBe("/vendor/documents/statements");
     expect(await redirectOf(["tax"])).toBe("/vendor/documents/tax");
@@ -85,21 +89,14 @@ describe("vendor Finances routing", () => {
     await expect(renderPortalSection("vendor", "financials", ["refunds", "2026-09"])).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  it("the Refunds tab mounts part B's VendorRefundsPanel", () => {
-    const src = readFileSync("src/lib/render-portal-section.tsx", "utf8");
-    expect(readFileSync("src/lib/render-portal-section/vendor.tsx", "utf8")).toContain(
-      'import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";',
-    );
-    expect(src).toContain('<VendorRefundsPanel basePath={def.basePath} />');
-    expect(readFileSync("src/components/portal/vendor-refunds-panel.tsx", "utf8")).toContain("export function VendorRefundsPanel(props: { basePath: string })");
+  it("the Refunds tab mounts VendorRefundsPanel inside the one Finances page", () => {
+    expect(readFileSync("src/components/portal/vendor-finances-balance.tsx", "utf8")).toContain("<VendorRefundsPanel");
+    expect(readFileSync("src/components/portal/vendor-refunds-panel.tsx", "utf8")).toContain("export function VendorRefundsPanel(props: {");
   });
 
-  it("Settings › Payouts links to Finances and the sidebar nests the Finances tabs", () => {
+  it("Settings › Payouts links to the Finances Payouts tab", () => {
     const settings = readFileSync("src/components/portal/portal-payouts-settings-page.tsx", "utf8");
-    expect(settings).toContain('href="/vendor/financials/balance"');
-    // The row-building helpers live in the shared nav model (sidebar + command palette read it).
-    const sidebar = readFileSync("src/components/portal/portal-nav-model.ts", "utf8");
-    expect(sidebar).toContain('definition.kind === "vendor" && section.section === "financials"');
+    expect(settings).toContain('href="/vendor/financials/payouts"');
   });
 });
 

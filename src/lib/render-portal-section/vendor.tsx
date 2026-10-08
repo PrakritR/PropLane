@@ -2,10 +2,8 @@ import { VendorCommunication } from "@/components/portal/vendor-communication";
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
-import { VendorBalancePanel, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
+import { VendorFinancesPage, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
 import { VendorOutgoingPaymentsPanel } from "@/components/portal/vendor-outgoing-payments-panel";
-import { VendorFinancesOverview } from "@/components/portal/vendor-finances-overview";
-import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";
 import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { VendorStatementsPanel } from "@/components/portal/vendor-statements-panel";
@@ -24,11 +22,9 @@ const panels: PortalPanels = {
   VendorDashboard,
   VendorDocumentsPanel,
   VendorFinancesPanel,
-  VendorBalancePanel,
+  VendorFinancesPage,
   VendorWithdrawalDetail,
-  VendorRefundsPanel,
   VendorOutgoingPaymentsPanel,
-  VendorFinancesOverview,
   VendorReviewsPanel,
   VendorSettingsPanel,
   VendorStatementsPanel,

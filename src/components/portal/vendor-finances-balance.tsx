@@ -1,7 +1,13 @@
 "use client";
 
 /**
- * Vendor Finances → Balance & payouts (vendor-banking-1006, part A).
+ * Vendor Finances (vendor-banking-1006, part A; one tab-page since vendor-finances-1008).
+ *
+ * ONE page, three tabs in the header card: Overview · Payouts · Refunds. The four balance cards
+ * (Available · Pending · Held · On the way) sit above the tabs and read the same snapshot on every
+ * tab; Bank and Withdraw are the band's icons. The tab is a routed segment
+ * (`/vendor/financials/<overview|payouts|refunds>`).
+ *
  *
  * ONE server snapshot (`GET /api/vendor/payouts/balance`) feeds every number
  * here: Available · Pending · Held (with its reason) · On the way · Owed to
@@ -11,7 +17,7 @@
  * opens a detail page with a receipt) and the Withdraw sheet, which quotes the
  * Instant fee from the one constant and guards against a double submit.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, ArrowUpFromLine, Calendar, FileText, Landmark, RefreshCw, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
@@ -20,7 +26,9 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { RecordTabBand } from "@/components/portal/record-list-band";
+import { VendorFinancesOverviewBody } from "@/components/portal/vendor-finances-overview";
+import { VendorRefundsPanel } from "@/components/portal/vendor-refunds-panel";
 import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
 import { AddBankFlow } from "@/components/portal/add-bank-flow";
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
@@ -126,12 +134,21 @@ export function useVendorBalance() {
   return { state, reload };
 }
 
-export function VendorBalancePanel({ basePath }: { basePath: string }) {
+export const VENDOR_FINANCES_TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "payouts", label: "Payouts" },
+  { id: "refunds", label: "Refunds" },
+] as const;
+export type VendorFinancesTab = (typeof VENDOR_FINANCES_TABS)[number]["id"];
+
+export function VendorFinancesPage({ basePath, tab }: { basePath: string; tab: VendorFinancesTab }) {
   const navigate = usePortalNavigate();
   const { state, reload } = useVendorBalance();
   const [addBankOpen, setAddBankOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [retryRow, setRetryRow] = useState<PortalPayoutHistoryRow | null>(null);
+  const [refundAddRequest, setRefundAddRequest] = useState(0);
+  const [refundsEnabled, setRefundsEnabled] = useState(false);
 
   const snapshot = state.status === "ready" ? state.balance : state.status === "relink" ? RELINK_SNAPSHOT : null;
   const readyBanks = state.status === "ready" ? state.banks : null;
@@ -163,6 +180,23 @@ export function VendorBalancePanel({ basePath }: { basePath: string }) {
     else if (action) setAddBankOpen(true);
   }
 
+  const bandTabs = VENDOR_FINANCES_TABS.map((t) => ({ id: t.id, label: t.label, count: t.id === "payouts" && snapshot ? history.length : undefined }));
+  const tabBand = (actions: ReactNode, plus?: { label: string; onClick: () => void; dataAttr?: string }) => (
+    <div className="mb-2 max-lg:mb-1.5">
+      <RecordTabBand
+        dataAttr="vendor-finances-band"
+        ariaLabel="Finances"
+        tabs={bandTabs}
+        activeId={tab}
+        onChange={(id) => {
+          if (id !== tab) navigate(`${basePath}/financials/${id}`);
+        }}
+        actions={actions}
+        plus={plus}
+      />
+    </div>
+  );
+
   return (
     <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
       {state.status === "loading" ? (
@@ -170,7 +204,19 @@ export function VendorBalancePanel({ basePath }: { basePath: string }) {
       ) : state.status === "error" ? (
         <PortalRecordListSurface loadError={state.message} onRetry={reload} dataAttr="vendor-balance-error" />
       ) : state.status === "unavailable" ? (
-        <VendorBalanceLedgerFallback onRetry={reload} />
+        <>
+          <VendorBalanceLedgerFallback onRetry={reload} />
+          {tabBand(null)}
+          {tab === "overview" ? <VendorFinancesOverviewBody /> : null}
+          {tab === "payouts" ? (
+            <PortalRecordListSurface
+              isEmpty
+              emptyCard={{ title: "Payouts are unavailable right now", section: "financials", tone: "muted" }}
+              dataAttr="vendor-payouts-unavailable"
+            />
+          ) : null}
+          {tab === "refunds" ? <VendorRefundsPanel basePath={basePath} embedded /> : null}
+        </>
       ) : snapshot && figures ? (
         <>
           {banner ? (
@@ -187,9 +233,11 @@ export function VendorBalancePanel({ basePath }: { basePath: string }) {
               ) : null}
             </div>
           ) : null}
-          <div className="mb-3 flex items-start gap-3" data-attr="vendor-balance-card">
-            <PortalStatStrip className="min-w-0 flex-1" dataAttr="vendor-balance-stats" items={balanceStats(figures)} />
-            <div className="flex shrink-0 items-center gap-1.5 pt-1">
+          <div className="mb-3" data-attr="vendor-balance-card">
+            <PortalStatStrip className="min-w-0" dataAttr="vendor-balance-stats" items={balanceStats(figures)} />
+          </div>
+          {tabBand(
+            <>
               <PortalIconAction icon={Landmark} label="Bank" data-attr="vendor-balance-bank" onClick={() => setAddBankOpen(true)} />
               <PortalIconAction
                 icon={ArrowUpFromLine}
@@ -202,73 +250,67 @@ export function VendorBalancePanel({ basePath }: { basePath: string }) {
                   setWithdrawOpen(true);
                 }}
               />
-            </div>
-          </div>
-          <PortalListControlStack
-            className="mb-2 max-lg:mb-1.5"
-            variant="command"
-            destinations={[
-              {
-                id: "payouts",
-                label: "Payouts",
-                count: history.length,
-                href: `${basePath}/financials/balance`,
-                dataAttr: "vendor-balance-tab-payouts",
-              },
-            ]}
-            activeDestinationId="payouts"
-            destinationAriaLabel="Payout history"
-          />
-          <PortalRecordListSurface
-            isEmpty={history.length === 0}
-            dataAttr="vendor-payout-history"
-            emptyCard={{ title: "No payouts yet", section: "financials", tone: "muted" }}
-          >
-            {history.map((row) => (
-              <PortalPropertyRecordRow
-                key={row.id}
-                title={payoutTitle(row)}
-                address={row.destinationLast4 ? `Bank ····${row.destinationLast4}` : undefined}
-                leading={
-                  <span className="grid size-14 place-items-center rounded-xl bg-accent/60 text-muted" aria-hidden>
-                    {row.method === "instant" ? <Zap className="size-5" strokeWidth={1.75} /> : <ArrowUp className="size-5" strokeWidth={1.75} />}
-                  </span>
-                }
-                leadingShape="square"
-                facts={
-                  <>
-                    <PortalRowFact icon={Calendar} srLabel="Sent">{formatDate(row.createdAt)}</PortalRowFact>
-                    <span>{payoutStateLabel(row)}</span>
-                    {row.method === "instant" && row.feeCents > 0 ? <PortalRowFact icon={Zap} srLabel="Fee">Fee {formatMoney(row.feeCents, snapshot.currency)}</PortalRowFact> : null}
-                  </>
-                }
-                amount={formatMoney(row.amountCents, snapshot.currency)}
-                amountTone={row.status === "failed" || row.status === "returned" ? "bad" : undefined}
-                actions={
-                  row.status === "failed" && !snapshot.payoutReconciliationPending ? (
-                    <VendorRowMenu
-                      label={payoutTitle(row)}
-                      dataAttr="vendor-payout-row-menu"
-                      items={[
-                        {
-                          id: "retry",
-                          label: "Retry",
-                          disabled: disabledReason !== null,
-                          onSelect: () => {
-                            track("payout_withdraw_started", { portal: "vendor", retry: true });
-                            setRetryRow(row);
-                            setWithdrawOpen(true);
+            </>,
+            tab === "refunds" && refundsEnabled
+              ? { label: "Refund a payment", onClick: () => setRefundAddRequest((n) => n + 1), dataAttr: "vendor-refunds-add" }
+              : undefined,
+          )}
+          {tab === "overview" ? <VendorFinancesOverviewBody /> : null}
+          {tab === "refunds" ? (
+            <VendorRefundsPanel basePath={basePath} embedded addRequest={refundAddRequest} onEnabledChange={setRefundsEnabled} />
+          ) : null}
+          {tab === "payouts" ? (
+            <PortalRecordListSurface
+              isEmpty={history.length === 0}
+              dataAttr="vendor-payout-history"
+              emptyCard={{ title: "No payouts yet", section: "financials", tone: "muted" }}
+            >
+              {history.map((row) => (
+                <PortalPropertyRecordRow
+                  key={row.id}
+                  title={payoutTitle(row)}
+                  address={row.destinationLast4 ? `Bank ····${row.destinationLast4}` : undefined}
+                  leading={
+                    <span className="grid size-14 place-items-center rounded-xl bg-accent/60 text-muted" aria-hidden>
+                      {row.method === "instant" ? <Zap className="size-5" strokeWidth={1.75} /> : <ArrowUp className="size-5" strokeWidth={1.75} />}
+                    </span>
+                  }
+                  leadingShape="square"
+                  facts={
+                    <>
+                      <PortalRowFact icon={Calendar} srLabel="Sent">{formatDate(row.createdAt)}</PortalRowFact>
+                      <span>{payoutStateLabel(row)}</span>
+                      {row.method === "instant" && row.feeCents > 0 ? <PortalRowFact icon={Zap} srLabel="Fee">Fee {formatMoney(row.feeCents, snapshot.currency)}</PortalRowFact> : null}
+                    </>
+                  }
+                  amount={formatMoney(row.amountCents, snapshot.currency)}
+                  amountTone={row.status === "failed" || row.status === "returned" ? "bad" : undefined}
+                  actions={
+                    row.status === "failed" && !snapshot.payoutReconciliationPending ? (
+                      <VendorRowMenu
+                        label={payoutTitle(row)}
+                        dataAttr="vendor-payout-row-menu"
+                        items={[
+                          {
+                            id: "retry",
+                            label: "Retry",
+                            disabled: disabledReason !== null,
+                            onSelect: () => {
+                              track("payout_withdraw_started", { portal: "vendor", retry: true });
+                              setRetryRow(row);
+                              setWithdrawOpen(true);
+                            },
                           },
-                        },
-                      ]}
-                    />
-                  ) : undefined
-                }
-                onOpen={() => navigate(`${basePath}/financials/balance/${encodeURIComponent(row.id)}`)}
-                dataAttr="vendor-payout-history-row"
-              />
-            ))}
-          </PortalRecordListSurface>
+                        ]}
+                      />
+                    ) : undefined
+                  }
+                  onOpen={() => navigate(`${basePath}/financials/balance/${encodeURIComponent(row.id)}`)}
+                  dataAttr="vendor-payout-history-row"
+                />
+              ))}
+            </PortalRecordListSurface>
+          ) : null}
           <PayoutWithdrawSheet
             open={withdrawOpen}
             onClose={() => {
@@ -322,7 +364,7 @@ function balanceStats(figures: ReturnType<typeof deriveVendorFinancesFigures>): 
 /** One withdrawal's own page: the amounts, where it went, when it lands, and a printable receipt. */
 export function VendorWithdrawalDetail({ basePath, withdrawalId }: { basePath: string; withdrawalId: string }) {
   const { state, reload } = useVendorBalance();
-  const backHref = `${basePath}/financials/balance`;
+  const backHref = `${basePath}/financials/payouts`;
 
   if (state.status === "loading") {
     return <PortalRecordListSurface loading dataAttr="vendor-withdrawal-loading" />;
@@ -357,7 +399,7 @@ export function VendorWithdrawalDetail({ basePath, withdrawalId }: { basePath: s
       subtitle="Payout"
       avatarName={title}
       backHref={backHref}
-      backLabel="Back to balance"
+      backLabel="Back to payouts"
       hideBackText
       bareHeader
       iconTitleActions
@@ -439,66 +481,5 @@ function VendorBalanceLedgerFallback({ onRetry }: { onRetry: () => void }) {
         Stripe unavailable
       </p>
     </div>
-  );
-}
-
-/**
- * The Withdraw icon for a Finances header (Overview): the same derivations and the same
- * `PayoutWithdrawSheet` as Balance & payouts - nothing new on the money path. Disabled, with the
- * reason in its label, while Stripe cannot answer or nothing is withdrawable.
- */
-export function VendorWithdrawAction({ state, reload }: { state: LoadState; reload: () => void }) {
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
-  const snapshot = state.status === "ready" ? state.balance : null;
-  const readyBanks = state.status === "ready" ? state.banks : null;
-  const withdrawAccounts: PayoutWithdrawAccount[] = useMemo(
-    () =>
-      (readyBanks ?? [])
-        .filter((row) => row.payable)
-        .sort((a, b) => Number(b.default) - Number(a.default))
-        .map((row) => ({ id: row.id, label: row.label, last4: row.last4, kind: row.kind, instantEligible: row.instantEligible })),
-    [readyBanks],
-  );
-  const instantFee = useMemo(
-    () => ({ label: VENDOR_INSTANT_WITHDRAW_FEE_LABEL, quoteCents: vendorInstantWithdrawFeeQuoteCents }),
-    [],
-  );
-  const disabledReason = snapshot
-    ? vendorWithdrawDisabledReason(snapshot, withdrawAccounts.length > 0)
-    : state.status === "loading"
-      ? "Loading your balance"
-      : state.status === "relink"
-        ? "Reconnect your Stripe account first"
-        : "Stripe unavailable";
-  return (
-    <>
-      <PortalIconAction
-        icon={ArrowUpFromLine}
-        label={disabledReason ? `Withdraw — ${disabledReason}` : "Withdraw"}
-        data-attr="vendor-overview-withdraw"
-        disabled={disabledReason !== null}
-        onClick={() => {
-          track("payout_withdraw_started", { portal: "vendor", source: "finances_overview" });
-          setWithdrawOpen(true);
-        }}
-      />
-      {snapshot ? (
-        <PayoutWithdrawSheet
-          open={withdrawOpen}
-          onClose={() => setWithdrawOpen(false)}
-          apiBase="/api/vendor"
-          currency={snapshot.currency}
-          availableCents={vendorWithdrawableCents(snapshot)}
-          instantAvailableCents={snapshot.instantAvailableCents}
-          accounts={withdrawAccounts}
-          instantFee={typeof snapshot.feeBps === "number" ? instantFee : undefined}
-          onSuccess={(result) => {
-            setWithdrawOpen(false);
-            track("payout_withdraw_completed", { portal: "vendor", method: result.method, amount_cents: result.amountCents });
-            reload();
-          }}
-        />
-      ) : null}
-    </>
   );
 }

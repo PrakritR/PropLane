@@ -52,9 +52,9 @@ describe("vendor Money group registry", () => {
     expect(money.sections.map(label)).toEqual(["Incoming payments", "Outgoing payments", "Finances", "Documents"]);
   });
 
-  it("Finances is Overview · Balance & payouts · Refunds; Documents has the five tabs", () => {
+  it("Finances has no registry tabs (Overview · Payouts · Refunds are in-page); Documents has the five tabs", () => {
     const tabs = (section: string) => vendorPortal.sections.find((s) => s.section === section)!.tabs.map((t) => t.label);
-    expect(tabs("financials")).toEqual(["Overview", "Balance & payouts", "Refunds"]);
+    expect(tabs("financials")).toEqual([]);
     expect(tabs("documents")).toEqual(["Tax", "Business license", "Insurance", "Statements", "From managers"]);
   });
 
@@ -86,7 +86,7 @@ describe("moved URLs land on their new home", () => {
     ["financials", ["tax"], "/vendor/documents/tax"],
     ["financials", ["invoices"], "/vendor/payments/pending"],
     ["financials", undefined, "/vendor/financials/overview"],
-    ["financials", ["payouts"], "/vendor/financials/balance"],
+    ["financials", ["balance"], "/vendor/financials/payouts"],
     ["payments", undefined, "/vendor/payments/pending"],
     ["payments", ["incoming", "paid"], "/vendor/payments/paid"],
     ["payments", ["outgoing"], "/vendor/outgoing/this-month"],
@@ -115,7 +115,7 @@ describe("moved URLs land on their new home", () => {
   it("renders the real pages for every new segment and tab", async () => {
     for (const tabs of [["pending"], ["paid"], ["overdue"]]) expect(await landing("payments", tabs)).toBe("renders");
     for (const tabs of [["this-month"], ["last-month"], ["earlier"]]) expect(await landing("outgoing", tabs)).toBe("renders");
-    for (const tab of ["overview", "balance", "refunds"]) expect(await landing("financials", [tab])).toBe("renders");
+    for (const tab of ["overview", "payouts", "refunds"]) expect(await landing("financials", [tab])).toBe("renders");
     for (const tab of ["tax", "license", "insurance", "statements", "from-managers"]) {
       expect(await landing("documents", [tab])).toBe("renders");
     }

@@ -643,15 +643,18 @@ View invoice (View payment on an income row) · Edit · Retract invoice (a submi
 the client as `refundsEnabled` on the one balance snapshot, never a client guess — and opens the Refund a payment
 pop-up (`VendorRefundModal`, owned by the refund path) on that payment. The payout record page's header still hides Refund.
 
-## Finances: Balance & payouts · Payments · Refunds · Statements · Tax info (vendor-banking-1006, Oct 7)
+## Finances: one page, three tabs (vendor-banking-1006, Oct 7; combined vendor-finances-1008)
 
-One vendor nav section, id `financials` (so every old URL keeps resolving), label **Finances**, five routed tabs
-(`vendor.ts`): `balance`, `income` (Payments — the id never changed), `refunds`, `statements`, `tax`. The sidebar
-nests them under the one Finances row (`portal-sidebar.tsx`, like manager Payments); the phone More sheet nests
-them too. `invoices` and `payouts` are **detail-only** ids (an invoice / a payment record page); bare
-`/financials` opens Balance, bare `/financials/invoices` → Payments, bare `/financials/payouts` → Balance,
-`/vendor/payments` → Payments. Settings › Payouts keeps only **Bank accounts + Schedule** and links to Finances;
-the balance, withdraw, payout history, fee rate and W-9 rows moved out of it.
+**One page, one nav row (vendor-finances-1008, captain Oct 8).** Finances is a single sidebar / More row with no
+sub-items (`financials` declares `tabs: []`). `VendorFinancesPage` (`vendor-finances-balance.tsx`) is the whole
+page: the four balance cards (below), then one `RecordTabBand` header card with the tabs **Overview · Payouts ·
+Refunds** and the Bank + Withdraw icons. The tab is the URL segment, handled in `render-portal-section.tsx`:
+`/vendor/financials/overview` (default for bare `/financials`), `/payouts`, `/refunds`. Aliases: `/financials/balance`
+(bare) -> `/payouts`; `/financials/balance/<id>` is still a withdrawal's own page; `/financials/payouts/<id>[/<tab>]`
+is still a payment's record page; `invoices` bare / `income` -> Incoming payments, `statements` / `tax` -> Documents,
+`/vendor/payments` -> Incoming payments. Overview adds only what the cards do not show (Owed to you, Paid this
+year, this month's earned / spent / profit / jobs, By manager); Refunds mounts `VendorRefundsPanel embedded`, whose
+round + sits in the band. Settings > Payouts keeps only **Bank accounts + Schedule** and links to the Payouts tab.
 
 **One server snapshot feeds every number**: `GET /api/vendor/payouts/balance`. `deriveVendorFinancesFigures`
 (`src/lib/vendor-banking/finances.ts`, pure) turns it into **Available · Pending · Held (with its reason: until you

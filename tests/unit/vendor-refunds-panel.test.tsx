@@ -60,7 +60,7 @@ describe("VendorRefundsPanel", () => {
     expect(src).toContain("VendorRowMenu");
     expect(src).toContain("PortalRecordListSurface");
     expect(src).not.toMatch(/<Badge\b|<table|<Button\b/);
-    expect(src).toMatch(/export function VendorRefundsPanel\(props: \{ basePath: string \}\)/);
+    expect(src).toMatch(/export function VendorRefundsPanel\(props: \{/);
   });
 });
 
