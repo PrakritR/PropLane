@@ -6,6 +6,13 @@ import {
   purgeManagerResidentData,
   type ManagerResidentPurgeCounts,
 } from "@/lib/auth/purge-manager-resident";
+import {
+  applyResidentAccountDecision,
+  decideResidentAccountFate,
+  findResidentOwnedWorkspaceThreadIds,
+  removeResidentOwnedWorkspaceThreads,
+} from "@/lib/auth/resident-account-deletion";
+import { clearResidentWorkspaceBinding } from "@/lib/auth/resident-workspace-binding";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -101,7 +108,15 @@ export async function previewResidentApplicationRemoval(
   actor: { userId: string; isAdmin: boolean },
   input: { applicationId: string; email?: string },
 ): Promise<
-  | { ok: true; mode: "preview"; email: string; counts: ManagerResidentPurgeCounts; total: number }
+  | {
+      ok: true;
+      mode: "preview";
+      email: string;
+      counts: ManagerResidentPurgeCounts;
+      total: number;
+      /** What happens to their PropLane login: deleted with them, kept, or they never had one. */
+      account: "deleted" | "kept" | "none";
+    }
   | Refusal
 > {
   const authorized = await authorizeResidentRemoval(db, actor, input);
@@ -115,8 +130,32 @@ export async function previewResidentApplicationRemoval(
     phones: target.phones,
   });
   // Paid money stays on the books, unnamed; the dialog says how much.
-  const counts = { ...preview.counts, paidCount: preview.paidKept.count, paidCents: preview.paidKept.cents };
-  return { ok: true as const, mode: "preview" as const, email: target.email, counts, total: preview.total };
+  // The resident's own copies of the conversations in this workspace go too.
+  const residentThreads = await findResidentOwnedWorkspaceThreadIds(db, {
+    managerUserId: target.managerUserId,
+    residentUserId: target.residentUserId,
+  });
+  const counts = {
+    ...preview.counts,
+    conversations: preview.counts.conversations + residentThreads.length,
+    paidCount: preview.paidKept.count,
+    paidCents: preview.paidKept.cents,
+  };
+  const decision = await decideResidentAccountFate(db, {
+    actorUserId: actor.userId,
+    managerUserId: target.managerUserId,
+    email: target.email,
+    residentUserId: target.residentUserId,
+  });
+  const account = decision.status === "delete" ? ("deleted" as const) : decision.status === "none" ? ("none" as const) : ("kept" as const);
+  return {
+    ok: true as const,
+    mode: "preview" as const,
+    email: target.email,
+    counts,
+    total: preview.total + residentThreads.length,
+    account,
+  };
 }
 
 /**
@@ -125,8 +164,10 @@ export async function previewResidentApplicationRemoval(
  * this manager's portfolio that belongs to them, in one transaction. Paid
  * charges stay on the books without a name.
  *
- * The resident's login and anything they hold with another manager are
- * untouched. A failure removes nothing, so the caller keeps the row in the list.
+ * Anything they hold with another manager is untouched. Their PropLane login is
+ * deleted too (the same full purge as self-delete) only when
+ * `decideResidentAccountFate` finds nothing else tying it to anyone; otherwise it
+ * stays. A failure before the login step removes nothing of this manager's.
  */
 export async function removeResidentApplication(
   db: SupabaseClient,
@@ -143,13 +184,33 @@ export async function removeResidentApplication(
     applicationId: target.applicationId,
     phones: target.phones,
   });
+  // The resident's own inbox rows for this workspace: the manager's RPC only
+  // reaches rows the manager owns. Removed whether or not the login goes.
+  const removedThreads = await removeResidentOwnedWorkspaceThreads(db, {
+    managerUserId: target.managerUserId,
+    residentUserId: target.residentUserId,
+  });
+  // Decided AFTER this manager's rows are gone: what is left is someone else's.
+  const decision = await decideResidentAccountFate(db, {
+    actorUserId: actor.userId,
+    managerUserId: target.managerUserId,
+    email: target.email,
+    residentUserId: target.residentUserId,
+  });
+  const account = await applyResidentAccountDecision(db, decision);
+  if (account.outcome !== "deleted" && target.residentUserId) {
+    // This manager's relationship has ended; the proof must not outlive it.
+    await clearResidentWorkspaceBinding(db, target.residentUserId, target.managerUserId).catch(() => undefined);
+  }
   return {
     ok: true as const,
     mode: "removed_application" as const,
     email: target.email,
-    removed: result.counts,
-    total: result.total,
+    removed: { ...result.counts, conversations: result.counts.conversations + removedThreads },
+    total: result.total + removedThreads,
     anonymized: result.anonymized,
     storageWarnings: result.storageWarnings,
+    account: account.outcome,
+    ...(account.error ? { accountError: account.error } : {}),
   };
 }

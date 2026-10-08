@@ -7,6 +7,7 @@ import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upse
 import { buildResidentSetupHref } from "@/lib/auth/resident-setup-token";
 import { linkResidentOnApplicationSubmit } from "@/lib/auth/link-resident-on-application-submit";
 import { isAdminUser } from "@/lib/auth/admin-preview";
+import { recordResidentWorkspaceBinding } from "@/lib/auth/resident-workspace-binding";
 import { managerCanAccessApplicationRecord, managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access";
 import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import { linkedOwnerForProperty, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
@@ -1515,6 +1516,13 @@ export async function POST(req: Request) {
         );
       }
       row = linked.row;
+      // The one writer of the proof that lets a manager's "Delete resident" also delete this
+      // login: the id is the authenticated session's (`user.id`), the manager is the listing's.
+      await recordResidentWorkspaceBinding(db, {
+        residentUserId: user.id,
+        managerUserId: row.managerUserId ?? null,
+        applicationId: row.id,
+      });
       // The answers were validated above; whatever identity the template no longer asks for now comes
       // from the applicant's own account, so the stored row (resident_email, name, answers) is complete.
       if (!isDraftShapedApplicationRow(row)) {

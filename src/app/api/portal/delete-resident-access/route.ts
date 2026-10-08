@@ -4,7 +4,8 @@ import {
 } from "@/lib/auth/remove-resident-application";
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { deleteResidentAccount } from "@/lib/auth/delete-portal-account";
+import { canHardDeleteResident, deleteResidentAccount } from "@/lib/auth/delete-portal-account";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -73,7 +74,19 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Choose the resident to preview." }, { status: 400 });
       }
       const counted = await previewResidentApplicationRemoval(svc, { userId: user.id, isAdmin }, { applicationId, email });
+      // An admin's delete (below) removes the login whenever it holds no protected
+      // role, so their preview must say that, not the manager rule.
+      if (isAdmin && counted.ok && counted.account !== "none") {
+        counted.account = (await canHardDeleteResident(svc, counted.email)).ok ? "deleted" : "kept";
+      }
       return NextResponse.json(counted, { status: counted.ok ? 200 : counted.status });
+    }
+
+    // Deleting a resident can now delete their PropLane login. A View as session
+    // is read-only; the middleware already refuses this POST, and this is the
+    // second lock on the one write that can remove an account.
+    if (await isViewAsSessionOpen()) {
+      return NextResponse.json({ error: "A View as session is read-only." }, { status: 403 });
     }
 
     if (!isAdmin) {

@@ -550,6 +550,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     },
   },
   {
+    // The resident's own proof that they bound their account to this manager (see resident-account-deletion.ts).
+    table: "resident_workspace_bindings",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { ids: ["resident_user_id"] },
+  },
+  {
     // The applicant <-> helper link behind "Forms for <applicant>". Either person's deletion removes it.
     table: "resident_account_links",
     phase: 1,
