@@ -205,6 +205,13 @@ describe("view-as private document bytes", () => {
       "/api/reports/rpt-42/export",
       "/api/portal/tours-export",
       "/api/vendor/export",
+      "/api/inspections/7b8c/pdf",
+      "/api/move-in-forms/7b8c/pdf",
+      "/api/move-in-forms/7b8c/template-pdf",
+      "/api/move-in-forms/template-pdf",
+      "/api/move-in-forms/mine/7b8c/pdf",
+      "/api/move-in-forms/mine/7b8c/template-pdf",
+      "/api/portal/lease-template",
     ]) {
       expect(viewAsDeniesPrivateBytes("GET", path), path).toBe(true);
     }
@@ -261,5 +268,16 @@ describe("view-as identity scope and same-origin", () => {
     expect(isSameOrigin(h("https://evil.example"))).toBe(false);
     expect(isSameOrigin(h())).toBe(false);
     expect(isSameOrigin(h("not a url"))).toBe(false);
+  });
+});
+
+describe("View as: inspection / move-in form / lease template files (Oct 8)", () => {
+  it("refuses the PDFs but keeps the JSON reads on the same routes", () => {
+    for (const path of ["/api/inspections/7b8c", "/api/move-in-forms/7b8c", "/api/move-in-forms/mine/7b8c", "/api/move-in-forms"]) {
+      expect(viewAsDeniesPrivateBytes("GET", path), path).toBe(false);
+    }
+    expect(viewAsDeniesPrivateBytes("GET", "/api/inspections/7b8c/pdf")).toBe(true);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/move-in-forms/mine/7b8c/template-pdf")).toBe(true);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/portal/lease-template")).toBe(true);
   });
 });

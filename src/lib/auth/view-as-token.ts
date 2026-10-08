@@ -243,6 +243,14 @@ const PRIVATE_BYTES_PATTERNS: RegExp[] = [
   /^\/api\/reports\/[^/]+\/export$/,
   /^\/api\/portal\/tours-export$/,
   /^\/api\/vendor\/export$/,
+  // Row-built resident PDFs (claude-2 land, Oct 8): an inspection report, a move-in
+  // form (filled or the original template, the manager's and the resident's own
+  // "mine" copy), and the lease template the portal streams inline from storage.
+  /^\/api\/inspections\/[^/]+\/pdf$/,
+  /^\/api\/move-in-forms\/[^/]+\/(pdf|template-pdf)$/,
+  /^\/api\/move-in-forms\/template-pdf$/,
+  /^\/api\/move-in-forms\/mine\/[^/]+\/(pdf|template-pdf)$/,
+  /^\/api\/portal\/lease-template$/,
 ];
 
 /**
