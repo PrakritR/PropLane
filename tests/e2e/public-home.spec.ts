@@ -39,7 +39,9 @@ test.describe("Public home", () => {
     const demo = page.locator("#rlp-demo-stage");
     await expect(demo).toBeInViewport({ ratio: 0.6 });
     await expect(demo.getByRole("button", { name: "Dashboard", exact: true })).toHaveAttribute("aria-current", "page");
-    await expect(demo.getByText("Welcome back")).toBeInViewport();
+    // The Dashboard is the real one: its first row is the KPI cards, and it has no "Welcome back" heading.
+    await expect(demo.getByText("Occupancy", { exact: true })).toBeInViewport();
+    await expect(demo.getByText("Welcome back")).toHaveCount(0);
     // The sidebar's group label comes before the item it labels.
     const label = await demo.getByRole("button", { name: "Leasing group", exact: true }).boundingBox();
     const tours = await demo.getByRole("button", { name: "Tours", exact: true }).boundingBox();
