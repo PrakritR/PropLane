@@ -172,13 +172,11 @@ describe("trials", () => {
     expect(trialEndsSoon({ trialDaysLeft: null })).toBe(false);
   });
 
-  it("honours a staff-extended trial end and sorts the Trial tab soonest first", () => {
+  it("honours a staff-extended trial end (paid_at moved) and sorts the Trial tab soonest first", () => {
     const soon = classifySubscriber(input("soon", purchase({ billing: "trial", paidAt: iso(-12) })))!; // ends day 2
-    const later = classifySubscriber(
-      input("later", purchase({ billing: "trial", paidAt: iso(-1) }), {
-        overrides: { ...EMPTY_MANAGER_BILLING_OVERRIDES, trialEndsAt: "2026-10-30" },
-      }),
-    )!;
+    // Staff extend a trial by moving paid_at (the one value the resolver derives the end from);
+    // the legacy trialEndsAt override is no longer written or read.
+    const later = classifySubscriber(input("later", purchase({ billing: "trial", paidAt: iso(8) })))!; // 14-day trial ends 10-30
     expect(later.trialEndsAt).toBe("2026-10-30");
     const sorted = filterSubscribers([later, soon], { tab: "trial", q: "", plan: "all", source: "all", signup: "" });
     expect(sorted.map((r) => r.id)).toEqual(["soon", "later"]);
