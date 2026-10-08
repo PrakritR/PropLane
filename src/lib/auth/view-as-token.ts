@@ -245,10 +245,30 @@ const PRIVATE_BYTES_PATTERNS: RegExp[] = [
   /^\/api\/vendor\/export$/,
 ];
 
-export function viewAsDeniesPrivateBytes(method: string, pathname: string): boolean {
+/**
+ * The same refusal where a QUERY PARAMETER, not the path, asks for the file:
+ * `?format=csv` turns the vendor statement and the property worksheet into a
+ * ledger built from rows, while the JSON read on that same path (the list, the
+ * `summary=1` stamp) is ordinary metadata a session may see. A path pattern
+ * cannot tell those two apart, so the format decides.
+ */
+const PRIVATE_BYTES_FORMATS = new Set(["csv", "pdf"]);
+const PRIVATE_BYTES_FORMAT_PATHS: RegExp[] = [
+  /^\/api\/vendor\/payouts\/statement$/,
+  /^\/api\/reports\/property-worksheet$/,
+];
+
+export function viewAsDeniesPrivateBytes(
+  method: string,
+  pathname: string,
+  search: string | URLSearchParams = "",
+): boolean {
   if (!SAFE_METHODS.has(method.toUpperCase())) return false;
   const p = normalizePath(pathname).toLowerCase();
-  return PRIVATE_BYTES_PATTERNS.some((re) => re.test(p));
+  if (PRIVATE_BYTES_PATTERNS.some((re) => re.test(p))) return true;
+  if (!PRIVATE_BYTES_FORMAT_PATHS.some((re) => re.test(p))) return false;
+  const params = typeof search === "string" ? new URLSearchParams(search) : search;
+  return PRIVATE_BYTES_FORMATS.has((params.get("format") ?? "").trim().toLowerCase());
 }
 
 /**

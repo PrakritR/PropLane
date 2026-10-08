@@ -96,7 +96,7 @@ async function recentSignupsOf(
   kindById: Map<string, AdminAccountKind>,
 ): Promise<AdminOverview["recentSignups"]> {
   try {
-    const { kept } = await scanNewestProfiles(
+    const kept = await scanNewestProfiles(
       db,
       { match: null, limit: RECENT_SIGNUP_COUNT },
       (rows) =>

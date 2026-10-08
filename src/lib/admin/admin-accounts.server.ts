@@ -262,15 +262,13 @@ export function profileSearchFilter(query: string): string | null {
  * table runs out — never more than `PROFILE_SCAN_MAX_WINDOWS` windows, so a
  * term that matches everything still costs a fixed number of reads.
  *
- * `complete` says the scan reached the end of the matching rows, which is what
- * lets a caller report a total rather than a floor. Ordered by `created_at`
- * then `id`, so the windows never skip or repeat a row.
+ * Ordered by `created_at` then `id`, so the windows never skip or repeat a row.
  */
 export async function scanNewestProfiles<T>(
   db: SupabaseClient,
   opts: { match: string | null; limit: number },
   keep: (rows: AdminProfileScanRow[]) => Promise<T[]> | T[],
-): Promise<{ kept: T[]; complete: boolean }> {
+): Promise<T[]> {
   const kept: T[] = [];
   for (let index = 0; index < PROFILE_SCAN_MAX_WINDOWS; index += 1) {
     const from = index * PROFILE_SCAN_WINDOW;
@@ -288,10 +286,9 @@ export async function scanNewestProfiles<T>(
     );
     kept.push(...(await keep(rows)));
     const windowWasShort = ((data ?? []) as unknown[]).length < PROFILE_SCAN_WINDOW;
-    if (windowWasShort) return { kept, complete: true };
-    if (kept.length >= opts.limit) return { kept, complete: false };
+    if (windowWasShort || kept.length >= opts.limit) return kept;
   }
-  return { kept, complete: false };
+  return kept;
 }
 
 /**

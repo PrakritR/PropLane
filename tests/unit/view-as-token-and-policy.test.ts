@@ -217,6 +217,20 @@ describe("view-as private document bytes", () => {
     expect(viewAsDeniesPrivateBytes("GET", "/api/manager-documents/doc-1%2Fsigned-url")).toBe(true);
   });
 
+  it("refuses a download a query parameter asks for, and allows the read on the same path", () => {
+    for (const path of ["/api/vendor/payouts/statement", "/api/reports/property-worksheet"]) {
+      for (const search of ["?format=csv", "?format=pdf", "?month=2026-10&format=CSV", "?format=%20pdf%20"]) {
+        expect(viewAsDeniesPrivateBytes("GET", path, search), `${path}${search}`).toBe(true);
+      }
+      // The JSON the list and the stamp read is metadata, not the file.
+      for (const search of ["", "?month=2026-10", "?summary=1", "?format=", "?format=json"]) {
+        expect(viewAsDeniesPrivateBytes("GET", path, search), `${path}${search}`).toBe(false);
+      }
+    }
+    // A format on a path that hands out no file is not suddenly private.
+    expect(viewAsDeniesPrivateBytes("GET", "/api/property-records", "?format=csv")).toBe(false);
+  });
+
   it("still lists document metadata, reports and vendor rows", () => {
     expect(viewAsDeniesPrivateBytes("GET", "/api/manager-documents")).toBe(false);
     expect(viewAsDeniesPrivateBytes("GET", "/api/vendor/documents")).toBe(false);
