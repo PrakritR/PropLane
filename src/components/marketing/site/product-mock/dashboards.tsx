@@ -16,7 +16,8 @@
  * Every number is read off the rows the sample world draws on the other tabs (`world.ts`).
  */
 
-import { useMemo, useState } from "react";
+import { VendorDashboardBalanceDemo } from "@/components/marketing/site/product-mock/panels-vendor";
+import { useMemo, useState, type ReactNode } from "react";
 import { ClipboardList, FileSignature, Home, MapPin, MessageSquare, SlidersHorizontal, Users, Wallet, Wrench } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { ManagerPortalPageShell, PORTAL_DASHBOARD_STACK, PortalDashboardKpiRow } from "@/components/portal/portal-metrics";
@@ -35,7 +36,7 @@ import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import { usdWhole } from "@/lib/dashboard-kpis";
 import type { MonthlyCashflowPoint } from "@/lib/portal-monthly-profit";
 import { residentLifecycleSteps, resolveResidentLifecycleNextAction } from "@/lib/resident-lifecycle-journey";
-import { AREA_BY_PROPERTY, COMM_CONVERSATIONS, RESIDENT_HOME, PROPERTY_ROWS } from "@/components/marketing/site/product-mock/fixtures";
+import { AREA_BY_PROPERTY, COMM_CONVERSATIONS, RESIDENT_HOME, RESIDENT_NAME, PROPERTY_ROWS } from "@/components/marketing/site/product-mock/fixtures";
 import { DEMO_PAGE_CLASS, ProductWindow } from "@/components/marketing/site/product-mock/shared";
 import {
   residentConversations,
@@ -45,8 +46,21 @@ import {
   type DemoStory,
 } from "@/components/marketing/site/product-mock/world";
 import { phoneScriptFor } from "@/components/marketing/resident-lifecycle-script";
+import { MANAGER_DASHBOARD_SECTIONS } from "@/lib/dashboard-preferences";
+import { RESIDENT_DASHBOARD_SECTIONS } from "@/lib/resident-dashboard-preferences";
+import { DemoCustomizeDashboard } from "@/components/marketing/site/product-mock/demo-popups-lazy-resident";
 
 const NO_OP = () => undefined;
+
+/** Which sections the Customize dashboard pop-up shows: every section at its default, then whatever the visitor toggles. */
+function defaultVisibility(sections: ReadonlyArray<{ id: string; defaultVisible: boolean }>): Record<string, boolean> {
+  return Object.fromEntries(sections.map((section) => [section.id, section.defaultVisible]));
+}
+
+/** A dashboard section the visitor turned off in Customize: out of the layout, like the real dashboard drops it. */
+function Visible({ on, children }: { on: boolean; children: ReactNode }) {
+  return <div className={on ? "contents" : "hidden"}>{children}</div>;
+}
 
 /* ───────────────────────────── Manager ───────────────────────────── */
 
@@ -75,6 +89,8 @@ const ACTIVATED = new Set(["res-liam", "res-priya", "res-maya"]);
 const placeLine = (place: string) => place;
 
 export function ManagerDashboardView({ story }: { story?: DemoStory }) {
+  const [customizing, setCustomizing] = useState(false);
+  const [vis, setVis] = useState(() => defaultVisibility(MANAGER_DASHBOARD_SECTIONS));
   const [nowMs] = useState(() => Date.now());
   const world = worldFor(story);
   const { dashboard } = world;
@@ -171,7 +187,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               addPropertyAction={<PortalPrimaryIconAction label="Create" data-attr="dashboard-create" onClick={NO_OP} />}
             />
 
-            <div data-dashboard-section="cashflow">
+            <div data-dashboard-section="cashflow" className={vis.cashflow ? undefined : "hidden"}>
               <MonthlyProfitChart points={points} />
             </div>
 
@@ -179,10 +195,10 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
               <div className="flex items-center gap-2 border-b border-border px-3.5 py-[11px]">
                 <h2 className="min-w-0 truncate text-sm font-[650] text-foreground">Everything open</h2>
                 {openCount > 0 ? <span className="text-[12.5px] font-medium tabular-nums text-muted/70">{openCount}</span> : null}
-                <PortalIconAction icon={SlidersHorizontal} label="Customize" onClick={NO_OP} data-attr="dashboard-customize-open" className="ml-auto" />
+                <PortalIconAction icon={SlidersHorizontal} label="Customize" onClick={() => setCustomizing(true)} data-attr="dashboard-customize-open" className="ml-auto" />
               </div>
 
-              <div data-dashboard-section="tours" className="border-b border-border last:border-b-0">
+              <div data-dashboard-section="tours" className={`border-b border-border last:border-b-0${vis.tours ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Tour requests"
                   href="#"
@@ -206,7 +222,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   )}
                 />
               </div>
-              <div data-dashboard-section="applications" className="border-b border-border last:border-b-0">
+              <div data-dashboard-section="applications" className={`border-b border-border last:border-b-0${vis.applications ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Applications to approve"
                   href="#"
@@ -229,7 +245,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   )}
                 />
               </div>
-              <div data-dashboard-section="leases" className="border-b border-border last:border-b-0">
+              <div data-dashboard-section="leases" className={`border-b border-border last:border-b-0${vis.leases ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Leases to sign"
                   href="#"
@@ -253,7 +269,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   )}
                 />
               </div>
-              <div data-dashboard-section="residents" className="border-b border-border last:border-b-0">
+              <div data-dashboard-section="residents" className={`border-b border-border last:border-b-0${vis.residents ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Residents"
                   href="#"
@@ -281,7 +297,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   }}
                 />
               </div>
-              <div data-dashboard-section="payments" className="border-b border-border last:border-b-0">
+              <div data-dashboard-section="payments" className={`border-b border-border last:border-b-0${vis.payments ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Payments"
                   href="#"
@@ -317,7 +333,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   }}
                 />
               </div>
-              <div data-dashboard-section="services" className="border-b border-border last:border-b-0">
+              <div data-dashboard-section="services" className={`border-b border-border last:border-b-0${vis.services ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Services needed"
                   href="#"
@@ -340,7 +356,7 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
                   )}
                 />
               </div>
-              <div data-dashboard-section="inbox" className="border-b border-border last:border-b-0">
+              <div data-dashboard-section="inbox" className={`border-b border-border last:border-b-0${vis.inbox ? "" : " hidden"}`}>
                 <AttentionGroup
                   title="Unread messages"
                   href="#"
@@ -368,6 +384,15 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
           </div>
         </ManagerPortalPageShell>
       </div>
+      {customizing ? (
+        <DemoCustomizeDashboard
+          role="manager"
+          visibility={vis}
+          onToggle={(id, visible) => setVis((current) => ({ ...current, [id]: visible }))}
+          onReset={() => setVis(defaultVisibility(MANAGER_DASHBOARD_SECTIONS))}
+          onClose={() => setCustomizing(false)}
+        />
+      ) : null}
     </ProductWindow>
   );
 }
@@ -375,6 +400,8 @@ export function ManagerDashboardView({ story }: { story?: DemoStory }) {
 /* ───────────────────────────── Resident ───────────────────────────── */
 
 export function ResidentDashboardView({ story, stage }: { story: DemoStory; stage?: string }) {
+  const [customizing, setCustomizing] = useState(false);
+  const [vis, setVis] = useState(() => defaultVisibility(RESIDENT_DASHBOARD_SECTIONS));
   const unread = residentConversations(story, phoneScriptFor("resident", stage ?? "pay").items).filter((c) => c.segment === "active" && c.unread);
   const leaseSigned = story.leaseStep === 3;
   const residentSigned = story.leaseStep >= 2;
@@ -406,7 +433,7 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
   return (
     <ProductWindow path="/resident/dashboard" nativeHeight={900}>
       <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title={leaseSigned ? "Welcome home." : "Welcome."} hideTitleOnNative hideTitleOnMobileNav>
+        <ManagerPortalPageShell title={leaseSigned ? `Welcome home, ${RESIDENT_NAME}.` : `Welcome, ${RESIDENT_NAME}.`} hideTitleOnNative hideTitleOnMobileNav>
           <div className={`min-w-0 ${PORTAL_DASHBOARD_STACK}`}>
             <ResidentJourneyBanner steps={steps} action={action} />
             {leaseSigned ? (
@@ -464,9 +491,10 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
               <div className="flex items-center gap-2 border-b border-border px-3.5 py-[11px]">
                 <h2 className="min-w-0 truncate text-sm font-[650] text-foreground">Needs attention</h2>
                 {openCount > 0 ? <span className="text-[12.5px] font-medium tabular-nums text-muted/70">{openCount}</span> : null}
-                <PortalIconAction icon={SlidersHorizontal} label="Customize" onClick={NO_OP} data-attr="resident-dashboard-customize-open" className="ml-auto" />
+                <PortalIconAction icon={SlidersHorizontal} label="Customize" onClick={() => setCustomizing(true)} data-attr="resident-dashboard-customize-open" className="ml-auto" />
               </div>
 
+              <Visible on={vis.tours}>
               <ResidentAttentionGroup
                 title="Tour pending"
                 href="#"
@@ -487,6 +515,8 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                   />
                 )}
               />
+              </Visible>
+              <Visible on={vis.applications}>
               <ResidentAttentionGroup
                 title="Application pending"
                 href="#"
@@ -507,6 +537,8 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                   />
                 )}
               />
+              </Visible>
+              <Visible on={vis.lease}>
               <ResidentAttentionGroup
                 title="Lease"
                 href="#"
@@ -532,6 +564,8 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                   );
                 }}
               />
+              </Visible>
+              <Visible on={vis.houseDetails}>
               <ResidentAttentionGroup
                 title="House details"
                 href="#"
@@ -552,7 +586,9 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                   />
                 )}
               />
+              </Visible>
               {leaseSigned ? (
+                <Visible on={vis.services}>
                 <ResidentAttentionGroup
                   title="Services"
                   href="#"
@@ -573,8 +609,10 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                     />
                   )}
                 />
+                </Visible>
               ) : null}
               {story.applicationApproved ? (
+                <Visible on={vis.payments}>
                 <ResidentAttentionGroup
                   title="Pending & overdue payments"
                   href="#"
@@ -596,7 +634,9 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                     />
                   )}
                 />
+                </Visible>
               ) : null}
+              <Visible on={vis.communication}>
               <ResidentAttentionGroup
                 title="Communication"
                 href="#"
@@ -618,10 +658,21 @@ export function ResidentDashboardView({ story, stage }: { story: DemoStory; stag
                   />
                 )}
               />
+              </Visible>
             </section>
           </div>
         </ManagerPortalPageShell>
       </div>
+      {customizing ? (
+        <DemoCustomizeDashboard
+          role="resident"
+          leaseSigned={leaseSigned}
+          visibility={vis}
+          onToggle={(id, visible) => setVis((current) => ({ ...current, [id]: visible }))}
+          onReset={() => setVis(defaultVisibility(RESIDENT_DASHBOARD_SECTIONS))}
+          onClose={() => setCustomizing(false)}
+        />
+      ) : null}
     </ProductWindow>
   );
 }
@@ -697,6 +748,7 @@ export function VendorDashboardDemo({ story, stage }: { story: DemoStory; stage?
           }))}
           onAdd={NO_OP}
           onOpenJob={NO_OP}
+          belowKpis={<VendorDashboardBalanceDemo story={story} />}
         />
       </div>
     </ProductWindow>

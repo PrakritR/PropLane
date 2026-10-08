@@ -13,7 +13,8 @@ export async function GET() {
     const health = await loadAdminHealth(createSupabaseServiceRoleClient());
     return NextResponse.json(health, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // A Supabase / PostgREST message names schema and query shape: logged, never returned.
+    console.error("GET /api/admin/health failed", e);
+    return NextResponse.json({ error: "Could not load health." }, { status: 500 });
   }
 }

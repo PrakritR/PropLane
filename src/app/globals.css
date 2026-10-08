@@ -3953,6 +3953,11 @@ html[data-theme="light"] .portal-shell .glass-card {
   [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-record-list-surface"],
   [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-record-list-surface"] {
     margin-inline: -2rem;
+    /* The surface is `w-full` (width: 100%), and a width that is not auto never grows
+       into a negative margin: the rows slid left by the margin and stopped one gutter
+       short on the right. Widen it by both gutters so rows and hairlines meet the
+       header band's right edge. */
+    width: calc(100% + 4rem);
   }
 }
 /* The bleed's negative margins reach into <main>'s 2rem padding. The sticky-chrome
@@ -3985,6 +3990,11 @@ html[data-theme="light"] .portal-shell .glass-card {
   [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-record-list-surface"],
   [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-record-list-surface"] {
     margin-inline: -1rem;
+    /* The surface is `w-full` (width: 100%), and a width that is not auto never grows
+       into a negative margin: the rows slid left by the margin and stopped one gutter
+       short on the right. Widen it by both gutters so rows and hairlines meet the
+       header band's right edge. */
+    width: calc(100% + 2rem);
   }
 }
 

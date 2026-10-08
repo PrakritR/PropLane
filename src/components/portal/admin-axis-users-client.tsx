@@ -72,8 +72,9 @@ function kindOfCategory(category: CategoryFilter): AdminAccountRowKind {
   return category === "management" ? "manager" : category;
 }
 
-/** "Signed in Oct 4, 2026", or "Never signed in". */
-function lastSignInLabel(iso: string | null): string {
+/** "Signed in Oct 4, 2026", "Never signed in", or "Sign-in unknown" when the auth read failed. */
+function lastSignInLabel(iso: string | null, known = true): string {
+  if (!known) return "Sign-in unknown";
   if (!iso) return "Never signed in";
   return `Signed in ${formatPacificDate(iso, { year: "numeric", month: "short", day: "numeric" })}`;
 }
@@ -239,7 +240,7 @@ function AdminAccountsList() {
           setLoadError(json.error ?? "Could not load accounts.");
           return;
         }
-        setResult({ rows: json.rows, counts: json.counts });
+        setResult({ rows: json.rows, counts: json.counts, countsComplete: json.countsComplete === true });
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -300,7 +301,9 @@ function AdminAccountsList() {
     { id: "disabled", label: `Disabled${disabledCount ? ` (${disabledCount})` : ""}`, dataAttr: "admin-accounts-status-disabled" },
   ];
 
-  const counts = result?.counts;
+  // A total gets a pill; an answer that could not be totalled gets none, because
+  // a number that is too low reads as the truth.
+  const counts = result?.countsComplete ? result.counts : undefined;
   const ROLE_TABS = [
     { id: "management", label: "Managers", count: counts?.manager },
     { id: "resident", label: "Residents", count: counts?.resident },
@@ -497,7 +500,7 @@ function AdminAccountsList() {
               label: `${row.workspaceCount ?? 0} ${(row.workspaceCount ?? 0) === 1 ? "workspace" : "workspaces"}`,
             });
           }
-          facts.push({ icon: Clock, label: lastSignInLabel(row.lastSignInAt), srLabel: "Last sign-in" });
+          facts.push({ icon: Clock, label: lastSignInLabel(row.lastSignInAt, row.lastSignInKnown), srLabel: "Last sign-in" });
           return (
             <PortalEntryRow
               key={rowKey}

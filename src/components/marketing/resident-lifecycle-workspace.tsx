@@ -36,6 +36,7 @@ import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
 import { PortalNavCountBadge } from "@/components/portal/portal-nav-count-badge";
 import type { DemoPortal, DemoTab } from "@/components/marketing/site/product-mock/demo-nav";
 import { PROPERTY_ROWS } from "@/components/marketing/site/product-mock/fixtures";
+import { DemoPopupHostContext } from "@/components/marketing/site/product-mock/demo-popup-host";
 import { portalSwitchTargets } from "@/lib/portal-switch-targets";
 import { PORTAL_META } from "./resident-lifecycle-script";
 
@@ -236,6 +237,8 @@ export function ResidentLifecycleWorkspace({
 }) {
   const meta = PORTAL_META[portal];
   const [sideOpen, setSideOpen] = useState(true);
+  /** Where the panels' pop-ups draw: over the screen, inside the window, never over the page behind it. */
+  const [popupHost, setPopupHost] = useState<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [subOpened, setSubOpened] = useState<Record<string, boolean>>({});
@@ -434,10 +437,13 @@ export function ResidentLifecycleWorkspace({
         </nav>
       </aside>
       <div className="rlp-main pls-main" ref={mainRef}>
-        <div id="rlp-workspace-panel" ref={canvasRef} className={panel ? "rlp-canvas rlp-canvas-panel" : "rlp-canvas"}>
-          {children}
-        </div>
+        <DemoPopupHostContext.Provider value={popupHost}>
+          <div id="rlp-workspace-panel" ref={canvasRef} className={panel ? "rlp-canvas rlp-canvas-panel" : "rlp-canvas"}>
+            {children}
+          </div>
+        </DemoPopupHostContext.Provider>
       </div>
+      <div ref={setPopupHost} className="pls-popup-host" />
       {needs && assistantOpen ? <AssistantPanel needs={needs} name={meta.profile.name} onClose={() => setAssistantOpen(false)} /> : null}
     </section>
   );

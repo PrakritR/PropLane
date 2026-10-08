@@ -307,8 +307,10 @@ test.describe("Public home", () => {
       await expect(link).toBeVisible({ timeout: 15_000 });
       // The resident applies: the new pending application shows in the window, and the cursor opens it to approve.
       await expect(demo.getByText("jordan@example.com")).toBeVisible({ timeout: 20_000 });
-      const approve = demo.getByRole("dialog", { name: "Jordan" });
+      // The application opens as the real record page (name in the header, Approve among its icon actions), not a card.
+      const approve = demo.locator('[data-attr="demo-record-page"]');
       await expect(approve).toBeVisible({ timeout: 20_000 });
+      await expect(approve.getByText("Jordan").first()).toBeVisible();
       await expect(approve.getByRole("button", { name: "Approve" })).toBeVisible();
       await expect(approve).toBeHidden({ timeout: 15_000 });
     });

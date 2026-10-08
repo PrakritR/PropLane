@@ -43,10 +43,29 @@ export function applicationSubmittedLabel(row: DemoApplicantRow): string {
   return applicationStartedLabel(row) || applicationStageDisplayLabel(row) || row.stage?.trim() || "—";
 }
 
-export function applicationPropertyMeta(row: DemoApplicantRow): string {
-  const property = stripPropertyRoomCountSuffix(row.property || "").trim();
+/**
+ * "Alder Row · Room 2". Under a house header (`includeProperty` false) the
+ * header already says the house, so the place line is just the room.
+ */
+export function applicationPropertyMeta(row: DemoApplicantRow, includeProperty = true): string {
+  const property = includeProperty ? stripPropertyRoomCountSuffix(row.property || "").trim() : "";
   const room = applicationRoomLabel(row);
   return [property, room].filter((part) => part && part !== "—").join(" · ") || "—";
+}
+
+/** The house an application belongs to, as its group header names it. */
+export function applicationHouseLabel(row: DemoApplicantRow): string {
+  return stripPropertyRoomCountSuffix(row.property || "").trim();
+}
+
+/** The id that keeps two same-named houses apart; the label when the row carries no id. */
+export function applicationHouseId(row: DemoApplicantRow): string {
+  return (
+    row.assignedPropertyId?.trim() ||
+    row.propertyId?.trim() ||
+    row.application?.propertyId?.trim() ||
+    applicationHouseLabel(row)
+  );
 }
 
 function applicationRoomLabel(row: DemoApplicantRow): string {

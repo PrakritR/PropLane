@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
+import { ensureDefaultWorkspaceId } from "@/lib/workspaces/active.server";
 import {
   includedAllowanceCents,
   normalizeCommsPlanTier,
@@ -116,21 +117,20 @@ export async function loadCommsWalletTotals(
 }
 
 /**
- * The workspace whose wallet a caller means when it named none. Owner-scoped:
- * `ensure_default_portal_workspace` creates or finds this owner's default
- * workspace, never another account's.
+ * The workspace whose wallet a caller means when it named none. Owner-scoped
+ * and provisioned through the ONE guarded path (`ensureDefaultWorkspaceId`),
+ * so a read-only "View as" session reads this owner's existing default and
+ * creates nothing — the usage summary is a GET, and the rpc INSERTs.
  */
 export async function resolveDefaultCommsWorkspace(
   db: SupabaseClient,
   owner: string,
 ): Promise<string> {
-  const { data, error } = await db.rpc("ensure_default_portal_workspace", {
-    p_owner: owner,
-  });
-  const workspaceId = String(data ?? "").trim();
-  if (error || !workspaceId)
+  try {
+    return await ensureDefaultWorkspaceId(db, owner);
+  } catch {
     throw new Error("We could not load your communication credit. Try again.");
-  return workspaceId;
+  }
 }
 
 /**

@@ -1067,3 +1067,25 @@
     border-bottom: 1px solid var(--pls-line);
   }
 }
+
+/*
+ * The panels' pop-ups (`demo-popup.tsx`) draw over the screen, inside the window: the real house
+ * workspace (920 x 640 at most, centred) with the same 82% the page behind it uses from lg up, because
+ * its rail, centre and preview columns answer to the viewport, not to this narrower window.
+ */
+.rlp-page .pls .pls-popup-host {
+  grid-area: main;
+  position: relative;
+  z-index: 30;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: none;
+}
+.rlp-page .pls .pls-popup-host:empty {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .rlp-page .pls .pls-popup-host .demo-popup-window {
+    zoom: 0.82;
+  }
+}

@@ -21,6 +21,7 @@ export function ApplicationFilterSortFields({
   allLabel = "All properties",
   dataAttr = "applications-filter-property",
   selectionMode = "multi",
+  label = "Property",
 }: {
   propertyOptions: { id: string; label: string }[];
   propertyFilters: string[];
@@ -28,6 +29,8 @@ export function ApplicationFilterSortFields({
   allLabel?: string;
   dataAttr?: string;
   selectionMode?: "single" | "multi";
+  /** The field's label: "Property" everywhere, "House" on the lists grouped by house. */
+  label?: string;
 }) {
   return (
     <FilterFieldsAccordion>
@@ -38,6 +41,7 @@ export function ApplicationFilterSortFields({
           onPropertyFiltersChange={onPropertyFiltersChange}
           allLabel={allLabel}
           dataAttr={dataAttr}
+          label={label}
         />
       ) : (
         <ApplicationFilterSortFieldsMulti
@@ -46,6 +50,7 @@ export function ApplicationFilterSortFields({
           onPropertyFiltersChange={onPropertyFiltersChange}
           allLabel={allLabel}
           dataAttr={dataAttr}
+          label={label}
         />
       )}
     </FilterFieldsAccordion>
@@ -58,12 +63,14 @@ function ApplicationFilterSortFieldsSingle({
   onPropertyFiltersChange,
   allLabel,
   dataAttr,
+  label,
 }: {
   propertyOptions: { id: string; label: string }[];
   propertyFilters: string[];
   onPropertyFiltersChange: (next: string[]) => void;
   allLabel: string;
   dataAttr: string;
+  label: string;
 }) {
   const closeFieldMenu = useFilterAccordionClose();
   const options = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
@@ -76,7 +83,7 @@ function ApplicationFilterSortFieldsSingle({
   return (
     <FilterCollapsibleSection
       sectionId="property"
-      label="Property"
+      label={label}
       summary={summary}
       empty={propertyFilters.length === 0}
       menuOptionCount={options.length + 1}
@@ -99,12 +106,14 @@ function ApplicationFilterSortFieldsMulti({
   onPropertyFiltersChange,
   allLabel,
   dataAttr,
+  label,
 }: {
   propertyOptions: { id: string; label: string }[];
   propertyFilters: string[];
   onPropertyFiltersChange: (next: string[]) => void;
   allLabel: string;
   dataAttr: string;
+  label: string;
 }) {
   const [draftPropertyFilters, setDraftPropertyFilters] = usePortalFilterDraft(
     propertyFilters,
@@ -118,7 +127,7 @@ function ApplicationFilterSortFieldsMulti({
   return (
     <FilterCollapsibleSection
       sectionId="property"
-      label="Property"
+      label={label}
       summary={summary}
       empty={draftPropertyFilters.length === 0}
       menuOptionCount={options.length}

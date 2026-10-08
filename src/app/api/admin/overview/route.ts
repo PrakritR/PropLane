@@ -17,7 +17,8 @@ export async function GET() {
     const overview = await loadAdminOverview(createSupabaseServiceRoleClient());
     return NextResponse.json(overview, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // A Supabase / PostgREST message names schema and query shape: logged, never returned.
+    console.error("GET /api/admin/overview failed", e);
+    return NextResponse.json({ error: "Could not load the admin dashboard." }, { status: 500 });
   }
 }

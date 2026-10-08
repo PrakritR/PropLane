@@ -4071,34 +4071,42 @@ export function PortalCalendarPanels({
 
     // ONE round + (captain, Oct 7): New tour · New task · New service · Add availability, then the
     // week tools the separate Availability (clock) icon used to hold, then Connect Google Calendar.
+    // Each group is gated inside the menu, never by hiding the + : the clock icon it replaced showed
+    // whenever there was an availability action, so a viewer who may only connect a calendar (a
+    // co-manager without Calendar edit, an account with no houses yet) must still reach that item.
+    const canCreateFromStudioBand = canEditWeekStudio && !readOnly;
+    // `modal={false}`, like every other menu in the portal whose items open a
+    // dialog (`record-action-menu.tsx`): a modal menu still owns the focus trap
+    // while the dialog it just opened mounts, and the two scopes fight over
+    // focus instead of handing it over.
     const renderAddMenu = (trigger: ReactNode) => (
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent align="end" data-attr="calendar-create-menu-content">
-          <DropdownMenuItem
-            data-attr="calendar-create-tour"
-            disabled={!scheduleTourPropertyOptions?.length}
-            onSelect={() => {
-              setTourPrefill(undefined);
-              setScheduleTourOpen(true);
-            }}
-          >
-            New tour
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            data-attr="calendar-create-task"
-            onSelect={() => {
-              setTaskEditId(null);
-              setTaskFormOpen(true);
-            }}
-          >
-            New task
-          </DropdownMenuItem>
-          <DropdownMenuItem data-attr="calendar-create-service" onSelect={() => setAddServiceOpen(true)}>
-            New service
-          </DropdownMenuItem>
-          {canEditWeekStudio ? (
+          {canCreateFromStudioBand ? (
             <>
+              <DropdownMenuItem
+                data-attr="calendar-create-tour"
+                disabled={!scheduleTourPropertyOptions?.length}
+                onSelect={() => {
+                  setTourPrefill(undefined);
+                  setScheduleTourOpen(true);
+                }}
+              >
+                New tour
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-attr="calendar-create-task"
+                onSelect={() => {
+                  setTaskEditId(null);
+                  setTaskFormOpen(true);
+                }}
+              >
+                New task
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="calendar-create-service" onSelect={() => setAddServiceOpen(true)}>
+                New service
+              </DropdownMenuItem>
               <DropdownMenuItem data-attr="calendar-add-availability" onSelect={() => openAddAvailability()}>
                 Add availability
               </DropdownMenuItem>
@@ -4124,7 +4132,7 @@ export function PortalCalendarPanels({
           ) : null}
           {extraAvailabilityAction ? (
             <>
-              <DropdownMenuSeparator />
+              {canCreateFromStudioBand ? <DropdownMenuSeparator /> : null}
               <div className="px-1 py-1">{extraAvailabilityAction}</div>
             </>
           ) : null}
@@ -4132,7 +4140,7 @@ export function PortalCalendarPanels({
       </DropdownMenu>
     );
     const addAction =
-      canEditWeekStudio && !readOnly
+      canCreateFromStudioBand || extraAvailabilityAction
         ? renderAddMenu(<PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-create-menu" />)
         : null;
 
@@ -4338,7 +4346,7 @@ export function PortalCalendarPanels({
     const showAvailabilityMenu = canEditWeek || Boolean(extraAvailabilityAction);
     const availabilityMenuAction = showAvailabilityMenu ? (
       <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <PortalIconAction icon={CalendarClock} label="Availability" data-attr="calendar-availability-menu" />
           </DropdownMenuTrigger>
@@ -4378,7 +4386,7 @@ export function PortalCalendarPanels({
     ) : null;
     const calendarCreateMenu =
       canEditWeek && !readOnly ? (
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-create-menu" />
           </DropdownMenuTrigger>

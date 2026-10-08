@@ -26,7 +26,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     if (!detail) return NextResponse.json({ error: "Account not found." }, { status: 404 });
     return NextResponse.json(detail, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // A Supabase / PostgREST message names schema and query shape: logged, never returned.
+    console.error("GET /api/admin/accounts/[id] failed", e);
+    return NextResponse.json({ error: "Could not load that account." }, { status: 500 });
   }
 }

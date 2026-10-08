@@ -18,9 +18,12 @@
  */
 
 import { CalendarDays, Clock, Home, Mail, ShieldAlert, ShieldCheck, Users } from "lucide-react";
+import { PortalGroupedRecordList } from "@/components/portal/portal-grouped-record-list";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import {
   applicationDateVerb,
+  applicationHouseId,
+  applicationHouseLabel,
   applicationPropertyMeta,
   applicationStageFact,
   applicationSubmittedShort,
@@ -83,9 +86,37 @@ function screeningFact(row: DemoApplicantRow) {
   return null;
 }
 
+/** The catch-all house header: an application whose property is not known. */
+export const APPLICATION_NO_HOUSE_LABEL = "No house";
+
+/** A household sits under the house its first member applied to. */
+export function applicationClusterLead(cluster: ApplicationListCluster): DemoApplicantRow | undefined {
+  return cluster.kind === "single" ? cluster.row : cluster.rows[0];
+}
+
+/** How many applications a cluster stands for, so a header's count is applications, not households. */
+export function applicationClusterSize(cluster: ApplicationListCluster): number {
+  return cluster.kind === "single" ? 1 : cluster.rows.length;
+}
+
+export function applicationClusterKey(cluster: ApplicationListCluster): string {
+  return cluster.kind === "single" ? cluster.row.id : `household:${cluster.groupId}:${cluster.rows[0]?.id ?? ""}`;
+}
+
+const clusterHouseLabel = (cluster: ApplicationListCluster) => {
+  const lead = applicationClusterLead(cluster);
+  return lead ? applicationHouseLabel(lead) : "";
+};
+const clusterHouseId = (cluster: ApplicationListCluster) => {
+  const lead = applicationClusterLead(cluster);
+  return lead ? applicationHouseId(lead) : "";
+};
+
 export function ManagerApplicationsGroupedTable({
   clusters,
   cosignerSubmissionsBySigner,
+  groupByHouse = false,
+  searchActive = false,
   onOpenApplication,
   onOpenCosigner,
   selectedIds,
@@ -93,6 +124,14 @@ export function ManagerApplicationsGroupedTable({
   selectable = false,
 }: {
   clusters: ApplicationListCluster[];
+  /**
+   * Draw the clusters under sticky, collapsible house headers (A to Z, "No
+   * house" last, 25 per house until "Show all"). The header says the house, so
+   * a row's place line is just the room. Off, one flat list that names the house.
+   */
+  groupByHouse?: boolean;
+  /** A non-empty search box: opens every house that still has a match. */
+  searchActive?: boolean;
   cosignerSubmissionsBySigner: Map<string, CosignerSubmission[]>;
   onOpenApplication: (row: DemoApplicantRow) => void;
   onOpenCosigner: (row: DemoApplicantRow, index: number) => void;
@@ -103,9 +142,8 @@ export function ManagerApplicationsGroupedTable({
   rowIcon?: unknown;
 }) {
   const select = (id: string) => (selectable && onToggleSelected ? () => onToggleSelected(id) : undefined);
-  return (
-    <div data-attr="applications-resident-groups">
-      {clusters.flatMap((cluster) => {
+
+  const renderCluster = (cluster: ApplicationListCluster, includeProperty: boolean) => {
         const household = cluster.kind === "household";
         const rows = household ? cluster.rows : [cluster.row];
         // "Group 2/3" when the group is known — who has submitted of who was
@@ -124,7 +162,7 @@ export function ManagerApplicationsGroupedTable({
             <PortalApplicantRecordRow
               key={row.id}
               name={name}
-              address={applicationPropertyMeta(row)}
+              address={applicationPropertyMeta(row, includeProperty)}
               facts={
                 <>
                   {email && email.toLowerCase() !== name.trim().toLowerCase() ? (
@@ -197,7 +235,28 @@ export function ManagerApplicationsGroupedTable({
           });
           return out;
         });
-      })}
+  };
+
+  if (groupByHouse) {
+    return (
+      <PortalGroupedRecordList
+        items={clusters}
+        groupLabel={clusterHouseLabel}
+        groupId={clusterHouseId}
+        otherLabel={APPLICATION_NO_HOUSE_LABEL}
+        countOf={applicationClusterSize}
+        itemKey={applicationClusterKey}
+        renderItem={(cluster) => renderCluster(cluster, false)}
+        listKey="applications"
+        searchActive={searchActive}
+        dataAttr="applications-resident-groups"
+      />
+    );
+  }
+
+  return (
+    <div data-attr="applications-resident-groups">
+      {clusters.flatMap((cluster) => renderCluster(cluster, true))}
     </div>
   );
 }

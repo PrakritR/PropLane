@@ -18,8 +18,13 @@ describe("vendor directory 'Add to your vendors' confirmation (C272)", () => {
 });
 
 describe("vendor directory filter discoverability (C256)", () => {
-  it("names what the Filter icon covers instead of a bare 'Filter' tooltip", () => {
+  it("keeps the filters in the one Filter popover, whose fields name what it covers (Category, Area, Rating)", () => {
     const panel = read("src/components/portal/pro-vendors-panel.tsx");
-    expect(panel).toContain("Filter by trade or rating");
+    expect(panel).toContain("PortalFilterSortSheet");
+    expect(panel).toContain("VendorListFilterFields");
+    const fields = read("src/components/portal/vendor-list-filter-fields.tsx");
+    expect(fields).toContain('label="Category"');
+    expect(fields).toContain("Area");
+    expect(fields).toContain('label="Rating"');
   });
 });

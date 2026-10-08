@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as-guard";
 import { loadWorkspaces } from "./server";
 import { WORKSPACE_COOKIE, type PortalWorkspace } from "./types";
 
@@ -12,7 +13,8 @@ import { WORKSPACE_COOKIE, type PortalWorkspace } from "./types";
  * Selection never widens access: a cookie naming a workspace the viewer cannot
  * see is ignored and the viewer's own default wins. A viewer with no owned
  * workspace row yet gets one, the same way property writes do, so a brand-new
- * account has somewhere for its line to live.
+ * account has somewhere for its line to live — except under an open "View as"
+ * session, which stays a pure read and provisions nothing (`provisionWorkspace`).
  */
 export type ActiveWorkspace = {
   id: string;
@@ -34,6 +36,25 @@ function toActive(w: PortalWorkspace): ActiveWorkspace {
   };
 }
 
+/**
+ * The provisioning rpc, refused while a "View as" session is open. The rpc
+ * INSERTs, and `withViewAsReadOnly` cannot see that through `rpc()` by name, so
+ * every heal-on-read path asks here instead (the same guard
+ * `portal-service-requests`, `portal-work-orders`, `manager-applications` and
+ * `manager-access-server` use). Null means "not provisioned": the caller reads
+ * whatever already exists rather than writing to the account being viewed.
+ */
+async function provisionWorkspace(
+  db: SupabaseClient,
+  ownerUserId: string,
+  viewing: boolean,
+): Promise<string | null> {
+  if (viewing) return null;
+  const { data, error } = await db.rpc("ensure_default_portal_workspace", { p_owner: ownerUserId });
+  if (error || !data) return null;
+  return String(data);
+}
+
 /** Every workspace the viewer can see, owned first, then the shared ones. */
 export async function listViewerWorkspaces(
   db: SupabaseClient,
@@ -41,9 +62,12 @@ export async function listViewerWorkspaces(
 ): Promise<ActiveWorkspace[]> {
   const workspaces = await loadWorkspaces(db, viewerUserId);
   if (!workspaces.some((w) => w.owned)) {
-    const { data, error } = await db.rpc("ensure_default_portal_workspace", { p_owner: viewerUserId });
-    if (error || !data) throw new Error("Could not prepare this account's workspace. Please retry.");
-    return listViewerWorkspaces(db, viewerUserId);
+    const viewing = await isViewAsSessionOpen();
+    const provisioned = await provisionWorkspace(db, viewerUserId, viewing);
+    if (provisioned) return listViewerWorkspaces(db, viewerUserId);
+    // A read-only session reads the shared workspaces it can already see; any
+    // other failure is a real one and the caller must not get a partial answer.
+    if (!viewing) throw new Error("Could not prepare this account's workspace. Please retry.");
   }
   return workspaces
     .slice()
@@ -133,9 +157,12 @@ export async function loadWorkspaceById(
   };
 }
 
-/** The owner's default workspace id, created when missing. */
+/** The owner's default workspace id, created when missing (never under a View-as session). */
 export async function ensureDefaultWorkspaceId(db: SupabaseClient, ownerUserId: string): Promise<string> {
-  const { data, error } = await db.rpc("ensure_default_portal_workspace", { p_owner: ownerUserId });
-  if (error || !data) throw new Error("Could not prepare this account's workspace. Please retry.");
-  return String(data);
+  const provisioned = await provisionWorkspace(db, ownerUserId, await isViewAsSessionOpen());
+  if (provisioned) return provisioned;
+  const owned = (await loadWorkspaces(db, ownerUserId)).filter((w) => w.owned);
+  const existing = owned.find((w) => w.isDefault) ?? owned[0];
+  if (existing) return existing.id;
+  throw new Error("Could not prepare this account's workspace. Please retry.");
 }

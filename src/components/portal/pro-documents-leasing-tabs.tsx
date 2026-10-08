@@ -11,6 +11,16 @@ import { DocumentInlineViewer } from "@/components/portal/resident-other-documen
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { FilterCollapsibleSection, FilterFieldsAccordion, FilterSingleSelectList, filterSingleSelectSummary } from "@/components/portal/filter-field-lists";
 import { DataList } from "@/components/ui/data-list";
+import { Mail } from "lucide-react";
+import { PortalGroupedRecordList } from "@/components/portal/portal-grouped-record-list";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
+import {
+  HOUSE_LIST_DEFAULT_SORT,
+  sortHouseListItems,
+  type HouseListSort,
+} from "@/lib/portal-grouped-list";
+import { applicationRowSortMs } from "@/lib/manager-application-list";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
@@ -77,26 +87,31 @@ export function LeasingDocumentsPropertyFilterFields({
   onPropertyFilterChange,
   propertyOptions,
   dataAttr,
+  fieldLabel = "Property",
+  allLabel = "All properties",
 }: {
   propertyFilter: string;
   onPropertyFilterChange: (value: string) => void;
   propertyOptions: { id: string; label: string }[];
   dataAttr: string;
+  /** "House" on the Applications tab, which is grouped by house. */
+  fieldLabel?: string;
+  allLabel?: string;
 }) {
   if (propertyOptions.length === 0) return null;
   // The filter primitives key on `value`; the shared portfolio builder returns
   // `id`. Map at the boundary, as every other caller does — matching on `id`
   // makes filterSingleSelectSummary's lookup miss and shows the raw id.
   const options = [
-    { value: "", label: "All properties" },
+    { value: "", label: allLabel },
     ...propertyOptions.map((p) => ({ value: p.id, label: p.label })),
   ];
   return (
     <FilterFieldsAccordion>
       <FilterCollapsibleSection
         sectionId={`${dataAttr}-property`}
-        label="Property"
-        summary={filterSingleSelectSummary(propertyFilter, options, "All properties")}
+        label={fieldLabel}
+        summary={filterSingleSelectSummary(propertyFilter, options, allLabel)}
         empty={!propertyFilter}
         menuOptionCount={options.length}
         dataAttr={`${dataAttr}-trigger`}
@@ -140,15 +155,94 @@ function LeasingDocumentsBulkBar({
   );
 }
 
+/**
+ * One Properties-style row per application (tile, applicant, place line, email,
+ * the list surface's own ⋯), the same shape and inset as Residents. Under a house
+ * header the place line drops the house the header already says.
+ */
+function ApplicationDocumentRows({
+  rows,
+  groupByHouse,
+  searchActive,
+  selectedIds,
+  onToggle,
+  onOpen,
+}: {
+  rows: DemoApplicantRow[];
+  groupByHouse: boolean;
+  searchActive: boolean;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onOpen: (row: DemoApplicantRow) => void;
+}) {
+  const renderRow = (row: DemoApplicantRow, includeProperty: boolean) => {
+    const email = applicantSecondaryEmail(row);
+    const place = [applicationStatusLabel(row.bucket), includeProperty ? row.property || null : null, applicationRoomLabel(row) || null]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <PortalApplicantRecordRow
+        name={applicantDisplayName(row, "—")}
+        address={place || undefined}
+        facts={
+          email ? (
+            <PortalRowFact icon={Mail} srLabel="Email">
+              {email}
+            </PortalRowFact>
+          ) : undefined
+        }
+        checked={selectedIds.has(row.id)}
+        onSelectedChange={() => onToggle(row.id)}
+        onOpen={() => onOpen(row)}
+        dataAttr="documents-application-row"
+      />
+    );
+  };
+  if (groupByHouse) {
+    return (
+      <PortalGroupedRecordList
+        items={rows}
+        groupLabel={applicationDocumentHouseLabel}
+        groupId={applicationDocumentHouseId}
+        otherLabel={APPLICATION_DOCUMENT_NO_HOUSE_LABEL}
+        itemKey={(row) => row.id}
+        renderItem={(row) => renderRow(row, false)}
+        listKey="documents-applications"
+        searchActive={searchActive}
+      />
+    );
+  }
+  return (
+    <div data-attr="documents-applications-flat-list">
+      {rows.map((row) => (
+        <div key={row.id}>{renderRow(row, true)}</div>
+      ))}
+    </div>
+  );
+}
+
+/** The catch-all house header: an application whose property is not known. */
+const APPLICATION_DOCUMENT_NO_HOUSE_LABEL = "No house";
+const applicationDocumentHouseLabel = (row: DemoApplicantRow) => row.property?.trim() ?? "";
+const applicationDocumentHouseId = (row: DemoApplicantRow) => applicationPropertyId(row) || applicationDocumentHouseLabel(row);
+
 export function ManagerApplicationDocumentsTab({
   userId,
   basePath = "/portal",
   propertyFilter = "",
+  sort = HOUSE_LIST_DEFAULT_SORT,
+  search = "",
   onClearFilter,
+  onClearSearch,
 }: {
   userId: string | null;
   basePath?: string;
   propertyFilter?: string;
+  /** House groups the list by house (the default); Name and Recently updated are flat. */
+  sort?: HouseListSort;
+  /** The command bar's search box; narrows rows and opens the houses that still match. */
+  search?: string;
+  onClearSearch?: () => void;
   /** Clears the parent-owned property filter from the no-match card. */
   onClearFilter?: () => void;
 }) {
@@ -177,11 +271,25 @@ export function ManagerApplicationDocumentsTab({
   const rows = useMemo(() => {
     void tick;
     if (!userId) return [];
-    return readManagerApplicationRows()
+    const visible = readManagerApplicationRows()
       .filter((row) => applicationVisibleToPortalUser(row, userId))
       .filter((row) => !propertyFilter || applicationPropertyId(row) === propertyFilter)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-  }, [userId, tick, propertyFilter]);
+      .filter((row) =>
+        matchesPortalListSearch(
+          search,
+          applicantDisplayName(row, ""),
+          applicantSecondaryEmail(row),
+          row.property,
+          applicationRoomLabel(row),
+          applicationStatusLabel(row.bucket),
+        ),
+      );
+    return sortHouseListItems(visible, sort, {
+      name: (row) => applicantDisplayName(row, "—"),
+      updatedMs: applicationRowSortMs,
+      tieBreak: (row) => row.id,
+    });
+  }, [userId, tick, propertyFilter, search, sort]);
 
   const selectedRows = useMemo(
     () => rows.filter((row) => selectedIds.has(row.id)),
@@ -229,7 +337,14 @@ export function ManagerApplicationDocumentsTab({
         onExport={() => void exportSelected()}
         dataAttr="documents-applications-bulk-export"
       />}>{rows.length === 0 ? (
-        propertyFilter ? (
+        search.trim() ? (
+          <PortalListEmptyCard
+            section="documents"
+            tone="muted"
+            title={portalEmptyNoMatchTitle("application documents", search)}
+            clear={onClearSearch ? { label: "Clear search", onClick: onClearSearch, dataAttr: "documents-applications-empty-clear-search" } : null}
+          />
+        ) : propertyFilter ? (
           <PortalListEmptyCard
             section="documents"
             tone="muted"
@@ -243,60 +358,15 @@ export function ManagerApplicationDocumentsTab({
           />
         )
       ) : (
-        <DataList
-          hideColumnHeaders
-          selectable
-          rows={rows.map((row) => {
-            const status = applicationStatusLabel(row.bucket);
-            const room = applicationRoomLabel(row);
-            const metaParts = [status, row.property || null, room || null].filter(Boolean);
-            return {
-              id: row.id,
-              data: row,
-              primary: applicantDisplayName(row, "—"),
-              meta: metaParts.join(" · ") || undefined,
-              trailing: applicantSecondaryEmail(row) ? (
-                <span className="hidden text-xs text-muted sm:inline">{applicantSecondaryEmail(row)}</span>
-              ) : (
-                <span className="text-xs text-muted">{status}</span>
-              ),
-              selected: selectedIds.has(row.id),
-              onSelectedChange: () => toggleSelected(row.id),
-              onClick: () => openApplication(row),
-            };
-          })}
-          columns={[
-            {
-              id: "applicant",
-              header: "Applicant",
-              cell: (row) => (
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-foreground">{applicantDisplayName(row, "—")}</p>
-                  {applicantSecondaryEmail(row) ? (
-                    <p className="mt-0.5 truncate text-xs text-muted">{applicantSecondaryEmail(row)}</p>
-                  ) : null}
-                </div>
-              ),
-            },
-            {
-              id: "status",
-              header: "Status",
-              cell: (row) => applicationStatusLabel(row.bucket),
-              cellClassName: "text-muted",
-            },
-            {
-              id: "property",
-              header: "Property",
-              cell: (row) => (
-                <div className="min-w-0">
-                  <p className="truncate">{row.property || "—"}</p>
-                  {applicationRoomLabel(row) ? (
-                    <p className="mt-0.5 truncate text-xs text-muted">{applicationRoomLabel(row)}</p>
-                  ) : null}
-                </div>
-              ),
-            },
-          ]}
+        <ApplicationDocumentRows
+          // A different question (house, sort) starts the open / closed state over.
+          key={`${propertyFilter}:${sort}`}
+          rows={rows}
+          groupByHouse={sort === "house"}
+          searchActive={search.trim().length > 0}
+          selectedIds={selectedIds}
+          onToggle={toggleSelected}
+          onOpen={openApplication}
         />
       )}</PortalRecordListSurface>
 

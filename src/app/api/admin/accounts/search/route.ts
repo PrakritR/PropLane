@@ -26,7 +26,8 @@ export async function GET(req: Request) {
     });
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // A Supabase / PostgREST message names schema and query shape: logged, never returned.
+    console.error("GET /api/admin/accounts/search failed", e);
+    return NextResponse.json({ error: "Could not search accounts." }, { status: 500 });
   }
 }
