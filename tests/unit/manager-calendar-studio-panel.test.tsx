@@ -255,21 +255,45 @@ describe("click a band to edit or delete it (C2-CALA5)", () => {
   });
 });
 
-describe("clock menu (C2-CALA1, CALA7)", () => {
+describe("the one round + holds Add availability and the week tools (captain, Oct 7)", () => {
   async function openMenu() {
-    const trigger = await screen.findByRole("button", { name: "Availability" });
+    await waitFor(() => expect(document.querySelector('[data-attr="calendar-create-menu"]')).toBeTruthy());
+    const trigger = document.querySelector('[data-attr="calendar-create-menu"]') as HTMLElement;
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(trigger);
   }
 
-  it("lists Add availability, Copy previous week, Clear week and Copy to houses — and no 'Edit tour availability'", async () => {
+  it("has no separate Availability (clock) icon any more", async () => {
+    mount("all");
+    await waitFor(() => expect(document.querySelector('[data-attr="calendar-create-menu"]')).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Availability" })).toBeNull();
+    expect(document.querySelector('[data-attr="calendar-availability-menu"]')).toBeNull();
+  });
+
+  it("lists the create actions, Add availability, then Copy previous week, Clear week and Copy to houses — and no 'Edit tour availability'", async () => {
     mount("all", { otherProperties: [{ id: "p2", name: "Maple Duplex" }], onCopyWeekToHouses: () => {} });
     await openMenu();
     const menu = await screen.findByRole("menu");
     const labels = within(menu).getAllByRole("menuitem").map((i) => i.textContent);
-    expect(labels).toEqual(["Add availability", "Copy previous week", "Clear week", "Copy to houses"]);
+    expect(labels).toEqual([
+      "New tour",
+      "New task",
+      "New service",
+      "Add availability",
+      "Copy previous week",
+      "Clear week",
+      "Copy to houses",
+    ]);
     expect(screen.queryByText(/Edit tour availability/)).toBeNull();
     expect(screen.queryByText("Add availability block")).toBeNull();
+  });
+
+  it("Add availability opens the availability form (not a navigation)", async () => {
+    mount("all");
+    await openMenu();
+    fireEvent.click(await screen.findByText("Add availability"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Add availability", { selector: "button" })).toBeTruthy();
   });
 
   it("Clear week removes this week's windows from every kind and leaves other weeks alone", async () => {
@@ -309,13 +333,18 @@ async function headerPlus(): Promise<HTMLElement> {
 }
 
 describe("the round + (C2-CALP8)", () => {
-  it("offers New tour, New task and New service", async () => {
+  it("offers New tour, New task, New service and Add availability first", async () => {
     mount("all");
     const plus = await headerPlus();
     fireEvent.pointerDown(plus, { button: 0, ctrlKey: false });
     fireEvent.click(plus);
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["New tour", "New task", "New service"]);
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((i) => i.textContent)
+        .slice(0, 4),
+    ).toEqual(["New tour", "New task", "New service", "Add availability"]);
   });
 
   it("New service opens the add-service form (the + menu is no longer a dead end)", async () => {
