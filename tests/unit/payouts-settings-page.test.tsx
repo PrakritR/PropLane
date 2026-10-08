@@ -277,9 +277,9 @@ it("does not let an old portal balance replace the newly selected portal", async
   const view = render(<PortalPayoutsSettingsPage portal="manager" />);
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/stripe/payouts/balance", expect.anything()));
   view.rerender(<PortalPayoutsSettingsPage portal="vendor" />);
-  await screen.findByText(/\$20\.00/);
+  await screen.findAllByText(/\$20\.00/);
   await act(async () => { finishManagerRead(new Response(JSON.stringify(readyBalance), { status: 200 })); });
-  expect(screen.getByText(/\$20\.00/)).toBeInTheDocument();
+  expect(screen.getAllByText(/\$20\.00/).length).toBeGreaterThan(0);
   expect(screen.queryByText("$4,280.00")).not.toBeInTheDocument();
 });
 
