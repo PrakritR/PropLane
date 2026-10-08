@@ -230,7 +230,7 @@ function mergedThreadBubbles(
  * "You · to Pacific Plumbing", so a reader can see which party each reply went to.
  */
 function everyoneBubbles(entries: readonly ServiceTimelineEntry[]): InboxBubbleMessage[] {
-  const byBubbleId = new Map(entries.map((entry) => [`${entry.thread.id}:${entry.message.id}`, entry] as const));
+  const byBubbleId = new Map<string, ServiceTimelineEntry>(entries.map((entry) => [`${entry.thread.id}:${entry.message.id}`, entry]));
   const threads = [...new Set(entries.map((entry) => entry.thread))];
   return threads
     .flatMap((thread) => threadBubbles(thread, (message) => byBubbleId.has(`${thread.id}:${message.id}`)))
