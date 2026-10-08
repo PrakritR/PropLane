@@ -104,3 +104,43 @@ describe("runPublishTick", () => {
     expect(p.status).toBe("publishing");
   });
 });
+
+describe("production safety: never fake-publish", () => {
+  const saved = { ...process.env };
+  const restore = () => { process.env = { ...saved }; };
+
+  it("log driver is allowed outside production, and in production only when explicit", async () => {
+    const { resolvePublisher } = await import("@/lib/growth/publishers/index.server");
+    try {
+      delete process.env.GROWTH_PUBLISHER; delete process.env.VERCEL_ENV;
+      (process.env as Record<string, string>).NODE_ENV = "test";
+      expect(resolvePublisher(null)?.id).toBe("log");
+      process.env.VERCEL_ENV = "preview";
+      expect(resolvePublisher(null)?.id).toBe("log");
+      process.env.VERCEL_ENV = "production";
+      expect(resolvePublisher(null)).toBeNull();
+      process.env.GROWTH_PUBLISHER = "log"; // explicit, still refused on Vercel production
+      expect(resolvePublisher(null)).toBeNull();
+      process.env.GROWTH_PUBLISHER = "late";
+      expect(resolvePublisher(null)?.id).toBe("late");
+    } finally { restore(); }
+  });
+
+  it("tick pauses with 'no publisher configured' and leaves the post publishing", async () => {
+    const p = post(["linkedin", "x"]);
+    const { store, pubs } = memStore(p, [acct("linkedin"), acct("x")]);
+    const r = await runPublishTick(T0, { store, resolve: () => null });
+    expect(r.published).toBe(0);
+    expect(p.status).toBe("publishing");
+    expect([...pubs.values()].map((v) => [v.status, v.error])).toEqual([["paused", "no publisher configured"], ["paused", "no publisher configured"]]);
+  });
+
+  it("cron refuses GROWTH_PUBLISHER=log on Vercel production", async () => {
+    try {
+      process.env.VERCEL_ENV = "production"; process.env.GROWTH_PUBLISHER = "log"; process.env.CRON_SECRET = "s";
+      const { GET } = await import("@/app/api/cron/growth-publish/route");
+      const res = await GET(new Request("http://x", { headers: { authorization: "Bearer s" } }));
+      expect(res.status).toBe(503);
+    } finally { restore(); }
+  });
+});

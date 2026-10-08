@@ -2,7 +2,7 @@ import "server-only";
 
 import { growthDb, mapAccount, mapAsset, mapPost, mapPublication, must, type GrowthDb } from "./db.server";
 import { assertTransition } from "./post-state";
-import { resolvePublisher } from "./publishers/index.server";
+import { NO_PUBLISHER, resolvePublisher } from "./publishers/index.server";
 import type {
   GrowthAccount,
   GrowthAsset,
@@ -52,7 +52,7 @@ export function mediaFor(assets: GrowthAsset[]): PublishInput["media"] {
 
 export async function runPublishTick(
   now: Date = new Date(),
-  deps: { store?: PublishStore; resolve?: (account: GrowthAccount | null) => GrowthPublisher } = {},
+  deps: { store?: PublishStore; resolve?: (account: GrowthAccount | null) => GrowthPublisher | null } = {},
 ): Promise<PublishTickResult> {
   const store = deps.store ?? supabasePublishStore();
   const resolve = deps.resolve ?? resolvePublisher;
@@ -68,7 +68,7 @@ export async function runPublishTick(
     const pubs: GrowthPublication[] = [];
 
     for (const platform of post.platforms) {
-      let pub = await store.ensurePublication(post, platform, resolve(null).id);
+      let pub = await store.ensurePublication(post, platform, resolve(null)?.id ?? "log");
       if (pub.status === "published" || (pub.status === "failed" && pub.attempts >= MAX_PUBLISH_ATTEMPTS)) {
         pubs.push(pub);
         continue;
@@ -89,6 +89,13 @@ export async function runPublishTick(
         continue;
       }
       const driver = resolve(account);
+      if (!driver) {
+        // Never fake-publish: with no real publisher (production, GROWTH_PUBLISHER unset) the row pauses
+        // and the post stays `publishing`; it resumes once a publisher is configured.
+        await store.updatePublication(pub.id, { status: "paused", error: NO_PUBLISHER, accountId: account.id });
+        pubs.push({ ...pub, status: "paused", error: NO_PUBLISHER });
+        continue;
+      }
       const attempts = pub.attempts + 1;
       let outcome: Awaited<ReturnType<GrowthPublisher["publish"]>>;
       try {
