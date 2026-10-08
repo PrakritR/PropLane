@@ -3301,7 +3301,8 @@ export function InboxThreadView({
         {!hideIdentityHeader ? (
           <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1">
             {avatarName ? (
-              <InboxAvatar tile name={avatarName} className="size-8 rounded-lg" />
+              // Five 44px header icons leave a phone no room for the name AND a tile.
+              <InboxAvatar tile name={avatarName} className="size-8 rounded-lg max-md:hidden" />
             ) : null}
             <div className="min-w-0">
               <p className="truncate text-[15px] font-bold leading-tight tracking-[-0.01em] text-foreground">

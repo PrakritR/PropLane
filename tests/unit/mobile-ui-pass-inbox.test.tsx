@@ -183,3 +183,18 @@ describe("the Communication header on a phone", () => {
     expect(read("src/app/portal/layout.tsx")).toContain("lg:hidden empty:hidden");
   });
 });
+
+describe("a stored doubled room count", () => {
+  it("collapses 'Alder Row — 3 rooms · 3 rooms' to one count and leaves other titles alone", async () => {
+    const { collapseDuplicateRoomCount, displayPropertyTitle } = await import("@/lib/property-title");
+    expect(collapseDuplicateRoomCount("Alder Row — 3 rooms · 3 rooms")).toBe("Alder Row — 3 rooms");
+    expect(collapseDuplicateRoomCount("Alder Row — 3 rooms")).toBe("Alder Row — 3 rooms");
+    expect(collapseDuplicateRoomCount("Magnolia House · 5 rooms · 2 rooms")).toBe("Magnolia House · 5 rooms · 2 rooms");
+    expect(displayPropertyTitle({ title: "Alder Row — 3 rooms · 3 rooms" })).toBe("Alder Row — 3 rooms");
+    expect(read("src/lib/domain-action-events.server.ts")).toContain("collapseDuplicateRoomCount(input.application.property");
+  });
+
+  it("the shared thread header drops its avatar tile on a phone so five 44px icons leave the name room", () => {
+    expect(read("src/components/portal/portal-inbox-ui.tsx")).toContain('className="size-8 rounded-lg max-md:hidden"');
+  });
+});
