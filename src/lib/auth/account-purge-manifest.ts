@@ -672,6 +672,39 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["funder_user_id"] },
   },
   {
+    // PropLane Number ($5/month, vendor or resident): the subscription row and the owner's credit
+    // ledger. Keyed by the owner's auth user id; classified under both scopes because the owner is
+    // either a vendor or a resident. All five are service-role-only.
+    table: "number_subscriptions",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "number_credit_accounts",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "number_credit_usage_events",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "number_credit_purchases",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "number_credit_adjustments",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
     table: "manager_document_templates",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
