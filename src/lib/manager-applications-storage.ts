@@ -38,6 +38,17 @@ const MANAGER_APPLICATIONS_SESSION_KEY_PREFIX = "axis:manager-applications:v2";
 
 const EMPTY_FALLBACK: DemoApplicantRow[] = [];
 let memoryRows: DemoApplicantRow[] = [];
+/**
+ * Application ids a manager-scope server read has returned. A row in this set that a later complete
+ * read omits was deleted server-side (Delete resident, another device): it is dropped from the cache
+ * and so never re-uploaded by the `action:"replace"` mirror, and `reconcileApprovedResidentPaymentSchedules`
+ * never regenerates a resident's profile and charges from it. A row not in the set is a local creation
+ * the server has not accepted yet and is kept (see `mergeApplicationRows`). In memory only: outside
+ * the demo this store is never persisted, so a reload starts from the server's list.
+ */
+let confirmedApplicationIds = new Set<string>();
+/** The route reads at most this many rows per query; a list this long may be truncated, so absence proves nothing. */
+const MANAGER_APPLICATIONS_READ_CAP = 500;
 let activeApplicationsScopeUserId: string | undefined;
 const MANAGER_APPLICATIONS_SYNC_TTL_MS = 15_000;
 /** A hung `/api/manager-applications` read is abandoned after this long, so it cannot pin the shared in-flight slot (and every later reader) for good. */
@@ -67,6 +78,7 @@ function clearSensitiveApplicationCache() {
   applicationsReadScope = null;
   applicationsReadGeneration++;
   memoryRows = [];
+  confirmedApplicationIds = new Set();
   applicationsScopeGeneration++;
   managerApplicationsLastSyncedAt = 0;
   managerApplicationsSuccessfulServerSyncAt = 0;
@@ -356,13 +368,13 @@ function mergeApplicationRow(existing: DemoApplicantRow | undefined, incoming: D
  * force-refetch-on-mount effect, which raced the still-in-flight POST again.
  * Regression coverage: `tests/unit/manager-applications-merge-rows.test.ts`.
  *
- * Deliberate tradeoff (accepted): because the union never treats "missing from
- * a server response" as "deleted", a row deleted server-side (e.g. from
- * another tab or device) does NOT propagate into a tab that already holds it —
- * and `writeManagerApplicationRows`'s `action: "replace"` mirror of the whole
- * cache can then re-upload that row, resurrecting the deletion. Distinguishing
- * "not yet synced locally" from "deleted remotely" requires a server-side
- * deletion/tombstone signal, which is tracked as follow-up work.
+ * The union itself never treats "missing from a response" as "deleted". The
+ * caller (`syncManagerApplicationsFromServerWithStatus`) drops, BEFORE merging,
+ * only rows whose id a previous complete manager-scope read confirmed
+ * (`confirmedApplicationIds`) and this one omits - those were deleted
+ * server-side. A row never confirmed is a local creation and survives, so the
+ * wizard case above is unchanged. No tombstone is needed because the
+ * confirmation comes from the server's own earlier answer.
  */
 export function mergeApplicationRows(existingRows: DemoApplicantRow[], incomingRows: DemoApplicantRow[]): DemoApplicantRow[] {
   const existingById = new Map(normalizeApplicationRows(existingRows).map((row) => [row.id, row] as const));
@@ -911,7 +923,15 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       // Union with the CURRENT cache, not `[]` — a locally-created row whose
       // upsert POST hasn't landed yet must survive this force refetch (see
       // `mergeApplicationRows`'s doc comment).
-      const rows = mergeApplicationRows(memoryRows, body.rows);
+      // A complete manager-scope list is authoritative about deletions: drop a row the server
+      // confirmed earlier and now omits. The self slice and a list at the read cap are partial.
+      const serverIds = new Set(body.rows.map((row) => normalizeApplicationRow(row).id));
+      const absenceIsDeletion = !opts?.selfScope && body.rows.length < MANAGER_APPLICATIONS_READ_CAP;
+      const retained = absenceIsDeletion
+        ? memoryRows.filter((row) => serverIds.has(row.id) || !confirmedApplicationIds.has(row.id))
+        : memoryRows;
+      confirmedApplicationIds = new Set([...(absenceIsDeletion ? [] : confirmedApplicationIds), ...serverIds]);
+      const rows = mergeApplicationRows(retained, body.rows);
       const changed = applicationRowsChanged(memoryRows, rows);
       memoryRows = rows;
       persistManagerApplicationsToSession(rows, managerUserId);
