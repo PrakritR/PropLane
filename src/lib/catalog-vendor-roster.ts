@@ -1,5 +1,5 @@
 import { type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
-import { expandTypicalRateCells, findRosterCatalogMatch } from "@/lib/manager-vendor-typical-rates";
+import { expandTypicalRateCells, findRosterCatalogMatch, typicalRatePropertyIds } from "@/lib/manager-vendor-typical-rates";
 import {
   makeVendorId,
   persistManagerVendorToServer,
@@ -32,7 +32,7 @@ export async function ensureCatalogVendorOnRoster(input: {
     catalogId: input.catalog.catalogId,
     propertyIds: propertyIds.length ? propertyIds : undefined,
     typicalRates: expandTypicalRateCells({
-      propertyIds,
+      propertyIds: typicalRatePropertyIds(propertyIds),
       trades: trade ? [trade] : [],
       existing: [],
       fallback:
