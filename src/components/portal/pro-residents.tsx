@@ -48,9 +48,10 @@ import {
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
 import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
-import { togglePortalListClusterSelection } from "@/components/portal/application-household-list";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
-import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
+import { PortalListSortField } from "@/components/portal/portal-list-sort-field";
+import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { FilterFieldsAccordion } from "@/components/portal/filter-field-lists";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import type { ManagerPaymentBucket } from "@/data/demo-portal";
@@ -136,13 +137,15 @@ import {
   managerResidentDocCounts,
   type ManagerResidentDocTabId,
 } from "@/components/portal/manager-resident-documents-panel";
-import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
-import { residentRowSlotFact } from "@/lib/manager-resident-list";
+import { applicationRowSortMs } from "@/lib/manager-application-list";
 import {
-  PORTAL_LIST_GROUP_MODE_LABELS,
-  portalListGroupModeActiveCount,
-  type PortalListGroupMode,
-} from "@/lib/portal-list-grouping";
+  HOUSE_LIST_DEFAULT_SORT,
+  HOUSE_LIST_SORT_OPTIONS,
+  houseListSortActiveCount,
+  sortHouseListItems,
+  type HouseListSort,
+} from "@/lib/portal-grouped-list";
+import { residentRowSlotFact } from "@/lib/manager-resident-list";
 import {
   DEV_RESIDENT_LIST_FIXTURES,
   shouldShowDevResidentListFixtures,
@@ -285,7 +288,6 @@ import {
   isInProgressApplicationRow,
   shouldOfferApplicationCompletionReminder,
 } from "@/lib/rental-application/in-progress-application";
-import { buildApplicationGroups } from "@/lib/rental-application/application-groups";
 import {
   invalidatePersistedInboxCache,
   loadPersistedInbox,
@@ -307,7 +309,7 @@ import {
 } from "@/lib/existing-resident-welcome-email";
 import { fetchManagerReachabilityForWelcome } from "@/lib/manager-reachability-client";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
+import { groupIdForRow } from "@/components/portal/application-group-section";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/pro-cosigner-readonly-review";
 import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
@@ -420,6 +422,8 @@ type ActiveResident = {
   statusLabel: string;
   /** "Resident 2 of 2 · $800/mo" — populated when the resident is in a multi-occupancy room. */
   residentSlotFact?: string;
+  /** When the application was last started or submitted, for Sort by Recently updated. */
+  updatedMs?: number;
 };
 
 /**
@@ -579,8 +583,7 @@ export function ManagerResidents({
   const directorySourcesReady = directoryReady && (isDemoModeActive() || process.env.NODE_ENV === "test" || directoryLoadedFor === userId);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [residentSearch, setResidentSearch] = useState("");
-  const RESIDENT_LIST_DEFAULT_GROUP_MODE: PortalListGroupMode = "house";
-  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_LIST_DEFAULT_GROUP_MODE);
+  const [sortMode, setSortMode] = useState<HouseListSort>(HOUSE_LIST_DEFAULT_SORT);
   const residentsTab = parseResidentsTab(tabIdProp);
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -944,6 +947,7 @@ export function ManagerResidents({
           stage,
           statusLabel: applicationStageDisplayLabel(row),
           residentSlotFact: residentRowSlotFact(row),
+          updatedMs: applicationRowSortMs(row),
         };
       });
     if (built.length === 0 && shouldShowDevResidentListFixtures()) {
@@ -1117,20 +1121,15 @@ export function ManagerResidents({
       ),
     );
 
-    return [...base].sort((a, b) => {
-      if (propertyFilters.length === 0) {
-        const propCmp = a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" });
-        if (propCmp !== 0) return propCmp;
-      }
-
-      const nameCmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-      if (nameCmp !== 0) return nameCmp;
-
-      const aNum = parseInt(a.roomLabel.match(/\d+/)?.[0] ?? "0", 10);
-      const bNum = parseInt(b.roomLabel.match(/\d+/)?.[0] ?? "0", 10);
-      return aNum - bNum;
+    // House sort lists each house's residents A to Z (the list groups them under
+    // their house header); Name and Recently updated are flat lists. Room is the
+    // last tie-break so two people with one name keep a stable order.
+    return sortHouseListItems(base, sortMode, {
+      name: (r) => r.name,
+      updatedMs: (r) => r.updatedMs ?? 0,
+      tieBreak: (r) => String(parseInt(r.roomLabel.match(/\d+/)?.[0] ?? "0", 10)).padStart(6, "0") + r.id,
     });
-  }, [residentDirectoryRows, propertyFilters, residentsTab, residentSearch]);
+  }, [residentDirectoryRows, propertyFilters, residentsTab, residentSearch, sortMode]);
 
   const residentTabCounts = useMemo(() => {
     const counts: Record<ResidentsTabId, number> = { potential: 0, current: 0, past: 0 };
@@ -1142,30 +1141,22 @@ export function ManagerResidents({
     return counts;
   }, [residentDirectoryRows]);
 
-  const applicationGroups = useMemo(() => {
-    void hcTick;
-    return buildApplicationGroups(readManagerApplicationRows().map(groupRowInputForRow));
-  }, [hcTick]);
-
-  const residentListClusters = useMemo(
+  // The rows the list draws: the filtered, sorted residents as the row shape the table takes.
+  const residentListRows = useMemo(
     () =>
-      buildResidentListClustersByMode(
-        filtered.map((res) => ({
-          id: res.id,
-          name: res.name,
-          email: res.email,
-          propertyId: res.propertyId,
-          propertyLabel: res.propertyLabel,
-          roomLabel: res.roomLabel,
-          leaseStart: res.leaseStart,
-          groupId: res.groupId,
-          statusLabel: res.stage === "potential" ? res.statusLabel : "",
-          residentSlotFact: res.residentSlotFact,
-        })),
-        applicationGroups,
-        groupMode,
-      ),
-    [filtered, applicationGroups, groupMode],
+      filtered.map((res) => ({
+        id: res.id,
+        name: res.name,
+        email: res.email,
+        propertyId: res.propertyId,
+        propertyLabel: res.propertyLabel,
+        roomLabel: res.roomLabel,
+        leaseStart: res.leaseStart,
+        groupId: res.groupId,
+        statusLabel: res.stage === "potential" ? res.statusLabel : "",
+        residentSlotFact: res.residentSlotFact,
+      })),
+    [filtered],
   );
 
   const propertyFilterLabel = useMemo(() => {
@@ -1174,7 +1165,7 @@ export function ManagerResidents({
     return propertyOptions.find((p) => p.id === id)?.label ?? id;
   }, [propertyFilters, propertyOptions]);
 
-  const { selectedIds, setSelectedIds, toggleSelected, clearSelection } = usePortalRowSelection(residentsTab);
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(residentsTab);
   const listSelectedCount = selectedIds.size;
   const singleListSelectedId = listSelectedCount === 1 ? [...selectedIds][0]! : null;
   const singleListSelectedResident = useMemo(
@@ -3800,28 +3791,39 @@ export function ManagerResidents({
     <PortalFilterSortSheet
       activeCount={portalFilterActiveCount([
         propertyFilters,
-        portalListGroupModeActiveCount(groupMode, RESIDENT_LIST_DEFAULT_GROUP_MODE),
+        houseListSortActiveCount(sortMode),
       ])}
       compactPanel
       commandStripTrigger
-      filterFieldCount={propertyOptions.length > 1 ? 2 : 1}
+      filterFieldCount={propertyOptions.length > 0 ? 2 : 1}
       constrainDropdownToTitleBand={false}
       mobileFlushBody
       onReset={() => {
         setPropertyFilters([]);
-        setGroupMode(RESIDENT_LIST_DEFAULT_GROUP_MODE);
+        setSortMode(HOUSE_LIST_DEFAULT_SORT);
       }}
       dataAttr="residents-filter-sheet-open"
     >
-      <PortalListGroupFilterFields
-        groupMode={groupMode}
-        onGroupModeChange={setGroupMode}
-        propertyOptions={propertyOptions}
-        propertyFilters={propertyFilters}
-        onPropertyFiltersChange={setPropertyFilters}
-        propertyDataAttr="residents-filter-property"
-        groupModeDataAttr="residents-filter-group-mode"
-      />
+      <FilterFieldsAccordion>
+        <PortalListSortField
+          value={sortMode}
+          options={HOUSE_LIST_SORT_OPTIONS}
+          defaultValue={HOUSE_LIST_DEFAULT_SORT}
+          onChange={setSortMode}
+          dataAttr="residents-filter-sort"
+        />
+        {propertyOptions.length > 0 ? (
+          <ApplicationFilterSortFields
+            propertyOptions={propertyOptions}
+            propertyFilters={propertyFilters}
+            onPropertyFiltersChange={setPropertyFilters}
+            allLabel="All houses"
+            dataAttr="residents-filter-property"
+            selectionMode="single"
+            label="House"
+          />
+        ) : null}
+      </FilterFieldsAccordion>
     </PortalFilterSortSheet>
   );
 
@@ -3915,15 +3917,15 @@ export function ManagerResidents({
           />
         }
         activeFilterChips={
-          propertyFilters.length > 0 || groupMode !== RESIDENT_LIST_DEFAULT_GROUP_MODE ? (
+          propertyFilters.length > 0 || sortMode !== HOUSE_LIST_DEFAULT_SORT ? (
             <PortalActiveFilterChips
               chips={[
-                ...(groupMode !== RESIDENT_LIST_DEFAULT_GROUP_MODE
+                ...(sortMode !== HOUSE_LIST_DEFAULT_SORT
                   ? [
                       {
-                        id: "group-mode",
-                        label: PORTAL_LIST_GROUP_MODE_LABELS[groupMode],
-                        onRemove: () => setGroupMode(RESIDENT_LIST_DEFAULT_GROUP_MODE),
+                        id: "sort-mode",
+                        label: `Sort: ${HOUSE_LIST_SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? sortMode}`,
+                        onRemove: () => setSortMode(HOUSE_LIST_DEFAULT_SORT),
                       },
                     ]
                   : []),
@@ -3931,7 +3933,7 @@ export function ManagerResidents({
                   ? [
                       {
                         id: "property",
-                        label: `Property: ${propertyFilterLabel}`,
+                        label: `House: ${propertyFilterLabel}`,
                         onRemove: () => setPropertyFilters([]),
                       },
                     ]
@@ -4067,13 +4069,15 @@ export function ManagerResidents({
         }
       >
         <ManagerResidentsGroupedTable
-          clusters={residentListClusters}
-          groupMode={groupMode}
-          showPropertyInRows={propertyFilters.length > 0 || groupMode === "resident"}
+          // Rebuilt around a different question (tab, house, sort), the open / closed state starts over.
+          key={`${residentsTab}:${sortMode}:${propertyFilters.join(",")}`}
+          rows={residentListRows}
+          groupMode="house"
+          groupByHouse={sortMode === "house"}
+          searchActive={residentSearch.trim().length > 0}
           selectable
           selectedIds={selectedIds}
           onToggleSelected={toggleSelected}
-          onToggleCluster={(ids) => togglePortalListClusterSelection(setSelectedIds, ids)}
           onOpenResident={(res) =>
             navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
           }

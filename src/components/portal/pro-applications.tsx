@@ -19,6 +19,8 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Bell, CalendarDays, Check, Clock, Download, Home, Plus, Send, Shield, Trash2, Undo2, Upload, Wallet, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { PortalListSortField } from "@/components/portal/portal-list-sort-field";
+import { FilterFieldsAccordion } from "@/components/portal/filter-field-lists";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -122,7 +124,17 @@ import {
   resolveScreeningSubjectId,
   screeningRowForSubject,
 } from "@/lib/background-check-subjects";
-import { applicationPropertyMeta, sortApplicationRowsForBucket } from "@/lib/manager-application-list";
+import { applicationPropertyMeta, applicationRowSortMs, sortApplicationRowsForBucket } from "@/lib/manager-application-list";
+import {
+  HOUSE_LIST_DEFAULT_SORT,
+  HOUSE_LIST_SORT_OPTIONS,
+  compareGroupedLabels,
+  houseListSortActiveCount,
+  type HouseListSort,
+} from "@/lib/portal-grouped-list";
+import {
+  applicationClusterLead,
+} from "@/components/portal/pro-applications-grouped-table";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import {
   applicationListSortBucket,
@@ -610,6 +622,7 @@ export function ManagerApplications({
   /** Upload for resident: closed (null), or open for one resident (an application id) / for anyone ("" = pick). */
   const [uploadForResidentFor, setUploadForResidentFor] = useState<string | null>(null);
   const [applicationsFilterOpen, setApplicationsFilterOpen] = useState(false);
+  const [sortMode, setSortMode] = useState<HouseListSort>(HOUSE_LIST_DEFAULT_SORT);
   const openSendApplicationInvite = useCallback(() => {
     armFilterSheetOpenSuppressFromOverlayDismiss();
     setApplicationsFilterOpen(false);
@@ -852,11 +865,24 @@ export function ManagerApplications({
   const listClusters = useMemo(() => {
     const sortBucket = applicationListSortBucket(bucket);
     const sorted = sortApplicationRowsForBucket(visibleRows, bucket);
-    return sortApplicationListClustersForBucket(
+    const clusters = sortApplicationListClustersForBucket(
       buildApplicationListClusters(sorted, applicationGroups, sortBucket),
       bucket,
     );
-  }, [visibleRows, bucket, applicationGroups]);
+    // House (grouped) and Name list applicants A to Z; Recently updated is newest
+    // first. A household sorts as its lead member, so its members stay together.
+    const leadName = (cluster: (typeof clusters)[number]) => {
+      const lead = applicationClusterLead(cluster);
+      return lead ? applicantDisplayName(lead) : "";
+    };
+    const clusterMs = (cluster: (typeof clusters)[number]) =>
+      Math.max(0, ...(cluster.kind === "single" ? [cluster.row] : cluster.rows).map((row) => applicationRowSortMs(row)));
+    return [...clusters].sort((a, b) =>
+      sortMode === "recent"
+        ? clusterMs(b) - clusterMs(a) || compareGroupedLabels(leadName(a), leadName(b))
+        : compareGroupedLabels(leadName(a), leadName(b)),
+    );
+  }, [visibleRows, bucket, applicationGroups, sortMode]);
 
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(bucket);
   const listSelectedCount = selectedIds.size;
@@ -1512,21 +1538,35 @@ export function ManagerApplications({
     <PortalFilterSortSheet
       open={applicationsFilterOpen}
       onOpenChange={setApplicationsFilterOpen}
-      activeCount={portalFilterActiveCount([propertyFilters])}
+      activeCount={portalFilterActiveCount([propertyFilters, houseListSortActiveCount(sortMode)])}
       compactPanel
       commandStripTrigger
-      filterFieldCount={1}
+      filterFieldCount={2}
       constrainDropdownToTitleBand={false}
       mobileFlushBody
-      onReset={() => setPropertyFilters([])}
+      onReset={() => {
+        setPropertyFilters([]);
+        setSortMode(HOUSE_LIST_DEFAULT_SORT);
+      }}
       dataAttr="applications-filter-sheet-open"
     >
-      <ApplicationFilterSortFields
-        propertyOptions={propertyOptions}
-        propertyFilters={propertyFilters}
-        onPropertyFiltersChange={setPropertyFilters}
-        selectionMode="multi"
-      />
+      <FilterFieldsAccordion>
+        <PortalListSortField
+          value={sortMode}
+          options={HOUSE_LIST_SORT_OPTIONS}
+          defaultValue={HOUSE_LIST_DEFAULT_SORT}
+          onChange={setSortMode}
+          dataAttr="applications-filter-sort"
+        />
+        <ApplicationFilterSortFields
+          propertyOptions={propertyOptions}
+          propertyFilters={propertyFilters}
+          onPropertyFiltersChange={setPropertyFilters}
+          allLabel="All houses"
+          selectionMode="multi"
+          label="House"
+        />
+      </FilterFieldsAccordion>
     </PortalFilterSortSheet>
   );
 
@@ -1879,14 +1919,27 @@ export function ManagerApplications({
         search={{ value: listSearch, onChange: setListSearch, placeholder: "Search applications", dataAttr: "applications-search" }}
         actions={applicationsListActions}
         activeFilterChips={
-          propertyFilters.length > 0 ? (
+          propertyFilters.length > 0 || sortMode !== HOUSE_LIST_DEFAULT_SORT ? (
             <PortalActiveFilterChips
               chips={[
-                {
-                  id: "property",
-                  label: `Property: ${propertyFilterLabel}`,
-                  onRemove: () => setPropertyFilters([]),
-                },
+                ...(sortMode !== HOUSE_LIST_DEFAULT_SORT
+                  ? [
+                      {
+                        id: "sort-mode",
+                        label: `Sort: ${HOUSE_LIST_SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? sortMode}`,
+                        onRemove: () => setSortMode(HOUSE_LIST_DEFAULT_SORT),
+                      },
+                    ]
+                  : []),
+                ...(propertyFilters.length > 0
+                  ? [
+                      {
+                        id: "property",
+                        label: `House: ${propertyFilterLabel}`,
+                        onRemove: () => setPropertyFilters([]),
+                      },
+                    ]
+                  : []),
               ]}
             />
           ) : null
@@ -2022,7 +2075,11 @@ export function ManagerApplications({
         >
           {visibleRows.length > 0 ? (
             <ManagerApplicationsGroupedTable
+              // Rebuilt around a different question (tab, house, sort), the open / closed state starts over.
+              key={`${bucket}:${sortMode}:${propertyFilters.join(",")}`}
               clusters={listClusters}
+              groupByHouse={sortMode === "house"}
+              searchActive={listSearch.trim().length > 0}
               cosignerSubmissionsBySigner={cosignerSubmissionsBySigner}
               selectable
               selectedIds={selectedIds}

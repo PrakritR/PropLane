@@ -65,7 +65,7 @@ vi.mock("@/lib/supabase/service", () => ({
           onboarding_completed_at: "2026-09-25T00:00:00.000Z",
         };
         const builder: Record<string, unknown> = {};
-        for (const name of ["select", "eq", "not", "order", "limit", "contains", "in"]) {
+        for (const name of ["select", "eq", "not", "order", "limit", "range", "contains", "in"]) {
           builder[name] = () => builder;
         }
         builder.maybeSingle = async () => ({ data: row, error: null });
@@ -88,7 +88,7 @@ vi.mock("@/lib/supabase/service", () => ({
       }
       if (table === "vendor_reviews") {
         const builder: Record<string, unknown> = {};
-        for (const name of ["select", "in"]) builder[name] = () => builder;
+        for (const name of ["select", "in", "order", "range"]) builder[name] = () => builder;
         builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve);
         return builder;
       }
@@ -108,12 +108,12 @@ function fakeListDb(list: ListHandler) {
       // in this file, none of which assert on rating.
       if (table === "vendor_reviews") {
         const builder: Record<string, unknown> = {};
-        for (const name of ["select", "in"]) builder[name] = () => builder;
+        for (const name of ["select", "in", "order", "range"]) builder[name] = () => builder;
         builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve);
         return builder;
       }
       const builder: Record<string, unknown> = {};
-      for (const name of ["select", "eq", "not", "order", "limit", "contains", "in"]) {
+      for (const name of ["select", "eq", "not", "order", "limit", "range", "contains", "in"]) {
         builder[name] = () => builder;
       }
       builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(list()).then(resolve);
@@ -215,7 +215,7 @@ describe("vendor directory projection — never leaks private fields", () => {
       from: (table: string) => {
         if (table === "vendor_reviews") {
           const builder: Record<string, unknown> = {};
-          for (const name of ["select", "in"]) builder[name] = () => builder;
+          for (const name of ["select", "in", "order", "range"]) builder[name] = () => builder;
           builder.then = (resolve: (v: unknown) => unknown) =>
             Promise.resolve({
               data: [
@@ -227,7 +227,7 @@ describe("vendor directory projection — never leaks private fields", () => {
           return builder;
         }
         const builder: Record<string, unknown> = {};
-        for (const name of ["select", "eq", "not", "order", "limit", "contains"]) builder[name] = () => builder;
+        for (const name of ["select", "eq", "not", "order", "limit", "range", "contains"]) builder[name] = () => builder;
         builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [row], error: null }).then(resolve);
         return builder;
       },
@@ -236,6 +236,52 @@ describe("vendor directory projection — never leaks private fields", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.rating).toBe(4.5);
     expect(rows[0]!.reviewCount).toBe(2);
+  });
+});
+
+describe("vendor directory — every listed vendor is returned (no 200 cap)", () => {
+  it("pages through the whole directory instead of stopping at the first page", async () => {
+    const { loadDirectoryListedVendors, DIRECTORY_PAGE_SIZE } = await import("@/lib/vendor-directory.server");
+    const total = DIRECTORY_PAGE_SIZE * 2 + 345;
+    const all = Array.from({ length: total }, (_, i) => ({
+      user_id: `v-${String(i).padStart(5, "0")}`,
+      business_name: `Vendor ${String(i).padStart(5, "0")}`,
+      service_area: "Seattle, WA",
+      service_area_zips: [],
+      trades: [i % 2 ? "Plumbing" : "HVAC"],
+      license_number: "WA-1",
+      insurance_expires_at: "2099-01-01",
+      insurance_doc_path: "vendor-documents/x.pdf",
+    }));
+    const ranges: Array<[number, number]> = [];
+    let limitCalled = false;
+    const db = {
+      from: (table: string) => {
+        const builder: Record<string, unknown> = {};
+        let range: [number, number] = [0, Infinity];
+        for (const name of ["select", "eq", "not", "order", "contains", "in"]) builder[name] = () => builder;
+        builder.limit = () => {
+          limitCalled = true;
+          return builder;
+        };
+        builder.range = (from: number, to: number) => {
+          range = [from, to];
+          if (table === "vendor_business_profiles") ranges.push([from, to]);
+          return builder;
+        };
+        builder.then = (resolve: (v: unknown) => unknown) =>
+          Promise.resolve({
+            data: table === "vendor_business_profiles" ? all.slice(range[0], range[1] + 1) : [],
+            error: null,
+          }).then(resolve);
+        return builder;
+      },
+    } as never;
+    const rows = await loadDirectoryListedVendors(db);
+    expect(rows).toHaveLength(total);
+    expect(new Set(rows.map((r) => r.directoryVendorUserId)).size).toBe(total);
+    expect(ranges).toHaveLength(3);
+    expect(limitCalled).toBe(false);
   });
 });
 

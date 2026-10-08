@@ -52,25 +52,42 @@ function toCatalogRow(row: DirectoryRow): AxisCatalogVendor {
   };
 }
 
+/**
+ * Rows per round trip. PostgREST caps one response at its `max-rows` setting
+ * (1,000 by default), so "every directory vendor" is read page by page rather
+ * than with one oversized `limit` — the old `.limit(200)` silently dropped
+ * every vendor past the 200th, and the verified-only filter below then thinned
+ * an already truncated page.
+ */
+export const DIRECTORY_PAGE_SIZE = 1000;
+/** Vendors whose reviews are read in one `in (...)` query, keeping the request URL short. */
+const REVIEW_VENDOR_CHUNK = 100;
+
 export async function loadDirectoryListedVendors(
   db: SupabaseClient,
   filter?: { trade?: string; area?: string; minRating?: number },
 ): Promise<AxisCatalogVendor[]> {
-  let query = db
-    .from("vendor_business_profiles")
-    .select(DIRECTORY_COLUMNS)
-    .eq("directory_listed", true)
-    .not("onboarding_completed_at", "is", null)
-    .order("business_name", { ascending: true })
-    .limit(200);
-
   const trade = filter?.trade?.trim();
-  if (trade) query = query.contains("trades", [trade]);
+  const profiles: DirectoryRow[] = [];
+  for (let from = 0; ; from += DIRECTORY_PAGE_SIZE) {
+    let query = db
+      .from("vendor_business_profiles")
+      .select(DIRECTORY_COLUMNS)
+      .eq("directory_listed", true)
+      .not("onboarding_completed_at", "is", null)
+      // user_id breaks business_name ties so a page boundary never repeats or skips a vendor.
+      .order("business_name", { ascending: true })
+      .order("user_id", { ascending: true })
+      .range(from, from + DIRECTORY_PAGE_SIZE - 1);
+    if (trade) query = query.contains("trades", [trade]);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as DirectoryRow[];
+    profiles.push(...page);
+    if (page.length < DIRECTORY_PAGE_SIZE) break;
+  }
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-
-  let rows = ((data ?? []) as DirectoryRow[]).map(toCatalogRow);
+  let rows = profiles.map(toCatalogRow);
 
   // Verified-only directory (C083/C198): only a vendor with a current license
   // AND a current (uploaded, non-expired) insurance certificate is
@@ -89,16 +106,25 @@ export async function loadDirectoryListedVendors(
     .map((row) => row.directoryVendorUserId)
     .filter((id): id is string => Boolean(id));
   if (vendorUserIds.length > 0) {
-    const { data: reviewRows, error: reviewError } = await db
-      .from("vendor_reviews")
-      .select("vendor_user_id, stars")
-      .in("vendor_user_id", vendorUserIds);
-    if (reviewError) throw new Error(reviewError.message);
     const starsByVendor = new Map<string, number[]>();
-    for (const r of (reviewRows ?? []) as { vendor_user_id: string; stars: number }[]) {
-      const list = starsByVendor.get(r.vendor_user_id) ?? [];
-      list.push(r.stars);
-      starsByVendor.set(r.vendor_user_id, list);
+    for (let i = 0; i < vendorUserIds.length; i += REVIEW_VENDOR_CHUNK) {
+      const chunk = vendorUserIds.slice(i, i + REVIEW_VENDOR_CHUNK);
+      for (let from = 0; ; from += DIRECTORY_PAGE_SIZE) {
+        const { data: reviewRows, error: reviewError } = await db
+          .from("vendor_reviews")
+          .select("vendor_user_id, stars")
+          .in("vendor_user_id", chunk)
+          .order("id", { ascending: true })
+          .range(from, from + DIRECTORY_PAGE_SIZE - 1);
+        if (reviewError) throw new Error(reviewError.message);
+        const page = (reviewRows ?? []) as { vendor_user_id: string; stars: number }[];
+        for (const r of page) {
+          const list = starsByVendor.get(r.vendor_user_id) ?? [];
+          list.push(r.stars);
+          starsByVendor.set(r.vendor_user_id, list);
+        }
+        if (page.length < DIRECTORY_PAGE_SIZE) break;
+      }
     }
     rows = rows.map((row) => {
       const stars = row.directoryVendorUserId ? (starsByVendor.get(row.directoryVendorUserId) ?? []) : [];
