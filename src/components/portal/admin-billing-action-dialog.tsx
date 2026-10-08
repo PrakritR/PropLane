@@ -41,11 +41,12 @@ export function AdminBillingActionDialog({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    queueMicrotask(() => {
       setReason("");
       setError(null);
       setBusy(false);
-    }
+    });
   }, [open]);
 
   const trimmed = reason.trim();
