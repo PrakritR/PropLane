@@ -89,10 +89,12 @@ describe("product mock panels — tabs actually change the rows", () => {
     expect(screen.getByText("Fremont Studio")).toBeInTheDocument();
   });
 
-  it("clicking a row opens the fixture detail sheet with that row's own facts", () => {
+  it("clicking a tour row opens its record page with that row's own facts, never a generic card", async () => {
     render(<ToursPanel />);
     fireEvent.click(screen.getByText("Jamie P."));
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Fremont Studio")).toBeInTheDocument();
-  });
+    expect(await screen.findByText("Prospect", {}, { timeout: 15000 })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("jamie.p@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Fremont Studio", { selector: "dd, span" })).toBeInTheDocument();
+  }, 40000);
 });

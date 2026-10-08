@@ -188,7 +188,7 @@ export function PromotionPropertyPicker({
  * Tiny abstract sketch of each template's layout so the picker reads visually
  * (photo areas = tinted blocks, text = hairlines) without rendering real flyers.
  */
-function TemplateThumb({ id }: { id: PromotionTemplate }) {
+export function TemplateThumb({ id }: { id: PromotionTemplate }) {
   const photo = "rounded-[3px] bg-primary/50";
   const bar = "rounded-[2px] bg-foreground/60";
   const line = "rounded-[2px] bg-foreground/25";

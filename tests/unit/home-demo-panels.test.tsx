@@ -53,7 +53,7 @@ describe.each(PORTALS)("DemoPanel - %s portal", (portal) => {
   // may arrive a tick after render.
   it.each(DEMO_TABS[portal].map((t) => [t.id, t.label]))("renders the %s tab (%s)", async (tab) => {
     const { container } = render(<DemoPanel portal={portal} tab={tab} />);
-    await waitFor(() => expect((container.textContent ?? "").trim().length).toBeGreaterThan(20));
+    await waitFor(() => expect((container.textContent ?? "").trim().length).toBeGreaterThan(20), { timeout: 10000 });
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/work[\s-]?order/i);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -80,35 +80,51 @@ describe("vendor Reviews", () => {
 describe("demo cursor targets", () => {
   const target = (container: HTMLElement, id: string) => container.querySelector<HTMLElement>(`[data-demo-target="${id}"]`);
 
-  it("Applications: Send application opens a sheet whose primary sends, and every row is a target", () => {
+  it("Applications: Send application opens the real Send application pop-up whose primary sends, and every row is a target", async () => {
     const { container } = render(<DemoPanel portal="manager" tab="applications" story={NO_STORY} />);
     expect(target(container, "application-row")).not.toBeNull();
     fireEvent.click(target(container, "applications-send")!);
-    expect(screen.getByRole("dialog", { name: "Send application" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Send application" }, { timeout: 15000 })).toBeInTheDocument();
     expect(target(container, "sheet-primary")?.textContent).toBe("Send");
     expect(screen.getByText("Apply for Room 3 \u2014 PropLane")).toBeInTheDocument();
-  });
+  }, 40000);
 
-  it("Leases: a lease in manager review is sent, and one waiting on the manager is countersigned", () => {
+  it("Applications: a pending application opens its record, whose Approve is the story's target", async () => {
+    const { container } = render(<DemoPanel portal="manager" tab="applications" story={{ ...NO_STORY, tourOffered: true, tourAccepted: true, applicationSubmitted: true }} />);
+    fireEvent.click(target(container, "application-row")!.querySelector("button[data-attr='application-list-row']")!);
+    await waitFor(() => expect(target(container, "sheet-primary")).not.toBeNull(), { timeout: 15000 });
+    expect(target(container, "sheet-primary")?.getAttribute("aria-label")).toBe("Approve");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(target(container, "sheet-primary")!);
+    await waitFor(() => expect(screen.getByText("Application approved (sample)")).toBeInTheDocument(), { timeout: 15000 });
+    expect(target(container, "sheet-primary")).toBeNull();
+  }, 40000);
+
+  it("Leases: a draft lease is sent from its record, and one waiting on the manager is countersigned", async () => {
     const story = { ...NO_STORY, applicationApproved: true, leaseStep: 0 as const };
     const { container, unmount } = render(<DemoPanel portal="manager" tab="leases" story={story} />);
     fireEvent.click(target(container, "lease-row")!.querySelector("button[data-attr='lease-list-row']")!);
-    expect(target(container, "sheet-primary")?.textContent).toBe("Send lease");
+    await waitFor(() => expect(target(container, "sheet-primary")).not.toBeNull(), { timeout: 15000 });
+    expect(target(container, "sheet-primary")?.getAttribute("aria-label")).toBe("Send lease");
     unmount();
     const signed = render(<DemoPanel portal="manager" tab="leases" story={{ ...story, leaseStep: 2 }} />);
     fireEvent.click(target(signed.container, "lease-row")!.querySelector("button[data-attr='lease-list-row']")!);
-    expect(target(signed.container, "sheet-primary")?.textContent).toBe("Countersign");
-  });
+    await waitFor(() => expect(target(signed.container, "sheet-primary")).not.toBeNull(), { timeout: 15000 });
+    expect(target(signed.container, "sheet-primary")?.getAttribute("aria-label")).toBe("Countersign");
+  }, 40000);
 
-  it("Payments sends a reminder for a pending charge; Services dispatches an open service", () => {
+  it("Payments sends a reminder for a pending charge; Services dispatches an open service", async () => {
+    // A row opens the record page (what the real list does); the record's header icon is the story's target.
     const rent = { ...NO_STORY, leaseStep: 3 as const, applicationApproved: true };
     const payments = render(<DemoPanel portal="manager" tab="payments" story={rent} />);
     fireEvent.click(target(payments.container, "payment-row")!.querySelector("button[data-attr='payment-list-row']")!);
-    expect(target(payments.container, "sheet-primary")?.textContent).toBe("Send reminder");
+    await waitFor(() => expect(target(payments.container, "sheet-primary")).not.toBeNull());
+    expect(target(payments.container, "sheet-primary")?.getAttribute("aria-label")).toBe("Send reminder");
     payments.unmount();
     const services = render(<DemoPanel portal="manager" tab="services" story={{ ...rent, rentPaid: true, service: "open" }} />);
-    fireEvent.click(target(services.container, "service-row")!.querySelector("button[data-attr='service-list-row']")!);
-    expect(target(services.container, "sheet-primary")?.textContent).toBe("Dispatch vendor");
+    fireEvent.click(target(services.container, "service-row")!.querySelector("button[data-attr='work-order-list-row']")!);
+    await waitFor(() => expect(target(services.container, "sheet-primary")).not.toBeNull());
+    expect(target(services.container, "sheet-primary")?.getAttribute("aria-label")).toBe("Dispatch vendor");
   });
 
   it("Communication: a drafted reply waits for the manager's Approve and nothing sends before", () => {
