@@ -137,8 +137,8 @@ const nextConfig: NextConfig = {
       { source: "/admin/applications/:path*", destination: "/admin/dashboard", permanent: false },
       { source: "/admin/work-orders", destination: "/admin/dashboard", permanent: false },
       { source: "/admin/work-orders/:path*", destination: "/admin/dashboard", permanent: false },
-      { source: "/admin/payments", destination: "/admin/dashboard", permanent: false },
-      { source: "/admin/payments/:path*", destination: "/admin/dashboard", permanent: false },
+      // NOTE: do NOT redirect /admin/payments - "Payments" is a live admin nav section (Money,
+      // portals/admin.ts) rendered by AdminPaymentsPanel. A redirect here shadows the route.
       { source: "/admin/announcements", destination: "/admin/dashboard", permanent: false },
       { source: "/admin/announcements/:path*", destination: "/admin/dashboard", permanent: false },
       { source: "/admin/calendar", destination: "/admin/events", permanent: false },

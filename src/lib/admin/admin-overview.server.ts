@@ -10,6 +10,9 @@ import {
   type AdminAccountKind,
 } from "@/lib/admin/admin-accounts.server";
 import { CLOSED_DISPUTE_STATUSES_FILTER } from "@/lib/admin/admin-dispute-status";
+import { loadMonthExpensesCents } from "@/lib/admin/admin-expense-month.server";
+import { currentRevenueMonth, loadAdminMonthEarnings } from "@/lib/admin/admin-revenue.server";
+import { loadAdminSubscriberFigures } from "@/lib/admin/admin-subscribers.server";
 import { readAllPages } from "@/lib/auth/admin-portal-manager-ids.server";
 import { normalizeBugFeedbackStatus } from "@/lib/portal-bug-feedback-utils";
 
@@ -29,7 +32,43 @@ import { normalizeBugFeedbackStatus } from "@/lib/portal-bug-feedback-utils";
  * attempted) and listings pending review (the approval queue was removed;
  * listings publish immediately).
  */
+/**
+ * The Dashboard money row. Every field is `null` when its source could not be read, and the card
+ * for a `null` field is omitted - an unknown figure is never drawn as $0.
+ *
+ * Sources: MRR / Paid / Trial / Promo from the Subscribers population (the resolvers enforcement
+ * uses); Earned from the Payments feed (a live read of the platform Stripe account, cached five
+ * minutes); Profit = Earned - Stripe fees - the month's `platform_expenses`.
+ */
+export type AdminMoneyOverview = {
+  mrrCents: number | null;
+  earnedCents: number | null;
+  profitCents: number | null;
+  paidSubscribers: number | null;
+  onTrial: number | null;
+  promoUsers: number | null;
+};
+
+/** Pure: how the money row is assembled from its three sources. Exported for the tests. */
+export function buildAdminMoneyOverview(input: {
+  subscribers: { counts: { paid: number; trial: number; promo: number }; mrrCents: number } | null;
+  earnings: { earnedCents: number; stripeFeesCents: number } | null;
+  expensesCents: number | null;
+}): AdminMoneyOverview {
+  const { subscribers, earnings, expensesCents } = input;
+  return {
+    mrrCents: subscribers ? subscribers.mrrCents : null,
+    earnedCents: earnings ? earnings.earnedCents : null,
+    profitCents:
+      earnings && expensesCents !== null ? earnings.earnedCents - earnings.stripeFeesCents - expensesCents : null,
+    paidSubscribers: subscribers ? subscribers.counts.paid : null,
+    onTrial: subscribers ? subscribers.counts.trial : null,
+    promoUsers: subscribers ? subscribers.counts.promo : null,
+  };
+}
+
 export type AdminOverview = {
+  money: AdminMoneyOverview;
   activeManagers: number;
   activeResidents: number;
   activeVendors: number;
@@ -143,6 +182,9 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     smsAttempts,
     disputes,
     recentSignups,
+    subscriberFigures,
+    earnings,
+    expensesCents,
   ] = await Promise.all([
     countActiveAccounts(db, realManagers),
     countActiveAccounts(db, realResidents),
@@ -167,11 +209,15 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
       db.from("stripe_disputes").select("id", { count: "exact", head: true }).not("status", "in", CLOSED_DISPUTE_STATUSES_FILTER),
     ),
     recentSignupsOf(db, kindById),
+    loadAdminSubscriberFigures(db, now.getTime()),
+    loadAdminMonthEarnings(db, { now: () => now.getTime() }).catch(() => null),
+    loadMonthExpensesCents(db, currentRevenueMonth(now.getTime())),
   ]);
 
   const smsFailures24h = smsLog === null && smsAttempts === null ? null : (smsLog ?? 0) + (smsAttempts ?? 0);
 
   return {
+    money: buildAdminMoneyOverview({ subscribers: subscriberFigures, earnings, expensesCents }),
     activeManagers,
     activeResidents,
     activeVendors,
