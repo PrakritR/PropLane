@@ -67,6 +67,7 @@ export function FixtureListScreen({
   emptyTitle,
   emptySection,
   menu,
+  onBulkClear,
   surface = true,
   children,
   overlay,
@@ -90,6 +91,8 @@ export function FixtureListScreen({
   emptySection?: string;
   /** Items for the real ⋯ (rows become selectable); omit for a list whose rows carry their own menu. */
   menu?: ReactNode;
+  /** With `menu`: clears the panel's row selection (a list whose ⋯ acts on the one selected row, like the real Forms list). */
+  onBulkClear?: () => void;
   /** False for a page whose body is not a record list (the Calendar grid). */
   surface?: boolean;
   children: ReactNode;
@@ -121,7 +124,7 @@ export function FixtureListScreen({
             primary={primary ? <PortalPrimaryIconAction label={primary.label} onClick={primary.onClick} /> : undefined}
           />
           {surface ? (
-            <PortalRecordListSurface isEmpty={isEmpty} emptyCard={{ title: emptyTitle, section: emptySection }} bulkActions={menu}>
+            <PortalRecordListSurface isEmpty={isEmpty} emptyCard={{ title: emptyTitle, section: emptySection }} bulkActions={menu} onBulkClear={onBulkClear}>
               {children}
             </PortalRecordListSurface>
           ) : (
