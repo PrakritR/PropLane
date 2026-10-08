@@ -30,6 +30,7 @@ const REVIEWED: Record<string, string> = {
   "lib/co-manager-open-invite.server.ts": "open-invite redeem",
   "lib/workspaces/membership.server.ts": "standing: an owner row resolves to rights of none",
   "lib/workspaces/server.ts": "workspace switcher: owner rows add no houses (no module key) and carry no rights",
+  "lib/auth/resident-account-deletion.ts": "existence check only: ANY invite row, owner rows included, keeps the resident's login",
   "lib/auth/purge-orphaned-co-manager-links.ts": "cleanup",
   "lib/auth/clear-property-housing-access.ts": "cleanup",
   "lib/co-manager-plan-reconcile.server.ts": "plan downgrade disconnects links",
