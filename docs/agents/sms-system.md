@@ -457,6 +457,33 @@ Vendors; a number that belongs to a PropLane vendor account is added without the
 tick; a vendor already on the list changes nothing. Coverage:
 `tests/unit/inbound-text-routing.test.ts`.
 
+## The server answers on the channel the person used (screen J, D10, Oct 8)
+
+An inbound text to the work number is answered by the SERVER, by text, from the work number — no browser
+needs to be open, and the inbox never drafts a second reply for it (one responder per inbound message).
+
+- **Prospects** (`handleClawLeasingInbound` → `runLeasingSmsAgentTurn` → `deliverLeasingSmsReply`) and the
+  template / tour-reschedule / resident-acknowledgement fallbacks (`replySms`): the agent reserves
+  `ai_agent_turn` under `ai_turn:sms:<session>:<sid>` before the model runs (templates have no model
+  call); every send passes the consent / opt-out / quiet-hours transport gate and goes out under
+  `dedupeKey: inbound_reply_<sid>`. Those guardrails and keys are unchanged.
+- **The reply is a sent turn on the thread.** After the transport accepts (`ok` or `durablyAccepted`),
+  `recordAutoReplyOnSmsNotice` (`sms-inbox-notice.server.ts`) appends it to the person's
+  `sms_notice_<hash>` thread as an outbound turn (`channel: "sms"`, author "PropLane Assistant", id
+  `auto_reply_<sid>`, so a replayed delivery adds nothing). It never creates a thread and never throws:
+  a failed record cannot fail or re-send the text. Co-managers' own notice rows are not appended to
+  (owner only); they are still skipped by the client draft.
+- **The browser does not also draft.** `claw_leasing_sms` / `claw_resident_sms` notice threads
+  (`isServerAgentAnsweredSmsThread`) are skipped by `threadEligibleForAiDraft` and by
+  `POST /api/portal/inbox-draft-reply` (`skip: true, reason: "server-agent-sms"`). When the agent does not
+  answer (credit not reserved, quiet handoff, suppressed), the inbound waits for the manager to reply by
+  hand — the composer defaults to Text.
+- **Not covered:** the resident SMS agent (`resident-sms-agent.server.ts`, known residents) records to the
+  SMS projection only, not to a notice thread; the manager-relay notice threads (`sms-relay`) have no agent
+  and keep client drafting.
+- Stamp migration: `20261008230000_sms_notice_channel_stamp.sql` (not applied by the build; see
+  [communication-inbox.md](communication-inbox.md) § The composer's channel).
+
 ## Prospect SMS scheduling and follow-up
 
 Prospect texts are merged into one reply after a 10 second quiet window

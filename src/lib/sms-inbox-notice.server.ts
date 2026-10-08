@@ -30,6 +30,11 @@ export type OriginalSmsNoticeEvent = {
   bodySha256: string;
 };
 
+/** Thread id of the SMS compatibility notice for one manager + counterparty phone. */
+export function smsNoticeThreadId(managerUserId: string, phone: string): string {
+  return `sms_notice_${createHash("sha256").update(`${managerUserId}:${phone}`).digest("hex")}`;
+}
+
 export async function upsertManagerInboxNotice(
   db: SupabaseClient,
   args: {
@@ -50,7 +55,7 @@ export async function upsertManagerInboxNotice(
   const phone = smsNoticePhone(args.counterpartyPhone || args.from);
   const messageId = args.messageId || randomUUID();
   const threadId = phone
-    ? `sms_notice_${createHash("sha256").update(`${args.managerUserId}:${phone}`).digest("hex")}`
+    ? smsNoticeThreadId(args.managerUserId, phone)
     : `${args.idPrefix}_${Date.now()}_${randomUUID()}`;
   const now = new Date();
   const stamp = formatInboxStamp(now);
@@ -72,6 +77,9 @@ export async function upsertManagerInboxNotice(
     scope: MANAGER_INBOX_SCOPE, ownerUserId: args.managerUserId,
     threadType: args.threadType, smsNoticePhone: phone || undefined,
     rootMessageId: messageId, rootOutbound: args.folder === "sent",
+    // Every turn here is a text. Stamped so the Communication composer replies
+    // on the channel the person used (a text) instead of defaulting to In-app.
+    rootChannel: "sms",
     ...(args.originalSmsEvent ? { rootOriginalSmsEvent: args.originalSmsEvent } : {}),
     ...conversationRowData(ref),
   };
@@ -84,7 +92,7 @@ export async function upsertManagerInboxNotice(
     p_message_id: messageId,
     p_incoming: incoming,
     p_message: { id: messageId, from: args.from, body: args.body, at: stamp,
-      outbound: args.folder === "sent",
+      outbound: args.folder === "sent", channel: "sms",
       ...(args.originalSmsEvent ? { originalSmsEvent: args.originalSmsEvent } : {}) },
     p_inbound: args.folder !== "sent",
     p_control_keys: controlKeys,
@@ -115,4 +123,72 @@ export async function sendManagerNoticeEmail(args: {
       text: args.text,
     },
   }).catch(() => undefined);
+}
+
+/**
+ * Record a reply the SERVER sent (the leasing/resident SMS agent, a template
+ * answer) as an outbound turn on the person's SMS notice thread, so the
+ * Communication thread shows the sent reply and `inboxThreadManagerReplyPending`
+ * is false: the browser's AI-draft path must never also draft/send for an
+ * inbound text a server agent already answered (one responder per inbound).
+ *
+ * Append-only and best-effort: it never creates a thread (an inbound notice that
+ * failed to land has nothing to reply under) and never throws. Idempotent on
+ * `auto_reply_<inboundMessageId>`, so a replayed delivery appends nothing twice.
+ */
+export async function recordAutoReplyOnSmsNotice(
+  db: SupabaseClient,
+  args: {
+    managerUserId: string;
+    counterpartyPhone: string;
+    text: string;
+    /** The inbound text this answers (Twilio SID); makes the append idempotent. */
+    inboundMessageId?: string | null;
+  },
+): Promise<boolean> {
+  try {
+    const phone = smsNoticePhone(args.counterpartyPhone);
+    const text = args.text.trim();
+    if (!phone || !text || !args.managerUserId.trim()) return false;
+    const threadId = smsNoticeThreadId(args.managerUserId, phone);
+    const { data: existing } = await db
+      .from("portal_inbox_thread_records")
+      .select("id, thread_type")
+      .eq("id", threadId)
+      .eq("owner_user_id", args.managerUserId)
+      .maybeSingle();
+    if (!existing) return false;
+    const inboundId = args.inboundMessageId?.trim();
+    await upsertManagerInboxNotice(db, {
+      managerUserId: args.managerUserId,
+      idPrefix: "sms_auto_reply",
+      threadType: String((existing as { thread_type?: unknown }).thread_type ?? "claw_leasing_sms"),
+      folder: "sent",
+      // Same author name as `MANAGER_AGENT_NOTICE_FROM_NAME`, inlined to keep
+      // this server module free of the inbox-list client imports.
+      from: "PropLane Assistant",
+      counterpartyPhone: phone,
+      subject: "Reply",
+      preview: text,
+      body: text,
+      unread: false,
+      messageId: inboundId ? `auto_reply_${inboundId}` : undefined,
+    });
+    return true;
+  } catch (error) {
+    console.error("sms notice auto-reply record failed", error instanceof Error ? error.message : "unknown");
+    return false;
+  }
+}
+
+/** `recordAutoReplyOnSmsNotice` for a caller that holds no database client. */
+export async function recordAutoReplyOnSmsNoticeFresh(
+  args: Parameters<typeof recordAutoReplyOnSmsNotice>[1],
+): Promise<boolean> {
+  try {
+    const { createSupabaseServiceRoleClient } = await import("@/lib/supabase/service");
+    return await recordAutoReplyOnSmsNotice(createSupabaseServiceRoleClient(), args);
+  } catch {
+    return false;
+  }
 }
