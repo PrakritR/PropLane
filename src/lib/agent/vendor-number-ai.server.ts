@@ -9,11 +9,16 @@ import "server-only";
  *
  * Cost and safety bounds: replies leave through `deliverVendorWorkIdentity`, so
  * every one counts against the number's monthly cap and respects opt-outs; each
- * sender gets at most {@link VENDOR_AI_REPLIES_PER_SENDER_PER_HOUR} AI replies an
- * hour, counted from the durable outbox (never from memory). A missing model key,
+ * sender gets at most {@link VENDOR_AI_REPLIES_PER_SENDER_PER_HOUR} AI model turns
+ * an hour and a vendor at most {@link VENDOR_AI_TURNS_PER_VENDOR_PER_DAY} a day,
+ * counted from durable rows (never from memory) and counting every attempt, sent or
+ * not. The model is never called when the reply could not leave anyway (monthly cap
+ * spent, sender opted out, number paused or not ready), so blocked sends cannot run up
+ * model cost. A missing model key,
  * a model error, or a vendor with no AI info at all means no reply and no error:
  * the text is already in the inbox.
  */
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { runAgentTurn, type AgentTurnResult } from "@/lib/agent/loop";
@@ -26,6 +31,8 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { deliverPortalMessageThreadSide, scopeForRole } from "@/lib/portal-inbox-delivery";
 import { buildVendorNumberAiContext, type VendorNumberAiContext } from "@/lib/tools/vendor-number-ai-context";
 import { VENDOR_NUMBER_AI_WRITE_TOOLS, vendorNumberAiRegistry } from "@/lib/tools/vendor-number-ai-index";
+import { readSmsSuppressionState } from "@/lib/sms-consent";
+import { vendorNumberMonthStart } from "@/lib/vendor-work-number";
 import { vendorAiInfoIsEmpty } from "@/lib/vendor-ai-info";
 import { loadVendorBusinessProfile } from "@/lib/vendor-business-profile.server";
 import { handOffToVendor } from "@/lib/vendor-number-ai-handoff.server";
@@ -33,6 +40,10 @@ import type { ActiveVendorNumber } from "@/lib/vendor-work-identity.server";
 import { deliverVendorWorkIdentity, type VendorDeliveryProvider } from "@/lib/vendor-work-identity-delivery.server";
 
 export const VENDOR_AI_REPLIES_PER_SENDER_PER_HOUR = 5;
+/** Ceiling on AI model turns for one vendor's number per rolling day, across every sender. */
+export const VENDOR_AI_TURNS_PER_VENDOR_PER_DAY = 200;
+/** Usage-event meter every model turn is recorded under (before the model is called). */
+export const VENDOR_AI_TURN_METER = "ai_turn";
 const REPLY_MAX_LENGTH = 480;
 const HISTORY_TURNS = 6;
 export const VENDOR_NUMBER_AI_SYSTEM_PROMPT = composeAgentSystemPrompt(VENDOR_NUMBER_AI_SURFACE_PROMPT, "sms");
@@ -41,6 +52,8 @@ export type VendorNumberAiOutcome =
   | "replied"
   | "no_info"
   | "rate_limited"
+  | "daily_limit"
+  | "send_blocked"
   | "unavailable"
   | "empty_reply"
   | "not_delivered";
@@ -50,11 +63,22 @@ export type VendorNumberAiTurn = (args: {
   messages: Anthropic.MessageParam[];
 }) => Promise<Pick<AgentTurnResult, "reply">>;
 
-/** AI replies this vendor's number sent to one sender since `since`, from the durable outbox. */
+/** A stable, non-reversible id for a sender's phone: safe for traces, metadata and idempotency keys. */
+export function hashSenderPhone(phone: string): string {
+  return createHash("sha256").update(phone.trim(), "utf8").digest("hex").slice(0, 16);
+}
+
+const turnKey = (senderHash: string, messageSid: string) => `vendor-ai-turn:${senderHash}:${messageSid}`;
+
+/**
+ * AI attempts to one sender since `since`: the larger of the durable outbox rows (every status,
+ * blocked and failed included) and the model turns recorded before each model call.
+ */
 export async function countRecentAiRepliesToSender(
   db: SupabaseClient,
   args: { vendorUserId: string; recipient: string; since: Date },
 ): Promise<number> {
+  const since = args.since.toISOString();
   const { count, error } = await db
     .from("vendor_work_identity_outbox")
     .select("id", { count: "exact", head: true })
@@ -62,10 +86,64 @@ export async function countRecentAiRepliesToSender(
     .eq("channel", "sms")
     .eq("recipient", args.recipient)
     .like("idempotency_key", "vendor-ai:%")
-    .neq("status", "blocked")
-    .gte("created_at", args.since.toISOString());
+    .gte("created_at", since);
   if (error) throw new Error("AI reply count unavailable.");
+  const { count: turns, error: turnError } = await db
+    .from("vendor_work_identity_usage_events")
+    .select("id", { count: "exact", head: true })
+    .eq("vendor_user_id", args.vendorUserId)
+    .eq("meter", VENDOR_AI_TURN_METER)
+    .like("idempotency_key", turnKey(hashSenderPhone(args.recipient), "%"))
+    .gte("created_at", since);
+  if (turnError) throw new Error("AI reply count unavailable.");
+  return Math.max(count ?? 0, turns ?? 0);
+}
+
+/** Model turns this vendor's number has used since `since`, across every sender. */
+export async function countRecentAiTurnsForVendor(db: SupabaseClient, args: { vendorUserId: string; since: Date }): Promise<number> {
+  const { count, error } = await db
+    .from("vendor_work_identity_usage_events")
+    .select("id", { count: "exact", head: true })
+    .eq("vendor_user_id", args.vendorUserId)
+    .eq("meter", VENDOR_AI_TURN_METER)
+    .gte("created_at", args.since.toISOString());
+  if (error) throw new Error("AI turn count unavailable.");
   return count ?? 0;
+}
+
+/**
+ * Why a reply to this sender could not leave right now (read-only: nothing is consumed), or null.
+ * Mirrors the gates `deliverVendorWorkIdentity` applies, so the model is not paid to write a text
+ * that will be blocked. Any unreadable state counts as blocked.
+ */
+export async function vendorReplyBlocker(
+  db: SupabaseClient,
+  args: { number: ActiveVendorNumber; recipient: string; provider: VendorDeliveryProvider; now: Date },
+): Promise<string | null> {
+  try {
+    const { data: runtime, error: runtimeError } = await db.from("vendor_work_identity_runtime")
+      .select("enabled,outbound_message_cap").eq("singleton", true).maybeSingle();
+    const rt = runtime as { enabled?: boolean; outbound_message_cap?: unknown } | null;
+    if (runtimeError || !rt?.enabled) return "provider_disabled";
+    if (!args.provider.configured("sms")) return "provider_unconfigured";
+    const { data: identity, error: identityError } = await db.from("vendor_work_identities")
+      .select("sms_state,sms_send_ready").eq("id", args.number.identityId).eq("vendor_user_id", args.number.vendorUserId).maybeSingle();
+    const row = identity as { sms_state?: unknown; sms_send_ready?: unknown } | null;
+    if (identityError || !row || row.sms_state !== "ready" || row.sms_send_ready !== true) return "identity_not_ready";
+    const cap = Number(rt.outbound_message_cap ?? 0);
+    const { data: usage, error: usageError } = await db.from("vendor_work_identity_usage_events")
+      .select("quantity").eq("identity_id", args.number.identityId).eq("meter", "outbound_sms")
+      .gte("created_at", vendorNumberMonthStart(args.now).toISOString());
+    if (usageError) return "usage_unavailable";
+    const used = ((usage ?? []) as { quantity?: unknown }[]).reduce((sum, r) => sum + Number(r.quantity ?? 0), 0);
+    if (!(cap > 0) || used + 1 > cap) return "platform_cap_reached";
+    const suppression = await readSmsSuppressionState(db, args.recipient);
+    if (!suppression.ok) return suppression.error;
+    if (suppression.optedOut) return "recipient_opted_out";
+    return null;
+  } catch {
+    return "blocker_check_failed";
+  }
 }
 
 /** The last few turns of this conversation (before the current text), as alternating model messages. */
@@ -91,8 +169,8 @@ async function recentHistory(db: SupabaseClient, vendorUserId: string, threadId:
 const defaultTurn: VendorNumberAiTurn = async ({ ctx, messages }) => {
   const system = VENDOR_NUMBER_AI_SYSTEM_PROMPT;
   return traceAgentTurn(
-    // Stamped with the vendor's user id, the session keyed to the vendor + sender (never the raw text).
-    { userId: ctx.vendorUserId, sessionId: `vendor-number-ai:${ctx.vendorUserId}:${ctx.senderPhone}`, metadata: { surface: "vendor_number_ai", vendorUserId: ctx.vendorUserId } },
+    // Stamped with the vendor's user id, the session keyed to the vendor + a hash of the sender (never the raw phone or text).
+    { userId: ctx.vendorUserId, sessionId: `vendor-number-ai:${ctx.vendorUserId}:${hashSenderPhone(ctx.senderPhone)}`, metadata: { surface: "vendor_number_ai", vendorUserId: ctx.vendorUserId } },
     messages as { role: string; content: string }[],
     (observer) =>
       runAgentTurn({
@@ -127,6 +205,14 @@ export async function runVendorNumberAiReply(
   // Nothing written for the AI to say: do nothing, the text is already in the inbox.
   if (vendorAiInfoIsEmpty(profile.aiInfo)) return "no_info";
 
+  // The model is never paid to write a text that cannot leave: monthly cap spent, sender opted out,
+  // number paused or not ready. The text is already in the inbox.
+  const blocker = await vendorReplyBlocker(db, { number: input.number, recipient: input.from, provider: deps.provider, now });
+  if (blocker) {
+    console.info("vendor number AI skipped", blocker);
+    return "send_blocked";
+  }
+
   const ctx = buildVendorNumberAiContext(db, {
     vendorUserId, senderPhone: input.from, senderText: input.text, messageSid: input.messageSid,
     forwardToPhone: input.number.forwardToPhone, provider: deps.provider, now,
@@ -143,7 +229,21 @@ export async function runVendorNumberAiReply(
     return "rate_limited";
   }
 
+  // One vendor's number cannot run up model cost across many senders.
+  const dayTurns = await countRecentAiTurnsForVendor(db, { vendorUserId, since: new Date(now.getTime() - 86_400_000) });
+  if (dayTurns >= VENDOR_AI_TURNS_PER_VENDOR_PER_DAY) return "daily_limit";
+
   if (!deps.turn && !process.env.ANTHROPIC_API_KEY?.trim()) return "unavailable";
+  // Record the attempt BEFORE the model runs, so a failed, empty or undeliverable turn still counts.
+  // An attempt that cannot be recorded is an attempt that cannot be limited: no model call.
+  const { error: recordError } = await db.from("vendor_work_identity_usage_events").upsert({
+    identity_id: input.number.identityId, vendor_user_id: vendorUserId, meter: VENDOR_AI_TURN_METER,
+    idempotency_key: turnKey(hashSenderPhone(input.from), input.messageSid),
+  }, { onConflict: "idempotency_key" });
+  if (recordError) {
+    console.warn("vendor number AI turn not recorded", recordError.message);
+    return "unavailable";
+  }
   let reply: string;
   try {
     const history = await recentHistory(db, vendorUserId, input.threadId);

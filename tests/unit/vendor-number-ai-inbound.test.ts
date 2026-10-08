@@ -89,6 +89,19 @@ describe("the AI after the text is stored", () => {
     expect((await ingest(db, CLIENT, "SM3")).afterResponse).toBeUndefined();
   });
 
+  it("recognizes a manager whose stored phone is not E.164 (bare 10 digits, or 1 + 10)", async () => {
+    for (const [i, stored] of ["2065550199", "12065550199"].entries()) {
+      const db = seed({
+        profiles: [
+          { id: "vendor-1", phone: VENDOR_PHONE, phone_verified_at: "2026-10-01T00:00:00Z" },
+          { id: "mgr-1", phone: stored },
+        ],
+        profile_roles: [{ user_id: "mgr-1", role: "manager" }],
+      });
+      expect((await ingest(db, CLIENT, `SM3-${i}`)).afterResponse).toBeUndefined();
+    }
+  });
+
   it("runs for a resident account (a PropLane user who is not a manager)", async () => {
     const db = seed({
       profiles: [

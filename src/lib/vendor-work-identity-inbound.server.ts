@@ -5,6 +5,7 @@ import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.serve
 import { deliverPortalMessageThreadSide, scopeForRole } from "@/lib/portal-inbox-delivery";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { normalizeE164 } from "@/lib/twilio";
+import { profilePhoneVariants } from "@/lib/sms-consent";
 import { bindVendorReplyTarget } from "@/lib/vendor-sponsored-outbound.server";
 import { findActiveVendorNumberByPhone, loadVendorVerifiedPhone, type ActiveVendorNumber } from "@/lib/vendor-work-identity.server";
 import {
@@ -201,9 +202,16 @@ async function senderMayGetAiAnswer(db: SupabaseClient, from: string): Promise<b
     const { data: vendorLine, error: lineError } = await db.from("vendor_work_identities")
       .select("id").eq("phone_number", from).limit(1).maybeSingle();
     if (lineError || vendorLine) return false;
-    const { data: accounts, error: accountError } = await db.from("profiles").select("id").eq("phone", from).limit(10);
+    // profiles.phone is whatever the account stored (E.164, bare 10 digits, 1+10), so look up every
+    // stored form of this number and confirm each hit by normalizing its phone to E.164.
+    const target = normalizeE164(from);
+    if (!target) return false;
+    const { data: accounts, error: accountError } = await db.from("profiles").select("id,phone")
+      .in("phone", profilePhoneVariants(target)).limit(50);
     if (accountError) return false;
-    const ids = ((accounts ?? []) as { id?: unknown }[]).map((row) => String(row.id ?? "")).filter(Boolean);
+    const ids = ((accounts ?? []) as { id?: unknown; phone?: unknown }[])
+      .filter((row) => normalizeE164(row.phone) === target)
+      .map((row) => String(row.id ?? "")).filter(Boolean);
     if (ids.length === 0) return true;
     const { data: roles, error: roleError } = await db.from("profile_roles").select("role").in("user_id", ids);
     if (roleError) return false;

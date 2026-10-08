@@ -18,6 +18,9 @@ vi.mock("@/lib/observability/langfuse", () => ({ traceAgentTurn: mocks.traceAgen
 
 import {
   VENDOR_AI_REPLIES_PER_SENDER_PER_HOUR,
+  VENDOR_AI_TURNS_PER_VENDOR_PER_DAY,
+  VENDOR_AI_TURN_METER,
+  hashSenderPhone,
   runVendorNumberAiReply,
   type VendorNumberAiTurn,
 } from "@/lib/agent/vendor-number-ai.server";
@@ -31,8 +34,14 @@ const number = { identityId: "identity-1", vendorUserId: "vendor-1", phoneNumber
 const provider = { configured: () => true, email: vi.fn(), sms: vi.fn() };
 const AI_INFO = { hours: "Mon-Fri 8am-6pm", rates: "$95 service call", how_to_book: "Text the address", emergency: "Burst pipe: call (206) 555-0199", extra: "" };
 
-function seed(aiInfo: Row | null = AI_INFO, outbox: Row[] = []): FakeDb {
+function seed(aiInfo: Row | null = AI_INFO, outbox: Row[] = [], extra: Record<string, Row[]> = {}): FakeDb {
   return createFakeDb({
+    vendor_work_identity_runtime: [{ singleton: true, enabled: true, outbound_message_cap: 1000 }],
+    vendor_work_identities: [{ id: "identity-1", vendor_user_id: "vendor-1", phone_number: "+12065550177", sms_state: "ready", sms_send_ready: true }],
+    vendor_work_identity_usage_events: [],
+    sms_consent: [],
+    profiles: [],
+    ...extra,
     vendor_business_profiles: [{ user_id: "vendor-1", business_name: "Apex Plumbing", trades: ["Plumbing"], service_area: "Seattle", ai_info: aiInfo ?? {} }],
     vendor_work_identity_outbox: outbox,
     portal_inbox_thread_records: [],
@@ -151,14 +160,92 @@ describe("runVendorNumberAiReply", () => {
     expect(mocks.deliver.mock.calls[0]![1]).toMatchObject({ recipient: "+12065550142", idempotencyKey: "vendor-ai-handoff-fwd:SM6" });
   });
 
-  it("counts only this sender's replies from the last hour, and not blocked sends", async () => {
+  it("counts only this sender's attempts from the last hour", async () => {
     const outbox = [
       ...Array.from({ length: 5 }, (_, i) => outboxRow(i, 90 + i)), // older than an hour
       outboxRow(10, 5, { recipient: "+12065550111" }), // another sender
-      outboxRow(11, 5, { status: "blocked" }), // never sent
       outboxRow(12, 5, { idempotency_key: "vendor-route:SM-other" }), // not an AI reply
     ];
     expect(await run(seed(AI_INFO, outbox), reply("Sure."))).toBe("replied");
+  });
+
+  it("counts blocked and failed attempts toward the 5 an hour", async () => {
+    const statuses = ["blocked", "failed", "blocked", "reconciling", "blocked"];
+    const used = statuses.map((status, i) => outboxRow(i, 5 + i, { status }));
+    const turn = reply("hi");
+    expect(await run(seed(AI_INFO, used), turn, "SM6")).toBe("rate_limited");
+    expect(turn).not.toHaveBeenCalled();
+  });
+
+  it("counts model turns that never produced an outbox row (empty or failed) toward the 5 an hour", async () => {
+    const recorded = Array.from({ length: 5 }, (_, i) => ({
+      identity_id: "identity-1", vendor_user_id: "vendor-1", meter: VENDOR_AI_TURN_METER,
+      idempotency_key: `vendor-ai-turn:${hashSenderPhone(SENDER)}:SM-old-${i}`, created_at: new Date(NOW.getTime() - (5 + i) * 60_000).toISOString(),
+    }));
+    const turn = reply("hi");
+    expect(await run(seed(AI_INFO, [], { vendor_work_identity_usage_events: recorded }), turn, "SM6")).toBe("rate_limited");
+    expect(turn).not.toHaveBeenCalled();
+  });
+
+  it("records every model turn before the model runs, even when it produces nothing", async () => {
+    const db = seed();
+    const turn: VendorNumberAiTurn = vi.fn(async () => {
+      expect(db.tables.vendor_work_identity_usage_events).toHaveLength(1);
+      return { reply: "" };
+    });
+    expect(await run(db, turn)).toBe("empty_reply");
+    expect(db.tables.vendor_work_identity_usage_events![0]).toMatchObject({ meter: VENDOR_AI_TURN_METER, vendor_user_id: "vendor-1" });
+    expect(String(db.tables.vendor_work_identity_usage_events![0]!.idempotency_key)).not.toContain(SENDER);
+  });
+
+  it("stops at the per-vendor daily ceiling across many senders, with no model call", async () => {
+    const turns = Array.from({ length: VENDOR_AI_TURNS_PER_VENDOR_PER_DAY }, (_, i) => ({
+      identity_id: "identity-1", vendor_user_id: "vendor-1", meter: VENDOR_AI_TURN_METER,
+      idempotency_key: `vendor-ai-turn:sender-${i}:SM-${i}`, created_at: new Date(NOW.getTime() - (i + 1) * 60_000).toISOString(),
+    }));
+    const turn = reply("hi");
+    expect(await run(seed(AI_INFO, [], { vendor_work_identity_usage_events: turns }), turn)).toBe("daily_limit");
+    expect(turn).not.toHaveBeenCalled();
+    expect(mocks.deliver).not.toHaveBeenCalled();
+    // Turns older than a day do not count.
+    const old = turns.map((t) => ({ ...t, created_at: new Date(NOW.getTime() - 25 * 3_600_000).toISOString() }));
+    expect(await run(seed(AI_INFO, [], { vendor_work_identity_usage_events: old }), reply("ok"))).toBe("replied");
+  });
+
+  describe("the model is not called when the reply could not leave", () => {
+    const skipped = async (db: FakeDb) => {
+      const turn = reply("hi");
+      expect(await run(db, turn)).toBe("send_blocked");
+      expect(turn).not.toHaveBeenCalled();
+      expect(mocks.deliver).not.toHaveBeenCalled();
+      expect(db.tables.vendor_work_identity_usage_events!.filter((e) => e.meter === VENDOR_AI_TURN_METER)).toHaveLength(0);
+    };
+
+    it("monthly segment cap exhausted", async () => {
+      const used = { identity_id: "identity-1", vendor_user_id: "vendor-1", meter: "outbound_sms", quantity: 1000, idempotency_key: "o1", created_at: NOW.toISOString() };
+      await skipped(seed(AI_INFO, [], { vendor_work_identity_usage_events: [used] }));
+    });
+
+    it("sender opted out", async () => {
+      await skipped(seed(AI_INFO, [], { sms_consent: [{ phone: "2065550199", opted_out_at: "2026-10-01T00:00:00Z" }] }));
+    });
+
+    it("number paused, not send-ready, or provider disabled", async () => {
+      await skipped(seed(AI_INFO, [], { vendor_work_identities: [{ id: "identity-1", vendor_user_id: "vendor-1", sms_state: "disabled", sms_send_ready: false }] }));
+      await skipped(seed(AI_INFO, [], { vendor_work_identities: [{ id: "identity-1", vendor_user_id: "vendor-1", sms_state: "ready", sms_send_ready: false }] }));
+      await skipped(seed(AI_INFO, [], { vendor_work_identity_runtime: [{ singleton: true, enabled: false, outbound_message_cap: 1000 }] }));
+    });
+  });
+
+  it("keeps the raw sender phone out of the trace session id and metadata", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    mocks.traceAgentTurn.mockImplementation(async (_actor, _messages, runTurn: (o?: unknown) => Promise<unknown>) => runTurn(undefined));
+    mocks.runAgentTurn.mockResolvedValue({ reply: "We open at 8." });
+    await run(seed(), undefined);
+    const [actor] = mocks.traceAgentTurn.mock.calls[0]!;
+    expect(actor.sessionId).toBe(`vendor-number-ai:vendor-1:${hashSenderPhone(SENDER)}`);
+    expect(JSON.stringify(actor)).not.toContain("2065550199");
+    expect(hashSenderPhone(SENDER)).toMatch(/^[0-9a-f]{16}$/);
   });
 
   it("respects the monthly cap: a send the cap blocks is not an error and leaves no inbox copy", async () => {
