@@ -25,7 +25,7 @@ describe("resident_workspace_bindings writers", () => {
 
   it("only the binding module touches the table", () => {
     const touching = sources.filter((file) => fs.readFileSync(file, "utf8").includes("resident_workspace_bindings")).map(rel).sort();
-    expect(touching).toEqual(["src/lib/auth/account-purge-manifest.ts", "src/lib/auth/resident-account-deletion.ts", "src/lib/auth/resident-workspace-binding.ts"]);
+    expect(touching).toEqual(["scripts/lib/account-deletion.mjs", "src/lib/auth/account-purge-manifest.ts", "src/lib/auth/resident-account-deletion.ts", "src/lib/auth/resident-workspace-binding.ts"]);
   });
 
   it("recordResidentWorkspaceBinding has one caller: the resident self-write branch of /api/manager-applications", () => {

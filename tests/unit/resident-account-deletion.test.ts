@@ -16,7 +16,11 @@ vi.mock("@/lib/auth/delete-portal-account", () => ({
 }));
 
 import { removeResidentApplication, previewResidentApplicationRemoval } from "@/lib/auth/remove-resident-application";
-import { decideResidentAccountFate } from "@/lib/auth/resident-account-deletion";
+import {
+  decideResidentAccountFate,
+  residentDirectRelationshipSources,
+  residentRelationshipSources,
+} from "@/lib/auth/resident-account-deletion";
 
 const MANAGER = "manager-a";
 const OTHER_MANAGER = "manager-b";
@@ -25,7 +29,21 @@ const EMAIL = "resident@example.com";
 const WORKSPACE = "ws-a";
 const RESIDENT_SCOPE = "axis_portal_inbox_resident_v1";
 
-function database(seed: Record<string, Row[]>) {
+/** Top-level comma split that leaves `and(a,b)` whole. */
+function splitTerms(expr: string): string[] {
+  const terms: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of expr) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (char === "," && depth === 0) { terms.push(current); current = ""; } else current += char;
+  }
+  terms.push(current);
+  return terms;
+}
+
+function database(seed: Record<string, Row[]>, missingTables: string[] = []) {
   const rows = structuredClone(seed);
   const db = {
     async rpc(name: string, args: { p_manager: string; p_targets: { table: string; ids: string[] }[] }) {
@@ -62,9 +80,34 @@ function database(seed: Record<string, Row[]>) {
           predicates.push((row) => String(read(row, column) ?? "").toLowerCase() === literal);
           return query;
         },
+        not(column: string, op: string, value: string) {
+          if (op !== "in") throw new Error(`unsupported not ${op}`);
+          const values = value.replace(/^\(|\)$/g, "").split(",");
+          predicates.push((row) => !values.includes(String(read(row, column))));
+          return query;
+        },
+        // PostgREST or(): `col.is.null`, `col.neq.v`, `col.eq.v`, and `and(...)` groups.
+        or(expr: string) {
+          const term = (text: string): ((row: Row) => boolean) => {
+            if (text.startsWith("and(")) {
+              const parts = splitTerms(text.slice(4, -1)).map(term);
+              return (row) => parts.every((part) => part(row));
+            }
+            const [column, op, ...rest] = text.split(".");
+            const value = rest.join(".");
+            if (op === "is" && value === "null") return (row) => read(row, column) == null;
+            if (op === "neq") return (row) => read(row, column) != null && String(read(row, column)) !== value;
+            if (op === "eq") return (row) => String(read(row, column)) === value;
+            throw new Error(`unsupported or term ${text}`);
+          };
+          const parts = splitTerms(expr).map(term);
+          predicates.push((row) => parts.some((part) => part(row)));
+          return query;
+        },
         filter(column: string, op: string, value: string) { return op === "ilike" ? query.ilike(column, value) : query.eq(column, value); },
         async maybeSingle() { return { data: (rows[table] ?? []).find((row) => predicates.every((p) => p(row))) ?? null, error: null }; },
-        then(resolve: (result: { data: Row[]; error: null }) => void) {
+        then(resolve: (result: { data: Row[]; error: { code: string; message: string } | null }) => void) {
+          if (missingTables.includes(table)) return resolve({ data: [], error: { code: "42P01", message: `relation "${table}" does not exist` } });
           const matched = (rows[table] ?? []).filter((row) => predicates.every((p) => p(row))).slice(offset, end);
           if (action === "delete") rows[table] = (rows[table] ?? []).filter((row) => !matched.includes(row));
           resolve({ data: matched, error: null });
@@ -117,6 +160,11 @@ beforeEach(() => {
 describe("deleting a resident deletes their PropLane account only when nothing else holds it", () => {
   it("resident-only with no other relationship: the account is purged through the self-delete path", async () => {
     const { db, rows } = database(baseSeed());
+    // The real purge removes every resident-owned inbox row; stand in for it.
+    deleteOwnPortalAccount.mockImplementationOnce(async (_db: unknown, userId: unknown) => {
+      rows.portal_inbox_thread_records = rows.portal_inbox_thread_records.filter((row) => row.owner_user_id !== userId);
+      return { ok: true };
+    });
     const preview = await previewResidentApplicationRemoval(db as never, actor, input);
     expect(preview).toMatchObject({ ok: true, account: "deleted" });
     expect(deleteOwnPortalAccount).not.toHaveBeenCalled();
@@ -125,6 +173,8 @@ describe("deleting a resident deletes their PropLane account only when nothing e
     expect(result).toMatchObject({ ok: true, account: "deleted" });
     expect(deleteOwnPortalAccount).toHaveBeenCalledTimes(1);
     expect(deleteOwnPortalAccount).toHaveBeenCalledWith(db, RESIDENT, "resident");
+    // Manager's copy + the resident's own copy, counted once the login actually went.
+    expect(result).toMatchObject({ removed: { conversations: 2 }, total: 3 });
     expect(rows.manager_application_records).toEqual([]);
     expect(rows.portal_inbox_thread_records).toEqual([]);
   });
@@ -155,7 +205,7 @@ describe("deleting a resident deletes their PropLane account only when nothing e
       .toEqual({ status: "delete", userId: RESIDENT });
   });
 
-  it("a resident who also holds a vendor role keeps the account, but loses the workspace rows", async () => {
+  it("a resident who also holds a vendor role keeps the account AND their own conversations; only the workspace rows go", async () => {
     const { db, rows } = database(baseSeed({
       profile_roles: [{ user_id: RESIDENT, role: "resident" }, { user_id: RESIDENT, role: "vendor" }],
     }));
@@ -164,8 +214,9 @@ describe("deleting a resident deletes their PropLane account only when nothing e
     expect(result).toMatchObject({ ok: true, account: "kept" });
     expect(deleteOwnPortalAccount).not.toHaveBeenCalled();
     expect(rows.manager_application_records).toEqual([]);
-    // The resident's own workspace conversation goes even though the login stays.
-    expect(rows.portal_inbox_thread_records).toEqual([]);
+    // The login stays, so the resident's own copy of the conversation stays; the manager's copy goes.
+    expect(rows.portal_inbox_thread_records.map((row) => row.id)).toEqual(["thread-own"]);
+    expect(result).toMatchObject({ removed: { conversations: 1 } });
   });
 
   it.each(["manager", "owner", "admin"])("a %s role keeps the account", async (role) => {
@@ -202,7 +253,7 @@ describe("deleting a resident deletes their PropLane account only when nothing e
       .toMatchObject({ status: "keep", reason: "other_relationships" });
   });
 
-  it("the other workspace's conversation survives; this workspace's goes", async () => {
+  it("a conversation with another workspace keeps the login, so none of the resident's own threads are deleted", async () => {
     const { db, rows } = database(baseSeed({
       portal_inbox_thread_records: [
         { id: "thread-own", scope: RESIDENT_SCOPE, owner_user_id: RESIDENT, participant_email: EMAIL, workspace_id: WORKSPACE, conversation_key: `ws:${WORKSPACE}`, row_data: { email: "manager-a@example.com" } },
@@ -210,7 +261,7 @@ describe("deleting a resident deletes their PropLane account only when nothing e
       ],
     }));
     await removeResidentApplication(db as never, actor, input);
-    expect(rows.portal_inbox_thread_records.map((row) => row.id)).toEqual(["thread-b"]);
+    expect(rows.portal_inbox_thread_records.map((row) => row.id).sort()).toEqual(["thread-b", "thread-own"]);
     expect(deleteOwnPortalAccount).not.toHaveBeenCalled();
   });
 
@@ -234,8 +285,11 @@ describe("deleting a resident deletes their PropLane account only when nothing e
     const { db } = database(baseSeed({ profiles: [], profile_roles: [] }));
     expect(await decideResidentAccountFate(db as never, { actorUserId: MANAGER, managerUserId: MANAGER, email: EMAIL, residentUserId: null }))
       .toEqual({ status: "none" });
+    // A manager cannot tell "no login" from "login kept"; an admin can.
+    expect(await previewResidentApplicationRemoval(db as never, actor, input)).toMatchObject({ ok: true, account: "kept" });
+    expect(await previewResidentApplicationRemoval(db as never, { userId: "admin-1", isAdmin: true }, input)).toMatchObject({ ok: true, account: "none" });
     const result = await removeResidentApplication(db as never, actor, input);
-    expect(result).toMatchObject({ ok: true, account: "none" });
+    expect(result).toMatchObject({ ok: true, account: "kept" });
     expect(deleteOwnPortalAccount).not.toHaveBeenCalled();
   });
 
@@ -256,5 +310,163 @@ describe("deleting a resident deletes their PropLane account only when nothing e
     const result = await removeResidentApplication(db as never, actor, input);
     expect(result).toMatchObject({ ok: true, account: "failed", accountError: "Stripe offline" });
     expect(rows.manager_application_records).toEqual([]);
+    // The login (and so the resident's own threads) is still there; the response does not claim otherwise.
+    expect(rows.portal_inbox_thread_records.map((row) => row.id)).toEqual(["thread-own"]);
+    expect(result).toMatchObject({ removed: { conversations: 1 } });
+  });
+});
+
+const fate = (db: unknown, extra: Record<string, unknown> = {}) =>
+  decideResidentAccountFate(db as never, { actorUserId: MANAGER, managerUserId: MANAGER, email: EMAIL, residentUserId: RESIDENT, applicationId: "app-a", ...extra });
+
+describe("M1: a direct relationship with PropLane keeps the login", () => {
+  it.each(["active", "past_due", "trialing", "incomplete"])("a %s PropLane Number subscription keeps it", async (status) => {
+    const { db } = database(baseSeed({ number_subscriptions: [{ owner_user_id: RESIDENT, status }] }));
+    expect(await fate(db)).toMatchObject({ status: "keep", reason: "other_relationships", detail: "number_subscriptions" });
+  });
+
+  it.each(["canceled", "ended"])("a %s subscription does not", async (status) => {
+    const { db } = database(baseSeed({ number_subscriptions: [{ owner_user_id: RESIDENT, status }] }));
+    expect(await fate(db)).toEqual({ status: "delete", userId: RESIDENT });
+  });
+
+  it.each([
+    ["included credit left", { included_remaining_cents: 300, purchased_credit_cents: 0 }],
+    ["purchased credit left", { included_remaining_cents: 0, purchased_credit_cents: 500 }],
+    ["a negative purchased balance", { included_remaining_cents: 0, purchased_credit_cents: -50 }],
+  ])("a credit account with %s keeps it", async (_name, balance) => {
+    const { db } = database(baseSeed({ number_credit_accounts: [{ owner_user_id: RESIDENT, ...balance }] }));
+    expect(await fate(db)).toMatchObject({ status: "keep", detail: "number_credit_accounts" });
+  });
+
+  it("a zero-balance credit account does not", async () => {
+    const { db } = database(baseSeed({ number_credit_accounts: [{ owner_user_id: RESIDENT, included_remaining_cents: 0, purchased_credit_cents: 0 }] }));
+    expect(await fate(db)).toEqual({ status: "delete", userId: RESIDENT });
+  });
+
+  it("an agent number keeps it", async () => {
+    const { db } = database(baseSeed({ resident_agent_numbers: [{ resident_user_id: RESIDENT }] }));
+    expect(await fate(db)).toMatchObject({ status: "keep", detail: "resident_agent_numbers" });
+  });
+
+  it("any row in a resident-keyed manifest table with no manager column keeps it", async () => {
+    const { db } = database(baseSeed({ rent_reporting_submissions: [{ resident_user_id: RESIDENT }] }));
+    expect(await fate(db)).toMatchObject({ status: "keep", detail: "rent_reporting_submissions" });
+  });
+
+  it("a link to a person on someone else's application keeps it, as applicant or as helper", async () => {
+    for (const link of [
+      { application_id: "app-b", applicant_user_id: RESIDENT, helper_user_id: "friend" },
+      { application_id: "app-b", applicant_user_id: "friend", helper_user_id: RESIDENT },
+    ]) {
+      const { db } = database(baseSeed({
+        manager_application_records: [
+          { id: "app-a", manager_user_id: MANAGER, resident_email: EMAIL },
+          { id: "app-b", manager_user_id: OTHER_MANAGER, resident_email: "friend@example.com" },
+        ],
+        resident_account_links: [link],
+      }));
+      expect(await fate(db)).toMatchObject({ status: "keep", detail: "resident_account_links" });
+    }
+  });
+
+  it("a link on the application being removed goes with it and does not keep the login", async () => {
+    const { db } = database(baseSeed({
+      resident_account_links: [{ application_id: "app-a", applicant_user_id: RESIDENT, helper_user_id: "friend" }],
+    }));
+    expect(await fate(db)).toEqual({ status: "delete", userId: RESIDENT });
+  });
+
+  it("is derived from the manifest: every resident-keyed table with no manager column is checked or explicitly handled", () => {
+    const direct = residentDirectRelationshipSources().map((source) => source.table);
+    expect(direct).toEqual(expect.arrayContaining(["resident_agent_numbers", "rent_reporting_submissions", "portal_resident_lease_upload_records"]));
+    // Tables with their own rule (status / balance / which application) are not in the generic list.
+    expect(direct).not.toContain("number_subscriptions");
+    expect(direct).not.toContain("number_credit_accounts");
+    expect(direct).not.toContain("resident_account_links");
+    // Manager-keyed tables stay in the other-manager sweep, never the generic one.
+    expect(residentRelationshipSources().map((source) => source.table)).not.toContain("resident_agent_numbers");
+  });
+});
+
+describe("M2: resident-owned threads go only with the login", () => {
+  it("kept login: the resident's threads survive and the preview does not count them", async () => {
+    const { db, rows } = database(baseSeed({ number_subscriptions: [{ owner_user_id: RESIDENT, status: "active" }] }));
+    const preview = await previewResidentApplicationRemoval(db as never, actor, input);
+    expect(preview).toMatchObject({ ok: true, account: "kept", counts: { conversations: 1 }, total: 2 });
+    const result = await removeResidentApplication(db as never, actor, input);
+    expect(result).toMatchObject({ account: "kept", removed: { conversations: 1 }, total: 2 });
+    expect(rows.portal_inbox_thread_records.map((row) => row.id)).toEqual(["thread-own"]);
+  });
+
+  it("deleted login: the preview counts the resident's threads too", async () => {
+    const { db } = database(baseSeed());
+    expect(await previewResidentApplicationRemoval(db as never, actor, input)).toMatchObject({
+      account: "deleted",
+      counts: { conversations: 2 },
+      total: 3,
+    });
+  });
+});
+
+describe("LOW1: no account-existence oracle", () => {
+  it("a manager sees the same answer for an address with no login as for one whose login is kept", async () => {
+    const none = database(baseSeed({ profiles: [], profile_roles: [] }));
+    const kept = database(baseSeed({ number_subscriptions: [{ owner_user_id: RESIDENT, status: "active" }] }));
+    const a = await previewResidentApplicationRemoval(none.db as never, actor, input);
+    const b = await previewResidentApplicationRemoval(kept.db as never, actor, input);
+    expect(a).toMatchObject({ account: "kept" });
+    expect(b).toMatchObject({ account: "kept" });
+  });
+});
+
+describe("LOW2: only the workspace owner (or an admin) may delete the login", () => {
+  const coManager = { userId: "co-manager", isAdmin: false };
+
+  it("a co-manager's delete keeps the login and the resident's threads", async () => {
+    const { db, rows } = database(baseSeed());
+    expect(await fate(db, { actorUserId: "co-manager" })).toMatchObject({ status: "keep", reason: "not_owner" });
+    expect(await previewResidentApplicationRemoval(db as never, coManager, input)).toMatchObject({ account: "kept", counts: { conversations: 1 } });
+    const result = await removeResidentApplication(db as never, coManager, input);
+    expect(result).toMatchObject({ ok: true, account: "kept" });
+    expect(deleteOwnPortalAccount).not.toHaveBeenCalled();
+    expect(rows.profiles.map((row) => row.id)).toContain(RESIDENT);
+    expect(rows.portal_inbox_thread_records.map((row) => row.id)).toEqual(["thread-own"]);
+  });
+
+  it("an admin may delete it", async () => {
+    const { db } = database(baseSeed());
+    expect(await fate(db, { actorUserId: "admin-1", actorIsAdmin: true })).toEqual({ status: "delete", userId: RESIDENT });
+    const result = await removeResidentApplication(db as never, { userId: "admin-1", isAdmin: true }, input);
+    expect(result).toMatchObject({ account: "deleted" });
+    expect(deleteOwnPortalAccount).toHaveBeenCalledWith(db, RESIDENT, "resident");
+  });
+});
+
+describe("LOW3: relationship search gaps", () => {
+  it("a row whose manager column is NULL counts as a relationship", async () => {
+    const { db } = database(baseSeed({ portal_lease_pipeline_records: [{ id: "lease-x", manager_user_id: null, resident_email: EMAIL }] }));
+    expect(await fate(db)).toMatchObject({ status: "keep", reason: "other_relationships", detail: "portal_lease_pipeline_records" });
+  });
+
+  it("the application being removed does not count even when its own manager stamp is NULL", async () => {
+    const { db } = database(baseSeed({ manager_application_records: [{ id: "app-a", manager_user_id: null, resident_email: EMAIL }] }));
+    expect(await fate(db)).toEqual({ status: "delete", userId: RESIDENT });
+  });
+
+  it("every manager column is checked, not just the first", async () => {
+    // sms_outbox stamps a manager and an actor; the resident is the recipient.
+    const { db } = database(baseSeed({ sms_outbox: [{ id: "sms", manager_user_id: MANAGER, actor_user_id: OTHER_MANAGER, recipient_user_id: RESIDENT }] }));
+    expect(await fate(db)).toMatchObject({ status: "keep", detail: "sms_outbox" });
+  });
+
+  it("a table the check depends on that cannot be read keeps the account", async () => {
+    const { db } = database(baseSeed(), ["number_subscriptions"]);
+    expect(await fate(db)).toMatchObject({ status: "keep", reason: "unreadable" });
+  });
+
+  it("a manifest table this environment never migrated holds no rows and does not keep every account", async () => {
+    const { db } = database(baseSeed(), ["rent_reporting_submissions", "portal_service_request_records", "resident_autopay_runs"]);
+    expect(await fate(db)).toEqual({ status: "delete", userId: RESIDENT });
   });
 });

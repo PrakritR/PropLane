@@ -10,7 +10,6 @@ import {
   applyResidentAccountDecision,
   decideResidentAccountFate,
   findResidentOwnedWorkspaceThreadIds,
-  removeResidentOwnedWorkspaceThreads,
 } from "@/lib/auth/resident-account-deletion";
 import { clearResidentWorkspaceBinding } from "@/lib/auth/resident-workspace-binding";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -99,6 +98,15 @@ async function authorizeResidentRemoval(
 }
 
 /**
+ * "No login" and "login kept" read the same to a manager: telling them apart would
+ * let anyone who can add an application learn whether an arbitrary address has a
+ * PropLane account. An admin may see the difference.
+ */
+function publicAccountFate<T extends "deleted" | "kept" | "none">(fate: T, isAdmin: boolean): T | "kept" {
+  return fate === "none" && !isAdmin ? "kept" : fate;
+}
+
+/**
  * What Delete would remove, counted, with nothing removed. Powers the confirm
  * dialog: a manager sees the leases, charges and services that go with the row
  * before they agree to lose them.
@@ -129,32 +137,37 @@ export async function previewResidentApplicationRemoval(
     applicationId: target.applicationId,
     phones: target.phones,
   });
-  // Paid money stays on the books, unnamed; the dialog says how much.
-  // The resident's own copies of the conversations in this workspace go too.
-  const residentThreads = await findResidentOwnedWorkspaceThreadIds(db, {
+  // Decided first: the resident's own copies of the conversations in this workspace
+  // go only with the login, so they are counted only when the login will be deleted.
+  const decision = await decideResidentAccountFate(db, {
+    actorUserId: actor.userId,
+    actorIsAdmin: actor.isAdmin,
     managerUserId: target.managerUserId,
+    email: target.email,
     residentUserId: target.residentUserId,
+    applicationId: target.applicationId,
   });
+  const residentThreads =
+    decision.status === "delete"
+      ? await findResidentOwnedWorkspaceThreadIds(db, {
+          managerUserId: target.managerUserId,
+          residentUserId: target.residentUserId,
+        })
+      : [];
+  // Paid money stays on the books, unnamed; the dialog says how much.
   const counts = {
     ...preview.counts,
     conversations: preview.counts.conversations + residentThreads.length,
     paidCount: preview.paidKept.count,
     paidCents: preview.paidKept.cents,
   };
-  const decision = await decideResidentAccountFate(db, {
-    actorUserId: actor.userId,
-    managerUserId: target.managerUserId,
-    email: target.email,
-    residentUserId: target.residentUserId,
-  });
-  const account = decision.status === "delete" ? ("deleted" as const) : decision.status === "none" ? ("none" as const) : ("kept" as const);
   return {
     ok: true as const,
     mode: "preview" as const,
     email: target.email,
     counts,
     total: preview.total + residentThreads.length,
-    account,
+    account: publicAccountFate(decision.status === "delete" ? "deleted" : decision.status === "none" ? "none" : "kept", actor.isAdmin),
   };
 }
 
@@ -165,9 +178,10 @@ export async function previewResidentApplicationRemoval(
  * charges stay on the books without a name.
  *
  * Anything they hold with another manager is untouched. Their PropLane login is
- * deleted too (the same full purge as self-delete) only when
- * `decideResidentAccountFate` finds nothing else tying it to anyone; otherwise it
- * stays. A failure before the login step removes nothing of this manager's.
+ * deleted too (the same full purge as self-delete), together with their own
+ * copies of this workspace's conversations, only when `decideResidentAccountFate`
+ * finds nothing else tying it to anyone; otherwise login and threads stay.
+ * A failure before the login step removes nothing of this manager's.
  */
 export async function removeResidentApplication(
   db: SupabaseClient,
@@ -184,20 +198,28 @@ export async function removeResidentApplication(
     applicationId: target.applicationId,
     phones: target.phones,
   });
-  // The resident's own inbox rows for this workspace: the manager's RPC only
-  // reaches rows the manager owns. Removed whether or not the login goes.
-  const removedThreads = await removeResidentOwnedWorkspaceThreads(db, {
-    managerUserId: target.managerUserId,
-    residentUserId: target.residentUserId,
-  });
   // Decided AFTER this manager's rows are gone: what is left is someone else's.
   const decision = await decideResidentAccountFate(db, {
     actorUserId: actor.userId,
+    actorIsAdmin: actor.isAdmin,
     managerUserId: target.managerUserId,
     email: target.email,
     residentUserId: target.residentUserId,
+    applicationId: target.applicationId,
   });
+  // The resident's own copies of the conversations in this workspace (the manager's
+  // RPC only reaches rows the manager owns) belong to the resident: they go only with
+  // the login. The account purge below removes every resident-owned inbox row, so no
+  // separate delete is needed; a kept login keeps its threads untouched.
+  const residentThreadIds =
+    decision.status === "delete"
+      ? await findResidentOwnedWorkspaceThreadIds(db, {
+          managerUserId: target.managerUserId,
+          residentUserId: target.residentUserId,
+        })
+      : [];
   const account = await applyResidentAccountDecision(db, decision);
+  const removedThreads = account.outcome === "deleted" ? residentThreadIds.length : 0;
   if (account.outcome !== "deleted" && target.residentUserId) {
     // This manager's relationship has ended; the proof must not outlive it.
     await clearResidentWorkspaceBinding(db, target.residentUserId, target.managerUserId).catch(() => undefined);
@@ -210,7 +232,7 @@ export async function removeResidentApplication(
     total: result.total + removedThreads,
     anonymized: result.anonymized,
     storageWarnings: result.storageWarnings,
-    account: account.outcome,
+    account: account.outcome === "none" && !actor.isAdmin ? ("kept" as const) : account.outcome,
     ...(account.error ? { accountError: account.error } : {}),
   };
 }
