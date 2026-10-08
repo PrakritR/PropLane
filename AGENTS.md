@@ -237,8 +237,9 @@ or `src/lib/agent/`.
   flag). Leasing SMS inline-allows only `escalate_to_manager` and `request_tour`.
 - Approving an application and creating/editing a listing are **not** agent
   tools until charge generation and listing normalization move server-side.
-- Default manager surface is the **popup**. Dock is a per-device localStorage
-  preference (`assistant-display-preferences.ts`). One store, three entry points.
+- One assistant surface: the side panel (desktop) / full-screen sheet (phone),
+  opened from the top bar; no floating button or pop-up. Every portal layout
+  mounts `PortalAssistantRail` on its own role endpoint.
 
 | Role | Resolver | Registry | Route |
 | --- | --- | --- | --- |

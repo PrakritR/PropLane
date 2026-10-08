@@ -2,7 +2,7 @@
 //
 // "Be consistent with Ask PropLane" (captain, Oct 7): the assistant panel is ONE
 // panel. Its header is `AssistantPanelHeader` everywhere - ✦ tile, PropLane,
-// New, History, close - whether it opens as the popup, the docked rail, or the
+// New, History, close - whether it opens as the side panel, the phone sheet, or the
 // rail inside a pop-up. And the in-dialog entry point is the same ghost icon
 // action every other utility control uses, never a labeled outline pill.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,12 +21,11 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
 }));
 
 import { AxisAssistant } from "@/components/portal/axis-assistant";
-import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
+import { PortalAssistantRail } from "@/components/portal/portal-assistant-rail";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { Modal } from "@/components/ui/modal";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { proPortal } from "@/lib/portals/pro";
-import { setAssistantDisplayMode } from "@/lib/assistant-display-preferences";
 import {
   archiveScopedThread,
   deleteScopedThread,
@@ -68,7 +67,7 @@ function expectFullHeader(scope: HTMLElement, closeName: string | RegExp) {
 beforeEach(() => {
   window.history.replaceState({}, "", "/portal");
   installFakeStorage();
-  initAssistantDockState({ collapsed: true, docked: false });
+  initAssistantDockState({ collapsed: true });
   Element.prototype.scrollTo = Element.prototype.scrollTo ?? (() => {});
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })));
   vi.stubGlobal("matchMedia", () => ({
@@ -84,42 +83,43 @@ afterEach(() => {
 });
 
 describe("one assistant header in every context", () => {
-  it("popup: New, History and close, with no conversation yet", async () => {
+  it("side panel: New, History and close, with no conversation yet", async () => {
     render(
       <AppUiProvider>
-        <AxisAssistant managerName="Jordan Lee" dockable>
+        <AxisAssistant managerName="Jordan Lee">
           <PortalTopBar kind="pro" basePath="/portal" definition={proPortal} name="Jordan Lee" email="mgr@example.com" />
-        </AxisAssistant>
-      </AppUiProvider>,
-    );
-    fireEvent.click(document.querySelector('[data-attr="portal-assistant-panel"]')!);
-    const panel = await waitFor(() => {
-      const el = document.querySelector<HTMLElement>(".axis-assistant-panel");
-      expect(el).not.toBeNull();
-      return el!;
-    });
-    await within(panel).findByRole("button", NEW);
-    expectFullHeader(panel, "Close PropLane Assistant");
-  });
-
-  it("dock: New, History and close", async () => {
-    setAssistantDisplayMode("mgr-1", "docked");
-    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    render(
-      <AppUiProvider>
-        <AxisAssistant managerName="Jordan Lee" dockable>
-          <PortalTopBar kind="pro" basePath="/portal" definition={proPortal} name="Jordan Lee" email="mgr@example.com" />
-          <PortalAssistantDockRail managerName="Jordan Lee" />
+          <PortalAssistantRail managerName="Jordan Lee" />
         </AxisAssistant>
       </AppUiProvider>,
     );
     fireEvent.click(document.querySelector('[data-attr="portal-assistant-panel"]')!);
     const rail = await waitFor(() => {
-      const el = document.querySelector<HTMLElement>('[data-attr="portal-assistant-dock-rail"]');
+      const el = document.querySelector<HTMLElement>('[data-attr="portal-assistant-rail"]');
       expect(el).not.toBeNull();
       return el!;
     });
+    expect(document.querySelector(".axis-assistant-sheet")).toBeNull();
     expectFullHeader(rail, "Close PropLane Assistant");
+  });
+
+  it("phone sheet: the same header, full screen, opened from the top bar", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    render(
+      <AppUiProvider>
+        <AxisAssistant managerName="Jordan Lee">
+          <PortalTopBar kind="pro" basePath="/portal" definition={proPortal} name="Jordan Lee" email="mgr@example.com" />
+          <PortalAssistantRail managerName="Jordan Lee" />
+        </AxisAssistant>
+      </AppUiProvider>,
+    );
+    fireEvent.click(document.querySelector('[data-attr="portal-assistant-panel"]')!);
+    const sheet = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(".axis-assistant-sheet");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(document.querySelector('[data-attr="portal-assistant-rail"]')).toBeNull();
+    expectFullHeader(sheet, "Close PropLane Assistant");
   });
 
   it("in a pop-up: the same header, and History opens the past-conversations panel", async () => {

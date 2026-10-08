@@ -79,16 +79,19 @@ describe("portal mobile shell conventions", () => {
     expect(GLOBALS_CSS).toContain("width: 1.375rem");
   });
 
-  it("keeps the phone assistant entry in the floating FAB and desktop's in Ask PropLane, not the bottom nav", () => {
+  it("keeps the phone assistant entry in the top bar (no floating button) and desktop's in Ask PropLane, not the bottom nav", () => {
     const AXIS_ASSISTANT_SOURCE = readFileSync(
       join(process.cwd(), "src/components/portal/axis-assistant.tsx"),
       "utf8",
     );
+    const MOBILE_NAV_SOURCE = readFileSync(
+      join(process.cwd(), "src/components/portal/portal-mobile-nav-bar.tsx"),
+      "utf8",
+    );
     expect(AXIS_ASSISTANT_SOURCE).not.toContain("AxisAssistantNavButton");
-    expect(AXIS_ASSISTANT_SOURCE).toContain("bottom-[calc(var(--portal-native-bottom-nav-inset)+0.75rem)]");
-    expect(AXIS_ASSISTANT_SOURCE).toMatch(/axis-assistant-fab[^"]*\blg:hidden\b/);
-    expect(GLOBALS_CSS).toContain(".axis-assistant-fab");
-    expect(GLOBALS_CSS).toContain("calc(var(--portal-native-bottom-nav-inset, 0px) + 0.75rem)");
+    expect(AXIS_ASSISTANT_SOURCE).not.toContain("axis-assistant-fab");
+    expect(MOBILE_NAV_SOURCE).toContain('data-attr="portal-mobile-assistant"');
+    expect(GLOBALS_CSS).not.toContain(".axis-assistant-fab");
     expect(PORTAL_TOP_BAR_SOURCE).toContain("Ask PropLane");
     expect(PORTAL_TOP_BAR_SOURCE).toContain("hidden");
     expect(PORTAL_TOP_BAR_SOURCE).toContain("lg:flex");
@@ -168,7 +171,7 @@ describe("portal mobile shell conventions", () => {
     const padded = mainContent.filter((d) => /(^|;)\s*padding-bottom\s*:/.test(d));
     expect(padded.length).toBeGreaterThan(0);
     for (const declarations of padded) {
-      // Only the bottom nav — never the combined inset that also covers the FAB.
+      // Only the bottom nav — never a combined inset.
       expect(declarations).toMatch(
         /padding-bottom:\s*var\(--portal-native-bottom-nav-inset[^)]*\)/,
       );

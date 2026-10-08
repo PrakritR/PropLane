@@ -127,12 +127,26 @@ Cancelled/expired proposals stay in
 
 #### Portal chat archive
 
-The portal-wide popup and dock share one `AssistantConversationProvider`, so
-opening, pinning, closing, or switching the display mode in Settings never
-starts a second transport or strands a pending confirmation. Desktop (`lg`+)
-opens the assistant only from the top bar's Ask PropLane (⌘K); the floating
-button is phone and tablet only. The dock's ✕ closes the rail and keeps the
-docked preference. Their archive is server-backed and follows the
+The assistant has **one surface**: the side panel on desktop (`lg`+) and a
+full-screen sheet on phones (below `lg`). There is no floating button, no
+pop-up, and no Pop-up/Docked preference (a stored `popup` value is ignored).
+Every portal layout (manager, vendor, admin, resident) mounts
+`PortalAssistantRail` inside its own role-scoped `<AxisAssistant>`; the resident
+portal's panel and provider both use `/api/agent/resident-chat`, never the
+manager registry. The panel and the sheet read the same
+`AssistantConversationProvider`, so resizing or switching between them never
+starts a second transport or strands a pending confirmation.
+
+Entry points all go through `openAxisAssistant()` / `sendAxisAssistantPrompt()`
+(`src/lib/axis-assistant/open-store.ts`, via `useAssistantLauncher`): the top
+strip's panel button, the ⌘K palette's Ask row, the phone top bar's sparkle
+button (`portal-mobile-nav-bar.tsx`), the composer's "Ask PropLane", and record
+pages. They expand the side panel and focus its input on `lg`+, or open the
+sheet below `lg`, and send the prompt when one is given. The panel remembers
+open/closed per device in `localStorage` (`axis:assistant-panel-open:v1`, see
+`dock-store.ts`); its ✕ only closes it. The modal task strip
+(`modal-assistant-strip.tsx`) and the `/demo` scripted assistant are separate
+surfaces and unchanged. The archive is server-backed and follows the
 signed-in person across devices:
 
 - Pressing **New chat** immediately creates a main portal
