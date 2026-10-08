@@ -19,7 +19,7 @@ describe("settings rail", () => {
     expect(VENDOR_SETTINGS_RAIL.map((g) => g.label)).toEqual(["Profile", "Business", "Money", "Communication"]);
     const labels = (group: string) => VENDOR_SETTINGS_RAIL.find((g) => g.label === group)!.pages.map((p) => p.label);
     expect(labels("Profile")).toEqual(expect.arrayContaining(["Profile", "Login & security"]));
-    expect(labels("Business")).toEqual(expect.arrayContaining(["Business details", "Trades & service area", "Licenses & insurance", "Integrations"]));
+    expect(labels("Business")).toEqual(expect.arrayContaining(["Business details", "Trades & service area", "AI info", "Integrations"]));
     expect(labels("Money")).toEqual(["Payouts", "Invoicing"]);
     expect(labels("Communication")).toEqual(["Phone & notifications", "Quick replies", "Work number & email"]);
   });
@@ -33,6 +33,13 @@ describe("settings rail", () => {
     expect(vendorSettingsMovedHref("payouts")).toBeNull();
     expect(vendorSettingsMovedHref(null)).toBeNull();
     expect(read("src/components/portal/vendor-settings-panel.tsx")).not.toContain("VendorAvailabilityEditor");
+  });
+
+  it("Licenses & insurance is not a Settings page any more: it lives in Documents > Business license", () => {
+    const ids = VENDOR_SETTINGS_RAIL.flatMap((g) => g.pages.map((p) => p.id as string));
+    expect(ids).not.toContain("licenses");
+    expect(resolveVendorSettingsTab("licenses")).toBeNull();
+    expect(vendorSettingsMovedHref("licenses")).toBe("/vendor/documents/license");
   });
 
   it("has no duplicate page ids", () => {

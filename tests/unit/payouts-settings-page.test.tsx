@@ -277,22 +277,30 @@ it("does not let an old portal balance replace the newly selected portal", async
   const view = render(<PortalPayoutsSettingsPage portal="manager" />);
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/stripe/payouts/balance", expect.anything()));
   view.rerender(<PortalPayoutsSettingsPage portal="vendor" />);
-  await screen.findByText(/\$20\.00/);
+  await screen.findAllByText(/\$20\.00/);
   await act(async () => { finishManagerRead(new Response(JSON.stringify(readyBalance), { status: 200 })); });
-  expect(screen.getByText(/\$20\.00/)).toBeInTheDocument();
+  expect(screen.getAllByText(/\$20\.00/).length).toBeGreaterThan(0);
   expect(screen.queryByText("$4,280.00")).not.toBeInTheDocument();
 });
 
-describe("PortalPayoutsSettingsPage — vendor keeps only bank accounts + schedule", () => {
+describe("PortalPayoutsSettingsPage — vendor keeps bank accounts, schedule and Withdraw", () => {
   beforeEach(() => stubFetch(readyBalance));
 
-  it("links to Finances and offers no Withdraw, no payout history and no W-9 / fee section", async () => {
+  it("links to Finances, offers Withdraw and no payout history or W-9 / fee section", async () => {
     render(<PortalPayoutsSettingsPage portal="vendor" />);
     await screen.findByText("Bank accounts");
     expect(screen.getByRole("link", { name: "Open Finances" })).toHaveAttribute("href", "/vendor/financials/balance");
     expect(screen.getByText("Schedule")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Withdraw" })).not.toBeDisabled();
     expect(screen.queryByText("History")).not.toBeInTheDocument();
     expect(screen.queryByText("W-9 on file")).not.toBeInTheDocument();
+  });
+
+  it("disables Withdraw with the reason when nothing is withdrawable", async () => {
+    stubFetch({ ...readyBalance, availableCents: 0, withdrawableCents: 0 });
+    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    await screen.findByText("Bank accounts");
+    const withdraw = screen.getByRole("button", { name: "Withdraw — Nothing available to withdraw" });
+    expect(withdraw).toBeDisabled();
   });
 });

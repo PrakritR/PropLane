@@ -39,21 +39,21 @@ async function redirectOf(tabs: string[] | undefined): Promise<string | null> {
 }
 
 describe("vendor Finances routing", () => {
-  it("registers five tabs under one Finances section", () => {
+  it("registers Overview, Balance & payouts and Refunds under one Finances section", () => {
     const section = vendorPortal.sections.find((s) => s.section === "financials")!;
     expect(section.label).toBe("Finances");
-    expect(section.tabs.map((t) => t.id)).toEqual(["balance", "income", "refunds", "statements", "tax"]);
+    expect(section.tabs.map((t) => t.id)).toEqual(["overview", "balance", "refunds"]);
     for (const tab of section.tabs) {
       expect(VENDOR_PORTAL_SMOKE_PATHS.some((p) => p.path === `/vendor/financials/${tab.id}`)).toBe(true);
     }
   });
 
-  it("the bare section opens Balance & payouts", async () => {
-    expect(await redirectOf(undefined)).toBe("/vendor/financials/balance");
-    expect(await redirectOf([])).toBe("/vendor/financials/balance");
+  it("the bare section opens Overview", async () => {
+    expect(await redirectOf(undefined)).toBe("/vendor/financials/overview");
+    expect(await redirectOf([])).toBe("/vendor/financials/overview");
   });
 
-  it.each(["balance", "income", "refunds", "statements", "tax"])("renders the %s tab", async (tab) => {
+  it.each(["overview", "balance", "refunds"])("renders the %s tab", async (tab) => {
     expect(await renderPortalSection("vendor", "financials", [tab])).toBeTruthy();
   });
 
@@ -61,20 +61,20 @@ describe("vendor Finances routing", () => {
     expect(await renderPortalSection("vendor", "financials", ["balance", "po_123"])).toBeTruthy();
   });
 
-  it("old vendor payments URLs keep resolving", async () => {
-    // /vendor/payments → Payments
-    expect(await redirectOf(undefined)).not.toBeNull();
+  it("old vendor payments URLs keep resolving (Payments moved to Incoming payments)", async () => {
     try {
       await renderPortalSection("vendor", "payments", undefined);
       throw new Error("expected a redirect");
     } catch (error) {
-      expect((error as RedirectError).to).toBe("/vendor/financials/income");
+      expect((error as RedirectError).to).toBe("/vendor/payments/pending");
     }
-    // /financials/invoices (bare) → Payments; /financials/payouts (bare) → Balance & payouts
-    expect(await redirectOf(["invoices"])).toBe("/vendor/financials/income");
+    // /financials/invoices (bare) and /financials/income -> Incoming payments; /financials/payouts (bare) -> Balance & payouts
+    expect(await redirectOf(["invoices"])).toBe("/vendor/payments/pending");
+    expect(await redirectOf(["income"])).toBe("/vendor/payments/pending");
     expect(await redirectOf(["payouts"])).toBe("/vendor/financials/balance");
-    // /financials/income/pending (an old bucket URL) → Payments
-    expect(await redirectOf(["income", "pending"])).toBe("/vendor/financials/income");
+    // Statements and Tax info moved into Documents
+    expect(await redirectOf(["statements"])).toBe("/vendor/documents/statements");
+    expect(await redirectOf(["tax"])).toBe("/vendor/documents/tax");
     // an invoice and a payment's own record pages still render
     expect(await renderPortalSection("vendor", "financials", ["invoices", "inv-1"])).toBeTruthy();
     expect(await renderPortalSection("vendor", "financials", ["payouts", "payout-1"])).toBeTruthy();
@@ -82,7 +82,7 @@ describe("vendor Finances routing", () => {
 
   it("still 404s an unknown tab and a nested path under a list tab", async () => {
     await expect(renderPortalSection("vendor", "financials", ["bogus"])).rejects.toThrow("NEXT_NOT_FOUND");
-    await expect(renderPortalSection("vendor", "financials", ["statements", "2026-09"])).rejects.toThrow("NEXT_NOT_FOUND");
+    await expect(renderPortalSection("vendor", "financials", ["refunds", "2026-09"])).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
   it("the Refunds tab mounts part B's VendorRefundsPanel", () => {
@@ -94,7 +94,7 @@ describe("vendor Finances routing", () => {
     expect(readFileSync("src/components/portal/vendor-refunds-panel.tsx", "utf8")).toContain("export function VendorRefundsPanel(props: { basePath: string })");
   });
 
-  it("Settings › Payouts links to Finances and the sidebar nests the five tabs", () => {
+  it("Settings › Payouts links to Finances and the sidebar nests the Finances tabs", () => {
     const settings = readFileSync("src/components/portal/portal-payouts-settings-page.tsx", "utf8");
     expect(settings).toContain('href="/vendor/financials/balance"');
     // The row-building helpers live in the shared nav model (sidebar + command palette read it).

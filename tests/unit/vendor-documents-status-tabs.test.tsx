@@ -13,36 +13,34 @@ const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
  * document (VD19). See tests/unit/vendor-documents-tabs.test.ts for the
  * lib-level section order/labels.
  */
-describe("vendor Documents — no status tabs", () => {
-  it("the registry section carries no tabs any more", () => {
+describe("vendor Documents — routed tabs by kind, no status tabs", () => {
+  it("the registry section carries Tax · Business license · Insurance · Statements · From managers (vendor-portal-ia-1007)", () => {
     const documents = vendorPortal.sections.find((s) => s.section === "documents");
-    expect(documents?.tabs).toEqual([]);
+    expect(documents?.tabs.map((t) => t.id)).toEqual(["tax", "license", "insurance", "statements", "from-managers"]);
+    expect(documents?.tabs.map((t) => t.id)).not.toContain("missing");
   });
 
-  it("the panel no longer routes a status tab id, and the waiting-on-a-manager banner is gone (VD15)", () => {
+  it("the panel routes a kind tab id, never a status tab, and the waiting-on-a-manager banner is gone (VD15)", () => {
     const source = read("src/components/portal/vendor-documents-panel.tsx");
     expect(source).not.toContain("DOCUMENT_STATUS_TABS");
     expect(source).not.toContain("STATUS_TAB_LABELS");
-    expect(source).not.toContain("tabId");
     expect(source).not.toContain("Waiting on a manager");
     expect(source).not.toContain("vendor-documents-unlinked-banner");
   });
 
-  it("routes any legacy status/category segment to the bare section, never a 404", () => {
+  it("routes a legacy status/category segment somewhere that resolves, never a 404", () => {
     const source = read("src/lib/render-portal-section.tsx");
     expect(source).toContain('kind === "vendor" && section === "documents"');
-    expect(source).toContain("redirect(`${def.basePath}/${section}`)");
+    expect(source).toContain("vendorDocumentsHref(");
   });
 });
 
 describe("vendor Documents — section grouping (VD17)", () => {
   const source = read("src/components/portal/vendor-documents-panel.tsx");
 
-  it("groups the own checklist by section in Tax / Business license / Insurance order with an uploaded/total header", () => {
-    expect(source).toContain("ownSectionsVisible");
-    expect(source).toContain("uploadedCount");
-    expect(source).toContain("totalCount");
-    expect(source).toContain("vendor-documents-section");
+  it("each uploads tab shows its own section of the checklist (Tax / Business license / Insurance)", () => {
+    expect(source).toContain("VENDOR_DOCUMENT_TAB_SECTION");
+    expect(source).toContain("ownRows.filter((row) => row.sectionId === sectionId)");
   });
 });
 

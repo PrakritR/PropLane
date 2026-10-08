@@ -355,12 +355,14 @@ export function VendorTradesServiceAreaPane({
   );
 }
 
-const LICENSE_FIELDS = ["licenseNumber", "insuranceProvider", "insurancePolicyNumber", "insuranceExpiresAt"] as const;
+const LICENSE_FIELDS = ["licenseNumber"] as const;
+const INSURANCE_FIELDS = ["insuranceProvider", "insurancePolicyNumber", "insuranceExpiresAt"] as const;
 
-/** Settings → Licenses & insurance: the vendor's own license and coverage record (certificates upload from Documents). */
-export function VendorLicensesInsurancePane({ ctx }: { ctx: Ctx }) {
-  const { draft, setDraft, fieldState, fieldError, commit, sectionState } = useBusinessProfileAutosave(ctx, LICENSE_FIELDS);
-  const text = (field: (typeof LICENSE_FIELDS)[number], label: string, id: string, type: "text" | "date" = "text") => (
+function useAutosavedTextField<F extends keyof VendorBusinessProfileView>(
+  state: ReturnType<typeof useBusinessProfileAutosave<F>>,
+) {
+  const { draft, setDraft, fieldState, fieldError, commit } = state;
+  return (field: F, label: string, id: string, type: "text" | "date" = "text") => (
     <PortalSettingsAutosaveField
       label={label}
       htmlFor={id}
@@ -371,7 +373,7 @@ export function VendorLicensesInsurancePane({ ctx }: { ctx: Ctx }) {
       <Input
         id={id}
         type={type}
-        value={draft[field] ?? ""}
+        value={typeof draft[field] === "string" ? (draft[field] as string) : ""}
         maxLength={type === "date" ? undefined : 120}
         onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
         onBlur={() => void commit(field)}
@@ -379,37 +381,49 @@ export function VendorLicensesInsurancePane({ ctx }: { ctx: Ctx }) {
       />
     </PortalSettingsAutosaveField>
   );
+}
+
+/** Documents > Business license: the vendor's own license number (the license and bond files upload beside it). */
+export function VendorLicenseFields({ ctx }: { ctx: Ctx }) {
+  const autosave = useBusinessProfileAutosave(ctx, LICENSE_FIELDS);
+  const text = useAutosavedTextField<(typeof LICENSE_FIELDS)[number]>(autosave);
   return (
-    <>
-      <PortalSettingsSection title="License" action={<SectionSaveBadge state={sectionState} />}>
-        <PortalSettingsGroup>
-          {ctx.loading ? (
-            <div className="px-4 py-4">
-              <ListSkeleton rows={1} showLeading={false} />
-            </div>
-          ) : (
-            <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
-              {text("licenseNumber", "License number", "vendor-license-number")}
-            </PortalSettingsFormBody>
-          )}
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
-      <PortalSettingsSection title="Insurance">
-        <PortalSettingsGroup>
-          {ctx.loading ? (
-            <div className="px-4 py-4">
-              <ListSkeleton rows={3} showLeading={false} />
-            </div>
-          ) : (
-            <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
-              {text("insuranceProvider", "Provider", "vendor-insurance-provider")}
-              {text("insurancePolicyNumber", "Policy number", "vendor-insurance-policy")}
-              {text("insuranceExpiresAt", "Expires", "vendor-insurance-expires", "date")}
-            </PortalSettingsFormBody>
-          )}
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
-    </>
+    <PortalSettingsSection title="License" action={<SectionSaveBadge state={autosave.sectionState} />}>
+      <PortalSettingsGroup>
+        {ctx.loading ? (
+          <div className="px-4 py-4">
+            <ListSkeleton rows={1} showLeading={false} />
+          </div>
+        ) : (
+          <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
+            {text("licenseNumber", "License number", "vendor-license-number")}
+          </PortalSettingsFormBody>
+        )}
+      </PortalSettingsGroup>
+    </PortalSettingsSection>
+  );
+}
+
+/** Documents > Insurance: provider, policy number and expiry (the certificate files upload beside it). */
+export function VendorInsuranceFields({ ctx }: { ctx: Ctx }) {
+  const autosave = useBusinessProfileAutosave(ctx, INSURANCE_FIELDS);
+  const text = useAutosavedTextField<(typeof INSURANCE_FIELDS)[number]>(autosave);
+  return (
+    <PortalSettingsSection title="Coverage" action={<SectionSaveBadge state={autosave.sectionState} />}>
+      <PortalSettingsGroup>
+        {ctx.loading ? (
+          <div className="px-4 py-4">
+            <ListSkeleton rows={3} showLeading={false} />
+          </div>
+        ) : (
+          <PortalSettingsFormBody className="space-y-0 divide-y divide-border/70 px-0 py-0">
+            {text("insuranceProvider", "Provider", "vendor-insurance-provider")}
+            {text("insurancePolicyNumber", "Policy number", "vendor-insurance-policy")}
+            {text("insuranceExpiresAt", "Expires", "vendor-insurance-expires", "date")}
+          </PortalSettingsFormBody>
+        )}
+      </PortalSettingsGroup>
+    </PortalSettingsSection>
   );
 }
 

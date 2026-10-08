@@ -63,21 +63,62 @@ export async function deliverVendorWorkOrderPaymentNotify(
   }
 
   const propertyId = workOrderPropertyId(rowData);
-  const recipientIds = await resolvePropertyScopedManagerRecipientIds(db, {
-    ownerManagerUserId: workOrder.manager_user_id,
-    propertyId,
-    channel: "inbox",
-  });
-
   const { data: offerRows } = await db
     .from("work_order_vendor_offers")
     .select("manager_user_id")
     .eq("work_order_id", workOrderId)
     .eq("vendor_user_id", input.vendorUserId);
-  for (const offer of offerRows ?? []) {
-    const offerManagerId = String(offer.manager_user_id ?? "").trim();
-    if (offerManagerId) recipientIds.push(offerManagerId);
-  }
+
+  const unit = rowData.unit?.trim();
+  const { subject, text } = buildVendorWorkOrderPaymentNotifyEmail({
+    vendorName: input.vendorName,
+    workOrderTitle: rowData.title ?? "Work order",
+    propertyLabel: rowData.propertyName ?? "Property",
+    unit,
+    amountLabel: workOrderAmountLabel(rowData),
+    kind: input.kind,
+  });
+
+  return deliverVendorPaymentFollowUp(db, {
+    ownerManagerUserId: workOrder.manager_user_id,
+    propertyId,
+    extraRecipientIds: (offerRows ?? []).map((offer) => String(offer.manager_user_id ?? "").trim()),
+    vendorUserId: input.vendorUserId,
+    vendorEmail: input.vendorEmail,
+    vendorName: input.vendorName,
+    subject,
+    text,
+  });
+}
+
+/**
+ * The one delivery path for a vendor's payment follow-up: resolve the manager and the co-managers
+ * who take inbox notices for the property, append the vendor's preferred payment methods, and
+ * deliver a portal inbox message from the vendor. `send_reminder` on a work order and the invoice
+ * reminder both go through here, so a manager sees the same message either way.
+ */
+export async function deliverVendorPaymentFollowUp(
+  db: ServiceClient,
+  input: {
+    ownerManagerUserId: string | null;
+    propertyId?: string;
+    /** Extra manager ids that already deal with this vendor (the offer sender). */
+    extraRecipientIds?: string[];
+    vendorUserId: string;
+    vendorEmail: string;
+    vendorName: string;
+    subject: string;
+    text: string;
+  },
+): Promise<{ ok: true; recipientCount: number } | { ok: false; error: string }> {
+  const recipientIds = input.ownerManagerUserId
+    ? await resolvePropertyScopedManagerRecipientIds(db, {
+        ownerManagerUserId: input.ownerManagerUserId,
+        propertyId: input.propertyId,
+        channel: "inbox",
+      })
+    : [];
+  for (const id of input.extraRecipientIds ?? []) if (id) recipientIds.push(id);
 
   const uniqueRecipientIds = [...new Set(recipientIds.filter(Boolean))];
   if (uniqueRecipientIds.length === 0) {
@@ -97,26 +138,17 @@ export async function deliverVendorWorkOrderPaymentNotify(
   const vendorRow = (vendorDirectory?.row_data ?? {}) as { achPaymentsEnabled?: boolean };
   const paymentMethodLines = vendorPaymentMethodSummaryLines(vendorRow);
 
-  const unit = rowData.unit?.trim();
-  const { subject, text } = buildVendorWorkOrderPaymentNotifyEmail({
-    vendorName: input.vendorName,
-    workOrderTitle: rowData.title ?? "Work order",
-    propertyLabel: rowData.propertyName ?? "Property",
-    unit,
-    amountLabel: workOrderAmountLabel(rowData),
-    kind: input.kind,
-  });
   const textWithPaymentMethods =
     paymentMethodLines.length > 0
-      ? `${text}\n\nPreferred payment methods:\n${paymentMethodLines.map((line) => `• ${line}`).join("\n")}`
-      : text;
+      ? `${input.text}\n\nPreferred payment methods:\n${paymentMethodLines.map((line) => `• ${line}`).join("\n")}`
+      : input.text;
 
   const delivery = await deliverPortalInboxMessage(db, {
     senderUserId: input.vendorUserId,
     senderEmail: input.vendorEmail,
     senderRole: "vendor",
     fromName: input.vendorName || "PropLane Portal",
-    subject,
+    subject: input.subject,
     text: textWithPaymentMethods,
     toUserIds: profiles.map((profile) => profile.userId),
     eventCategory: "maintenance",

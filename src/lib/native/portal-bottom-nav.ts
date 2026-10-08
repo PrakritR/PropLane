@@ -67,6 +67,8 @@ export const NATIVE_BOTTOM_NAV_VENDOR_ORDER = [
   "work-orders",
   "calendar",
   "communication",
+  "payments",
+  "outgoing",
   "financials",
   "documents",
 ] as const;

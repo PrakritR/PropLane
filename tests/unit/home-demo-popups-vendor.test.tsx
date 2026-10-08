@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DemoPanel } from "@/components/marketing/site/product-mock/demo-panels";
-import { VendorDashboardBalanceDemo } from "@/components/marketing/site/product-mock/panels-vendor";
+import { VendorDashboardBalanceDemo, VendorStatementsPanel, VendorTaxPanel } from "@/components/marketing/site/product-mock/panels-vendor";
 import { VENDOR_REVIEWS } from "@/components/marketing/site/product-mock/fixtures";
 import { DEMO_REFUNDS, DEMO_STATEMENTS, DEMO_TAX_YEARS, EXTRA_VENDOR_SERVICES, FIND_WORK_BOARD } from "@/components/marketing/site/product-mock/fixtures-popups-vendor";
 import { VENDOR_PAYOUTS } from "@/components/marketing/site/product-mock/fixtures-more";
@@ -266,7 +266,7 @@ describe("vendor Reviews matches the real Reviews page", () => {
   });
 });
 
-describe("vendor Finances draws all five sections", () => {
+describe("vendor Money draws Incoming payments, Outgoing payments and Finances", () => {
   it("Balance & payouts: the stat strip, Bank and Withdraw, one Payouts tab counted from its rows", async () => {
     render(<DemoPanel portal="vendor" tab="financials" sub="balance" story={OFFER} />);
     for (const label of ["Available", "Pending", "Held", "On the way"]) expect(screen.getByText(label)).toBeInTheDocument();
@@ -300,7 +300,7 @@ describe("vendor Finances draws all five sections", () => {
   });
 
   it("Payments: Pending, Paid, Overdue with no balance card; Add payment opens Request payment", async () => {
-    render(<DemoPanel portal="vendor" tab="financials" sub="income" story={OFFER} />);
+    render(<DemoPanel portal="vendor" tab="payments" story={OFFER} />);
     for (const bucket of VENDOR_PAYMENT_BUCKETS) expect(tabButton(bucket.label)).toBeInTheDocument();
     expect(screen.queryByText("Available now")).toBeNull();
     expect(screen.getByRole("button", { name: "Export invoices CSV" })).toBeInTheDocument();
@@ -313,7 +313,7 @@ describe("vendor Finances draws all five sections", () => {
 
   it("Payments: a pending invoice menu has View invoice, Edit and Retract invoice; its record has the invoice rail and icons", async () => {
     const user = userEvent.setup();
-    render(<DemoPanel portal="vendor" tab="financials" sub="income" story={OFFER} />);
+    render(<DemoPanel portal="vendor" tab="payments" story={OFFER} />);
     await user.click(screen.getByRole("button", { name: "INV-1015 actions" }));
     for (const name of ["View invoice", "Edit", "Retract invoice"]) expect(await screen.findByRole("menuitem", { name })).toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "View invoice" }));
@@ -324,7 +324,7 @@ describe("vendor Finances draws all five sections", () => {
 
   it("Payments: a paid row offers View payment, Download and Refund, and Refund opens the Refund a payment dialog", async () => {
     const user = userEvent.setup();
-    render(<DemoPanel portal="vendor" tab="financials" sub="income" story={OFFER} />);
+    render(<DemoPanel portal="vendor" tab="payments" story={OFFER} />);
     await user.click(tabButton("Paid"));
     await user.click(screen.getByRole("button", { name: "INV-1012 actions" }));
     for (const name of ["View payment", "Download", "Refund"]) expect(await screen.findByRole("menuitem", { name })).toBeInTheDocument();
@@ -351,7 +351,7 @@ describe("vendor Finances draws all five sections", () => {
 
   it("Statements: one Statements tab counted from its months; a row opens the month's statement without a primary", async () => {
     const user = userEvent.setup();
-    render(<DemoPanel portal="vendor" tab="financials" sub="statements" story={OFFER} />);
+    render(<VendorStatementsPanel />);
     expect(tabButton("Statements").textContent).toContain(String(DEMO_STATEMENTS.length));
     expect(screen.getByRole("button", { name: "Export all activity CSV" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("September 2025"));
@@ -365,7 +365,7 @@ describe("vendor Finances draws all five sections", () => {
   });
 
   it("Tax info: a W-9 card with a masked id, Tax years tab, and Edit W-9 opens the W-9 dialog", async () => {
-    render(<DemoPanel portal="vendor" tab="financials" sub="tax" story={OFFER} />);
+    render(<VendorTaxPanel />);
     expect(screen.getByText("W-9")).toBeInTheDocument();
     expect(tabButton("Tax years").textContent).toContain(String(DEMO_TAX_YEARS.length));
     expect(screen.getByText(/••-•••0000/)).toBeInTheDocument();
@@ -376,9 +376,17 @@ describe("vendor Finances draws all five sections", () => {
     expect(document.body.textContent).not.toMatch(/\d{2}-\d{7}/);
   });
 
+  it("Outgoing payments: This month, Last month, Earlier, rows with a category, Add expense and Download expenses", () => {
+    render(<DemoPanel portal="vendor" tab="outgoing" story={OFFER} />);
+    for (const label of ["This month", "Last month", "Earlier"]) expect(tabButton(label)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download expenses" })).toBeInTheDocument();
+    expect(screen.getByText("Pipe wrench")).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("the Finances sub-rows are the real nav ids", () => {
     const finances = vendorPortal.sections.find((s) => s.section === "financials")!;
-    expect(finances.tabs.map((t) => t.id)).toEqual(["balance", "income", "refunds", "statements", "tax"]);
+    expect(finances.tabs.map((t) => t.id)).toEqual(["overview", "balance", "refunds"]);
   });
 });
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { consumeVendorComposePrefill } from "@/lib/vendor-compose-prefill";
+import type { ResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
@@ -165,6 +167,8 @@ export const VendorInboxPanel = forwardRef<
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [smsConfigured, setSmsConfigured] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  // Staged by a "Message manager" row action elsewhere in the portal; consumed once by the compose it opens.
+  const [composeDraft, setComposeDraft] = useState<ResidentComposePrefill | null>(null);
   // Threads marked read while viewing "Unopened" stay listed until the tab is
   // switched or the page is refreshed; they only move to "Opened" on reset.
   const [retainedIds, setRetainedIds] = useState<Set<string>>(() => new Set());
@@ -467,7 +471,10 @@ export const VendorInboxPanel = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      openCompose: () => setComposeOpen(true),
+      openCompose: () => {
+        setComposeDraft(consumeVendorComposePrefill());
+        setComposeOpen(true);
+      },
       emptyArchive,
     }),
     [emptyArchive],
@@ -1039,7 +1046,11 @@ export const VendorInboxPanel = forwardRef<
       ) : null}
       <ManagerCommunicationComposeModal
         open={composeOpen}
-        onClose={() => setComposeOpen(false)}
+        onClose={() => {
+          setComposeOpen(false);
+          setComposeDraft(null);
+        }}
+        initialDraft={composeDraft}
         onSend={handleComposeSend}
         portal="vendor"
         senderName={vendorIdentity.name}

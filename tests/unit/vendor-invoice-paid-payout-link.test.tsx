@@ -102,11 +102,10 @@ describe("paid invoice row linked to a vendor-banking payout", () => {
   it("opens the payout's banking detail page, not the plain invoice detail", async () => {
     render(
       <AppUiProvider>
-        <VendorFinancesPanel tabId="invoices" />
+        <VendorFinancesPanel tabId="income" segment="paid" />
       </AppUiProvider>,
     );
-    // The invoice is paid, so it sits on the Paid tab (Pending · Paid · Overdue).
-    fireEvent.click(await screen.findByRole("button", { name: /^Paid/ }));
+    // The invoice is paid, so it sits on the Paid segment (Pending · Paid · Overdue).
     const row = await screen.findByText("INV-1001");
     fireEvent.click(row);
     expect(navigate).toHaveBeenCalledWith("/vendor/financials/payouts/payout-inv-1");

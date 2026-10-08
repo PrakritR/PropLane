@@ -16,7 +16,7 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/vendor/financials/income",
+  usePathname: () => "/vendor/payments/paid",
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
@@ -67,9 +67,7 @@ afterEach(() => {
 });
 
 async function menuLabels(): Promise<string[]> {
-  render(<AppUiProvider><VendorFinancesPanel tabId="income" /></AppUiProvider>);
-  await waitFor(() => expect(document.querySelector('[data-attr="vendor-payments-tab-paid"]')).toBeTruthy());
-  fireEvent.click(document.querySelector('[data-attr="vendor-payments-tab-paid"]') as HTMLElement);
+  render(<AppUiProvider><VendorFinancesPanel tabId="income" segment="paid" /></AppUiProvider>);
   await screen.findByText("INV-3");
   // let the balance snapshot settle before reading the menu
   await new Promise((r) => setTimeout(r, 50));

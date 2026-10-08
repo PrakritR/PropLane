@@ -11,7 +11,6 @@ export type VendorSettingsPageId =
   | "security"
   | "business"
   | "capabilities"
-  | "licenses"
   | "ai-info"
   | "integrations"
   | "payouts"
@@ -44,7 +43,6 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
     pages: [
       { id: "business", label: "Business details" },
       { id: "capabilities", label: "Trades & service area" },
-      { id: "licenses", label: "Licenses & insurance" },
       { id: "ai-info", label: "AI info" },
       { id: "integrations", label: "Integrations" },
     ],
@@ -87,6 +85,7 @@ export const VENDOR_SETTINGS_TAB_ALIASES: Record<string, VendorSettingsPageId> =
  */
 export const VENDOR_SETTINGS_MOVED_TABS: Record<string, string> = {
   availability: "/calendar?modal=weekly-hours",
+  licenses: "/documents/license",
 };
 
 /** Where an old Settings tab now lives (`/vendor/calendar?modal=weekly-hours`), or null if it did not move. */

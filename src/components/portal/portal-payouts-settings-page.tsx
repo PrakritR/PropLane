@@ -28,6 +28,7 @@ import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import Link from "next/link";
 import { track } from "@/lib/analytics/track-client";
 import { withdrawableCentsFromSnapshot } from "@/lib/stripe-platform-hold";
+import { vendorWithdrawableCents, vendorWithdrawDisabledReason } from "@/lib/vendor-banking/finances";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 
@@ -308,6 +309,9 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
   const ready = balance.setup.ready;
   const hasBank = effectiveBankRows.some((row) => row.payable);
   const withdrawableCents = withdrawableCentsFromSnapshot(balance);
+  // Vendor Withdraw reads the same derivations as Finances > Balance & payouts.
+  const vendorWithdrawable = vendorWithdrawableCents(balance);
+  const vendorWithdrawBlocked = portal === "vendor" ? vendorWithdrawDisabledReason(balance, hasBank) : null;
   const providerDeficitCents = Math.max(0, -(balance.withdrawableCents ?? 0));
   const removeBlocked = removeTarget != null && removeTarget.default && effectiveBankRows.length > 1;
 
@@ -335,8 +339,20 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
       />
 
       {portal === "vendor" ? (
-        <PortalSettingsSection title="Balance & payouts">
+        <PortalSettingsSection
+          title="Balance & payouts"
+          action={
+            <PortalIconAction
+              icon={ArrowUpFromLine}
+              label={vendorWithdrawBlocked ? `Withdraw — ${vendorWithdrawBlocked}` : "Withdraw"}
+              data-attr="payouts-settings-withdraw"
+              disabled={vendorWithdrawBlocked !== null}
+              onClick={() => { track("payout_withdraw_started", { portal, source: "settings_payouts" }); setWithdrawOpen(true); }}
+            />
+          }
+        >
           <PortalSettingsGroup>
+            <PortalSettingsRow label="Available to withdraw"><span data-attr="payouts-settings-available">{formatMoney(vendorWithdrawable, balance.currency)}</span></PortalSettingsRow>
             <PortalSettingsRow label="Balance, payouts and statements">
               <Link href="/vendor/financials/balance" className="text-sm font-medium text-primary hover:underline" data-attr="payouts-settings-finances-link">
                 Open Finances
@@ -454,13 +470,12 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
         {creditPurchases.map(purchase => <PortalSettingsRow key={purchase.id} label="Messaging credit"><span className="text-sm text-muted">{formatDate(purchase.createdAt)} · Card · {purchase.status === "paid" ? "Paid" : purchase.status.replaceAll("_", " ")}</span><span >{formatMoney(purchase.creditCents, "usd")}</span></PortalSettingsRow>)}
       </PortalSettingsGroup></PortalSettingsSection> : null}
 
-      {portal === "manager" ? (
       <PayoutWithdrawSheet
         open={withdrawOpen}
         onClose={closeWithdraw}
         apiBase={apiBase}
         currency={balance.currency}
-        availableCents={withdrawableCents}
+        availableCents={portal === "vendor" ? vendorWithdrawable : withdrawableCents}
         instantAvailableCents={balance.instantAvailableCents}
         accounts={withdrawAccounts}
         initialAmountCents={retryRow?.amountCents}
@@ -471,7 +486,6 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
           void loadBalance(true);
         }}
       />
-      ) : null}
     </div>
   );
 }

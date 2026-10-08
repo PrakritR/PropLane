@@ -80,9 +80,9 @@ export function vendorLinkPaths() {
     tasks: "/vendor/work-orders/pending",
     calendar: "/vendor/calendar",
     inbox: "/vendor/communication/active",
-    income: "/vendor/financials/income",
+    income: "/vendor/payments/pending",
     invoices: "/vendor/financials/invoices",
-    payments: "/vendor/financials/income",
+    payments: "/vendor/payments/pending",
     documents: "/vendor/documents",
     /** Bank payout setup, W-9, insurance, licensing. */
     profile: "/vendor/profile",
