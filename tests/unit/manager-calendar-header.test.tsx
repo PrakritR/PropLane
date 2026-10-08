@@ -73,14 +73,17 @@ describe("one header row", () => {
     expect(studio).not.toContain("<Select");
   });
 
-  it("the clock menu is Add availability, Copy previous week, Clear week, Copy to houses (C2-CALA1)", () => {
+  // Captain, Oct 7: the separate Availability (clock) icon is gone — its items moved into the ONE
+  // round + menu, in the same order, and "Add availability" there opens the availability form.
+  it("the + menu is Add availability, Copy previous week, Clear week, Copy to houses (C2-CALA1)", () => {
     const studio = panels.slice(panels.indexOf("if (studioActive) {"), panels.indexOf("if (compactAvailability) {"));
     const order = ["Add availability", "Copy previous week", "Clear week", "Copy to houses"].map((l) => studio.indexOf(l));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(studio).not.toContain("Edit tour availability");
     expect(studio).not.toContain("Add availability block");
-    expect(studio).toContain("icon={Clock}");
+    expect(studio).not.toContain("icon={Clock}");
+    expect(studio).not.toContain('label="Availability"');
   });
 
   it("the + is the one create action: New tour, New task, New service", () => {
@@ -106,7 +109,10 @@ describe("Agenda (studio plan services-vendors-1004)", () => {
     expect(agenda).toContain("calendar-agenda-tile");
   });
 
-  it("the type fact names who has it: Service · vendor, Task · teammate, Tour", async () => {
+  // The dynamic import pulls in the whole calendar module graph; on a cold transform that is
+  // well over vitest's 20s default, which timed this case out whenever the file ran alongside
+  // the rest of the suite.
+  it("the type fact names who has it: Service · vendor, Task · teammate, Tour", { timeout: 60_000 }, async () => {
     const { agendaTypeFact } = await import("@/components/portal/manager-calendar-views");
     const item = (kind: "service" | "task" | "tour", assigneeLabel?: string) => ({ kind, meeting: { assigneeLabel } as never });
     expect(agendaTypeFact(item("service", "Rapid Pipes"))).toBe("Service · Rapid Pipes");
