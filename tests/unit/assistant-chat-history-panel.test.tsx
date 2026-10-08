@@ -52,12 +52,9 @@ describe("AssistantChatHistoryPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Lease Renewal Options" }));
     expect(screen.getByText("Delete conversation?")).toBeInTheDocument();
-    // M008 — the shared confirm-delete modal's Delete is a press-and-hold
-    // guard rail now, not a plain click: hold past the gate, then release.
+    // A plain click on the red button confirms (no press-and-hold).
     const confirmButton = screen.getByRole("button", { name: "Delete conversation" });
-    fireEvent.pointerDown(confirmButton, { button: 0, clientX: 0, clientY: 0 });
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    fireEvent.pointerUp(confirmButton);
+    fireEvent.click(confirmButton);
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith("thread-1"));
   });
 });

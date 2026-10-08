@@ -30,7 +30,7 @@ export function ConfirmDeleteModal({
   onClose,
   onConfirm,
   dataAttr,
-  guard = "hold",
+  guard = "confirm",
 }: {
   open: boolean;
   title?: string;
@@ -53,10 +53,12 @@ export function ConfirmDeleteModal({
   onConfirm: () => void;
   dataAttr?: string;
   /**
-   * `hold` (default) for deleting saved records. `tap` for dropping unsaved
-   * input (closing an editor) — nothing stored is lost, so a plain tap.
+   * `confirm` (default) for deleting saved records: body, then Cancel and a red
+   * button, a plain click. `tap` for dropping unsaved input (closing an editor):
+   * one short question on the button's row. `hold` is retired and renders as
+   * `confirm` (press-and-hold was undiscoverable and made Delete look dead).
    */
-  guard?: "hold" | "tap";
+  guard?: "confirm" | "hold" | "tap";
 }) {
   if (guard === "tap") {
     // Dropping unsaved input is one short question: no context column, no preview,
@@ -93,6 +95,10 @@ export function ConfirmDeleteModal({
       </PortalDialog>
     );
   }
+  // A delete is one dialog, one body, one plain-click red button. No context
+  // column, no preview card (it used to repeat the body a second time beside an
+  // empty left rail) and no press-and-hold guard (the captain could not
+  // discover it, so Delete "did nothing" on a tap). The modal is the confirm.
   return (
     <PortalDialog
       open={open}
@@ -100,26 +106,37 @@ export function ConfirmDeleteModal({
       title={title}
       tone={tone === "danger" ? "danger" : "default"}
       dismissBlocked={busy}
-      // Dropping unsaved input is a short question: a content-sized sheet. A delete
-      // keeps the full frame with its "What gets removed" preview (C2-POP9).
-      fullScreenMobile
-      previewLabel={tone === "danger" ? "What gets removed" : "Confirmation"}
-      preview={
-        <div className="space-y-4 rounded-xl border border-border bg-card p-4 text-sm"><div>{description}</div>{note ? <div className="text-danger">{note}</div> : null}</div>
-      }
-      primaryAction={{
-        label: busy ? busyLabel : confirmLabel,
-        onClick: onConfirm,
-        disabled: busy || confirmDisabled,
-        loading: busy,
-        dataAttr,
-        // M008 — every destructive confirm through this shared modal is a
-        // press-and-hold guard rail, not a plain tap.
-        confirmGuard: "hold",
-      }}
+      fullScreenMobile={false}
+      contextPanel={null}
+      preview={null}
+      primaryAction={null}
     >
-      <p className="text-sm text-muted">{description}</p>
-      {note ? <p className="mt-2 text-xs text-muted">{note}</p> : null}
+      <div className="space-y-4" data-attr="confirm-delete-body">
+        <div className="text-sm text-foreground">{description}</div>
+        {note ? <p className="text-xs text-danger">{note}</p> : null}
+        <div className="flex items-center justify-end gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            className="rounded-lg border border-[var(--input)]"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            className={tone === "danger" ? "rounded-lg !bg-danger !text-white hover:!brightness-110 !shadow-none" : "rounded-lg"}
+            disabled={busy || confirmDisabled}
+            loading={busy}
+            onClick={onConfirm}
+            data-attr={dataAttr}
+          >
+            {busy ? busyLabel : confirmLabel}
+          </Button>
+        </div>
+      </div>
     </PortalDialog>
   );
 }
