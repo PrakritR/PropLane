@@ -1282,7 +1282,9 @@ export const ManagerInbox = forwardRef<
     activeThread && isPropLaneAssistantInboxThread(activeThread),
   );
   const activeThreadId = activeThread?.id ?? null;
-  const activeIsTeamThread = Boolean(activeThread && isTeamInboxThread(activeThread));
+  const activeIsTeamThread = Boolean(
+    activeThread && isTeamInboxThread({ id: activeThread.id, threadType: activeThread.threadType ?? undefined }),
+  );
   /* In-app is only offered when this person can read it: an assistant/team
      thread, or a counterparty that resolves to a portal recipient. A phone-only
      prospect has no PropLane account, so In-app is hidden and never auto-sent. */

@@ -1040,10 +1040,12 @@ function isSmsNoticeThread(thread: PersistedInboxThread): boolean {
 }
 
 /** Threads a server SMS agent answers on its own; the inbox never drafts for them. */
-export function isServerAgentAnsweredSmsThread(
-  thread: Pick<PersistedInboxThread, "threadType" | "thread_type">,
-): boolean {
-  const type = thread.threadType ?? thread.thread_type ?? "";
+export function isServerAgentAnsweredSmsThread(thread: object): boolean {
+  const { threadType, thread_type: serverType } = thread as {
+    threadType?: string | null;
+    thread_type?: string | null;
+  };
+  const type = threadType ?? serverType ?? "";
   return type === "claw_leasing_sms" || type === "claw_resident_sms";
 }
 
