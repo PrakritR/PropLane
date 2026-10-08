@@ -49,7 +49,7 @@ export function InboxComposerAiMenu({
           aria-label="AI"
           title="Draft with PropLane · Ask PropLane"
           disabled={disabled}
-          className={cn(TOOL_BTN, "w-7 text-primary hover:bg-primary/10 hover:text-primary @[520px]:w-auto @[520px]:px-2 max-md:w-9")}
+          className={cn(TOOL_BTN, "w-7 text-primary hover:bg-primary/10 hover:text-primary @[520px]:w-auto @[520px]:px-2 max-md:w-9 @[520px]:max-md:w-auto")}
           data-attr="inbox-composer-ai-menu"
         >
           <AxisAssistantSparkleIcon className="h-4 w-4" />
