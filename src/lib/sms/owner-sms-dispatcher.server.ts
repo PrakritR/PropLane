@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { mirrorManagerOwnOutboxToAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -554,11 +555,30 @@ async function persistSubmittedConversationLog(
   priorAttempts = 0,
   claim: { status: "pending" | "failed"; dueAt: string },
 ): Promise<"persisted" | "failed" | "stale" | "invalid"> {
+  // A text the work number sent to the manager's OWN phone also belongs in
+  // their one PropLane Assistant thread (marked SMS). Written only here, after
+  // the carrier accepted it, and idempotent on the outbox id, so a repair-queue
+  // retry never duplicates it. A failed append retries through the same queue.
+  const assistantMirror = await mirrorManagerOwnOutboxToAssistantThread(db, row, fromNumber)
+    .catch(() => "failed" as const);
   // Mirror deliveries already have a canonical transcript elsewhere. Keep the
   // owner-scoped outbox identity for authorization and delivery, but do not
   // project a second copy into Communication.
   if (row.suppress_conversation_log === true) {
     const now = new Date();
+    if (assistantMirror === "failed") {
+      const { data, error } = await db.from("sms_outbox").update({
+        conversation_log_status: "failed",
+        conversation_log_attempts: priorAttempts + 1,
+        conversation_log_next_attempt_at: new Date(now.getTime() + Math.min(60 * 60_000, 5 * 60_000 * 2 ** Math.min(priorAttempts, 3))).toISOString(),
+        conversation_log_last_error: "assistant_thread_mirror_unavailable",
+        updated_at: now.toISOString(),
+      }).eq("id", row.id).eq("provider_message_sid", messageSid)
+        .eq("conversation_log_status", claim.status)
+        .eq("conversation_log_next_attempt_at", claim.dueAt)
+        .select("id").maybeSingle();
+      return error ? "failed" : data ? "failed" : "stale";
+    }
     const { data, error } = await db.from("sms_outbox").update({
       conversation_log_status: "persisted",
       conversation_log_attempts: priorAttempts + 1,
@@ -624,7 +644,7 @@ async function persistSubmittedConversationLog(
       followUpReady = false;
     }
   }
-  const persisted = logged && followUpReady;
+  const persisted = logged && followUpReady && assistantMirror !== "failed";
   const { data, error } = await db.from("sms_outbox").update(
     persisted
       ? { conversation_log_status: "persisted", conversation_log_attempts: priorAttempts + 1, conversation_log_next_attempt_at: null, conversation_log_last_error: null, updated_at: now.toISOString() }
