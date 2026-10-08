@@ -282,7 +282,7 @@ export async function renderPortalSectionWith(
     ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
-    AdminBugFeedbackClient, AdminHealthClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
+    AdminBugFeedbackClient, AdminHealthClient, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
@@ -742,6 +742,20 @@ export async function renderPortalSectionWith(
   if (kind === "admin" && section === "health") {
     if (tabParts?.length) notFound();
     return <AdminHealthClient />;
+  }
+
+  if (kind === "admin" && section === "growth") {
+    const [first, second] = tabParts ?? [];
+    if (first === "post") {
+      if (!second || (tabParts?.length ?? 0) > 2) notFound();
+      return <GrowthAdminClient postId={decodeURIComponent(second)} />;
+    }
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    if (!first) return <GrowthAdminClient tab="queue" />;
+    if (first === "queue" || first === "calendar" || first === "accounts" || first === "analytics") {
+      return <GrowthAdminClient tab={first} />;
+    }
+    notFound();
   }
 
   if (kind === "admin" && section === "bugs-feedback") {

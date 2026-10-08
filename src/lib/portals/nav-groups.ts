@@ -76,6 +76,7 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
   { id: "accounts", label: "Accounts", sections: ["axis-users", "test-accounts"] },
   { id: "portfolio", label: "Portfolio", sections: ["properties"] },
   { id: "support", label: "Support", sections: ["bugs-feedback", "events", "health"] },
+  { id: "marketing", label: "Marketing", sections: ["growth"] },
 ];
 
 // `move-in` is the resident's "My home" row (label "My home").

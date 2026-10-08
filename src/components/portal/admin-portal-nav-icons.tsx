@@ -72,6 +72,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   reviews: Star,
   "bugs-feedback": MessageSquare,
   health: Activity,
+  growth: Megaphone,
   profile: Settings,
   settings: Settings,
   plan: CreditCard,
