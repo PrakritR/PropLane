@@ -104,3 +104,15 @@ describe("one launcher, no pop-up branch", () => {
     expect(read("src/components/portal/portal-top-bar.tsx")).toContain('data-attr="portal-assistant-panel"');
   });
 });
+
+describe("phone assistant sheet background", () => {
+  it("is opaque (bg-background), never the translucent bg-card, and keeps the page behind from scrolling", () => {
+    const sheet =
+      read("src/components/portal/axis-assistant.tsx")
+        .split("\n")
+        .find((l) => l.includes("axis-assistant-sheet fixed")) ?? "";
+    expect(sheet).toContain("bg-background");
+    expect(sheet).not.toContain("bg-card");
+    expect(sheet).toContain("overscroll-contain");
+  });
+});

@@ -30,6 +30,8 @@ type GoogleCalendarStatus = {
   vendorPushEnabled?: boolean;
 };
 
+const DEFAULT_API_BASE = "/api/portal/google-calendar";
+
 /**
  * Status card, not an instruction wall.
  *
@@ -51,7 +53,7 @@ export function GoogleCalendarConnectPanel({
   /** Manager (default) reads/writes `/api/portal/google-calendar/*`; a role that
    * clones the manager OAuth flow onto its own storage (vendor) passes its own
    * base, e.g. `/api/vendor/google-calendar`. */
-  apiBase = "/api/portal/google-calendar",
+  apiBase = DEFAULT_API_BASE,
   /** Vendor calendar only: offer the "push my assigned visits to Google" toggle (default off). */
   showVendorPushToggle = false,
 }: {
@@ -70,10 +72,14 @@ export function GoogleCalendarConnectPanel({
 
   const load = useCallback(async () => {
     try {
-      await fetch(`${apiBase}/link-session`, {
-        method: "POST",
-        credentials: "include",
-      }).catch(() => undefined);
+      // link-session finishes a manager's post-sign-in Google link from the live auth session. The
+      // vendor connect has its own OAuth flow and no such route, so it never asks (it 404'd).
+      if (apiBase === DEFAULT_API_BASE) {
+        await fetch(`${apiBase}/link-session`, {
+          method: "POST",
+          credentials: "include",
+        }).catch(() => undefined);
+      }
       const res = await fetch(
         `${apiBase}?origin=${encodeURIComponent(window.location.origin)}`,
         { credentials: "include" },

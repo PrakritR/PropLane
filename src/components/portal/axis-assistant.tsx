@@ -119,7 +119,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
       hideOverlay
       stackClassName="axis-assistant-root fixed inset-0 z-[65]"
       centerClassName="contents"
-      panelClassName="axis-assistant-sheet fixed inset-x-0 top-0 z-[66] flex flex-col overflow-hidden bg-card outline-none"
+      panelClassName="axis-assistant-sheet fixed inset-x-0 top-0 z-[66] flex flex-col overflow-hidden overscroll-contain bg-background outline-none"
       panelStyle={{ bottom: keyboardInset > 0 ? `${keyboardInset}px` : 0 }}
       ariaLabel="PropLane Assistant"
     >
