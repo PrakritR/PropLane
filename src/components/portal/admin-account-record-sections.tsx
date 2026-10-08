@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { RecordFactCard, RecordFactRow, RecordRowsCard } from "@/components/portal/portal-record-overview-kit";
 import { ManagerBillingCards } from "@/components/portal/admin-manager-account-detail";
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
@@ -130,6 +131,17 @@ export function AccountBillingSection({
 }) {
   const accountId = detail.id;
   const isManager = Boolean(detail.manager);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const action = searchParams?.get("action") ?? null;
+  // Drop ?action= once its popup is open so a refresh or a close does not reopen it.
+  const clearAction = useCallback(() => {
+    const next = new URLSearchParams(searchParams?.toString() ?? "");
+    next.delete("action");
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
   const [billing, setBilling] = useState<AdminAccountBilling | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [tick, setTick] = useState(0);
@@ -176,6 +188,8 @@ export function AccountBillingSection({
         billingState={state}
         onChanged={onChanged}
         showToast={showToast}
+        initialAction={action}
+        onActionConsumed={clearAction}
       />
       <RecordRowsCard
         title="Payments from this account"

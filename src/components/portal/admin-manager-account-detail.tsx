@@ -132,6 +132,16 @@ const sentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.sl
 
 type BillingDialog = "plan" | "trial" | "promo" | "comp" | "cap" | null;
 
+/**
+ * The `?action=` the Subscribers menu links with (`/admin/axis-users/manager-<id>/billing?action=promo`)
+ * mapped to the popup it opens. Anything else opens nothing.
+ */
+export function billingDialogForAction(action: string | null | undefined): "promo" | "trial" | null {
+  if (action === "promo") return "promo";
+  if (action === "extend-trial") return "trial";
+  return null;
+}
+
 /** Whole-number stepper for the property cap. `null` is "no limit"; the first + from there is 1. */
 function CapStepper({
   value,
@@ -283,6 +293,8 @@ export function ManagerBillingCards({
   billingState,
   onChanged,
   showToast,
+  initialAction,
+  onActionConsumed,
 }: {
   row: ManagerAccountDetailRow;
   billing: AdminAccountBilling | null;
@@ -290,6 +302,10 @@ export function ManagerBillingCards({
   /** Re-read the record and the billing after a change landed. */
   onChanged: () => void;
   showToast: (m: string) => void;
+  /** The `?action=` from the URL: opens the matching popup once, after billing has loaded. */
+  initialAction?: string | null;
+  /** Called once the popup was opened, so the page can drop the param. */
+  onActionConsumed?: () => void;
 }) {
   const [dialog, setDialog] = useState<BillingDialog>(null);
   const currentPlan = normalizeManagerPlan(row.tier);
@@ -314,6 +330,18 @@ export function ManagerBillingCards({
     if (which === "promo") setPromoCode("");
     setDialog(which);
   };
+
+  const deepLinkDialog = billingDialogForAction(initialAction);
+  const deepLinkReady = billingState !== "loading";
+  useEffect(() => {
+    if (!deepLinkDialog || !deepLinkReady) return;
+    // Wait for the billing read so Extend trial pre-fills the current end date.
+    if (deepLinkDialog === "trial") setTrialDate(planBlock?.trialEndsAt ? planBlock.trialEndsAt.slice(0, 10) : "");
+    if (deepLinkDialog === "promo") setPromoCode("");
+    setDialog(deepLinkDialog);
+    onActionConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkDialog, deepLinkReady]);
 
   const finish = (message: string, auditRecorded: boolean) => {
     showToast(auditRecorded ? message : `${message} The audit entry could not be written.`);

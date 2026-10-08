@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
 import { CalendarClock, Copy, Power, PowerOff, Tag, Users } from "lucide-react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -58,15 +57,16 @@ async function readJson<T>(res: Response): Promise<T & { error?: string }> {
  * row opens the code's record (terms and who redeemed it). Another builder registers this section in
  * the admin nav; the panel only needs its own path.
  */
-export function AdminPromoCodesPanel() {
-  const searchParams = useSearchParams();
-  const recordId = searchParams.get("code");
-  return recordId ? <PromoCodeRecord id={recordId} /> : <PromoCodeList />;
+export function AdminPromoCodesPanel({ detailId }: { detailId?: string } = {}) {
+  return detailId ? <PromoCodeRecord id={detailId} /> : <PromoCodeList />;
 }
+
+/** The list route; a code's record is `/admin/promo-codes/<id>` (see the admin section renderer). */
+const PROMO_CODES_PATH = "/admin/promo-codes";
+const promoCodeHref = (id: string) => `${PROMO_CODES_PATH}/${encodeURIComponent(id)}`;
 
 function PromoCodeList() {
   const navigate = usePortalNavigate();
-  const pathname = usePathname();
   const { showToast } = useAppUi();
   const [data, setData] = useState<AdminPromoCodeList | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -153,7 +153,7 @@ function PromoCodeList() {
 
   const bulkActions = selected ? (
     <>
-      <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-promo-open" onClick={() => navigate(`${pathname}?code=${encodeURIComponent(selected.id)}`)}>
+      <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-promo-open" onClick={() => navigate(promoCodeHref(selected.id))}>
         Open
       </Button>
       <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-promo-copy" onClick={() => void copyCode(selected)}>
@@ -226,7 +226,7 @@ function PromoCodeList() {
             figure={{ value: code.givenCents > 0 ? `−${formatCents(code.givenCents)}` : formatCents(0), subLabel: "given" }}
             checked={selectedId === code.id}
             onSelectedChange={(on) => setSelectedId(on ? code.id : null)}
-            onOpen={() => navigate(`${pathname}?code=${encodeURIComponent(code.id)}`)}
+            onOpen={() => navigate(promoCodeHref(code.id))}
             dataAttr="admin-promo-row"
           />
         ))}
@@ -246,7 +246,6 @@ function PromoCodeList() {
 }
 
 function PromoCodeRecord({ id }: { id: string }) {
-  const pathname = usePathname();
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const [code, setCode] = useState<AdminPromoCode | null>(null);
@@ -329,7 +328,7 @@ function PromoCodeRecord({ id }: { id: string }) {
     <PortalRecordDetailPage
       title={code.code}
       subtitle={code.summary}
-      backHref={pathname}
+      backHref={PROMO_CODES_PATH}
       backLabel="Promo codes"
       iconTitleActions
       actions={

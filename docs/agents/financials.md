@@ -619,3 +619,30 @@ An identical persisted receipt can retry ledger repair after a failure.
 - New table is classified in `account-purge-manifest.ts` (`manager_payees`: deleted with the manager, `teammate_user_id` detached).
 
 Coverage: `tests/unit/manager-payees.test.ts`, `manager-payees-route.test.ts`, `add-payment-modal.test.tsx`.
+
+# Platform P&L (admin Finances)
+
+`/admin/finances` is PropLane's OWN profit and loss, not a manager's books: it never reads or writes
+`manager_expense_entries` or the ledger tables above. **It is admin-only.** Every read and write
+goes through `/api/admin/finances` and `/api/admin/expenses` (+ `/receipt`), each behind
+`requireAdminRoute()`; no manager, resident or vendor route reaches it.
+
+- **Expenses**: `platform_expenses` (`supabase/migrations/20261008231500_platform_expenses.sql`).
+  RLS is ON with no policies and `anon` / `authenticated` hold no privilege (the PostgREST surface is
+  public), so only the service-role client behind the admin guard touches it
+  (`platform-expenses.server.ts`; `platform_expenses` is in the `role-grant-surface` table list).
+  A recurring expense is ONE row (`spent_on` first charge, `recurrence` none | monthly | yearly,
+  inclusive `ends_on`); the months it covers are expanded at read time in
+  `platform-expense-rules.ts`, so editing the row corrects every month at once. Receipts live in the
+  private `platform-receipts` bucket and are served only through server-minted signed URLs.
+- **Revenue source**: Stripe balance transactions on PropLane's platform account, grouped into
+  subscriptions, numbers, credits and service fees (`platform-pnl.server.ts`, cached five minutes).
+  Refunds and disputes subtract; resident processing fees are not revenue; a charge that matches no
+  stream is `unclassifiedCents`, never guessed into one. Apple income is paid out separately and is
+  not on this balance. The Payments page classifies the same balance in `admin-revenue-model.ts`
+  (`classifyBalanceTransaction`); the two groupings should converge on that helper (TODO in
+  `platform-pnl.server.ts`).
+- **Profit** = earned - Stripe fees - that month's expenses. A Stripe failure or a missing /
+  unreadable `platform_expenses` is `null` and the card is omitted, never $0.
+
+Coverage: `tests/unit/platform-expenses.test.ts`, `admin-revenue.test.ts`.
