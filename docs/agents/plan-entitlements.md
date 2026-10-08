@@ -211,8 +211,16 @@ for the extra-workspace, extra-work-number and extra-seat add-ons and how
 
 ## Admin Billing (staff view + per-account overrides)
 
-`/admin/billing` is a LENS on the accounts already in `/admin/axis-users`, not a
-second place to administer one. It is the same `PortalRecordListSurface` +
+There is no `/admin/billing` page (it 404s on purpose; see the end of this
+section). What used to be that lens is now two things: **Accounts > Subscribers**
+(`/admin/subscribers`, below) for who is paid, on a trial, on a promo code, free
+or complimentary, and the account record's Billing section for one account's
+plan and overrides. What PropLane itself EARNS is a third, separate thing:
+**Money > Payments** (below). The row derivation described next
+(`deriveAdminBillingRow`) is shared by all of them.
+
+The original Billing list was a LENS on the accounts already in `/admin/axis-users`,
+not a second place to administer one. It was the same `PortalRecordListSurface` +
 `PortalPersonRecordRow` every other list tab uses, and opening a row opens the
 SAME editor Accounts opens — `ManagerAccountDetail`
 (`src/components/portal/admin-manager-account-detail.tsx`), which both clients
@@ -374,3 +382,59 @@ and off, promo attach, audit rows, reason required),
 resolver), `manager-property-cap-override.test.ts`, plus
 `admin-list-surface-adoption.test.ts` and `platform-parity.test.ts` for the
 section wiring.
+
+## Admin Subscribers (Accounts > Subscribers)
+
+`/admin/subscribers` lists every real (non-sandbox) manager in exactly one of
+**Paid · Trial · Promo · Free · Complimentary**, with counts on the tabs.
+`classifySubscriber` (`src/lib/admin/admin-subscribers-model.ts`) runs
+`deriveAdminBillingRow`, so the bucket is the plan the product ENFORCES, not a
+second opinion: a lapsed signup trial is **Free**, a live Stripe or Apple grant
+is **Paid**, and an account whose purchase could not be read is counted
+nowhere (never filed as Free). Order, first match wins: Complimentary (the
+staff `complimentary` override, or a `billing: admin|portal` / `admin_` grant
+with no payment behind it) → Trial (`billing: trial`, unexpired) → Promo (paid
+plan + `promo_code`) → Paid → Free. A Stripe subscription still inside its
+Checkout trial days is **Paid** here because that is what enforcement says; the
+Trial tab is the no-card signup trial. MRR is the sum of the Paid bucket at
+list price (`RATE_CARD` base plan, annual / 12; per-door overage is not
+included).
+
+`GET /api/admin/subscribers` reads through paged selects
+(`readAllPages`, stable order, a failed page throws) and id-chunked profile
+reads, never an unbounded select, then pages the answer. Stripe's period end
+("Renews Nov 12") is looked up for the visible page only and a miss leaves the
+fact out. The trial end shown honours the staff `trialEndsAt` override; a trial
+inside its last three days draws amber text, never a pill. The row ⋯ opens the
+account, and deep-links to the account record's billing section with
+`?action=promo` / `?action=extend-trial` (the popups live on that record).
+
+## Admin Money > Payments
+
+`/admin/payments` is a live read of PropLane's platform Stripe account
+(`src/lib/admin/admin-revenue.server.ts`, `GET /api/admin/revenue`), cached five
+minutes per month. Balance transactions are classified by
+`classifyBalanceTransaction` (`admin-revenue-model.ts`): checkout `purpose`
+metadata (`COMMS_CREDIT_PURPOSE`, the number purposes) → Credits / Numbers; a
+charge on a subscription invoice (price ids via `stripe-price-ids.ts`) or from a
+customer holding a PropLane subscription → Subscriptions; the vendor 3% fee
+comes from `platform_revenue_entries` (it is held back from a vendor payment,
+so it is never its own Stripe transaction) → Service fees; payouts; refunds of
+PropLane revenue. **The platform account also carries pass-through money (rent,
+vendor payments): anything not attributable to a PropLane product is `other`,
+listed under All and never added to gross, fees or refunds.** Rows link to the
+account through `manager_purchases.stripe_customer_id`, the comms billing
+account, or `manager_user_id` metadata. App Store rows are
+`manager_purchases` Apple grants (production environment only), shown "via App
+Store"; Apple's commission is not in our data, so they carry no fee.
+
+Stat strip: Gross (earning categories) · Stripe fees · Net (gross − refunds −
+fees) · Refunds · Next payout. The Dashboard's **Earned this month** is gross −
+refunds; **Profit** is earned − Stripe fees − that month's `platform_expenses`.
+A Stripe failure, a missing `platform_expenses` table or an unreadable
+population is `null` and the Dashboard card is **omitted, never $0**
+(`buildAdminMoneyOverview`). A test-mode key (`sk_test_`) shows the banner. A
+month past 1,500 balance transactions is flagged `truncated` on the page.
+
+Coverage: `tests/unit/admin-revenue.test.ts`, `admin-subscribers.test.ts`,
+`admin-portal-sections.test.ts`.

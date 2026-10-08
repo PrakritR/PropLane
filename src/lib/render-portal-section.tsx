@@ -282,7 +282,8 @@ export async function renderPortalSectionWith(
     ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
-    AdminBugFeedbackClient, AdminHealthClient, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
+    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminPromoCodesPanel,
+    AdminFinancesPanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
@@ -338,7 +339,10 @@ export async function renderPortalSectionWith(
     redirect(`${def.basePath}/dashboard`);
   }
 
-  if (section === "finances") {
+  // `finances` is the legacy name of the other portals' Financials section. Admin has its own live
+  // Money > Finances section, so the rewrite must not fire for it (routing precedence: a rewrite that
+  // runs for every portal silently makes an admin section unreachable).
+  if (section === "finances" && kind !== "admin") {
     const defaultTab = kind === "resident" ? "summary" : "income";
     const tab = tabParts?.[0] ?? defaultTab;
     redirect(`${def.basePath}/financials/${tab}`);
@@ -748,6 +752,30 @@ export async function renderPortalSectionWith(
   if (kind === "admin" && section === "health") {
     if (tabParts?.length) notFound();
     return <AdminHealthClient />;
+  }
+
+  if (kind === "admin" && section === "subscribers") {
+    if (tabParts?.length) notFound();
+    return <AdminSubscribersPanel />;
+  }
+
+  if (kind === "admin" && section === "payments") {
+    // A payment's record page is `/admin/payments/<row id>` (one segment, decoded here).
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminPaymentsPanel detailId={detailId} />;
+  }
+
+  if (kind === "admin" && section === "promo-codes") {
+    // A promo code's record page is `/admin/promo-codes/<id>`.
+    if ((tabParts?.length ?? 0) > 1) notFound();
+    const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+    return <AdminPromoCodesPanel detailId={detailId} />;
+  }
+
+  if (kind === "admin" && section === "finances") {
+    if (tabParts?.length) notFound();
+    return <AdminFinancesPanel />;
   }
 
   if (kind === "admin" && section === "growth") {
