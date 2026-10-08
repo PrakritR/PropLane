@@ -1,13 +1,30 @@
 /**
  * An in-memory service-role client for the admin read routes. Tables are
  * arrays of rows; the builder understands exactly the verbs the admin
- * aggregates use (select with head/count, eq, in, not in/is, is, gte, lt, ilike,
- * a flat `col.eq.value,col2.eq.value2` or(), order, limit, maybeSingle) plus
- * `auth.admin.getUserById`, and `range` for the paged id reads. A column named
- * `a->>b` reads `row.a[b]`, or the
- * row's own `a->>b` key when a test seeds it flat.
+ * aggregates use (select with head/count, eq, neq, in, not in/is, is, gte, lt,
+ * ilike with real `%` / `_` patterns, a flat `col.eq.value,col2.eq.value2`
+ * or(), order, limit, range, maybeSingle) plus `auth.admin.getUserById`. A
+ * column named `a->>b` reads `row.a[b]`, or the row's own `a->>b` key when a
+ * test seeds it flat.
  */
 export type Row = Record<string, unknown>;
+
+/** `%` and `_` are wildcards unless escaped with a backslash; everything else is literal. */
+function likePatternToRegExp(pattern: string): RegExp {
+  let source = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index]!;
+    if (character === "\\" && index + 1 < pattern.length) {
+      index += 1;
+      source += pattern[index]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      continue;
+    }
+    if (character === "%") source += ".*";
+    else if (character === "_") source += ".";
+    else source += character.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`, "i");
+}
 
 function read(row: Row, column: string): unknown {
   if (column in row) return row[column];
@@ -82,12 +99,22 @@ export function createAdminFakeDb(
       lt: (column: string, value: unknown) => (
         filters.push((row) => read(row, column) != null && String(read(row, column)) < String(value)), builder
       ),
-      // The pattern arrives escaped (`likeLiteral`), so `\_` matches a literal underscore.
+      /**
+       * A real ILIKE: `%` / `_` are wildcards, `\%` / `\_` are literals (how
+       * `likeLiteral` escapes an address), and the match is case-insensitive.
+       */
       ilike: (column: string, value: string) => {
-        const literal = value.replace(/\\(.)/g, "$1").toLowerCase();
-        filters.push((row) => String(read(row, column) ?? "").toLowerCase() === literal);
+        const pattern = likePatternToRegExp(value);
+        filters.push((row) => pattern.test(String(read(row, column) ?? "")));
         return builder;
       },
+      neq: (column: string, value: unknown) => (
+        filters.push((row) => {
+          const current = read(row, column);
+          return current !== undefined && current !== null && current !== value;
+        }),
+        builder
+      ),
       or: (expr: string) => {
         const clauses = expr.split(",").map((clause) => clause.split(".eq."));
         filters.push((row) => clauses.some(([col, val]) => String(read(row, col!) ?? "") === val));

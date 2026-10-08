@@ -3,10 +3,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   collectIdsPaged,
+  countByIdChunks,
   listAdminPortalManagerUserIds,
   loadProfilesByIdChunks,
 } from "@/lib/auth/admin-portal-manager-ids.server";
-import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
+import { PORTAL_SANDBOX_EMAIL_SUFFIXES, isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 
 export type AdminAccountKind = "manager" | "resident" | "vendor";
 
@@ -44,11 +45,59 @@ const PROFILE_SELECT =
 async function roleHolderIds(db: SupabaseClient, role: AdminAccountKind): Promise<Set<string>> {
   const [roleRows, legacyRows] = await Promise.all([
     collectIdsPaged("user_id", (from, to) =>
-      db.from("profile_roles").select("user_id").eq("role", role).range(from, to),
+      db.from("profile_roles").select("user_id").eq("role", role).order("user_id").range(from, to),
     ),
-    collectIdsPaged("id", (from, to) => db.from("profiles").select("id").eq("role", role).range(from, to)),
+    collectIdsPaged("id", (from, to) =>
+      db.from("profiles").select("id").eq("role", role).order("id").range(from, to),
+    ),
   ]);
   return new Set([...roleRows, ...legacyRows]);
+}
+
+/**
+ * The demo/sandbox accounts every real admin total leaves out
+ * (`isPortalSandboxEmail`), as ids — so a count can exclude them without
+ * reading a single profile row.
+ */
+export async function listSandboxAccountIds(db: SupabaseClient): Promise<Set<string>> {
+  const sources = await Promise.all(
+    PORTAL_SANDBOX_EMAIL_SUFFIXES.map((suffix) =>
+      collectIdsPaged("id", (from, to) =>
+        db.from("profiles").select("id").ilike("email", `%${suffix}`).order("id").range(from, to),
+      ),
+    ),
+  );
+  const ids = new Set<string>();
+  for (const source of sources) for (const id of source) ids.add(id);
+  return ids;
+}
+
+/**
+ * An account is active unless it was disabled: `application_approved !== false`,
+ * which `.not(..., "is", false)` says in SQL (a null stays active, as the row
+ * predicate does).
+ */
+export async function countActiveAccounts(db: SupabaseClient, ids: string[]): Promise<number> {
+  return countByIdChunks(ids, (chunk) =>
+    db
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .in("id", chunk)
+      .not("application_approved", "is", false),
+  );
+}
+
+/** Active accounts among `ids` that have a linked Stripe Connect account. */
+export async function countActiveAccountsWithPayouts(db: SupabaseClient, ids: string[]): Promise<number> {
+  return countByIdChunks(ids, (chunk) =>
+    db
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .in("id", chunk)
+      .not("application_approved", "is", false)
+      .not("stripe_connect_account_id", "is", null)
+      .neq("stripe_connect_account_id", ""),
+  );
 }
 
 /**

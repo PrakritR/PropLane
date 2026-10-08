@@ -4064,8 +4064,12 @@ export function PortalCalendarPanels({
     // whenever there was an availability action, so a viewer who may only connect a calendar (a
     // co-manager without Calendar edit, an account with no houses yet) must still reach that item.
     const canCreateFromStudioBand = canEditWeekStudio && !readOnly;
+    // `modal={false}`, like every other menu in the portal whose items open a
+    // dialog (`record-action-menu.tsx`): a modal menu still owns the focus trap
+    // while the dialog it just opened mounts, and the two scopes fight over
+    // focus instead of handing it over.
     const renderAddMenu = (trigger: ReactNode) => (
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent align="end" data-attr="calendar-create-menu-content">
           {canCreateFromStudioBand ? (
@@ -4326,7 +4330,7 @@ export function PortalCalendarPanels({
     const showAvailabilityMenu = canEditWeek || Boolean(extraAvailabilityAction);
     const availabilityMenuAction = showAvailabilityMenu ? (
       <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <PortalIconAction icon={CalendarClock} label="Availability" data-attr="calendar-availability-menu" />
           </DropdownMenuTrigger>
@@ -4366,7 +4370,7 @@ export function PortalCalendarPanels({
     ) : null;
     const calendarCreateMenu =
       canEditWeek && !readOnly ? (
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-create-menu" />
           </DropdownMenuTrigger>
