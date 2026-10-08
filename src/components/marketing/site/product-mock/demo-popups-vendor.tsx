@@ -185,7 +185,7 @@ const NATIVE_FIELD = "w-full rounded-xl border border-border bg-card px-3 py-2.5
 
 const MANAGER_PERSON = { key: "id:mgr-seattle", label: "Manager · Seattle Homes" };
 
-/** `ScopedInboxComposeModal portal="vendor"`: To (section + people in one dropdown), Subject, Send via, Message, Schedule for later. */
+/** The vendor New message, drawn as the shared composer (`ManagerCommunicationComposeModal portal="vendor"`). */
 export function DemoVendorComposeDialog({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
   const [categories, setCategories] = useState<string[]>(["management"]);
   const [keys, setKeys] = useState<string[]>([MANAGER_PERSON.key]);

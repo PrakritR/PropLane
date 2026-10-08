@@ -9,7 +9,7 @@
  * section rail and header icons (`recordSections("resident", kind)`): lease, service, application, payment, document,
  * inspection, plus the Tour page and the one-question-per-screen form flow. The pages themselves fetch their record
  * and mount the assistant, so the demo cannot mount them; this file composes the same exported pieces the real pages
- * compose (`Modal`, `ServiceIntakeFormFields`, `PropertySearchPicker`, `ScopedInboxComposeModal`,
+ * compose (`Modal`, `ServiceIntakeFormFields`, `PropertySearchPicker`, `ManagerCommunicationComposeModal`,
  * `DashboardCustomizeModal`, `HouseInfoReadSections`, `MoveInFormQuestionField`, the record-overview kit,
  * `DemoRecordPage`) and writes the few private ones (the pay modal's method picker, the sign dialog, the form flow's
  * frame) from the real copy.
@@ -49,7 +49,7 @@ import { PortalContainerProvider } from "@/components/ui/portal-container-contex
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { DashboardCustomizeModal } from "@/components/portal/dashboard-customize-modal";
-import { ScopedInboxComposeModal } from "@/components/portal/inbox-scoped-compose-modal";
+import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 import { PropertySearchPicker } from "@/components/marketing/property-search-picker";
 import {
@@ -1617,7 +1617,7 @@ const COMPOSE_DRAFT = {
 };
 
 /**
- * The real resident compose: `ScopedInboxComposeModal` with the manager picked, footer "Send email". The draft
+ * The real resident compose: the shared `ManagerCommunicationComposeModal` (portal="resident") with the manager picked. The draft
  * arrives a tick after the modal mounts: the modal picks its recipient in an effect that its own "drop unknown
  * keys" effect would undo if both ran in the first commit.
  */
@@ -1629,7 +1629,7 @@ export function ResidentComposeModal({ onClose, onSent }: { onClose: () => void;
   }, []);
   return (
     <DemoModalScope>
-      <ScopedInboxComposeModal
+      <ManagerCommunicationComposeModal
         open
         portal="resident"
         onClose={onClose}
@@ -1639,7 +1639,7 @@ export function ResidentComposeModal({ onClose, onSent }: { onClose: () => void;
         senderName={RESIDENT_CONTACT.name}
         senderEmail={RESIDENT_CONTACT.email}
         liveContacts={DEMO_COMPOSE_CONTACTS}
-        initialDraft={draft}
+        residentDraft={draft}
       />
     </DemoModalScope>
   );
