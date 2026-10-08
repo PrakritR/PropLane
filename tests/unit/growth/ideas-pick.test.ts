@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickWeighted, effectiveWeight } from "@/lib/growth/pick";
+import { pickFresh, pickWeighted, effectiveWeight } from "@/lib/growth/pick";
 import { SEED_IDEAS } from "@/lib/growth/seed-ideas";
 import { GROWTH_ANGLES, type GrowthIdea } from "@/lib/growth/types";
 
@@ -24,5 +24,27 @@ describe("idea picking", () => {
     // rand ~0 picks the first heavy idea; used idea is lighter so a high rand lands on the fresh one
     const pool = [idea("used", 1, 9), idea("fresh", 1, 0)];
     expect(pickWeighted(pool, 1, () => 0.5)[0].id).toBe("fresh");
+  });
+  it("skips ideas recently used by a post when fresh ideas remain", () => {
+    const ideas = [idea("approve"), idea("clauses"), idea("fresh-1"), idea("fresh-2")];
+    const recent = new Set(["approve", "clauses"]);
+    for (const r of [0, 0.3, 0.7, 0.999]) {
+      const got = pickFresh(ideas, 2, recent, () => r).map((i) => i.id);
+      expect(got.sort()).toEqual(["fresh-1", "fresh-2"]);
+    }
+  });
+  it("falls back to penalised weighting only when fewer than n fresh ideas remain", () => {
+    const ideas = [idea("approve"), idea("clauses"), idea("fresh")];
+    const recent = new Set(["approve", "clauses"]);
+    const got = pickFresh(ideas, 2, recent, () => 0.5).map((i) => i.id);
+    expect(got[0]).toBe("fresh");
+    expect(got).toHaveLength(2);
+    expect(new Set(got).size).toBe(2);
+  });
+  it("does not mutate the exclusion set and returns all ideas when none are excluded", () => {
+    const ideas = [idea("a"), idea("b")];
+    const recent = new Set<string>();
+    expect(pickFresh(ideas, 2, recent, () => 0.1)).toHaveLength(2);
+    expect(recent.size).toBe(0);
   });
 });

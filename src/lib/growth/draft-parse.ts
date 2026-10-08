@@ -36,12 +36,58 @@ function hashtagCount(s: string): number {
   return (s.match(/#\w+/g) ?? []).length;
 }
 
+/** Escape raw CR/LF characters that sit inside JSON string literals (a common model slip). */
+export function escapeNewlinesInStrings(json: string): string {
+  let out = "";
+  let inString = false;
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i];
+    if (inString) {
+      if (ch === "\\") {
+        out += ch + (json[i + 1] ?? "");
+        i++;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      else if (ch === "\n") {
+        out += "\\n";
+        continue;
+      } else if (ch === "\r") {
+        out += "\\r";
+        continue;
+      }
+    } else if (ch === '"') {
+      inString = true;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * Strip Markdown fences, take the outermost object, parse. If that fails, make one repair attempt
+ * that escapes raw newlines inside string literals. Throws the original parse error when both fail.
+ */
+export function parseJsonLoose(text: string): unknown {
+  const unfenced = text.replace(/```[a-zA-Z]*/g, "");
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start === -1 || end <= start) throw new Error("draft: no JSON object in model output");
+  const candidate = unfenced.slice(start, end + 1);
+  try {
+    return JSON.parse(candidate);
+  } catch (err) {
+    try {
+      return JSON.parse(escapeNewlinesInStrings(candidate));
+    } catch {
+      throw err;
+    }
+  }
+}
+
 /** Extract the JSON object from model text, validate, and normalise. Throws on any violation. */
 export function parseDraftOutput(text: string, format: GrowthFormat): DraftOutput {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end <= start) throw new Error("draft: no JSON object in model output");
-  const parsed = draftSchema.parse(JSON.parse(text.slice(start, end + 1)));
+  const parsed = draftSchema.parse(parseJsonLoose(text));
   const platforms = parsed.platforms?.length ? [...new Set(parsed.platforms)] : defaultPlatforms(format);
   const captions: DraftOutput["captions"] = {};
   for (const p of platforms) {

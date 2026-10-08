@@ -24,3 +24,22 @@ export function pickWeighted(ideas: GrowthIdea[], n: number, rand: () => number 
   }
   return out;
 }
+
+/**
+ * Pick `n` ideas, preferring ideas not in `excludeIds` (e.g. used by a non-archived post in the last 14 days).
+ * Falls back to the penalised weighting over excluded ideas only when fewer than `n` remain eligible.
+ * Pure; the exclusion set is passed in.
+ */
+export function pickFresh(
+  ideas: GrowthIdea[],
+  n: number,
+  excludeIds: ReadonlySet<string>,
+  rand: () => number = Math.random,
+): GrowthIdea[] {
+  const fresh = ideas.filter((i) => !excludeIds.has(i.id));
+  const out = pickWeighted(fresh, n, rand);
+  if (out.length >= n) return out;
+  const pickedIds = new Set(out.map((i) => i.id));
+  const recent = ideas.filter((i) => excludeIds.has(i.id) && !pickedIds.has(i.id));
+  return [...out, ...pickWeighted(recent, n - out.length, rand)];
+}
