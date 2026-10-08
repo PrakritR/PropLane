@@ -19,6 +19,7 @@ import {
   type ManagerAssistantWorkspace,
 } from "@/lib/communication-manager-assistant-thread";
 import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
+import { appendSmsTurnToManagerAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
@@ -188,6 +189,20 @@ export async function notifyManagerFromAgent(
     });
     smsDelivered = sms.sent;
     if (!smsDelivered) throw new Error("Manager SMS was not accepted for delivery.");
+    // The notice went to their phone too: keep ONE Assistant thread with the
+    // in-app copy marked SMS (or, when the destination is SMS-only, the copy
+    // itself). Same message id as the inbox write, so a retry appends nothing.
+    const mirrored = await appendSmsTurnToManagerAssistantThread(db, {
+      ownerUserId: args.landlordId,
+      workspaceId: workspace?.id ?? null,
+      messageId,
+      author: "assistant",
+      body: args.text,
+      ...(args.threadType ? { noticeType: args.threadType } : {}),
+    });
+    // The text already went out; never throw here (a retry would risk a resend).
+    if (!mirrored.ok) console.error("manager notice SMS sent but Assistant thread copy failed", mirrored.error);
+    inboxDelivered = inboxDelivered || mirrored.ok;
   }
 
   const suppressed = !channels.inbox && !smsRequested;

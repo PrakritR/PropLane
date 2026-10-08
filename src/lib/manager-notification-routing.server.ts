@@ -132,6 +132,10 @@ export async function sendManagerNotificationSms(
     sendClass: "transactional",
     purpose: input.purpose,
     dedupeKey: input.dedupeKey,
+    // The manager's PropLane Assistant thread is the one transcript of texts to
+    // their own phone (the outbox dispatcher mirrors it there once the carrier
+    // accepts), so no second manager-to-self SMS conversation is projected.
+    suppressConversationLog: true,
     log: {
       managerUserId: input.managerUserId,
       residentPhone: to,

@@ -5,6 +5,7 @@ import { runInlineProspectBurst } from "@/lib/sms/prospect-sms-burst-job.server"
 import { publishDeferredProspectSmsBurst } from "@/lib/sms/prospect-sms-burst.server";
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
+import { appendSmsTurnToManagerAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
 import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation-consent.server";
 import { resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
@@ -778,6 +779,22 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       access: managerInbound.access,
       workspaceId: workspaceId,
     });
+    // One assistant conversation: the manager's own text lands in their
+    // PropLane Assistant thread (marked SMS) before the agent answers. The id
+    // is the Twilio MessageSid, so a webhook retry appends nothing. A failed
+    // append never blocks the agent's answer; the retry repeats it.
+    const assistantThread = managerIdentity.ok
+      ? await appendSmsTurnToManagerAssistantThread(db, {
+          ownerUserId: managerInbound.actorUserId,
+          workspaceId: workspaceId ?? null,
+          messageId: `sms_in_${messageSid}`,
+          author: "manager",
+          body,
+        })
+      : null;
+    if (assistantThread && !assistantThread.ok) {
+      console.error("manager inbound assistant thread mirror failed", assistantThread.error);
+    }
     const turn = managerIdentity.ok
       ? await runManagerSmsAgentTurn(db, {
           ctx: managerIdentity.ctx,
@@ -797,6 +814,12 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           return null;
         })
       : null;
+    if (turn?.sessionId && assistantThread?.ok) {
+      // Link the SMS agent's saved session to the one Assistant thread (best effort).
+      await db.from("agent_sessions").update({ inbox_thread_id: assistantThread.threadId })
+        .eq("id", turn.sessionId).eq("user_id", managerInbound.actorUserId)
+        .then(undefined, () => undefined);
+    }
     if (!managerIdentity.ok) {
       console.info("twilio inbound manager agent identity unresolved", {
         managerUserId: managerId,
