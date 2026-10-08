@@ -119,7 +119,8 @@ const OLD_DATA_ATTR_BY_FILE: Record<string, string> = {
   "src/components/portal/pro-bookings.tsx": "bookings-settings-open",
   "src/components/portal/inspections-panel.tsx": "inspections-settings-open",
   "src/components/portal/pro-payments.tsx": "payments-settings-open",
-  "src/components/portal/pro-leases.tsx": "leases-settings-open",
+  // Leases' gear was added after this migration (11cb90a69) and has no registry entry,
+  // so its own "leases-settings-open" attr is intentional, not a leftover.
   "src/components/portal/pro-properties.tsx": "manager-properties-settings-open",
   "src/components/portal/pro-tours.tsx": "tours-settings-open",
   "src/components/portal/pro-applications.tsx": "application-settings-open",

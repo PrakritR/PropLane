@@ -8,7 +8,7 @@ const actor = vi.hoisted(() => ({ userId: "resident-a", ready: true, email: "a@e
 vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => actor }));
 vi.mock("@/hooks/use-portal-session", () => ({ usePortalSession: () => actor }));
 vi.mock("@/hooks/use-is-client", () => ({ useIsClient: () => false }));
-vi.mock("@/hooks/use-is-native-app", () => ({ useNativeChrome: () => false }));
+vi.mock("@/hooks/use-is-native-app", () => ({ useNativeChrome: () => false, useIsSmallPortalViewport: () => false }));
 vi.mock("@/hooks/use-visual-viewport-bottom-inset", () => ({ useVisualViewportBottomInset: () => 0 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),

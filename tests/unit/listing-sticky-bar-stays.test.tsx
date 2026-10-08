@@ -135,10 +135,10 @@ describe("the assistant floats above the bar", () => {
     expect(source).not.toContain("axis-assistant-fab");
   });
 
-  it("globals.css lifts the bubble by the bar's own measured height", () => {
+  it("there is no floating assistant bubble left to lift (assistant-side-panel-1007)", () => {
     const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
-    expect(css).toContain('html:has([data-attr="listing-sticky-bar"]) .axis-assistant-fab');
-    expect(css).toContain("var(--listing-sticky-bar-h");
+    expect(css).not.toContain(".axis-assistant-fab");
+    expect(css).not.toContain("--listing-sticky-bar-h");
   });
 
   it("the public page's bar keeps its two rows and still publishes its height", () => {
