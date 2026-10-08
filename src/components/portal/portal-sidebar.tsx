@@ -70,6 +70,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 
+/**
+ * The invisible pull-handle button over the bottom bar exists only for a bar with no More tab;
+ * with a More tab the tab itself opens the sheet and the overlay would sit on top of it.
+ */
+export function shouldRenderShowAllSectionsButton({ hasMoreTab }: { hasMoreTab: boolean }): boolean {
+  return !hasMoreTab;
+}
+
 function portalBrandCopy(kind: PortalKind): { subtitle: string; ariaLabel: string } {
   switch (kind) {
     case "resident":
@@ -908,16 +916,16 @@ export function PortalSidebar({
                 inset-x-0 + h-11 (PRP-366 / PRP-349). That overlay sat above the
                 tabs and stole every thumb tap.
               */}
-              <button
-                type="button"
-                className="portal-native-bottom-nav-pull absolute left-1/2 top-0 z-10 flex h-4 w-14 -translate-x-1/2 items-start justify-center border-0 bg-transparent p-0"
-                aria-label="Show all sections"
-                onClick={() => setSectionsSheetOpen(true)}
-              >
-                {showMoreTab ? null : (
+              {shouldRenderShowAllSectionsButton({ hasMoreTab: showMoreTab }) ? (
+                <button
+                  type="button"
+                  className="portal-native-bottom-nav-pull absolute left-1/2 top-0 z-10 flex h-4 w-14 -translate-x-1/2 items-start justify-center border-0 bg-transparent p-0"
+                  aria-label="Show all sections"
+                  onClick={() => setSectionsSheetOpen(true)}
+                >
                   <span className="portal-native-bottom-nav-pull-handle mt-0.5" aria-hidden />
-                )}
-              </button>
+                </button>
+              ) : null}
               <div
                 ref={bottomNavScrollRef}
                 className="portal-native-bottom-nav-scroll relative z-0 grid w-full min-w-0 pt-1"

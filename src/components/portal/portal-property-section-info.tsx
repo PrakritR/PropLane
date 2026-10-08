@@ -75,7 +75,7 @@ export function PortalPropertySectionInfo({
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full text-muted opacity-0 transition hover:text-primary hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-80 group-focus-within:opacity-80 [@media(hover:none)]:opacity-70"
+        className="relative inline-flex h-[18px] w-[18px] items-center max-md:before:absolute max-md:before:-inset-[13px] max-md:before:content-[''] justify-center rounded-full text-muted opacity-0 transition hover:text-primary hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-80 group-focus-within:opacity-80 [@media(hover:none)]:opacity-70"
       >
         <Info className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
       </span>

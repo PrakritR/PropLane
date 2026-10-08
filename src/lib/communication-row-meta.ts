@@ -9,6 +9,7 @@
  * and a wrong label is worse than none.
  */
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import { inboxThreadMessages, inboxMessageOutbound } from "@/lib/portal-inbox-storage";
 
 /**
@@ -65,7 +66,7 @@ export function inboxRowAddressLabel(value: string | null | undefined): string |
   const raw = String(value ?? "").trim();
   if (!raw) return undefined;
   if (looksLikeMachineId(raw)) return undefined;
-  const head = raw.split("·")[0]!.trim();
+  const head = stripPropertyRoomCountSuffix(raw.split("·")[0]!.trim());
   const street = head.split(",")[0]!.trim();
   if (!street || looksLikeMachineId(street)) return undefined;
   return street;
