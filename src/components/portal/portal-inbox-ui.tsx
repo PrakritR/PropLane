@@ -630,6 +630,8 @@ export type InboxBubbleMessage = {
   at: string;
   direction: InboxMessageDirection;
   automated?: boolean;
+  /** A text the AI on the vendor's PropLane number sent for them. */
+  sentByAi?: boolean;
   eventTitle?: string;
   /** Optional delivery/status caption under the bubble (e.g. "Scheduled"). */
   status?: string;
@@ -1537,6 +1539,11 @@ export function InboxBubble({
           <p className="flex min-w-0 items-baseline gap-1.5 text-sm leading-snug text-foreground">
             <span className="truncate font-[650]" data-inbox-author>{author}</span>
             {clock ? <span className="shrink-0 text-xs font-normal text-muted/80">{clock}</span> : null}
+            {message.sentByAi ? (
+              <span className="shrink-0 text-xs font-normal text-muted/80" data-inbox-sent-by-ai>
+                Sent by AI
+              </span>
+            ) : null}
           </p>
         ) : null}
         <div

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
 import { rateLimit } from "@/lib/rate-limit";
@@ -162,7 +162,12 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   if (messageSid) {
     try {
       const vendorInbound = await ingestVendorWorkIdentitySms(db, { toPhone, fromPhone, text: body, messageSid });
-      if (vendorInbound.handled) return twimlOk();
+      if (vendorInbound.handled) {
+        // The AI answer (clients and residents only) runs after Twilio has its response.
+        const aiAnswer = vendorInbound.afterResponse;
+        if (aiAnswer) after(() => aiAnswer());
+        return twimlOk();
+      }
     } catch (error) {
       console.error("vendor inbound SMS ingest failed", messageSid, error);
       return NextResponse.json({ error: "Vendor inbox unavailable." }, { status: 503 });
