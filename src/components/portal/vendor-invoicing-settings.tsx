@@ -87,7 +87,7 @@ export function VendorInvoicingSettings() {
         </PortalSettingsGroup>
       </PortalSettingsSection>
       <PortalSettingsGroup>
-        <PortalSettingsLinkRow label="Invoices and payments" href="/vendor/financials/income" dataAttr="vendor-invoicing-open-payments" />
+        <PortalSettingsLinkRow label="Invoices and payments" href="/vendor/payments/pending" dataAttr="vendor-invoicing-open-payments" />
       </PortalSettingsGroup>
     </div>
   );

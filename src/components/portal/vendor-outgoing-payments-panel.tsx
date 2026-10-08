@@ -15,16 +15,13 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
 import { RecordBandFilter, RecordTabBand } from "@/components/portal/record-list-band";
 import { VendorRowMenu, type VendorRowMenuItem } from "@/components/portal/vendor-row-menu";
-import {
-  VendorAddExpenseModal,
-  todayLocalIso,
-  type VendorExpenseServiceOption,
-} from "@/components/portal/vendor-add-expense-modal";
+import { VendorAddExpenseModal, type VendorExpenseServiceOption } from "@/components/portal/vendor-add-expense-modal";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { MANAGER_WORK_ORDERS_EVENT, readVendorWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
 import { readVendorDocumentDataUrl } from "@/lib/vendor-documents";
 import {
+  todayLocalIso,
   VENDOR_EXPENSE_CATEGORIES,
   VENDOR_EXPENSE_RECEIPT_MAX_BYTES,
   vendorExpenseCategoryLabel,

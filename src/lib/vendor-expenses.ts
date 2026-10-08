@@ -145,6 +145,21 @@ export function vendorExpenseSegmentCounts(
   return counts;
 }
 
+/** yyyy-mm-dd on the vendor's own clock. */
+export function todayLocalIso(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+/** "12.5" -> 1250. Null when it is not a positive amount with at most two decimals. */
+export function parseAmountToCents(raw: string): number | null {
+  const cleaned = raw.trim().replace(/^\$/, "").replace(/,/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+  const [dollars, cents = ""] = (cleaned.split(".") as [string, string?]);
+  const total = Number(dollars) * 100 + Number((cents ?? "").padEnd(2, "0"));
+  return Number.isSafeInteger(total) && total > 0 ? total : null;
+}
+
 function csvCell(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }

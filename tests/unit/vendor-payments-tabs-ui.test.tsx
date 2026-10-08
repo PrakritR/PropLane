@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 //
-// Vendor Payments (vendor-portal-redesign-1006): Pending · Paid · Overdue tabs
-// with counts and the shared row with ⋯ View invoice · Download.
+// Vendor Incoming payments (vendor-portal-ia-1007): Pending · Paid · Overdue are routed
+// segments (`/vendor/payments/<segment>`) with counts, and the shared row carries ⋯
+// Open invoice · Send reminder · Message manager · Download · Copy invoice number.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
@@ -15,7 +16,7 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/vendor/financials/income",
+  usePathname: () => "/vendor/payments/pending",
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
@@ -45,6 +46,7 @@ const base = {
   decisionNote: null,
   billId: null,
   decidedAt: null,
+  managerUserId: "mgr-1",
   paidFrom: null,
   submittedAt: new Date().toISOString(),
 };
@@ -81,10 +83,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const renderPanel = () =>
+const renderPanel = (segment: "pending" | "paid" | "overdue" = "pending") =>
   render(
     <AppUiProvider>
-      <VendorFinancesPanel tabId="income" />
+      <VendorFinancesPanel tabId="income" segment={segment} />
     </AppUiProvider>,
   );
 const tab = (id: string) => document.querySelector(`[data-attr="vendor-payments-tab-${id}"]`) as HTMLElement;
@@ -101,26 +103,62 @@ describe("vendor Payments tabs", () => {
     expect(screen.getByText("Alder Property Co")).toBeTruthy();
   });
 
-  it("Overdue lists the unpaid invoice past its due date; Paid lists the paid one", async () => {
-    renderPanel();
+  it("the tabs route to their segment, and each segment lists its own invoices", async () => {
+    renderPanel("pending");
     await waitFor(() => expect(tab("overdue")).toBeTruthy());
     fireEvent.click(tab("overdue"));
+    expect(navigate).toHaveBeenCalledWith("/vendor/payments/overdue");
+    cleanup();
+    renderPanel("overdue");
     await waitFor(() => expect(screen.getByText("INV-2")).toBeTruthy());
     expect(screen.queryByText("Kitchen sink leak")).toBeNull();
-    fireEvent.click(tab("paid"));
+    cleanup();
+    renderPanel("paid");
     await waitFor(() => expect(screen.getByText("INV-3")).toBeTruthy());
     expect(screen.queryByText("INV-2")).toBeNull();
   });
 
-  it("the row ⋯ carries View invoice and Download (paid), and no Message the manager", async () => {
-    renderPanel();
-    await waitFor(() => expect(tab("paid")).toBeTruthy());
-    fireEvent.click(tab("paid"));
-    await screen.findByText("INV-3");
-    fireEvent.pointerDown(document.querySelector('[data-attr="vendor-payment-row-menu"]') as HTMLElement, { button: 0, ctrlKey: false });
-    const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["View invoice", "Download"]);
-    expect(within(menu).queryByText("Message the manager")).toBeNull();
+  const openMenu = async (label: string) => {
+    const row = (await screen.findByText(label)).closest(".portal-property-row") as HTMLElement;
+    fireEvent.pointerDown(row.querySelector('[data-attr="vendor-payment-row-menu"]') as HTMLElement, { button: 0, ctrlKey: false });
+    return within(await screen.findByRole("menu"));
+  };
+
+  it("a paid invoice's ⋯ is Open invoice · Message manager · Download · Copy invoice number, with no reminder", async () => {
+    renderPanel("paid");
+    const menu = await openMenu("INV-3");
+    expect(menu.getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "Open invoice",
+      "Message manager",
+      "Download",
+      "Copy invoice number",
+    ]);
+  });
+
+  it("an approved invoice's ⋯ offers Send reminder, which posts to the remind route", async () => {
+    renderPanel("pending");
+    const menu = await openMenu("Kitchen sink leak");
+    expect(menu.getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "Open invoice",
+      "Send reminder",
+      "Message manager",
+      "Download",
+      "Copy invoice number",
+    ]);
+    fireEvent.click(menu.getByText("Send reminder"));
+    await waitFor(() =>
+      expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) => String(url) === "/api/vendor/invoices/i-pending/remind" && (init as RequestInit)?.method === "POST",
+      )).toBe(true),
+    );
+  });
+
+  it("Message manager opens New message addressed to that manager", async () => {
+    renderPanel("paid");
+    const menu = await openMenu("INV-3");
+    fireEvent.click(menu.getByText("Message manager"));
+    expect(navigate).toHaveBeenCalledWith("/vendor/communication/active?compose=1");
+    expect(JSON.parse(sessionStorage.getItem("vendor-compose-prefill-v1") ?? "{}")).toMatchObject({ managerUserId: "mgr-1" });
   });
 
   it("the Payments tab carries no balance card (it moved to Balance & payouts); the band keeps its single Download", async () => {
@@ -142,7 +180,7 @@ describe("vendor Payments tabs", () => {
     expect(navigate).toHaveBeenCalledWith("/vendor/profile?tab=payouts");
   });
 
-  it("a submitted invoice's ⋯ says Retract invoice (never Withdraw, which moves money)", async () => {
+  it("a submitted invoice's ⋯ says Edit and Retract (never Withdraw, which moves money), and no reminder", async () => {
     INVOICES.push({ ...base, id: "i-sub", workOrderId: null, invoiceNumber: "INV-9", totalCents: 5000, status: "submitted", paidAt: null, dueDate: null } as never);
     try {
       renderPanel();
@@ -150,8 +188,7 @@ describe("vendor Payments tabs", () => {
       const row = screen.getByText("INV-9").closest(".portal-property-row") as HTMLElement;
       fireEvent.pointerDown(row.querySelector('[data-attr="vendor-payment-row-menu"]') as HTMLElement, { button: 0, ctrlKey: false });
       const labels = within(await screen.findByRole("menu")).getAllByRole("menuitem").map((i) => i.textContent);
-      expect(labels).toContain("Retract invoice");
-      expect(labels).not.toContain("Withdraw");
+      expect(labels).toEqual(["Open invoice", "Message manager", "Copy invoice number", "Edit", "Retract"]);
     } finally {
       INVOICES.pop();
     }

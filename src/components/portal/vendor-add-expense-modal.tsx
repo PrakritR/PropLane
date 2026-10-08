@@ -13,6 +13,8 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import {
+  parseAmountToCents,
+  todayLocalIso,
   VENDOR_EXPENSE_CATEGORIES,
   VENDOR_EXPENSE_MAX_CENTS,
   VENDOR_EXPENSE_MEMO_MAX,
@@ -24,23 +26,8 @@ import { readVendorDocumentDataUrl } from "@/lib/vendor-documents";
 
 export type VendorExpenseServiceOption = { id: string; label: string };
 
-/** yyyy-mm-dd on the vendor's own clock. */
-export function todayLocalIso(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
 function centsToField(cents: number): string {
   return (cents / 100).toFixed(2);
-}
-
-/** "12.5" -> 1250. Null when it is not a positive amount with at most two decimals. */
-export function parseAmountToCents(raw: string): number | null {
-  const cleaned = raw.trim().replace(/^\$/, "").replace(/,/g, "");
-  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
-  const [dollars, cents = ""] = cleaned.split(".");
-  const total = Number(dollars) * 100 + Number(cents.padEnd(2, "0"));
-  return Number.isSafeInteger(total) && total > 0 ? total : null;
 }
 
 export function VendorAddExpenseModal({
