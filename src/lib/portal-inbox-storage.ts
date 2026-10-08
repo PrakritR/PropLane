@@ -1041,6 +1041,26 @@ function normalizeThreadMessage(message: InboxThreadMessage): InboxThreadMessage
   };
 }
 
+/** Server-written SMS notice rows (`upsertManagerInboxNotice`): leasing and resident texts. */
+function isSmsNoticeThread(thread: PersistedInboxThread): boolean {
+  const type = thread.threadType ?? thread.thread_type ?? "";
+  return (
+    type === "claw_leasing_sms" ||
+    type === "claw_resident_sms" ||
+    Boolean(thread.smsNoticePhone?.trim())
+  );
+}
+
+/** Threads a server SMS agent answers on its own; the inbox never drafts for them. */
+export function isServerAgentAnsweredSmsThread(thread: object): boolean {
+  const { threadType, thread_type: serverType } = thread as {
+    threadType?: string | null;
+    thread_type?: string | null;
+  };
+  const type = threadType ?? serverType ?? "";
+  return type === "claw_leasing_sms" || type === "claw_resident_sms";
+}
+
 /**
  * The channel the counterparty most recently reached us on, or null when no
  * inbound turn carries a stamp (legacy rows, or a thread the owner started).
@@ -1049,6 +1069,11 @@ function normalizeThreadMessage(message: InboxThreadMessage): InboxThreadMessage
  */
 export function lastInboundChannelOf(thread: PersistedInboxThread): InboxThreadMessageChannel | null {
   const turns = inboxThreadMessages(thread);
+  // An SMS notice thread is a text conversation end to end. Rows stored before
+  // the notice writer stamped `channel: "sms"` carry no stamp at all, and an
+  // unstamped phone-only thread used to fall through to the In-app default —
+  // a reply the person has no account to read.
+  const legacyChannel: InboxThreadMessageChannel | undefined = isSmsNoticeThread(thread) ? "sms" : undefined;
   // The root is inbound when flagged so, or — on a row that never recorded a
   // direction — when it sits in the inbox folder. A merged person-thread keeps
   // the Sent copy's folder but records `rootOutbound: false` for an emailed-in
@@ -1062,7 +1087,8 @@ export function lastInboundChannelOf(thread: PersistedInboxThread): InboxThreadM
     // Later turns are inbound only when explicitly stamped so (see `outbound`).
     if (!isRoot && turn.outbound === undefined) continue;
     if (isRoot && !rootInbound) continue;
-    if (turn.channel) return turn.channel;
+    const channel = turn.channel ?? legacyChannel;
+    if (channel) return channel;
   }
   // Work-email ingest keys the first row `assistant-email-<id>` and stamps
   // email on the root. A historical copy that lost the stamp still replies

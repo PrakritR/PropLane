@@ -155,6 +155,10 @@ inbound text can be mirrored by two producers that share its Twilio SID, so a
 bare SID makes the second mirror look like a retry of the first and it is
 dropped.
 
+Every notice turn is stamped `channel: "sms"` (root: `rootChannel`), and a reply the server's SMS agent
+sent is appended as an outbound turn by `recordAutoReplyOnSmsNotice` (idempotent on
+`auto_reply_<inbound sid>`, append-only, never creates a thread) — see "The composer's channel" below.
+
 Historical `claw_lease_*` / `claw_resident_*` notices are folded on reads using
 server-projected ownership plus an explicit phone label. Never infer phone
 identity from message text or a contact name. This notice grouping does not
@@ -672,6 +676,34 @@ is answered by email (from the workspace work address, subject `Re: <subject>`),
 a text by text, a portal message in-app. A thread with no stamped inbound keeps
 the in-app default. The old in-app-only default let a manager answer a prospect
 who had only ever emailed — the reply landed on a row nobody could read.
+
+### The composer's channel: last inbound, sticky, honest (screen J, Oct 8)
+
+- **Inbound SMS notices are stamped.** `upsertManagerInboxNotice` writes
+  `rootChannel: "sms"` on the root and `channel: "sms"` on every appended turn, and
+  `append_manager_sms_inbox_notice` (migration `20261008230000_sms_notice_channel_stamp.sql`)
+  stamps the same server-side when a caller names none. Rows stored before the stamp are read as
+  text by `lastInboundChannelOf` from `threadType` (`claw_leasing_sms` / `claw_resident_sms`) or
+  `smsNoticePhone`, the way it already special-cases `assistant-email-` rows. Inbound **email** was
+  always stamped (`mirrorAssistantEmailConversation`, `channel: "email"`).
+- **The default is the last inbound channel and it is sticky per thread.** `resolveStickyReplyChannels`
+  (`manager-inbox-reply-channels.ts`): a manual channel pick is remembered for the thread against the
+  inbound channel it was made under (`ReplyChannelMemory` in `pro-inbox.tsx`); only a NEW inbound on a
+  different channel, or a remembered channel that stopped being available, returns to the default.
+- **In-app is offered only to people who can read it.** `inboxThreadPortalReachable` =
+  `resolveManagerInboxPortalRecipient` non-null (an email, or an SMS contact tied to an account), or an
+  assistant/team thread. `activeProplaneAvailable` is that, no longer `Boolean(activeThread)`. A phone-only
+  prospect gets Text; an unreachable In-app is never selected, so it can never be auto-sent.
+- **A refused send never loops.** The AI-draft auto-send latch is per draft + channel choice and is KEPT
+  when the send is refused (only a "nothing attempted" result clears it); the toast is deduped per draft +
+  channel; the retry is a user action (Approve, or picking another channel).
+- **The server answers on the inbound channel, so the browser does not.** See
+  [`inbox-ai-drafts.md`](inbox-ai-drafts.md) § Server auto-reply. A text to the work number is answered by
+  the prospect/resident SMS agent and the reply is recorded on the notice thread as a sent turn
+  (`recordAutoReplyOnSmsNotice`); `threadEligibleForAiDraft` and `/api/portal/inbox-draft-reply` skip
+  `claw_leasing_sms` / `claw_resident_sms` threads (`isServerAgentAnsweredSmsThread`).
+- Tests: `tests/unit/sms-notice-channel-stamp.test.ts`, `manager-inbox-reply-channel-default.test.ts`,
+  `manager-inbox-auto-send-refusal.test.tsx`.
 
 Every turn is **stamped with the channel it actually went on**
 (`InboxThreadMessage.channel`: `email` / `sms` / `proplane`; the root turn's stamp
