@@ -243,3 +243,14 @@ describe("Where you live: the previous address is only asked under two years", (
     expect(errors.prevZip).toBeUndefined();
   });
 });
+
+describe("a co-signer cannot switch off the lease checks (security review, Oct 8)", () => {
+  it("step 1 still validates the property, lease term and dates when applicantRole is cosigner", () => {
+    const cosigner = { ...createInitialRentalWizardState(), applicantRole: "cosigner" as const };
+    const errors = validateRentalWizardStep(1, cosigner);
+    expect(Object.keys(errors).length).toBeGreaterThan(0);
+    // The same lease-choice errors an applicant gets, so a forged role cannot submit an unoffered term.
+    const applicant = validateRentalWizardStep(1, { ...createInitialRentalWizardState() });
+    for (const key of Object.keys(errors)) expect(applicant).toHaveProperty(key);
+  });
+});

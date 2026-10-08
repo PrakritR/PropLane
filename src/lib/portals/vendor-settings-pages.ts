@@ -89,7 +89,7 @@ export const VENDOR_SETTINGS_MOVED_TABS: Record<string, string> = {
 
 /** Where an old Settings tab now lives (`/vendor/calendar?modal=weekly-hours`), or null if it did not move. */
 export function vendorSettingsMovedHref(raw: string | null | undefined, basePath = "/vendor"): string | null {
-  const target = raw ? VENDOR_SETTINGS_MOVED_TABS[raw] : undefined;
+  const target = raw ? (Object.hasOwn(VENDOR_SETTINGS_MOVED_TABS, raw) ? VENDOR_SETTINGS_MOVED_TABS[raw] : undefined) : undefined;
   return target ? `${basePath}${target}` : null;
 }
 

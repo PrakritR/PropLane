@@ -218,8 +218,9 @@ export function validateStandardWizardStep(
   const section = (n: number) => validateStandardWizardSection(n, f, fieldRequired, prop, fieldEnabled);
   switch (step) {
     case 1:
-      // A co-signer fills the co-signer form, not this one.
-      if (f.applicantRole === "cosigner") return {};
+      // Section 1 skips itself for a co-signer (they fill the co-signer form), but the lease choice in
+      // section 3 still runs for everyone: `applicantRole` is a client field, so it must never switch off
+      // the offered-term, date and room checks the server re-runs on submit.
       return { ...section(1), ...section(3) };
     case 2:
       return section(2);
