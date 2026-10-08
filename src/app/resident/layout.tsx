@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
 import { AxisAssistant } from "@/components/portal/axis-assistant";
+import { PortalAssistantRail } from "@/components/portal/portal-assistant-rail";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { RateAppPrompt } from "@/components/native/rate-app-prompt";
@@ -26,6 +27,7 @@ import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-serv
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { getResidentPortalDefinition } from "@/lib/portals/resident";
+import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { TestAccountBanner } from "@/components/portal/test-account-banner";
 import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
@@ -59,7 +61,10 @@ export default async function ResidentLayout({ children }: { children: React.Rea
     email: profile?.email ?? user?.email ?? null,
     managerSubscriptionTier,
   });
-  const sidebarCollapsed = await getSidebarCollapsed();
+  const [sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
+    getSidebarCollapsed(),
+    getAssistantDockCollapsed(),
+  ]);
 
   const residentNavStage = resolveResidentPortalNavStage(access);
   const testWorkspace = user ? await resolveTestWorkspaceClassification(user.id) : { kind: "normal" as const };
@@ -72,7 +77,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
 
   return (
     // The resident assistant must carry its own role-scoped endpoint: the default manager endpoint
-    // 401s for residents (captain, Oct 7: residents get Ask PropLane like vendors).
+    // 401s for residents (captain, Oct 7: residents get Ask PropLane like vendors). The side panel below carries the same endpoint.
     <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null} disabled={Boolean(viewAs)}>
     <div className={PORTAL_SHELL_ROOT_CLASS}>
       {viewAs ? <ViewAsBanner {...viewAs} /> : null}
@@ -125,6 +130,13 @@ export default async function ResidentLayout({ children }: { children: React.Rea
             </div>
           </main>
         </div>
+        {viewAs ? null : (
+          <PortalAssistantRail
+            managerName={profile?.full_name ?? null}
+            endpoint="/api/agent/resident-chat"
+            initialCollapsed={assistantDockCollapsed}
+          />
+        )}
       </div>
     </div>
     </AxisAssistant>

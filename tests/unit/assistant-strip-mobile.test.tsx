@@ -6,7 +6,6 @@ import userEvent from "@testing-library/user-event";
 
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { Modal } from "@/components/ui/modal";
-import { shouldHideAssistantFab } from "@/lib/axis-assistant/fab-visibility";
 import { closeAxisAssistant, getAxisAssistantOpen, openAxisAssistant } from "@/lib/axis-assistant/open-store";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 
@@ -15,8 +14,8 @@ import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assis
  * rail (no `ASSISTANT_DOCK_INPUT_ID` composer exists), so the strip's own
  * presentation is the assistant: a full-width sheet over the editor, opened
  * with the SAME task context and the SAME close semantics as the desktop rail.
- * The floating popup is arbitrated away rather than stacked underneath: the
- * FAB hides while a task assistant is active and an already-open popup closes.
+ * The phone assistant sheet is arbitrated away rather than stacked underneath:
+ * an already-open sheet closes while a task assistant is active.
  */
 const CONTEXT = "Add co-manager · Invite: sam@example.com";
 
@@ -74,14 +73,13 @@ afterEach(() => {
 });
 
 describe("modal assistant strip on a phone", () => {
-  it("opens the assistant in place of the (unmounted) dock, closing the popup and hiding the FAB", async () => {
+  it("opens the assistant in place of the (unmounted) dock, closing the phone sheet", async () => {
     installFetch();
     const user = userEvent.setup();
     openAxisAssistant();
     expect(getAxisAssistantOpen()).toBe(true);
     render(<PhoneWorkspace />);
     expect(document.getElementById(ASSISTANT_DOCK_INPUT_ID)).toBeNull();
-    expect(shouldHideAssistantFab()).toBe(false);
 
     await user.click(askProPlane());
 
@@ -89,7 +87,6 @@ describe("modal assistant strip on a phone", () => {
     expect(rail().className).toContain("w-full");
     expect(screen.getByRole("dialog")).toContainElement(rail());
     expect(getAxisAssistantOpen()).toBe(false);
-    expect(shouldHideAssistantFab()).toBe(true);
     expect(document.getElementById(ASSISTANT_DOCK_INPUT_ID)).toBeNull();
   });
 
@@ -115,7 +112,6 @@ describe("modal assistant strip on a phone", () => {
     await user.click(screen.getByRole("button", { name: "Close PropLane Assistant" }));
     expect(screen.queryByRole("complementary", { name: "PropLane Assistant" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Co-manager email" })).toHaveValue("sam@example.com");
-    expect(shouldHideAssistantFab()).toBe(false);
     await waitFor(() => expect(askProPlane()).toHaveFocus());
     expect(onClosed).not.toHaveBeenCalled();
 
@@ -124,6 +120,5 @@ describe("modal assistant strip on a phone", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(onClosed).toHaveBeenCalledTimes(1);
-    expect(shouldHideAssistantFab()).toBe(false);
   });
 });

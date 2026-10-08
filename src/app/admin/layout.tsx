@@ -17,7 +17,7 @@ import {
 } from "@/lib/portal-layout-classes";
 import { adminPortalForTestWorkspaceOperator } from "@/lib/portals/admin";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
-import { getAssistantDockCollapsed, getAssistantDocked } from "@/lib/assistant-dock-state";
+import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import {
   isTestWorkspaceFeatureEnabled,
   requireTrustedTestWorkspaceOperator,
@@ -28,10 +28,9 @@ export const dynamic = "force-dynamic";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   await assertAdminPortalAccess();
   const { profile } = await getServerSessionProfile();
-  const [sidebarCollapsed, assistantDockCollapsed, assistantDocked, testWorkspaceOperator] = await Promise.all([
+  const [sidebarCollapsed, assistantDockCollapsed, testWorkspaceOperator] = await Promise.all([
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),
-    getAssistantDocked(),
     isTestWorkspaceFeatureEnabled()
       ? requireTrustedTestWorkspaceOperator().then(() => true, () => false)
       : Promise.resolve(false),
@@ -80,7 +79,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <PortalAssistantRail
             managerName={profile?.full_name ?? null}
             initialCollapsed={assistantDockCollapsed}
-            initialDocked={assistantDocked}
           />
         </div>
       </div>

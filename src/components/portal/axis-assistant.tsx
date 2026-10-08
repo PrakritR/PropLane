@@ -3,72 +3,38 @@
 import {
   createContext,
   memo,
-  startTransition,
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 
-import { track } from "@/lib/analytics/track-client";
 import { ModalShell } from "@/components/ui/modal";
-import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
-import { AssistantSmsTestControl } from "@/components/portal/assistant-sms-test-control";
-import { AssistantChatHistoryPanel } from "@/components/portal/assistant-chat-history-panel";
-import {
-  AssistantEmptyState,
-  AssistantMessageList,
-  AssistantPanelHeader,
-  MANAGER_ASSISTANT_ENDPOINT,
-  RESIDENT_ASSISTANT_ENDPOINT,
-  VENDOR_ASSISTANT_ENDPOINT,
-} from "@/components/portal/assistant-panel-chrome";
-import {
-  AssistantPendingActionCard,
-  AxisAssistantSparkleIcon,
-  RESIDENT_ASSISTANT_SUGGESTIONS,
-  VENDOR_ASSISTANT_SUGGESTIONS,
-} from "@/components/portal/assistant-shared";
+import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
+import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
+import { MANAGER_ASSISTANT_ENDPOINT } from "@/components/portal/assistant-panel-chrome";
 import {
   AssistantConversationProvider,
   useOptionalAssistantConversation,
 } from "@/lib/axis-assistant/assistant-conversation-context";
-import { visibleConversationMessages } from "@/lib/axis-assistant/use-assistant-conversation";
 import { propertyCatalogScopeKey, subscribePropertyCatalogScope } from "@/lib/demo-property-pipeline";
 import { useActiveWorkspaceIdentity } from "@/hooks/use-selected-workspace-id";
-import { useAssistantDisplayMode } from "@/hooks/use-assistant-display-mode";
 import { useIsClient } from "@/hooks/use-is-client";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { useNativeChrome } from "@/hooks/use-is-native-app";
+import { useIsSmallPortalViewport } from "@/hooks/use-is-native-app";
 import { useVisualViewportBottomInset } from "@/hooks/use-visual-viewport-bottom-inset";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
-  DEFAULT_ASSISTANT_DISPLAY_MODE,
-  readAssistantDisplayMode,
-  setAssistantDisplayMode,
-  type AssistantDisplayMode,
-} from "@/lib/assistant-display-preferences";
-import { getAssistantDocked, setAssistantDocked, expandAssistantDock } from "@/lib/axis-assistant/dock-store";
-import {
   closeAxisAssistant,
   getAxisAssistantOpen,
-  openAxisAssistant,
   setAxisAssistantOpen,
   subscribeAxisAssistantOpen,
   subscribeAxisAssistantPrompt,
 } from "@/lib/axis-assistant/open-store";
-import { PortalAssistantConfigProvider, usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
-import { registerPortalAssistant } from "@/lib/general-assistant/open-store";
-import { cn } from "@/lib/utils";
-import {
-  shouldHideAssistantFab,
-  subscribeAssistantFabVisibility,
-} from "@/lib/axis-assistant/fab-visibility";
+import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 
 const AxisAssistantPresenceContext = createContext(false);
 
@@ -87,77 +53,8 @@ export function useHasAxisAssistant() {
   return useContext(AxisAssistantPresenceContext);
 }
 
-export type AxisAssistantDockState = {
-  /**
-   * True only where a full-height right rail can actually be shown: a portal
-   * that opted in via `dockable`, with a live signed-in session, outside the
-   * /demo sandbox. False everywhere else, which makes every dock affordance
-   * (the pin button, the rail, the Settings toggle) disappear rather than
-   * writing a preference nothing honors.
-   */
-  dockable: boolean;
-  mode: AssistantDisplayMode;
-  setMode: (mode: AssistantDisplayMode) => void;
-};
-
-const AxisAssistantDockContext = createContext<AxisAssistantDockState>({
-  dockable: false,
-  mode: "popup",
-  setMode: () => {},
-});
-
-/**
- * The manager's assistant display preference plus whether this portal can honor
- * it. Consumed by the popup's pin control, the right-rail dock, and the Settings
- * toggle so all three write the SAME persisted preference.
- */
-export function useAxisAssistantDock(): AxisAssistantDockState {
-  return useContext(AxisAssistantDockContext);
-}
-
 function useAxisAssistantOpen() {
   return useSyncExternalStore(subscribeAxisAssistantOpen, getAxisAssistantOpen, () => false);
-}
-
-function handleOpenAssistant() {
-  track("assistant_opened");
-  startTransition(() => {
-    openAxisAssistant();
-  });
-}
-
-/**
- * Assistant FAB — phones and tablets only. It floats above the bottom nav bar
- * in the native app (clearing it via the same measured
- * `--portal-native-bottom-nav-inset` the bar itself uses).
- *
- * At `lg`+ the top bar's Ask PropLane (and ⌘K) is the one entry point, so the
- * FAB never renders there (`lg:hidden`); below `lg` that bar is hidden and the
- * FAB is the assistant.
- */
-function AxisAssistantFixedTrigger() {
-  const open = useAxisAssistantOpen();
-  const hideFab = useSyncExternalStore(subscribeAssistantFabVisibility, shouldHideAssistantFab, () => false);
-  if (open || hideFab) return null;
-
-  return (
-    <button
-      type="button"
-      onClick={handleOpenAssistant}
-      aria-label="Open PropLane Assistant"
-      aria-expanded={open}
-      data-attr="axis-assistant-fab"
-      // A ringed card-background circle, not a filled primary one (AXI night
-      // sweep area 2e) — this used to be the identical filled blue circle as
-      // the page's own primary "+" (`PortalPrimaryIconAction`), same size,
-      // same corner, so the two were impossible to tell apart on phone. The
-      // page's "+" stays the only solid-blue circle on screen; the assistant
-      // reads as a secondary utility control that happens to float.
-      className="axis-assistant-fab group fixed bottom-[calc(var(--portal-native-bottom-nav-inset)+0.75rem)] right-[max(1.25rem,env(safe-area-inset-right))] z-[55] flex h-11 w-11 items-center justify-center rounded-full border border-primary/25 bg-card text-primary shadow-[0_12px_28px_-16px_rgba(15,23,42,0.45)] outline-none transition-[transform,filter] duration-200 hover:scale-105 hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95 lg:hidden"
-    >
-      <AxisAssistantSparkleIcon className="h-[18px] w-[18px]" />
-    </button>
-  );
 }
 
 const MemoizedLayoutSlot = memo(function MemoizedLayoutSlot({ children }: { children: ReactNode }) {
@@ -165,270 +62,75 @@ const MemoizedLayoutSlot = memo(function MemoizedLayoutSlot({ children }: { chil
 });
 
 /**
- * The panel lives outside the portal layout tree so opening the assistant does not
- * re-render dashboard/sidebar content (keeps INP under budget).
+ * The phone assistant: a full-screen sheet opened from the top bar's sparkle
+ * button, closed back to the page. It is NOT floating - desktop has no window
+ * of its own (the side panel is the assistant there, mounted by the layout's
+ * `<PortalAssistantRail>`). This component also owns the scripted-prompt
+ * channel, because it is mounted on every viewport inside the same
+ * conversation provider the side panel reads.
  */
 function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOINT }: { managerName?: string | null; endpoint?: string }) {
   const isClient = useIsClient();
-  const { dockable, setMode } = useAxisAssistantDock();
-  const showNativeChrome = useNativeChrome();
+  const isSmall = useIsSmallPortalViewport();
   const open = useAxisAssistantOpen();
-  const hideFab = useSyncExternalStore(subscribeAssistantFabVisibility, shouldHideAssistantFab, () => false);
-  const [panelReady, setPanelReady] = useState(false);
-  // This is the same provider consumed by the dock rail, so switching layouts
-  // cannot fork the conversation or strand a pending confirmation.
-  const {
-    input,
-    setInput,
-    attachments,
-    setAttachments,
-    messages,
-    ratings,
-    submitFeedback,
-    pendingAction,
-    loading,
-    error,
-    setError,
-    send,
-    resolvePendingAction,
-    threads,
-    activeThreadId,
-    historyOpen,
-    historyLoading,
-    historyError,
-    historySearch,
-    hasMoreHistory,
-    openHistory,
-    closeHistory,
-    searchHistory,
-    selectThread,
-    deleteThread,
-    loadMoreHistory,
-    hydrateArchive,
-    startNewChat,
-  } = useOptionalAssistantConversation(endpoint);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [historyPortal, setHistoryPortal] = useState<HTMLElement | null>(null);
-  const keyboardInset = useVisualViewportBottomInset(open && panelReady);
-  const smsTestActive = usePortalAssistantConfig()?.smsTest?.active ?? false;
+  const sheetOpen = open && isSmall;
+  const keyboardInset = useVisualViewportBottomInset(sheetOpen);
+  const { send } = useOptionalAssistantConversation(endpoint);
 
-  const firstName = managerName?.trim().split(/\s+/)[0] || null;
-  const visibleMessages = visibleConversationMessages(messages);
-  const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
-  const keyboardOpen = keyboardInset > 0;
-  const isVendorAssistant = endpoint === VENDOR_ASSISTANT_ENDPOINT;
-  const isResidentAssistant = endpoint === RESIDENT_ASSISTANT_ENDPOINT;
+  // The sheet only exists below `lg`; a resize up to desktop drops it (the
+  // side panel is the desktop surface).
+  useEffect(() => {
+    if (open && !isSmall && !isDemoModeActive()) closeAxisAssistant();
+  }, [isSmall, open]);
 
   useEffect(() => {
-    if (!open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset panel readiness when closed
-      setPanelReady(false);
-      return;
-    }
-    const frame = requestAnimationFrame(() => {
-      setPanelReady(true);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [open]);
-
-  useEffect(() => {
-    if (hideFab && open) closeAxisAssistant();
-  }, [hideFab, open]);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, loading]);
-
-  useEffect(() => {
-    if (!open || !panelReady || showNativeChrome) return;
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open, panelReady, showNativeChrome]);
-
-  useEffect(() => {
-    if (open) void hydrateArchive();
-  }, [hydrateArchive, open]);
-
-  useEffect(() => {
-    if (!open) {
+    if (!sheetOpen) {
       document.documentElement.removeAttribute("data-axis-assistant-open");
       return;
     }
     document.documentElement.setAttribute("data-axis-assistant-open", "");
     return () => document.documentElement.removeAttribute("data-axis-assistant-open");
-  }, [open]);
+  }, [sheetOpen]);
 
-  const closePanel = useCallback(() => {
+  const closeSheet = useCallback(() => {
     closeAxisAssistant();
   }, []);
 
-  // Presentation only: switching modes writes the preference and closes the
-  // popup so the rail takes over. It never touches the conversation transport.
-  const pinToRail = useCallback(() => {
-    setMode("docked");
-    closeAxisAssistant();
-  }, [setMode]);
-
-  // Scripted prompts (the /demo "Run demo" auto-play) submit through here.
+  // Scripted and launcher prompts submit through here, into the shared
+  // conversation, so the side panel and the sheet both show the answer.
   const sendRef = useRef<(prompt?: string) => void>(() => {});
   useEffect(() => {
     return subscribeAxisAssistantPrompt((prompt) => {
-      // Defer so the panel is mounted/open before the first scripted send.
+      // Defer so the surface is mounted/open before the first send.
       requestAnimationFrame(() => sendRef.current(prompt));
     });
   }, []);
-
-  // Keep the scripted-prompt sender pointing at the latest closure (updated
-  // after each render so it captures current messages/loading state).
   useEffect(() => {
     sendRef.current = (prompt?: string) => void send(prompt);
   });
 
-  const hideEmptyChrome = showNativeChrome && keyboardOpen && !hasConversation;
-
-  const panelStyle: CSSProperties | undefined = showNativeChrome
-    ? keyboardOpen
-      ? {
-          bottom: `${keyboardInset + 8}px`,
-          maxHeight: `calc(100dvh - var(--native-safe-top, 0px) - ${keyboardInset}px - 0.75rem)`,
-        }
-      : undefined
-    : keyboardOpen
-      ? {
-          transform: `translateY(-${keyboardInset}px)`,
-          maxHeight: `calc(100dvh - var(--native-safe-top, 0px) - var(--native-safe-bottom, 0px) - 5rem - ${keyboardInset}px)`,
-        }
-      : undefined;
-
-  const assistantPanelClassName = cn(
-    "axis-assistant-panel fixed z-[66] flex h-[min(38rem,calc(100dvh-7.5rem))] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-pop)] outline-none",
-    keyboardOpen && "axis-assistant-panel--keyboard",
-  );
+  if (!isClient || !sheetOpen) return null;
 
   return (
-    <>
-      <AxisAssistantFixedTrigger />
-      {isClient && open ? (
-        <ModalShell
-          open={open}
-          onClose={closePanel}
-          presentation="dialog"
-          stackClassName="axis-assistant-root fixed inset-0 z-[65]"
-          overlayClassName="axis-assistant-backdrop fixed inset-0"
-          centerClassName="contents"
-          contentRef={setHistoryPortal}
-          panelStyle={panelReady ? panelStyle : undefined}
-          panelClassName={assistantPanelClassName}
-          ariaLabelledBy={panelReady ? "axis-assistant-title" : undefined}
-          ariaLabel={panelReady ? undefined : "Opening PropLane Assistant"}
-          ariaBusy={panelReady ? undefined : true}
-        >
-          {panelReady ? (
-            <>
-          <AssistantPanelHeader
-            titleId="axis-assistant-title"
-            onClose={closePanel}
-            onPinToRail={dockable ? pinToRail : undefined}
-            onOpenHistory={openHistory}
-            onNew={() => {
-              void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-            }}
-            className="[html[data-native]_&]:py-1.5"
-          />
-
-          <AssistantSmsTestControl />
-
-          <AssistantChatHistoryPanel
-            open={historyOpen}
-            threads={threads}
-            activeThreadId={activeThreadId}
-            onSelect={selectThread}
-            onDelete={deleteThread}
-            onNewChat={() => {
-              void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-            }}
-            onClose={closeHistory}
-            loading={historyLoading}
-            error={historyError}
-            searchQuery={historySearch}
-            hasMore={hasMoreHistory}
-            onRetry={openHistory}
-            onLoadMore={loadMoreHistory}
-            onSearchQueryChange={searchHistory}
-            portalContainer={historyPortal}
-          />
-
-          {hideEmptyChrome ? null : (
-            <div
-              ref={scrollRef}
-              className={cn(
-                "flex flex-col overflow-y-auto px-[18px] py-3.5 [html[data-native]_&]:py-2",
-                hasConversation ? "min-h-0 flex-1" : "min-h-0 flex-1 [html[data-native]_&]:flex-none",
-              )}
-            >
-              {!hasConversation && smsTestActive ? (
-                <p className="m-auto max-w-sm rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-center text-xs leading-relaxed text-muted">
-                  Send the same short replies you would text. Type YES or NO when the SMS assistant asks for confirmation.
-                </p>
-              ) : !hasConversation ? (
-                <AssistantEmptyState
-                  firstName={firstName}
-                  showQueue={endpoint === MANAGER_ASSISTANT_ENDPOINT}
-                  onNavigate={closePanel}
-                  onPick={(prompt) => void send(prompt)}
-                  disabled={loading}
-                  hideChips={keyboardOpen}
-                  className="[html[data-native]_&]:flex-none"
-                  suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : isResidentAssistant ? RESIDENT_ASSISTANT_SUGGESTIONS : undefined}
-                />
-              ) : (
-                <AssistantMessageList
-                  messages={visibleMessages}
-                  ratings={ratings}
-                  onRate={submitFeedback}
-                  loading={loading}
-                  trailing={
-                    error ? (
-                      <p className="rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p>
-                    ) : null
-                  }
-                />
-              )}
-            </div>
-          )}
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send();
-            }}
-            className="shrink-0 bg-card px-3.5 pb-3.5 pt-2.5 [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom))]"
-          >
-            {pendingAction ? (
-              <AssistantPendingActionCard
-                pendingAction={pendingAction}
-                loading={loading}
-                onResolve={(decision) => void resolvePendingAction(decision)}
-              />
-            ) : null}
-            <AssistantChatComposer
-              input={input}
-              setInput={setInput}
-              attachments={attachments}
-              onAttachmentsChange={setAttachments}
-              onAttachmentError={(message) => setError(message)}
-              loading={loading}
-              inputRef={inputRef}
-              placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : isResidentAssistant ? "Ask about your home…" : "Ask about your portfolio…"}
-              allowAttachments={!smsTestActive}
-              onSend={() => void send()}
-            />
-          </form>
-            </>
-          ) : null}
-        </ModalShell>
-      ) : null}
-    </>
+    <ModalShell
+      open
+      onClose={closeSheet}
+      presentation="dialog"
+      hideOverlay
+      stackClassName="axis-assistant-root fixed inset-0 z-[65]"
+      centerClassName="contents"
+      panelClassName="axis-assistant-sheet fixed inset-x-0 top-0 z-[66] flex flex-col overflow-hidden bg-card outline-none"
+      panelStyle={{ bottom: keyboardInset > 0 ? `${keyboardInset}px` : 0 }}
+      ariaLabel="PropLane Assistant"
+    >
+      <AssistantDockPanel
+        managerName={managerName}
+        endpoint={endpoint}
+        onClose={closeSheet}
+        inputId={ASSISTANT_DOCK_INPUT_ID}
+        className="h-full rounded-none border-0 bg-transparent pt-[var(--native-safe-top,0px)] pb-[var(--native-safe-bottom,0px)]"
+      />
+    </ModalShell>
   );
 }
 
@@ -441,7 +143,6 @@ export function AxisAssistant({
   managerName,
   endpoint,
   smsTestPortal,
-  dockable = false,
   disabled = false,
   children,
 }: {
@@ -455,15 +156,7 @@ export function AxisAssistant({
   /** Opts an authenticated manager or resident portal into non-production SMS testing. */
   smsTestPortal?: "manager" | "resident";
   /**
-   * Opt this portal into the docked presentation: it must render
-   * `<PortalAssistantDockRail />` somewhere the rail can occupy the full-height
-   * right edge. Off by default, so every other portal — and the /demo sandbox,
-   * which drives its own scripted assistant — keeps the popup and never shows a
-   * pin control that leads nowhere.
-   */
-  dockable?: boolean;
-  /**
-   * Mount nothing: no launcher, no panel, no capability lookup. A "View as"
+   * Mount nothing: no sheet, no capability lookup. A "View as"
    * support session sets this, because the assistant acts as the signed-in
    * account and every agent route is a write the session may not make.
    */
@@ -471,33 +164,10 @@ export function AxisAssistant({
   children: ReactNode;
 }) {
   const { userId, ready: authReady } = useManagerUserId();
-  const { mode, setMode } = useAssistantDisplayMode(userId);
-
-  // One-time migration from the legacy cookie-backed dock flag to localStorage.
-  useEffect(() => {
-    if (!userId || !dockable || !authReady || isDemoModeActive()) return;
-    if (readAssistantDisplayMode(userId) !== DEFAULT_ASSISTANT_DISPLAY_MODE) return;
-    if (!getAssistantDocked()) return;
-    setAssistantDisplayMode(userId, "docked");
-    setAssistantDocked(false);
-    expandAssistantDock();
-  }, [authReady, dockable, userId]);
 
   useEffect(() => {
     return () => setAxisAssistantOpen(false);
   }, []);
-
-  // Announce to the site-wide general assistant that a portal-scoped assistant
-  // FAB is on screen, so it lifts its own FAB above ours (both are bottom-right).
-  useEffect(() => registerPortalAssistant(), []);
-
-  // The dock is a live, auth-gated surface: it is only offered once the session
-  // is known and never inside /demo (which must not reach `/api/agent/chat`).
-  const dockEnabled = dockable && authReady && !!userId && !isDemoModeActive();
-  const dockState = useMemo<AxisAssistantDockState>(
-    () => ({ dockable: dockEnabled, mode, setMode }),
-    [dockEnabled, mode, setMode],
-  );
 
   const chatEndpoint = endpoint ?? "/api/agent/chat";
   const workspace = useActiveWorkspaceIdentity();
@@ -610,7 +280,6 @@ export function AxisAssistant({
   return (
     <PortalAssistantConfigProvider endpoint={activeEndpoint} managerName={managerName ?? null} smsTest={smsTestConfig}>
       <AxisAssistantPresenceContext.Provider value={true}>
-        <AxisAssistantDockContext.Provider value={dockState}>
           <AssistantConversationProvider
             endpoint={activeEndpoint}
             archiveKey={`${userId ?? "anonymous"}:${workspace.id ?? ""}`}
@@ -618,7 +287,6 @@ export function AxisAssistant({
             <MemoizedLayoutSlot>{children}</MemoizedLayoutSlot>
             <AxisAssistantChrome managerName={managerName} endpoint={activeEndpoint} />
           </AssistantConversationProvider>
-        </AxisAssistantDockContext.Provider>
       </AxisAssistantPresenceContext.Provider>
     </PortalAssistantConfigProvider>
   );

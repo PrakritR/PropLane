@@ -11,10 +11,11 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { getAxisAssistantOpen, closeAxisAssistant } from "@/lib/axis-assistant/open-store";
+import { collapseAssistantDock, getAssistantDockCollapsed } from "@/lib/axis-assistant/dock-store";
 import { RESIDENT_UNIFIED_PORTAL_SECTIONS } from "@/lib/portals/resident-sections";
 import { vendorPortal } from "@/lib/portals/vendor";
 import { proPortal } from "@/lib/portals/pro";
@@ -33,10 +34,26 @@ vi.mock("@/hooks/use-is-native-app", () => ({
   useIsSmallPortalViewport: () => false,
 }));
 
+/** `small` = below lg (the phone sheet); otherwise desktop (the side panel). */
+function stubViewport(small: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width") ? small : !small,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+}
+
+beforeEach(() => {
+  window.history.replaceState({}, "", "/resident/dashboard");
+  stubViewport(true);
+});
+
 afterEach(() => {
   closeAxisAssistant();
+  collapseAssistantDock();
   cleanup();
   pushMock.mockClear();
+  vi.unstubAllGlobals();
 });
 
 const repoRoot = join(__dirname, "..", "..");
@@ -85,6 +102,15 @@ describe("PortalTopBar launcher", () => {
     renderStrip("vendor");
     fireEvent.click(screen.getByRole("button", { name: "Open PropLane Assistant" }));
     expect(getAxisAssistantOpen()).toBe(true);
+  });
+
+  it("on desktop the same button opens the side panel, never a pop-up", () => {
+    stubViewport(false);
+    renderStrip("resident");
+    expect(getAssistantDockCollapsed()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Open PropLane Assistant" }));
+    expect(getAssistantDockCollapsed()).toBe(false);
+    expect(getAxisAssistantOpen()).toBe(false);
   });
 
   it("keeps the launcher for the manager portal", () => {

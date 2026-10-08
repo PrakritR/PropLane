@@ -7,7 +7,6 @@ import { useState, type ReactNode } from "react";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
 import {
   AssistantMessageRating,
-  AssistantPinIcon,
   AssistantSuggestionChips,
   AxisAssistantSparkleIcon,
   type AssistantSuggestion,
@@ -18,7 +17,7 @@ import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
 import { cn } from "@/lib/utils";
 
 /**
- * The assistant's chrome, shared by the floating popup, the docked rail and
+ * The assistant's chrome, shared by the side panel, the phone sheet and
  * the in-dialog rail so they never drift: a header of words, not glyphs; an empty state that is
  * the manager's own queue rather than a sparkle; and one message list.
  */
@@ -40,17 +39,14 @@ export function AssistantPanelHeader({
   titleId,
   onClose,
   closeDataAttr = "axis-assistant-close",
-  onPinToRail,
   onOpenHistory,
   onNew,
   className,
 }: {
   titleId?: string;
-  /** Dismiss the assistant (popup, desktop rail, modal strip). Rendered at the right edge. */
+  /** Dismiss the assistant (side panel, phone sheet, modal strip). Rendered at the right edge. */
   onClose?: () => void;
   closeDataAttr?: string;
-  /** Popup on a desktop: pin into the right rail. */
-  onPinToRail?: () => void;
   /** History and New are never hidden: every surface binds them to its conversation's own actions. */
   onOpenHistory: () => void;
   onNew: () => void;
@@ -87,20 +83,6 @@ export function AssistantPanelHeader({
       >
         History
       </button>
-      {onPinToRail ? (
-        // Desktop-only: below `lg` there is no rail to pin into, so offering
-        // the control there would be a dead end.
-        <button
-          type="button"
-          onClick={onPinToRail}
-          aria-label="Pin PropLane Assistant to the right side"
-          title="Pin to the right side"
-          data-attr="axis-assistant-pin-to-dock"
-          className={cn(ICON_BTN, "hidden lg:grid")}
-        >
-          <AssistantPinIcon className="h-4 w-4" />
-        </button>
-      ) : null}
       {onClose ? (
         <button
           type="button"

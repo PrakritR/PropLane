@@ -21,7 +21,7 @@ import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { assertPortalLayoutRole } from "@/lib/auth/portal-layout-guard";
 import { vendorPortal } from "@/lib/portals/vendor";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
-import { getAssistantDockCollapsed, getAssistantDocked } from "@/lib/assistant-dock-state";
+import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { ViewAsBanner } from "@/components/portal/view-as-banner";
 import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
 
@@ -29,10 +29,9 @@ export default async function VendorLayout({ children }: { children: React.React
   await assertPortalLayoutRole("vendor", "vendor");
 
   const { profile } = await getEffectiveSessionForPortal("vendor");
-  const [sidebarCollapsed, assistantDockCollapsed, assistantDocked] = await Promise.all([
+  const [sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),
-    getAssistantDocked(),
   ]);
 
   // A "View as" support session: banner on top, assistant and its rail off.
@@ -88,7 +87,6 @@ export default async function VendorLayout({ children }: { children: React.React
             managerName={profile?.full_name ?? null}
             endpoint="/api/agent/vendor-chat"
             initialCollapsed={assistantDockCollapsed}
-            initialDocked={assistantDocked}
           />
         )}
       </div>
