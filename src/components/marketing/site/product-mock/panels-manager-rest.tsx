@@ -192,7 +192,7 @@ function BookingsCalendarCard({ rows, onOpen }: { rows: BookingFixtureRow[]; onO
   }));
   const staying = rows.filter((r) => r.status === "In-house").length;
   const checkIns = rows.filter((r) => r.bucket === "upcoming").length;
-  const rooms = PROPERTY_ROWS.reduce((sum, p) => sum + p.rooms, 0);
+  const rooms = PROPERTY_ROWS.reduce((sum, p) => sum + (ROOMS_BY_PROPERTY[p.title]?.length ?? 1), 0);
   const occupied = new Set(rows.filter((r) => r.status === "In-house").map((r) => r.place)).size;
 
   return (
@@ -256,14 +256,21 @@ function BookingsCalendarCard({ rows, onOpen }: { rows: BookingFixtureRow[]; onO
   );
 }
 
+/** The bookable rows of each sample house: a row per room, or the whole home when it is let as one. */
+const ROOMS_BY_PROPERTY: Record<string, string[]> = {
+  "Alder House": ["Room 1", "Room 2", "Room 3"],
+  "Maple Duplex": ["Unit A", "Unit B", "Unit C", "Unit D"],
+  "Willow Court": ["Room 1", "Room 2", "Room 3"],
+};
+
 function PropertyBlock({ property, stays, onOpen }: { property: PropertyFixtureRow; stays: BookingFixtureRow[]; onOpen: (row: BookingFixtureRow) => void }) {
-  const rooms = property.rooms > 1 ? Array.from({ length: property.rooms }, (_, i) => `Room ${i + 1}`) : ["Whole home"];
+  const rooms = ROOMS_BY_PROPERTY[property.title] ?? ["Whole home"];
   return (
     <div className="border-t border-border">
       <div className="bg-[#f0f4fe] px-3 py-1.5 text-[12px] font-semibold text-foreground">{property.title}</div>
-      {rooms.map((room, index) => {
-        const stay = stays.find((s) => (s.place.includes("·") ? s.place.endsWith(room) || (room === "Room 1" && index === 0 && !s.place.includes("Room")) : index === 0));
-        const span = stay ? barSpan(stay.stay) : null;
+      {rooms.map((room) => {
+        // A whole-home row holds the bookings that name no room; a room row holds the ones that end with its name.
+        const own = stays.filter((s) => (room === "Whole home" ? !s.place.includes("·") : s.place.endsWith(room)));
         return (
           <div key={room} className="relative grid items-center border-t border-border" style={{ gridTemplateColumns: `150px repeat(${DAYS.length}, minmax(0, 1fr))`, minHeight: 34 }}>
             <div className="px-3 text-[12px] text-foreground">
@@ -273,20 +280,25 @@ function PropertyBlock({ property, stays, onOpen }: { property: PropertyFixtureR
             {DAYS.map((d) => (
               <div key={d.toISOString()} className={`h-full border-l border-border ${[0, 6].includes(d.getDay()) ? "bg-[#f4f5f7]" : ""}`} />
             ))}
-            {stay && span ? (
-              <button
-                type="button"
-                onClick={() => onOpen(stay)}
-                aria-label={`${stay.guest}, ${stay.status}`}
-                className={`absolute top-1 h-[26px] truncate rounded-lg px-2 text-left text-[11px] font-semibold ${BAR_COLOR[stay.status]}`}
-                style={{
-                  left: `calc(150px + (100% - 150px) * ${span.from} / ${DAYS.length} + 2px)`,
-                  width: `calc((100% - 150px) * ${span.to - span.from + 1} / ${DAYS.length} - 4px)`,
-                }}
-              >
-                {stay.guest}
-              </button>
-            ) : null}
+            {own.map((stay) => {
+              const span = barSpan(stay.stay);
+              if (!span) return null;
+              return (
+                <button
+                  key={stay.id}
+                  type="button"
+                  onClick={() => onOpen(stay)}
+                  aria-label={`${stay.guest}, ${stay.status}`}
+                  className={`absolute top-1 h-[26px] truncate rounded-lg px-2 text-left text-[11px] font-semibold ${BAR_COLOR[stay.status]}`}
+                  style={{
+                    left: `calc(150px + (100% - 150px) * ${span.from} / ${DAYS.length} + 2px)`,
+                    width: `calc((100% - 150px) * ${span.to - span.from + 1} / ${DAYS.length} - 4px)`,
+                  }}
+                >
+                  {stay.guest}
+                </button>
+              );
+            })}
           </div>
         );
       })}

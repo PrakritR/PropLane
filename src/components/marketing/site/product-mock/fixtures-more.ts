@@ -45,10 +45,10 @@ export type BookingFixtureRow = {
 };
 
 export const BOOKING_ROWS: BookingFixtureRow[] = [
-  { id: "bk-1", guest: "Hannah Brooks", place: "Fremont Studio", stay: "Oct 3 – Oct 10", status: "Confirmed", rate: "$142/night", source: "Airbnb", bucket: "upcoming" },
-  { id: "bk-2", guest: "Hold", place: "Maple Duplex · Unit A", stay: "Oct 14 – Oct 17", status: "Hold", rate: "$118/night", bucket: "upcoming" },
-  { id: "bk-3", guest: "Tom Weaver", place: "Fremont Studio", stay: "Sep 22 – Sep 28", status: "In-house", rate: "$142/night", source: "Booking.com", bucket: "inhouse" },
-  { id: "bk-4", guest: "Elena Cruz", place: "Alder House · Room 3", stay: "Sep 4 – Sep 9", status: "Checked out", rate: "$96/night", bucket: "past" },
+  { id: "bk-1", guest: "Hannah Brooks", place: "Alder House · Room 3", stay: "Oct 3 – Oct 10", status: "Confirmed", rate: "$96/night", source: "Airbnb", bucket: "upcoming" },
+  { id: "bk-2", guest: "Hold", place: "Maple Duplex · Unit A", stay: "Oct 8 – Oct 11", status: "Hold", rate: "$118/night", bucket: "upcoming" },
+  { id: "bk-3", guest: "Tom Weaver", place: "Alder House · Room 2", stay: "Sep 22 – Sep 28", status: "In-house", rate: "$96/night", source: "Booking.com", bucket: "inhouse" },
+  { id: "bk-4", guest: "Elena Cruz", place: "Fremont Studio", stay: "Sep 4 – Sep 9", status: "Checked out", rate: "$142/night", bucket: "past" },
 ];
 
 /* ── Manager: Promotion ── */

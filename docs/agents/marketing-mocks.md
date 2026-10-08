@@ -77,10 +77,14 @@ that tab.
   from every scroller inside the screen), and both go when everything is in view. The
   Replaces strip wraps instead of scrolling; the phone's sidebar strip fades at its
   edge; a placeholder that does not fit ends in an ellipsis.
-- **One phone, sticky.** `ResidentLifecyclePrototypes` takes the replaces strip
+- **One phone, sticky and centred.** `ResidentLifecyclePrototypes` takes the replaces strip
   and the lifecycle rows as `children`, so the phone beside the window stays on
   screen (sticky from `lg`, inline under the window below it) through the hero,
-  the demo and every row; rows draw no phone of their own. Captions are roles:
+  the demo and every row; rows draw no phone of their own. From `lg` the phone sits
+  vertically centred in the viewport on the right (captain 2026-10-07: "keep the phone
+  centered on screen, in the middle on the right side"): `.rlp-story-phone-slot` is sticky
+  with `top: max(header + 12px, 50svh - phone height / 2)` (`resident-lifecycle-hero.css`),
+  and nothing scroll-driven moves it. Captions are roles:
   "Resident's phone" (manager portal), "Manager's phone" (resident portal, the
   thread mirrored), "Vendor's phone".
 - **People are shown by role**: "Manager", "Resident", "Vendor" in the window
@@ -89,9 +93,31 @@ that tab.
   own account is `RESIDENT_SELF`.
 - **Every window is one fixed size** (hero and rows): the screen scrolls inside
   it and never grows it (the hero window GROWS on scroll as a transform only; see the next section). The focus ring on a sidebar item sits inside the sidebar.
+- **The sidebar is the real sidebar, not a copy** (captain 2026-10-07: "same sidebar tabs"). `DEMO_TABS`
+  (`site/product-mock/demo-nav.ts`) is `buildPortalNavItems` over the real portal definitions (`proPortal`,
+  the resident catalog, `vendorPortal`) bucketed by the real `groupNavItems` / `PORTAL_NAV_GROUPS`: same rows,
+  labels, order, groups, icons (`PortalNavIcon`), count badges (`PortalNavCountBadge`, red for unread mail and
+  overdue money, a quiet number otherwise), the vendor Finances' nested rows with the chevron, and the real
+  "Conversations" group. A tab id IS the real section id (`move-in`, `work-orders`, `payments`). Never write a
+  second list: `tests/unit/home-demo-nav-parity.test.ts` rebuilds the expectation from `PORTAL_NAV_GROUPS` and
+  fails when a section is added, renamed, moved or left without a panel.
 - **Panels come through one contract**, `site/product-mock/demo-panels.tsx`:
-  `DEMO_TABS`, `DemoPanel({ portal, tab })`. Only the manager Communication
-  thread is drawn by the demo itself (Akhil's, tied to the phone).
+  `DemoPanel({ portal, tab })`, one entry per real section id. Only the manager Communication
+  thread is drawn by the demo itself (Akhil's, tied to the phone). The tabs the first pass lacked live in
+  `panels-manager-rest.tsx` (Tasks, Bookings, Promotion, Forms, Outgoing payments, Finances, Documents),
+  `panels-resident-more.tsx` (Tour, Documents) and `panels-vendor.tsx` (Documents, Finances) from
+  `fixtures-more.ts`; each copies the real page's tabs, search placeholder, header icon actions and row anatomy
+  (read from its component), and the list-band icon vocabulary guard still applies (a Landmark or Withdraw icon
+  belongs in the balance strip, not the command band).
+- **The Dashboards are the real dashboards' own pieces** (`site/product-mock/dashboards.tsx`). Manager:
+  `KpiCard` with bars and "vs last month" deltas, `AttentionPanel` fed by the real `buildManagerAttentionRows`,
+  `UpcomingPanel`, `PortfolioPropertiesSection`, the real cash-flow `MonthlyProfitChart`, and "Everything open"
+  built from the `AttentionGroup` / `IssueRow` / `StatusPill` that `pro-dashboard.tsx` exports (the real
+  `ManagerDashboard` also holds its data hooks, so the tree is composed in the same order and spacing).
+  Resident: `ResidentJourneyBanner`, `ResidentKpiTile` and the Needs attention groups exported by
+  `resident-dashboard.tsx`. Vendor: `VendorDashboardView`, the presentational half of the real `VendorDashboard`
+  (the real page renders the same component). No "Welcome back" unless the real page has it. Every number is read
+  off the rows the other tabs draw (`world.ts`).
 - **Nothing writes.** No network request, nothing saved; a vendor is never shown
   the street address before a quote is accepted (offers say the general area).
 

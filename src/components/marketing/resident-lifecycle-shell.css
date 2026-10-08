@@ -193,6 +193,20 @@
     0 0 0 2px var(--pls-rail),
     0 0 0 4px #fff;
 }
+.rlp-page .pls .pls-tile-mark {
+  width: 18px;
+  height: 18px;
+  color: var(--pls-blue, #1f55e0);
+}
+/* The resident and vendor sidebars name the product, not a workspace (no switcher). */
+.rlp-page .pls .pls-brand-name {
+  margin: 0;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  color: var(--pls-ink);
+  font-size: 16px;
+}
 .rlp-page .pls .pls-tile-add {
   border: 1px dashed rgba(255, 255, 255, 0.32);
   background: transparent;
@@ -355,14 +369,16 @@
   display: none;
 }
 .rlp-page .pls .pls-group {
-  display: block;
-  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 12px;
 }
 .rlp-page .pls .pls-group:first-child {
   margin-top: 0;
 }
 .rlp-page .pls .pls-group-label {
-  margin: 6px 0 0;
+  margin: 0;
   padding: 0;
   color: #7a808b;
   font-size: 12px;
@@ -397,8 +413,8 @@
 }
 .rlp-page .pls .pls-item {
   width: 100%;
-  height: 30px;
-  min-height: 30px;
+  height: 32px;
+  min-height: 32px;
   margin: 0;
   padding: 0 8px;
   display: flex;

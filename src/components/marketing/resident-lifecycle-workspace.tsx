@@ -286,6 +286,8 @@ export function ResidentLifecycleWorkspace({
     };
   }, []);
 
+  // Only the manager portal is a workspace portal (a workspace switcher); the resident and vendor sidebars say "PropLane".
+  const isWorkspace = portal === "manager";
   const groups = groupTabs(tabs);
   const subline = portal === "manager" ? `${meta.product} · ${PROPERTY_ROWS.length} houses` : meta.product;
   const workspaceInitials = meta.workspace
@@ -321,7 +323,7 @@ export function ResidentLifecycleWorkspace({
         </div>
         <button type="button" className="rlp-assistant pls-search" onClick={() => needs && setAssistantOpen(true)}>
           <Sparkles aria-hidden />
-          <span>Ask PropLane or search {meta.workspace}</span>
+          <span>Ask PropLane or search {isWorkspace ? meta.workspace : meta.label}</span>
           <kbd>⌘K</kbd>
         </button>
         <div className="pls-strip-right">
@@ -339,12 +341,14 @@ export function ResidentLifecycleWorkspace({
         </div>
       </header>
       <div className="pls-rail">
-        <span className="pls-tile pls-tile-active" title={meta.workspace}>
-          {workspaceInitials}
+        <span className="pls-tile pls-tile-active" title={isWorkspace ? meta.workspace : "PropLane"}>
+          {isWorkspace ? workspaceInitials : <ProPlaneMarkIcon className="pls-tile-mark" />}
         </span>
-        <span className="pls-tile pls-tile-add" aria-hidden>
-          <Plus />
-        </span>
+        {isWorkspace ? (
+          <span className="pls-tile pls-tile-add" aria-hidden>
+            <Plus />
+          </span>
+        ) : null}
         <span className="pls-rail-gap" />
         <span className="pls-rail-help" aria-hidden>
           <CircleHelp />
@@ -353,9 +357,15 @@ export function ResidentLifecycleWorkspace({
       </div>
       <aside className="rlp-sidebar pls-side" aria-label={`${meta.label} sidebar`}>
         <div className="pls-side-head">
-          <button type="button" className="rlp-workspace-name pls-workspace-name" onClick={() => {}}>
-            <strong>{meta.workspace}</strong> <ChevronDown aria-hidden />
-          </button>
+          {isWorkspace ? (
+            <button type="button" className="rlp-workspace-name pls-workspace-name" onClick={() => {}}>
+              <strong>{meta.workspace}</strong> <ChevronDown aria-hidden />
+            </button>
+          ) : (
+            <p className="rlp-workspace-name pls-workspace-name pls-brand-name">
+              <strong>PropLane</strong>
+            </p>
+          )}
           <span className="pls-side-compose" aria-hidden>
             <SquarePen />
           </span>
