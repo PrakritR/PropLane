@@ -155,3 +155,77 @@ export async function publishInstagramPhoto(args: { igAccountId: string; token: 
   });
   return published.id;
 }
+
+/** A Reels container failed processing (status_code ERROR/EXPIRED) or never finished: retrying the same file will not help. */
+export class MetaReelError extends Error {
+  readonly retryable = false;
+  constructor(message: string) {
+    super(message);
+    this.name = "MetaReelError";
+  }
+}
+
+export type PublishReelDeps = { sleep?: (ms: number) => Promise<void>; pollMs?: number; capMs?: number };
+
+/**
+ * Instagram Reels: POST /{ig}/media (media_type=REELS, video_url, caption), poll /{container}?fields=status_code
+ * until FINISHED (ERROR/EXPIRED throw MetaReelError), then POST /{ig}/media_publish. Returns the media id.
+ * video_url must be publicly reachable. TODO(inferred): the full status_code list (IN_PROGRESS, PUBLISHED) is not on the reference page.
+ */
+export async function publishInstagramReel(
+  args: { igAccountId: string; token: string; videoUrl: string; caption: string },
+  deps: PublishReelDeps = {},
+): Promise<string> {
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const pollMs = deps.pollMs ?? 5_000;
+  const capMs = deps.capMs ?? 5 * 60_000;
+  const container = await graph<{ id: string }>("POST", `${args.igAccountId}/media`, {
+    media_type: "REELS",
+    video_url: args.videoUrl,
+    caption: args.caption,
+    share_to_feed: "true",
+    access_token: args.token,
+  });
+  let waited = 0;
+  for (;;) {
+    const st = await graph<{ status_code?: string; status?: string }>("GET", container.id, { fields: "status_code", access_token: args.token });
+    if (st.status_code === "FINISHED") break;
+    if (st.status_code === "ERROR" || st.status_code === "EXPIRED") {
+      throw new MetaReelError(`Instagram could not process the reel (${st.status_code}${st.status ? `: ${st.status}` : ""})`);
+    }
+    if (waited >= capMs) throw new MetaReelError("Instagram reel processing timed out after 5 minutes");
+    await sleep(pollMs);
+    waited += pollMs;
+  }
+  const published = await graph<{ id: string }>("POST", `${args.igAccountId}/media_publish`, {
+    creation_id: container.id,
+    access_token: args.token,
+  });
+  return published.id;
+}
+
+export type InstagramMediaInsights = {
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saved: number | null;
+  raw: Record<string, number>;
+};
+
+/**
+ * GET /{media}/insights?metric=views,likes,comments,shares,saved,reach. Lifetime values. `views` is the documented play-count
+ * metric for Reels (`plays` is not listed). TODO(inferred): a metric Meta rejects for a media type fails the whole call.
+ */
+export async function fetchInstagramMediaInsights(mediaId: string, token: string): Promise<InstagramMediaInsights> {
+  const res = await graph<{ data?: Array<{ name: string; values?: Array<{ value?: number }> }> }>("GET", `${mediaId}/insights`, {
+    metric: "views,likes,comments,shares,saved,reach",
+    access_token: token,
+  });
+  const raw: Record<string, number> = {};
+  for (const m of res.data ?? []) {
+    const v = m.values?.[0]?.value;
+    if (typeof v === "number") raw[m.name] = v;
+  }
+  return { views: raw.views ?? null, likes: raw.likes ?? null, comments: raw.comments ?? null, shares: raw.shares ?? null, saved: raw.saved ?? null, raw };
+}

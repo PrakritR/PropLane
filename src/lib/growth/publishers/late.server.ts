@@ -7,6 +7,7 @@ import type { GrowthPlatform, GrowthPublisher, PublishInput, PublishResult } fro
 // UNVERIFIED (TODO): the exact request schema was not fully readable from the docs; the shape below follows
 // the documented controls (content, platforms[{platform, accountId}], mediaItems, publishNow) and the
 // documented Idempotency-Key header. Confirm against the OpenAPI spec before enabling in production.
+// Video (Phase 2): reels pass through as mediaItems [{type:"video", url}]. TODO(inferred): the video item shape mirrors the image one.
 const LATE_BASE = process.env.GROWTH_LATE_BASE_URL?.trim() || "https://getlate.dev/api";
 
 const PLATFORM_MAP: Partial<Record<GrowthPlatform, string>> = {

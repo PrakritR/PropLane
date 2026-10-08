@@ -15,6 +15,7 @@ import type {
   GrowthPostStatus,
   GrowthPublication,
   GrowthPublisherId,
+  GrowthScene,
 } from "@/lib/growth/types";
 
 const BASE = "/api/admin/growth";
@@ -40,6 +41,14 @@ export type GrowthPublisherStatus = {
   message: string | null;
   keys: Record<GrowthPublisherId, boolean>;
 };
+
+export type GrowthVideoStatus = {
+  clip: { driver: "veo" | "kling"; keyPresent: boolean };
+  voice: { keyPresent: boolean };
+  estimatePerReelUsd: { clip: number; voice: number; total: number };
+};
+
+export type GrowthRenderResult = { renderRequested: boolean; command: string };
 
 export type GrowthAccountsView = { accounts: GrowthAccount[]; publisher: GrowthPublisherStatus | null };
 
@@ -105,6 +114,7 @@ export const growthApi = {
     call(`/posts/${encodeURIComponent(id)}`, {}, (j): GrowthPostView => ({
       ...one<GrowthPostView>(j, "post"),
       publications: arr<GrowthPublication>(j, "publications"),
+      assets: ((j.post as { assets?: GrowthAsset[] } | undefined)?.assets ?? []),
     })),
   patchPost: (
     id: string,
@@ -120,6 +130,15 @@ export const growthApi = {
     call(`/posts/${encodeURIComponent(id)}/archive`, { method: "POST", body: {} }, (j) => one<GrowthPostView>(j, "post")),
   regenerate: (id: string) =>
     call(`/posts/${encodeURIComponent(id)}/regenerate`, { method: "POST", body: {} }, (j) => one<GrowthPostView>(j, "post")),
+  saveScenes: (id: string, scenes: GrowthScene[]) =>
+    call(`/posts/${encodeURIComponent(id)}/scenes`, { method: "PATCH", body: { scenes } }, (j) => one<GrowthPostView>(j, "post")),
+  /** On 501 the error is the explanation; the runbook command is always `node scripts/growth-render.mjs <id>`. */
+  render: (id: string) =>
+    call(`/posts/${encodeURIComponent(id)}/render`, { method: "POST", body: {} }, (j): GrowthRenderResult => ({
+      renderRequested: j.renderRequested === true,
+      command: typeof j.command === "string" ? j.command : `node scripts/growth-render.mjs ${id}`,
+    })),
+  videoStatus: () => call("/video-status", {}, (j) => j.status as GrowthVideoStatus),
   retryPublication: (id: string) =>
     call(`/publications/${encodeURIComponent(id)}/retry`, { method: "POST", body: {} }, () => true as const),
   listAccounts: () => call("/accounts", {}, (j): GrowthAccountsView => ({

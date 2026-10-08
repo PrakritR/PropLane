@@ -10,6 +10,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { formatPacificDate, pacificCalendarDateYmd, pacificStartOfDayMs } from "@/lib/pacific-time";
 import { growthApi, type GrowthPostView } from "@/lib/growth/client";
 import { GROWTH_PLATFORMS, type GrowthCaptions, type GrowthPlatform } from "@/lib/growth/types";
+import { ReelStudio } from "@/components/portal/growth-reel-studio";
 import {
   FORMAT_LABEL,
   GrowthErrorBanner,
@@ -108,6 +109,7 @@ export function GrowthPostDetail({ postId }: { postId: string }) {
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [tab, setTab] = useState<"post" | "reel">("post");
 
   const patch = useCallback(
     async (fields: Parameters<typeof growthApi.patchPost>[1]) => {
@@ -171,6 +173,26 @@ export function GrowthPostDetail({ postId }: { postId: string }) {
           <GrowthPublicationList publications={post.publications ?? []} />
         </div>
       ) : null}
+      {post.format !== "text" ? (
+        <div className="flex gap-1" role="tablist" aria-label="Post sections" data-attr="admin-growth-post-tabs">
+          {([["post", "Post"], ["reel", "Reel studio"]] as const).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              data-attr={`admin-growth-post-tab-${k}`}
+              onClick={() => setTab(k)}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold ${tab === k ? "border-primary bg-primary text-white" : "border-border bg-card text-muted hover:text-foreground"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {tab === "reel" && post.format !== "text" ? (
+        <ReelStudio key={post.id} post={post} locked={locked} onPost={(p) => setPost(p)} />
+      ) : (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
         <div className="space-y-4">
           <Field label="Title (internal)">
@@ -311,6 +333,7 @@ export function GrowthPostDetail({ postId }: { postId: string }) {
         </div>
         <PhonePreview post={post} />
       </div>
+      )}
     </div>
   );
 }

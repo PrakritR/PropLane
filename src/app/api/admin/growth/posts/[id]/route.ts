@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { adminRoute, json } from "@/lib/growth/admin-api.server";
+import { growthDb, mapAsset, must } from "@/lib/growth/db.server";
 import { getPost, listPublications, patchPost } from "@/lib/growth/posts.server";
 import { isoSchema, platformSchema, sceneSchema, uuidSchema } from "../../schemas";
 
@@ -12,7 +13,8 @@ export async function GET(_req: Request, { params }: Ctx) {
     if (!uuidSchema.safeParse(id).success) return json({ error: "Invalid id." }, 400);
     const post = await getPost(id);
     if (!post) return json({ error: "Post not found" }, 404);
-    return json({ post, publications: await listPublications(id) });
+    const assetRows = must(await growthDb().from("growth_assets").select("*").eq("post_id", id).order("created_at"), "assets") as Record<string, unknown>[];
+    return json({ post: { ...post, assets: assetRows.map(mapAsset) }, publications: await listPublications(id) });
   });
 }
 

@@ -104,6 +104,11 @@ export async function patchPost(id: string, patch: PostPatch, db: GrowthDb = gro
   return mapPost(data as Record<string, unknown>);
 }
 
+/** Replace the scenes array wholesale (validated by the route; the Reel studio tab saves the whole list). */
+export async function replaceScenes(id: string, scenes: GrowthScene[], db: GrowthDb = growthDb()): Promise<GrowthPost> {
+  return patchPost(id, { scenes }, db);
+}
+
 async function requirePost(id: string, db: GrowthDb): Promise<GrowthPost> {
   const post = await getPost(id, db);
   if (!post) throw new Error("Post not found");
