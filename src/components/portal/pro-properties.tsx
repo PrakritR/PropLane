@@ -184,7 +184,7 @@ export function ManagerProperties({
    * Resolves whether the portfolio is now SERVER-TRUE. A false here means the
    * local counts below are whatever this browser happened to be holding.
    */
-  const refreshPortfolio = useCallback(async (): Promise<boolean> => {
+  const refreshPortfolio = useCallback(async (force = true): Promise<boolean> => {
     if (!scopeUserId) {
       setPropCount(0);
       return false;
@@ -192,7 +192,7 @@ export function ManagerProperties({
     let synced = false;
     if (!isDemoModeActive()) {
       try {
-        synced = await syncManagerPortfolioFromServer(scopeUserId, { force: true });
+        synced = await syncManagerPortfolioFromServer(scopeUserId, { force });
       } catch {
         /* offline or dev server recompiling */
       }
@@ -236,7 +236,10 @@ export function ManagerProperties({
     queueMicrotask(() => {
       // No page-load re-upload: the sync replaces this browser's copy with the
       // server's, and unsent local writes ride the property-record outbox.
-      void refreshPortfolio();
+      // Mount reads the TTL + in-flight guarded path so switching tabs back
+      // to Properties does not refetch the whole portfolio; writes and
+      // explicit refreshes below still force.
+      void refreshPortfolio(false);
     });
     const on = (e: Event) => {
       // A sync-originated event already delivered the fresh snapshot into the

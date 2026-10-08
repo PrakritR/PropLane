@@ -28,6 +28,8 @@ import {
 import { adjacentPrimarySection, resolveSwipePageDirection } from "@/lib/native/portal-swipe-page";
 import { playSwipeEnter, playSwipeExit, resetSwipeTransform } from "@/lib/native/portal-swipe-page-transition";
 import { observeNativeBottomNavInset } from "@/lib/native/sync-portal-bottom-nav-inset";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { scheduleIdleTabPrefetch } from "@/lib/portal-idle-tab-prefetch";
 import {
   isCrossPortalNavigation,
   portalNavClick,
@@ -324,6 +326,24 @@ export function PortalSidebar({
   useEffect(() => {
     swipeOrderRef.current = nativeBottomNavItems;
   }, [nativeBottomNavItems]);
+
+  // Warm the bottom-tab routes once the page has settled (idle, production
+  // only, skipped on save-data / slow links / hidden tabs). See
+  // `portal-idle-tab-prefetch.ts`; background prefetch itself stays off.
+  const idlePrefetchKey = useMemo(
+    () =>
+      showBottomNavBar
+        ? nativeBottomNavItems
+            .filter((item) => !isSectionLocked(item.section))
+            .map((item) => resolveNavItemHref(item))
+            .join("|")
+        : "",
+    [isSectionLocked, nativeBottomNavItems, resolveNavItemHref, showBottomNavBar],
+  );
+  useEffect(() => {
+    if (!idlePrefetchKey || isDemoModeActive()) return;
+    return scheduleIdleTabPrefetch(idlePrefetchKey.split("|"), (href) => prefetchPortalHref(router, href));
+  }, [idlePrefetchKey, router]);
 
   useEffect(() => {
     activeSectionRef.current = activeSection;

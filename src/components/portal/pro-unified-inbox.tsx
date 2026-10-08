@@ -577,12 +577,15 @@ export function ManagerUnifiedInbox({
       adapter.syncDirectory
         ? retryWhileStale(() => adapter.syncDirectory!(viewerId))
         : Promise.resolve({ ok: true, stale: false }),
-      // force: true — this is the load that decides whether the page is
-      // "ready" or "error" (and the one an explicit Retry re-runs via
-      // retryInitialList below), so it must always be a genuine new attempt,
-      // never the shared sms-conversations TTL cache's last (possibly
-      // failed, possibly another caller's) response.
-      loadSms({ force: true, initialGeneration: requestGeneration }),
+      // force unless this is a remount that already proved the list ready
+      // (`hadCachedSnapshot`): the first load of a session decides whether the
+      // page is "ready" or "error" (and the one an explicit Retry re-runs via
+      // retryInitialList below), so it must be a genuine new attempt, never
+      // the shared sms-conversations TTL cache's last (possibly failed,
+      // possibly another caller's) response. A tab switch BACK to this page
+      // revalidates silently on the TTL + in-flight guarded path instead of
+      // refetching the whole list every time.
+      loadSms({ force: !hadCachedSnapshot, initialGeneration: requestGeneration }),
     ]);
     if (requestGeneration !== initialLoadGeneration.current) return;
     if (inbox.stale || applications.stale) {
@@ -667,11 +670,10 @@ export function ManagerUnifiedInbox({
     };
     const id = window.setInterval(tick, 20_000);
     const onVis = () => {
-      // force: true — "fresh the moment the manager returns" (see comment
-      // above) means an actual new request, not the TTL cache's last result
-      // (which could be a stale success or, per the test this covers, a
-      // just-cached failure from moments before backgrounding).
-      if (document.visibilityState === "visible") void loadSms({ force: true });
+      // Refocus reads through the 20s TTL: the poll above keeps a visible
+      // page at most that old, so anything older than the window refetches
+      // here and a quick app switch does not hit the network at all.
+      if (document.visibilityState === "visible") void loadSms();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
