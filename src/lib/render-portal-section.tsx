@@ -14,7 +14,7 @@ import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
-import { resolveVendorSettingsTab } from "@/lib/portals/vendor-settings-pages";
+import { resolveVendorSettingsTab, vendorSettingsMovedHref } from "@/lib/portals/vendor-settings-pages";
 import { resolveSettingsRedirectHubTab } from "@/lib/portal-settings-section";
 import type { PortalPanels } from "@/lib/render-portal-section/panels";
 import type { Crumb } from "@/components/layout/breadcrumbs";
@@ -557,6 +557,8 @@ export async function renderPortalSectionWith(
   if (kind === "vendor" && section === "settings") {
     if (tabParts && tabParts.length > 1) notFound();
     const raw = tabParts?.[0] ?? firstSearchParam(searchParams, "tab");
+    const moved = vendorSettingsMovedHref(raw, def.basePath);
+    if (moved) redirect(moved);
     const tab = resolveVendorSettingsTab(raw);
     redirect(`${def.basePath}/profile${tab ? `?tab=${encodeURIComponent(tab)}` : ""}`);
   }
@@ -570,6 +572,8 @@ export async function renderPortalSectionWith(
   }
   if (kind === "vendor" && section === "profile") {
     if (tabParts?.length) notFound();
+    const movedTab = vendorSettingsMovedHref(firstSearchParam(searchParams, "tab"), def.basePath);
+    if (movedTab) redirect(movedTab);
     return <VendorSettingsPanel />;
   }
   if (kind === "vendor" && section === "reviews") {
