@@ -339,3 +339,33 @@ footer links to the full conversation on the Communication page. Offer, bid and 
 stamped with `{kind: "service", id}` (`serviceRecordRefForEvent`, `action-events.server.ts`,
 `vendor-notification-delivery.ts`, `notifyWorkOrderEvent`). A thread keeps the FIRST ref it is stamped with, so
 one party's single conversation is attributed to whichever service spoke to them first.
+
+### Everyone, the To picker, and later jobs (plan admin-money-1008, D9 + D8)
+
+- **Everyone is the default tab** once the job has more than one party (a resident-only service shows just that
+  thread). It is ONE time-ordered timeline of the resident's and every vendor's turns about THIS service
+  (`serviceThreadsForEveryone` + `serviceTimeline`, `service-communication-scope.ts`; the union of each party's
+  `serviceThreadsForParty`). Every turn is named: an inbound one "Liam Foster · Resident" / "Pacific Plumbing ·
+  Vendor", the manager's "You · to Pacific Plumbing" (`InboxBubbleMessage.authorNote`; a run only clusters with
+  turns of the same sender). The per-party tabs follow it and are unchanged.
+- **The manager relays; privacy is unchanged.** The composer's **To** dropdown picks exactly one party. A send goes to
+  that party's address through the same `POST /api/portal/send-inbox-message` with the recordRef of the record that
+  party is written to about (a vendor: the linked job's id, `serviceRefForParty`). The resident and a vendor never see
+  each other's thread or contact details; an offered (not accepted) vendor still gets the projected row with no
+  resident name or phone (`tests/unit/manager-service-workflow.test.ts`, `tests/unit/add-on-vendor-job.test.ts`). A true group thread is a separate plan.
+- **A later job with the same vendor shows its own messages.** The thread keeps the first job's `recordRef`, so each
+  TURN is also stamped with the record it was composed from (`InboxThreadMessage.recordRef`, written by
+  `deliverPortalMessageThreadSide` / `commitInboxThreadReply`). A thread is about a service when its recordRef,
+  its `workOrderId`, its dispatch-agent id (`vendor_agent_<work order>_<vendor>`) or any of its turns says so
+  (`threadAboutService`); a service then shows only its own turns (`messageAboutService`: a stamped turn answers
+  for itself, an unstamped one belongs to the thread's ref).
+- **Dispatch-agent threads are stamped at session creation** (`ensureVendorAgentSession`, `vendor-agent.server.ts`:
+  `{kind: "service", id: <work order>}` + `workOrderId` on the thread's `row_data`; a thread that predates the stamp
+  is stamped on the next refresh, an existing ref is never replaced).
+- **The header** is Edit · [Send to phone · Publish to vendors] · one red trash · the labeled next step
+  (`serviceHeaderIconIds`). No Message icon (Communication is a rail section), and no Cancel / Delete pair: the
+  trash opens `ServiceRemoveDialog` with two radios - **Cancel service** (default; the existing `cancelService`:
+  Completed as Cancelled, open vendor requests withdrawn) and **Delete permanently** (press-and-hold; hard delete).
+  A finished service offers only Delete. An add-on's trash is its delete confirm, and its ⋯ keeps only Decline
+  request. The ⋯ of a maintenance service holds Reschedule / Auto-schedule / Unpublish / Leave a review and is
+  absent when empty. The home demo draws the same header and thread (`DemoServiceThread`, `SERVICE_THREADS`).

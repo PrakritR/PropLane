@@ -12,6 +12,7 @@ import { isCommsCreditPoolEnabled } from "@/lib/comms-billing/rates";
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { normalizeRecordRef } from "@/lib/portals/record-kinds";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { runAgentTurn } from "@/lib/agent/loop";
@@ -501,6 +502,49 @@ export async function runVendorAgentSessionTurn(
 }
 
 /**
+ * What a dispatch-agent thread says it is about: the service (its work order) and the work order id the
+ * session is bound to. Without it the thread is invisible to the service's Communication, which shows only
+ * threads stamped with that service (`serviceThreadsForParty`).
+ */
+export function vendorAgentThreadServiceStamp(workOrderId: string, workOrderTitle: string) {
+  const recordRef = normalizeRecordRef({ kind: "service", id: workOrderId, label: workOrderTitle.trim() || "Service" });
+  return { workOrderId: workOrderId.trim(), ...(recordRef ? { recordRef } : {}) };
+}
+
+/** Stamp a session thread created before the stamp existed (an existing recordRef is never overwritten). */
+async function stampExistingVendorAgentThread(
+  db: Db,
+  threadId: string,
+  stamp: ReturnType<typeof vendorAgentThreadServiceStamp>,
+): Promise<void> {
+  const { data } = await db
+    .from("portal_inbox_thread_records")
+    .select("id, scope, owner_user_id, participant_email, thread_type, row_data")
+    .eq("id", threadId)
+    .maybeSingle();
+  if (!data) return;
+  const rowData = (data.row_data ?? {}) as Record<string, unknown>;
+  const hasRef = Boolean(normalizeRecordRef(rowData.recordRef));
+  if (hasRef && typeof rowData.workOrderId === "string" && rowData.workOrderId) return;
+  await db.from("portal_inbox_thread_records").upsert(
+    {
+      id: threadId,
+      scope: data.scope,
+      owner_user_id: data.owner_user_id,
+      participant_email: data.participant_email,
+      thread_type: data.thread_type,
+      row_data: {
+        ...rowData,
+        workOrderId: stamp.workOrderId,
+        ...(hasRef || !stamp.recordRef ? {} : { recordRef: stamp.recordRef }),
+      },
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+}
+
+/**
  * Create (or refresh) the conversation for a dispatched work order: one session
  * per (work order, vendor), a vendor-owned inbox thread when the vendor has an
  * account, and an opening SMS when a number is on file. Idempotent — safe to
@@ -580,8 +624,11 @@ export async function ensureVendorAgentSession(
   }
   const session = sessionData as VendorAgentSessionRow;
 
+  const serviceStamp = vendorAgentThreadServiceStamp(args.workOrderId, args.workOrderTitle);
   // Vendor-owned inbox thread (deterministic id — re-dispatch reuses it).
-  if (args.vendorUserId && !session.inbox_thread_id) {
+  if (session.inbox_thread_id) {
+    await stampExistingVendorAgentThread(db, session.inbox_thread_id, serviceStamp);
+  } else if (args.vendorUserId) {
     const threadId = `vendor_agent_${args.workOrderId}_${args.vendorDirectoryId}`;
     const opening = [
       `PropLane Assistant here for the job "${args.workOrderTitle}" at ${args.propertyLabel}.`,
@@ -605,6 +652,8 @@ export async function ensureVendorAgentSession(
           messages: [{ id: `agent-${Date.now().toString(36)}`, from: "PropLane Assistant", body: opening, at: shortNow() }],
           unread: true,
           scope: VENDOR_INBOX_SCOPE,
+          // About this service: the stamp a service's Communication matches on.
+          ...serviceStamp,
         },
         updated_at: new Date().toISOString(),
       },

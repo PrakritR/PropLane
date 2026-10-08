@@ -605,9 +605,6 @@ export function ManagerAllServicesPanel({
         onApproved={() => router.push(`${basePath}/services/requests/approved`)}
         onDenied={() => router.push(`${basePath}/services/requests/denied`)}
         onCollapsed={() => navigate(serviceRequestListHref(basePath, reqBucket))}
-        onMessage={() =>
-          navigate(serviceRequestDetailHref(basePath, reqBucket, req.id, "communication"))
-        }
       />
     );
   };

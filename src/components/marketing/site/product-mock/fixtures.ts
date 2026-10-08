@@ -627,6 +627,38 @@ export const COMM_CONVERSATIONS: CommConversationFixture[] = [
   },
 ];
 
+export type ServiceThreadFixture = {
+  parties: { id: string; name: string; kind: "resident" | "vendor" }[];
+  messages: { id: string; party: string; direction: "inbound" | "outbound"; body: string; at: string; attachment?: string }[];
+};
+
+/**
+ * A service's Communication (plan admin-money-1008, D9): the resident's and the vendor's threads about THIS
+ * service, in the order they happened. The Everyone tab merges them, the party tabs split them. Keyed by the
+ * service row's id. The faucet job: Liam reports the drip, the manager replies and asks Pacific Plumbing, Pacific
+ * asks for a photo, the manager asks Liam and forwards it, Pacific offers Thursday 10-12, Liam confirms access.
+ */
+export const SERVICE_THREADS: Record<string, ServiceThreadFixture> = {
+  "wo-alder-faucet": {
+    parties: [
+      { id: "resident", name: "Liam Foster", kind: "resident" },
+      { id: "vendor", name: "Pacific Plumbing", kind: "vendor" },
+    ],
+    messages: [
+      { id: "f1", party: "resident", direction: "inbound", at: "Sep 22, 8:12 AM", body: "The kitchen faucet has been dripping since last night. About once a second, even with the handle all the way off." },
+      { id: "f2", party: "resident", direction: "outbound", at: "Sep 22, 8:40 AM", body: "Thanks Liam, sorry about that. I am asking our plumber to take a look." },
+      { id: "f3", party: "vendor", direction: "outbound", at: "Sep 22, 8:46 AM", body: "Kitchen faucet drip at Alder House, Room 1. Can you quote a repair this week?" },
+      { id: "f4", party: "vendor", direction: "inbound", at: "Sep 22, 1:05 PM", body: "Can you send a photo of the faucet and the shutoff valve underneath?" },
+      { id: "f5", party: "resident", direction: "outbound", at: "Sep 22, 1:20 PM", body: "Liam, could you send a photo of the faucet and the shutoff valve under the sink?" },
+      { id: "f6", party: "resident", direction: "inbound", at: "Sep 23, 9:15 AM", body: "Here you go. The valve is the silver one on the left.", attachment: "faucet-photo.jpg" },
+      { id: "f7", party: "vendor", direction: "outbound", at: "Sep 23, 9:30 AM", body: "Photo from the resident attached. Valve on the left.", attachment: "faucet-photo.jpg" },
+      { id: "f8", party: "vendor", direction: "inbound", at: "Sep 23, 10:02 AM", body: "Thanks, that helps. We can come Thursday 10–12. Does that work?" },
+      { id: "f9", party: "resident", direction: "outbound", at: "Sep 23, 10:15 AM", body: "Pacific Plumbing can come Thursday 10–12. Will someone be home?" },
+      { id: "f10", party: "resident", direction: "inbound", at: "Sep 23, 10:41 AM", body: "Yes, I will be home Thursday morning. Come on in." },
+    ],
+  },
+};
+
 /** The hero's floating activity toast (`codex-hero-window.tsx`) — named
  * fixture residents only, never "Test Resident", never a "SAMPLE DATA" label
  * (integrator review, 2026-09-26). */

@@ -598,6 +598,11 @@ export type InboxBubbleMessage = {
   id: string;
   /** Display name of the author (shown above inbound bubbles when grouped). */
   author: string;
+  /**
+   * A muted word after the author's name: the party in a multi-party timeline ("Resident", "Vendor") or who an
+   * outbound turn went to ("to Pacific Plumbing"). A run only clusters with turns that share it.
+   */
+  authorNote?: string;
   body: string;
   /** Human timestamp label — already formatted by the caller. */
   at: string;
@@ -1511,6 +1516,11 @@ export function InboxBubble({
         {startsRun ? (
           <p className="flex min-w-0 items-baseline gap-1.5 text-sm leading-snug text-foreground">
             <span className="truncate font-[650]" data-inbox-author>{author}</span>
+            {message.authorNote ? (
+              <span className="shrink-0 text-xs font-normal text-muted/80" data-inbox-author-note>
+                · {message.authorNote}
+              </span>
+            ) : null}
             {clock ? <span className="shrink-0 text-xs font-normal text-muted/80">{clock}</span> : null}
             {message.sentByAi ? (
               <span className="shrink-0 text-xs font-normal text-muted/80" data-inbox-sent-by-ai>
