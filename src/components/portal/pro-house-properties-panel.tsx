@@ -623,9 +623,11 @@ function ManagerPropertyInlineDetails({
     setDestructiveBusy(true);
     deferCatalogMutation(() => {
       if (action === "delete-queue") {
-        run("Removed from queue.", deleteUnlistedManagerProperty(row.adminRefId, managerUserId));
-        setDestructiveBusy(false);
-        setPendingDestructiveAction(null);
+        void deleteUnlistedManagerProperty(row.adminRefId, managerUserId).then((ok) => {
+          run("Removed from queue.", ok, "Could not delete the property. Check your connection and try again.");
+          setDestructiveBusy(false);
+          setPendingDestructiveAction(null);
+        });
         return;
       }
       if (action === "delete-draft") {
@@ -663,16 +665,17 @@ function ManagerPropertyInlineDetails({
           setPendingDestructiveAction(null);
           return;
         }
-        const ok = deleteManagerLiveListing(liveId, listingOwnerUserId ?? managerUserId);
-        setDestructiveBusy(false);
-        setPendingDestructiveAction(null);
-        if (!ok) {
-          showToast("Could not delete.");
-          return;
-        }
-        showToast("Listing deleted.");
-        onUpdated();
-        detailRouter.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
+        void deleteManagerLiveListing(liveId, listingOwnerUserId ?? managerUserId).then((ok) => {
+          setDestructiveBusy(false);
+          setPendingDestructiveAction(null);
+          if (!ok) {
+            showToast("Could not delete the property. Check your connection and try again.");
+            return;
+          }
+          showToast("Listing deleted.");
+          onUpdated();
+          detailRouter.push(propertyListHref(propertiesBase, "listed"), { scroll: false });
+        });
       }
     });
   };
@@ -2059,21 +2062,23 @@ function ManagerHousePropertiesPanelBody({
     setBulkDestructiveBusy(true);
     deferCatalogMutation(() => {
       if (action === "delete-queue") {
-        let removed = 0;
-        for (const { row } of selectedPropertyEntries) {
-          if (deleteUnlistedManagerProperty(row.adminRefId, managerUserId)) removed += 1;
-        }
-        setBulkDestructiveBusy(false);
-        setPendingBulkDestructive(null);
-        clearSelection();
-        if (removed === 0) {
-          showToast("Action could not be completed.");
-          return;
-        }
-        handlePropertyUpdated();
-        showToast(
-          removed === 1 ? "Removed from queue." : `${removed} properties removed from queue.`,
-        );
+        void (async () => {
+          let removed = 0;
+          for (const { row } of selectedPropertyEntries) {
+            if (await deleteUnlistedManagerProperty(row.adminRefId, managerUserId)) removed += 1;
+          }
+          const failed = selectedPropertyEntries.length - removed;
+          setBulkDestructiveBusy(false);
+          setPendingBulkDestructive(null);
+          clearSelection();
+          if (removed === 0) {
+            showToast("Could not delete the property. Check your connection and try again.");
+            return;
+          }
+          handlePropertyUpdated();
+          const done = removed === 1 ? "Removed from queue." : `${removed} properties removed from queue.`;
+          showToast(failed > 0 ? `${done} ${failed} could not be deleted.` : done);
+        })();
         return;
       }
       if (action === "unlist") {
@@ -2476,16 +2481,19 @@ function ManagerHousePropertiesPanelBody({
                     return;
                   }
                   void (async () => {
+                    let deleted = 0;
                     for (const { row } of selectedPropertyEntries) {
-                      await deleteManagerPropertyDraft(row.adminRefId, scopeUserId ?? undefined);
+                      if (await deleteManagerPropertyDraft(row.adminRefId, scopeUserId ?? undefined)) deleted += 1;
                     }
+                    const failed = selectedPropertyEntries.length - deleted;
                     clearSelection();
                     handlePropertyUpdated();
-                    showToast(
-                      selectedPropertyEntries.length === 1
-                        ? "Draft deleted."
-                        : `${selectedPropertyEntries.length} drafts deleted.`,
-                    );
+                    if (deleted === 0) {
+                      showToast("Could not delete the draft. Check your connection and try again.");
+                      return;
+                    }
+                    const done = deleted === 1 ? "Draft deleted." : `${deleted} drafts deleted.`;
+                    showToast(failed > 0 ? `${done} ${failed} could not be deleted.` : done);
                   })();
                 }}
               >
