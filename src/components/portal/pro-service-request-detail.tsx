@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Mail, MoreHorizontal, Pencil } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { getPropertyById } from "@/lib/rental-application/data";
@@ -12,7 +12,7 @@ import { portalIconActionSpec, portalLabeledPrimarySpec } from "@/components/por
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ServiceEditPopup } from "@/components/portal/service-edit-popup";
-import { addOnHeaderNextStep, serviceHeaderMenuItems } from "@/lib/service-header-next-step";
+import { addOnHeaderNextStep, serviceHeaderIconIds, serviceHeaderMenuItems } from "@/lib/service-header-next-step";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import {
   PortalNotificationPreviewModal,
@@ -73,7 +73,6 @@ export function ManagerServiceRequestDetail({
   onDenied,
   onCollapsed,
   allowDelete = true,
-  onMessage,
   onMarkDone,
   onEdit,
   actionsOnly = false,
@@ -85,8 +84,6 @@ export function ManagerServiceRequestDetail({
   onDenied?: () => void;
   onCollapsed?: () => void;
   allowDelete?: boolean;
-  /** Jump to the record's Communication tab (manager full-page record). */
-  onMessage?: () => void;
   /**
    * The header's "Mark done" (an approved add-on's next step). A host whose add-on has a vendor job finishes
    * that job too; without one the add-on is simply marked done.
@@ -240,7 +237,8 @@ export function ManagerServiceRequestDetail({
     req.residentEmail ||
     "Resident";
 
-  // Message · Edit · ⋯ · the ONE labeled primary (Approve, then Mark done): the same header a maintenance service has.
+  // Edit · red trash · ⋯ (Decline request while pending) · the ONE labeled primary (Approve, then Mark done): the
+  // same header a maintenance service has. No Message icon (Communication is a rail section).
   const nextStep = addOnHeaderNextStep(req);
   const markDone = () => {
     if (onMarkDone) onMarkDone();
@@ -250,44 +248,44 @@ export function ManagerServiceRequestDetail({
       showToast(done ? "Marked done." : "Approve this request first.");
     }
   };
-  const headerMenu = serviceHeaderMenuItems("add-on", {
-    canDecline: req.status === "pending",
-    canDelete: allowDelete,
+  const headerMenu = serviceHeaderMenuItems("add-on", { canDecline: req.status === "pending" });
+  const headerIcons = serviceHeaderIconIds({
+    canEdit: req.status === "pending" || req.status === "approved",
+    canRemove: allowDelete,
   });
-  const runMenu = (id: "decline" | "cancel" | "delete") => {
-    if (id === "decline") openDenyReasonStep();
-    else if (id === "delete") setDeleteOpen(true);
-  };
   const headerActionSpecs: PortalAdaptiveAction[] = [];
-  if (onMessage) {
-    headerActionSpecs.push(
-      portalIconActionSpec({
-        id: "message",
-        label: "Message",
-        icon: Mail,
-        dataAttr: "record-header-action-message",
-        onClick: onMessage,
-      }),
-    );
-  }
-  if (req.status === "pending" || req.status === "approved") {
-    headerActionSpecs.push(
-      portalIconActionSpec({
-        id: "edit",
-        label: "Edit",
-        icon: Pencil,
-        dataAttr: "service-request-edit",
-        onClick: () => (onEdit ? onEdit() : setEditOpen(true)),
-      }),
-    );
+  for (const id of headerIcons) {
+    if (id === "edit") {
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "edit",
+          label: "Edit",
+          icon: Pencil,
+          dataAttr: "service-request-edit",
+          onClick: () => (onEdit ? onEdit() : setEditOpen(true)),
+        }),
+      );
+    } else if (id === "trash") {
+      // An add-on has no history to keep when it goes: the trash is the existing delete confirm.
+      headerActionSpecs.push(
+        portalIconActionSpec({
+          id: "trash",
+          label: "Remove service",
+          icon: Trash2,
+          tone: "danger",
+          dataAttr: "record-header-action-trash",
+          onClick: () => setDeleteOpen(true),
+        }),
+      );
+    }
   }
   if (headerMenu.length > 0) {
     const menuItems = headerMenu.map((item) => (
       <DropdownMenuItem
         key={item.id}
         className="text-red-600"
-        data-attr={item.id === "decline" ? "service-request-deny" : "service-request-delete"}
-        onSelect={() => runMenu(item.id)}
+        data-attr="service-request-deny"
+        onSelect={() => openDenyReasonStep()}
       >
         {item.label}
       </DropdownMenuItem>
@@ -325,7 +323,7 @@ export function ManagerServiceRequestDetail({
 
   // Keyed on WHAT the row offers, not the node: the JSX is rebuilt every render,
   // so publishing on identity would loop the parent's state forever.
-  const detailActionsSignature = [req.status, allowDelete, Boolean(onMessage), Boolean(onMarkDone), Boolean(onEdit)].join("|");
+  const detailActionsSignature = [req.status, allowDelete, Boolean(onMarkDone), Boolean(onEdit)].join("|");
   const onFooterActionsChangeRef = useRef(onFooterActionsChange);
   const detailActionsRef = useRef(detailActions);
   useLayoutEffect(() => {

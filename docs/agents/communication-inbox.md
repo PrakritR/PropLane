@@ -32,6 +32,17 @@ composed from that record, not to whatever record a later replier happens to
 be viewing. A thread written before this existed, or whose subject kind is
 not in the mapped set, carries none and renders no chip — never a guessed one.
 
+**A turn carries its own record too (Oct 8, plan admin-money-1008 D9).** The thread keeps the first ref, so a later
+job with the same vendor or resident reuses the thread under the earlier job's ref. Every message the send path
+appends is therefore also stamped with the `recordRef` it was composed from (`InboxThreadMessage.recordRef`; the
+root turn in `body` belongs to the thread's ref). A service's Communication matches a thread through its
+`recordRef`, its `workOrderId` (stamped with the `recordRef` on a dispatch-agent thread when
+`ensureVendorAgentSession` creates it, and backfilled on the next refresh; the thread id is also
+`vendor_agent_<work order>_<vendor>`) or any of its turns, and shows just that service's turns
+(`threadAboutService` / `messageAboutService`, `src/lib/service-communication-scope.ts`; the "Everyone" tab merges
+the parties' threads - `docs/agents/services-system.md` § Communication). It is still a label, never an
+authorization grant.
+
 `CommunicationThreadFilters.recordRefs` / `.recordKinds`
 (`src/lib/communication-thread-filters.ts`) narrow a thread list to one record
 or one "About" kind; they only ever REMOVE rows the viewer's other

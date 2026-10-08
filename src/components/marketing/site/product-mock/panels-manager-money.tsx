@@ -432,7 +432,7 @@ function ServicesAssigneeField({ value, onChange, options }: { value: string; on
 function serviceStageFact(row: MoneyServiceRow): { icon: LucideIcon; text: string } {
   if (row.stage === "assigned") return { icon: UserCheck, text: row.vendor ? `Assigned to ${row.vendor}` : "Assigned" };
   if (row.stage === "scheduled") return { icon: CalendarDays, text: row.visit ? `${row.vendor ? `${row.vendor} · ` : ""}${row.visit}` : row.detail };
-  if (row.stage === "completed") return { icon: row.state === "declined" ? Ban : CircleCheck, text: row.detail };
+  if (row.stage === "completed") return { icon: row.state === "declined" || /^(Cancelled|Declined)/.test(row.detail) ? Ban : CircleCheck, text: row.detail };
   return { icon: Clock, text: row.detail };
 }
 
@@ -449,6 +449,8 @@ export function ServicesPanel({ story }: { story?: DemoStory } = {}) {
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [deleted, setDeleted] = useState<Set<string>>(new Set());
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  // Cancelled / declined services keep their row: they move to Completed with the word as their detail.
+  const [closedOut, setClosedOut] = useState<Record<string, string>>({});
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const { show, node: toastNode } = useFixtureToast();
@@ -457,8 +459,14 @@ export function ServicesPanel({ story }: { story?: DemoStory } = {}) {
     () =>
       allServices
         .filter((r) => !deleted.has(r.id))
-        .map((r) => (completedIds.has(r.id) ? { ...r, stage: "completed" as const, detail: "Completed Sep 25" } : r)),
-    [allServices, deleted, completedIds],
+        .map((r) =>
+          closedOut[r.id]
+            ? { ...r, stage: "completed" as const, detail: closedOut[r.id]! }
+            : completedIds.has(r.id)
+              ? { ...r, stage: "completed" as const, detail: "Completed Sep 25" }
+              : r,
+        ),
+    [allServices, deleted, completedIds, closedOut],
   );
   const counts = useMemo(() => {
     const c: Record<ServiceStage, number> = { open: 0, assigned: 0, scheduled: 0, completed: 0 };
@@ -486,9 +494,13 @@ export function ServicesPanel({ story }: { story?: DemoStory } = {}) {
     else if (id === "complete") {
       setCompletedIds((s) => new Set(s).add(row.id));
       show("Service completed (sample)");
-    } else if (id === "delete" || id === "cancel" || id === "decline") {
+    } else if (id === "cancel" || id === "decline") {
+      // Cancel service keeps the history: the row moves to Completed as Cancelled (a declined request as Declined).
+      setClosedOut((s) => ({ ...s, [row.id]: id === "cancel" ? "Cancelled Sep 25" : "Declined Sep 25" }));
+      show(id === "cancel" ? "Service cancelled (sample)" : "Request declined (sample)");
+    } else if (id === "delete") {
       setDeleted((s) => new Set(s).add(row.id));
-      show(id === "delete" ? "Service removed (sample)" : "Service cancelled (sample)");
+      show("Service removed (sample)");
     } else if (id === "message") show(`Message ${row.resident} (sample)`);
     else show(`${id.replace(/-/g, " ")} (sample)`);
     setOpenId(null);

@@ -112,8 +112,11 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
     const nextDayKey = next ? inboxDayKey(next.at) : null;
     const nextDayChanged = nextDayKey != null && dayKey != null && nextDayKey !== dayKey;
 
-    const sameDirAsPrev = prev?.direction === message.direction && !dayChanged && !houseHeader;
-    const sameDirAsNext = next?.direction === message.direction && !nextDayChanged && !nextHouseHeader;
+    // A timeline that names a party beside the author (a service's Everyone view) only clusters turns of one sender.
+    const sameSender = (a: InboxBubbleMessage, b: InboxBubbleMessage) =>
+      !(a.authorNote || b.authorNote) || (a.author === b.author && a.authorNote === b.authorNote);
+    const sameDirAsPrev = prev?.direction === message.direction && sameSender(prev, message) && !dayChanged && !houseHeader;
+    const sameDirAsNext = next?.direction === message.direction && sameSender(next, message) && !nextDayChanged && !nextHouseHeader;
     const cluster = clusterPosition(sameDirAsPrev, sameDirAsNext);
     const showMeta = !sameDirAsNext;
     // Single-channel threads need no repeated channel chrome - except a text

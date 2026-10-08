@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRequestGuard } from "@/lib/use-request-guard";
 import type { LucideIcon } from "lucide-react";
-import { Mail, Megaphone, MoreHorizontal, Pencil, Smartphone, Wrench } from "lucide-react";
+import { Megaphone, MoreHorizontal, Pencil, Smartphone, Trash2, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -22,14 +22,14 @@ import {
   updateHouseholdChargeAmount,
 } from "@/lib/household-charges";
 import { deleteManagerWorkOrderRow, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
-import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { ServiceEditPopup } from "@/components/portal/service-edit-popup";
 import { ServiceWhoCard } from "@/components/portal/service-who-card";
 import { serviceCommunicationParties } from "@/lib/service-communication-scope";
 import { workOrderMayBillResident } from "@/lib/add-on-vendor-job";
-import { serviceHeaderMenuItems } from "@/lib/service-header-next-step";
+import { serviceHeaderIconIds } from "@/lib/service-header-next-step";
+import { ServiceRemoveDialog, type ServiceRemoveChoice } from "@/components/portal/service-remove-dialog";
 import { VendorReviewDialog } from "@/components/portal/vendor-review-dialog";
 import {
   MANAGER_VENDORS_EVENT,
@@ -263,14 +263,14 @@ export function ManagerWorkOrdersPanel({
   // to "ach" — unchanged behavior for everyone until they explicitly pick it.
   const [approvePayChannel, setApprovePayChannel] = useState<"card" | "ach" | "balance">("card");
   const [approvePayBalance, setApprovePayBalance] = useState<{ enabled: boolean; availableCents: number } | null>(null);
-  const [deleteRow, setDeleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  // The header's red trash: one popup with Cancel service / Delete permanently.
+  const [removeRow, setRemoveRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Assign-to sheet launched from the record header (docs/agents/record-page.md). */
   const [assignSheetRow, setAssignSheetRow] = useState<DemoManagerWorkOrderRow | null>(null);
   /** Which "Who does it" choice the (team-only) Assign popup opens on. */
   const [assignMode, setAssignMode] = useState<ServiceAssignMode>("bids");
   /** The header's Compare bids: switches to Vendors > Bids with the side-by-side view open. */
   const [vendorsIntent, setVendorsIntent] = useState<VendorsIntent | null>(null);
-  const [cancelRow, setCancelRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [sendPhoneRow, setSendPhoneRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [publishRow, setPublishRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const openAssign = (row: DemoManagerWorkOrderRow, mode: ServiceAssignMode = "bids") => {
@@ -954,19 +954,21 @@ export function ManagerWorkOrdersPanel({
     showToast("Unpublished");
   };
 
-  const onDeleteWorkOrder = (row: DemoManagerWorkOrderRow) => {
-    setDeleteRow(row);
-  };
-
-  const confirmDeleteWorkOrder = () => {
-    const row = deleteRow;
-    if (!row) return;
+  const deleteWorkOrder = (row: DemoManagerWorkOrderRow) => {
     if (deleteManagerWorkOrderRow(row.id)) {
       showToast("Service removed.");
       if (workOrderIdProp) navigateToList();
       setHcTick((n) => n + 1);
     } else showToast("Could not delete service.");
-    setDeleteRow(null);
+  };
+
+  /** The trash's popup answered: Cancel service keeps the history (Completed as Cancelled), Delete removes it. */
+  const confirmRemoveService = (choice: ServiceRemoveChoice) => {
+    const row = removeRow;
+    if (!row) return;
+    setRemoveRow(null);
+    if (choice === "cancel") void cancelService(row);
+    else deleteWorkOrder(row);
   };
 
   const assignWork = (row: DemoManagerWorkOrderRow, next: WorkAssignee | null) => {
@@ -1605,53 +1607,46 @@ export function ManagerWorkOrdersPanel({
       if (key === "pay") approvePay(routeWorkOrder);
     };
     const assignee = resolveWorkOrderAssignee(routeWorkOrder);
-    // Message · Edit · ⋯ · the ONE labeled primary (the next step): the same header an add-on has.
+    // Edit · [Send to phone · Publish to vendors] · red trash · ⋯ · the ONE labeled primary (the next step): the
+    // same header an add-on has. No Message icon (Communication is a rail section).
     const canAutoSchedule = !routeWorkOrder.selfAssigned && Boolean(routeWorkOrder.vendorId) && routeStage !== "completed";
     const canReview = routeStage === "completed" && Boolean(routeWorkOrder.vendorUserId);
-    const canCancel = routeStage !== "completed";
     const canReschedule = Boolean(assignee) && routeStage !== "completed" && serviceNext?.key !== "schedule";
     // Send to phone / Publish to vendors: only while the service is Open with nobody on it (not in the demo).
     const canShare = !isDemoModeActive() && canShareService({ stage: routeStage, hasAssignee: Boolean(assignee), status: routeWorkOrder.status });
-    const headerMenu = serviceHeaderMenuItems("maintenance", { canCancel, canDelete: true });
-    const menuAction = (id: "cancel" | "delete") => (id === "cancel" ? setCancelRow(routeWorkOrder) : onDeleteWorkOrder(routeWorkOrder));
-    const headerActionSpecs: PortalAdaptiveAction[] = [
-      portalIconActionSpec({
-        id: "message",
-        label: "Message",
-        icon: Mail,
-        dataAttr: "record-header-action-message",
-        onClick: () =>
-          navigate(
-            workOrderDetailHref(listBasePath ?? "/portal", routeWorkOrder.bucket, routeWorkOrder.id, "communication"),
-          ),
-      }),
-      ...(canShare
-        ? [
-            portalIconActionSpec({
-              id: "send-to-phone",
-              label: "Send to phone",
-              icon: Smartphone,
-              dataAttr: "record-header-action-send-to-phone",
-              onClick: () => setSendPhoneRow(routeWorkOrder),
-            }),
-            portalIconActionSpec({
-              id: "publish",
-              label: "Publish to vendors",
-              icon: Megaphone,
-              dataAttr: "record-header-action-publish",
-              onClick: () => setPublishRow(routeWorkOrder),
-            }),
-          ]
-        : []),
-      portalIconActionSpec({
+    const iconSpecs: Record<string, PortalAdaptiveAction> = {
+      edit: portalIconActionSpec({
         id: "edit",
         label: "Edit",
         icon: Pencil,
         dataAttr: "work-order-edit",
         onClick: () => setEditWorkOrderRow(routeWorkOrder),
       }),
-    ];
-    // ⋯: what is not the next step. Cancel service and Delete are the only red items.
+      "send-to-phone": portalIconActionSpec({
+        id: "send-to-phone",
+        label: "Send to phone",
+        icon: Smartphone,
+        dataAttr: "record-header-action-send-to-phone",
+        onClick: () => setSendPhoneRow(routeWorkOrder),
+      }),
+      publish: portalIconActionSpec({
+        id: "publish",
+        label: "Publish to vendors",
+        icon: Megaphone,
+        dataAttr: "record-header-action-publish",
+        onClick: () => setPublishRow(routeWorkOrder),
+      }),
+      trash: portalIconActionSpec({
+        id: "trash",
+        label: "Remove service",
+        icon: Trash2,
+        tone: "danger",
+        dataAttr: "record-header-action-trash",
+        onClick: () => setRemoveRow(routeWorkOrder),
+      }),
+    };
+    const headerActionSpecs: PortalAdaptiveAction[] = serviceHeaderIconIds({ canShare }).map((id) => iconSpecs[id]!);
+    // ⋯: what is not the next step (nothing red: Cancel service and Delete are the trash).
     const moreItems = (
       <>
         {canReschedule ? (
@@ -1681,32 +1676,26 @@ export function ManagerWorkOrdersPanel({
             Leave a review
           </DropdownMenuItem>
         ) : null}
-        {headerMenu.map((item) => (
-          <DropdownMenuItem
-            key={item.id}
-            className="text-red-600"
-            data-attr={`record-header-action-${item.id}`}
-            onSelect={() => menuAction(item.id as "cancel" | "delete")}
-          >
-            {item.label}
-          </DropdownMenuItem>
-        ))}
       </>
     );
-    headerActionSpecs.push({
-      id: "more",
-      node: (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <PortalIconAction ring icon={MoreHorizontal} label="More" data-attr="record-header-action-more" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="record-action-menu">
-            {moreItems}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
-      menuItem: moreItems,
-    });
+    const hasMore =
+      canReschedule || canAutoSchedule || (routeWorkOrder.published === true && !isDemoModeActive()) || canReview;
+    if (hasMore) {
+      headerActionSpecs.push({
+        id: "more",
+        node: (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <PortalIconAction ring icon={MoreHorizontal} label="More" data-attr="record-header-action-more" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="record-action-menu">
+              {moreItems}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+        menuItem: moreItems,
+      });
+    }
     if (serviceNext) {
       headerActionSpecs.push(
         portalLabeledPrimarySpec({
@@ -1922,17 +1911,13 @@ export function ManagerWorkOrdersPanel({
             initialMemo={routeWorkOrder.title}
           />
         ) : null}
-        <ConfirmDeleteModal
-          open={cancelRow !== null}
-          title="Cancel service"
-          description={cancelRow ? `Cancel “${cancelRow.title}”? Vendors who were asked will be told, and the service moves to Completed as Cancelled.` : null}
-          confirmLabel="Cancel service"
-          onClose={() => setCancelRow(null)}
-          onConfirm={() => {
-            if (cancelRow) void cancelService(cancelRow);
-            setCancelRow(null);
-          }}
-          dataAttr="service-cancel-confirm"
+        <ServiceRemoveDialog
+          open={removeRow !== null}
+          title={removeRow?.title ?? ""}
+          lines={[removeRow?.residentName, removeRow?.propertyName]}
+          canCancel={removeRow ? workOrderServiceStage(removeRow, { bids: bidsByWorkOrderId[removeRow.id] ?? [], offers: offersByWorkOrderId[removeRow.id] ?? [] }) !== "completed" : true}
+          onClose={() => setRemoveRow(null)}
+          onConfirm={confirmRemoveService}
         />
         <VendorReviewDialog
           open={reviewRow !== null}
@@ -2143,20 +2128,6 @@ export function ManagerWorkOrdersPanel({
       </PortalDialog>
 
       {approvePayModal}
-
-      <ConfirmDeleteModal
-        open={deleteRow !== null}
-        title="Delete service"
-        description={
-          deleteRow
-            ? `Delete service ${deleteRow.id}${deleteRow.title ? ` (“${deleteRow.title}”)` : ""}?`
-            : null
-        }
-        confirmLabel="Delete service"
-        dataAttr="work-order-delete-confirm"
-        onClose={() => setDeleteRow(null)}
-        onConfirm={confirmDeleteWorkOrder}
-      />
 
       <ScheduleServiceVisitModal
         open={scheduleVisitRow !== null}

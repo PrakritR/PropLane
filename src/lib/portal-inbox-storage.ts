@@ -72,6 +72,12 @@ export type InboxThreadMessage = {
   houseId?: string;
   /** Display label of {@link houseId}, stamped by the writer that knew it. */
   houseLabel?: string;
+  /**
+   * The record THIS turn was composed about (a service, a lease, ...), stamped by the send path. A thread keeps
+   * the `recordRef` of whoever first composed from a record, so a later job with the same vendor or resident
+   * reuses the thread but its turns carry their own record. Absent on rows written before this existed.
+   */
+  recordRef?: RecordRef;
 };
 
 export type InboxThreadMessageChannel = "email" | "sms" | "proplane";
@@ -189,6 +195,12 @@ export type PersistedInboxThread = {
    * and renders no chip — never a guessed one.
    */
   recordRef?: RecordRef;
+  /**
+   * The work order a vendor-agent thread was opened for (`ensureVendorAgentSession`): the same id as the
+   * `agent_sessions.work_order_id` it belongs to. A service's Communication matches threads on it as well as on
+   * `recordRef`, so the job's own conversation shows even when a stamp is missing.
+   */
+  workOrderId?: string;
   /**
    * The person-conversation this row IS (see `conversation-key.ts`): one per
    * person per workspace. Rows that share it are one conversation, whatever
