@@ -398,6 +398,15 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"] },
   },
   {
+    // vendor-portal-ia-1007: the vendor's own expense log (Outgoing payments). Private to the
+    // vendor and deleted with the account (the FK cascades from auth.users too). The receipt
+    // files live under the vendor's `vendor-documents/<id>/` storage prefix, which the account
+    // storage purge already removes.
+    table: "vendor_expense_entries",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
     // vendor-banking-1006: a vendor's refund request and a dispute on their charge are
     // financial history (the money moved on the central rail), preserved like the ledger.
     table: "vendor_payout_refunds",

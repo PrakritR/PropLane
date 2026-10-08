@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, Download, FileText, Undo2, DollarSign, UserRound } from "lucide-react";
+import { Bell, CalendarDays, Download, FileText, MessageSquare, Pencil, Undo2, DollarSign, UserRound, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -76,6 +76,47 @@ import { vendorPaymentDetailBreakdown, vendorPaymentFeeBreakdown, vendorPaymentS
 import { VendorPaymentStatusTimeline } from "@/components/portal/vendor-payment-status-timeline";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
+import { copyTextToClipboard } from "@/lib/manager-property-links";
+import { isVendorInvoiceRemindable } from "@/lib/vendor-invoice-reminder";
+import { VENDOR_COMPOSE_HREF, stageVendorComposePrefill } from "@/lib/vendor-compose-prefill";
+import { vendorIncomingHref, type VendorIncomingSegment } from "@/lib/vendor-money-routes";
+
+/** The actions an invoice offers its vendor beyond Edit / Retract: remind, message, copy the number. */
+function useVendorInvoiceActions() {
+  const { showToast } = useAppUi();
+  const navigate = usePortalNavigate();
+  const sendReminder = useCallback(
+    async (invoice: VendorInvoice) => {
+      try {
+        const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(invoice.id)}/remind`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        showToast(res.ok ? "Reminder sent." : (body.error ?? "Could not send the reminder."));
+      } catch {
+        showToast("Could not send the reminder.");
+      }
+    },
+    [showToast],
+  );
+  const messageManager = useCallback(
+    (managerUserId: string | null | undefined, subject: string) => {
+      const id = managerUserId?.trim();
+      if (id) stageVendorComposePrefill({ managerUserId: id, subject });
+      navigate(VENDOR_COMPOSE_HREF);
+    },
+    [navigate],
+  );
+  const copyNumber = useCallback(
+    async (number: string) => {
+      const ok = await copyTextToClipboard(number);
+      showToast(ok ? "Invoice number copied." : "Could not copy the invoice number.");
+    },
+    [showToast],
+  );
+  return { sendReminder, messageManager, copyNumber };
+}
 
 type VendorLinkedManagerOption = {
   managerUserId: string;
@@ -113,7 +154,7 @@ function VendorFinancesChrome({
   children: ReactNode;
 }) {
   return (
-    <ManagerPortalPageShell title="Payments" hideTitleOnMobileNav compactFilterRow>
+    <ManagerPortalPageShell title="Incoming payments" hideTitleOnMobileNav compactFilterRow>
       {above}
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -169,6 +210,9 @@ function VendorPaymentsTable({
   onDownload,
   refundsEnabled,
   onRefund,
+  onRemind,
+  onMessageManager,
+  onCopyNumber,
 }: {
   rows: VendorPaymentRow[];
   basePath: string;
@@ -181,6 +225,9 @@ function VendorPaymentsTable({
   /** `VENDOR_REFUNDS_ENABLED` as the one balance snapshot reports it — false hides every Refund item. */
   refundsEnabled: boolean;
   onRefund: (payoutId: string) => void;
+  onRemind: (invoice: VendorInvoice) => void;
+  onMessageManager: (managerUserId: string | null, subject: string) => void;
+  onCopyNumber: (number: string) => void;
 }) {
   const navigate = usePortalNavigate();
 
@@ -206,13 +253,32 @@ function VendorPaymentsTable({
         const submittedInvoice = row.kind === "invoice" && row.invoice!.status === "submitted" ? row.invoice : null;
         const downloadable = row.statusId === "invoice:paid" || row.statusId === "invoice:approved" || row.statusId === "income:paid";
         const bucket = vendorPaymentBucket(row, today);
+        // Open invoice · Send reminder · Message manager · Download · Copy invoice number, then
+        // (a submitted invoice) Edit / Retract, then (a paid, refundable payment) Refund.
         const items: VendorRowMenuItem[] = [];
         if (viewHref) {
           items.push({
             id: "view",
-            label: row.kind === "invoice" ? "View invoice" : "View payment",
+            label: row.kind === "invoice" ? "Open invoice" : "Open payment",
             onSelect: () => navigate(viewHref),
           });
+        }
+        // Never on a paid or still-submitted invoice: the manager has nothing to pay yet, or has.
+        if (row.kind === "invoice" && row.invoice && isVendorInvoiceRemindable(row.invoice.status)) {
+          const reminderInvoice = row.invoice;
+          items.push({ id: "remind", label: "Send reminder", onSelect: () => onRemind(reminderInvoice) });
+        }
+        if (row.managerUserId) {
+          items.push({
+            id: "message",
+            label: "Message manager",
+            onSelect: () => onMessageManager(row.managerUserId, row.reference ? `Invoice ${row.reference}` : row.title),
+          });
+        }
+        if (downloadable) items.push({ id: "download", label: "Download", onSelect: () => onDownload(row) });
+        if (row.reference) {
+          const number = row.reference;
+          items.push({ id: "copy-number", label: "Copy invoice number", onSelect: () => onCopyNumber(number) });
         }
         if (submittedInvoice) {
           items.push({
@@ -223,12 +289,12 @@ function VendorPaymentsTable({
           });
           items.push({
             id: "withdraw",
-            label: withdrawingInvoiceId === submittedInvoice.id ? "Retracting…" : "Retract invoice",
+            label: withdrawingInvoiceId === submittedInvoice.id ? "Retracting…" : "Retract",
+            destructive: true,
             disabled: withdrawingInvoiceId === submittedInvoice.id,
             onSelect: () => onWithdrawInvoice(submittedInvoice),
           });
         }
-        if (downloadable) items.push({ id: "download", label: "Download", onSelect: () => onDownload(row) });
         // Refund only when the payment is refundable (settled, gross still unrefunded) AND the refund
         // path is live. It opens the Refund a payment pop-up on this payment.
         if (row.payout && isVendorPaymentRefundable(row.payout, refundsEnabled)) {
@@ -607,6 +673,8 @@ function VendorInvoiceDetailPage({
   closeModal,
   withdrawInvoice,
   load,
+  onRemind,
+  onMessageManager,
 }: {
   basePath?: string;
   recordId: string;
@@ -620,6 +688,8 @@ function VendorInvoiceDetailPage({
   closeModal: () => void;
   withdrawInvoice: (invoice: VendorInvoice) => Promise<void>;
   load: () => Promise<void>;
+  onRemind: (invoice: VendorInvoice) => void;
+  onMessageManager: (managerUserId: string | null, subject: string) => void;
 }) {
   const navigate = usePortalNavigate();
   const invoice = invoices.find((inv) => inv.id === recordId) ?? null;
@@ -631,9 +701,30 @@ function VendorInvoiceDetailPage({
     );
   }
   const activeTab: VendorInvoiceDetailTabId = recordDetailTab ?? "overview";
-  const backHref = `${basePath}/financials/invoices`;
-  const sections = recordSections("vendor", "invoice", { basePath });
+  const backHref = vendorIncomingHref(basePath);
+  // The header carries what this invoice can actually do now: remind (approved / scheduled only),
+  // message the manager, download; Edit and Retract only while it is still submitted.
+  const submitted = invoice.status === "submitted";
+  const baseSections = recordSections("vendor", "invoice", { basePath });
+  const sections = {
+    ...baseSections,
+    headerActions: [
+      ...(submitted ? [{ id: "edit", label: "Edit", icon: Pencil }] : []),
+      ...(isVendorInvoiceRemindable(invoice.status) ? [{ id: "remind", label: "Send reminder", icon: Bell }] : []),
+      ...(invoice.managerUserId ? [{ id: "message", label: "Message manager", icon: MessageSquare }] : []),
+      { id: "download", label: "Download", icon: Download },
+      ...(submitted ? [{ id: "withdraw", label: "Retract", icon: XCircle, tone: "danger" as const }] : []),
+    ],
+  };
   const onHeaderAction = (actionId: string) => {
+    if (actionId === "remind") {
+      onRemind(invoice);
+      return;
+    }
+    if (actionId === "message") {
+      onMessageManager(invoice.managerUserId ?? null, invoice.invoiceNumber ? `Invoice ${invoice.invoiceNumber}` : "Invoice");
+      return;
+    }
     if (actionId === "edit" || actionId === "submit") {
       openEdit(invoice);
       return;
@@ -684,7 +775,7 @@ function VendorInvoiceDetailPage({
   return (
     <>
       <PortalRecordDetailPage
-        pageTitle="Payments"
+        pageTitle="Incoming payments"
         title={invoice.invoiceNumber || "Invoice"}
         subtitle={formatInvoiceDate(invoice.submittedAt)}
         avatarName={invoice.invoiceNumber || "Invoice"}
@@ -782,7 +873,7 @@ function VendorPayoutRecordPage({
   }
 
   const job = readVendorWorkOrderRows().find((row) => row.id === payout.workOrderId) ?? null;
-  const backHref = `${basePath}/financials/income`;
+  const backHref = vendorIncomingHref(basePath);
   const sections = recordSections("vendor", "payout", { basePath });
   const title = job?.title || "Payout";
   const vendorBankingOn = typeof balance?.feeBps === "number";
@@ -903,9 +994,12 @@ export function VendorFinancesPanel({
   basePath = "/vendor",
   recordId,
   recordDetailTab,
+  segment,
 }: {
   tabId: string;
   basePath?: string;
+  /** Pending / Paid / Overdue, the routed segment of `/vendor/payments/<segment>`. */
+  segment?: VendorIncomingSegment;
   /** An invoice or payout RECORD id (docs/agents/record-page.md); set only when routed to /financials/invoices|payouts/<id>/<tab>. */
   recordId?: string;
   recordDetailTab?: VendorInvoiceDetailTabId | VendorPayoutDetailTabId;
@@ -914,7 +1008,9 @@ export function VendorFinancesPanel({
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   const [statusIds, setStatusIds] = useState<string[]>([]);
   const [listSearch, setListSearch] = useState("");
-  const [bucket, setBucket] = useState<VendorPaymentBucket>("pending");
+  const bucket: VendorPaymentBucket = segment ?? "pending";
+  const navigateList = usePortalNavigate();
+  const invoiceActions = useVendorInvoiceActions();
   const [tick, setTick] = useState(0);
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
   const [payoutsByInvoiceId, setPayoutsByInvoiceId] = useState<Record<string, VendorPayout>>({});
@@ -1169,6 +1265,8 @@ export function VendorFinancesPanel({
         closeModal={closeModal}
         withdrawInvoice={withdrawInvoice}
         load={loadInvoices}
+        onRemind={(invoice) => void invoiceActions.sendReminder(invoice)}
+        onMessageManager={invoiceActions.messageManager}
       />
     );
   }
@@ -1203,7 +1301,7 @@ export function VendorFinancesPanel({
         <LocalDestinationNav
           appearance="command"
           activeId={bucket}
-          onChange={(id) => setBucket(id as VendorPaymentBucket)}
+          onChange={(id) => navigateList(vendorIncomingHref(basePath, id as VendorIncomingSegment))}
           ariaLabel="Payment status"
           items={VENDOR_PAYMENT_BUCKETS.map((tab) => ({
             id: tab.id,
@@ -1272,6 +1370,9 @@ export function VendorFinancesPanel({
           onDownload={downloadPaymentRow}
           refundsEnabled={refundConfig.enabled}
           onRefund={setRefundPayoutId}
+          onRemind={(invoice) => void invoiceActions.sendReminder(invoice)}
+          onMessageManager={invoiceActions.messageManager}
+          onCopyNumber={(number) => void invoiceActions.copyNumber(number)}
         />
       )}
       {requestWizard}

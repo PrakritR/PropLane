@@ -91,6 +91,8 @@ export type VendorInvoice = {
   dueDate?: string | null;
   offlineMethod?: string | null;
   managerEntered?: boolean;
+  /** The manager the invoice is billed to (the vendor's own payer) — the target of "Message manager". */
+  managerUserId?: string | null;
 };
 
 /** Map an invoice status onto the four shared `Badge` tones (no fifth color). */
@@ -143,6 +145,7 @@ export function mapVendorInvoiceRow(row: Record<string, unknown>): VendorInvoice
     scheduledFor: row.scheduled_for as string | null,
     offlineMethod: row.offline_method as string | null,
     managerEntered: row.manager_entered === true,
+    managerUserId: (row.manager_user_id as string | null | undefined) ?? null,
     id: String(row.id),
     vendorId: String(row.vendor_id ?? ""),
     workOrderId: (row.work_order_id as string | null) ?? null,
@@ -171,7 +174,7 @@ export function formatInvoiceMoney(cents: number, currency = "usd"): string {
 
 /** Columns selected from `vendor_invoices` for client/tool reads (no internal audit ids). */
 export const VENDOR_INVOICE_SELECT =
-  "id, vendor_id, work_order_id, invoice_number, line_items, subtotal_cents, tax_cents, total_cents, currency, status, memo, decision_note, bill_id, submitted_at, decided_at, paid_at, paid_from, created_at";
+  "id, manager_user_id, vendor_id, work_order_id, invoice_number, line_items, subtotal_cents, tax_cents, total_cents, currency, status, memo, decision_note, bill_id, submitted_at, decided_at, paid_at, paid_from, created_at";
 
 /**
  * Invoice detail timeline (C161): Submitted → Approved → Scheduled → Paid,
