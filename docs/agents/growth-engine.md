@@ -86,3 +86,36 @@ Phase 1 (this): tables, ideas, draft, review UI, publish (log/late/meta-image), 
 shell. Phase 2: reel studio (Veo/Kling, ElevenLabs, Playwright shots, Remotion, Meta Reels
 container flow). Phase 3: learn loop + engage list. Auto-follow/auto-like/auto-DM are out of scope
 permanently (platform terms).
+
+## Phase 2 contract: reel studio
+
+- **Scenes** stay `GrowthScene` (kinds generated / template / shot / still). Each scene produces one
+  `growth_assets` row of kind `clip` (generated), `shot` (Playwright recording), or none (template,
+  rendered inside Remotion). The voice track is one asset of kind `voice`; the final reel is kind
+  `video` with `meta.captions` (word timings) and `meta.sceneAssetIds`.
+- **Drivers** (`src/lib/growth/video/`): `veo.server.ts` (Gemini API, `GEMINI_API_KEY`),
+  `kling.server.ts` (fal.ai, `FAL_KEY`), `elevenlabs.server.ts` (`ELEVENLABS_API_KEY`,
+  `GROWTH_VOICE_ID`). Each exports a pure function taking a prompt/text and returning
+  `{ url | buffer, durationMs, meta }`; each throws a typed `MissingKeyError` when its key is unset so
+  the orchestrator can skip the scene (fallback: a template scene with the same text).
+- **Product shots** (`scripts/growth-shots.mjs`): Playwright against the showcase account on a local
+  server, 1080×1920 device scale, records the route + action named in `scene.direction`, writes
+  `mp4`/`webm` to `output/growth/<postId>/scene-<n>.webm`.
+- **Render** (`remotion/growth/`): one `Reel` composition (1080×1920, 30 fps) that takes the post,
+  its scene assets and the voice timings as props; burned captions (word-timed when voice exists,
+  per-scene text otherwise), brand cobalt, PropLane mark end card, no music unless
+  `meta.music` is set. `scripts/growth-render.mjs <postId>` fetches the post via the service client,
+  runs the drivers for missing assets, records shots, renders, uploads the mp4 to the `growth` bucket,
+  inserts the `video` asset, and flips the post from `review` to `review` with `meta.rendered=true`
+  (never changes approval). Also renders 1080×1350 stills for carousel/image posts.
+- **Host**: `ops/launchd/com.proplane.growth-render.plist` runs `scripts/growth-render.mjs --pending`
+  at 02:00 local on the cockpit Mac; Vercel never renders.
+- **Publishing reels**: `publishers/meta.server.ts` gains the Reels container flow
+  (`POST /{ig}/media media_type=REELS video_url=…`, poll `status_code` until FINISHED, then
+  `media_publish`); `late`/`upload_post` pass the video URL through.
+- **Admin UI**: a `Reel studio` tab on the post detail (scenes with kind, status pill, thumbnail,
+  Regenerate / Swap for product shot / Render buttons, estimated cost line) and a muted video player
+  of the rendered reel.
+- **Proof without keys**: a reel whose scenes are template + shot renders to a playable mp4 locally
+  with burned captions; drivers unit-tested with mocked HTTP; Meta container flow unit-tested with a
+  fake fetch.
