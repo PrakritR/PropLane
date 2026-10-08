@@ -378,6 +378,10 @@ export function VendorWorkNumberSettings() {
                 Setting up…
               </span>
             </PortalSettingsRow>
+          ) : needsSubscription && billing ? (
+            // Subscribing comes first: a vendor can pay before verifying a phone; the number is
+            // provisioned once the phone is verified (and right away when it already is).
+            <VendorNumberSubscribeRow billing={billing} demo={demo} />
           ) : !phoneVerified ? (
             <PortalSettingsRow label="Work number">
               <Link
@@ -388,8 +392,6 @@ export function VendorWorkNumberSettings() {
                 Verify your phone to get one
               </Link>
             </PortalSettingsRow>
-          ) : needsSubscription && billing ? (
-            <VendorNumberSubscribeRow billing={billing} demo={demo} />
           ) : (
             <ClaimNumber identity={identity} reload={() => void reload()} />
           )}
