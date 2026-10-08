@@ -38,7 +38,7 @@ import { listingHoldFact } from "@/lib/listing-channels/post-text";
 import { automaticChannelFact, oneClickChannelFact } from "@/lib/listing-channels/row-fact";
 import { zillowPostingCounts } from "@/components/portal/integrations-posting-panel";
 
-const CHANNEL_GLYPH: Record<ListingChannelId, { icon: LucideIcon; tone: string }> = {
+export const CHANNEL_GLYPH: Record<ListingChannelId, { icon: LucideIcon; tone: string }> = {
   zillow: { icon: Home, tone: "text-blue-600" },
   facebook_page: { icon: Share2, tone: "text-sky-600" },
   instagram: { icon: Camera, tone: "text-pink-600" },

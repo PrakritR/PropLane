@@ -114,7 +114,7 @@ describe("demo cursor targets", () => {
     const { container, rerender } = render(<ManagerCommunication messages={[]} draft={null} onApprove={onApprove} onReply={() => true} />);
     expect(target(container, "comm-approve")).toBeNull();
     rerender(<ManagerCommunication messages={[]} draft="Yes, it is." onApprove={onApprove} onReply={() => true} />);
-    expect(screen.getByText("PropLane drafted a reply")).toBeInTheDocument();
+    expect(screen.getByText("PropLane draft - edit before sending")).toBeInTheDocument();
     expect(onApprove).not.toHaveBeenCalled();
     fireEvent.click(target(container, "comm-approve")!);
     expect(onApprove).toHaveBeenCalledTimes(1);

@@ -99,10 +99,12 @@ export function FixtureListScreen({
     <ProductWindow path={path}>
       {sidebar}
       <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title={title}>
+        <ManagerPortalPageShell title={title} titleInlineFilter={null} hideTitleOnMobileNav compactFilterRow>
           {above}
           <PortalListControlStack
+            className="mb-2 max-lg:mb-1.5"
             variant="command"
+            stickyDestinations={false}
             destinationRow={
               tabs.length > 0 ? (
                 <LocalDestinationNav

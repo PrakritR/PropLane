@@ -39,6 +39,12 @@ import {
 } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
+import { IntegrationRow } from "@/components/portal/integration-row";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
+import { CHANNEL_GLYPH } from "@/components/portal/listing-sites-panel";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { listingChannelsByGroup, type ListingChannelGroup } from "@/lib/listing-channels/registry";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import type { MonthlyCashflowPoint } from "@/lib/portal-monthly-profit";
 import {
@@ -368,12 +374,58 @@ export function BookingsPanel() {
 
 /* ───────────────────────────── Promotion ───────────────────────────── */
 
+const SITE_GROUPS: { id: ListingChannelGroup; label: string }[] = [
+  { id: "automatic", label: "Automatic" },
+  { id: "one_click", label: "One-click" },
+  { id: "request_access", label: "Request access" },
+];
+const SITE_TOTAL = SITE_GROUPS.reduce((sum, g) => sum + listingChannelsByGroup(g.id).length, 0);
+
+/** Promotion > Listing sites, drawn from the real piece's own rows (`WorkspaceListingSitesPanel`): the Listed with PropLane toggle,
+ * the Automatic / One-click / Request access group tabs, and one IntegrationRow per real channel with its plain fact. */
+function DemoListingSites({ houses }: { houses: number }) {
+  const [group, setGroup] = useState<ListingChannelGroup>("automatic");
+  const [attribution, setAttribution] = useState(true);
+  const listings = (n: number) => `${n} of ${houses} ${houses === 1 ? "listing" : "listings"}`;
+  return (
+    <div data-attr="promotion-listing-sites">
+      <IntegrationRow
+        icon={ProPlaneMarkIcon}
+        tone="text-primary"
+        name="Show Listed with PropLane"
+        action={<PortalSettingsToggle checked={attribution} onChange={setAttribution} label="Show Listed with PropLane" />}
+      />
+      <div className="px-4 pb-1 pt-3">
+        <LocalDestinationNav
+          items={SITE_GROUPS.map((g) => ({ id: g.id, label: g.label, count: listingChannelsByGroup(g.id).length }))}
+          activeId={group}
+          onChange={(id) => setGroup(id as ListingChannelGroup)}
+          ariaLabel="Listing site group"
+          appearance="command"
+        />
+      </div>
+      {listingChannelsByGroup(group).map((def) => {
+        const glyph = CHANNEL_GLYPH[def.id];
+        if (group === "automatic") {
+          return def.id === "zillow" ? (
+            <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact={`${listings(3)} posting`} />
+          ) : (
+            <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} comingSoon />
+          );
+        }
+        if (group === "one_click") return <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact={`${listings(0)} posted by me`} />;
+        return <IntegrationRow key={def.id} icon={glyph.icon} tone={glyph.tone} name={def.label} fact="Coming soon" />;
+      })}
+    </div>
+  );
+}
+
 export function PromotionPanel() {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const { show, node: toastNode } = useFixtureToast();
   const detail = useDetail();
-  const counts = { all: PROMOTION_ROWS.length, text: PROMOTION_ROWS.filter((r) => r.bucket === "text").length, image: PROMOTION_ROWS.filter((r) => r.bucket === "image").length, sites: LISTING_SITES.length };
+  const counts = { all: PROMOTION_ROWS.length, text: PROMOTION_ROWS.filter((r) => r.bucket === "text").length, image: PROMOTION_ROWS.filter((r) => r.bucket === "image").length, sites: SITE_TOTAL };
   const rows: PromotionFixtureRow[] = PROMOTION_ROWS.filter((r) => (tab === "all" || r.bucket === tab) && matchesSearch(search, r.title, r.place, r.kind));
 
   return (
@@ -405,19 +457,7 @@ export function PromotionPanel() {
       }
     >
       {tab === "sites"
-        ? LISTING_SITES.map((site) => (
-            <PortalApplicantRecordRow
-              key={site}
-              name={site}
-              tileIcon={Globe}
-              address="Listing site"
-              facts={<PortalRowFact icon={Clock}>Not connected</PortalRowFact>}
-              omitActionView
-              onSelectedChange={() => undefined}
-              onOpen={() => show(`${site} (sample)`)}
-              dataAttr="promotion-site-row"
-            />
-          ))
+        ? <DemoListingSites houses={4} />
         : rows.map((r) => (
             <PortalApplicantRecordRow
               key={r.id}
