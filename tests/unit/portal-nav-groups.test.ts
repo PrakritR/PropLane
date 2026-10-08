@@ -16,7 +16,7 @@ import {
 const CASES = [
   // Settings (profile) has no sidebar row anywhere — every portal reaches it
   // only from the account menu. Admin exposes Feedback as its own sidebar
-  // item under Operations; manager/resident/vendor feedback stays embedded
+  // item under Support; manager/resident/vendor feedback stays embedded
   // inside Settings.
   {
     kind: "pro" as const,

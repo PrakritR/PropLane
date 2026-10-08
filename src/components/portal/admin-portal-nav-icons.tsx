@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Activity,
   BarChart3,
   BedDouble,
   Building2,
@@ -70,6 +71,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   communication: MessagesSquare,
   reviews: Star,
   "bugs-feedback": MessageSquare,
+  health: Activity,
   profile: Settings,
   settings: Settings,
   plan: CreditCard,
