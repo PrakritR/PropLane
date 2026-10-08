@@ -9,9 +9,13 @@ import {
   type PendingChatAttachment,
 } from "@/lib/assistant-chat-attachments.client";
 import {
+  archiveScopedThread,
   clearAssistantChatMessages,
+  deleteScopedThread,
   loadAssistantChatMessages,
+  loadScopedThreads,
   saveAssistantChatMessages,
+  scopedThreadId,
 } from "@/lib/axis-assistant/assistant-chat-storage";
 import { notifyAgentPendingActionsChanged } from "@/lib/axis-assistant/pending-actions-events";
 import { typedConfirmationTarget } from "@/lib/axis-assistant/typed-confirmation";
@@ -168,6 +172,11 @@ function upsertThread(
 export type AssistantConversationOptions = {
   /** Isolates modal threads from the portal-wide archive. */
   storageScope?: string;
+  /**
+   * Where a task-bound thread's History lives: stable across visits of the same
+   * modal (unlike `storageScope`, which may carry a per-visit instance).
+   */
+  historyScope?: string;
   /** When this changes, drop the in-memory archive (workspace switch). */
   archiveKey?: string;
 };
@@ -177,6 +186,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   const archiveKey = options.archiveKey ?? "";
   const conversationIdentity = `${endpoint}\u0000${archiveKey}`;
   const multiThread = !storageScope;
+  const historyScope = options.historyScope?.trim() || storageScope;
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<PendingChatAttachment[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
@@ -186,6 +196,8 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   const [ratings, setRatings] = useState<Record<string, "up" | "down">>({});
   const [activeThreadId, setActiveThreadId] = useState("");
   const [threads, setThreads] = useState<AssistantChatThreadSummary[]>([]);
+  /** A task thread's saved conversations (browser-local; see `loadScopedThreads`). */
+  const [localThreads, setLocalThreads] = useState<ReturnType<typeof loadScopedThreads>>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -217,6 +229,11 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     }
   }, [endpoint]);
 
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   useEffect(() => {
     disposed.current = false;
     const pendingIds = taskPendingIds.current;
@@ -226,9 +243,11 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
       if (!multiThread) {
         for (const actionId of pendingIds) void denyDisposedTaskAction(actionId);
         pendingIds.clear();
+        // The closed task's last thread stays reachable from History.
+        if (historyScope) archiveScopedThread(endpoint, historyScope, visibleConversationMessages(messagesRef.current));
       }
     };
-  }, [denyDisposedTaskAction, multiThread]);
+  }, [denyDisposedTaskAction, endpoint, historyScope, multiThread]);
   const [error, setError] = useState<string | null>(null);
   // An archive read can finish after the user begins a new thread. Never let
   // that late response replace the interaction they just started.
@@ -582,6 +601,8 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     if (!multiThread) {
       for (const actionId of taskPendingIds.current) void denyDisposedTaskAction(actionId);
       taskPendingIds.current.clear();
+      // New keeps the thread it replaces reachable from History.
+      if (historyScope) archiveScopedThread(endpoint, historyScope, visibleConversationMessages(messagesRef.current));
     }
     hasInteractedWithConversation.current = true;
     attachments.forEach(revokeAttachmentPreview);
@@ -597,7 +618,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     setHistoryOpen(false);
     setHistorySearch("");
     if (historySearchTimer.current) clearTimeout(historySearchTimer.current);
-  }, [attachments, denyDisposedTaskAction, endpoint, multiThread, storageScope]);
+  }, [attachments, denyDisposedTaskAction, endpoint, historyScope, multiThread, storageScope]);
 
   const startNewChat = useCallback(async () => {
     // A brand-new chat is a local reset only. The server thread is created
@@ -607,11 +628,20 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   }, [reset]);
 
   const openHistory = useCallback(() => {
-    if (!multiThread) return;
+    if (!multiThread) {
+      // A task thread's History is this browser's: save the live thread so it
+      // lists as the active one, then read the scope's saved threads.
+      if (historyScope) {
+        archiveScopedThread(endpoint, historyScope, visibleConversationMessages(messagesRef.current));
+        setLocalThreads(loadScopedThreads(endpoint, historyScope));
+      }
+      setHistoryOpen(true);
+      return;
+    }
     setHistoryOpen(true);
     if (archiveHydrated.current) void fetchThreadList(undefined, false, historySearch, Boolean(historySearch.trim()));
     else void hydrateArchive();
-  }, [fetchThreadList, historySearch, hydrateArchive, multiThread]);
+  }, [endpoint, fetchThreadList, historyScope, historySearch, hydrateArchive, multiThread]);
 
   const closeHistory = useCallback(() => setHistoryOpen(false), []);
 
@@ -654,7 +684,25 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
 
   const selectThread = useCallback(
     async (threadId: string) => {
-      if (!multiThread || loading || threadId === activeThreadId) return;
+      if (!multiThread) {
+        if (loading || !historyScope) return;
+        const chosen = loadScopedThreads(endpoint, historyScope).find((t) => t.id === threadId);
+        if (!chosen) return;
+        const liveId = scopedThreadId(visibleConversationMessages(messagesRef.current));
+        if (liveId !== threadId) {
+          archiveScopedThread(endpoint, historyScope, visibleConversationMessages(messagesRef.current));
+          for (const actionId of taskPendingIds.current) void denyDisposedTaskAction(actionId);
+          taskPendingIds.current.clear();
+          setMessages(visibleConversationMessages(chosen.messages));
+          setPendingAction(null);
+          setLastTools([]);
+          setLastSmsTestTurn(null);
+          setError(null);
+        }
+        setHistoryOpen(false);
+        return;
+      }
+      if (loading || threadId === activeThreadId) return;
       const generation = conversationGeneration.current;
       hasInteractedWithConversation.current = true;
       setHistoryLoading(true);
@@ -676,12 +724,26 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
         if (generation === conversationGeneration.current) setHistoryLoading(false);
       }
     },
-    [activeThreadId, fetchTranscript, loading, multiThread],
+    [activeThreadId, denyDisposedTaskAction, endpoint, fetchTranscript, historyScope, loading, multiThread],
   );
 
   const deleteThread = useCallback(
     async (threadId: string): Promise<boolean> => {
-      if (!multiThread || loading) return false;
+      if (!multiThread) {
+        if (loading || !historyScope) return false;
+        deleteScopedThread(endpoint, historyScope, threadId);
+        if (scopedThreadId(visibleConversationMessages(messagesRef.current)) === threadId) {
+          for (const actionId of taskPendingIds.current) void denyDisposedTaskAction(actionId);
+          taskPendingIds.current.clear();
+          clearAssistantChatMessages(endpoint, storageScope);
+          setMessages([]);
+          setPendingAction(null);
+          setError(null);
+        }
+        setLocalThreads(loadScopedThreads(endpoint, historyScope));
+        return true;
+      }
+      if (loading) return false;
       const generation = conversationGeneration.current;
       setHistoryLoading(true);
       setHistoryError(null);
@@ -715,7 +777,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
         if (generation === conversationGeneration.current) setHistoryLoading(false);
       }
     },
-    [activeThreadId, attachments, endpoint, loading, multiThread],
+    [activeThreadId, attachments, denyDisposedTaskAction, endpoint, historyScope, loading, multiThread, storageScope],
   );
 
   const loadMoreHistory = useCallback(() => {
@@ -723,14 +785,18 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     void fetchThreadList(nextHistoryCursor, true, historySearch);
   }, [fetchThreadList, historyLoading, historySearch, nextHistoryCursor]);
 
+  const visibleLocalThreads = localThreads
+    .filter((t) => !historySearch.trim() || t.title.toLowerCase().includes(historySearch.trim().toLowerCase()))
+    .map(({ id, title, updatedAt }) => ({ id, title, updatedAt }));
+
   return {
     input,
     setInput,
     attachments,
     setAttachments,
     messages,
-    threads,
-    activeThreadId,
+    threads: multiThread ? threads : visibleLocalThreads,
+    activeThreadId: multiThread ? activeThreadId : scopedThreadId(visibleConversationMessages(messages)),
     historyOpen,
     historyLoading,
     historyError,

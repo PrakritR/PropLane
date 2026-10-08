@@ -54,15 +54,17 @@ const AssistantConversationContext = createContext<AssistantConversationValue | 
 function AssistantConversationState({
   endpoint,
   storageScope,
+  historyScope,
   archiveKey,
   children,
 }: {
   endpoint: string;
   storageScope?: string;
+  historyScope?: string;
   archiveKey?: string;
   children: ReactNode;
 }) {
-  const conversation = useAssistantConversation(endpoint, { storageScope, archiveKey });
+  const conversation = useAssistantConversation(endpoint, { storageScope, historyScope, archiveKey });
   return (
     <AssistantConversationContext.Provider value={conversation}>
       {children}
@@ -78,12 +80,15 @@ function AssistantConversationState({
 export function AssistantConversationProvider({
   endpoint,
   storageScope,
+  historyScope,
   archiveKey,
   children,
 }: {
   endpoint: string;
   /** Isolates chat history — used for modal strips so they do not inherit the main thread. */
   storageScope?: string;
+  /** Stable key for a modal strip's History across visits (storageScope may carry a visit number). */
+  historyScope?: string;
   /** Reloads the portal archive when the manager switches workspace. */
   archiveKey?: string;
   children: ReactNode;
@@ -92,6 +97,7 @@ export function AssistantConversationProvider({
     <AssistantConversationState
       endpoint={endpoint}
       storageScope={storageScope}
+      historyScope={historyScope}
       archiveKey={archiveKey}
     >
       {children}

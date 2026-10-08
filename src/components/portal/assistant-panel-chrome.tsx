@@ -18,8 +18,8 @@ import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
 import { cn } from "@/lib/utils";
 
 /**
- * The assistant's chrome, shared by the floating popup and the docked rail so
- * the two never drift: a header of words, not glyphs; an empty state that is
+ * The assistant's chrome, shared by the floating popup, the docked rail and
+ * the in-dialog rail so they never drift: a header of words, not glyphs; an empty state that is
  * the manager's own queue rather than a sparkle; and one message list.
  */
 
@@ -41,9 +41,7 @@ export function AssistantPanelHeader({
   onClose,
   closeDataAttr = "axis-assistant-close",
   onPinToRail,
-  showHistory,
   onOpenHistory,
-  showNew,
   onNew,
   className,
 }: {
@@ -53,9 +51,8 @@ export function AssistantPanelHeader({
   closeDataAttr?: string;
   /** Popup on a desktop: pin into the right rail. */
   onPinToRail?: () => void;
-  showHistory: boolean;
+  /** History and New are never hidden: every surface binds them to its conversation's own actions. */
   onOpenHistory: () => void;
-  showNew: boolean;
   onNew: () => void;
   className?: string;
 }) {
@@ -72,28 +69,24 @@ export function AssistantPanelHeader({
           </span>
         </p>
       </div>
-      {showNew ? (
-        <button
-          type="button"
-          onClick={onNew}
-          aria-label="Start a new conversation"
-          data-attr="assistant-history-new-chat"
-          className={WORD_BTN}
-        >
-          New
-        </button>
-      ) : null}
-      {showHistory ? (
-        <button
-          type="button"
-          onClick={onOpenHistory}
-          aria-label="Past conversations"
-          data-attr="assistant-history-open"
-          className={WORD_BTN}
-        >
-          History
-        </button>
-      ) : null}
+      <button
+        type="button"
+        onClick={onNew}
+        aria-label="Start a new conversation"
+        data-attr="assistant-history-new-chat"
+        className={WORD_BTN}
+      >
+        New
+      </button>
+      <button
+        type="button"
+        onClick={onOpenHistory}
+        aria-label="Past conversations"
+        data-attr="assistant-history-open"
+        className={WORD_BTN}
+      >
+        History
+      </button>
       {onPinToRail ? (
         // Desktop-only: below `lg` there is no rail to pin into, so offering
         // the control there would be a dead end.
