@@ -564,7 +564,7 @@ export function VendorSettingsPanel() {
           </>
         );
       case "integrations":
-        return <VendorIntegrationsSettings />;
+        return <VendorIntegrationsSettings onManage={() => openGroup("work-number-email")} />;
       case "work-number-email":
         return <VendorWorkNumberSettings />;
       case "messaging":
