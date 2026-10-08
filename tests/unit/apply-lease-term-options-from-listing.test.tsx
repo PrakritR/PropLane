@@ -122,6 +122,21 @@ function openLengthMenu(): string[] {
     .filter((t) => t && !/^pick a length/i.test(t));
 }
 
+/** Custom dates / Month-to-month are checkboxes under Long-term, present only when the property allows them. */
+function longTermChecks(): HTMLInputElement[] {
+  const group = document.querySelector('[data-wizard-field="longTermOptions"]');
+  return group ? (Array.from(group.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[]) : [];
+}
+
+function longTermCheckLabels(): string[] {
+  return longTermChecks().map((box) => (box.closest("label")?.textContent ?? "").trim());
+}
+
+function tickLongTerm(label: string) {
+  const box = longTermChecks().find((node) => (node.closest("label")?.textContent ?? "").trim() === label)!;
+  fireEvent.click(box);
+}
+
 function pickLength(label: string) {
   const option = screen
     .getAllByRole("option")
@@ -167,12 +182,17 @@ describe("Your lease: the toggle lists only the sides the property offers", () =
 });
 
 describe("Your lease: the Length list under Long-term", () => {
-  it("lists the property's fixed lengths and Custom dates, and Month-to-month only when it offers it", () => {
+  it("lists the property's fixed lengths; Custom dates and Month-to-month are checkboxes shown only when it allows them", () => {
     renderLeaseTermStep(["Long-term"], "Long-term", false, () => {}, {}, [6, 12]);
-    expect(openLengthMenu()).toEqual(["6 months", "12 months", "Custom dates"]);
+    expect(openLengthMenu()).toEqual(["6 months", "12 months"]);
+    expect(longTermCheckLabels()).toEqual([]);
     cleanup();
     renderLeaseTermStep(["Long-term", "Month-to-Month"], "Long-term", false, () => {}, {}, [6, 12]);
-    expect(openLengthMenu()).toEqual(["6 months", "12 months", "Custom dates", "Month-to-month"]);
+    expect(openLengthMenu()).toEqual(["6 months", "12 months"]);
+    expect(longTermCheckLabels()).toEqual(["Month-to-month"]);
+    cleanup();
+    renderLeaseTermStep(["Long-term", "Custom", "Month-to-Month"], "Long-term", false, () => {}, {}, [6, 12]);
+    expect(longTermCheckLabels()).toEqual(["Custom dates", "Month-to-month"]);
   });
 
   it("never offers a retired length a listing still stores", () => {
@@ -182,9 +202,11 @@ describe("Your lease: the Length list under Long-term", () => {
     expect(document.getElementById("leaseEnd")).not.toBeNull();
   });
 
-  it("offers Month-to-month on a property that does not offer long-term lengths", () => {
+  it("offers Month-to-month on a property that does not offer long-term lengths; Long-term then asks its move-out date", () => {
     renderLeaseTermStep(["Long-term", "Month-to-Month"], "Long-term");
-    expect(openLengthMenu()).toEqual(["Custom dates", "Month-to-month"]);
+    expect(lengthTrigger()).toBeNull();
+    expect(longTermCheckLabels()).toEqual(["Month-to-month"]);
+    expect(document.getElementById("leaseEnd")).not.toBeNull();
   });
 
   it("has no Length at all when Month-to-month is the only thing offered", () => {
@@ -270,32 +292,35 @@ describe("Your lease: a pick writes the existing stored term", () => {
     expect(patched.at(-1)).toMatchObject({ leaseTerm: "Long-term", rentalType: "standard", leaseStart: "", leaseEnd: "" });
   });
 
-  it("each Length writes Long-term, Custom or Month-to-Month, with the end date that follows", () => {
+  it("each Length / checkbox writes Long-term, Custom or Month-to-Month, with the end date that follows", () => {
     const patched: Record<string, unknown>[] = [];
-    const picks: [string, Record<string, unknown>][] = [
-      ["6 months", { leaseTerm: "Long-term", rentalType: "standard", leaseEnd: "2099-06-30" }],
-      ["Custom dates", { leaseTerm: "Custom", rentalType: "standard" }],
-      ["Month-to-month", { leaseTerm: "Month-to-Month", rentalType: "standard", leaseEnd: "" }],
+    const picks: [string, "length" | "check", Record<string, unknown>][] = [
+      ["6 months", "length", { leaseTerm: "Long-term", rentalType: "standard", leaseEnd: "2099-06-30" }],
+      ["Custom dates", "check", { leaseTerm: "Custom", rentalType: "standard" }],
+      ["Month-to-month", "check", { leaseTerm: "Month-to-Month", rentalType: "standard", leaseEnd: "" }],
     ];
-    for (const [label, expected] of picks) {
+    for (const [label, how, expected] of picks) {
       renderLeaseTermStep(all, "Long-term", true, (next) => patched.push(next), { leaseStart: "2099-01-01" }, [6, 12]);
       fireEvent.click(screen.getByRole("radio", { name: "Long-term" }));
       patched.length = 0;
-      openLengthMenu();
-      pickLength(label);
+      if (how === "length") {
+        openLengthMenu();
+        pickLength(label);
+      } else {
+        tickLongTerm(label);
+      }
       expect(patched.at(-1)).toMatchObject(expected);
       cleanup();
     }
   });
 
-  it("Custom dates stays a Long-term lease with a move-out date when the property does not offer Custom", () => {
-    const patched: Record<string, unknown>[] = [];
-    renderLeaseTermStep(["Long-term", "Month-to-Month"], "Long-term", false, (next) => patched.push(next), {
-      leaseStart: "2099-01-01",
-    });
-    openLengthMenu();
-    pickLength("Custom dates");
-    expect(patched.at(-1)).toMatchObject({ leaseTerm: "Long-term", rentalType: "standard" });
+  it("a Long-term property with no Custom dates never offers it: the move-out date is asked directly and stores Long-term", () => {
+    renderLeaseTermStep(["Long-term"], "Long-term", false, () => {}, { leaseStart: "2099-01-01" });
+    expect(longTermCheckLabels()).toEqual([]);
+    expect(document.getElementById("leaseEnd")).not.toBeNull();
+    cleanup();
+    renderLeaseTermStep(["Long-term", "Month-to-Month"], "Long-term", false, () => {}, { leaseStart: "2099-01-01" });
+    expect(longTermCheckLabels()).not.toContain("Custom dates");
   });
 });
 

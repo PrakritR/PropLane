@@ -8,6 +8,7 @@ import { applicationFeeLabelForSelection } from "@/lib/application-fee-by-room";
 import { resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.server";
 import {
   applicantChoiceFromStored,
+  applicantLongTermChildren,
   applicantTermOptions,
   storedTermForApplicant,
 } from "@/lib/rental-application/applicant-lease-term";
@@ -16,12 +17,15 @@ import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } f
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 
 describe("what the applicant can pick", () => {
-  it("is the four lease types, filtered to what the property enabled", () => {
-    expect(applicantTermOptions(["Long-term", "Month-to-Month", "Custom"]).map((o) => o.label)).toEqual(["Long-term", "Custom", "Month-to-month"]);
+  it("is Long-term and Short-term, filtered to what the property enabled; Custom dates and Month-to-month sit under Long-term", () => {
+    expect(applicantTermOptions(["Long-term", "Month-to-Month", "Custom"]).map((o) => o.label)).toEqual(["Long-term"]);
+    expect(applicantLongTermChildren(["Long-term", "Month-to-Month", "Custom"]).map((o) => o.label)).toEqual(["Custom dates", "Month-to-month"]);
+    expect(applicantLongTermChildren(["Long-term"])).toEqual([]);
+    expect(applicantLongTermChildren(["Long-term", "Custom"]).map((o) => o.label)).toEqual(["Custom dates"]);
     expect(applicantTermOptions(["Long-term", "Short-Term Stay"]).map((o) => o.label)).toEqual(["Long-term", "Short-term"]);
     expect(applicantTermOptions(["Short-Term Stay"]).map((o) => o.label)).toEqual(["Short-term"]);
     expect(applicantTermOptions(["Airbnb"]).map((o) => o.label)).toEqual(["Short-term"]);
-    expect(applicantTermOptions(["Custom"]).map((o) => o.label)).toEqual(["Custom"]);
+    expect(applicantTermOptions(["Custom"]).map((o) => o.label)).toEqual(["Long-term"]);
   });
 
   it("reads every stored term back as its lease type", () => {

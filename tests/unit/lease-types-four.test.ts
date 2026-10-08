@@ -137,10 +137,8 @@ describe("the four lease types are one list", () => {
     expect(applicantTermOptions(["Month-to-Month", "Short-Term Stay", "Long-term", "Custom"]).map((o) => o.label)).toEqual([
       "Long-term",
       "Short-term",
-      "Custom",
-      "Month-to-month",
     ]);
-    expect(applicantTermOptions(["Long-term", "Month-to-Month"]).map((o) => o.label)).toEqual(["Long-term", "Month-to-month"]);
+    expect(applicantTermOptions(["Long-term", "Month-to-Month"]).map((o) => o.label)).toEqual(["Long-term"]);
     expect(applicantTermOptions(["Airbnb"]).map((o) => o.label)).toEqual(["Short-term"]);
   });
 

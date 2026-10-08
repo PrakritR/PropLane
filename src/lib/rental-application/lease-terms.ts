@@ -228,6 +228,61 @@ export function storedTermForLeaseType(id: LeaseTypeId, offeredStored: readonly 
   return LEASE_TYPES.find((type) => type.id === id)!.term;
 }
 
+/**
+ * What a human PICKS (captain, Oct 8 2026): two lease types, Long-term and Short-term. Custom dates and
+ * Month-to-month are options on a Long-term lease: two indented checkboxes under it that exist only while
+ * Long-term is ticked. This is the one owner of that shape; every picker (room card, Basics, the older Add
+ * listing form) reads it, and the guard test fails a picker that lists either child at the top level.
+ *
+ * Only the picker moved. The stored values (`allowedLeaseTerms`, `room.offeredLeaseTerms`, `leaseTerm`) are
+ * still "Long-term", "Short-Term Stay", "Custom" and "Month-to-Month", so listings, applications, fees,
+ * lease documents and charges read exactly as before.
+ */
+export type LeasePickOption = { value: LeaseTypeId; label: string; parent?: LeaseTypeId };
+
+export const LEASE_PICK_OPTIONS: readonly LeasePickOption[] = [
+  { value: "long_term", label: "Long-term" },
+  { value: "custom", label: "Custom dates", parent: "long_term" },
+  { value: "month_to_month", label: "Month-to-month", parent: "long_term" },
+  { value: "short_term", label: "Short-term" },
+];
+
+/** A child ticked without its parent is meaningless: drop it. Returns the picker's canonical order. */
+export function normalizeLeasePick(pick: readonly LeaseTypeId[]): LeaseTypeId[] {
+  const has = new Set(pick);
+  return LEASE_PICK_OPTIONS.filter((o) => has.has(o.value) && (!o.parent || has.has(o.parent))).map((o) => o.value);
+}
+
+/**
+ * The picker state for a set of stored terms. A listing that stores Custom and/or Month-to-Month (whether or
+ * not it also stores Long-term) opens with Long-term ticked and those children ticked.
+ */
+export function leasePickFromStored(stored: readonly string[]): LeaseTypeId[] {
+  const ids = new Set<LeaseTypeId>(leaseTypeIdsFromStored(stored.map((t) => String(t).trim()).filter(Boolean)));
+  if (ids.has("custom") || ids.has("month_to_month")) ids.add("long_term");
+  return normalizeLeasePick([...ids]);
+}
+
+/**
+ * The stored terms for a picker state, in canonical order. Unticking Long-term drops the children with it.
+ * `previousStored` lets a retired fixed length (12-Month) or Airbnb keep answering for its type.
+ */
+export function storedTermsFromLeasePick(pick: readonly LeaseTypeId[], previousStored: readonly string[] = []): string[] {
+  const previous = previousStored.map((t) => String(t).trim()).filter(Boolean);
+  return sortLeaseTermsCanonical(normalizeLeasePick(pick).map((id) => storedTermForLeaseType(id, previous)));
+}
+
+/** The closed picker's caption: "Long-term (Custom dates), Short-term". */
+export function leasePickSummary(pick: readonly LeaseTypeId[]): string {
+  const normalized = normalizeLeasePick(pick);
+  return LEASE_PICK_OPTIONS.filter((o) => !o.parent && normalized.includes(o.value))
+    .map((o) => {
+      const kids = LEASE_PICK_OPTIONS.filter((c) => c.parent === o.value && normalized.includes(c.value)).map((c) => c.label);
+      return kids.length ? `${o.label} (${kids.join(", ")})` : o.label;
+    })
+    .join(", ");
+}
+
 /** Is this stored term one of the lease types the property offers? (The server-side "not enabled" test.) */
 export function leaseTermIsOfferedType(offeredStored: readonly string[], term: string | null | undefined): boolean {
   const id = leaseTypeIdForStoredTerm(term);
