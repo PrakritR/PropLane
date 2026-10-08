@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { getStripe } from "@/lib/stripe";
+import { resolveCheckoutSessionPromoCode } from "@/lib/stripe/checkout-promo-code.server";
 
 type ManagerPurchaseDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -226,7 +227,8 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
     stripe_subscription_id: subscriptionId,
     tier: tierMeta,
     billing: billingMeta,
-    promo_code: session.metadata?.promo ?? null,
+    // The code typed on the pricing form, else the one redeemed in Checkout's own promotion-code field.
+    promo_code: (await resolveCheckoutSessionPromoCode(session)) ?? session.metadata?.promo ?? null,
     paid_at: new Date().toISOString(),
     full_name: session.metadata?.full_name?.trim() || null,
     ...(email ? { email } : {}),

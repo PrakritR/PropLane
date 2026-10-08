@@ -203,7 +203,7 @@ export async function POST(req: Request) {
         priceId: price,
         metadata,
         clientReferenceId: user.id,
-        allowPromotionCodes: tier === "pro" && billing === "monthly",
+        allowPromotionCodes: true,
       }),
       customer,
     };
