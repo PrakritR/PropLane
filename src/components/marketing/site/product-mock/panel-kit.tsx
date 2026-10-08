@@ -63,6 +63,7 @@ export function FixtureListScreen({
   actions,
   primary,
   above,
+  recordSummary,
   isEmpty,
   emptyTitle,
   emptySection,
@@ -86,6 +87,8 @@ export function FixtureListScreen({
   primary?: { label: string; onClick: () => void };
   /** Cards that sit above the command bar on the real page (a balance, a summary). */
   above?: ReactNode;
+  /** The command bar's one summary line (`PortalListControlStack recordSummary`), derived from the rows drawn. */
+  recordSummary?: ReactNode;
   isEmpty: boolean;
   emptyTitle: string;
   emptySection?: string;
@@ -120,6 +123,7 @@ export function FixtureListScreen({
               ) : undefined
             }
             search={onSearch ? { value: search ?? "", onChange: onSearch, placeholder: searchPlaceholder ?? "Search" } : undefined}
+            recordSummary={recordSummary}
             actions={actions}
             primary={primary ? <PortalPrimaryIconAction label={primary.label} onClick={primary.onClick} /> : undefined}
           />

@@ -19,8 +19,7 @@
  * panel toasts "(sample)". Loaded on demand (`demo-popups-lazy-resident.tsx`).
  */
 
-import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Download,
   Flag,
@@ -45,8 +44,6 @@ import { Modal, ModalFooter } from "@/components/ui/modal";
 import { MODAL_FIELD_LABEL_CLASS, MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { PortalContainerProvider } from "@/components/ui/portal-container-context";
-import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { DashboardCustomizeModal } from "@/components/portal/dashboard-customize-modal";
 import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
@@ -104,7 +101,6 @@ import {
   PORTAL_TABLE_TR,
 } from "@/components/portal/portal-data-table";
 import { MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
-import { DemoPopupHostContext } from "@/components/marketing/site/product-mock/demo-popup-host";
 import {
   DemoRecordPage,
   DemoRecordThread,
@@ -125,36 +121,7 @@ import {
 } from "@/components/marketing/site/product-mock/fixtures-popups-resident";
 import { ResidentScheduleTourModal as TourModal } from "@/components/marketing/site/product-mock/demo-popups-resident-tour";
 
-/* ───────────────────────────── the scope every Modal draws in ───────────────────────────── */
-
-/**
- * Where the real `Modal`s draw. The demo window provides a host element (`DemoPopupHostContext`); this layer lives in
- * it, fills the window, and is the portal container for Radix and the containing block for the modal's
- * `position: fixed` stack (a transform makes it one), so a modal covers the demo window and never the page behind.
- * `AppUiProvider` is the toast host the real modals call (`useAppUi`).
- */
-export function DemoModalScope({ children }: { children: ReactNode }) {
-  const host = useContext(DemoPopupHostContext);
-  const [layer, setLayer] = useState<HTMLDivElement | null>(null);
-  const node = (
-    <div
-      ref={setLayer}
-      data-demo-popup=""
-      data-demo-modal-scope=""
-      className="pointer-events-auto absolute inset-0 z-[40] overflow-hidden"
-      style={{ transform: "translateZ(0)", containerType: "size" }}
-    >
-      {/* The real panels size themselves to the browser (`100dvh`); inside the demo window they size to the window. */}
-      <style>{`@layer utilities { [data-demo-modal-scope] [data-slot="modal-radix-dialog"] { max-height: calc(100cqh - 24px) !important; } }`}</style>
-      {layer ? (
-        <PortalContainerProvider container={layer}>
-          <AppUiProvider>{children}</AppUiProvider>
-        </PortalContainerProvider>
-      ) : null}
-    </div>
-  );
-  return host ? createPortal(node, host) : node;
-}
+import { DemoModalScope } from "@/components/marketing/site/product-mock/demo-modal-scope";
 
 type Toast = (text: string) => void;
 

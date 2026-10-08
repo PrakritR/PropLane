@@ -8,10 +8,11 @@
  *  - Services (`vendor-work-orders-panel.tsx`): Open · Assigned · Scheduled · Completed · Find work, a Filter popover,
  *    the Service settings gear, the round "Add bid" (the Submit bid wizard), real `VendorServiceCardRow` rows with a ⋯
  *    per stage, a row opens the service record page; Find work draws the real `VendorFindWorkList`
- *  - Calendar (`vendor-calendar-panel.tsx`): All · Services · Availability, Filter, Integrations, "Add availability"
- *    (the Set availability dialog); a visit opens the quick-look, an availability block re-opens the editor
- *  - Reviews (`vendor-reviews-panel.tsx`): the four stat cells above All · Needs reply · Replied, star-tile rows, the
- *    Reply to review dialog
+ *  - Calendar (`vendor-calendar-panel.tsx`): the manager calendar (Day · Week · Month · Agenda, Today and the range), the
+ *    weekly open hours shaded, services as events; the band is Filter, Integrations (opens Settings > Integrations) and
+ *    the round + (Block time, Weekly hours); a visit opens the quick-look
+ *  - Reviews (`vendor-reviews-panel.tsx`): one list, newest first, no tabs and no stat cards; the "★ avg · n reviews"
+ *    line (`reviewsSummary`) derived from the rows; star-tile rows, the Reply to review dialog
  *  - Finances (`vendor-finances-*.tsx`): Balance & payouts, Payments, Refunds, Statements and Tax info, the five
  *    sections the sidebar nests, each with its pop-ups and record pages
  *  - Documents (`vendor-documents-panel.tsx`) and Communication (`vendor-communication.tsx`)
@@ -24,22 +25,33 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowUp,
   ArrowUpFromLine,
   CalendarDays,
   CalendarSync,
   Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
   Clock,
   DollarSign,
   Download,
   FileText,
+  Hammer,
+  House,
   Landmark,
+  Link2,
+  Mail,
+  MessageSquare,
   PenSquare,
   Pencil,
+  RotateCcw,
   Settings,
   Sparkles,
   Undo2,
   UserRound,
+  Wrench,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -60,11 +72,16 @@ import { VendorServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { VendorFindWorkList } from "@/components/portal/vendor-find-work-list";
 import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
-import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection, PortalSettingsSections } from "@/components/portal/portal-settings-ui";
+import type { DemoAvailabilityFocus } from "@/components/marketing/site/product-mock/demo-popups-vendor";
+import { IntegrationRow } from "@/components/portal/integration-row";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { reviewsSummary } from "@/components/portal/vendor-reviews-panel";
+import { VENDOR_INTEGRATION_PROVIDERS, type VendorIntegrationProvider } from "@/lib/vendor-integrations";
 import { VendorRowMenu, type VendorRowMenuItem } from "@/components/portal/vendor-row-menu";
 import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/components/portal/communication-status-filter";
 import { InboxComposer, InboxConversationRow, InboxThreadView, InboxTwoPane } from "@/components/portal/portal-inbox-ui";
-import { CalendarTimeGrid, type CalendarGridItem } from "@/components/portal/manager-calendar-views";
+import { CalendarAgendaView, CalendarMonthView, CalendarTimeGrid, type CalendarGridItem } from "@/components/portal/manager-calendar-views";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -446,12 +463,20 @@ export function VendorServicesPanel({ story }: { story?: DemoStory } = {}) {
 
 /* ───────────────────────────── Calendar ───────────────────────────── */
 
-/** `VENDOR_CALENDAR_TAB_LABELS`: All · Services · Availability. */
-const CALENDAR_TABS = [
-  { id: "all", label: "All" },
-  { id: "services", label: "Services" },
-  { id: "availability", label: "Availability" },
+/** The manager calendar's own view switch (`VendorCalendarPanel` has no tabs: Day · Week · Month · Agenda). */
+const CALENDAR_VIEW_OPTIONS = [
+  { id: "day", label: "Day" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "agenda", label: "Agenda" },
 ];
+const CALENDAR_NAV_BUTTON_CLASS =
+  "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95";
+const INTEGRATION_PROVIDER_ICONS: Record<VendorIntegrationProvider, { icon: LucideIcon; tone: string }> = {
+  jobber: { icon: Wrench, tone: "text-emerald-600" },
+  housecall_pro: { icon: House, tone: "text-blue-600" },
+  thumbtack: { icon: Hammer, tone: "text-sky-600" },
+};
 const GRID_WINDOW: GridWindow = { from: 8 * 60, to: 19 * 60, early: 0, late: 0 };
 
 type VisitFixture = VendorVisit;
@@ -485,38 +510,113 @@ function visitToGridItem(v: VisitFixture): CalendarGridItem {
   };
 }
 
+function shortDate(ds: string, options: Intl.DateTimeFormatOptions): string {
+  return new Date(`${ds}T12:00:00`).toLocaleDateString("en-US", options);
+}
+
+/**
+ * Vendor Settings > Integrations (`vendor-integrations-settings.tsx`), drawn static: grouped rows (Messages, Calendar, Job
+ * software), one icon tile each, one plain fact and one action on the right. The real page fetches the work identity and
+ * the calendar link; here they are fixtures, and Manage / Connect / Request access only show a "(sample)" toast.
+ */
+function VendorIntegrationsScreen({ onBack }: { onBack: () => void }) {
+  const { show, node: toastNode } = useFixtureToast();
+  const [requested, setRequested] = useState<string[]>([]);
+  const link = "https://proplane.ai/api/calendar/vendor/pacific/calendar-link.ics";
+  return (
+    <PageFrame path="/vendor/settings?tab=integrations" overlay={toastNode}>
+      <ManagerPortalPageShell title="Settings" titleInlineFilter={null} hideTitleOnMobileNav compactFilterRow>
+        <div className="mb-3 flex items-center gap-2 px-1">
+          <PortalIconAction icon={ArrowLeft} label="Back to Calendar" data-attr="vendor-integrations-back" onClick={onBack} />
+          <h2 className="text-lg font-semibold text-foreground">Integrations</h2>
+        </div>
+        <PortalSettingsSections>
+          <div data-attr="vendor-integrations-section-messages">
+            <PortalSettingsSection title="Messages">
+              <PortalSettingsGroup>
+                <IntegrationRow icon={MessageSquare} tone="text-emerald-600" name="Work number" fact="(425) 555-0177" dataAttr="vendor-integrations-number-row" action={<Button variant="ghost" onClick={() => show("Manage work number (sample)")}>Manage</Button>} />
+                <IntegrationRow icon={Mail} tone="text-blue-600" name="Work email" fact="pacific@vendors.proplane.ai" dataAttr="vendor-integrations-email-row" action={<Button variant="ghost" onClick={() => show("Manage work email (sample)")}>Manage</Button>} />
+              </PortalSettingsGroup>
+            </PortalSettingsSection>
+          </div>
+          <div data-attr="vendor-integrations-section-calendar">
+            <PortalSettingsSection title="Calendar">
+              <PortalSettingsGroup>
+                <IntegrationRow icon={Link2} tone="text-blue-500" name="Google Calendar" dataAttr="integrations-google-calendar-row" action={<Button variant="ghost" onClick={() => show("Connect Google Calendar (sample)")}>Connect</Button>} />
+                <IntegrationRow
+                  icon={Link2}
+                  tone="text-violet-600"
+                  name="Calendar link"
+                  dataAttr="vendor-integrations-calendar-link"
+                  fact={<span className="hidden max-w-[16rem] truncate font-mono sm:inline-block">{link}</span>}
+                  action={
+                    <div className="flex items-center gap-1">
+                      <PortalIconAction icon={Copy} label="Copy link" onClick={() => show("Calendar link copied (sample)")} />
+                      <PortalIconAction icon={RotateCcw} label="Reset link" onClick={() => show("Calendar link reset (sample)")} />
+                    </div>
+                  }
+                />
+              </PortalSettingsGroup>
+            </PortalSettingsSection>
+          </div>
+          <div data-attr="vendor-integrations-section-job-software">
+            <PortalSettingsSection title="Job software">
+              <PortalSettingsGroup>
+                {VENDOR_INTEGRATION_PROVIDERS.map((provider) => {
+                  const glyph = INTEGRATION_PROVIDER_ICONS[provider.id];
+                  return requested.includes(provider.id) ? (
+                    <IntegrationRow key={provider.id} icon={glyph.icon} tone={glyph.tone} name={provider.label} dataAttr={`vendor-integrations-${provider.id}-row`} action={<span className="text-sm text-muted">Requested</span>} />
+                  ) : (
+                    <IntegrationRow
+                      key={provider.id}
+                      icon={glyph.icon}
+                      tone={glyph.tone}
+                      name={provider.label}
+                      comingSoon
+                      dataAttr={`vendor-integrations-${provider.id}-row`}
+                      comingSoonAction={<Button variant="ghost" onClick={() => setRequested((cur) => [...cur, provider.id])}>Request access</Button>}
+                    />
+                  );
+                })}
+              </PortalSettingsGroup>
+            </PortalSettingsSection>
+          </div>
+        </PortalSettingsSections>
+      </ManagerPortalPageShell>
+    </PageFrame>
+  );
+}
+
 export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
   const current = story ?? vendorStory(undefined);
   const visit = vendorVisit(current);
-  // The grid shows the week the story's visit is in; the rows and counts below are only that week's.
+  // The grid shows the week the story's visit is in.
   const week = visit ? NEXT_WEEK : CALENDAR_WEEK;
-  /** Open hours: Monday to Friday, 8 AM to 4 PM. */
+  const today = week.includes(CALENDAR_TODAY) ? CALENDAR_TODAY : week[0]!;
+  /** Open hours: Monday to Friday, 8 AM to 4 PM (the weekly hours the Weekly hours pop-up edits). */
   const availabilityDays = week.slice(0, DEMO_WEEKLY_WINDOWS.length);
   const allVisits = useMemo(() => [...(visit ? [visit] : []), ...VISITS].filter((v) => week.includes(v.dateStr)), [visit, week]);
-  const [tab, setTab] = useState("all");
+  const [view, setView] = useState("week");
   const [search, setSearch] = useState("");
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [selected, setSelected] = useState<VisitFixture | null>(null);
-  const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  const [availabilityFocus, setAvailabilityFocus] = useState<DemoAvailabilityFocus | null>(null);
+  const [integrationsOpen, setIntegrationsOpen] = useState(false);
   const [record, setRecord] = useState<ServiceTarget | null>(null);
   const [invoicedIds, setInvoicedIds] = useState<string[]>([]);
   const { show, node: toastNode } = useFixtureToast();
 
   const propertyOptions = useMemo(() => [...new Set(allVisits.map((v) => v.place.split(" · ")[0]!))].sort().map((value) => ({ value, label: value })), [allVisits]);
   const visits = allVisits.filter((v) => propertyFilters.length === 0 || propertyFilters.includes(v.place.split(" · ")[0]!));
-  const counts = { all: visits.length + availabilityDays.length, services: visits.length, availability: availabilityDays.length };
-  const items = useMemo(
-    () => (tab === "availability" ? [] : visits.filter((v) => matchesSearch(search, v.title, v.place)).map(visitToGridItem)),
-    [visits, tab, search],
-  );
+  const items = useMemo(() => visits.filter((v) => matchesSearch(search, v.title, v.place)).map(visitToGridItem), [visits, search]);
   const bandsByDate = useMemo(() => {
     const map = new Map<string, GridBand[]>();
-    if (tab !== "services") for (const ds of availabilityDays) map.set(ds, [{ startMin: 8 * 60, endMin: 16 * 60, kinds: ["services"], source: "typed" }]);
+    for (const ds of availabilityDays) map.set(ds, [{ startMin: 8 * 60, endMin: 16 * 60, kinds: ["services"], source: "typed" }]);
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, week]);
+  }, [week]);
   const noop = () => undefined;
-  const openAvailability = () => setAvailabilityOpen(true);
+  const openEditor = (focus: DemoAvailabilityFocus) => setAvailabilityFocus(focus);
 
   const serviceFor = (title: string) => [...vendorServices(current), ...EXTRA_VENDOR_SERVICES].find((s) => s.title === title);
   const openService = (title: string, section?: string) => {
@@ -524,6 +624,7 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
     if (s) setRecord(targetForService(s, section));
     setSelected(null);
   };
+  const openItem = (item: CalendarGridItem) => setSelected(visits.find((v) => v.id === item.id) ?? null);
 
   if (record) {
     return (
@@ -537,6 +638,7 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
       />
     );
   }
+  if (integrationsOpen) return <VendorIntegrationsScreen onBack={() => setIntegrationsOpen(false)} />;
 
   const filterSheet =
     propertyOptions.length > 1 ? (
@@ -554,34 +656,55 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
       </DemoFilterSheet>
     ) : null;
 
+  const dates = view === "day" ? [today] : week;
+  const rangeLabel =
+    view === "day"
+      ? shortDate(today, { weekday: "short", month: "short", day: "numeric" })
+      : view === "month"
+        ? shortDate(week[0]!, { month: "long", year: "numeric" })
+        : `${shortDate(week[0]!, { month: "short", day: "numeric" })} - ${shortDate(week[6]!, { month: "short", day: "numeric" })}`;
+  const navUnit = view === "agenda" ? "week" : view;
+
   return (
     <FixtureListScreen
       path="/vendor/calendar"
       title="Calendar"
-      tabs={CALENDAR_TABS.map((t) => ({ ...t, count: counts[t.id as keyof typeof counts] }))}
-      activeId={tab}
-      onTab={setTab}
-      tabAriaLabel="Calendar view"
+      tabs={[]}
+      activeId=""
+      onTab={noop}
       search={search}
       onSearch={setSearch}
       searchPlaceholder="Search calendar"
       actions={
         <>
           {filterSheet}
-          <PortalIconAction icon={CalendarSync} label="Integrations" badge="warn" data-attr="vendor-calendar-integrations-btn" onClick={() => show("Integrations (sample)")} />
+          <PortalIconAction icon={CalendarSync} label="Integrations" badge="warn" data-attr="vendor-calendar-integrations-btn" onClick={() => setIntegrationsOpen(true)} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <PortalPrimaryIconAction label="Add to calendar" data-attr="vendor-calendar-add-menu" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" data-attr="vendor-calendar-add-menu-content">
+              <DropdownMenuItem data-attr="vendor-calendar-block-time" onSelect={() => openEditor("block")}>
+                Block time
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="vendor-calendar-weekly-hours" onSelect={() => openEditor("weekly")}>
+                Weekly hours
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </>
       }
-      primary={{ label: "Add availability", onClick: openAvailability }}
       isEmpty={false}
       emptyTitle=""
       surface={false}
       overlay={
         <>
-          {availabilityOpen ? (
+          {availabilityFocus ? (
             <DemoVendorAvailabilityDialog
-              onClose={() => setAvailabilityOpen(false)}
+              focus={availabilityFocus}
+              onClose={() => setAvailabilityFocus(null)}
               onSaved={() => {
-                setAvailabilityOpen(false);
+                setAvailabilityFocus(null);
                 show("Availability saved (sample)");
               }}
             />
@@ -590,7 +713,7 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
             <DemoVendorVisitDialog
               title={selected.title}
               rows={[
-                { label: "When", value: `${new Date(`${selected.dateStr}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · ${clock(selected.startMin)} – ${clock(selected.startMin + selected.durationMin)}` },
+                { label: "When", value: `${shortDate(selected.dateStr, { weekday: "short", month: "short", day: "numeric" })} · ${clock(selected.startMin)} – ${clock(selected.startMin + selected.durationMin)}` },
                 { label: "Property", value: selected.place },
               ]}
               onClose={() => setSelected(null)}
@@ -602,25 +725,69 @@ export function VendorCalendarPanel({ story }: { story?: DemoStory } = {}) {
         </>
       }
     >
-      <div className="overflow-hidden rounded-[14px] border border-border bg-card">
-        <CalendarTimeGrid
-          dates={week}
-          items={items}
-          bandsByDate={bandsByDate}
-          window={GRID_WINDOW}
-          expandEarly={false}
-          expandLate={false}
-          onToggleEarly={noop}
-          onToggleLate={noop}
-          todayDs={CALENDAR_TODAY}
-          nowMin={CALENDAR_NOW_MIN}
-          isDay={false}
-          canEditAvailability
-          onOpenItem={(item) => setSelected(visits.find((v) => v.id === item.id) ?? null)}
-          onBandClick={openAvailability}
-          onDragAdd={openAvailability}
-          minColumnPx={96}
-        />
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border px-1" data-attr="calendar-toolbar">
+          <LocalDestinationNav
+            appearance="command"
+            ariaLabel="Calendar view"
+            activeId={view}
+            onChange={setView}
+            items={CALENDAR_VIEW_OPTIONS.map((option) => ({ ...option, dataAttr: `calendar-view-mode-${option.id}` }))}
+            className="w-auto max-w-full"
+          />
+          <div className="flex min-w-0 items-center gap-1" data-attr="calendar-nav">
+            <button type="button" className="h-7 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground" data-attr="calendar-today" onClick={() => show("Today (sample)")}>
+              Today
+            </button>
+            <button type="button" className={CALENDAR_NAV_BUTTON_CLASS} aria-label={`Previous ${navUnit}`} data-attr="calendar-nav-prev" onClick={() => show(`Previous ${navUnit} (sample)`)}>
+              <ChevronLeft className="size-4" aria-hidden />
+            </button>
+            <span className="min-w-0 truncate whitespace-nowrap px-0.5 text-[13px] text-muted" data-attr="calendar-range-label">
+              {rangeLabel}
+            </span>
+            <button type="button" className={CALENDAR_NAV_BUTTON_CLASS} aria-label={`Next ${navUnit}`} data-attr="calendar-nav-next" onClick={() => show(`Next ${navUnit} (sample)`)}>
+              <ChevronRight className="size-4" aria-hidden />
+            </button>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-[14px] border border-border bg-card">
+          {view === "agenda" ? (
+            <div className="p-3">
+              <CalendarAgendaView dates={week} items={items} todayDs={today} onOpenItem={openItem} />
+            </div>
+          ) : view === "month" ? (
+            <CalendarMonthView
+              monthStart={`${week[0]!.slice(0, 7)}-01`}
+              items={items}
+              todayDs={today}
+              phone={false}
+              openHalfHoursFor={(ds) => (bandsByDate.has(ds) ? 16 : 0)}
+              openLabel="Open hours"
+              onOpenItem={openItem}
+              onOpenDay={() => setView("day")}
+            />
+          ) : (
+            <CalendarTimeGrid
+              dates={dates}
+              items={items}
+              bandsByDate={bandsByDate}
+              window={GRID_WINDOW}
+              expandEarly={false}
+              expandLate={false}
+              onToggleEarly={noop}
+              onToggleLate={noop}
+              todayDs={today}
+              nowMin={CALENDAR_NOW_MIN}
+              isDay={view === "day"}
+              canEditAvailability={false}
+              onOpenItem={openItem}
+              onOpenDay={() => setView("day")}
+              onBandClick={() => openEditor("all")}
+              onDragAdd={() => openEditor("block")}
+              minColumnPx={view === "day" ? 128 : 96}
+            />
+          )}
+        </div>
       </div>
     </FixtureListScreen>
   );
@@ -1261,12 +1428,6 @@ export function VendorDashboardBalanceDemo({ story }: { story?: DemoStory } = {}
 
 /* ───────────────────────────── Reviews ───────────────────────────── */
 
-/** `VENDOR_REVIEW_STATUS_TABS`: All · Needs reply · Replied. */
-const REVIEW_TABS = [
-  { id: "all", label: "All" },
-  { id: "needs-reply", label: "Needs reply" },
-  { id: "replied", label: "Replied" },
-];
 /** The Filter popover's Rating list (`RATING_FILTER_OPTIONS`). */
 const RATING_FILTER_OPTIONS = [
   { value: "0", label: "All ratings" },
@@ -1282,32 +1443,7 @@ function reviewDate(at: string): string {
   return parts.length >= 2 ? `${parts[0]!.trim()}, ${parts[1]!.trim()}` : at;
 }
 
-/** The header stats strip: Average rating, Reviews, Needs reply, Response rate - every figure derived from the rows. */
-function ReviewStatsStrip({ reviews }: { reviews: VendorReviewFixture[] }) {
-  const total = reviews.length;
-  const needsReply = reviews.filter((r) => !r.reply).length;
-  const average = total > 0 ? reviews.reduce((sum, r) => sum + r.stars, 0) / total : null;
-  const responseRate = total > 0 ? Math.round(((total - needsReply) / total) * 100) : null;
-  const cells = [
-    { id: "average", label: "Average rating", value: average == null ? "—" : `${average.toFixed(1)} ★` },
-    { id: "count", label: "Reviews", value: String(total) },
-    { id: "needs-reply", label: "Needs reply", value: String(needsReply) },
-    { id: "response-rate", label: "Response rate", value: responseRate == null ? "—" : `${responseRate}%` },
-  ];
-  return (
-    <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4" data-attr="vendor-reviews-stats" data-testid="vendor-reviews-stats">
-      {cells.map((cell) => (
-        <div key={cell.id} className="rounded-[10px] border border-border bg-card px-4 py-3" data-attr={`vendor-reviews-stat-${cell.id}`}>
-          <p className="text-[13px] text-muted">{cell.label}</p>
-          <p className="mt-1 text-xl font-[650] leading-none tracking-tight text-foreground tabular-nums">{cell.value}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function VendorReviewsPanel() {
-  const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [rating, setRating] = useState("0");
   const [fromDate, setFromDate] = useState("");
@@ -1317,11 +1453,14 @@ export function VendorReviewsPanel() {
   const { show, node: toastNode } = useFixtureToast();
 
   // A reply typed here lives in this panel only; the row then reads as replied.
-  const reviews = useMemo(() => VENDOR_REVIEWS.map((r) => (replies[r.id] ? { ...r, reply: replies[r.id] } : r)), [replies]);
-  const counts = { all: reviews.length, "needs-reply": reviews.filter((r) => !r.reply).length, replied: reviews.filter((r) => r.reply).length };
+  // One list, newest first: no tabs, no stat cards. The header line is derived from these same rows.
+  const reviews = useMemo(
+    () =>
+      VENDOR_REVIEWS.map((r) => (replies[r.id] ? { ...r, reply: replies[r.id] } : r)).sort((a, b) => (isoOf(reviewDate(b.at)) < isoOf(reviewDate(a.at)) ? -1 : 1)),
+    [replies],
+  );
   const minStars = rating === "0" ? null : Number(rating);
   const rows = reviews.filter((r) => {
-    if (!(tab === "all" || (tab === "needs-reply" ? !r.reply : Boolean(r.reply)))) return false;
     if (minStars != null && r.stars < minStars) return false;
     const iso = isoOf(reviewDate(r.at));
     if (fromDate && iso < fromDate) return false;
@@ -1334,11 +1473,10 @@ export function VendorReviewsPanel() {
     <FixtureListScreen
       path="/vendor/reviews"
       title="Reviews"
-      above={<ReviewStatsStrip reviews={reviews} />}
-      tabs={REVIEW_TABS.map((t) => ({ ...t, count: counts[t.id as keyof typeof counts] }))}
-      activeId={tab}
-      onTab={setTab}
-      tabAriaLabel="Review status"
+      tabs={[]}
+      activeId=""
+      onTab={() => undefined}
+      recordSummary={reviewsSummary(reviews.map((r) => ({ stars: r.stars })) as unknown as Parameters<typeof reviewsSummary>[0])}
       search={search}
       onSearch={setSearch}
       searchPlaceholder="Search reviews"

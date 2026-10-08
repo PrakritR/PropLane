@@ -62,12 +62,11 @@ describe.each(PORTALS)("DemoPanel - %s portal", (portal) => {
 });
 
 describe("vendor Reviews", () => {
-  it("draws the stats card above the All / Needs reply / Replied tabs", () => {
+  it("is one list under the star summary line, with no stats card and no status tabs", () => {
     render(<DemoPanel portal="vendor" tab="reviews" />);
-    const stats = screen.getByTestId("vendor-reviews-stats");
-    const tab = screen.getByRole("button", { name: /needs reply/i });
-    expect(stats.compareDocumentPosition(tab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(tab);
+    expect(screen.queryByTestId("vendor-reviews-stats")).toBeNull();
+    expect(screen.queryByRole("button", { name: /needs reply/i })).toBeNull();
+    expect(screen.getByText(/^★ \d\.\d · \d+ reviews$/)).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

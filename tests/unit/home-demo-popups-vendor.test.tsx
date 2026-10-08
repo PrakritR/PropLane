@@ -5,7 +5,7 @@
 // step rail, footer words), a row opening the real record page or pop-up, the row menu per stage, and nothing ever
 // calling the network. The generic RESIDENT / HOME / STATUS field card must never come back.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DemoPanel } from "@/components/marketing/site/product-mock/demo-panels";
 import { VendorDashboardBalanceDemo } from "@/components/marketing/site/product-mock/panels-vendor";
@@ -14,10 +14,8 @@ import { DEMO_REFUNDS, DEMO_STATEMENTS, DEMO_TAX_YEARS, EXTRA_VENDOR_SERVICES, F
 import { VENDOR_PAYOUTS } from "@/components/marketing/site/product-mock/fixtures-more";
 import { vendorServices, vendorStory } from "@/components/marketing/site/product-mock/world";
 import { VENDOR_WORK_ORDER_TABS } from "@/lib/vendor-work-order-tabs";
-import { VENDOR_REVIEW_STATUS_TABS } from "@/lib/vendor-reviews";
 import { VENDOR_PAYMENT_BUCKETS } from "@/lib/vendor-payments";
 import { VENDOR_DOCUMENT_LABELS, VENDOR_DOCUMENT_SECTIONS } from "@/lib/vendor-documents";
-import { VENDOR_CALENDAR_VIEW_TABS } from "@/lib/portal-detail-routes";
 import { recordSections } from "@/lib/portals/record-sections";
 import { vendorPortal } from "@/lib/portals/vendor";
 
@@ -147,25 +145,66 @@ describe("vendor Services matches the real Services page", () => {
 });
 
 describe("vendor Calendar matches the real Calendar page", () => {
-  it("has All, Services, Availability with the real labels and Integrations, never the old Google label", () => {
+  it("is the manager calendar: no All/Services/Availability tabs, a Day/Week/Month/Agenda toggle, Today and the range, Filter and Integrations", () => {
     render(<DemoPanel portal="vendor" tab="calendar" story={OFFER} />);
-    expect(VENDOR_CALENDAR_VIEW_TABS).toEqual(["all", "services", "availability"]);
-    for (const label of ["All", "Services", "Availability"]) expect(tabButton(label)).toBeInTheDocument();
+    for (const label of ["All", "Services", "Availability"]) expect(screen.queryByRole("button", { name: new RegExp(`^${label}(\\s*\\d+ items?)?$`) })).toBeNull();
+    const views = within(screen.getByRole("navigation", { name: "Calendar view" }));
+    for (const label of ["Day", "Week", "Month", "Agenda"]) expect(views.getByText(label)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous week" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next week" })).toBeInTheDocument();
+    expect(screen.getByText("Sep 22 - Sep 28")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Integrations" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Google Calendar/ })).toBeNull();
-    expect(screen.getByRole("button", { name: "Add availability" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add availability" })).toBeNull();
+    // the services are the events, drawn from the story's rows
+    expect(screen.getAllByText("Kitchen faucet drip").length).toBeGreaterThan(0);
   });
 
-  it("Add availability opens Set availability with weekly hours, date overrides and Save", async () => {
+  it("the view toggle switches Week to Month and Agenda, and the range follows", async () => {
+    const user = userEvent.setup();
     render(<DemoPanel portal="vendor" tab="calendar" story={OFFER} />);
-    fireEvent.click(screen.getByRole("button", { name: "Add availability" }));
-    const dialog = await screen.findByRole("dialog", { name: "Set availability" });
-    expect(within(dialog).getByText("Weekly hours")).toBeInTheDocument();
-    expect(within(dialog).getByText("Date overrides")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Save" })).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    const views = within(screen.getByRole("navigation", { name: "Calendar view" }));
+    await user.click(views.getByText("Month"));
+    expect(screen.getByText("September 2025")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous month" })).toBeInTheDocument();
+    await user.click(views.getByText("Agenda"));
+    expect(screen.getByRole("button", { name: "Previous week" })).toBeInTheDocument();
+    await user.click(views.getByText("Day"));
+    expect(screen.getByRole("button", { name: "Previous day" })).toBeInTheDocument();
+  });
+
+  it("the round + offers Block time and Weekly hours, each opening its own pop-up with Save", async () => {
+    const user = userEvent.setup();
+    render(<DemoPanel portal="vendor" tab="calendar" story={OFFER} />);
+    await user.click(screen.getByRole("button", { name: "Add to calendar" }));
+    expect(await screen.findByRole("menuitem", { name: "Block time" })).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Weekly hours" }));
+    const weekly = await screen.findByRole("dialog", { name: "Weekly hours" });
+    expect(within(weekly).getAllByText("Weekly hours").length).toBeGreaterThan(0);
+    expect(within(weekly).queryByText("Date overrides")).toBeNull();
+    fireEvent.click(within(weekly).getByRole("button", { name: "Save" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("status").textContent).toMatch(/Availability saved/);
+    await user.click(screen.getByRole("button", { name: "Add to calendar" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Block time" }));
+    const block = await screen.findByRole("dialog", { name: "Block time" });
+    expect(within(block).getByText("Date overrides")).toBeInTheDocument();
+    expect(within(block).queryByText("Weekly hours")).toBeNull();
+    expect(within(block).getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("Integrations opens Settings > Integrations with the grouped rows (Messages, Calendar, Job software)", async () => {
+    const user = userEvent.setup();
+    render(<DemoPanel portal="vendor" tab="calendar" story={OFFER} />);
+    await user.click(screen.getByRole("button", { name: "Integrations" }));
+    for (const group of ["Messages", "Calendar", "Job software"]) expect(screen.getByText(group)).toBeInTheDocument();
+    for (const row of ["Work number", "Work email", "Google Calendar", "Calendar link", "Jobber", "Housecall Pro", "Thumbtack"]) expect(screen.getByText(row)).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Request access" })[0]!);
+    expect(screen.getByText("Requested")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to Calendar" }));
+    expect(screen.getByRole("navigation", { name: "Calendar view" })).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -182,14 +221,19 @@ describe("vendor Calendar matches the real Calendar page", () => {
 });
 
 describe("vendor Reviews matches the real Reviews page", () => {
-  it("has the four stat cells above All, Needs reply, Replied, counted from the rows", () => {
+  it("is one list, newest first, with no tabs and no stat cards, under a '★ avg · n reviews' line from the rows", () => {
     render(<DemoPanel portal="vendor" tab="reviews" />);
-    const stats = screen.getByTestId("vendor-reviews-stats");
-    for (const label of ["Average rating", "Reviews", "Needs reply", "Response rate"]) expect(within(stats).getByText(label)).toBeInTheDocument();
-    const needs = VENDOR_REVIEWS.filter((r) => !r.reply).length;
-    expect(within(stats).getByText("Needs reply").nextElementSibling?.textContent).toBe(String(needs));
-    for (const tab of VENDOR_REVIEW_STATUS_TABS) expect(tabButton(tab.label)).toBeInTheDocument();
-    expect(tabButton("Replied").textContent).toContain(String(VENDOR_REVIEWS.length - needs));
+    expect(screen.queryByTestId("vendor-reviews-stats")).toBeNull();
+    for (const label of ["Average rating", "Needs reply", "Response rate"]) expect(screen.queryByText(label)).toBeNull();
+    const average = VENDOR_REVIEWS.reduce((sum, r) => sum + r.stars, 0) / VENDOR_REVIEWS.length;
+    expect(screen.getByText(`★ ${average.toFixed(1)} · ${VENDOR_REVIEWS.length} reviews`)).toBeInTheDocument();
+    // every review is a row, in date order
+    const bodies = VENDOR_REVIEWS.map((r) => r.body);
+    const text = document.body.textContent ?? "";
+    const positions = bodies.map((b) => text.indexOf(b));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    expect(screen.getAllByRole("button", { name: "A PropLane manager actions" })).toHaveLength(VENDOR_REVIEWS.length);
     expect(screen.getByRole("button", { name: "Profile settings" })).toBeInTheDocument();
   });
 
@@ -210,12 +254,13 @@ describe("vendor Reviews matches the real Reviews page", () => {
   it("the row menu offers Reply and Reply with a quick reply; a replied row offers Edit reply", async () => {
     const user = userEvent.setup();
     render(<DemoPanel portal="vendor" tab="reviews" />);
-    await user.click(screen.getAllByRole("button", { name: "A PropLane manager actions" })[0]!);
+    const menus = screen.getAllByRole("button", { name: "A PropLane manager actions" });
+    await user.click(menus[0]!);
     expect(await screen.findByRole("menuitem", { name: "Reply" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Reply with a quick reply" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
-    await user.click(tabButton("Replied"));
-    await user.click(screen.getAllByRole("button", { name: "A PropLane manager actions" })[0]!);
+    // the second review (Sep 15) already has a reply
+    await user.click(menus[1]!);
     await user.click(await screen.findByRole("menuitem", { name: "Edit reply" }));
     expect(await screen.findByRole("dialog", { name: "Edit reply" })).toBeInTheDocument();
   });
@@ -383,10 +428,14 @@ describe("vendor Communication matches the real Communication page", () => {
     expect(screen.getByRole("button", { name: "Communication settings" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "New message" }));
     const dialog = await screen.findByRole("dialog", { name: "New message" });
-    expect(within(dialog).getByText("Subject")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Send email" })).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Send email" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // the shared composer (portal="vendor") with the manager picked
+    expect(within(dialog).getAllByText("Subject").length).toBeGreaterThan(0);
+    // the staged draft lands a tick after the modal mounts, with the manager picked
+    expect(await within(dialog).findByDisplayValue("Kitchen faucet drip")).toBeInTheDocument();
+    const send = within(dialog).getByRole("button", { name: /^(Send email|Send SMS|Send message|Schedule)$/ });
+    await waitFor(() => expect(within(dialog).queryByText("Not selected")).toBeNull());
+    fireEvent.click(send);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("status").textContent).toMatch(/Message sent/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });

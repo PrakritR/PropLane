@@ -24,17 +24,11 @@ import { DemoAskPropLane, DemoWorkspacePopup } from "@/components/marketing/site
 import { DemoPopupHostContext } from "@/components/marketing/site/product-mock/demo-popup-host";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ConfirmRows } from "@/components/portal/portal-dialog";
-import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
+import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
+import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
+import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
+import { DemoModalScope } from "@/components/marketing/site/product-mock/demo-modal-scope";
 import { PreviewPanel, ReviewCard, WizardSection, WizardSelect, WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
-import {
-  PortalMessageBodyField,
-  PortalMessageComposeModalBody,
-  PortalMessageComposeRecipientSection,
-  PortalMessageScheduleFields,
-  PortalMessageSendViaDropdown,
-  PortalMessageSubjectField,
-  PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
-} from "@/components/portal/portal-message-compose-fields";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Select, Textarea } from "@/components/ui/input";
@@ -183,54 +177,42 @@ const NATIVE_FIELD = "w-full rounded-xl border border-border bg-card px-3 py-2.5
 
 /* ───────────────────────────── Communication: New message ───────────────────────────── */
 
-const MANAGER_PERSON = { key: "id:mgr-seattle", label: "Manager · Seattle Homes" };
+const MANAGER_CONTACT: InboxScopedContact = { id: "mgr-demo", name: "Seattle Homes", email: "manager@seattlehomes.example", role: "manager", propertyLabel: "Alder House" };
+/** A stable list: the modal re-derives its recipient whenever this identity changes. */
+const COMPOSE_CONTACTS: InboxScopedContact[] = [MANAGER_CONTACT];
+const COMPOSE_DRAFT = {
+  subject: "Kitchen faucet drip",
+  body: "I can be there Thursday at 10 AM. The parts are on the truck.",
+  recipientEmail: MANAGER_CONTACT.email,
+  managerUserId: "demo",
+};
 
-/** The vendor New message, drawn as the shared composer (`ManagerCommunicationComposeModal portal="vendor"`). */
+/**
+ * The vendor New message: the shared `ManagerCommunicationComposeModal portal="vendor"` itself, with the manager picked. The
+ * draft arrives a tick after the modal mounts: the modal picks its recipient in an effect that its own "drop unknown keys"
+ * effect would undo if both ran in the first commit (the resident compose does the same).
+ */
 export function DemoVendorComposeDialog({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
-  const [categories, setCategories] = useState<string[]>(["management"]);
-  const [keys, setKeys] = useState<string[]>([MANAGER_PERSON.key]);
-  const [subject, setSubject] = useState("Kitchen faucet drip");
-  const [body, setBody] = useState("I can be there Thursday at 10 AM. The parts are on the truck.");
-  const [sendVia, setSendVia] = useState<string[]>(["email"]);
-  const [scheduleLater, setScheduleLater] = useState(false);
-  const [sendAt, setSendAt] = useState("2025-09-26T09:00");
-  const viaSms = sendVia.includes("sms");
-  const viaEmail = sendVia.includes("email");
-  const sendLabel = scheduleLater ? "Schedule" : viaEmail && viaSms ? "Send message" : viaSms ? "Send SMS" : "Send email";
-  const recipient = categories.includes("management") ? MANAGER_PERSON.label : "";
+  const [draft, setDraft] = useState<typeof COMPOSE_DRAFT | null>(null);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDraft(COMPOSE_DRAFT), 0);
+    return () => window.clearTimeout(id);
+  }, []);
   return (
-    <DemoDialog
-      title="New message"
-      onClose={onClose}
-      context={<PopupRecordPreview rows={[{ label: "Recipients", value: keys.length ? recipient : "Not selected" }]} />}
-      previewLabel="Message preview"
-      preview={<PopupMessagePreview subject={subject} body={body} recipient={keys.length ? recipient : ""} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
-      primary={{ label: sendLabel, onClick: onSent, dataAttr: "inbox-compose-send" }}
-      dataAttr="vendor-new-message"
-    >
-      <PortalMessageComposeModalBody>
-        <PortalMessageComposeRecipientSection
-          sectionOptions={[{ value: "management", label: "Manager" }, { value: "admin", label: "PropLane admin" }]}
-          selectedCategories={categories}
-          onCategoriesChange={(next) => {
-            setCategories(next);
-            if (!next.includes("management")) setKeys([]);
-          }}
-          sectionDataAttr="inbox-compose-category"
-          personGroups={[{ label: "Manager", options: [{ value: MANAGER_PERSON.key, label: MANAGER_PERSON.label }] }]}
-          selectedKeys={keys}
-          onPeopleChange={setKeys}
-          peopleDisabled={categories.length === 0}
-          peopleEmptyMenuText={categories.length === 0 ? "Pick a section first" : "No contacts in selected sections"}
-        />
-        <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
-          <PortalMessageSubjectField value={subject} onChange={setSubject} />
-          <PortalMessageSendViaDropdown selected={sendVia} onChange={setSendVia} emailAvailable smsAvailable={false} dataAttr="inbox-compose-send-via" />
-        </div>
-        <PortalMessageBodyField value={body} onChange={setBody} minHeightClass="min-h-[7rem]" />
-        <PortalMessageScheduleFields scheduleLater={scheduleLater} onScheduleLaterChange={setScheduleLater} sendAt={sendAt} onSendAtChange={setSendAt} />
-      </PortalMessageComposeModalBody>
-    </DemoDialog>
+    <DemoModalScope>
+      <ManagerCommunicationComposeModal
+        open
+        portal="vendor"
+        onClose={onClose}
+        onSend={() => {
+          onSent();
+        }}
+        senderName="Pacific Plumbing"
+        senderEmail="office@pacificplumbing.example"
+        liveContacts={COMPOSE_CONTACTS}
+        residentDraft={draft}
+      />
+    </DemoModalScope>
   );
 }
 
@@ -421,8 +403,14 @@ function WindowChip({ window, onCommit, onRemove }: { window: WeeklyWindow; onCo
   );
 }
 
+/** `VendorAvailabilityFocus`: the round + on the Calendar opens Weekly hours or Block time alone; a click on the grid opens both. */
+export type DemoAvailabilityFocus = "all" | "weekly" | "block";
+const AVAILABILITY_TITLES: Record<DemoAvailabilityFocus, string> = { all: "Set availability", weekly: "Weekly hours", block: "Block time" };
+
 /** `VendorAvailabilityEditor dialog`: Weekly hours (per-day switch, Flexible, time windows) and Date overrides, footer Save. */
-export function DemoVendorAvailabilityDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+export function DemoVendorAvailabilityDialog({ onClose, onSaved, focus = "all" }: { onClose: () => void; onSaved: () => void; focus?: DemoAvailabilityFocus }) {
+  const showWeekly = focus !== "block";
+  const showOverrides = focus !== "weekly";
   const [windows, setWindows] = useState<WeeklyWindow[]>(() => DEMO_WEEKLY_WINDOWS.map((w, i) => ({ ...w, id: `w-${i}` })));
   const [flexible, setFlexible] = useState<number[]>([]);
   const [overrides, setOverrides] = useState(DEMO_DATE_OVERRIDES);
@@ -455,8 +443,9 @@ export function DemoVendorAvailabilityDialog({ onClose, onSaved }: { onClose: ()
   };
 
   return (
-    <DemoDialog title="Set availability" onClose={onClose} size="standard" primary={adding ? null : { label: "Save", onClick: onSaved, dataAttr: "vendor-availability-save" }} dataAttr="vendor-calendar-availability-dialog">
+    <DemoDialog title={AVAILABILITY_TITLES[focus]} onClose={onClose} size="standard" primary={adding ? null : { label: "Save", onClick: onSaved, dataAttr: "vendor-availability-save" }} dataAttr="vendor-calendar-availability-dialog">
       <div className="mx-auto max-w-2xl space-y-4" data-attr="vw-avail">
+        {showWeekly ? (
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           <div className="border-b border-border bg-accent/20 px-3.5 py-2.5">
             <span className="text-[13px] font-bold">Weekly hours</span>
@@ -515,7 +504,9 @@ export function DemoVendorAvailabilityDialog({ onClose, onSaved }: { onClose: ()
             );
           })}
         </div>
+        ) : null}
 
+        {showOverrides ? (
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border bg-accent/20 px-3.5 py-2.5">
             <span className="text-[13px] font-bold">Date overrides</span>
@@ -595,6 +586,7 @@ export function DemoVendorAvailabilityDialog({ onClose, onSaved }: { onClose: ()
               ))
           )}
         </div>
+        ) : null}
       </div>
     </DemoDialog>
   );
