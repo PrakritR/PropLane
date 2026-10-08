@@ -33,12 +33,12 @@ function portalDisplayName(kind: PortalKind): string {
 }
 
 /**
- * The Ask PropLane popup is a floating panel, not a modal that owns the
- * keyboard: the manager types into its composer, and Cmd/Ctrl+K from there is
+ * The assistant (side panel on desktop, sheet on phones) does not own the
+ * keyboard: the user types into its composer, and Cmd/Ctrl+K from there is
  * still "jump somewhere / ask" (the palette's Ask row is how it opens). Neither
  * its dialog role nor its composer may swallow the shortcut.
  */
-const ASSISTANT_SURFACE = ".axis-assistant-root, .axis-assistant-panel";
+const ASSISTANT_SURFACE = ".axis-assistant-root, .portal-assistant-rail";
 
 /** A text field, a number field or a rich-text area owns its own Ctrl/Cmd+K. */
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -71,7 +71,7 @@ function hasOpenDialog(): boolean {
  * the command palette); right, a button that opens the assistant panel. The
  * avatar / account menu moved to the bottom of the workspace rail, so nothing
  * else lives here. On phones and tablets this strip is hidden - the mobile nav
- * bar and the assistant FAB own those jobs.
+ * bar (with its sparkle assistant button) owns those jobs.
  */
 export function PortalTopBar({
   kind,

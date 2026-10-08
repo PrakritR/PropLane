@@ -3,7 +3,7 @@ import { AccountLinksSync } from "@/components/portal/account-links-sync";
 import { LandlordLegalNameCacheSync } from "@/components/portal/landlord-legal-name-cache-sync";
 import { PropertyPipelineAccountSync } from "@/components/portal/property-pipeline-account-sync";
 import { AxisAssistant } from "@/components/portal/axis-assistant";
-import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
+import { PortalAssistantRail } from "@/components/portal/portal-assistant-rail";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { ManagerMessagingSetupBanner } from "@/components/portal/messaging-setup-banner";
 import { ManagerPlanBanner } from "@/components/portal/pro-plan-banner";
@@ -89,11 +89,11 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
     return <TestAccountUnavailable state={testWorkspace.state} />;
   }
 
-  // A "View as" support session: banner on top, assistant and its dock off.
+  // A "View as" support session: banner on top, assistant and its side panel off.
   const viewAs = await getViewAsBannerState();
 
   return (
-    <AxisAssistant managerName={profile?.full_name ?? null} smsTestPortal="manager" dockable disabled={Boolean(viewAs)}>
+    <AxisAssistant managerName={profile?.full_name ?? null} smsTestPortal="manager" disabled={Boolean(viewAs)}>
       <div className={PORTAL_SHELL_ROOT_CLASS}>
         {viewAs ? <ViewAsBanner {...viewAs} /> : null}
         <WorkspaceProvider>
@@ -165,10 +165,10 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
               </PortalHorizontalScrollRoot>
             </main>
           </div>
-          {/* Opt-in, desktop-only assistant rail. Renders nothing on the `popup`
-              default, so the content column above keeps the full width. */}
+          {/* The assistant's side panel (desktop). Renders nothing while closed,
+              so the content column above keeps the full width. */}
           {viewAs ? null : (
-            <PortalAssistantDockRail
+            <PortalAssistantRail
               managerName={profile?.full_name ?? null}
               initialCollapsed={assistantDockCollapsed}
             />
