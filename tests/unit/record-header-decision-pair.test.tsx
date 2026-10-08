@@ -55,12 +55,13 @@ describe("record headers carry no Message unless messaging is the record's core"
     return ids;
   }
 
-  it.each(["resident", "property"])("%s: no message / message-* header action on any section", (kind) => {
+  // Service dropped Message too (captain, Oct 8): Communication is a rail section on the service record.
+  it.each(["resident", "property", "service"])("%s: no message / message-* header action on any section", (kind) => {
     const ids = [...allHeaderActionIds(kind)];
     expect(ids.filter((id) => id === "message" || id.startsWith("message-"))).toEqual([]);
   });
 
-  it.each(["service", "vendor", "booking"])("%s keeps its Message header action", (kind) => {
+  it.each(["vendor", "booking"])("%s keeps its Message header action", (kind) => {
     expect(allHeaderActionIds(kind).has("message")).toBe(true);
   });
 });

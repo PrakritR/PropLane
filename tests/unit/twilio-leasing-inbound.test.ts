@@ -30,6 +30,7 @@ vi.mock("@/lib/claw-resident-messaging.server", () => ({
 
 vi.mock("@/lib/sms-inbox-notice.server", () => ({
   upsertManagerInboxNotice: vi.fn(async () => undefined),
+  recordAutoReplyOnSmsNoticeFresh: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/agent/leasing-sms-agent.server", () => ({
