@@ -15,7 +15,11 @@ import {
   type ManagerDeliverViaKind,
 } from "@/lib/manager-communication-deliver-via";
 
-export function useManagerCommunicationDeliverVia() {
+/**
+ * `enabled: false` is for the vendor and resident composers, which share the
+ * manager composer but have no manager automation settings to read.
+ */
+export function useManagerCommunicationDeliverVia({ enabled = true }: { enabled?: boolean } = {}) {
   const demo = isDemoModeActive();
   const { userId, ready } = usePortalSession();
   const [settings, setSettings] = useState<ManagerAutomationSettings>(
@@ -31,6 +35,7 @@ export function useManagerCommunicationDeliverVia() {
   // settings-changed event) always gets a fresh read.
   const load = useCallback(
     async (opts?: { force?: boolean }) => {
+      if (!enabled) return;
       if (demo) {
         setSettings(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
         setLoaded(true);
@@ -46,16 +51,17 @@ export function useManagerCommunicationDeliverVia() {
         setLoaded(true);
       }
     },
-    [demo, userId],
+    [demo, enabled, userId],
   );
 
   useEffect(() => {
+    if (!enabled) return;
     if (!demo && (!ready || !userId)) return;
     void load();
     const onSettings = () => void load({ force: true });
     window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
-  }, [demo, load, ready, userId]);
+  }, [demo, enabled, load, ready, userId]);
 
   const channelsFor = useCallback(
     (kind: ManagerDeliverViaKind): DeliverViaChannels =>

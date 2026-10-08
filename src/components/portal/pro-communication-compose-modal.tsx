@@ -2,7 +2,7 @@
 
 import { PopupMessagePreview, PopupRecordPreview } from "@/components/portal/popup-live-preview";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Mail, Smartphone, MessageSquare, Paperclip, Sparkles } from "lucide-react";
 import { InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
 import { INBOX_ATTACHMENT_ACCEPT, INBOX_MAX_ATTACHMENTS, createPendingInboxAttachment, uploadInboxAttachment, revokeInboxAttachmentPreview, type InboxComposerAttachment } from "@/lib/inbox-attachments";
@@ -42,6 +42,16 @@ import {
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import { parseOtherRecipientTokens, commitOtherRecipientToken, normalizePhoneE164, type OtherRecipientToken } from "@/lib/communication-other-recipients";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
+import type { ResidentComposePrefill } from "@/lib/resident-compose-prefill";
+import { DEMO_INBOX_COMPOSE_PREFILL_EVENT } from "@/lib/demo/demo-playback";
+import {
+  composeCategoryForContact,
+  roleComposeCapabilities,
+  scopedComposeCategories,
+  scopedPeopleForCategory,
+  type ComposePortal,
+  type ScopedInboxSendPayload,
+} from "@/lib/role-compose";
 import { buildOptimisticSentThread } from "@/lib/inbox-message-timeline";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
@@ -208,8 +218,15 @@ function peopleForCategory(
 }
 
 /**
- * Shared New message for Communication Email + SMS.
- * Same To / Which people / Other fields; choose Email and/or SMS at the bottom.
+ * The one New message composer, for every role.
+ *
+ * Manager (default): To / Subject / Message, Email and/or In-app and/or Text,
+ * schedule, attach, Draft with PropLane. Vendor and resident mount the same
+ * composer with `portal` and their own `onSend`: their recipients are the
+ * scoped list they are handed (`liveContacts`), the capabilities come from
+ * `roleComposeCapabilities`, and the panel's send function owns the request
+ * and the thread store (a message enters the store only after the send is
+ * authorized). The server re-authorizes every recipient.
  */
 
 /**
@@ -234,6 +251,9 @@ export function ManagerCommunicationComposeModal({
   onStageOptimistic,
   onClearOptimistic,
   initialDraft = null,
+  portal = "manager",
+  onSend,
+  residentDraft = null,
 }: {
   open: boolean;
   onClose: () => void;
@@ -254,15 +274,24 @@ export function ManagerCommunicationComposeModal({
   /** Show the outbound bubble immediately while the send request is in flight. */
   onStageOptimistic?: (thread: PersistedInboxThread) => void;
   onClearOptimistic?: (threadId: string) => void;
+  /** Whose composer this is. Vendor and resident are scoped: their own people, channels and send. */
+  portal?: ComposePortal;
+  /** Vendor and resident: the panel's send function. Return false (or throw) to keep the draft. */
+  onSend?: (payload: ScopedInboxSendPayload) => void | boolean | Promise<void | boolean>;
+  /** Resident: a staged draft from another section (recipient, subject, body, property). */
+  residentDraft?: ResidentComposePrefill | null;
 }) {
+  const isManager = portal === "manager";
+  const caps = useMemo(() => roleComposeCapabilities(portal, smsUiEnabled), [portal, smsUiEnabled]);
   const { showToast } = useAppUi();
   const [directoryContacts, setDirectoryContacts] = useState<InboxScopedContact[]>([]);
-  const localContacts = useMemo(() => contactsForPortal("manager", liveContacts), [liveContacts]);
+  const localContacts = useMemo(() => contactsForPortal(portal, liveContacts), [portal, liveContacts]);
   const contacts = directoryContacts.length > 0 ? directoryContacts : localContacts;
   /** Other sits last, under Vendor. */
   const categoryOptions = useMemo((): ComposeCategory[] => {
+    if (!isManager) return scopedComposeCategories(portal as Exclude<ComposePortal, "manager">, contacts);
     return [...composeDirectoryCategories("manager", contacts), "other"];
-  }, [contacts]);
+  }, [contacts, isManager, portal]);
 
   const [selectedCategories, setSelectedCategories] = useState<ComposeCategory[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<PersonKey[]>([]);
@@ -287,7 +316,13 @@ export function ManagerCommunicationComposeModal({
   const [sending, setSending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
-  const { channelsFor } = useManagerCommunicationDeliverVia();
+  const { channelsFor } = useManagerCommunicationDeliverVia({ enabled: isManager });
+  const [propertyContext, setPropertyContext] = useState<{
+    propertyId?: string;
+    propertyTitle?: string;
+    managerUserId?: string;
+  } | null>(null);
+  const sendOperationRef = useRef<{ fingerprint: string; id: string } | null>(null);
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
   const viaInbox = sendVia.includes("proplane");
@@ -304,23 +339,28 @@ export function ManagerCommunicationComposeModal({
     [selectedCategories],
   );
 
+  const peopleFor = useCallback(
+    (category: DirectoryComposeCategory): { key: PersonKey; label: string }[] =>
+      isManager ? peopleForCategory(category, contacts) : scopedPeopleForCategory(category, portal, contacts),
+    [contacts, isManager, portal],
+  );
   const recipientOptions = useMemo(() => {
     const seen = new Set<string>();
     return categoryOptions.filter((category): category is DirectoryComposeCategory => category !== "other")
-      .flatMap((category) => peopleForCategory(category, contacts).map((person) => ({ ...person, category })))
+      .flatMap((category) => peopleFor(category).map((person) => ({ ...person, category })))
       .filter((person) => { if (seen.has(person.key)) return false; seen.add(person.key); return true; });
-  }, [categoryOptions, contacts]);
+  }, [categoryOptions, peopleFor]);
   const personGroups = useMemo((): CheckboxMultiSelectGroup[] => {
     return directoryCategories
       .map((category) => ({
         label: categoryLabel(category, contacts),
-        options: peopleForCategory(category, contacts).map((p) => ({
+        options: peopleFor(category).map((p) => ({
           value: p.key,
           label: p.label,
         })),
       }))
       .filter((g) => g.options.length > 0);
-  }, [directoryCategories, contacts]);
+  }, [directoryCategories, contacts, peopleFor]);
 
   const flatPersonOptions = useMemo(() => personGroups.flatMap((g) => g.options), [personGroups]);
   const validPersonKeys = useMemo(
@@ -329,7 +369,8 @@ export function ManagerCommunicationComposeModal({
   );
 
   useEffect(() => {
-    if (!open) return;
+    // Vendor and resident compose from the scoped list they are handed.
+    if (!open || !isManager) return;
     if (isDemoModeActive()) {
       setDirectoryContacts(localContacts);
       return;
@@ -353,11 +394,40 @@ export function ManagerCommunicationComposeModal({
     return () => {
       active = false;
     };
-  }, [open, localContacts]);
+  }, [open, isManager, localContacts]);
 
   useEffect(() => {
     if (!open) return;
     queueMicrotask(() => {
+      if (!isManager) {
+        if (residentDraft) {
+          setSubject(residentDraft.subject?.trim() || "");
+          setBody(residentDraft.body?.trim() || "");
+          setPropertyContext({
+            propertyId: residentDraft.propertyId?.trim() || undefined,
+            propertyTitle: residentDraft.propertyTitle?.trim() || undefined,
+            managerUserId: residentDraft.managerUserId?.trim() || undefined,
+          });
+        } else {
+          setSubject("");
+          setBody("");
+          setPropertyContext(null);
+          setSelectedCategories([]);
+          setSelectedKeys([]);
+        }
+        setOtherTokens([]);
+        setSendVia([...caps.defaultChannels]);
+        attachmentsRef.current.forEach(revokeInboxAttachmentPreview);
+        setAttachments([]);
+        setRecipientQuery("");
+        setRecipientOpen(false);
+        setFormError(null);
+        setScheduleLater(false);
+        setSendAt(defaultPortalMessageScheduleAt());
+        setSending(false);
+        sendOperationRef.current = null;
+        return;
+      }
       const email = initialDraft?.recipientEmail?.trim().toLowerCase();
       const vendorRecordId = initialDraft?.vendorRecordId?.trim();
       if (initialDraft) {
@@ -404,7 +474,45 @@ export function ManagerCommunicationComposeModal({
       setSending(false);
       smsAttemptRef.current = null;
     });
-  }, [open, initialChannel, smsUiEnabled, initialDraft, channelsFor]);
+  }, [open, initialChannel, smsUiEnabled, initialDraft, channelsFor, isManager, residentDraft, caps]);
+
+  // A staged resident draft names its manager: pick them once the list is here.
+  useEffect(() => {
+    if (!open || isManager || !residentDraft || contacts.length === 0) return;
+    const email = residentDraft.recipientEmail?.trim().toLowerCase();
+    const managerId = residentDraft.managerUserId?.trim();
+    const hit =
+      (managerId
+        ? contacts.find((c) => c.id === `mgr-${managerId}` || c.id === managerId)
+        : undefined) ??
+      (email ? contacts.find((c) => c.email.trim().toLowerCase() === email) : undefined);
+    if (!hit) return;
+    setSelectedCategories([composeCategoryForContact(portal, hit)]);
+    setSelectedKeys([`id:${hit.id}` as PersonKey]);
+  }, [open, isManager, portal, residentDraft, contacts]);
+
+  // Demo playback types a message into the open composer.
+  useEffect(() => {
+    if (!isDemoModeActive()) return;
+    const onPrefill = (e: Event) => {
+      const detail = (e as CustomEvent<{ subject?: string; body?: string; residentEmail?: string }>).detail;
+      setSubject(detail?.subject?.trim() || "Lease renewal reminder");
+      setBody(
+        detail?.body?.trim() ||
+          "Hi, just a friendly reminder that your lease renewal paperwork is ready whenever you want to review it.",
+      );
+      const email = detail?.residentEmail?.trim().toLowerCase();
+      if (email) {
+        const hit = contacts.find((c) => c.email?.toLowerCase() === email);
+        if (hit) {
+          setSelectedCategories([composeCategoryForContact(portal, hit)]);
+          setSelectedKeys([`id:${hit.id}` as PersonKey]);
+        }
+      }
+    };
+    window.addEventListener(DEMO_INBOX_COMPOSE_PREFILL_EVENT, onPrefill as EventListener);
+    return () => window.removeEventListener(DEMO_INBOX_COMPOSE_PREFILL_EVENT, onPrefill as EventListener);
+  }, [contacts, portal]);
 
   // Each of these prunes a selection when its source list changes. They MUST
   // return the previous array when nothing was removed: `filter` always builds
@@ -439,6 +547,7 @@ export function ManagerCommunicationComposeModal({
   const resolveEmailTargets = () => {
     const labels: string[] = [];
     const directEmails: string[] = [];
+    const directRecipientUserIds: string[] = [];
     let includesAxisAdmin = false;
     let includesDirectoryRecipients = false;
     const broadcastCategories: ("management" | "resident")[] = [];
@@ -509,6 +618,7 @@ export function ManagerCommunicationComposeModal({
       if (!lower || seenEmail.has(lower)) continue;
       seenEmail.add(lower);
       directEmails.push(email);
+      if (contact.userId?.trim()) directRecipientUserIds.push(contact.userId.trim());
       if (lower === broadcastStubForCategory("admin").email.toLowerCase()) {
         includesAxisAdmin = true;
       }
@@ -529,6 +639,7 @@ export function ManagerCommunicationComposeModal({
     return {
       labels,
       directEmails,
+      directRecipientUserIds: [...new Set(directRecipientUserIds)],
       includesAxisAdmin,
       includesDirectoryRecipients,
       broadcastCategories,
@@ -1003,6 +1114,95 @@ export function ManagerCommunicationComposeModal({
     }
   };
 
+  /**
+   * Vendor and resident send. The panel's `onSend` owns the request and the
+   * thread store, so nothing is added to a thread here: a refusal (false or a
+   * throw) leaves every field, the attachments and the operation id as they
+   * were, and Retry reuses the same `sendId`.
+   */
+  const submitScoped = async () => {
+    if (!onSend) return;
+    if (attachments.some((item) => item.uploading || item.error)) {
+      setFormError("Wait for uploads to finish or remove failed attachments.");
+      return;
+    }
+    if (recipientQuery.trim()) {
+      setFormError("Choose a person from the list.");
+      return;
+    }
+    setFormError(null);
+    if (caps.channels.length > 0 && !viaInbox && !viaEmail) {
+      fail("Choose In-app or Email.");
+      return;
+    }
+    const s = subject.trim();
+    const b = body.trim();
+    if (!s || !b) {
+      fail("Add a subject and message.");
+      return;
+    }
+    if (selectedCategories.length === 0 || selectedKeys.length === 0) {
+      fail("Choose a recipient.");
+      return;
+    }
+    const targets = resolveEmailTargets();
+    if (
+      !targets.includesAxisAdmin &&
+      targets.broadcastCategories.length === 0 &&
+      targets.directEmails.length === 0
+    ) {
+      fail("Choose a recipient.");
+      return;
+    }
+    const attachmentUrls = attachments.flatMap((item) => (item.uploadUrl ? [item.uploadUrl] : []));
+    const deliverViaInbox = viaInbox || viaEmail;
+    const fingerprint = JSON.stringify({
+      subject: s,
+      body: b,
+      recipients: targets.directEmails.map((email) => email.toLowerCase()).sort(),
+      broadcasts: [...targets.broadcastCategories].sort(),
+      viaEmail,
+      deliverViaInbox,
+      attachmentUrls,
+      propertyId: propertyContext?.propertyId ?? null,
+      managerUserId: propertyContext?.managerUserId ?? null,
+    });
+    if (!sendOperationRef.current || sendOperationRef.current.fingerprint !== fingerprint) {
+      sendOperationRef.current = { fingerprint, id: crypto.randomUUID() };
+    }
+    const payload: ScopedInboxSendPayload = {
+      subject: s,
+      body: b,
+      senderName,
+      senderEmail,
+      toLabel: targets.labels.join(", "),
+      toEmailLine: targets.directEmails.join("; "),
+      directRecipientEmailLine: targets.directEmails.join("; "),
+      directRecipientUserIds: targets.directRecipientUserIds,
+      includesAxisAdmin: targets.includesAxisAdmin,
+      includesDirectoryRecipients: targets.includesDirectoryRecipients,
+      broadcastCategories: targets.broadcastCategories,
+      scheduleLater: false,
+      deliverViaEmail: viaEmail,
+      deliverViaSms: false,
+      deliverViaInbox,
+      ...(attachmentUrls.length ? { attachmentUrls } : {}),
+      propertyId: propertyContext?.propertyId,
+      propertyTitle: propertyContext?.propertyTitle,
+      managerUserId: propertyContext?.managerUserId,
+      sendId: sendOperationRef.current.id,
+    };
+    setSending(true);
+    try {
+      const sent = await onSend(payload);
+      if (sent !== false) sendOperationRef.current = null;
+    } catch {
+      // Keep the draft and the operation id so Retry is idempotent.
+    } finally {
+      setSending(false);
+    }
+  };
+
   const sendLabel = (() => {
     if (sending) return "Sending…";
     if (scheduleLater) return "Schedule";
@@ -1019,10 +1219,13 @@ export function ManagerCommunicationComposeModal({
       contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: flatPersonOptions.filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ") || "Not selected" }]} />}
       preview={<PopupMessagePreview subject={subject} body={body} recipient={flatPersonOptions.filter(option => selectedKeys.includes(option.value as PersonKey)).map(option => option.label).join(", ")} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
       secondaryAction={null}
-      onClose={onClose}
+      onClose={() => {
+        sendOperationRef.current = null;
+        onClose();
+      }}
       primaryAction={{
         label: sendLabel,
-        onClick: () => submit(),
+        onClick: () => (isManager ? submit() : submitScoped()),
         disabled: sending || (!viaPortalDelivery && !viaSms),
         loading: sending,
         dataAttr: "communication-compose-send",
@@ -1045,10 +1248,18 @@ export function ManagerCommunicationComposeModal({
               {recipientOptions.find((option) => option.key === key)?.label || key}<X className="h-3 w-3" />
             </button>)}
             {otherTokens.map((token) => <button type="button" key={token.value} className="inline-flex items-center gap-1 text-sm" aria-label={`Remove ${token.label}`} onClick={() => {setOtherTokens((previous) => previous.filter((value) => value.value !== token.value)); if (otherTokens.length === 1) setSelectedCategories((previous) => previous.filter((category) => category !== "other"));}}>{token.label}<X className="h-3 w-3" /></button>)}
-            <input id="communication-compose-recipient" role="combobox" aria-expanded={recipientOpen} aria-controls="communication-compose-recipient-options" aria-autocomplete="list" value={recipientQuery} placeholder="Name, email or phone number" className="min-w-32 flex-1 bg-transparent py-2 text-sm outline-none" onFocus={() => setRecipientOpen(true)} onChange={(event) => {setRecipientQuery(event.target.value); setRecipientOpen(true);}} onKeyDown={(event) => {
+            <input id="communication-compose-recipient" role="combobox" aria-expanded={recipientOpen} aria-controls="communication-compose-recipient-options" aria-autocomplete="list" value={recipientQuery} placeholder={caps.otherRecipients ? "Name, email or phone number" : "Name"} className="min-w-32 flex-1 bg-transparent py-2 text-sm outline-none" onFocus={() => setRecipientOpen(true)} onChange={(event) => {setRecipientQuery(event.target.value); setRecipientOpen(true);}} onKeyDown={(event) => {
               if (event.key === "Escape") setRecipientOpen(false);
               if (event.key !== "Enter" && event.key !== ",") return;
               event.preventDefault();
+              if (!caps.otherRecipients) {
+                // Vendor and resident pick people from their own list; nothing typed becomes an address.
+                const first = recipientOptions.find((option) => !selectedKeys.includes(option.key) && option.label.toLowerCase().includes(recipientQuery.toLowerCase()));
+                if (!first || !recipientQuery.trim()) {setFormError("Choose a person from the list."); return;}
+                setSelectedCategories((previous) => previous.includes(first.category) ? previous : [...previous, first.category]);
+                setSelectedKeys((previous) => [...previous, first.key]); setRecipientQuery(""); setRecipientOpen(false); setFormError(null);
+                return;
+              }
               const token = commitOtherRecipientToken(recipientQuery);
               if (!token) {setFormError("Choose a contact or enter a valid email or phone number."); return;}
               setSelectedCategories((previous) => previous.includes("other") ? previous : [...previous, "other"]);
@@ -1105,12 +1316,12 @@ export function ManagerCommunicationComposeModal({
           </label>
         ) : null}
         <div className="flex items-center gap-2" data-attr="communication-compose-tools">
-          <label className="grid h-10 w-10 cursor-pointer place-items-center rounded-full text-muted hover:bg-accent" title="Attach files">
+          {caps.attach ? <label className="grid h-10 w-10 cursor-pointer place-items-center rounded-full text-muted hover:bg-accent" title="Attach files">
             <Paperclip className="h-4 w-4" aria-hidden /><input type="file" aria-label="Attach files" className="sr-only" accept={INBOX_ATTACHMENT_ACCEPT} multiple disabled={sending || attachments.length >= INBOX_MAX_ATTACHMENTS} onChange={(event) => {pickAttachments(event.target.files); event.target.value = "";}} data-attr="communication-compose-attach" />
-          </label>
-          <button type="button" aria-label="Draft with PropLane" title="Draft with PropLane" disabled={drafting || sending} className="grid h-10 w-10 place-items-center rounded-full text-primary disabled:opacity-40" onClick={() => draftMessage()} data-attr="communication-compose-draft"><Sparkles className="h-4 w-4" /></button>
-          <InboxComposerScheduleMenu scheduleLater={scheduleLater} onScheduleLaterChange={setScheduleLater} sendAt={sendAt} onSendAtChange={setSendAt} scheduleDataAttr="communication-compose-schedule-later" sendAtDataAttr="communication-compose-schedule-at" />
-          {[{ id: "proplane", label: "In-app", icon: MessageSquare }, { id: "email", label: "Email", icon: Mail }, ...(smsUiEnabled ? [{ id: "sms", label: "Text message", icon: Smartphone }] : [])].map(({id, label, icon: Icon}) => <button type="button" key={id} title={label} aria-label={label} aria-pressed={sendVia.includes(id)} className={`grid h-10 w-10 place-items-center rounded-full ${sendVia.includes(id) ? "bg-primary/10 text-primary" : "text-muted"}`} onClick={() => setSendVia((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])}><Icon className="h-4 w-4" /></button>)}
+          </label> : null}
+          {caps.draft ? <button type="button" aria-label="Draft with PropLane" title="Draft with PropLane" disabled={drafting || sending} className="grid h-10 w-10 place-items-center rounded-full text-primary disabled:opacity-40" onClick={() => draftMessage()} data-attr="communication-compose-draft"><Sparkles className="h-4 w-4" /></button> : null}
+          {caps.schedule ? <InboxComposerScheduleMenu scheduleLater={scheduleLater} onScheduleLaterChange={setScheduleLater} sendAt={sendAt} onSendAtChange={setSendAt} scheduleDataAttr="communication-compose-schedule-later" sendAtDataAttr="communication-compose-schedule-at" /> : null}
+          {[{ id: "proplane", label: "In-app", icon: MessageSquare }, { id: "email", label: "Email", icon: Mail }, { id: "sms", label: "Text message", icon: Smartphone }].filter(({ id }) => caps.channels.includes(id as "proplane" | "email" | "sms")).map(({id, label, icon: Icon}) => <button type="button" key={id} title={label} aria-label={label} aria-pressed={sendVia.includes(id)} className={`grid h-10 w-10 place-items-center rounded-full ${sendVia.includes(id) ? "bg-primary/10 text-primary" : "text-muted"}`} onClick={() => setSendVia((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])}><Icon className="h-4 w-4" /></button>)}
         </div>
       </PortalMessageComposeModalBody>
     </PortalDialog>
