@@ -142,7 +142,7 @@ const requestTourInput = z
   .object({
     listingId: z.string().trim().min(1).max(200).describe("The listingId from search_listings."),
     slotKey: z.string().trim().min(1).max(40).describe("The chosen slotKey, copied verbatim from get_tour_times."),
-    notes: z.string().trim().max(300).optional().describe("Anything the resident wants the manager to know."),
+    notes: z.string().trim().max(120).optional().describe("Anything the resident wants the manager to know."),
   })
   .strict();
 
@@ -230,7 +230,7 @@ export const requestTourTool = defineWriteTool<z.infer<typeof requestTourInput>,
 const sendInquiryInput = z
   .object({
     listingId: z.string().trim().min(1).max(200).describe("The listingId from search_listings."),
-    message: z.string().trim().min(1).max(600).describe("The message to the property manager, written in the resident's voice."),
+    message: z.string().trim().min(1).max(240).describe("The message to the property manager, written in the resident's voice. At most 240 characters, because the resident confirms it in full by text."),
   })
   .strict();
 

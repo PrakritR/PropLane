@@ -55,6 +55,9 @@ const SHARED_ACCOUNT_TABLES = new Set([
   "notification_preferences", "agent_user_preferences", "device_push_tokens",
   "phone_verifications", "sms_consent", "resident_housemate_sharing",
   "mcp_oauth_authorization_codes", "mcp_oauth_tokens",
+  // One PropLane Number subscription (and its credit) funds every portal the login holds: removing one
+  // portal keeps it, and cancelNumberSubscriptionForAccount decides whether that portal's own is stopped.
+  "number_subscriptions", "number_credit_accounts", "number_credit_usage_events", "number_credit_purchases", "number_credit_adjustments",
 ]);
 const PORTAL_HISTORY_TABLES = new Set(["agent_sessions", "agent_messages", "agent_pending_actions"]);
 

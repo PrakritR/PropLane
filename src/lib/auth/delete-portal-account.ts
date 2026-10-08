@@ -137,10 +137,13 @@ export async function deleteResidentAccount(
   const hasTarget = Boolean(userId || email || applicationId);
 
   if (purgeData) {
-    // The resident purge deletes number_subscriptions with the Stripe ids: stop that billing first.
-    if (userId) await cancelNumberSubscriptionForAccount(db, userId);
     const roles = userId ? await normalizedRolesForUser(db, userId) : [];
-    await purgeResidentPortalData(db, { email, userId: userId || null, applicationId: applicationId || null, complete: !roles.some(role => role !== "resident") });
+    const complete = !roles.some(role => role !== "resident");
+    // The resident purge deletes number_subscriptions with the Stripe ids: stop that billing first. One
+    // subscription funds every portal the login holds, so when another portal remains only a subscription
+    // bought as a resident is cancelled (the purge keeps the row of a subscription that stays).
+    if (userId) await cancelNumberSubscriptionForAccount(db, userId, complete ? {} : { role: "resident" });
+    await purgeResidentPortalData(db, { email, userId: userId || null, applicationId: applicationId || null, complete });
   }
 
   if (!hasTarget) {
@@ -218,13 +221,14 @@ async function deleteProfileAndAuthUser(db: ServiceDb, userId: string): Promise<
  * then delete the roles, profile, and auth login. Used by BOTH the admin
  * "complete delete" and the self-serve delete so the two can never drift.
  */
-async function purgeAndDeletePortalAccount(db: ServiceDb, userId: string) {
+async function purgeAndDeletePortalAccount(db: ServiceDb, userId: string, opts: { numberBillingStopped?: boolean } = {}) {
   const trimmedId = userId.trim();
   if (!trimmedId) throw new Error("User id is required.");
 
   const email = await authAccountEmail(db, trimmedId);
   // The purges below delete number_subscriptions (and its Stripe ids): cancel the PropLane Number billing first.
-  await cancelNumberSubscriptionForAccount(db, trimmedId);
+  // (deleteOwnAccount already did, before its vendor purge removed the row: never a second pass.)
+  if (!opts.numberBillingStopped) await cancelNumberSubscriptionForAccount(db, trimmedId);
   await purgeManagerPortalData(db, trimmedId, true, email);
   await purgeResidentPortalData(db, { email, userId: trimmedId });
   await purgeVendorPortalData(db, { userId: trimmedId, email });
@@ -273,7 +277,7 @@ export async function deleteOwnAccount(db: ServiceDb, userId: string) {
   // not covered by the manager/resident purges.
   await purgeVendorPortalData(db, { userId: trimmedId, email: await authAccountEmail(db, trimmedId) });
 
-  return purgeAndDeletePortalAccount(db, trimmedId);
+  return purgeAndDeletePortalAccount(db, trimmedId, { numberBillingStopped: true });
 }
 
 /**
@@ -393,9 +397,12 @@ export async function deleteVendorAccount(db: ServiceDb, vendorUserId: string) {
   if (!trimmedId) throw new Error("User id is required.");
 
   const roles = await normalizedRolesForUser(db, trimmedId);
-  // The vendor purge deletes number_subscriptions with the Stripe ids: stop that billing first.
-  await cancelNumberSubscriptionForAccount(db, trimmedId);
-  await purgeVendorPortalData(db, { userId: trimmedId, email: await authAccountEmail(db, trimmedId), complete: !roles.some(role => role !== "vendor") });
+  const complete = !roles.some(role => role !== "vendor");
+  // The vendor purge deletes number_subscriptions with the Stripe ids: stop that billing first. One
+  // subscription funds every portal the login holds, so when another portal remains only a subscription
+  // bought as a vendor is cancelled (the purge keeps the row of a subscription that stays).
+  await cancelNumberSubscriptionForAccount(db, trimmedId, complete ? {} : { role: "vendor" });
+  await purgeVendorPortalData(db, { userId: trimmedId, email: await authAccountEmail(db, trimmedId), complete });
 
   const result = await removePortalAccess(db, trimmedId, "vendor");
   return { ok: true as const, mode: result.mode };

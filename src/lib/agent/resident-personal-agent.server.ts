@@ -63,6 +63,7 @@ export const RESIDENT_AGENT_SYSTEM_PROMPT = composeAgentSystemPrompt(RESIDENT_PE
 
 export const RESIDENT_AGENT_OUT_OF_CREDIT_TEXT =
   "You're out of PropLane message credit. Add credit in Settings, PropLane agent, and I'll pick this back up.";
+const RESIDENT_AGENT_TOO_LONG_TEXT = "That is too long to confirm by text. Send a shorter version and I'll set it up.";
 const MODEL_ERROR_TEXT = "I hit a snag. Please text that again in a moment.";
 
 export type ResidentAgentOutcome =
@@ -111,18 +112,35 @@ export function fitToSegments(text: string, maxSegments: number): string {
   return out;
 }
 
-/** The confirmation text: a compact preview that always ends with the YES/NO instruction. */
-export function renderResidentAgentPreview(preview: ActionPreview, lead: string, maxSegments = RESIDENT_AGENT_MAX_REPLY_SEGMENTS): string {
+/** Fields whose text the resident is approving word for word: they are shown in full, never clipped. */
+const VERBATIM_PREVIEW_LABELS = new Set(["Message", "Notes"]);
+
+/**
+ * The confirmation text: a compact preview that always ends with the YES/NO instruction. A YES sends
+ * exactly what this text shows, so the resident's own words (`Message`, `Notes`) are never clipped; the
+ * lead, the other fields and finally the other fields entirely give way first. Returns null when the
+ * verbatim fields alone cannot fit the reserved segments (the caller asks for something shorter and
+ * proposes nothing).
+ */
+export function renderResidentAgentPreview(preview: ActionPreview, lead: string, maxSegments = RESIDENT_AGENT_MAX_REPLY_SEGMENTS): string | null {
   const confirmLine = "Reply YES to send or NO to cancel.";
   const clip = (value: string, n: number) => (value.length > n ? `${value.slice(0, n - 1).trimEnd()}…` : value);
-  for (const fieldCap of [160, 100, 60, 30]) {
-    const lines = [preview.title, ...(preview.fields ?? []).slice(0, 4).map((f) => `${f.label}: ${clip(f.value, fieldCap)}`), confirmLine];
-    const core = lines.join("\n");
-    const narrative = lead.trim();
+  const fields = preview.fields ?? [];
+  const narrative = lead.trim();
+  const fits = (text: string) => estimateSmsSegments(text).segmentCount <= maxSegments;
+  const render = (kept: typeof fields, fieldCap: number) =>
+    [preview.title, ...kept.map((f) => `${f.label}: ${VERBATIM_PREVIEW_LABELS.has(f.label) ? f.value : clip(f.value, fieldCap)}`), confirmLine].join("\n");
+  const tries: [typeof fields, number][] = [
+    ...[160, 100, 60, 30].map((cap): [typeof fields, number] => [fields, cap]),
+    [fields.filter((f) => VERBATIM_PREVIEW_LABELS.has(f.label)), 30],
+  ];
+  for (const [kept, fieldCap] of tries) {
+    const core = render(kept, fieldCap);
     for (const candidate of [narrative ? `${clip(narrative, 140)}\n\n${core}` : core, core]) {
-      if (estimateSmsSegments(candidate).segmentCount <= maxSegments) return candidate;
+      if (fits(candidate)) return candidate;
     }
   }
+  if (fields.some((f) => VERBATIM_PREVIEW_LABELS.has(f.label))) return null;
   return fitToSegments(`${preview.title}\n${confirmLine}`, maxSegments);
 }
 
@@ -370,6 +388,10 @@ export async function runResidentPersonalAgentReply(
     await finishNumberCredit(ownerId, k.ai, { db }).catch(() => undefined);
 
     if (result.pendingAction) {
+      // The text the resident will confirm is built BEFORE anything is proposed: a YES must send exactly
+      // what it shows, so a request whose own words cannot fit the confirmation is never proposed.
+      const previewText = renderResidentAgentPreview(result.pendingAction.preview, result.reply);
+      if (!previewText) return { text: RESIDENT_AGENT_TOO_LONG_TEXT, toolTrace: result.toolTrace, traceId: result.traceId ?? null };
       // One open proposal at a time, so a later bare YES is unambiguous.
       const cleared = await supersedeOpenSmsProposals(db, { userId: ownerId, sessionId: session!.id, portal: RESIDENT_AGENT_PORTAL });
       const actionId = cleared.ok
@@ -387,7 +409,7 @@ export async function runResidentPersonalAgentReply(
         : null;
       if (!actionId) return { text: "I could not set that up just now. Please try again in a moment.", toolTrace: result.toolTrace, traceId: result.traceId ?? null };
       return {
-        text: renderResidentAgentPreview(result.pendingAction.preview, result.reply),
+        text: previewText,
         toolTrace: result.toolTrace,
         traceId: result.traceId ?? null,
       };

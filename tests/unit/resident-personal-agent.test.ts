@@ -497,10 +497,42 @@ describe("text sizing", () => {
       kind: "send_inquiry",
       title: "Message the manager",
       confirmLabel: "Send",
-      fields: [{ label: "Message", value: "x".repeat(600) }, { label: "Property", value: "Alder House" }],
+      fields: [{ label: "Message", value: "x".repeat(240) }, { label: "Property", value: "Alder House" }],
     };
-    const text = renderResidentAgentPreview(preview, "Sure, here it is. ".repeat(20));
+    const text = renderResidentAgentPreview(preview, "Sure, here it is. ".repeat(20))!;
     expect(text.endsWith("Reply YES to send or NO to cancel.")).toBe(true);
     expect(fitToSegments(text, 4)).toBe(text);
+  });
+
+  it("shows the resident's own words in full - a YES sends exactly what the preview showed", () => {
+    const message = "Hi! Is the unit still available for a June 1 move-in? We have one small dog (18 lbs) and I work nights, so a quiet floor matters. Thanks!";
+    const notes = "Please call before arriving; gate code needed.";
+    const longProperty = "The Alder House Residences at Capitol Hill, 1234 East Pine Street Unit 5B";
+    const text = renderResidentAgentPreview({
+      kind: "send_inquiry", title: "Message the manager", confirmLabel: "Send",
+      fields: [
+        { label: "Property", value: longProperty },
+        { label: "Message", value: message },
+        { label: "Notes", value: notes },
+        { label: "Shared with the manager", value: "Rez Resident, rez.resident.long.address@example.com" },
+      ],
+    }, "Sure, here is what I will send.")!;
+    expect(text).toContain(message);
+    expect(text).toContain(notes);
+    expect(text.endsWith("Reply YES to send or NO to cancel.")).toBe(true);
+    expect(fitToSegments(text, 4)).toBe(text);
+  });
+
+  it("refuses to build a confirmation that would clip the resident's words", () => {
+    const preview = { kind: "send_inquiry", title: "Message the manager", confirmLabel: "Send", fields: [{ label: "Message", value: "😀".repeat(200) }] };
+    expect(renderResidentAgentPreview(preview, "")).toBeNull();
+  });
+
+  it("caps the free-text tool inputs at what the preview shows in full", async () => {
+    const { readFileSync } = await import("node:fs");
+    const nodePath = await import("node:path");
+    const source = readFileSync(nodePath.join(process.cwd(), "src/lib/tools/domains/resident-personal-agent.ts"), "utf8");
+    expect(source).toMatch(/message: z\.string\(\)\.trim\(\)\.min\(1\)\.max\(240\)/);
+    expect(source).toMatch(/notes: z\.string\(\)\.trim\(\)\.max\(120\)/);
   });
 });

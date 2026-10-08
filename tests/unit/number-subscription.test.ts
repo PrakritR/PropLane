@@ -48,6 +48,10 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 const activation = vi.hoisted(() => ({ provision: vi.fn(async () => "provisioned") }));
 vi.mock("@/lib/number-subscription/vendor-number-activation.server", () => ({ provisionVendorNumberOnActivation: activation.provision }));
 
+// A resident's number is provisioned by the webhook only for a subscription recorded as a resident's.
+const residentNumber = vi.hoisted(() => ({ provision: vi.fn(async () => ({ status: "ready", phoneNumber: "+12065550177" })) }));
+vi.mock("@/lib/resident-agent-number/number.server", () => ({ provisionResidentAgentNumber: residentNumber.provision }));
+
 import { POST as checkoutRoute } from "@/app/api/number-subscription/checkout/route";
 import { POST as creditCheckoutRoute } from "@/app/api/number-subscription/credit-checkout/route";
 import { POST as portalRoute } from "@/app/api/number-subscription/portal/route";
@@ -392,6 +396,45 @@ describe("Stripe webhook: PropLane Number subscription", () => {
     state.rpc = vi.fn(async () => ({ data: "customer_mismatch", error: null }));
     await deliver("customer.subscription.updated", liveSub());
     expect(activation.provision).not.toHaveBeenCalled();
+  });
+
+  it("routes each role once: a resident row provisions the resident number (one call per event), a vendor row never does", async () => {
+    const residentLive = liveSub({
+      id: "sub_r", customer: "cus_res", metadata: { purpose: NUMBER_SUBSCRIPTION_PURPOSE, owner_user_id: RESIDENT, owner_role: "resident" },
+    });
+    state.db = makeDb({ number_subscriptions: [subRow({ owner_user_id: RESIDENT, owner_role: "resident", stripe_customer_id: "cus_res", stripe_subscription_id: "sub_r" })] });
+    (state.stripe as ReturnType<typeof makeStripe>).subscriptions.retrieve.mockResolvedValue(residentLive as never);
+    residentNumber.provision.mockClear();
+    activation.provision.mockClear();
+    await deliver("customer.subscription.updated", residentLive);
+    expect(residentNumber.provision).toHaveBeenCalledTimes(1);
+    expect(residentNumber.provision).toHaveBeenCalledWith(state.db, RESIDENT, { requireFlag: false });
+    expect(applyCalls()).toEqual([expect.objectContaining({ p_owner: RESIDENT, p_role: "resident" })]);
+    // The vendor hook is offered the same event but only ever acts on a vendor row (see vendor-number-subscription-gating).
+    expect(activation.provision).toHaveBeenCalledTimes(1);
+
+    // A vendor row: the resident provisioner is never reached.
+    state.db = makeDb({ number_subscriptions: [subRow()] });
+    (state.stripe as ReturnType<typeof makeStripe>).subscriptions.retrieve.mockResolvedValue(liveSub() as never);
+    residentNumber.provision.mockClear();
+    await deliver("customer.subscription.updated", liveSub());
+    expect(residentNumber.provision).not.toHaveBeenCalled();
+  });
+
+  it("one subscription per login: a user holding both roles is provisioned for the role recorded at first checkout only", async () => {
+    // VENDOR also holds the resident role, but its single row says vendor: the webhook provisions the vendor number
+    // and never a resident one (the resident number is then offered from Settings under the same subscription).
+    actAs(VENDOR, ["vendor", "resident"], null);
+    state.db = makeDb({ number_subscriptions: [subRow()] });
+    (state.stripe as ReturnType<typeof makeStripe>).subscriptions.retrieve.mockResolvedValue(liveSub() as never);
+    residentNumber.provision.mockClear();
+    activation.provision.mockClear();
+    await deliver("customer.subscription.updated", liveSub());
+    expect(activation.provision).toHaveBeenCalledTimes(1);
+    expect(residentNumber.provision).not.toHaveBeenCalled();
+    // A second checkout cannot create a second subscription while the first is live.
+    const res = await checkoutRoute(req("/api/number-subscription/checkout", { role: "resident" }));
+    expect(res.status).toBe(409);
   });
 
   it("a replayed event records the same state again (the database function makes that a no-op), never a second grant", async () => {
