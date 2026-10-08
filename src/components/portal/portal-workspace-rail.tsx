@@ -29,8 +29,8 @@ const TILE =
  *
  * Manager: one rounded tile per workspace, from the SAME context the workspace
  * switcher menu reads. The active tile is white with a ring; clicking another
- * runs the existing switch (`select`), which re-points every count and the
- * Conversations list at that workspace. The dashed + is the existing "New
+ * runs the existing switch (`select`), which re-points every count at that
+ * workspace. The dashed + is the existing "New
  * workspace" entry. Resident / vendor / admin: one non-interactive brand tile.
  *
  * Bottom: Help (opens the existing help + feedback panel, formerly the sidebar

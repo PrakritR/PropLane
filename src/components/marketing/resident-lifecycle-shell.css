@@ -501,27 +501,6 @@
   flex: none;
   color: #5b6270;
 }
-/* Conversations: the real sidebar's recent threads, a tinted initials tile and an unread dot. */
-.rlp-page .pls .pls-conversation-mark {
-  width: 20px;
-  height: 20px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 5px;
-  background: #eaf0fe;
-  color: #1e4fd6;
-  font-size: 9px;
-  font-style: normal;
-  font-weight: 700;
-}
-.rlp-page .pls .pls-conversation-dot {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 999px;
-  background: #d92d20;
-}
 .rlp-page .pls .pls-item[aria-current="page"],
 .rlp-page .pls .pls-item[aria-current="page"]:hover,
 .rlp-dual-view.rlp-dual-view .pls .pls-item[data-demo-hover] {
@@ -795,8 +774,7 @@
     display: contents;
   }
   .rlp-page .pls .pls-subnav,
-  .rlp-page .pls .pls-item-chevron,
-  .rlp-page .pls [data-nav-group="conversations"] {
+  .rlp-page .pls .pls-item-chevron {
     display: none;
   }
   .rlp-page .pls .pls-main {

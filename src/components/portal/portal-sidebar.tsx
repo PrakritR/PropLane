@@ -53,7 +53,6 @@ import {
   subscribePortalSidebarCollapsed,
   syncPortalSidebarCollapsedAttribute,
 } from "@/lib/portal-sidebar-collapse-store";
-import { useSidebarConversations } from "@/components/portal/use-sidebar-conversations";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } from "@/lib/portals/nav-groups";
@@ -767,13 +766,6 @@ export function PortalSidebar({
   const newMessageHref = `${definition.basePath}/communication/active?compose=1`;
   const showNewMessage = definition.kind !== "admin" && hasCommunication && !communicationLocked;
 
-  const conversations = useSidebarConversations({
-    kind: definition.kind,
-    basePath: definition.basePath,
-    enabled: definition.kind !== "admin" && hasCommunication && !communicationLocked,
-    smsUiEnabled,
-  });
-  const conversationsClosed = closedGroups.includes("conversations");
   const headingClass =
     "flex w-full items-center gap-1 rounded-[6px] border-0 bg-transparent px-2 py-[3px] text-left text-[12px] font-semibold text-[#7a808b] transition-colors hover:bg-[rgba(17,24,39,0.045)]";
 
@@ -843,48 +835,6 @@ export function PortalSidebar({
             </div>
           );
         })}
-
-        {conversations.length > 0 ? (
-          <div className="mt-3 flex flex-col gap-px" data-nav-group="conversations">
-            <button
-              type="button"
-              onClick={() => toggleGroup("conversations")}
-              aria-expanded={!conversationsClosed}
-              data-attr="portal-nav-group-conversations"
-              className={headingClass}
-            >
-              <ChevronDown
-                className={cn("size-3 shrink-0 transition-transform duration-150", conversationsClosed && "-rotate-90")}
-                strokeWidth={2}
-                aria-hidden
-              />
-              Conversations
-            </button>
-            {conversationsClosed
-              ? null
-              : conversations.map((conversation) => (
-                  <Link
-                    key={conversation.id}
-                    href={conversation.href}
-                    prefetch={false}
-                    data-attr="portal-sidebar-conversation"
-                    aria-label={conversation.unread ? `${conversation.name}, unread` : conversation.name}
-                    className={cn(navLinkClass(pathname === conversation.href || pathname.startsWith(`${conversation.href}/`), false, conversation.unread))}
-                  >
-                    <span className="flex min-w-0 flex-1 items-center gap-[9px]">
-                      <span
-                        aria-hidden
-                        className="grid size-5 shrink-0 place-items-center rounded-[5px] bg-[#eaf0fe] text-[9px] font-bold text-[#1e4fd6]"
-                      >
-                        {conversation.initials}
-                      </span>
-                      <span className="min-w-0 truncate">{conversation.name}</span>
-                    </span>
-                    {conversation.unread ? <span className="size-1.5 shrink-0 rounded-full bg-[#d92d20]" aria-hidden /> : null}
-                  </Link>
-                ))}
-          </div>
-        ) : null}
       </nav>
     </aside>
   );

@@ -64,7 +64,6 @@ export function LifecycleFrame({
               tabs={DEMO_TABS[portal]}
               active={active}
               badges={sidebar.badges}
-              conversations={sidebar.conversations}
               needs={portal === "manager" ? worldFor().dashboard.attention : undefined}
               onSelect={setActive}
               panel

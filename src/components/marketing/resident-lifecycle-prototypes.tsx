@@ -289,7 +289,6 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
                     tabs={DEMO_TABS[portal]}
                     active={activeTab}
                     badges={sidebar.badges}
-                    conversations={sidebar.conversations}
                     needs={portal === "manager" ? worldFor(story).dashboard.attention : undefined}
                     onSelect={(tab, sub) => {
                       setTabOverride(tab);

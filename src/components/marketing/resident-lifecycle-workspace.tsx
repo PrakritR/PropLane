@@ -42,9 +42,6 @@ import { PORTAL_META } from "./resident-lifecycle-script";
 /** One row of the assistant panel's "Needs attention": a title and the place it is about. */
 export type AssistantNeed = { id: string; title: string; detail: string };
 
-/** A row of the real sidebar's "Conversations" group: the most recent threads, newest first. */
-export type SidebarConversation = { id: string; name: string; initials: string; unread?: boolean };
-
 /** Alert (a red pill) for unread mail and overdue money, quiet numbers for ordinary pending work (`usePortalNavCounts`). */
 const ALERT_COUNTS = new Set(["communication", "payments"]);
 
@@ -216,7 +213,6 @@ export function ResidentLifecycleWorkspace({
   tabs,
   active,
   badges,
-  conversations,
   needs,
   onSelect,
   onSwitchPortal,
@@ -228,8 +224,6 @@ export function ResidentLifecycleWorkspace({
   tabs: DemoTab[];
   active: string;
   badges?: Record<string, number>;
-  /** The real sidebar's "Conversations" group (most recent threads). */
-  conversations?: SidebarConversation[];
   /** The Dashboard's attention rows. When given, the strip's right icon docks the assistant panel. */
   needs?: AssistantNeed[];
   onSelect(tab: string, sub?: string): void;
@@ -437,39 +431,6 @@ export function ResidentLifecycleWorkspace({
               </div>
             );
           })}
-          {conversations?.length ? (
-            <div className="rlp-nav-group pls-group" data-nav-group="conversations" data-collapsed={collapsed.conversations ? "true" : undefined}>
-              <p className="pls-group-label">
-                <button
-                  type="button"
-                  aria-label="Conversations group"
-                  aria-expanded={!collapsed.conversations}
-                  onClick={() => setCollapsed((state) => ({ ...state, conversations: !state.conversations }))}
-                >
-                  <ChevronDown aria-hidden />
-                  Conversations
-                </button>
-              </p>
-              {collapsed.conversations
-                ? null
-                : conversations.map((conversation) => (
-                    <button
-                      type="button"
-                      key={conversation.id}
-                      className="rlp-nav-item pls-item pls-conversation"
-                      aria-label={conversation.unread ? `${conversation.name}, unread` : conversation.name}
-                      data-unread={conversation.unread ? "true" : undefined}
-                      onClick={() => onSelect("communication")}
-                    >
-                      <i className="pls-conversation-mark" aria-hidden>
-                        {conversation.initials}
-                      </i>
-                      <span>{conversation.name}</span>
-                      {conversation.unread ? <i className="pls-conversation-dot" aria-hidden /> : null}
-                    </button>
-                  ))}
-            </div>
-          ) : null}
         </nav>
       </aside>
       <div className="rlp-main pls-main" ref={mainRef}>
