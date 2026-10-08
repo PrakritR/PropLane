@@ -1,0 +1,3 @@
+# Local run output: screenshots and the esbuild bundle path. Evidence only.
+.shots/
+.bundle/

@@ -49,11 +49,15 @@ describe("DEMO_TABS contract", () => {
 });
 
 describe.each(PORTALS)("DemoPanel - %s portal", (portal) => {
-  // The role Dashboards load as their own chunk (`next/dynamic`), so a panel
-  // may arrive a tick after render.
+  // The role Dashboards load as their own chunk (`next/dynamic`), so a panel may
+  // arrive a tick after render — and on a cold module graph that first import is
+  // well over waitFor's 1s default, which made this case fail on the first run of
+  // the file and pass on every later one. Wait long enough for the real import.
   it.each(DEMO_TABS[portal].map((t) => [t.id, t.label]))("renders the %s tab (%s)", async (tab) => {
     const { container } = render(<DemoPanel portal={portal} tab={tab} />);
-    await waitFor(() => expect((container.textContent ?? "").trim().length).toBeGreaterThan(20), { timeout: 10000 });
+    await waitFor(() => expect((container.textContent ?? "").trim().length).toBeGreaterThan(20), {
+      timeout: 15_000,
+    });
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/work[\s-]?order/i);
     expect(fetchSpy).not.toHaveBeenCalled();

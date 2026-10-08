@@ -34,9 +34,10 @@ export type AdminAccountSearchResult = {
   /** Match counts for every kind (so the tabs stay derived from the same query). */
   counts: { manager: number; resident: number; vendor: number };
   /**
-   * Whether `counts` are real totals. They are counted in the database, so this
-   * is true for every answer this server builds; a response without it (an
-   * older one) makes the UI show no pill rather than a number it cannot trust.
+   * Always true here: `counts` are totals counted in the database. The field is
+   * on the wire for the client to REQUIRE, so a response from a deploy that
+   * could only report a floor leaves the tab pills off instead of showing a
+   * number that is too low.
    */
   countsComplete: boolean;
 };
@@ -114,7 +115,7 @@ export async function searchAdminAccounts(
     countMatchingAccounts(db, real(idsByKind.vendor), match),
   ]);
 
-  const { kept: page } = await scanNewestProfiles<AdminProfileScanRow>(
+  const page = await scanNewestProfiles<AdminProfileScanRow>(
     db,
     { match, limit: ADMIN_ACCOUNT_SEARCH_LIMIT },
     async (rows) => {

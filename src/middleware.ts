@@ -48,7 +48,10 @@ async function viewAsGuard(request: NextRequest): Promise<{ payload: ViewAsPaylo
   const payload = await verifyViewAsToken(raw, readViewAsSecret());
   if (!payload) return { payload: null, blocked: null };
   const path = request.nextUrl.pathname;
-  if (viewAsBlocksRequest(request.method, path) || viewAsDeniesPrivateBytes(request.method, path)) {
+  if (
+    viewAsBlocksRequest(request.method, path) ||
+    viewAsDeniesPrivateBytes(request.method, path, request.nextUrl.search)
+  ) {
     return {
       payload,
       blocked: NextResponse.json({ error: VIEW_AS_READ_ONLY_ERROR }, { status: 403, headers: { "Cache-Control": "no-store" } }),
