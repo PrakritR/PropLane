@@ -366,10 +366,12 @@ then the hardcoded `+15103098345` trial default. Admin views
 these same threads read-only at `/admin/communication` → SMS
 (`fetchAdminSharedLineSmsConversation` in `manager-sms-messages.server.ts`,
 merging `inbound_sms_log` + `manager_sms_messages` across the mapped
-managers) — Admin Communication → Email is the pre-existing admin inbox
-(`AdminInboxClient`), reachable at `/admin/communication/inbox/*`
-(old `/admin/inbox/*` and `/admin/communication/email|sms/*` links redirect
-there via `render-portal-section.tsx`).
+managers) — the stream is a row source of the admin Communication list, merged
+with the admin email conversations (`createAdminInboxAdapter`,
+`docs/agents/communication-inbox.md`), at `/admin/communication/{active|archived}`
+(old `/admin/inbox/*`, `/admin/communication/inbox/*` and
+`/admin/communication/email|sms/*` links redirect there via
+`render-portal-section.tsx`).
 
 ⚠️ **Every portal's Communication SMS panel is hidden by default** (manager,
 resident, vendor, admin) — the sections render only when `SMS_COMM_UI_ENABLED`

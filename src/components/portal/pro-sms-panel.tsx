@@ -194,6 +194,12 @@ export const ManagerSmsPanel = forwardRef<
     pageScroll?: boolean;
     /** SMS-specific compose/channel controls remain behind the server flag. */
     smsUiEnabled?: boolean;
+    /**
+     * Whether the open thread offers Archive / Restore. Archive state is the manager's own
+     * (`/api/manager/tour-follow-ups`); admin oversight of the shared line has none, so the
+     * admin Communication thread passes false.
+     */
+    allowArchive?: boolean;
   }
 >(function ManagerSmsPanel(
   {
@@ -216,6 +222,7 @@ export const ManagerSmsPanel = forwardRef<
     onArchived,
     pageScroll = false,
     smsUiEnabled = true,
+    allowArchive = true,
   },
   ref,
 ) {
@@ -1312,7 +1319,7 @@ export const ManagerSmsPanel = forwardRef<
             <Pencil className="h-4 w-4" aria-hidden />
           </button>
         ) : null}
-        {active.archived ? (
+        {!allowArchive ? null : active.archived ? (
           <button
             type="button"
             className={INBOX_THREAD_ICON_BTN}

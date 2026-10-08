@@ -68,16 +68,22 @@ export function useThreadScheduledCards({
   smsAvailable,
   enabled = true,
   refreshKey = 0,
+  includeAutomation = true,
 }: {
   recipientEmail: string;
   smsAvailable: boolean;
   enabled?: boolean;
   /** Bump to reload (e.g. right after the composer scheduled something). */
   refreshKey?: number;
+  /**
+   * Include the manager's automated payment reminders. Admin has none and must not issue the
+   * manager-only `scheduled-messages` read, so it passes false and sees manual sends only.
+   */
+  includeAutomation?: boolean;
 }): { scheduledCards: ReactNode; reloadScheduled: () => void } {
   const [manual, setManual] = useState<ScheduledInboxMessageRecord[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const { messages: automation, settings, reload: reloadAutomation } = useScheduledPaymentMessages({ includeHidden: false, enabled });
+  const { messages: automation, settings, reload: reloadAutomation } = useScheduledPaymentMessages({ includeHidden: false, enabled: enabled && includeAutomation });
 
   // Every call that only a real workspace can answer is gated on this: the reads, and the manual
   // scheduled-inbox API (`/demo` has no manual rows to act on, and never writes real ones). A disabled

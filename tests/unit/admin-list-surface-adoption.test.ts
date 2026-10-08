@@ -9,8 +9,9 @@
  * again.
  *
  * This guards the adoption, not the markup: a tab that re-grows its own
- * `<table>` for the TOP-LEVEL list is the regression. Detail views and the
- * genuine record tables (Communication → Email) still use table primitives.
+ * `<table>` for the TOP-LEVEL list is the regression. Detail views still use
+ * table primitives. Communication has no table exception any more: admin
+ * mounts the manager's conversation list (see "admin Communication" below).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -206,5 +207,32 @@ describe("admin Billing redirect", () => {
   it("has no separate admin nav row any more", () => {
     const nav = read("src/lib/portals/admin.ts");
     expect(nav).not.toMatch(/section:\s*"billing"/);
+  });
+});
+
+describe("admin Communication", () => {
+  const src = read("src/components/portal/admin-communication.tsx");
+
+  it("is the manager's unified inbox over an admin adapter, not an inbox of its own", () => {
+    expect(src).toContain("ManagerUnifiedInbox");
+    expect(src).toContain("createAdminInboxAdapter");
+    expect(src).not.toContain("admin-inbox-client");
+    expect(src).not.toContain("<table");
+    expect(src).not.toContain("PortalInboxMessageTable");
+  });
+
+  it("has no labeled Scheduled / Archived / New message buttons, status pills or Text messages card", () => {
+    expect(src).not.toContain("admin-inbox-scheduled-toggle");
+    expect(src).not.toContain("admin-inbox-archived-toggle");
+    expect(src).not.toContain("Text messages");
+    expect(src).not.toContain("ManagerPortalStatusPills");
+    // The one create action is the round blue + (an icon, its word is the tooltip).
+    expect(src).toContain("PortalPrimaryIconAction");
+    expect(src).toContain('label="New message"');
+  });
+
+  it("retired the admin inbox component and its Schedule panel", () => {
+    expect(() => read("src/components/portal/admin-inbox-client.tsx")).toThrow();
+    expect(() => read("src/components/portal/admin-inbox-schedule-panel.tsx")).toThrow();
   });
 });

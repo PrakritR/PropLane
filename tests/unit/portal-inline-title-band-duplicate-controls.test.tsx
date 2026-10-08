@@ -424,7 +424,8 @@ describe("header controls reach mobile exactly once", () => {
     const spec = (component: string) => SHELL_SPECS.find((candidate) => candidate.component === component);
 
     // Defaults true and never forwards a filterRow — so a caller that writes neither is
-    // still on the band path (admin-communication.tsx does exactly that).
+    // still on the band path. (Admin Communication used to be the probe here; it now publishes
+    // its tools into the title slot like the manager page does, so the probe is a fixture.)
     expect(spec("PortalCommunicationShell")).toMatchObject({
       asideProp: "titleAside",
       filterRowProp: null,
@@ -432,7 +433,7 @@ describe("header controls reach mobile exactly once", () => {
       hideTitleDefault: true,
     });
     expect(
-      inlineBandTitleAsides(readFileSync(join(PORTAL_DIR, "admin-communication.tsx"), "utf8")),
+      inlineBandTitleAsides('<PortalCommunicationShell title="Communication" titleAside={<button />}>'),
     ).toEqual([{ tag: "PortalCommunicationShell", gated: false }]);
 
     // Renames the aside to `primaryAction` and hard-codes hideTitleOnMobileNav, but its
