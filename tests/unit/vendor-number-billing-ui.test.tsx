@@ -23,6 +23,7 @@ const pausedNumber = { ...base, sms: { state: "ready", value: "+12065550142", se
 
 type Billing = {
   enabled: boolean;
+  available?: boolean;
   subscription: { status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean } | null;
   credit: { includedCents: number; purchasedCents: number; totalCents: number } | null;
 };
@@ -74,15 +75,15 @@ describe("subscription off", () => {
     const { findByText, queryByText } = render(<VendorWorkNumberSettings />);
     expect(await findByText("Find numbers")).toBeTruthy();
     expect(queryByText("Subscribe")).toBeNull();
-    expect(queryByText("Your own work number")).toBeNull();
+    expect(queryByText("Your own work number & email")).toBeNull();
   });
 });
 
 describe("not subscribed", () => {
-  it("shows 'Your own work number', '$5 / month' and Subscribe instead of the claim", async () => {
+  it("shows 'Your own work number & email', '$5 / month' and Subscribe instead of the claim", async () => {
     mockFetch(noNumberLocked, unsubscribed);
     const { findByText, queryByText } = render(<VendorWorkNumberSettings />);
-    expect(await findByText("Your own work number")).toBeTruthy();
+    expect(await findByText("Your own work number & email")).toBeTruthy();
     expect(await findByText("$5 / month")).toBeTruthy();
     expect(await findByText("Subscribe")).toBeTruthy();
     expect(queryByText("Find numbers")).toBeNull();
@@ -105,6 +106,45 @@ describe("not subscribed", () => {
     fireEvent.click(await findByText("Subscribe"));
     expect(await findByText("Checkout is temporarily unavailable.")).toBeTruthy();
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("while the platform cannot provision a number it says Unavailable and sells nothing", async () => {
+    mockFetch(noNumberLocked, { ...unsubscribed, available: false });
+    const { findByText, queryByText } = render(<VendorWorkNumberSettings />);
+    expect(await findByText("Your own work number & email")).toBeTruthy();
+    expect(await findByText("Unavailable")).toBeTruthy();
+    expect(queryByText("Subscribe")).toBeNull();
+  });
+
+  it("back from Checkout before the webhook lands it says Activating (no second Subscribe), then shows the number", async () => {
+    window.history.pushState({}, "", "/vendor/settings?tab=work-number-email&number=success");
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { pathname: "/vendor/settings", search: "?tab=work-number-email&number=success", assign },
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let activated = false;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.startsWith("/api/number-subscription")) {
+            return { ok: true, json: async () => ({ ok: true, priceCents: 500, ...(activated ? subscribed : unsubscribed) }) };
+          }
+          return { ok: true, json: async () => ({ ok: true, identity: activated ? withNumber : noNumberLocked }) };
+        }),
+      );
+      const { findByText, queryByText } = render(<VendorWorkNumberSettings />);
+      expect(await findByText("Activating…")).toBeTruthy();
+      expect(queryByText("Subscribe")).toBeNull();
+      activated = true;
+      await vi.advanceTimersByTimeAsync(3500);
+      expect(await findByText("+1 (206) 555-0142")).toBeTruthy();
+      expect(queryByText("Activating…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a lapsed vendor's held number is shown paused next to Subscribe", async () => {

@@ -57,9 +57,10 @@ const SMS_SETTLING = new Set(["provisioning", "reconciling"]);
 function useWorkIdentity(demo: boolean) {
   const [identity, setIdentity] = useState<VendorWorkIdentityResponse | null>(null);
   const [load, setLoad] = useState<"loading" | "ready" | "failed">("loading");
-  const reload = useCallback(async () => {
+  /** `silent` refreshes in place (no skeleton): used while polling for the number after Checkout. */
+  const reload = useCallback(async (silent = false) => {
     if (demo) return;
-    setLoad("loading");
+    if (!silent) setLoad("loading");
     try {
       const res = await fetch("/api/vendor/work-identity", { credentials: "include", cache: "no-store" });
       const body = await res.json().catch(() => ({}));
@@ -67,7 +68,7 @@ function useWorkIdentity(demo: boolean) {
       setIdentity(body.identity as VendorWorkIdentityResponse);
       setLoad("ready");
     } catch {
-      setLoad("failed");
+      if (!silent) setLoad("failed");
     }
   }, [demo]);
   useEffect(() => {
@@ -286,6 +287,40 @@ export function VendorWorkNumberSettings() {
     setForwardOverride(null);
   }, [live.identity?.forwardToPhone]);
 
+  // Back from Stripe Checkout (`?number=success`): the webhook that records the subscription and buys the number
+  // can land a few seconds after the redirect, so poll quietly instead of showing a second Subscribe.
+  const [activating, setActivating] = useState(false);
+  useEffect(() => {
+    if (demo || typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("number") === "success") setActivating(true);
+  }, [demo]);
+  const { reload: reloadBilling } = numberBilling;
+  const { reload: reloadIdentity } = live;
+  const entitledNow = vendorNumberEntitledStatus(numberBilling.billing?.subscription?.status);
+  const numberNow = Boolean(live.identity?.sms.value) && live.identity?.sms.state === "ready";
+  useEffect(() => {
+    if (!activating) return;
+    let ticks = 0;
+    const timer = window.setInterval(() => {
+      ticks += 1;
+      void reloadBilling();
+      void reloadIdentity(true);
+      if (ticks >= 20) setActivating(false);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [activating, reloadBilling, reloadIdentity]);
+  useEffect(() => {
+    // Entitled: the number follows within moments. Stop as soon as it shows, or after a short grace (an
+    // unverified phone legitimately has none yet; Settings then shows the real next step).
+    if (!activating || !entitledNow) return;
+    if (numberNow) {
+      setActivating(false);
+      return;
+    }
+    const grace = window.setTimeout(() => setActivating(false), 15_000);
+    return () => window.clearTimeout(grace);
+  }, [activating, entitledNow, numberNow]);
+
   const setForwarding = useCallback(
     async (next: boolean) => {
       setForwardError(null);
@@ -340,15 +375,16 @@ export function VendorWorkNumberSettings() {
 
   const number = identity.sms.value;
   const numberReady = Boolean(number) && identity.sms.state === "ready";
-  const settling = SMS_SETTLING.has(identity.sms.state);
   const phoneVerified = identity.eligibility?.phoneVerified !== false;
-  const forwarding = forwardOverride ?? identity.forwardToPhone ?? true;
-  const cap = identity.usage.outboundCap > 0 ? identity.usage.outboundCap : VENDOR_NUMBER_FAIR_USE_SEGMENTS_PER_MONTH;
-  const capReached = identity.usage.capState === "exhausted";
   // PropLane Number (flag on): `billing` is null while it is off, which leaves every row below exactly as it was.
   const billing = numberBilling.billing;
   const entitled = billing ? vendorNumberEntitledStatus(billing.subscription?.status) : true;
   const needsSubscription = Boolean(billing) && !entitled;
+  // A paid vendor with a verified phone whose number the webhook is still buying: "Setting up", not the claim flow.
+  const settling = SMS_SETTLING.has(identity.sms.state) || (activating && !numberReady && Boolean(billing) && entitled && phoneVerified);
+  const forwarding = forwardOverride ?? identity.forwardToPhone ?? true;
+  const cap = identity.usage.outboundCap > 0 ? identity.usage.outboundCap : VENDOR_NUMBER_FAIR_USE_SEGMENTS_PER_MONTH;
+  const capReached = identity.usage.capState === "exhausted";
 
   return (
     <PortalSettingsSections>
@@ -381,7 +417,7 @@ export function VendorWorkNumberSettings() {
           ) : needsSubscription && billing ? (
             // Subscribing comes first: a vendor can pay before verifying a phone; the number is
             // provisioned once the phone is verified (and right away when it already is).
-            <VendorNumberSubscribeRow billing={billing} demo={demo} />
+            <VendorNumberSubscribeRow billing={billing} demo={demo} activating={activating} />
           ) : !phoneVerified ? (
             <PortalSettingsRow label="Work number">
               <Link
@@ -395,7 +431,7 @@ export function VendorWorkNumberSettings() {
           ) : (
             <ClaimNumber identity={identity} reload={() => void reload()} />
           )}
-          {numberReady && needsSubscription && billing ? <VendorNumberSubscribeRow billing={billing} demo={demo} /> : null}
+          {numberReady && needsSubscription && billing ? <VendorNumberSubscribeRow billing={billing} demo={demo} activating={activating} /> : null}
           <WorkEmailRow identity={identity} reload={() => void reload()} />
           {billing && entitled ? <VendorNumberSubscribedRows billing={billing} demo={demo} onChanged={() => void numberBilling.reload()} /> : null}
           {numberReady ? (

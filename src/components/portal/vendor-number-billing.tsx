@@ -20,6 +20,8 @@ import { formatPacificDate } from "@/lib/pacific-time";
 
 export type VendorNumberBilling = {
   priceCents: number;
+  /** False when a NEW subscriber's number cannot be provisioned yet (runtime off, cap 0, provider unset). */
+  available: boolean;
   subscription: { status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean } | null;
   credit: { includedCents: number; purchasedCents: number; totalCents: number } | null;
 };
@@ -45,10 +47,11 @@ export function useVendorNumberBilling(demo: boolean) {
         ok?: boolean;
         enabled?: boolean;
         priceCents?: number;
+        available?: boolean;
         subscription?: VendorNumberBilling["subscription"];
         credit?: VendorNumberBilling["credit"];
       };
-      setBilling(res.ok && body.ok && body.enabled === true ? { priceCents: body.priceCents ?? 500, subscription: body.subscription ?? null, credit: body.credit ?? null } : null);
+      setBilling(res.ok && body.ok && body.enabled === true ? { priceCents: body.priceCents ?? 500, available: body.available !== false, subscription: body.subscription ?? null, credit: body.credit ?? null } : null);
     } catch {
       setBilling(null);
     } finally {
@@ -90,9 +93,40 @@ function priceLabel(cents: number): string {
   return cents % 100 === 0 ? `$${cents / 100}` : dollars(cents);
 }
 
-/** Not subscribed: "Your own work number · $5 / month · Subscribe". */
-export function VendorNumberSubscribeRow({ billing, demo }: { billing: VendorNumberBilling; demo: boolean }) {
+/**
+ * Not subscribed: "Your own work number & email · $5 / month · Subscribe". Right after Checkout (`activating`) the
+ * webhook may not have landed yet, so it reads "Activating" instead of offering a second purchase. When a number
+ * cannot be provisioned yet it reads "Unavailable" with no button, so no $5 is taken for a number that cannot be
+ * delivered.
+ */
+export function VendorNumberSubscribeRow({
+  billing,
+  demo,
+  activating = false,
+}: {
+  billing: VendorNumberBilling;
+  demo: boolean;
+  activating?: boolean;
+}) {
   const [error, setError] = useState<string | null>(null);
+  if (activating) {
+    return (
+      <PortalSettingsRow label="Your own work number & email">
+        <span className="text-sm text-muted" role="status" data-attr="vendor-number-activating">
+          Activating…
+        </span>
+      </PortalSettingsRow>
+    );
+  }
+  if (!billing.available) {
+    return (
+      <PortalSettingsRow label="Your own work number & email">
+        <span className="text-sm text-muted" data-attr="vendor-number-unavailable">
+          Unavailable
+        </span>
+      </PortalSettingsRow>
+    );
+  }
   const subscribe = async () => {
     setError(null);
     try {
@@ -102,7 +136,7 @@ export function VendorNumberSubscribeRow({ billing, demo }: { billing: VendorNum
     }
   };
   return (
-    <PortalSettingsRow label="Your own work number">
+    <PortalSettingsRow label="Your own work number & email">
       <span className="inline-flex flex-col items-end gap-1">
         <span className="inline-flex items-center gap-3">
           <span className="text-sm font-medium text-foreground" data-attr="vendor-number-price">
