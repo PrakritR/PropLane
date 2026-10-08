@@ -24,7 +24,11 @@ export type RentalApplicationSectionId =
 export type RentalApplicationSection = {
   id: RentalApplicationSectionId;
   title: string;
-  /** Applicant rental-wizard step that asks this section's questions. */
+  /**
+   * Applicant rental-wizard step (1-7) that asks this section's questions. Sections can share a step:
+   * household and property are "Your lease", current and previous address are "Where you live", and
+   * consent and review are "Review, sign and pay".
+   */
   wizardStep: number;
   /** Standard fields the applicant fills in this section (manager-facing outline). */
   standardFields: readonly string[];
@@ -45,7 +49,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
   {
     id: "property",
     title: "Property information",
-    wizardStep: 3,
+    wizardStep: 1,
     standardFields: [
       "Property",
       "Room choices (1st – 3rd)",
@@ -71,7 +75,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
   {
     id: "current_address",
     title: "Current address",
-    wizardStep: 4,
+    wizardStep: 3,
     standardFields: [
       "Street, city, state, ZIP",
       "Current landlord name & phone",
@@ -82,7 +86,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
   {
     id: "previous_address",
     title: "Previous address",
-    wizardStep: 5,
+    wizardStep: 3,
     standardFields: [
       "Street, city, state, ZIP",
       "Previous landlord name & phone",
@@ -93,7 +97,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
   {
     id: "employment",
     title: "Employment & income",
-    wizardStep: 6,
+    wizardStep: 4,
     standardFields: [
       "Employer & employer address",
       "Supervisor name & phone",
@@ -106,7 +110,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
   {
     id: "references",
     title: "References",
-    wizardStep: 7,
+    wizardStep: 5,
     standardFields: [
       "Reference 1 — name, relationship, phone",
       "Reference 2 — name, relationship, phone",
@@ -115,7 +119,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
   {
     id: "additional",
     title: "Additional details",
-    wizardStep: 8,
+    wizardStep: 6,
     standardFields: [
       "Number of occupants",
       "Pets",
@@ -127,7 +131,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
   {
     id: "consent",
     title: "Consent & signature",
-    wizardStep: 9,
+    wizardStep: 7,
     standardFields: [
       "Credit & background check consent",
       "Truthfulness certification",
@@ -137,7 +141,7 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
   {
     id: "review",
     title: "Review",
-    wizardStep: 10,
+    wizardStep: 7,
     standardFields: [],
   },
 ];

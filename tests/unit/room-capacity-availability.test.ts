@@ -280,7 +280,7 @@ describe("the apply wizard refuses a room taken for the applicant's dates", () =
   it("flags the first choice when a signed resident holds the room for those dates", async () => {
     const { validateRentalWizardStep } = await import("@/lib/rental-application/validate");
     holdingResident("app-1", "2026-10-05", "2027-10-04");
-    expect(validateRentalWizardStep(3, form("2026-11-01", "2026-11-30")).roomChoice1).toBe(
+    expect(validateRentalWizardStep(1, form("2026-11-01", "2026-11-30")).roomChoice1).toBe(
       "That room is taken for these dates. Choose another room or different dates.",
     );
   });
@@ -288,7 +288,7 @@ describe("the apply wizard refuses a room taken for the applicant's dates", () =
   it("accepts the same room for dates that do not overlap", async () => {
     const { validateRentalWizardStep } = await import("@/lib/rental-application/validate");
     holdingResident("app-1", "2026-10-05", "2027-10-04");
-    expect(validateRentalWizardStep(3, form("2027-11-01", "2027-11-30")).roomChoice1).toBeUndefined();
+    expect(validateRentalWizardStep(1, form("2027-11-01", "2027-11-30")).roomChoice1).toBeUndefined();
   });
 
   it("offers no property fallback and rejects a property-only choice when every room is full", async () => {
@@ -297,7 +297,7 @@ describe("the apply wizard refuses a room taken for the applicant's dates", () =
     rows.push({ ...approved("app-1", "2026-10-05", "2027-10-04"), manuallyAdded: true });
     rows.push({ ...approved("app-2", "2026-10-05", "2027-10-04"), assignedRoomChoice: "prop-1::r2", manuallyAdded: true });
     expect(getRoomOptionsForProperty("prop-1", { leaseStart: "2026-11-01", leaseEnd: "2026-11-30" })).toEqual([]);
-    expect(validateRentalWizardStep(3, { ...form("2026-11-01", "2026-11-30"), roomChoice1: "prop-1" }).roomChoice1).toBe(
+    expect(validateRentalWizardStep(1, { ...form("2026-11-01", "2026-11-30"), roomChoice1: "prop-1" }).roomChoice1).toBe(
       "Choose an available room.",
     );
   });
@@ -314,8 +314,8 @@ describe("the apply wizard refuses a room taken for the applicant's dates", () =
       },
     };
     const answers = { ...form("2027-11-01", "2027-11-30"), propertyId: property.id, roomChoice1: property.id };
-    expect(validateRentalWizardStep(3, answers, { property }).roomChoice1).toBe("Choose an available room.");
-    expect(validateRentalWizardStep(3, { ...answers, roomChoice1: `${property.id}::missing-room` }, { property }).roomChoice1).toBe("Choose an available room.");
-    expect(validateRentalWizardStep(3, { ...answers, roomChoice1: `${property.id}::server-room` }, { property }).roomChoice1).toBeUndefined();
+    expect(validateRentalWizardStep(1, answers, { property }).roomChoice1).toBe("Choose an available room.");
+    expect(validateRentalWizardStep(1, { ...answers, roomChoice1: `${property.id}::missing-room` }, { property }).roomChoice1).toBe("Choose an available room.");
+    expect(validateRentalWizardStep(1, { ...answers, roomChoice1: `${property.id}::server-room` }, { property }).roomChoice1).toBeUndefined();
   });
 });

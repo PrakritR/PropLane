@@ -106,27 +106,37 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("the application opens with the lease question", () => {
-  it("names step 1 'Which lease are you applying for?' and puts the lease choice before every household question", () => {
-    expect(RENTAL_WIZARD_STEP_TITLES[0]).toBe("Which lease are you applying for?");
+  it("names step 1 'Your lease' and puts the lease choice before every household question", () => {
+    expect(RENTAL_WIZARD_STEP_TITLES[0]).toBe("Your lease");
     const { container } = renderStep(1);
     const step = container.querySelector(".rental-wizard-step");
     expect(step).toBeTruthy();
     const first = step!.firstElementChild!;
     expect(first.hasAttribute("data-wizard-lease-choice")).toBe(true);
-    // The lease type is asked here, and the household rows come after it.
-    expect(first.querySelector('[data-wizard-field="leaseTerm"]')).toBeTruthy();
+    // The lease is asked here (this property offers long-term lengths and month-to-month, so there is no
+    // Long-term / Short-term toggle, just the Length), and the household rows come after it.
+    expect(first.querySelector('[data-wizard-field="propertyId"]')).toBeTruthy();
+    expect(first.querySelector('[data-wizard-field="longTermLength"]')).toBeTruthy();
+    expect(first.querySelector('[data-wizard-field="leaseTerm"]')).toBeNull();
     const household = container.querySelector('[data-wizard-field="applyingAsGroup"]');
     if (household) {
       expect(first.compareDocumentPosition(household) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
   });
 
-  it("no longer asks for the property, lease type or room on the dates step", () => {
-    const { container } = renderStep(3);
-    expect(container.querySelector('[data-wizard-field="propertyId"]')).toBeNull();
-    expect(container.querySelector('[data-wizard-field="leaseTerm"]')).toBeNull();
-    expect(container.querySelector('[data-wizard-field="roomChoice1"]')).toBeNull();
-    expect(container.textContent).toContain("Lease start date");
+  it("asks the move-in date on step 1 with the lease, and no later step asks for the property, lease type, room or dates", () => {
+    const first = renderStep(1);
+    expect(first.container.textContent).toContain("Move-in date");
+    expect(first.container.querySelector('[data-wizard-field="leaseStart"], #leaseStart')).toBeTruthy();
+    cleanup();
+    for (const step of [2, 3, 4, 5, 6]) {
+      const { container } = renderStep(step);
+      expect(container.querySelector('[data-wizard-field="propertyId"]')).toBeNull();
+      expect(container.querySelector('[data-wizard-field="leaseTerm"]')).toBeNull();
+      expect(container.querySelector('[data-wizard-field="roomChoice1"]')).toBeNull();
+      expect(container.querySelector("#leaseStart")).toBeNull();
+      cleanup();
+    }
   });
 
   it("a link from a listing arrives preselected: the property is shown locked and the carried lease type is selected", () => {

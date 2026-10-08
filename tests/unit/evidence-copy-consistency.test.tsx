@@ -14,7 +14,7 @@
 // The fee case drives the REAL wizard step bodies; the rest exercise the real
 // modules. With EVIDENCE_DIR set the fee row and a summary table are written out.
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
@@ -46,7 +46,7 @@ import { RentalWizardStepBody, type WizardStepsProps } from "@/components/market
 function props(over: Partial<WizardStepsProps>): WizardStepsProps {
   const noop = () => {};
   return {
-    step: 11,
+    step: 7,
     form: { ...createInitialRentalWizardState(), propertyId: PROPERTY_ID, email: "r@example.com" },
     errors: {},
     mode: "portal",
@@ -81,34 +81,36 @@ afterAll(() => {
 });
 
 describe("F-FIN-1 / F8 — Review and the fee step quote one number", () => {
-  it("Review states the waiver beside the published fee, and step 11 says the same", () => {
-    render(<RentalWizardStepBody {...props({ step: 10 })} />);
-    const row = screen.getByText("Application fee").closest("div")!.parentElement!;
+  // Review and the fee are one screen now (step 7, "Review, sign and pay"): the summary row sits above the fee.
+  const reviewFeeRow = (container: HTMLElement) =>
+    within(container.querySelector<HTMLElement>("[data-jr-review-answers]")!)
+      .getByText("Application fee")
+      .closest("div")!.parentElement!;
+
+  it("Review states the waiver beside the published fee, and the fee below says the same", () => {
+    const screenRender = render(<RentalWizardStepBody {...props({})} />);
+    const row = reviewFeeRow(screenRender.container);
     // Capture before asserting, so the artifact exists in the pre-fix state too.
     captured.push({ name: "f8-review-fee-row", html: (row as HTMLElement).outerHTML });
     expect(row.textContent).toContain("$0.00");
     expect(row.textContent).toContain(WAIVER);
     expect(row.textContent).toContain("$50.00");
-    cleanup();
-
-    const feeStep = render(<RentalWizardStepBody {...props({ step: 11 })} />);
     captured.push({
       name: "f8-fee-step",
-      html: (feeStep.container.firstElementChild as HTMLElement).innerHTML,
+      html: (screenRender.container.firstElementChild as HTMLElement).innerHTML,
     });
     expect(screen.getByText(WAIVER)).toBeTruthy();
   });
 
   it("still prints the amount when a fee IS due", () => {
-    render(
+    const screenRender = render(
       <RentalWizardStepBody
         {...props({
-          step: 10,
           applicationFeeGate: { needsFee: true, paid: false, displayLabel: "$50.00", amount: 50, waived: false },
         })}
       />,
     );
-    const row = screen.getByText("Application fee").closest("div")!.parentElement!;
+    const row = reviewFeeRow(screenRender.container);
     expect(row.textContent).toContain("$50.00");
     expect(row.textContent).not.toContain(WAIVER);
   });

@@ -1,17 +1,15 @@
 "use client";
 
-const MILESTONES = ["Lease", "About you", "Details", "Review", "Fee"] as const;
+const MILESTONES = ["Lease", "About you", "Details", "Review"] as const;
 
 function milestoneIndexForWizardStep(step: number): number {
   if (step <= 1) return 0;
   if (step === 2) return 1;
-  if (step >= 3 && step <= 9) return 2;
-  if (step === 10) return 3;
-  if (step === 11) return 4;
-  return 0;
+  if (step >= 3 && step <= 6) return 2;
+  return 3;
 }
 
-/** Replica `jr-apply-steps` — styled five-step stepper without a total count. */
+/** Replica `jr-apply-steps` — styled four-milestone stepper without a total count. */
 export function RentalWizardApplySteps({ currentStep }: { currentStep: number }) {
   const currentIndex = milestoneIndexForWizardStep(currentStep);
   return (

@@ -60,6 +60,7 @@ function renderFeeStep(
   opts: {
     payChannel?: "ach" | "zelle" | "venmo" | "other";
     subOverrides?: Partial<ReturnType<typeof createDefaultListingSubmission>>;
+    paymentReady?: boolean;
   } = {},
 ) {
   seedListing(opts.subOverrides);
@@ -73,13 +74,11 @@ function renderFeeStep(
   const noop = () => {};
   return render(
     <RentalWizardStepBody
-      // The fee step is step 11, not 12. The wizard was renumbered to
-      // RENTAL_WIZARD_STEP_COUNT = 11 (the old value survives only as
-      // LEGACY_RENTAL_WIZARD_STEP_COUNT for migrating saved progress), and
-      // RentalWizardStepBody returns null for any step past the count — so a
-      // stale 12 here renders NOTHING and every query below comes back null
-      // rather than failing on the thing it means to assert.
-      step={11}
+      // The fee is the last part of step 7 ("Review, sign and pay"). RentalWizardStepBody returns null
+      // for any step past RENTAL_WIZARD_STEP_COUNT = 7 — so a stale number here renders NOTHING and
+      // every query below comes back null rather than failing on the thing it means to assert.
+      step={7}
+      paymentReady={opts.paymentReady}
       form={form}
       errors={{}}
       mode={mode}
@@ -120,6 +119,14 @@ describe("fee step — inline payment mode gate", () => {
   it("renders the inline payment on the portal apply surface (no dead-end)", () => {
     renderFeeStep("portal");
     expect(screen.queryByTestId("inline-payment")).toBeTruthy();
+  });
+
+  it("holds the card form until every answer and the signature are valid, so a fee is never paid for an application the server would refuse", () => {
+    renderFeeStep("public", {}, { paymentReady: false });
+    expect(screen.queryByTestId("inline-payment")).toBeNull();
+    expect(screen.queryByText(/Finish the signature above to pay the application fee/)).toBeTruthy();
+    // The amount is still stated.
+    expect(screen.queryAllByText("$75.00").length).toBeGreaterThan(0);
   });
 
   it("never renders a payment in the submitted-application editor", () => {
@@ -174,7 +181,7 @@ describe("fee step — inline payment mode gate", () => {
 
   it("headlines the gate's (server-derived) amount, not the listing's stored fee text", () => {
     renderFeeStep("public");
-    expect(screen.queryByText("$75.00")).toBeTruthy();
+    expect(screen.queryAllByText("$75.00").length).toBeGreaterThan(0);
     expect(screen.queryByText("$50")).toBeNull();
   });
 });
