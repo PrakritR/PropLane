@@ -23,8 +23,10 @@ describe("portal filter funnel icon", () => {
   });
 
   it("marketing product mocks use Filter for list-header Filter actions", () => {
+    // Tours / Applications / Leases draw the real Filter popover from a lazy chunk (`demo-popups-lazy-leasing.tsx`);
+    // until it arrives the header shows the same funnel icon.
     const source = readFileSync(
-      join(process.cwd(), "src/components/marketing/site/product-mock/panels.tsx"),
+      join(process.cwd(), "src/components/marketing/site/product-mock/demo-popups-lazy-leasing.tsx"),
       "utf8",
     );
     expect(source).toMatch(/icon=\{Filter\} label="Filter"/);

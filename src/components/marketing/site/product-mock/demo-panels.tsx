@@ -58,8 +58,7 @@ import {
   VendorCalendarPanel,
   VendorCommunicationPanel,
   VendorDocumentsPanel,
-  VendorFinancesPanel,
-  VendorPaymentsPanel,
+  VendorFinancesRouter,
   VendorReviewsPanel,
   VendorServicesPanel,
 } from "@/components/marketing/site/product-mock/panels-vendor";
@@ -133,8 +132,8 @@ const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode
     calendar: ({ story }) => <VendorCalendarPanel story={story} />,
     "work-orders": ({ story }) => <VendorServicesPanel story={story} />,
     reviews: () => <VendorReviewsPanel />,
-    // The real Finances nests five sections; bare /vendor/financials lands on Balance & payouts, the sidebar sub-row opens Payments.
-    financials: ({ story, sub }) => (sub === "income" ? <VendorPaymentsPanel story={story} /> : <VendorFinancesPanel story={story} />),
+    // The real Finances nests five sections (balance, income, refunds, statements, tax); bare /vendor/financials lands on Balance & payouts.
+    financials: ({ story, sub }) => <VendorFinancesRouter story={story} sub={sub} />,
     documents: () => <VendorDocumentsPanel />,
   },
 };

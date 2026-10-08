@@ -115,7 +115,7 @@ function vendorEmailLooksValid(email: string): boolean {
   return Boolean(normalized && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(normalized));
 }
 
-function TypicalPriceFields({
+export function TypicalPriceFields({
   houses,
   trades,
   rates,
