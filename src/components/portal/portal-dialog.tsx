@@ -40,7 +40,7 @@ function StepDots({ current, total }: PortalDialogStep) {
   if (total <= 1) return null;
   return (
     <span
-      className="mt-1 inline-flex items-center gap-1.5"
+      className="mt-1 inline-flex items-center gap-1.5 lg:hidden"
       role="progressbar"
       aria-valuenow={current}
       aria-valuemin={1}
@@ -65,10 +65,12 @@ function PortalDialogFooter({
   tone,
   primaryAction,
   secondaryAction,
+  step,
 }: {
   tone: "default" | "danger";
   primaryAction: PortalDialogAction;
   secondaryAction: PortalDialogAction | null;
+  step?: PortalDialogStep;
 }) {
   return (
     <ModalFooter className="w-full items-center justify-between gap-3">
@@ -76,7 +78,7 @@ function PortalDialogFooter({
         <Button
           type="button"
           variant="ghost"
-          className="rounded-full"
+          className="rounded-lg border border-[var(--input)]"
           disabled={secondaryAction.disabled}
           onClick={secondaryAction.onClick}
           data-attr={secondaryAction.dataAttr}
@@ -87,13 +89,19 @@ function PortalDialogFooter({
         // Keeps the primary pinned right even with no secondary — never re-centers.
         <span aria-hidden />
       )}
+      {/* The centred "Step n of N" of the approved pop-up footer, desktop only (the header dots serve a phone). */}
+      {step && step.total > 1 ? (
+        <span className="hidden min-w-0 flex-1 text-center text-[13px] text-muted lg:block" data-attr="portal-dialog-step-count">
+          Step {step.current} of {step.total}
+        </span>
+      ) : null}
       {primaryAction.confirmGuard === "hold" ? (
         // M008 — a destructive confirm is a press-and-hold guard rail, not a
         // plain tap. Scoped to callers that opt in via `confirmGuard: "hold"`
         // (ConfirmDeleteModal) — see the field's own doc comment.
         <HoldToConfirmButton
           variant="primary"
-          className="rounded-full !bg-danger !text-white hover:!brightness-110 !shadow-none"
+          className="rounded-lg !bg-danger !text-white hover:!brightness-110 !shadow-none"
           disabled={primaryAction.disabled}
           loading={primaryAction.loading}
           onConfirm={primaryAction.onClick}
@@ -106,7 +114,7 @@ function PortalDialogFooter({
           type="button"
           variant="primary"
           className={cn(
-            "rounded-full",
+            "rounded-lg",
             tone === "danger" && "!bg-danger !text-white hover:!brightness-110 !shadow-none",
           )}
           disabled={primaryAction.disabled}
@@ -208,7 +216,7 @@ export function PortalDialog({
       description={step ? <StepDots current={step.current} total={step.total} /> : undefined}
       footer={
         primaryAction ? (
-          <PortalDialogFooter tone={tone} primaryAction={primaryAction} secondaryAction={resolvedSecondary} />
+          <PortalDialogFooter tone={tone} primaryAction={primaryAction} secondaryAction={resolvedSecondary} step={step} />
         ) : undefined
       }
     >

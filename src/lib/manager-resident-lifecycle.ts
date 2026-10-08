@@ -121,7 +121,8 @@ export function formatResidentShortDate(iso: string | undefined | null): string 
 
 function chargeDueCents(row: DemoManagerPaymentLedgerRow): number {
   if (row.bucket === "paid") return 0;
-  return parseMoneyAmount(row.balanceDue);
+  // balanceDue is a dollar label ("$525.00"); this function returns cents.
+  return Math.round(parseMoneyAmount(row.balanceDue) * 100);
 }
 
 export type ResidentLifecycleInput = {

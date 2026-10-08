@@ -3,13 +3,12 @@ import { VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import {
   MockChip,
-  SITE_MEASURE,
   SiteCtaPair,
-  SiteEyebrow,
-  SiteHeading,
   SiteIntro,
+  SitePageHero,
   SiteSection,
 } from "@/components/marketing/site/primitives";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 export const metadata: Metadata = {
   title: "Vendors · PropLane",
@@ -80,17 +79,19 @@ const FACTS = [
 
 export default function VendorsPage() {
   return (
-    <div className="relative min-h-0 flex-1">
-      <section className="border-b border-border/70 pb-14 pt-14 sm:pt-16 lg:pb-20 lg:pt-20" aria-labelledby="vendors-title">
-        <div className={`${SITE_MEASURE} max-w-[860px]`}>
-          <SiteEyebrow className="mb-4">For vendors</SiteEyebrow>
-          <SiteHeading as="h1" id="vendors-title">
+    <SitePage>
+      <SitePageHero
+        eyebrow="For vendors"
+        id="vendors-title"
+        title={
+          <>
             Get matched. Bid from your phone.
-            <br />
-            <span className="text-primary">Get paid.</span>
-          </SiteHeading>
+            <span className="site-accent">Get paid.</span>
+          </>
+        }
+        actions={
           <SiteCtaPair
-            className="mt-7"
+            align="center"
             primaryHref={VENDOR_GET_STARTED_HREF}
             primaryLabel="Join as a vendor"
             primaryAttr="vendors-hero-get-started"
@@ -98,8 +99,8 @@ export default function VendorsPage() {
             secondaryLabel="Ask a manager to invite you"
             secondaryAttr="vendors-hero-contact"
           />
-        </div>
-      </section>
+        }
+      />
 
       <SiteSection ariaLabelledBy="vendors-steps-title">
         <SiteIntro id="vendors-steps-title" eyebrow="How it works" title="Three texts and a payout." />
@@ -138,6 +139,6 @@ export default function VendorsPage() {
         secondaryLabel="Talk to us"
         secondaryAttr="vendors-closing-contact"
       />
-    </div>
+    </SitePage>
   );
 }

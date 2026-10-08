@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Users, Video, Wifi } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
-import { usePropertyMoveInSettings } from "@/components/portal/property-move-in-settings";
+import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -109,7 +109,6 @@ export function ManagerPropertyRoomMoveInPanel({
   /** The round blue + (studio: "Add resident"). Omitted = no + (nothing to open it). */
   onAddResident?: () => void;
 }) {
-  const settings = usePropertyMoveInSettings({ sub, saveTarget, managerUserId, canEdit, onUpdated, showToast, propertyLabel });
   const entireHome = isEntireHomeListing(sub);
   const roomIndices = useMemo(() => roomIndicesInListingOrder(sub.rooms), [sub.rooms]);
 
@@ -406,7 +405,6 @@ export function ManagerPropertyRoomMoveInPanel({
 
   return (
     <PortalPropertyDetailSection>
-      {settings.modal}
       <div className="space-y-2" data-attr="property-move-in-list">
         <PortalRecordListSurface
           listControls={
@@ -424,7 +422,7 @@ export function ManagerPropertyRoomMoveInPanel({
                 ariaLabel: "Search move-in",
                 dataAttr: "property-move-in-search",
               }}
-              actions={settings.gear}
+              actions={<ManagerSettingsGear target="moveInForms" label="Move-in settings" dataAttr="property-move-in-settings-open" />}
               primary={
                 canEdit && onAddResident ? (
                   <PortalPrimaryIconAction label="Add resident" data-attr="property-move-in-add-resident" onClick={onAddResident} />

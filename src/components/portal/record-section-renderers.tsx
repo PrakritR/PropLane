@@ -11,6 +11,7 @@ import {
   RecordNeedsYou,
   RecordRowsCard,
   RecordStatTiles,
+  RecordTimeline,
   StatTile,
   type RecordNeedsYouItem,
   type RecordRowItem,
@@ -76,7 +77,6 @@ export type RecordSectionRendererProps = {
   recordLabel?: string;
   /** The existing documents list for this record's property/contact, when one exists. */
   documents?: RecordSectionDocument[];
-  onAddDocument?: () => void;
   /** The record's existing status/event history, when it has one. */
   activity?: RecordSectionActivityEvent[];
   /** Narrow the record's Communication to this property / these contacts when the panel knows them. */
@@ -114,15 +114,15 @@ export function renderRecordSection(id: string, props: RecordSectionRendererProp
   return createElement(Component, props);
 }
 
-function DocumentsSection({ documents, onAddDocument }: RecordSectionRendererProps) {
+function DocumentsSection({ documents }: RecordSectionRendererProps) {
   if (documents && documents.length > 0) {
     return (
-      <ul className="divide-y divide-border rounded-xl border border-border bg-card" data-attr="record-documents-list">
+      <ul className="divide-y divide-border overflow-hidden rounded-[10px] border border-border bg-card" data-attr="record-documents-list">
         {documents.map((doc) => (
           <li key={doc.id}>
             <a
               href={doc.href}
-              className="flex min-h-11 items-center gap-2.5 px-4 py-3 text-[14px] font-medium text-foreground hover:bg-accent/40"
+              className="flex min-h-11 items-center gap-2.5 px-3.5 py-2.5 text-[14px] font-medium text-foreground hover:bg-[rgba(17,24,39,0.035)]"
             >
               <FileText className="size-4 shrink-0 text-muted" aria-hidden />
               <span className="truncate">{doc.name}</span>
@@ -138,7 +138,6 @@ function DocumentsSection({ documents, onAddDocument }: RecordSectionRendererPro
       icon={<FileText className="size-[22px]" strokeWidth={1.6} aria-hidden />}
       dataAttr="record-documents-empty"
       workspaceAware={false}
-      actions={onAddDocument ? [{ label: "Add document", onClick: onAddDocument, dataAttr: "record-documents-add" }] : []}
     />
   );
 }
@@ -146,17 +145,9 @@ function DocumentsSection({ documents, onAddDocument }: RecordSectionRendererPro
 function ActivitySection({ activity }: RecordSectionRendererProps) {
   if (activity && activity.length > 0) {
     return (
-      <ol className="space-y-2.5" data-attr="record-activity-list">
-        {activity.map((event) => (
-          <li key={event.id} className="flex items-start gap-2.5 rounded-xl border border-border bg-card px-3.5 py-3">
-            <Clock3 className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
-            <div className="min-w-0">
-              <p className="text-[14px] font-medium text-foreground">{event.label}</p>
-              <p className="text-[12px] text-muted">{event.timestamp}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
+      <div className="overflow-hidden rounded-[10px] border border-border bg-card">
+        <RecordTimeline events={activity.map((event) => ({ id: event.id, label: event.label, timestamp: event.timestamp }))} />
+      </div>
     );
   }
   return (
@@ -246,6 +237,7 @@ function OverviewSection({ overviewTiles, overviewNeeds, overviewCards, overview
             action={overviewActivity.href ? { label: "All activity", href: overviewActivity.href } : undefined}
             rows={overviewActivity.rows}
             dataAttr="record-overview-card-activity"
+            timeline
           />
         ) : null}
       </div>

@@ -48,9 +48,10 @@ export function ListingWizardOverlay({
       <div
         data-modal-assistant-workspace=""
         data-full-screen="true"
-        className="pointer-events-none flex min-h-0 min-w-0 flex-1 items-stretch justify-center p-0"
+        className="pointer-events-none flex min-h-0 min-w-0 flex-1 items-stretch justify-center p-0 sm:items-center"
       >
-        <div className="pointer-events-auto h-full w-full max-w-[1480px]">{children}</div>
+        {/* The approved pop-up window: 920 x 640 at most, centred; a phone gets the full screen. */}
+        <div className="pointer-events-auto h-full w-full max-w-[920px] sm:h-[min(640px,100%)]">{children}</div>
       </div>
     </div>,
     document.body,

@@ -23,14 +23,8 @@ import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { inspectionDetailHref, moveInInspectionsHref, parseServiceRecordTab, residentMoveInInspectionsHref } from "@/lib/portal-detail-routes";
-import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
-import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
 import { inspectionPhotoCounts, inspectionRoomLabel, type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionRoomProgress, type InspectionSummary } from "@/lib/inspections/model";
@@ -45,7 +39,6 @@ import {
   type ResidentInspectionTypeFilter,
 } from "@/lib/resident-inspections-tabs";
 
-const inspectionsSettingsEntry = getSettingsEntryPoint("inspections");
 
 const kindLabel = (kind: InspectionKind) => kind === "move-in" ? "Move-in" : "Move-out";
 /**
@@ -355,7 +348,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [detailRetryToken, setDetailRetryToken] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [query, setQuery] = useState("");
   // Resident-only "Type" filter (Filter popover), narrowing the merged
   // move-in + move-out roster within the active bucket. Initialized once from
@@ -367,10 +359,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   // My home › Inspections (hub mode) shows one merged roster; the Upcoming / In progress / Done
   // buckets become a Status field in the Filter popover instead of a second row of tabs.
   const [residentStatusState, setResidentStatusState] = useState<ResidentInspectionTab | "all">("all");
-  const propertyOptions = useMemo(
-    () => (role === "manager" ? buildManagerPropertyFilterOptions(userId) : []),
-    [role, userId],
-  );
   const working = useRef(false);
   const requestVersion = useRef(0);
   const live = useRef(true);
@@ -849,6 +837,5 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(row.key); else next.delete(row.key); return next; })}
       onOpen={() => openRow(row)}
       dataAttr="inspection-row" />)}</PortalRecordListSurface>}
-    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="automation" scoped scopedTitle={settingsDialogTitlePrefix(inspectionsSettingsEntry)} propertyOptions={propertyOptions} />}
   </div>;
 }

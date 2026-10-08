@@ -14,6 +14,9 @@ vi.mock("next/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/navigation")>()),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
 }));
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ userId: "mgr-1", email: "mgr@example.com", ready: true }),
+}));
 vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => ({ userId: "mgr-1", email: "mgr@example.com", ready: true }),
 }));
@@ -22,6 +25,7 @@ import { AssistantDisplayModeSetting } from "@/components/portal/assistant-displ
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { proPortal } from "@/lib/portals/pro";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { readAssistantDisplayMode, setAssistantDisplayMode } from "@/lib/assistant-display-preferences";
 import { initAssistantDockState } from "@/lib/axis-assistant/dock-store";
@@ -50,7 +54,7 @@ function renderPortal({ dockable = true }: { dockable?: boolean } = {}) {
   return render(
     <AppUiProvider>
       <AxisAssistant managerName="Jordan Lee" dockable={dockable}>
-        <PortalTopBar kind="pro" basePath="/portal" name="Jordan Lee" email="mgr@example.com" />
+        <PortalTopBar kind="pro" basePath="/portal" definition={proPortal} name="Jordan Lee" email="mgr@example.com" />
         <AssistantDisplayModeSetting />
         <PortalAssistantDockRail managerName="Jordan Lee" />
       </AxisAssistant>
@@ -62,7 +66,7 @@ function renderPortalWithTopBar() {
   return render(
     <AppUiProvider>
       <AxisAssistant managerName="Jordan Lee" dockable>
-        <PortalTopBar kind="pro" basePath="/portal" name="Jordan Lee" email="mgr@example.com" />
+        <PortalTopBar kind="pro" basePath="/portal" definition={proPortal} name="Jordan Lee" email="mgr@example.com" />
         <PortalAssistantDockRail managerName="Jordan Lee" />
       </AxisAssistant>
     </AppUiProvider>,
@@ -72,7 +76,9 @@ function renderPortalWithTopBar() {
 const rail = () => document.querySelector('[data-attr="portal-assistant-dock-rail"]');
 const dock = () => document.querySelector('[data-attr="dashboard-assistant-dock"]');
 const fab = () => document.querySelector('[data-attr="axis-assistant-fab"]');
-const askPropLane = () => document.querySelector<HTMLButtonElement>('[data-attr="portal-ask-proplane"]')!;
+// The strip's right-hand panel button is the one control that opens / closes the assistant in
+// either presentation (the centre bar opens the command palette).
+const askPropLane = () => document.querySelector<HTMLButtonElement>('[data-attr="portal-assistant-panel"]')!;
 
 describe("assistant display mode", () => {
   beforeEach(() => {
@@ -115,13 +121,20 @@ describe("assistant display mode", () => {
     expect(askPropLane()).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("opens and closes the popup with ⌘K", async () => {
+  it("⌘K opens the command palette, whose Ask row opens the popup; ⌘K again closes the palette", async () => {
     renderPortal();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-command-palette"]')).not.toBeNull());
+    expect(document.querySelector(".axis-assistant-panel")).toBeNull();
+
+    fireEvent.click(document.querySelector('[data-attr="portal-palette-ask"]')!);
     await waitFor(() => expect(document.querySelector(".axis-assistant-panel")).not.toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-command-palette"]')).toBeNull());
 
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    await waitFor(() => expect(document.querySelector(".axis-assistant-panel")).toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-command-palette"]')).not.toBeNull());
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await waitFor(() => expect(document.querySelector('[data-attr="portal-command-palette"]')).toBeNull());
   });
 
   it("pins from the Ask PropLane popup header", async () => {
@@ -152,7 +165,7 @@ describe("assistant display mode", () => {
     );
     renderPortalWithTopBar();
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask PropLane" }));
+    fireEvent.click(askPropLane());
 
     await waitFor(() => expect(rail()).not.toBeNull());
     expect(readAssistantDisplayMode(USER)).toBe("docked");
@@ -171,7 +184,7 @@ describe("assistant display mode", () => {
     );
     renderPortalWithTopBar();
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask PropLane" }));
+    fireEvent.click(askPropLane());
 
     await waitFor(() => expect(rail()).not.toBeNull());
     await waitFor(() =>
@@ -190,7 +203,7 @@ describe("assistant display mode", () => {
     );
     renderPortalWithTopBar();
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask PropLane" }));
+    fireEvent.click(askPropLane());
 
     await waitFor(() => expect(document.querySelector(".axis-assistant-panel")).not.toBeNull());
     expect(rail()).toBeNull();
@@ -236,7 +249,7 @@ describe("assistant display mode", () => {
       })),
     );
     renderPortalWithTopBar();
-    const ask = () => screen.getByRole("button", { name: "Ask PropLane" });
+    const ask = () => askPropLane();
 
     fireEvent.click(ask());
     await waitFor(() => expect(rail()).not.toBeNull());

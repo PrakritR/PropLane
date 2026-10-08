@@ -7,6 +7,7 @@ import { buildListingPostText, listingChannelEligibility, type ListingHoldReason
 import { loadMetaConnectionPublic } from "@/lib/listing-channels/meta/connection.server";
 import { propertyInWorkspace, resolveListingChannelContext, toPostRow } from "@/lib/listing-channels/route-context.server";
 import { loadSyncListing, resolveListingPostContact } from "@/lib/listing-channels/sync.server";
+import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.server";
 
 export const runtime = "nodejs";
 
@@ -24,9 +25,10 @@ export async function GET(request: Request) {
   const propertyId = new URL(request.url).searchParams.get("propertyId")?.trim() || "";
 
   try {
-    const [meta, contact, postsRes] = await Promise.all([
+    const [meta, contact, attributionState, postsRes] = await Promise.all([
       loadMetaConnectionPublic(db, workspace.id),
       resolveListingPostContact(db, workspace.ownerUserId, workspace.id),
+      resolveWorkspaceListingAttribution(db, workspace.ownerUserId, workspace.id),
       (() => {
         let q = db
           .from("listing_channel_posts")
@@ -49,8 +51,9 @@ export async function GET(request: Request) {
         if (!contact.phone?.trim()) holdReasons.push("no_work_number");
         const postTexts: Record<string, string> = {};
         const origin = resolveEmailLinkBaseUrl();
+        const { show: attribution } = attributionState;
         for (const def of listingChannelsByGroup("one_click")) {
-          const built = buildListingPostText({ property: listing.projected, origin, contact, channel: def.id });
+          const built = buildListingPostText({ property: listing.projected, origin, contact, channel: def.id, attribution });
           if (built.ok) postTexts[def.id] = built.text;
         }
         property = { id: propertyId, live: listing.live, holdReasons, postTexts };
@@ -68,6 +71,8 @@ export async function GET(request: Request) {
         channels,
         meta: { configured: metaAppConfigured(), ...meta },
         workContact: contact,
+        // The "Listed with PropLane" switch: what it shows, and whether the plan pins it on.
+        attribution: { enabled: attributionState.show, forced: attributionState.forced },
         posts: (postsRes.data ?? []).map((row) => toPostRow(row as Record<string, unknown>)),
         property,
       },

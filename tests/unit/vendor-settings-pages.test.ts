@@ -1,5 +1,5 @@
 // Vendor Settings pages + list-band gears (vendor-portal-redesign-1006).
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -70,11 +70,12 @@ describe("the gear in every vendor list band", () => {
     expect(comm).not.toContain("VendorSectionSettingsModal");
   });
 
-  it("the Services panel's old settings pop-up is a redirect shim, so its gear lands on Trades & service area too", () => {
-    const shim = read("src/components/portal/vendor-section-settings-modal.tsx");
-    expect(shim).not.toContain("VendorNotificationSettingsPane");
-    expect(shim).toContain("vendorListGearHref");
-    expect(shim).toContain("return null");
+  it("the Services panel's gear is a link to Trades & service area; the old pop-up shim is gone", () => {
+    const services = read("src/components/portal/vendor-work-orders-panel.tsx");
+    expect(services).toContain('<VendorSettingsGear');
+    expect(services).toContain('section="services"');
+    expect(services).not.toContain("VendorSectionSettingsModal");
+    expect(existsSync(join(process.cwd(), "src/components/portal/vendor-section-settings-modal.tsx"))).toBe(false);
   });
 });
 

@@ -79,6 +79,12 @@ export type MockProperty = {
    * prospect to apply first.
    */
   applicationBeforeTour?: true;
+  /**
+   * Set by `publicListingProjection` only when the listing's workspace shows "Listed with
+   * PropLane" (always on for Free, a setting above it). A plain yes/no computed server-side,
+   * never the settings row or the plan.
+   */
+  showProPlaneAttribution?: true;
 };
 
 export type MockRow = Record<string, string>;

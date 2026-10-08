@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
@@ -37,7 +38,7 @@ import { listingHoldFact } from "@/lib/listing-channels/post-text";
 import { automaticChannelFact, oneClickChannelFact } from "@/lib/listing-channels/row-fact";
 import { zillowPostingCounts } from "@/components/portal/integrations-posting-panel";
 
-const CHANNEL_GLYPH: Record<ListingChannelId, { icon: LucideIcon; tone: string }> = {
+export const CHANNEL_GLYPH: Record<ListingChannelId, { icon: LucideIcon; tone: string }> = {
   zillow: { icon: Home, tone: "text-blue-600" },
   facebook_page: { icon: Share2, tone: "text-sky-600" },
   instagram: { icon: Camera, tone: "text-pink-600" },
@@ -287,8 +288,18 @@ export function PropertyListingSitesPanel({ propertyId, zillow }: { propertyId: 
 export function WorkspaceListingSitesPanel() {
   const workspaceCtx = useWorkspaces();
   const propertyIds = useMemo(() => workspaceCtx?.active?.propertyIds ?? [], [workspaceCtx?.active?.propertyIds]);
-  const { status } = useListingChannels();
+  const { status, refresh } = useListingChannels();
+  const { showToast } = useAppUi();
   const [group, setGroup] = useState<ListingChannelGroup>("automatic");
+  const [attributionSaving, setAttributionSaving] = useState(false);
+
+  const setAttribution = async (show: boolean) => {
+    setAttributionSaving(true);
+    const res = await postListingChannelWrite("attribution", { show, workspaceId: status?.workspaceId });
+    if (!res.ok) showToast(res.error ?? "Could not save.");
+    await refresh();
+    setAttributionSaving(false);
+  };
 
   const total = propertyIds.length;
   const countFor = (channel: ListingChannelId, state: "posted" | "posted_by_me") =>
@@ -298,6 +309,21 @@ export function WorkspaceListingSitesPanel() {
 
   return (
     <div data-attr="promotion-listing-sites">
+      <IntegrationRow
+        icon={ProPlaneMarkIcon}
+        tone="text-primary"
+        name="Show Listed with PropLane"
+        dataAttr="promotion-listed-with-proplane-row"
+        action={
+          <PortalSettingsToggle
+            checked={status?.attribution?.enabled ?? true}
+            onChange={(next) => void setAttribution(next)}
+            label="Show Listed with PropLane"
+            disabled={!status || status.attribution?.forced !== false || !status.canManage || attributionSaving}
+            dataAttr="promotion-listed-with-proplane-toggle"
+          />
+        }
+      />
       <GroupNav active={group} onChange={setGroup} dataAttrPrefix="promotion-listing-sites-tab" />
       {group === "automatic"
         ? listingChannelsByGroup("automatic").map((def) => {

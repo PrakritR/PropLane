@@ -1,0 +1,226 @@
+[
+  {
+    "portal": "manager",
+    "control": "Text",
+    "where": "Vendor record header (src/lib/portals/record-sections.ts vendor, pro-vendors-panel.tsx)",
+    "reason": "Duplicate send door; texting is a channel of New message, not a separate record action",
+    "capabilityNowAt": "Message button in the same header opens the record's Communication tab; its composer carries the Text channel"
+  },
+  {
+    "portal": "manager",
+    "control": "Text",
+    "where": "Vendors list row ⋯ menu (pro-vendors-panel.tsx)",
+    "reason": "Duplicate send door on every row",
+    "capabilityNowAt": "Vendors > vendor record > Communication > New message (Text channel)"
+  },
+  {
+    "portal": "manager",
+    "control": "Message vendor",
+    "where": "Vendor bill record header (record-sections.ts vendor-bill, manager-outgoing-invoices-panel.tsx)",
+    "reason": "Communication is already a tab on the same record",
+    "capabilityNowAt": "Outgoing payments > bill record > Communication tab"
+  },
+  {
+    "portal": "manager",
+    "control": "Message vendor",
+    "where": "Outgoing payments row ⋯ menu (manager-outgoing-invoices-panel.tsx)",
+    "reason": "Messaging a vendor does not belong in a bill row menu",
+    "capabilityNowAt": "Outgoing payments > bill record > Communication tab, or Vendors > vendor record > Message"
+  },
+  {
+    "portal": "manager",
+    "control": "Email",
+    "where": "Vendor catalog record header (record-sections.ts vendorCatalog, pro-vendors-panel.tsx)",
+    "reason": "Duplicate of the record's Communication tab and New message",
+    "capabilityNowAt": "Vendor catalog record > Communication tab > New message (Email channel)"
+  },
+  {
+    "portal": "manager",
+    "control": "Share",
+    "where": "Vendor catalog record header (record-sections.ts vendorCatalog, pro-vendors-panel.tsx)",
+    "reason": "Only copied an in-app link the manager already has in the address bar",
+    "capabilityNowAt": "The vendor profile's own page URL in the browser address bar"
+  },
+  {
+    "portal": "resident",
+    "control": "Message manager",
+    "where": "Payments list row actions (resident-payments-panel.tsx)",
+    "reason": "Messaging does not belong in a payment's action row",
+    "capabilityNowAt": "Communication section in the resident sidebar"
+  },
+  {
+    "portal": "resident",
+    "control": "Message manager",
+    "where": "Payments charge-group card actions (resident-payments-panel.tsx)",
+    "reason": "Messaging does not belong in a payment's action row",
+    "capabilityNowAt": "Communication section in the resident sidebar"
+  },
+  {
+    "portal": "resident",
+    "control": "Message manager",
+    "where": "Resident dashboard stage card (resident-lifecycle-status-panel.tsx; reads Message <workspace name> when the workspace is named)",
+    "reason": "Second door to Communication beside the stage's one primary next step",
+    "capabilityNowAt": "Communication section in the resident sidebar"
+  },
+  {
+    "portal": "vendor",
+    "control": "Message the manager",
+    "where": "Vendor Payments row ⋯ menu (vendor-finances-panel.tsx)",
+    "reason": "Messaging does not belong in a payment row menu",
+    "capabilityNowAt": "Vendor Communication section; the service record's header Message the manager for service-specific questions"
+  },
+  {
+    "portal": "manager",
+    "control": "Download",
+    "where": "Payment record header (pro-payments-ledger-panel.tsx, record-sections.ts payment)",
+    "reason": "Exported a single-row CSV of the page the manager is already reading",
+    "capabilityNowAt": "Nothing equivalent; the same figures are on the payment record Overview"
+  },
+  {
+    "portal": "manager",
+    "control": "Add vendor",
+    "where": "My vendors empty state (pro-vendors-panel.tsx)",
+    "reason": "Duplicates the round + in the list band",
+    "capabilityNowAt": "Round + in the Vendors list band"
+  },
+  {
+    "portal": "manager",
+    "control": "Add vendor",
+    "where": "Vendor catalog empty state (pro-vendors-panel.tsx)",
+    "reason": "Duplicates the round + in the list band",
+    "capabilityNowAt": "Round + in the Vendors list band"
+  },
+  {
+    "portal": "manager",
+    "control": "Add promotion",
+    "where": "Promotion empty state (pro-promotion.tsx)",
+    "reason": "Duplicates the round + in the list band",
+    "capabilityNowAt": "Round + in the Promotion list band"
+  },
+  {
+    "portal": "manager",
+    "control": "Upload document",
+    "where": "Documents library empty state (pro-document-library.tsx)",
+    "reason": "Duplicates the upload action in the list band",
+    "capabilityNowAt": "Upload action in the Documents list band"
+  },
+  {
+    "portal": "manager",
+    "control": "Upload document",
+    "where": "Documents > Applications empty state (pro-documents-leasing-tabs.tsx)",
+    "reason": "Duplicates the upload action in the list band",
+    "capabilityNowAt": "Upload action in the Documents list band"
+  },
+  {
+    "portal": "manager",
+    "control": "Upload document",
+    "where": "Documents > Leases empty state (pro-documents-leasing-tabs.tsx)",
+    "reason": "Duplicates the upload action in the list band",
+    "capabilityNowAt": "Upload action in the Documents list band"
+  },
+  {
+    "portal": "manager",
+    "control": "Add document",
+    "where": "Record Documents section empty state (record-section-renderers.tsx)",
+    "reason": "Duplicates the Documents section's own add action",
+    "capabilityNowAt": "Documents list band upload action"
+  },
+  {
+    "portal": "manager",
+    "control": "View all N →",
+    "where": "Dashboard attention groups overflow row (pro-dashboard.tsx)",
+    "reason": "Duplicates the → in the group header",
+    "capabilityNowAt": "The → in each attention group header"
+  },
+  {
+    "portal": "resident",
+    "control": "View all N →",
+    "where": "Dashboard attention groups overflow row (resident-dashboard.tsx)",
+    "reason": "Duplicates the → in the group header",
+    "capabilityNowAt": "The → in each attention group header"
+  },
+  {
+    "portal": "vendor",
+    "control": "Manage services",
+    "where": "Vendor dashboard Services header (vendor-dashboard.tsx)",
+    "reason": "Duplicates the Services nav entry",
+    "capabilityNowAt": "Services in the vendor sidebar"
+  },
+  {
+    "portal": "vendor",
+    "control": "Open calendar",
+    "where": "Vendor dashboard Upcoming panel (vendor-dashboard.tsx)",
+    "reason": "Duplicates the Calendar nav entry",
+    "capabilityNowAt": "Calendar in the vendor sidebar"
+  },
+  {
+    "portal": "manager",
+    "control": "Calendars",
+    "where": "Bookings command bar dropdown (pro-bookings.tsx); held Link calendars and the colour key",
+    "reason": "A dropdown holding one link and a legend; the legend belongs on the page and linking belongs in Settings",
+    "capabilityNowAt": "Colour key is now a legend row under the Bookings calendar; Link calendars is on Settings > Integrations > Bookings and the empty Upcoming state"
+  },
+  {
+    "portal": "manager",
+    "control": "Share tour links",
+    "where": "Calendar scheduling hub header (portal-calendar.tsx)",
+    "reason": "Duplicate of the Share tour link on Tours",
+    "capabilityNowAt": "Share tour link on the Tours page"
+  },
+  {
+    "portal": "manager",
+    "control": "Share",
+    "where": "Lease record header (lease-primary-header-actions.tsx)",
+    "reason": "Share-a-link on a lease record is not a manager task",
+    "capabilityNowAt": "Send lease; Download with audit trail for a copy"
+  },
+  {
+    "portal": "manager",
+    "control": "Share",
+    "where": "Application record header and row actions (pro-applications.tsx)",
+    "reason": "Share-a-link on an application record is not a manager task",
+    "capabilityNowAt": "Send application link in the Applications list band"
+  },
+  {
+    "portal": "manager",
+    "control": "Share",
+    "where": "Lease edit modal footer (pro-pipeline-lease-edit-modal.tsx)",
+    "reason": "Share-a-link inside an edit dialog does not belong there",
+    "capabilityNowAt": "Send lease from the lease record header"
+  },
+  {
+    "portal": "manager",
+    "control": "Payment settings",
+    "where": "Property record > Pricing tab header gear (property-pricing-panel.tsx)",
+    "reason": "Opened a pop-up duplicating the listing wizard's Pricing step; settings go to a page, not a pop-up",
+    "capabilityNowAt": "Property record > Pricing tab > Rent & fees card, inline: Processing fee paid by, Coverage code, Rent due, Automatic late fees, Late fee amount, Grace days, each naming its scope with a reset to the workspace default (same listing fields)"
+  },
+  {
+    "portal": "manager",
+    "control": "Service settings",
+    "where": "Property record > Services list header gear (pro-property-requests-panel.tsx)",
+    "reason": "Catalog editor pop-up duplicated the property's own Services tab",
+    "capabilityNowAt": "Property record > Services tab (offers panel) edits the same service catalog"
+  },
+  {
+    "portal": "manager",
+    "control": "Promotion settings",
+    "where": "Property record > Promotion header gear (pro-property-promotion-panel.tsx)",
+    "reason": "Held one Zillow Rental Network switch that the Listing sites tab already carries",
+    "capabilityNowAt": "Property record > Promotion > Listing sites > Zillow Rental Network row switch"
+  },
+  {
+    "portal": "manager",
+    "control": "Resident settings",
+    "where": "Resident record > Services header gear (pro-residents.tsx)",
+    "reason": "Pop-up held only a link to the reminders hub; reminder timing is on Settings > Communication",
+    "capabilityNowAt": "Settings > Communication > What PropLane sends"
+  },
+  {
+    "portal": "manager",
+    "control": "+ Add a vendor for this trade…",
+    "where": "Vendor defaults pop-up trade dropdown (pro-vendor-defaults-modal.tsx, now Settings > Automations > Vendors)",
+    "reason": "Adding a vendor does not belong in a defaults dropdown; the Vendors list owns the round +",
+    "capabilityNowAt": "Vendors list > round + (Add vendor, trade chosen in the form)"
+  }
+]

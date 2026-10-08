@@ -78,7 +78,7 @@ export function PortalRecordRail({
   return (
     <aside
       className={cn(
-        "hidden w-52 shrink-0 flex-col self-start overflow-y-auto overscroll-contain border-border bg-background pb-3 lg:flex lg:max-h-full",
+        "hidden w-56 shrink-0 flex-col self-start overflow-y-auto overscroll-contain bg-background pb-3 lg:flex lg:max-h-full",
         className,
       )}
       data-slot="portal-property-rail"
@@ -107,7 +107,7 @@ export function PortalRecordRail({
         {grouped.map((group, index) => (
           <div key={group.label ? group.label : `group-${index}`} className="flex flex-col gap-px">
             {group.label ? (
-              <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted/60">{group.label}</p>
+              <p className="px-2 pb-1 pt-3 text-[12px] font-semibold text-muted">{group.label}</p>
             ) : null}
             {group.items.map((item) => {
               const active = item.id === activeId;
@@ -118,8 +118,10 @@ export function PortalRecordRail({
                   data-attr={item.dataAttr}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex min-h-10 items-center gap-1 rounded-lg px-2.5 text-[13.5px] font-medium transition group",
-                    active ? "bg-accent text-primary" : "text-foreground/85 hover:bg-[var(--secondary)]/70 hover:text-foreground",
+                    "flex min-h-8 items-center gap-1 rounded-[7px] px-2 text-[14px] transition group",
+                    active
+                      ? "bg-[var(--portal-active-bg,#eaf0fe)] font-semibold text-[#1e4fd6]"
+                      : "font-medium text-foreground hover:bg-[var(--portal-sidebar-hover,rgba(17,24,39,0.05))]",
                   )}
                 >
                   <span className="inline-flex min-w-0 items-center gap-0.5">

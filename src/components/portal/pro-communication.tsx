@@ -1,9 +1,12 @@
 "use client";
+import { ManagerIntegrationsAction } from "@/components/portal/manager-integrations-action";
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 import { MessageSquarePlus } from "lucide-react";
 
+import { useSearchParams } from "next/navigation";
+import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
@@ -235,6 +238,17 @@ export function ManagerCommunication({
     [loadSmsRecipients],
   );
 
+  // `?compose=1` (the sidebar's New message button) opens the same compose the + does.
+  const wantsCompose = useSearchParams()?.get("compose") === "1";
+  useEffect(() => {
+    if (!wantsCompose) return;
+    openCompose("email");
+    // One-shot: consume the flag so the next New message click is a real URL change.
+    consumeComposeQueryParam();
+    // Only the URL flag drives this; openCompose is stable per recipients loader.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsCompose]);
+
   const handleComposeSent = useCallback(
     async (result: { email: boolean; sms: boolean; primaryRecipientEmail?: string }) => {
       if (result.email) {
@@ -350,7 +364,12 @@ export function ManagerCommunication({
 
   // Filter is the only tool on this toolbar (captain, 2026-10-05): Communication-wide preferences
   // are reached from the central Settings hub's Communication tab, not a gear of their own here.
-  const communicationCommandActions = communicationFilterSheet;
+  const communicationCommandActions = (
+    <>
+      {communicationFilterSheet}
+      <ManagerIntegrationsAction section="messages" dataAttr="communication-integrations" />
+    </>
+  );
 
   // The chips stay on the page background between the title band and the cards.
   // PortalActiveFilterChips returns null when empty, and the shell drops its

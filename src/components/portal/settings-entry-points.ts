@@ -64,14 +64,14 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   properties: entryPoint("properties", "Property settings"),
   applications: entryPoint("applications", "Application settings", "applications"),
   tours: entryPoint("tours", "Tour settings", "tours"),
-  // No `ManagerPortalSettingsTab` fits this — background checks are a
-  // separate `ManagerScreeningSettingsModal`, not a tab on the shared modal.
+  // The gear links to Settings → Automations → Screening
+  // (`MANAGER_SETTINGS_GEAR_TARGETS.screening`); there is no pop-up.
   backgroundChecks: entryPoint("background-checks", "Background check settings"),
   tasks: entryPoint("tasks", "Task settings", "tasks"),
   services: entryPoint("services", "Service settings", "services"),
-  // Opens `ManagerVendorDefaultsModal`, a separate standalone dialog, not a
-  // `ManagerPortalSettingsTab` — "settings" was never the right word here
-  // either, this module has only ever had defaults, not a settings tab.
+  // The gear links to Settings → Automations → Vendors (default vendor per
+  // trade) — "settings" was never the right word here either, this module has
+  // only ever had defaults.
   vendors: entryPoint("vendors", "Vendor defaults"),
   residents: entryPoint("residents", "Resident settings", "resident"),
   // Reminder matrix plus quiet hours. The tab id stays `automation`; the hub

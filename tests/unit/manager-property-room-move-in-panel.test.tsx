@@ -4,9 +4,17 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
-const { updateExtraListingFromSubmission, updatePendingManagerProperty } = vi.hoisted(() => ({
+const { updateExtraListingFromSubmission, updatePendingManagerProperty, routerPush } = vi.hoisted(() => ({
   updateExtraListingFromSubmission: vi.fn(() => true),
   updatePendingManagerProperty: vi.fn(() => true),
+  routerPush: vi.fn(),
+}));
+
+// The gear is a link to a Settings page (ManagerSettingsGear), so the panel needs a router.
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/portal/properties/all/p1/move-in",
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: routerPush, replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
 }));
 
 vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({
@@ -22,6 +30,10 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 beforeEach(() => {
   updateExtraListingFromSubmission.mockClear();
   updatePendingManagerProperty.mockClear();
+  routerPush.mockClear();
+  // jsdom starts at "/", which reads as the public /demo surface and turns a
+  // gear click into a demo navigate event instead of a router push.
+  window.history.replaceState({}, "", "/portal/properties/all/p1/move-in");
   vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(() => Promise.resolve()) } });
 });
 
@@ -112,6 +124,12 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       for (const name of ["Copy house details to rooms", "Share house details"]) {
         expect(within(stack as HTMLElement).queryByRole("button", { name })).toBeNull();
       }
+      // Settings gear navigates to Settings > Automations "Move-in forms" (no pop-up).
+      const gear = within(stack as HTMLElement).getByRole("button", { name: "Move-in settings" });
+      fireEvent.click(gear);
+      expect(routerPush).toHaveBeenCalledTimes(1);
+      expect(String(routerPush.mock.calls[0]![0])).toContain("move-in-forms");
+      expect(screen.queryByRole("dialog")).toBeNull();
       const add = within(stack as HTMLElement).getByRole("button", { name: "Add resident" });
       fireEvent.click(add);
       expect(onAddResident).toHaveBeenCalledTimes(1);

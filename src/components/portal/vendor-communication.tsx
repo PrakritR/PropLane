@@ -7,9 +7,11 @@ import { CommunicationRowActions } from "@/components/portal/communication-row-a
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PenSquare } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
-import { Input } from "@/components/ui/input";
+import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
+import { CommunicationDetailsPane, communicationDetailsFromRow } from "@/components/portal/communication-details-pane";
 import { VendorWorkNumberCard } from "@/components/portal/vendor-work-number-card";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
@@ -24,7 +26,7 @@ import {
   InboxConversationRow,
   InboxListSegmentTabs,
   InboxTwoPane,
-  PORTAL_INBOX_LIST_TOOLBAR_CLASS,
+  InboxListHeader,
   PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
@@ -311,35 +313,37 @@ function VendorUnifiedInbox({
     onThreadSelectedChange?.(anySelected);
   }, [onThreadSelectedChange, anySelected]);
 
+  // Filter, Settings and the round + are the page's own tools: they sit on the title row (the
+  // shell's slot). With no slot (a test, a record pane) they render beside the search.
+  const listControls = listActions ? (
+    <div className="flex shrink-0 items-center gap-1 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+      {listActions}
+    </div>
+  ) : null;
+  const listControlsPublished = usePublishTitleActions(listControls, listControls != null);
+
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <VendorWorkNumberCard />
-      <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-        <InboxListSegmentTabs
-          commBase={commBase}
-          value={listSegment}
-          onChange={onSegmentChange}
-          interceptNavigation={Boolean(onSegmentChange)}
-        />
-        <div className="flex min-w-0 items-center gap-1">
-          <div className="relative min-w-0 flex-1">
-            <Input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => onSearchQueryChange(e.target.value)}
-              placeholder="Search messages"
-              aria-label="Search messages"
-              className="h-9 min-h-9 rounded-xl"
-              data-attr="vendor-inbox-search"
-            />
-          </div>
-          {listActions ? (
-            <div className="flex shrink-0 items-center gap-0.5" data-attr="communication-list-actions">
-              {listActions}
-            </div>
-          ) : null}
-        </div>
-      </div>
+      <InboxListHeader
+        tabs={
+          <InboxListSegmentTabs
+            commBase={commBase}
+            value={listSegment}
+            onChange={onSegmentChange}
+            interceptNavigation={Boolean(onSegmentChange)}
+          />
+        }
+        search={{
+          value: searchQuery,
+          onChange: onSearchQueryChange,
+          placeholder: "Search communication",
+          ariaLabel: "Search messages",
+          dataAttr: "vendor-inbox-search",
+        }}
+        count={merged.length}
+        trailing={listControlsPublished ? null : listControls}
+      />
       {merged.length > 0 && searchQuery.trim() ? (
         <p className="mb-2 hidden shrink-0 px-1 text-[11px] text-muted sm:block">
           {merged.length} conversation{merged.length === 1 ? "" : "s"} matching “{searchQuery.trim()}”
@@ -349,6 +353,7 @@ function VendorUnifiedInbox({
         {assistantRowVisible ? (
           <div data-attr="vendor-communication-assistant-row">
             <InboxConversationRow
+              appearance="flat"
               name="PropLane"
               subtitle="PropLane"
               preview="Ask about your services, quotes or payments"
@@ -385,6 +390,7 @@ function VendorUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
+              appearance="flat"
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />}
               name={row.name}
               subtitle={row.subtitle}
@@ -414,6 +420,18 @@ function VendorUnifiedInbox({
         )}
       </div>
     </div>
+  );
+
+  const selectedRow = useMemo(
+    () => (selectedKey ? merged.find((row) => row.key === selectedKey || (row.memberKeys ?? []).includes(selectedKey)) ?? null : null),
+    [merged, selectedKey],
+  );
+  const contactDetails = useMemo(
+    () =>
+      assistantSelected
+        ? null
+        : communicationDetailsFromRow(selectedRow, (kind, id) => recordRoutePath("vendor", kind as RecordKind, id)),
+    [assistantSelected, selectedRow],
   );
 
   const smsSelected = selection?.channel === "sms";
@@ -481,7 +499,8 @@ function VendorUnifiedInbox({
   return (
     <>
       <InboxTwoPane
-        panes="split"
+        panes="flat"
+        details={contactDetails ? <CommunicationDetailsPane details={contactDetails} /> : undefined}
         heightMode="viewport"
         fillViewport={anySelected}
         fillParent
@@ -527,6 +546,8 @@ export function VendorCommunication({
       if (inboxRef.current || tries > 20) {
         inboxRef.current?.openCompose();
         clearInterval(timer);
+        // One-shot: consume the flag so the next New message click is a real URL change.
+        consumeComposeQueryParam();
       }
     }, 100);
     return () => clearInterval(timer);

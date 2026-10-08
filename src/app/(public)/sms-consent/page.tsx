@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicMobileBackBar } from "@/components/layout/public-mobile-back-bar";
 import { SmsOptInForm } from "./sms-opt-in-form";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 export const metadata: Metadata = {
   title: "SMS Consent",
@@ -25,9 +26,10 @@ export const metadata: Metadata = {
  */
 export default function SmsConsentPage() {
   return (
+    <SitePage>
     <div className="min-h-screen px-4 py-16 sm:py-20 [html[data-native]_&]:py-4 [html[data-native]_&]:pt-[max(1rem,env(safe-area-inset-top))]">
       <PublicMobileBackBar label="Back" />
-      <article className="glass-card mx-auto max-w-3xl rounded-3xl px-6 py-10 sm:px-10 sm:py-12">
+      <article className="glass-card site-prose-card mx-auto max-w-3xl rounded-3xl px-6 py-10 sm:px-10 sm:py-12">
         <header className="border-b border-border pb-8">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">SMS program</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground">
@@ -109,5 +111,6 @@ export default function SmsConsentPage() {
         </div>
       </article>
     </div>
+    </SitePage>
   );
 }

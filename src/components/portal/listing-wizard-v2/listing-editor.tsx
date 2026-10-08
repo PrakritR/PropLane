@@ -126,7 +126,8 @@ import {
 import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/house-info";
 import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manager-listing-submission";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
-import { isValidZipInput } from "@/lib/listing-form-inputs";
+import { isValidZipInput, sanitizeMoneyInput } from "@/lib/listing-form-inputs";
+import { markPaymentFieldOwn, type PaymentSettingsField } from "@/lib/property-payment-settings-scope";
 import {
   bathroomTypeOf,
   copyBathroomSetupFrom,
@@ -190,6 +191,7 @@ import {
   Field,
   FieldRow,
   FactRow,
+  MoneyInput,
   AdvancedGroup,
   AdvancedPanel,
   ChoiceCard,
@@ -2379,7 +2381,77 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
   // Who pays card processing (and the promo code that lets PropLane cover it) is
   // asked once, here — never twice. The whole place's rent is on its own card
   // under "The whole place".
-  return <HouseStripePaymentsGroup sub={sub} patch={patch} />;
+  return (
+    <>
+      <HouseStripePaymentsGroup sub={sub} patch={patch} />
+      <HouseRentDueAndLateFeesGroup sub={sub} patch={patch} />
+    </>
+  );
+}
+
+const RENT_DUE_OPTIONS = [
+  { value: "first_of_month", label: "1st of the month" },
+  { value: "last_of_month", label: "Last day of the month" },
+] as const;
+
+const LATE_FEE_GRACE_OPTIONS = Array.from({ length: 31 }, (_, days) => ({
+  value: String(days),
+  label: days === 1 ? "1 day" : `${days} days`,
+}));
+
+/**
+ * Rent due day and automatic late fees — the same `ManagerListingSubmissionV1`
+ * fields the Pricing gear's pop-up used to edit (the gear is gone). A change
+ * stamps the field as this property's own (`paymentSettingsScope`), exactly as
+ * that pop-up did; the stamp is what the property record's Pricing tab reads to
+ * name a row's scope and to offer the way back to the workspace default.
+ */
+function HouseRentDueAndLateFeesGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const own = (field: PaymentSettingsField, next: Partial<ManagerListingSubmissionV1>) =>
+    patch(markPaymentFieldOwn({ ...sub, ...next }, field));
+  const lateFeesOn = sub.lateFeeEnabled !== false;
+  return (
+    <>
+      <FactRow label="Rent due">
+        <RowSelectCell
+          ariaLabel="Rent due"
+          value={sub.rentDueDayMode ?? "first_of_month"}
+          options={RENT_DUE_OPTIONS}
+          dataAttr="listing-v2-rent-due-day"
+          onChange={(v) => own("rentDueDayMode", { rentDueDayMode: v === "last_of_month" ? "last_of_month" : "first_of_month" })}
+        />
+      </FactRow>
+      <div className="border-t border-border px-3.5 py-1">
+        <CheckboxOption
+          label="Automatic late fees"
+          checked={lateFeesOn}
+          onChange={(next) => own("lateFeeEnabled", { lateFeeEnabled: next })}
+        />
+      </div>
+      {lateFeesOn ? (
+        <>
+          <FactRow sub label="Late fee amount">
+            <MoneyInput
+              label="Late fee amount"
+              value={(sub.lateFeeAmount ?? "50").replace(/^\$/, "").trim()}
+              placeholder="50"
+              dataAttr="listing-v2-late-fee-amount"
+              onChange={(raw) => own("lateFeeAmount", { lateFeeAmount: sanitizeMoneyInput(raw) })}
+            />
+          </FactRow>
+          <FactRow sub label="Grace days">
+            <RowSelectCell
+              ariaLabel="Grace days"
+              value={String(sub.lateFeeGraceDays ?? 5)}
+              options={LATE_FEE_GRACE_OPTIONS}
+              dataAttr="listing-v2-late-fee-grace-days"
+              onChange={(v) => own("lateFeeGraceDays", { lateFeeGraceDays: Math.max(0, Math.min(30, Number(v) || 0)) })}
+            />
+          </FactRow>
+        </>
+      ) : null}
+    </>
+  );
 }
 
 function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
@@ -2424,10 +2496,20 @@ function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissio
                 { value: "proplane", label: "PropLane pays" },
               ]}
               onChange={(v) =>
-                patch({
-                  serviceFeePayer: v as ManagerListingSubmissionV1["serviceFeePayer"],
-                  serviceFeeWaiverCode: undefined,
-                })
+                patch(
+                  markPaymentFieldOwn(
+                    {
+                      ...sub,
+                      serviceFeePayer: v as ManagerListingSubmissionV1["serviceFeePayer"],
+                      serviceFeeWaiverCode: undefined,
+                      paymentSettingsScope: {
+                        ...(sub.paymentSettingsScope ?? {}),
+                        serviceFeeWaiverCode: undefined,
+                      },
+                    },
+                    "serviceFeePayer",
+                  ),
+                )
               }
             />
           </FactRow>
@@ -2441,7 +2523,14 @@ function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissio
                   value={sub.serviceFeeWaiverCode ?? ""}
                   placeholder="Processing coverage code"
                   data-attr="listing-v2-service-fee-code"
-                  onChange={(e) => patch({ serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value) || undefined })}
+                  onChange={(e) =>
+                    patch(
+                      markPaymentFieldOwn(
+                        { ...sub, serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value) || undefined },
+                        "serviceFeeWaiverCode",
+                      ),
+                    )
+                  }
                   className="min-h-[36px] w-[170px] rounded-lg border border-border bg-card px-2.5 text-[13.5px] font-semibold text-foreground outline-none focus:border-primary"
                 />
                 {coverageCodeTyped && !coverageCodeValid ? <span className="text-[12px] font-semibold text-red-600">{LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID}</span> : null}

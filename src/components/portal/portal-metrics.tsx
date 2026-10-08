@@ -104,19 +104,14 @@ export function PortalSegmentedControl<T extends string>({
 export const PORTAL_PAGE_TITLE = "text-[2rem] font-semibold tracking-[-0.03em] text-foreground";
 
 /**
- * Portal pages do not print their own name.
- *
- * The sidebar already highlights the section and the phone app bar already
- * prints it, so a 2rem <h1> saying the same word cost ~90px of every first
- * viewport. The heading stays in the document for screen readers and for the
- * page outline — only its pixels go.
- *
- * This is deliberately NOT `navigationProvidesTitle`: that flag drops the whole
- * title ROW, taking the page's primary action ("+ Add property") with it, which
- * is why its own contract says to move the actions out first. Hiding the text
- * keeps every button exactly where it is.
+ * Portal pages print their own name again: the approved header band opens with
+ * the page title (20px/650) and the list's icon actions and round + at its right
+ * (dashboard-redesign-1007). Flip this to hide the heading's pixels while keeping
+ * it in the document for screen readers; it is deliberately NOT
+ * `navigationProvidesTitle`, which drops the whole title ROW with the page's
+ * primary action.
  */
-export const PORTAL_PAGE_TITLE_HIDDEN = true;
+export const PORTAL_PAGE_TITLE_HIDDEN = false;
 /** Applied to a header block whose <h1> should be present but unpainted. */
 export const PORTAL_HIDDEN_TITLE_CLASS = "[&_h1]:sr-only";
 
@@ -203,11 +198,11 @@ export function PortalStatRow({ items }: { items: PortalMetricItem[] }) {
 function tabButtonClass(active: boolean, textAlign: "center" | "left"): string {
   const align = textAlign === "center" ? "text-center" : "text-left";
   return [
-    "min-w-[7.5rem] flex-1 basis-[7.5rem] rounded-xl border px-4 py-3 transition-colors duration-150 sm:flex-none sm:basis-auto",
+    "min-w-[7.5rem] flex-1 basis-[7.5rem] rounded-[10px] border bg-card px-4 py-3 transition-colors duration-150 sm:flex-none sm:basis-auto",
     align,
     active
-      ? "border-primary/30 bg-card shadow-[var(--shadow-sm)] ring-1 ring-border"
-      : "border-border/60 bg-accent/30 hover:border-border hover:bg-card",
+      ? "border-primary/40"
+      : "border-border hover:border-[var(--input)]",
   ].join(" ");
 }
 
@@ -231,8 +226,8 @@ export function PortalKpiTabStrip({
         const active = i === activeIndex;
         return (
           <button key={k.label} type="button" onClick={() => onSelect(i)} className={tabButtonClass(active, textAlign)}>
-            <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{k.value}</p>
-            <p className="mt-1 text-xs font-medium text-muted">{k.label}</p>
+            <p className="text-[13px] text-muted">{k.label}</p>
+            <p className="mt-1 text-xl font-[650] tabular-nums tracking-tight text-foreground">{k.value}</p>
           </button>
         );
       })}

@@ -11,10 +11,10 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /** The title above a right-hand preview card: "Applicant sees", "Resident sees", "Lease preview", "What a resident pays". */
-export const WORKSPACE_PREVIEW_TITLE_CLASS = "text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted";
+export const WORKSPACE_PREVIEW_TITLE_CLASS = "text-xs font-semibold text-muted";
 
 export function WorkspacePreviewTitle({ children, className }: { children: ReactNode; className?: string }) {
-  return <h3 className={cn("mb-2", WORKSPACE_PREVIEW_TITLE_CLASS, className)}>{children}</h3>;
+  return <h3 className={cn("mb-2.5", WORKSPACE_PREVIEW_TITLE_CLASS, className)}>{children}</h3>;
 }
 
 /** The header's save words. A new record reads "Not saved yet" until it is created. */

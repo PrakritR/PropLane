@@ -76,7 +76,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); showToast.mockClear(); });
 describe("direct panel projection mutations", () => {
   it("archives a second-page retained row with its confirmed version and keeps loaded neighbors", async () => {
     render(<Fixture />);
-    fireEvent.click(await screen.findByText("Archive"));
+    fireEvent.click(await screen.findByLabelText("Archive conversation"));
     await waitFor(() => expect(parentRows.find((item) => item.projectionId === projectionId)?.stateVersion).toBe(2));
     expect(parentRows.find((item) => item.projectionId === projectionId)?.archived).toBe(true);
     expect(parentRows.map((item) => item.projectionId)).toEqual([first.projectionId, projectionId, neighbor.projectionId]);
@@ -100,7 +100,7 @@ describe("direct panel projection mutations", () => {
   it("keeps a failed second-page mutation and reports its exact reconciliation ID", async () => {
     patchStatus = 409;
     render(<Fixture />);
-    fireEvent.click(await screen.findByText("Archive"));
+    fireEvent.click(await screen.findByLabelText("Archive conversation"));
     await waitFor(() => expect(mutationReports).toContainEqual({ updated: [], deleted: [], reconcile: [projectionId] }));
     expect(parentRows).toEqual([first, second, neighbor]);
   });

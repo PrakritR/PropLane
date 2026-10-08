@@ -102,9 +102,6 @@ import {
   residentChargesListHref,
   parseResidentPaymentDetailTab,
 } from "@/lib/portal-detail-routes";
-import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
-import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
-import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { RESIDENT_PAYMENTS_TAB_LABELS, shouldSimplifyResidentPaymentsHeader } from "@/lib/resident-payments-tabs";
 import { ResidentAutopayCard } from "@/components/portal/resident-autopay-card";
 import { recordSections } from "@/lib/portals/record-sections";
@@ -304,14 +301,6 @@ export function ResidentPaymentsPanel({
   const [applicationTick, setApplicationTick] = useState(0);
   const email = session.email?.trim() ?? null;
   const userId = session.userId;
-
-  const openMessageManagerForCharge = useCallback(
-    (charge: HouseholdCharge) => {
-      stageResidentComposePrefill(residentChargeManagerMessageDraft(charge));
-      portalNavigate(`${RESIDENT_PORTAL_BASE_PATH}/communication/active`);
-    },
-    [portalNavigate],
-  );
 
   const paymentsUnlocked = useMemo(() => {
     void applicationTick;
@@ -1189,18 +1178,6 @@ export function ResidentPaymentsPanel({
             Pay {row.balanceLabel}
           </Button>
         ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="resident-payments-message-manager"
-          onClick={(event) => {
-            event.stopPropagation();
-            openMessageManagerForCharge(row);
-          }}
-        >
-          Message manager
-        </Button>
       </PortalTableDetailActions>
     );
   };
@@ -1654,18 +1631,6 @@ export function ResidentPaymentsPanel({
                   Pay {formatUsd(payableCents)}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="resident-payments-message-manager"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openMessageManagerForCharge(group.items[0]);
-                }}
-              >
-                Message manager
-              </Button>
             </PortalTableDetailActions>
           }
         >

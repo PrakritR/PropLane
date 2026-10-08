@@ -65,6 +65,7 @@ function listing(overrides: Partial<MockProperty> = {}): MockProperty {
     buildingName: "Ballard House",
     unitLabel: "",
     managerUserId: "mgr-1",
+    contactSmsPhone: "+12065551234",
     listingSubmission: {
       v: 1,
       buildingName: "Ballard House",

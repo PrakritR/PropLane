@@ -233,7 +233,7 @@ describe("resident reply that the server refuses", () => {
     await waitFor(() => expect(showToast).toHaveBeenCalled());
     // Scoped to message bubbles: the composer legitimately still holds the same
     // text, and that is the point of the next assertion.
-    const bubbles = [...document.querySelectorAll(".portal-inbox-inbound-bubble, .portal-inbox-outbound-bubble")];
+    const bubbles = [...document.querySelectorAll("[data-inbox-bubble-kind]")];
     expect(bubbles.some((b) => b.textContent?.includes("REFUSED probe"))).toBe(false);
     const composer = screen.getByPlaceholderText(/reply/i) as HTMLTextAreaElement;
     expect(composer.value).toBe("REFUSED probe");
@@ -336,7 +336,7 @@ describe("resident reply where one channel succeeds and the other fails", () => 
     await waitFor(() => expect(showToast).toHaveBeenCalled());
     expect(showToast).toHaveBeenCalledWith("Reply sent via email. Text message failed.");
     await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
-    const bubbles = [...document.querySelectorAll(".portal-inbox-outbound-bubble")];
+    const bubbles = [...document.querySelectorAll('[data-inbox-bubble-kind="outbound"]')];
     expect(bubbles.some((b) => b.textContent?.includes("REJECTED SMS probe"))).toBe(true);
   });
 });

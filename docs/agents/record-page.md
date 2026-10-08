@@ -10,6 +10,14 @@ its own shell.
    plus at most three outline icons. The word is the tooltip and aria-label.
    The set is per (role, kind, SECTION): the icons change as you move between
    a record's sections, because the action you want changes with them.
+   **Decisions (redesign 1007).** A tab waiting on a yes/no draws it as the one labelled pair at the right of
+   the header behind a hairline: red-outline "Decline" then solid green "Approve" (`PortalRecordDecisionPair`,
+   ids approve/confirm/decline/reject, used by `PortalRecordHeaderIconActions` and the resident tab toolbar).
+   Everything else stays a 32px icon. A header carries no Message icon unless messaging is the record's core
+   (vendor, booking guest, service); resident and property never do (`tests/unit/record-header-decision-pair.test.tsx`).
+   A row's ⋯ menu gives every item a 16px leading glyph (`record-action-icons.ts`) and groups decisions last,
+   after the divider: green positives (Approve, Confirm, Mark paid, Mark done, Pay, Complete) directly above the
+   red Decline / Reject / Cancel request, then Delete / Remove (`classifyRecordActionTone`).
 2. Desktop keeps the left section card: the kind's own sections first, then
    the shared trio (Communication · Documents · Activity). The trio's group is
    always unlabeled — it reads as universal record chrome, not a category.

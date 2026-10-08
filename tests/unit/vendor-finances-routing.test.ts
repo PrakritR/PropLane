@@ -97,7 +97,8 @@ describe("vendor Finances routing", () => {
   it("Settings › Payouts links to Finances and the sidebar nests the five tabs", () => {
     const settings = readFileSync("src/components/portal/portal-payouts-settings-page.tsx", "utf8");
     expect(settings).toContain('href="/vendor/financials/balance"');
-    const sidebar = readFileSync("src/components/portal/portal-sidebar.tsx", "utf8");
+    // The row-building helpers live in the shared nav model (sidebar + command palette read it).
+    const sidebar = readFileSync("src/components/portal/portal-nav-model.ts", "utf8");
     expect(sidebar).toContain('definition.kind === "vendor" && section.section === "financials"');
   });
 });

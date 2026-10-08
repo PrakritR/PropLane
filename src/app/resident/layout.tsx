@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
+import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { RateAppPrompt } from "@/components/native/rate-app-prompt";
@@ -11,6 +12,7 @@ import { ResidentProspectHandoffOnMount } from "@/components/portal/resident-pro
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
@@ -28,6 +30,8 @@ import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { TestAccountBanner } from "@/components/portal/test-account-banner";
 import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
 import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
+import { ViewAsBanner } from "@/components/portal/view-as-banner";
+import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
 
 function isResidentApplicationsApplyPath(pathname: string): boolean {
   return pathname === "/resident/applications/apply";
@@ -63,16 +67,38 @@ export default async function ResidentLayout({ children }: { children: React.Rea
     return <TestAccountUnavailable state={testWorkspace.state} />;
   }
 
+  // A "View as" support session: banner on top, assistant off.
+  const viewAs = await getViewAsBannerState();
+
   return (
-    // Residents have no PropLane assistant: no provider, FAB, dock rail, modal strip or header launcher.
+    // The resident assistant must carry its own role-scoped endpoint: the default manager endpoint
+    // 401s for residents (captain, Oct 7: residents get Ask PropLane like vendors).
+    <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null} disabled={Boolean(viewAs)}>
     <div className={PORTAL_SHELL_ROOT_CLASS}>
+      {viewAs ? <ViewAsBanner {...viewAs} /> : null}
       <SurfaceThemeDefault theme="light" />
       <PortalDataPrefetch kind="resident" />
       <PortalSessionKeepalive />
       <PortalClientSessionGuard />
       <RateAppPrompt reporterRole="resident" />
+      <PortalTopBar
+        kind={residentPortal.kind}
+        basePath={residentPortal.basePath}
+        definition={residentPortal}
+        subscriptionTier={managerSubscriptionTier}
+        residentNavStage={residentNavStage}
+        initialSidebarCollapsed={sidebarCollapsed}
+        name={profile?.full_name ?? null}
+        email={profile?.email ?? null}
+      />
       <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
         <PortalSkipLink />
+        <PortalWorkspaceRail
+          kind={residentPortal.kind}
+          basePath={residentPortal.basePath}
+          name={profile?.full_name ?? null}
+          email={profile?.email ?? null}
+        />
         <PortalSidebar
           definition={residentPortal}
           subscriptionTier={managerSubscriptionTier}
@@ -81,12 +107,6 @@ export default async function ResidentLayout({ children }: { children: React.Rea
           residentNavStage={residentNavStage}
         />
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <PortalTopBar
-            kind={residentPortal.kind}
-            basePath={residentPortal.basePath}
-            name={profile?.full_name ?? null}
-            email={profile?.email ?? null}
-          />
           {testWorkspace.kind === "classified" ? <TestAccountBanner state={testWorkspace.state} /> : null}
           <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
             <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
@@ -107,5 +127,6 @@ export default async function ResidentLayout({ children }: { children: React.Rea
         </div>
       </div>
     </div>
+    </AxisAssistant>
   );
 }

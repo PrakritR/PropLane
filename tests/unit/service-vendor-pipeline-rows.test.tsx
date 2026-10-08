@@ -52,14 +52,14 @@ async function itemsOf(name: string): Promise<string[]> {
 }
 
 describe("Vendors rows: what each tab's ⋯ holds", () => {
-  it("Scheduled: Reschedule, Mark done, Open vendor - and clicking them calls the host", async () => {
+  it("Scheduled: Reschedule, Open vendor, then Mark done (a decision, last) - and clicking them calls the host", async () => {
     const h = handlers();
     const pipeline = buildServicePipeline({ job: job(), offers: [], bids: [accepted], roster, jobTrade: "Plumbing" });
     render(<AppUiProvider><ServiceVendorPipeline pipeline={pipeline} trade="Plumbing" {...h} /></AppUiProvider>);
     // Opens on Scheduled: the approved vendor, with its visit and the bid's amount as plain facts.
     expect(document.querySelectorAll('[data-attr="service-pipeline-scheduled-row"]').length).toBe(1);
     expect(document.body.textContent).toContain("$140");
-    expect(await itemsOf("Pacific Plumbing")).toEqual(["Reschedule", "Mark done", "Open vendor"]);
+    expect(await itemsOf("Pacific Plumbing")).toEqual(["Reschedule", "Open vendor", "Mark done"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Mark done" }));
     expect(h.onMarkDone).toHaveBeenCalledTimes(1);
   });
@@ -69,7 +69,7 @@ describe("Vendors rows: what each tab's ⋯ holds", () => {
     const done = job({ bucket: "completed", status: "Completed", automationStatus: "vendor_marked_done", vendorId: "v-9", vendorName: "Pacific Plumbing" });
     const pipeline = buildServicePipeline({ job: done, offers: [], bids: [accepted], roster, jobTrade: "Plumbing" });
     render(<AppUiProvider><ServiceVendorPipeline pipeline={pipeline} trade="Plumbing" {...h} /></AppUiProvider>);
-    expect(await itemsOf("Pacific Plumbing")).toEqual(["Pay", "Open vendor"]);
+    expect(await itemsOf("Pacific Plumbing")).toEqual(["Open vendor", "Pay"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Pay" }));
     expect(h.onPay).toHaveBeenCalledTimes(1);
   });

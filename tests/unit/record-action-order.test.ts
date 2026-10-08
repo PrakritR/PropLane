@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyRecordActionId,
+  classifyRecordActionTone,
   isPostDividerRecordActionId,
   MAX_OWN_RECORD_ACTIONS,
   orderRecordActions,
@@ -95,5 +96,25 @@ describe("orderRecordActions", () => {
 
   it("handles an empty list", () => {
     expect(orderRecordActions([])).toEqual([]);
+  });
+});
+
+describe("classifyRecordActionTone", () => {
+  it("reads positive decisions, the negative one and Delete/Remove", () => {
+    for (const label of ["Approve", "Confirm", "Mark paid", "Mark as paid", "Mark done", "Pay", "Pay now", "Complete", "approve", "pay-now"]) {
+      expect(classifyRecordActionTone(label), label).toBe("positive");
+    }
+    for (const label of ["Decline", "Reject", "Cancel request", "decline"]) {
+      expect(classifyRecordActionTone(label), label).toBe("negative");
+    }
+    for (const label of ["Delete", "Remove", "delete"]) {
+      expect(classifyRecordActionTone(label), label).toBe("destructive");
+    }
+  });
+
+  it("leaves everything else neutral (a payment reminder is not a Pay decision)", () => {
+    for (const label of ["Edit", "Message", "Payment reminder", "Share", "Duplicate", "Download"]) {
+      expect(classifyRecordActionTone(label), label).toBe("neutral");
+    }
   });
 });

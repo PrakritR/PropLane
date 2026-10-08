@@ -1,0 +1,21 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px/1.6 system-ui,sans-serif;max-width:960px;margin:40px auto;padding:0 24px;color:#17233b}h1,h2,h3{line-height:1.25}code{overflow-wrap:anywhere}li{margin:8px 0}table{border-collapse:collapse;width:100%}td,th{padding:10px;border:1px solid #ccd4de;text-align:left}</style><title>Guided action correction plan</title></head><body><h1>Correction plan: transition-safe guided actions</h1>
+<p>29 September 2026. Applies to <code>agent/akhil-landing-hero-demo</code> after reviewed commit <code>69cbc7d2802790887e0917509b7df7ab5057639b</code>. Fix only the integration-introduced busy-action regression and its direct input/state consequences. Preserve the hero, retained homepage sections, and prototype design. Source identity remains a separate user clarification.</p>
+<h2>Problem</h2>
+<p>The parent ignores every action during a 930 ms transition, but enabled child controls mutate local state before learning whether the action was accepted. A rapid Send clears its draft without sending; a rapid resident signature can hide its preview without signing.</p>
+<h2>Implementation</h2>
+<ol>
+<li>Make transition acceptance explicit between <code>resident-lifecycle-prototypes.tsx</code> and manager/phone children. Pass <code>busy</code> or an equivalent action-availability prop and expose an acceptance result if local cleanup depends on the callback.</li>
+<li>Disable action controls while their callback cannot be accepted. Guard submit handlers too, so pressing Enter cannot clear a rejected draft. Do not clear text or close the signing preview for an ignored action. Keep normal free exploration and replay behavior unchanged.</li>
+<li>Keep duplicate-action suppression, phase timers, and replay cancellation coherent. Avoid fixing only Send while leaving the same new busy guard able to discard another child's local state.</li>
+<li>Add a focused browser regression beside the existing guided test. Do not broaden into portal redesign, backend changes, source-prototype cleanup, or a whole-project testing campaign.</li>
+</ol>
+<h2>Exact acceptance and browser verification</h2>
+<ol>
+<li>Load the homepage and locate the manager sample composer. Click Prepare reply. Before its transition finishes, attempt a native Send click and Enter/form submission. The prepared text must remain intact while busy, no message may be silently lost, and the sample must not advance twice.</li>
+<li>After the transition, submit once. Assert exactly one matching manager reply in the manager conversation and corresponding phone message, then verify the guide advances to the offered tour. Complete all remaining steps and replay successfully.</li>
+<li>Advance to Open lease. Immediately attempt Sign sample lease before the open transition finishes. The preview must remain available until signing can be accepted. Then sign once, observe Manager signature pending, countersign, and submit the service request.</li>
+<li>Restart during an active transition. Wait beyond the combined timers and verify the initial Prepare reply step remains selected, the initial conversation is restored, and no stale timer advances the reset guide.</li>
+<li>Run the focused homepage Playwright suite with one worker under Node 22, plus focused ESLint and diff check. Use the existing active test server only with its owner's coordination; otherwise pin and start one task-owned server after checking resource headroom. Stop it after active review.</li>
+</ol>
+<h2>Evidence and completion</h2>
+<p>Record command exit codes and the repaired rapid-action outcomes in the HTML handoff. Preserve enough browser evidence to distinguish the busy attempt from the accepted action. Update the graph if the tool becomes available; report its existing limitation otherwise. Request independent review of the correction diff. No deployment or branch promotion is part of this correction.</p></body></html>

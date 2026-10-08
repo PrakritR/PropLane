@@ -103,6 +103,7 @@ import {
   patchScheduledMessage,
   useScheduledPaymentMessages,
 } from "@/components/portal/payment-schedule-ui";
+import { usePublishThreadScheduledItems } from "@/components/portal/use-thread-scheduled-cards";
 import {
   automationChannelDefaultsFromSettings,
   scheduledItemsForRecipient,
@@ -1606,6 +1607,8 @@ export const ManagerInbox = forwardRef<
         : [],
     [activeThread, manualScheduledMessages, reminderAutomationSettings, scheduledMessages],
   );
+  // The contact-details column lists these without loading them again.
+  usePublishThreadScheduledItems(activeThread?.email ?? "", threadScheduledItems);
 
   const reloadScheduled = useCallback(() => {
     void reloadManualScheduled();

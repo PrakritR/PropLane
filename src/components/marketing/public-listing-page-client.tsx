@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
+import { ListedWithProPlaneBand } from "@/components/marketing/listed-with-proplane-band";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import { loadPublicPropertyLeadFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { getPropertyForPublicLink } from "@/lib/rental-application/data";
@@ -94,5 +95,10 @@ export function PublicListingPageClient() {
     );
   }
 
-  return <ListingDetailSections property={property} rich={rich} expandSectionsOnMobile />;
+  return (
+    <>
+      <ListingDetailSections property={property} rich={rich} expandSectionsOnMobile />
+      {property.showProPlaneAttribution ? <ListedWithProPlaneBand propertyId={property.id} /> : null}
+    </>
+  );
 }

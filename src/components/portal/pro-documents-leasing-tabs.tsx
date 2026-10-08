@@ -11,7 +11,6 @@ import { DocumentInlineViewer } from "@/components/portal/resident-other-documen
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { FilterCollapsibleSection, FilterFieldsAccordion, FilterSingleSelectList, filterSingleSelectSummary } from "@/components/portal/filter-field-lists";
 import { DataList } from "@/components/ui/data-list";
-import { Upload } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
@@ -146,15 +145,12 @@ export function ManagerApplicationDocumentsTab({
   basePath = "/portal",
   propertyFilter = "",
   onClearFilter,
-  onUpload,
 }: {
   userId: string | null;
   basePath?: string;
   propertyFilter?: string;
   /** Clears the parent-owned property filter from the no-match card. */
   onClearFilter?: () => void;
-  /** Opens the upload modal from the empty card — the bar's primary, by name. */
-  onUpload?: () => void;
 }) {
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
@@ -244,7 +240,6 @@ export function ManagerApplicationDocumentsTab({
           <PortalListEmptyCard
             section="documents"
             title={portalEmptyCopy("documents.applications").title}
-            actions={onUpload ? [{ label: "Upload document", icon: Upload, onClick: onUpload, dataAttr: "documents-applications-empty-upload" }] : []}
           />
         )
       ) : (
@@ -411,14 +406,11 @@ export function ManagerLeaseDocumentsTab({
   userId,
   propertyFilter = "",
   onClearFilter,
-  onUpload,
 }: {
   userId: string | null;
   propertyFilter?: string;
   /** Clears the parent-owned property filter from the no-match card. */
   onClearFilter?: () => void;
-  /** Opens the upload modal from the empty card — the bar's primary, by name. */
-  onUpload?: () => void;
 }) {
   const { showToast } = useAppUi();
   const [tick, setTick] = useState(0);
@@ -515,7 +507,6 @@ export function ManagerLeaseDocumentsTab({
           <PortalListEmptyCard
             section="documents"
             title={portalEmptyCopy("documents.leases").title}
-            actions={onUpload ? [{ label: "Upload document", icon: Upload, onClick: onUpload, dataAttr: "documents-leases-empty-upload" }] : []}
           />
         )
       ) : (

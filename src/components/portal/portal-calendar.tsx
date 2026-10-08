@@ -1,15 +1,14 @@
 "use client";
 
+import { ManagerIntegrationsAction } from "@/components/portal/manager-integrations-action";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Share2 } from "lucide-react";
 import { ManagerPortalPageShell } from "./portal-metrics";
 import { PortalCalendarPanels, type CalendarMode } from "./portal-calendar-panels";
 import {
@@ -42,8 +41,6 @@ import {
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
-import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
-import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
 import { GoogleCalendarPendingChangesBanner } from "@/components/portal/google-calendar-pending-changes-banner";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
@@ -124,7 +121,6 @@ function PortalCalendarManager({
   const demoCalendarDefaultAppliedRef = useRef(false);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
-  const [shareTourModalOpen, setShareTourModalOpen] = useState(false);
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
   const calendarView: CalendarViewTabId =
@@ -244,7 +240,6 @@ function PortalCalendarManager({
   );
   const [weekActionsHost, setWeekActionsHost] = useState<HTMLDivElement | null>(null);
   const [weekPrimaryActionHost, setWeekPrimaryActionHost] = useState<HTMLDivElement | null>(null);
-  const [navControlsHost, setNavControlsHost] = useState<HTMLDivElement | null>(null);
 
   const soleCalendarPropertyId = calendarEditingPropertyId;
 
@@ -252,12 +247,6 @@ function PortalCalendarManager({
     if (portal !== "manager" || !userId || scopedCalendarPropertyIds.length === 0) return [];
     return scopedCalendarPropertyIds.map((id) => managerPropertyAvailabilityStorageKey(userId, id));
   }, [portal, userId, scopedCalendarPropertyIds]);
-
-  const shareableProperties = useMemo(() => {
-    if (portal !== "manager") return [];
-    void propertyTick;
-    return buildManagerShareablePropertyOptions(userId);
-  }, [portal, userId, propertyTick]);
 
   useEffect(() => {
     if (portal !== "manager" || !userId || !soleCalendarPropertyId) {
@@ -586,17 +575,6 @@ function PortalCalendarManager({
       <GoogleCalendarConnectDialog onConnectionChange={() => setGoogleCalendarTick((n) => n + 1)} />
     ) : null;
 
-  const calendarShareTourButton =
-    portal === "manager" && schedulingHub && availabilityView ? (
-      <PortalIconAction
-        icon={Share2}
-        label={shareableProperties.length === 0 ? "Share tour links (list a property first)" : "Share tour links"}
-        disabled={shareableProperties.length === 0}
-        data-attr="calendar-share-tour"
-        onClick={() => setShareTourModalOpen(true)}
-      />
-    ) : null;
-
   /*
     No Settings here. The panel behind it is entirely TOUR rules — notice
     required, auto-confirm, tour reminders — and the Tours section already owns
@@ -668,15 +646,14 @@ function PortalCalendarManager({
     };
   }, [portal, authReady, userId, soleCalendarPropertyId]);
 
-  // One band, in order: tabs · search · < Today > range · view · Filter · Availability · Share · + (studio calendar header, C2-CALP1).
+  // One band, in order: tabs · search · Filter · Integrations · + (Add availability lives in the +'s menu); the Day/Week/Month tabs and the range ride in the toolbar row above the grid.
   const calendarCommandActions =
     portal === "manager" ? (
       <>
-        <div ref={setNavControlsHost} className="flex min-w-0 flex-1 items-center justify-center max-sm:hidden" data-slot="calendar-nav-host" />
         {calendarFilterSheet}
         {calendarSettingsButton}
         <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
-        {calendarShareTourButton}
+        <ManagerIntegrationsAction section="google" dataAttr="calendar-integrations" />
         <div ref={setWeekPrimaryActionHost} className="flex items-center" data-slot="calendar-primary-action-host" />
       </>
     ) : null;
@@ -791,7 +768,6 @@ function PortalCalendarManager({
             compactAvailability
             weekActionsHost={weekActionsHost}
             weekPrimaryActionHost={weekPrimaryActionHost}
-            navControlsHost={navControlsHost}
             studioGrid={portal === "manager"}
             calendarTab={schedulingHub ? "tours" : calendarView}
             filteredPropertyId={soleCalendarPropertyId || undefined}
@@ -888,15 +864,6 @@ function PortalCalendarManager({
           />
         )}
       </ManagerPortalPageShell>
-      {portal === "manager" ? (
-        <ShareLeadLinkModal
-          open={shareTourModalOpen}
-          onClose={() => setShareTourModalOpen(false)}
-          kind="tour"
-          properties={shareableProperties}
-          preselectedPropertyId={soleCalendarPropertyId || undefined}
-        />
-      ) : null}
     </>
   );
 }

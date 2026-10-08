@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Landing hero and guided sample handoff</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#17233b}h1,h2{line-height:1.2}code{overflow-wrap:anywhere}li{margin:6px 0}</style>
+<h1>Landing hero and guided sample handoff</h1>
+<p>29 September 2026. Keeper: <code>agent/akhil-landing-hero-demo</code>. Review URL: <a href="http://localhost:3013/">http://localhost:3013/</a>.</p>
+<h2>What changed</h2>
+<p>The public homepage now begins with the atmospheric hero and a local, guided manager and resident sample. The hero retains signup, demo booking, and App Store links. The replacement, switching, pricing, and FAQ sections remain below it in their previous order. The former lifecycle rows were removed from the homepage to avoid showing the same journey twice.</p>
+<p>The sample runs entirely in browser state. It does not read or write a database and labels itself <strong>Sample demo</strong>. It advances from a reply through tour, application, lease signatures, and service request, then replays. Free exploration and restart are available.</p>
+<h2>Verification</h2>
+<ul>
+  <li>Focused ESLint for the edited TSX and browser test: exit 0 on Node 22.23.0.</li>
+  <li><code>git diff --check</code>: exit 0.</li>
+  <li>Focused Playwright homepage suite: 6 passed, exit 0. Covered signup and booking links, navigation, FAQ, pricing, the full guided path, replay, and 320px horizontal overflow.</li>
+  <li>390px browser review: no horizontal overflow or page errors. Free exploration, restart, and reduced-motion animation fallback worked.</li>
+  <li>Desktop and mobile screenshots were inspected for hero layout and walkthrough legibility.</li>
+</ul>
+<h2>Limits and follow-up</h2>
+<p>The walkthrough is illustrative and does not prove the live portal workflows. The source was the untracked resident lifecycle prototype in Akhil's active checkout; source identity was awaiting Akhil's confirmation when this implementation began. No deployment or branch promotion occurred.</p>
+<p>The isolated worktree had no dependency install and limited free disk space, so validation used a symlink to the existing dependency tree and Next's webpack development mode. Turbopack rejected the external symlink. A whole-project build and typecheck were deferred for resource headroom. Graphify refresh was unavailable because this worktree has no graph state and its installed command does not provide <code>hook-rebuild</code>.</p>
+</html>

@@ -29,11 +29,33 @@
  * Leases/Payments/Services pages render, never a hand-drawn filled pill.
  */
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, createContext, useContext, useEffect, useRef, useState } from "react";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
 import { groupNavItems } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 import { cn } from "@/lib/utils";
+
+/**
+ * "Bare" chrome (the guided home demo, `demo-panels.tsx`): the demo engine
+ * draws its own window frame and sidebar, so inside `BarePanelChrome` a
+ * `ProductWindow` is just a relative, full-width content well (the sheet and
+ * toast overlays still anchor to it) and `PortalSidebarFixture` renders
+ * nothing. The well takes its content's height and the demo window's screen
+ * scrolls around it (the window is a fixed size and never grows). Outside the
+ * provider both behave exactly as the lifecycle rows always drew them.
+ */
+/**
+ * The page rhythm the real portal's main column gives every page (`PORTAL_MAIN_CONTENT_CLASS`: 16px on a phone, 32px
+ * from `lg`, 32px above). The page shell draws its header band with negative side margins that bleed into that
+ * padding, so a demo page needs the same padding around it and nothing that clips it.
+ */
+export const DEMO_PAGE_CLASS = "flex min-h-0 min-w-0 flex-1 flex-col px-4 pt-4 pb-7 lg:px-8 lg:pt-8";
+
+const BarePanelChromeContext = createContext(false);
+
+export function BarePanelChrome({ children }: { children: ReactNode }) {
+  return <BarePanelChromeContext.Provider value>{children}</BarePanelChromeContext.Provider>;
+}
 
 export function ProductPanelBackdrop({
   children,
@@ -84,6 +106,7 @@ export function ProductWindow({
   children,
   nativeWidth = 1280,
   nativeHeight = 820,
+  whole = false,
 }: {
   path: string;
   children: ReactNode;
@@ -91,12 +114,25 @@ export function ProductWindow({
   nativeWidth?: number;
   /** The real page height before scaling — taller than the visible panel on purpose; the extra crops at the bottom. */
   nativeHeight?: number;
+  /** The whole window is shown (its frame is sized to it), so every corner is rounded instead of cropping at the bottom. */
+  whole?: boolean;
 }) {
   const { ref, scale } = useContainerScale(nativeWidth);
+  const bare = useContext(BarePanelChromeContext);
+  if (bare) {
+    return (
+      <div className="relative flex min-w-0 flex-1 overflow-x-clip bg-card" data-demo-panel>
+        {children}
+      </div>
+    );
+  }
   return (
     <div ref={ref} className="pm-window absolute inset-x-6 top-6 sm:inset-x-10 sm:top-10" style={{ height: nativeHeight * scale }}>
       <div
-        className="flex origin-top-left flex-col overflow-hidden rounded-t-2xl border border-black/[0.06] bg-card shadow-[0_50px_100px_-40px_rgba(15,23,42,0.45)]"
+        className={cn(
+          "flex origin-top-left flex-col overflow-hidden border border-black/[0.06] bg-card shadow-[0_50px_100px_-40px_rgba(15,23,42,0.45)]",
+          whole ? "rounded-2xl" : "rounded-t-2xl",
+        )}
         style={{ width: nativeWidth, height: nativeHeight, transform: `scale(${scale})` }}
       >
         <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-[var(--pl-surface-muted)] px-3.5 py-2.5">
@@ -124,6 +160,7 @@ export function PortalSidebarFixture({
   active: string;
   counts?: Record<string, number>;
 }) {
+  if (useContext(BarePanelChromeContext)) return null;
   const groups = groupNavItems(
     "pro",
     proPortal.sections.filter((s) => s.section !== "app" && s.section !== "bugs-feedback"),
@@ -175,6 +212,19 @@ export function PortalSidebarFixture({
         ))}
       </nav>
     </aside>
+  );
+}
+
+/**
+ * Marks the row it wraps for the home demo's cursor (`data-demo-target`): the wrapper draws no box
+ * of its own (`display: contents`), so a list lays out exactly as it did, and the cursor aims at the
+ * row's own button inside it.
+ */
+export function DemoTarget({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <div className="contents" data-demo-target={id}>
+      {children}
+    </div>
   );
 }
 
@@ -230,6 +280,7 @@ export function FixtureSheet({
           <div className="mt-4 flex justify-end">
             <button
               type="button"
+              data-demo-target="sheet-primary"
               onClick={onPrimary}
               className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-white"
             >

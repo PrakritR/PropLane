@@ -67,7 +67,7 @@ function useIconTip(label: string, align: "center" | "end") {
             data-slot="portal-icon-tooltip"
             style={{ top: tip.top, left: tip.left, right: tip.right }}
             className={cn(
-              "pointer-events-none fixed z-[10090] whitespace-nowrap rounded-md bg-neutral-900 px-2 py-1 text-xs font-medium leading-none text-white shadow-md transition-opacity duration-100 dark:bg-neutral-100 dark:text-neutral-900",
+              "pointer-events-none fixed z-[10090] whitespace-nowrap rounded-[5px] bg-[#15171c] px-[7px] py-[3px] text-[11.5px] font-[550] leading-4 text-white transition-opacity duration-100 dark:bg-neutral-100 dark:text-neutral-900",
               align === "center" && "-translate-x-1/2",
               shown ? "opacity-100" : "opacity-0",
             )}
@@ -162,14 +162,17 @@ export const PortalIconAction = forwardRef<
       data-slot="portal-icon-action"
       data-ring={ring || undefined}
       className={cn(
-        "relative inline-flex size-11 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 outline-none transition md:size-9",
+        "relative inline-flex size-11 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 outline-none transition md:size-9 lg:size-8",
         "hover:bg-[var(--secondary)]/70 focus-visible:ring-2 focus-visible:ring-primary/30 active:bg-[var(--secondary)] disabled:opacity-50",
         tone === "primary" ? "text-primary" : tone === "danger" ? "text-red-600" : "text-foreground/80 hover:text-foreground",
         active && "bg-accent text-primary",
         ring &&
+          // A record header's icons are ghost 32px glyphs like the list band's (approved
+          // record header); the section's next step stays the one filled round primary
+          // (docs/agents/record-page.md, point 1).
           (ringPrimary
-            ? "!size-11 rounded-full md:!size-9 border border-transparent bg-[var(--btn-primary)] !text-white shadow-[0_2px_6px_color-mix(in_srgb,var(--btn-primary)_40%,transparent)] hover:bg-[var(--btn-primary)] active:scale-95"
-            : "!size-11 rounded-full md:!size-9 border border-border bg-card hover:bg-accent/60"),
+            ? "!size-11 rounded-full md:!size-9 lg:!size-8 border border-transparent bg-[var(--btn-primary)] !text-white shadow-[0_1px_2px_rgba(40,99,240,0.35)] hover:bg-[#1e4fd6] active:scale-95"
+            : "!size-11 rounded-lg md:!size-9 lg:!size-8 hover:bg-[var(--secondary)]/70"),
         className,
       )}
       {...rest}
@@ -288,8 +291,8 @@ export const PortalPrimaryIconAction = forwardRef<
       onClick={chain<MouseEvent<HTMLButtonElement>>(onClick, tip.hide)}
       data-slot="portal-primary-icon-action"
       className={cn(
-        "portal-command-primary relative ml-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full border-0 p-0 text-white outline-none transition md:size-9",
-        "bg-[var(--btn-primary)] shadow-[0_2px_6px_color-mix(in_srgb,var(--btn-primary)_40%,transparent)] focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-95 disabled:opacity-50 disabled:shadow-none",
+        "portal-command-primary relative ml-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full border-0 p-0 text-white outline-none transition md:size-9 lg:size-8",
+        "bg-[var(--btn-primary)] shadow-[0_1px_2px_rgba(40,99,240,0.35)] hover:bg-[#1e4fd6] focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-95 disabled:opacity-50 disabled:shadow-none",
         className,
       )}
       {...rest}

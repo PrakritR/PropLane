@@ -24,6 +24,11 @@
   /* Single blueprint/lattice square pitch shared by the landing hero grid and
    * the flow-band blueprint so the squares never change size between sections. */
   --lp-grid-size: 56px;
+  /* Portal shell radii + the one shadow (menus, popovers, modals only). */
+  --radius-control: 6px;
+  --radius-menu: 8px;
+  --radius-card: 10px;
+  --shadow-pop: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px -4px rgba(16, 24, 40, 0.14);
 }
 
 :root,
@@ -68,7 +73,7 @@
   --portal-surface-dark: #0b1120;
   --portal-surface-light: var(--pl-white-muted);
   /* Flat page canvas behind portal cards (the redesign's soft gray). */
-  --portal-canvas: #f5f7fb;
+  --portal-canvas: #ffffff;
   --status-pending-fg: #a34a06; /* 5.3:1 on --status-pending-bg (PRP-184 #2) */
   --status-pending-bg: #fdf0d5;
   --status-approved-fg: #2456d6; /* 5.3:1 on --status-approved-bg; --pl-blue measured 3.8 (PRP-184 #2) */
@@ -3759,7 +3764,7 @@ html[data-native] [data-listing-subnav] {
 /* One width contract for page chat and dialog chat. Reserve the rail before
    centering/sizing the editor, so narrow and wide dialogs both move left. */
 :root {
-  --portal-assistant-rail-width: clamp(21rem, 26vw, 23rem);
+  --portal-assistant-rail-width: 26.25rem; /* 420px docked dock, approved shell */
   --portal-assistant-panel-gap: 1rem;
 }
 
@@ -3861,7 +3866,30 @@ html[data-native] [data-listing-subnav] {
 .record-action-menu [role="menuitem"]:not(:disabled):not([data-disabled]):hover,
 .record-action-menu [role="menuitem"][data-highlighted]:not(:disabled):not([data-disabled]) { background: rgb(92 130 244 / .12) !important; }
 .record-action-menu .text-danger { color: var(--destructive); }
+/* Redesign 1007: 16px leading glyph; decisions sit last — green above red, Delete red at the very end. */
+.record-action-menu [role="menuitem"] { align-items: center; gap: 10px; }
+.record-action-menu [role="menuitem"] > svg { width: 16px; height: 16px; flex: none; }
+.record-action-menu [role="menuitem"][data-record-action-tone="neutral"] > svg { color: var(--muted); }
+.record-action-menu [role="menuitem"][data-record-action-tone="positive"] { color: #12805c; font-weight: 600; }
+.record-action-menu [role="menuitem"][data-record-action-tone="negative"],
+.record-action-menu [role="menuitem"][data-record-action-tone="destructive"] { color: var(--red, #d92d20); }
 @supports not (backdrop-filter: blur(1px)) { .portal-liquid-glass { background: var(--card); } }
+/* Desktop menus are floating cards (approved shell redesign): solid white, one
+   1px border, the popover shadow, and no blurred scrim behind them. */
+@media (min-width: 1024px) {
+  html[data-theme="light"] .portal-liquid-glass {
+    background: #ffffff;
+    border: 1px solid rgba(17, 24, 39, 0.13);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: var(--shadow-pop);
+  }
+  html[data-theme="light"] .portal-menu-backdrop {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
 /* The page behind an open menu: the same weight as a modal overlay's blur, lighter tint. */
 .portal-menu-backdrop {
   background: rgba(15, 23, 42, 0.18);
@@ -4011,4 +4039,172 @@ html[data-communication-surface] .portal-communication-inbox .portal-list-page-b
  */
 :root .tabular-nums {
   font-variant-numeric: lining-nums proportional-nums;
+}
+
+/*
+ * Portal look (captain, Oct 6): the logged-in portals take the home-page
+ * workspace's styling — cool blue-tinted canvas, #dbe4ef hairlines, soft-blue
+ * active states, 12px card radii. Tokens only: no control moves, appears or
+ * disappears. Scoped to the portal shell in the light theme, so the public
+ * site, auth pages, and dark mode are untouched.
+ */
+html[data-theme="light"] .portal-shell {
+  /* Phase 1 shell redesign (approved plan dashboard-redesign-1007): ink, grey,
+   * hairline, flat white canvas, #f6f7f9 sidebar, #eaf0fe soft blue. */
+  --pl-ink: #15171c;
+  --pl-muted-fg: #6a707c;
+  --pl-line: rgba(17, 24, 39, 0.085);
+  --pl-line-strong: rgba(17, 24, 39, 0.13);
+  --foreground: #15171c;
+  --muted: #6a707c;
+  --border: rgba(17, 24, 39, 0.085);
+  --input: rgba(17, 24, 39, 0.13);
+  --background-solid: #ffffff;
+  --secondary: #f4f5f7;
+  --portal-canvas: #ffffff;
+  --portal-sidebar-bg: #f6f7f9;
+  --portal-active-bg: #eaf0fe;
+  --portal-selected-row: #f1f5ff;
+  --portal-count-bg: #eaf0fe;
+  --portal-avatar-bg: #eaf0fe;
+  --portal-avatar-fg: #1e4fd6;
+  --portal-strip-bg: #101828;
+  --portal-strip-fg: #c7ccd6;
+  --portal-sidebar-active-bg: #e9effe;
+  --portal-sidebar-active-fg: #1f55e0;
+  --primary: #2863f0;
+  --primary-hover: #1e4fd6;
+  --pl-blue-soft-bg: #eaf0fe;
+  --red: #d92d20;
+  --green: #12805c;
+  --amber: #b25e09;
+  --danger: #d92d20;
+  --shadow-card: none;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 0.875rem;
+}
+
+html[data-theme="light"] .portal-shell .glass-card {
+  background: #ffffff;
+  border-color: var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ---- Portal lists (approved list anatomy, dashboard-redesign-1007) ----------
+   A list page is a header band on white: title row, underline tabs, one tools
+   line, then rows edge to edge. The page shell keeps the main column's padding
+   for everything else; only the header, the command band and the rows bleed to
+   the column edges, and only on a page whose command band is a direct child of
+   the page body (a panel that wraps its band in its own card keeps that card). */
+@media (min-width: 1024px) {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > [data-slot="page-header"] {
+    margin: -2rem -2rem 0;
+    padding: 14px 22px 0;
+    background: var(--background);
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > [data-slot="page-header"] + * {
+    margin-top: 0;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]) {
+    margin-inline: -2rem;
+    padding-top: 10px;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) .portal-list-page-scroll {
+    margin-inline: -2rem;
+    padding-inline: 2rem;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-record-list-surface"],
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-record-list-surface"] {
+    margin-inline: -2rem;
+  }
+}
+/* The bleed's negative margins reach into <main>'s 2rem padding. The sticky-chrome
+   and communication surfaces clip .portal-main-inner (overflow: hidden), which cut
+   the header's first 2rem off at every desktop width: "romotion", "ll 0", half a +.
+   When the page shell's header or a list band bleeds, the inner stops clipping; <main>
+   (overflow-x: clip) and the pane's own scroller still bound everything. */
+@media (min-width: 1024px) {
+  html[data-portal-sticky-chrome] .portal-main-inner:has(> [data-slot="portal-page-shell"] > [data-slot="page-header"]),
+  html[data-communication-surface] .portal-main-inner:has(> [data-slot="portal-page-shell"] > [data-slot="page-header"]) {
+    overflow: visible;
+  }
+  /* Communication's panes carry lg:-mx-8 to meet the column edges; the inbox wrapper
+     clipped them to the padded column, cutting "Active", the work-number box and the
+     right pane's edge. <main> still bounds them. */
+  html[data-communication-surface] .portal-communication-inbox:not(.portal-resident-detail-inbox) {
+    overflow: visible;
+  }
+}
+@media (max-width: 1023px) {
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]),
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]) {
+    margin-inline: -1rem;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) .portal-list-page-scroll {
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+  }
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > [data-slot="portal-record-list-surface"],
+  [data-slot="portal-page-shell"]:has(> div > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-page-chrome > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded]), > div > .portal-list-page-scroll > [data-slot="portal-list-control-stack"][data-variant="command"]:not([data-embedded])) > div > .portal-list-page-scroll > [data-slot="portal-record-list-surface"] {
+    margin-inline: -1rem;
+  }
+}
+
+/* Loading skeleton shimmer: rows on the page itself, no spinner. */
+.portal-skel {
+  background: linear-gradient(90deg, #f0f2f5, #f7f8fa, #f0f2f5);
+  background-size: 200% 100%;
+  animation: portal-skel-shimmer 1.2s infinite;
+}
+@keyframes portal-skel-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-skel {
+    animation: none;
+  }
+}
+html[data-theme="dark"] .portal-skel {
+  background: linear-gradient(90deg, #16181b, #1c1f23, #16181b);
+  background-size: 200% 100%;
+}
+
+/* Record pages: the header band (back chevron, tile, title, icons) runs edge to
+   edge under the shell's top strip like the list header, keeping the page's own
+   gutter so its text lines up with the cards below. */
+@media (min-width: 1024px) {
+  #portal-main-content header.portal-detail-header:not([data-bare]) {
+    margin: -2rem -2rem 0;
+    padding-inline: 2rem;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  #portal-main-content header.portal-detail-header:not([data-bare]) {
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+  }
+}
+
+/*
+ * "View as" support session (read-only). The server refuses every write; this
+ * only makes that visible. The banner (view-as-banner.tsx) stamps data-view-as
+ * on <html> and turns any attempted write into a "Read-only" notice.
+ */
+html[data-view-as] input[type="file"],
+html[data-view-as] button[type="submit"],
+html[data-view-as] [data-view-as-write] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+html[data-view-as] input[type="file"] {
+  pointer-events: none;
 }

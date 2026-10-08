@@ -7,9 +7,10 @@ import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 
 /**
  * Vendor texting, manager side (Oct 6): a roster vendor is a valid text
- * recipient at THEIR OWN saved phone; the Vendors list row and the vendor record
- * get a Text action that opens New message on that vendor; the "I work with this
- * vendor" box appears only when the server says the first text still needs it.
+ * recipient at THEIR OWN saved phone, reached through New message's Text
+ * channel (the separate Text buttons on the Vendors row and record header were
+ * removed); the "I work with this vendor" box appears only when the server says
+ * the first text still needs it.
  */
 const modal = readFileSync("src/components/portal/pro-communication-compose-modal.tsx", "utf8");
 const vendorsPanel = readFileSync("src/components/portal/pro-vendors-panel.tsx", "utf8");
@@ -90,11 +91,11 @@ describe("the New message modal texts a vendor at its own phone", () => {
 });
 
 describe("the entry points", () => {
-  it("the Vendors list row's ⋯ menu and the vendor record header carry Text, only with a phone and the SMS UI on", () => {
-    expect(vendorsPanel).toContain('data-attr="vendor-row-text"');
-    expect(vendorsPanel).toMatch(/smsUiEnabled && phone/);
-    expect(vendorsPanel).toMatch(/smsUiEnabled && Boolean\(routeVendor\.phone\.trim\(\)\)/);
-    expect(vendorsPanel).toContain('actionId === "text"');
+  it("the Vendors list row's ⋯ menu and the vendor record header carry no Text; texting is a channel of New message", () => {
+    expect(vendorsPanel).not.toContain('data-attr="vendor-row-text"');
+    expect(vendorsPanel).not.toContain('actionId === "text"');
+    expect(vendorsPanel).not.toContain("textVendor");
+    expect(modal).toContain("smsUiEnabled");
   });
 });
 

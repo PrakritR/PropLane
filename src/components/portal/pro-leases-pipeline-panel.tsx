@@ -594,7 +594,6 @@ export function ManagerLeasesPipelinePanel({
           signingReminderBusy={reminderBusyForRow === row.id}
           onDelete={row.status !== "Fully Signed" ? () => onDeleteLease(row) : undefined}
           onSendToResident={() => onSendToResident(row)}
-          shareRecordId={row.id}
           sendToResidentDisabled={false}
           onMoveToManagerReview={() => onMoveToManagerReview(row)}
           canEditDocument={leaseAllowsManagerDocumentEdits(row)}
@@ -900,7 +899,6 @@ export function ManagerLeasesPipelinePanel({
             onDeleteLease(editLeaseRow);
             setEditLeaseRowId(null);
           }}
-          showShare={hasLeaseDocument(editLeaseRow)}
           showRegenerate={leaseAllowsManagerDocumentEdits(editLeaseRow)}
           regenerateLabel={
             hasLeaseDocument(editLeaseRow) ? "Regenerate" : "Generate lease"

@@ -9,6 +9,11 @@
 export type NativePlatform = "ios" | "android" | "web";
 export type PushPermission = "granted" | "denied" | "prompt" | "unsupported";
 
+/** A "View as" support session never registers a device: the token would attach to the viewed account. */
+function viewingAs(): boolean {
+  return typeof document !== "undefined" && document.documentElement.hasAttribute("data-view-as");
+}
+
 let listenersAttached = false;
 let cachedToken: { value: string; platform: string } | null = null;
 
@@ -26,6 +31,7 @@ export async function getNativeInfo(): Promise<{ isNative: boolean; platform: Na
 }
 
 async function saveToken(token: string, platform: string): Promise<void> {
+  if (viewingAs()) return;
   try {
     await fetch("/api/native/register-push-token", {
       method: "POST",
@@ -74,6 +80,7 @@ export async function getPushPermission(): Promise<PushPermission> {
  * fresh without nagging everyone else.
  */
 export async function registerPushIfGranted(): Promise<void> {
+  if (viewingAs()) return;
   const { isNative, platform } = await getNativeInfo();
   if (!isNative) return;
   const { PushNotifications } = await import("@capacitor/push-notifications");
@@ -89,6 +96,7 @@ export async function registerPushIfGranted(): Promise<void> {
  * pattern for good UX and App Store review.
  */
 export async function requestPushPermission(): Promise<PushPermission> {
+  if (viewingAs()) return "prompt";
   const { isNative, platform } = await getNativeInfo();
   if (!isNative) return "unsupported";
   const { PushNotifications } = await import("@capacitor/push-notifications");

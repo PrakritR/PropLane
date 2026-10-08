@@ -6,7 +6,7 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 /**
  * PRP-350 — manager dashboard phone tap targets must be ≥44px tall (min-h-11).
- * Month chips, "View all" overflow links, and the messaging-setup banner link
+ * Month chips, attention-group links, and the messaging-setup banner link
  * were measured at 15–23px on a 390px phone.
  */
 describe("PRP-350 dashboard phone tap targets", () => {
@@ -24,14 +24,16 @@ describe("PRP-350 dashboard phone tap targets", () => {
     expect(rangeBtn).toContain("min-w-11");
   });
 
-  it("pads attention-group View all links on manager and resident dashboards", () => {
-    for (const file of [
-      "src/components/portal/pro-dashboard.tsx",
-      "src/components/portal/resident-dashboard.tsx",
-    ]) {
+  it("pads the attention-group header → link on manager and resident dashboards; no second View all link", () => {
+    for (const [file, attr] of [
+      ["src/components/portal/pro-dashboard.tsx", "dashboard-attention-link"],
+      ["src/components/portal/resident-dashboard.tsx", "resident-dashboard-attention-link"],
+    ] as const) {
       const src = read(file);
-      expect(src).toContain('data-attr="dashboard-attention-view-all"');
-      expect(src).toMatch(/dashboard-attention-view-all[\s\S]*min-h-11/);
+      expect(src).toContain(`data-attr="${attr}"`);
+      expect(src).toMatch(new RegExp(`${attr}[\\s\\S]*min-h-11`));
+      expect(src).not.toContain("dashboard-attention-view-all");
+      expect(src).not.toMatch(/View all/);
     }
   });
 

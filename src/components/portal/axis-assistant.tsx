@@ -25,11 +25,13 @@ import {
   AssistantMessageList,
   AssistantPanelHeader,
   MANAGER_ASSISTANT_ENDPOINT,
+  RESIDENT_ASSISTANT_ENDPOINT,
   VENDOR_ASSISTANT_ENDPOINT,
 } from "@/components/portal/assistant-panel-chrome";
 import {
   AssistantPendingActionCard,
   AxisAssistantSparkleIcon,
+  RESIDENT_ASSISTANT_SUGGESTIONS,
   VENDOR_ASSISTANT_SUGGESTIONS,
 } from "@/components/portal/assistant-shared";
 import {
@@ -189,7 +191,6 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
     setError,
     send,
     resolvePendingAction,
-    reset,
     threads,
     activeThreadId,
     historyOpen,
@@ -197,7 +198,6 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
     historyError,
     historySearch,
     hasMoreHistory,
-    multiThread,
     openHistory,
     closeHistory,
     searchHistory,
@@ -218,6 +218,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
   const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
   const keyboardOpen = keyboardInset > 0;
   const isVendorAssistant = endpoint === VENDOR_ASSISTANT_ENDPOINT;
+  const isResidentAssistant = endpoint === RESIDENT_ASSISTANT_ENDPOINT;
 
   useEffect(() => {
     if (!open) {
@@ -277,11 +278,6 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
     });
   }, []);
 
-  function resetConversation() {
-    reset();
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }
-
   // Keep the scripted-prompt sender pointing at the latest closure (updated
   // after each render so it captures current messages/loading state).
   useEffect(() => {
@@ -305,7 +301,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
       : undefined;
 
   const assistantPanelClassName = cn(
-    "axis-assistant-panel glass-card fixed z-[66] flex h-[min(38rem,calc(100dvh-7.5rem))] flex-col overflow-hidden border border-primary/15 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45),0_0_0_1px_rgba(47,107,255,0.08)] backdrop-blur-xl outline-none",
+    "axis-assistant-panel fixed z-[66] flex h-[min(38rem,calc(100dvh-7.5rem))] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-pop)] outline-none",
     keyboardOpen && "axis-assistant-panel--keyboard",
   );
 
@@ -333,48 +329,40 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
             titleId="axis-assistant-title"
             onClose={closePanel}
             onPinToRail={dockable ? pinToRail : undefined}
-            showHistory={multiThread}
             onOpenHistory={openHistory}
-            showNew={multiThread || hasConversation}
             onNew={() => {
-              if (multiThread) {
-                void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-              } else {
-                resetConversation();
-              }
+              void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
             }}
             className="[html[data-native]_&]:py-1.5"
           />
 
           <AssistantSmsTestControl />
 
-          {multiThread ? (
-            <AssistantChatHistoryPanel
-              open={historyOpen}
-              threads={threads}
-              activeThreadId={activeThreadId}
-              onSelect={selectThread}
-              onDelete={deleteThread}
-              onNewChat={() => {
-                void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-              }}
-              onClose={closeHistory}
-              loading={historyLoading}
-              error={historyError}
-              searchQuery={historySearch}
-              hasMore={hasMoreHistory}
-              onRetry={openHistory}
-              onLoadMore={loadMoreHistory}
-              onSearchQueryChange={searchHistory}
-              portalContainer={historyPortal}
-            />
-          ) : null}
+          <AssistantChatHistoryPanel
+            open={historyOpen}
+            threads={threads}
+            activeThreadId={activeThreadId}
+            onSelect={selectThread}
+            onDelete={deleteThread}
+            onNewChat={() => {
+              void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
+            }}
+            onClose={closeHistory}
+            loading={historyLoading}
+            error={historyError}
+            searchQuery={historySearch}
+            hasMore={hasMoreHistory}
+            onRetry={openHistory}
+            onLoadMore={loadMoreHistory}
+            onSearchQueryChange={searchHistory}
+            portalContainer={historyPortal}
+          />
 
           {hideEmptyChrome ? null : (
             <div
               ref={scrollRef}
               className={cn(
-                "flex flex-col overflow-y-auto px-3 py-3 [html[data-native]_&]:py-2",
+                "flex flex-col overflow-y-auto px-[18px] py-3.5 [html[data-native]_&]:py-2",
                 hasConversation ? "min-h-0 flex-1" : "min-h-0 flex-1 [html[data-native]_&]:flex-none",
               )}
             >
@@ -391,7 +379,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
                   disabled={loading}
                   hideChips={keyboardOpen}
                   className="[html[data-native]_&]:flex-none"
-                  suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : undefined}
+                  suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : isResidentAssistant ? RESIDENT_ASSISTANT_SUGGESTIONS : undefined}
                 />
               ) : (
                 <AssistantMessageList
@@ -414,7 +402,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
               e.preventDefault();
               void send();
             }}
-            className="shrink-0 border-t border-border/60 bg-background/60 px-3 pb-3 pt-3 backdrop-blur-sm [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom))]"
+            className="shrink-0 bg-card px-3.5 pb-3.5 pt-2.5 [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom))]"
           >
             {pendingAction ? (
               <AssistantPendingActionCard
@@ -431,7 +419,7 @@ function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOIN
               onAttachmentError={(message) => setError(message)}
               loading={loading}
               inputRef={inputRef}
-              placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : "Ask about your portfolio…"}
+              placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : isResidentAssistant ? "Ask about your home…" : "Ask about your portfolio…"}
               allowAttachments={!smsTestActive}
               onSend={() => void send()}
             />
@@ -454,6 +442,7 @@ export function AxisAssistant({
   endpoint,
   smsTestPortal,
   dockable = false,
+  disabled = false,
   children,
 }: {
   managerName?: string | null;
@@ -473,6 +462,12 @@ export function AxisAssistant({
    * pin control that leads nowhere.
    */
   dockable?: boolean;
+  /**
+   * Mount nothing: no launcher, no panel, no capability lookup. A "View as"
+   * support session sets this, because the assistant acts as the signed-in
+   * account and every agent route is a write the session may not make.
+   */
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const { userId, ready: authReady } = useManagerUserId();
@@ -532,7 +527,7 @@ export function AxisAssistant({
   const [smsCapabilityAttempt, setSmsCapabilityAttempt] = useState(0);
 
   useEffect(() => {
-    if (!smsTestPortal || !authReady || !userId || isDemoModeActive()) return;
+    if (disabled || !smsTestPortal || !authReady || !userId || isDemoModeActive()) return;
     const controller = new AbortController();
     const isCurrent = () => !controller.signal.aborted
       && propertyCatalogScopeKey() === catalogScopeKey;
@@ -579,7 +574,7 @@ export function AxisAssistant({
       })
       .finally(() => update({ loading: false }));
     return () => controller.abort();
-  }, [authReady, userId, catalogScopeKey, capabilityScopeKey, smsCapabilityAttempt, smsTestPortal]);
+  }, [authReady, disabled, userId, catalogScopeKey, capabilityScopeKey, smsCapabilityAttempt, smsTestPortal]);
 
   const smsTestEndpoint = smsTestPortal
     ? `/api/agent/sms-test?portal=${smsTestPortal}${smsState.targetId ? `&targetListingId=${encodeURIComponent(smsState.targetId)}` : ""}`
@@ -609,6 +604,8 @@ export function AxisAssistant({
         },
       }
     : undefined;
+
+  if (disabled) return <>{children}</>;
 
   return (
     <PortalAssistantConfigProvider endpoint={activeEndpoint} managerName={managerName ?? null} smsTest={smsTestConfig}>

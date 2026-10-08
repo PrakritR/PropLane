@@ -74,14 +74,26 @@ describe("/api/vendor/profile contact fields", () => {
 
   it("GET returns canonical contact fields from profiles", async () => {
     mockVendorAuth();
-    const { client } = mockDb({ phone: "+12065551234", preferred_language: "es", sms_consent_at: "2026-07-01T00:00:00Z" });
+    const { client } = mockDb({
+      phone: "+12065551234",
+      preferred_language: "es",
+      sms_consent_at: "2026-07-01T00:00:00Z",
+      phone_verified_at: "2026-07-02T00:00:00Z",
+    });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
 
-    const { status, data } = await parseJsonResponse<{ contact: { phone: string; preferredLanguage: string; smsConsent: boolean } }>(
+    const { status, data } = await parseJsonResponse<{
+      contact: { phone: string; preferredLanguage: string; smsConsent: boolean; phoneVerifiedAt: string | null };
+    }>(
       await GET(),
     );
     expect(status).toBe(200);
-    expect(data.contact).toEqual({ phone: "+12065551234", preferredLanguage: "es", smsConsent: true });
+    expect(data.contact).toEqual({
+      phone: "+12065551234",
+      preferredLanguage: "es",
+      smsConsent: true,
+      phoneVerifiedAt: "2026-07-02T00:00:00Z",
+    });
   });
 
   it("PATCH rejects an unnormalizable phone with 400 and writes nothing", async () => {

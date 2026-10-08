@@ -1,5 +1,8 @@
 import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { viewAsOfUser } from "@/lib/auth/view-as-user";
+import type { ActiveViewAs } from "@/lib/auth/view-as.server";
 import { isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
 import { describeAuthRejection } from "@/lib/auth/session-rejection";
 
@@ -44,7 +47,12 @@ function normalizeProfileRow(data: Record<string, unknown>, fallbackUserId: stri
 }
 
 export const getServerSessionProfile = cache(
-  async (): Promise<{ user: { id: string; email?: string | null } | null; profile: ServerProfile | null }> => {
+  async (): Promise<{
+    user: { id: string; email?: string | null } | null;
+    profile: ServerProfile | null;
+    /** Set only while a verified "View as" session resolves this request as the viewed account. */
+    viewAs?: ActiveViewAs | null;
+  }> => {
     try {
       const supabase = await createSupabaseServerClient();
       const {
@@ -66,8 +74,14 @@ export const getServerSessionProfile = cache(
       if (!user) return { user: null, profile: null };
 
       let profile: ServerProfile | null = null;
+      // `createSupabaseServerClient` marks the synthetic user it returns while a
+      // verified "View as" session is open (structural check: no import to mock).
+      const viewAs = viewAsOfUser(user);
       try {
-        const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+        // While viewing, the session client is still the operator's: RLS would answer
+        // for them. The viewed account's profile is read with the service role.
+        const reader = viewAs ? createSupabaseServiceRoleClient() : supabase;
+        const { data, error } = await reader.from("profiles").select("*").eq("id", user.id).maybeSingle();
         if (!error && data && typeof data === "object") {
           profile = normalizeProfileRow(data as Record<string, unknown>, user.id);
         }
@@ -78,6 +92,7 @@ export const getServerSessionProfile = cache(
       return {
         user: { id: user.id, email: user.email },
         profile,
+        ...(viewAs ? { viewAs } : {}),
       };
     } catch {
       return { user: null, profile: null };

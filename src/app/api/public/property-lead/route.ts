@@ -3,6 +3,7 @@ import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
 import { resolveListingCtaSmsPhone } from "@/lib/listing-cta-phone.server";
 import { publicListingProjection, resolvePublicSigningContext } from "@/lib/public-listings.server";
+import { resolveListingAttributionByOwnerWorkspace } from "@/lib/listing-attribution.server";
 import { loadLeasingPipelineState } from "@/lib/leasing-pipeline-preferences";
 import { normalizeWorkspaceApplicationFormTemplate } from "@/lib/rental-application/workspace-application-form";
 import { resolveListingCtaEmail } from "@/lib/listing-cta-email.server";
@@ -130,13 +131,22 @@ export async function GET(req: Request) {
       }
     }
 
+    // Same "Listed with PropLane" decision as the catalog: always on for Free, a workspace setting above it.
+    let showAttribution = false;
+    if (data.manager_user_id) {
+      const attribution = await resolveListingAttributionByOwnerWorkspace(db, [
+        { ownerUserId: data.manager_user_id, workspaceId: data.workspace_id ?? null },
+      ]);
+      showAttribution = attribution.get(`${data.manager_user_id}:${data.workspace_id ?? ""}`) ?? false;
+    }
+
     // Public per-property detail: CDN-cacheable, same for everyone. Same
     // allowlist as the catalog — this route reaches the SAME stored blob from
     // the SAME anonymous audience, so a projection on only one of the two is
     // trivially bypassed by asking for the property by id.
     return NextResponse.json(
       {
-        property: publicListingProjection(resolved, workspaceForm, signingContext),
+        property: publicListingProjection(resolved, workspaceForm, signingContext, showAttribution),
         ...(scope.kind === "active" ? { testWorkspaceId: scope.workspaceId } : {}),
       },
       { headers: scope.kind === "active"

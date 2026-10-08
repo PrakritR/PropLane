@@ -31,6 +31,7 @@ import {
   publishInstagramPhoto,
   publishMetaPagePhoto,
 } from "@/lib/listing-channels/meta/graph.server";
+import { resolveWorkspaceListingAttribution } from "@/lib/listing-attribution.server";
 import { asProperty, publicListingProjection } from "@/lib/public-listings.server";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
@@ -167,6 +168,7 @@ export async function syncListingChannelsForProperty(
   const contact = await resolveListingPostContact(db, listing.managerUserId, listing.workspaceId);
   const reasons = holdReasons(listing.projected, contact);
   const origin = resolveEmailLinkBaseUrl();
+  const { show: attribution } = await resolveWorkspaceListingAttribution(db, listing.managerUserId, listing.workspaceId);
   const photo = listingPostPhotoUrls(listing.projected)[0];
   const base = { manager_user_id: listing.managerUserId, workspace_id: listing.workspaceId, property_id: propertyId };
 
@@ -188,7 +190,7 @@ export async function syncListingChannelsForProperty(
       continue;
     }
 
-    const built = buildListingPostText({ property: listing.projected, origin, contact, channel });
+    const built = buildListingPostText({ property: listing.projected, origin, contact, channel, attribution });
     if (!built.ok) continue;
     const hash = listingPostContentHash(built.text, photo);
     if (posted && row?.content_hash === hash) continue;
@@ -244,7 +246,8 @@ async function runRow(db: SupabaseClient, row: PostRow): Promise<void> {
     if (reasons.length > 0) {
       return finishRow(db, row.id, { state: "held", pending_action: null, last_error: reasons.join(",") });
     }
-    const built = buildListingPostText({ property: listing.projected, origin: resolveEmailLinkBaseUrl(), contact, channel });
+    const { show: attribution } = await resolveWorkspaceListingAttribution(db, listing.managerUserId, listing.workspaceId);
+    const built = buildListingPostText({ property: listing.projected, origin: resolveEmailLinkBaseUrl(), contact, channel, attribution });
     const photo = listingPostPhotoUrls(listing.projected)[0];
     if (!built.ok || !photo) {
       return finishRow(db, row.id, { state: "held", pending_action: null, last_error: "no_photo" });

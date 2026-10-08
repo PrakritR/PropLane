@@ -273,7 +273,7 @@ export async function renderPortalSectionWith(
     ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
-    AdminBugFeedbackClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
+    AdminBugFeedbackClient, AdminHealthClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
@@ -637,10 +637,12 @@ export async function renderPortalSectionWith(
   }
 
   if (kind === "admin" && section === "axis-users") {
-    // An account row's record page is `/admin/axis-users/<kind>-<id>` (C165).
-    if ((tabParts?.length ?? 0) > 1) notFound();
+    // An account row's record page is `/admin/axis-users/<kind>-<id>` (C165), and
+    // each rail section of that record is one more segment: `/<kind>-<id>/billing`.
+    if ((tabParts?.length ?? 0) > 2) notFound();
     const detailId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
-    return <AdminAxisUsersClient detailId={detailId} />;
+    const detailSection = tabParts && tabParts.length > 1 ? decodeURIComponent(tabParts[1]!) : undefined;
+    return <AdminAxisUsersClient detailId={detailId} detailSection={detailSection} />;
   }
 
   // A branch handling the admin "billing" section used to live here — dead
@@ -710,6 +712,11 @@ export async function renderPortalSectionWith(
     notFound();
   }
 
+  if (kind === "admin" && section === "health") {
+    if (tabParts?.length) notFound();
+    return <AdminHealthClient />;
+  }
+
   if (kind === "admin" && section === "bugs-feedback") {
     if (tabParts?.length) notFound();
     return <AdminBugFeedbackClient />;
@@ -739,7 +746,7 @@ export async function renderPortalSectionWith(
       const vendorTab = tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const ManagerVendorsPanel = await loadManagerVendorsPanel();
       return subscriptionGated(
-        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} smsUiEnabled={isSmsCommUiEnabled()} />,
+        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} />,
         kind,
         "vendors",
         managerOwnerSubscriptionTier,

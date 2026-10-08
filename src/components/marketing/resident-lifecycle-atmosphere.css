@@ -1,0 +1,93 @@
+.rlp-atmosphere {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 53% 48% at 49% 29%, #fbfdff 7%, #f3f8fd 75%, transparent 100%),
+    radial-gradient(ellipse 44% 56% at -4% 65%, #bad3e9 0%, transparent 100%),
+    radial-gradient(ellipse 42% 64% at 103% 59%, #afcde5 0%, transparent 100%),
+    linear-gradient(180deg, #edf4fb 0%, #e5f0fa 52%, #d5e6f3 100%);
+}
+
+.rlp-atmosphere::before,
+.rlp-atmosphere::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.rlp-atmosphere::before {
+  background:
+    radial-gradient(ellipse 31% 25% at 14% 60%, #8fb9d65c, transparent 100%),
+    radial-gradient(ellipse 40% 35% at 91% 55%, #83aed05c, transparent 100%),
+    radial-gradient(ellipse 64% 22% at 50% 91%, #afcde449, transparent 100%);
+  filter: blur(36px);
+}
+
+.rlp-atmosphere::after {
+  background: linear-gradient(180deg, transparent 70%, #f5f9fdb3 100%);
+}
+
+.rlp-atmosphere canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+/* The canvas sits in a holder: the whole box in the hero variant, a viewport-tall sticky strip down the page. */
+.rlp-atmosphere-holder {
+  position: absolute;
+  inset: 0;
+}
+
+/* Home page (captain 2026-10-07): one continuous wavy background behind every section. The soft
+   color field is the page frame's own background (so it also runs behind the top bar and the
+   footer); the wavy lines and particles are one viewport-tall canvas that stays put while it scrolls. */
+.axis-page-frame:has(.home-wavy) {
+  background-color: #e9f2fa;
+  background-image:
+    radial-gradient(ellipse 62% 560px at 50% 320px, #fbfdff 0%, #f3f8fd 52%, transparent 100%),
+    radial-gradient(ellipse 36% 500px at -6% 38%, #c6dcee 0%, transparent 100%),
+    radial-gradient(ellipse 36% 500px at 106% 70%, #bdd6ea 0%, transparent 100%),
+    linear-gradient(180deg, #edf4fb 0%, #e5f0fa 100%);
+  background-size: 100% 960px, 100% 1700px, 100% 1700px, 100% 100%;
+  background-repeat: no-repeat, repeat-y, repeat-y, no-repeat;
+}
+.axis-page-frame:has(.home-wavy) footer {
+  background: transparent;
+  border-top-color: rgba(120, 150, 185, 0.28);
+}
+.home-wavy {
+  position: relative;
+  isolation: isolate;
+  margin-top: -56px;
+  padding-top: 56px;
+}
+.home-wavy section {
+  background-color: transparent;
+}
+/* Brand-blue text keeps AA (4.5:1) on the soft blue field, which the stock blue only just misses (the product windows inside keep the product's own blue). */
+.home-wavy .text-primary:not(.rlp-workspace *, .pm-window *, .rl-phone-wrap *) {
+  color: #1a47bd;
+}
+.rlp-atmosphere--page {
+  z-index: -1;
+  overflow: clip;
+  background: none;
+}
+.rlp-atmosphere--page::before,
+.rlp-atmosphere--page::after {
+  display: none;
+}
+.rlp-atmosphere--page .rlp-atmosphere-holder {
+  position: sticky;
+  top: 0;
+  width: 100%;
+  height: 100svh;
+}

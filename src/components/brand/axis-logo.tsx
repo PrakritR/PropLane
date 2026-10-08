@@ -73,6 +73,31 @@ export function AxisLogoGlyph({
   );
 }
 
+/**
+ * The PropLane house mark as a drop-in icon component (`className` sizes and
+ * colours it via `currentColor`), for icon slots that take a `LucideIcon`-shaped
+ * component such as `IntegrationRow` / `PortalRowIconTile`. Use this wherever a
+ * row, chip or avatar stands for PropLane itself - never a lucide Send/Plane.
+ */
+export function ProPlaneMarkIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={`block shrink-0 ${className}`}
+      viewBox={`0 0 ${PROPLANE_MARK_VIEWBOX_SIZE} ${PROPLANE_MARK_VIEWBOX_SIZE}`}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      shapeRendering="geometricPrecision"
+      aria-hidden
+    >
+      <g stroke="currentColor" fill="none" strokeWidth={PROPLANE_MARK_STROKE_WIDTH} strokeLinecap="round" strokeLinejoin="round">
+        {PROPLANE_MARK_PATHS.map((d) => (
+          <path key={d} d={d} />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 /** Primary PropLane mark — crisp gradient tile + SVG glyph. */
 export function AxisLogoMark({
   className = "",

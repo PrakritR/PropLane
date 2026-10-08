@@ -162,7 +162,11 @@ baths, rooms, a few quick facts, the first sentences of the overview, the
 public listing link) plus the workspace **work number and work email**
 (`resolveActiveManagerSendNumber` / `resolveActiveManagerWorkEmail`, server
 side, never the stored blob's copy). **No work number: nothing is built**, the
-row says "Set up work number". Each channel trims the body to its own limit and
+row says "Set up work number". The same holds for the Zillow feed (a listing
+with no work number is excluded with reason `no_work_number`) and for flyer /
+promotion text (`promotionWorkContactLine`: work number plus work email, empty
+without a number, never PropLane's support line or a personal phone). Pinned
+across every channel by `tests/unit/listing-posts-work-number.test.ts`. Each channel trims the body to its own limit and
 never cuts the link or contact lines.
 
 ### Eligibility: held with a reason, never a placeholder

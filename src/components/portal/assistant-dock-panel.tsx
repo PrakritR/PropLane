@@ -10,11 +10,13 @@ import {
   AssistantMessageList,
   AssistantPanelHeader,
   MANAGER_ASSISTANT_ENDPOINT,
+  RESIDENT_ASSISTANT_ENDPOINT,
   VENDOR_ASSISTANT_ENDPOINT,
 } from "@/components/portal/assistant-panel-chrome";
 import {
   AssistantPendingActionCard,
   AssistantResolvedActionFlash,
+  RESIDENT_ASSISTANT_SUGGESTIONS,
   VENDOR_ASSISTANT_SUGGESTIONS,
 } from "@/components/portal/assistant-shared";
 import { useOptionalAssistantConversation } from "@/lib/axis-assistant/assistant-conversation-context";
@@ -70,7 +72,6 @@ export function AssistantDockPanel({
     setError,
     send,
     resolvePendingAction,
-    reset,
     threads,
     activeThreadId,
     historyOpen,
@@ -78,7 +79,6 @@ export function AssistantDockPanel({
     historyError,
     historySearch,
     hasMoreHistory,
-    multiThread,
     openHistory,
     closeHistory,
     searchHistory,
@@ -111,6 +111,7 @@ export function AssistantDockPanel({
   const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
   const hint = contextHint?.trim() || null;
   const isVendorAssistant = endpoint === VENDOR_ASSISTANT_ENDPOINT;
+  const isResidentAssistant = endpoint === RESIDENT_ASSISTANT_ENDPOINT;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -139,7 +140,7 @@ export function AssistantDockPanel({
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-primary/15 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)]",
+        "flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-border bg-card",
         className,
       )}
       data-attr="assistant-dock-panel"
@@ -147,46 +148,37 @@ export function AssistantDockPanel({
       <AssistantPanelHeader
         onClose={onClose}
         closeDataAttr="modal-assistant-close"
-        showHistory={multiThread}
         onOpenHistory={openHistory}
-        showNew={multiThread || hasConversation}
         onNew={() => {
-          if (multiThread) {
-            void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-          } else {
-            reset();
-            requestAnimationFrame(() => inputRef.current?.focus());
-          }
+          void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
         }}
       />
 
       <AssistantSmsTestControl />
 
       <div ref={setHistoryPortal} className="relative flex min-h-0 flex-1 flex-col">
-        {multiThread ? (
-          <AssistantChatHistoryPanel
-            open={historyOpen}
-            threads={threads}
-            activeThreadId={activeThreadId}
-            onSelect={selectThread}
-            onDelete={deleteThread}
-            onNewChat={() => {
-              void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-            }}
-            onClose={closeHistory}
-            loading={historyLoading}
-            error={historyError}
-            searchQuery={historySearch}
-            hasMore={hasMoreHistory}
-            onRetry={openHistory}
-            onLoadMore={loadMoreHistory}
-            onSearchQueryChange={searchHistory}
-            portalContainer={historyPortal}
-          />
-        ) : null}
+        <AssistantChatHistoryPanel
+          open={historyOpen}
+          threads={threads}
+          activeThreadId={activeThreadId}
+          onSelect={selectThread}
+          onDelete={deleteThread}
+          onNewChat={() => {
+            void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
+          }}
+          onClose={closeHistory}
+          loading={historyLoading}
+          error={historyError}
+          searchQuery={historySearch}
+          hasMore={hasMoreHistory}
+          onRetry={openHistory}
+          onLoadMore={loadMoreHistory}
+          onSearchQueryChange={searchHistory}
+          portalContainer={historyPortal}
+        />
       <div
         ref={scrollRef}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-[18px] py-3.5"
       >
         {!hasConversation && smsTestActive ? (
           <p className="m-auto max-w-sm rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-center text-xs leading-relaxed text-muted">
@@ -201,7 +193,7 @@ export function AssistantDockPanel({
             showQueue={endpoint === MANAGER_ASSISTANT_ENDPOINT && !hint && !composerHint?.trim()}
             onPick={(prompt) => void sendWithContext(prompt)}
             disabled={loading}
-            suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : undefined}
+            suggestions={isVendorAssistant ? VENDOR_ASSISTANT_SUGGESTIONS : isResidentAssistant ? RESIDENT_ASSISTANT_SUGGESTIONS : undefined}
           />
         ) : (
           <AssistantMessageList messages={visibleMessages} ratings={ratings} onRate={submitFeedback} loading={loading} />
@@ -216,7 +208,7 @@ export function AssistantDockPanel({
           void sendWithContext();
         }}
         className={cn(
-          "shrink-0 border-t border-border/60 bg-card px-3 pb-3 pt-3",
+          "shrink-0 bg-card px-3.5 pb-3.5 pt-2.5",
           pinnedComposer && "sticky bottom-0 z-10",
         )}
       >
@@ -243,7 +235,7 @@ export function AssistantDockPanel({
           inputRef={inputRef}
           inputId={inputId}
           inputAriaLabel="Ask the PropLane Assistant about your portfolio"
-          placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : "Ask about your portfolio…"}
+          placeholder={smsTestActive ? "Type an SMS message…" : isVendorAssistant ? "Ask about your jobs…" : isResidentAssistant ? "Ask about your home…" : "Ask about your portfolio…"}
           allowAttachments={!smsTestActive}
 
           onSend={() => void sendWithContext()}

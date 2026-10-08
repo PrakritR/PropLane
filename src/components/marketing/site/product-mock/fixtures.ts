@@ -144,12 +144,23 @@ export const APPLICATION_ROWS: ApplicationFixtureRow[] = [
     bucket: "pending",
   },
   {
-    id: "app-alder-dana",
+    id: "app-maple-dana",
     name: "Dana Reyes",
-    property: "Alder House",
-    unit: "Room 1",
+    property: "Maple Duplex",
+    unit: "Unit A",
     email: "dana.reyes@example.com",
     submitted: "Submitted Sep 12",
+    stage: "Approved",
+    screening: "passed",
+    bucket: "approved",
+  },
+  {
+    id: "app-alder-liam",
+    name: "Liam Foster",
+    property: "Alder House",
+    unit: "Room 1",
+    email: "liam.foster@example.com",
+    submitted: "Submitted Aug 18",
     stage: "Approved",
     screening: "passed",
     bucket: "approved",
@@ -208,6 +219,24 @@ export type LeaseFixtureRow = {
 };
 
 export const LEASE_ROWS: LeaseFixtureRow[] = [
+  {
+    id: "lease-willow-priya",
+    resident: "Priya Nair",
+    email: "priya.nair@example.com",
+    place: "Willow Court · Room 1",
+    stage: "Fully Signed",
+    updated: "Jun 24",
+    bucket: "completed",
+  },
+  {
+    id: "lease-willow-tomas",
+    resident: "Tomas Alvarez",
+    email: "tomas.alvarez@example.com",
+    place: "Willow Court · Room 2",
+    stage: "Fully Signed",
+    updated: "Jul 22",
+    bucket: "completed",
+  },
   {
     id: "lease-alder-liam",
     resident: "Liam Foster",
@@ -306,6 +335,15 @@ export const PAYMENT_ROWS: PaymentFixtureRow[] = [
     bucket: "overdue",
   },
   {
+    id: "charge-alder-liam-october",
+    resident: "Liam Foster",
+    chargeTitle: "October rent",
+    property: "Alder House",
+    due: "Due Oct 1",
+    amount: "$1,650.00",
+    bucket: "pending",
+  },
+  {
     id: "charge-maple-dana",
     resident: "Dana Reyes",
     chargeTitle: "October rent",
@@ -322,6 +360,36 @@ export const PAYMENT_ROWS: PaymentFixtureRow[] = [
     due: "Due Oct 1",
     amount: "$1,400.00",
     bucket: "pending",
+  },
+  {
+    id: "charge-fremont-luis-september",
+    resident: "Luis Ortega",
+    chargeTitle: "September rent",
+    property: "Fremont Studio",
+    due: "Paid Sep 1",
+    amount: "$1,400.00",
+    tone: "ok",
+    bucket: "paid",
+  },
+  {
+    id: "charge-willow-priya-september",
+    resident: "Priya Nair",
+    chargeTitle: "September rent",
+    property: "Willow Court",
+    due: "Paid Sep 1",
+    amount: "$1,120.00",
+    tone: "ok",
+    bucket: "paid",
+  },
+  {
+    id: "charge-willow-tomas-september",
+    resident: "Tomas Alvarez",
+    chargeTitle: "September rent",
+    property: "Willow Court",
+    due: "Paid Sep 1",
+    amount: "$1,100.00",
+    tone: "ok",
+    bucket: "paid",
   },
   {
     id: "charge-fremont-luis-paid",
@@ -421,6 +489,33 @@ export const SERVICE_ROWS: ServiceFixtureRow[] = [
     state: "done",
   },
   {
+    id: "wo-alder-smoke",
+    title: "Smoke detector battery",
+    kind: "maintenance",
+    resident: "Liam Foster",
+    property: "Alder House",
+    detail: "Completed Sep 9",
+    state: "done",
+  },
+  {
+    id: "wo-maple-drain",
+    title: "Slow bathroom drain",
+    kind: "maintenance",
+    resident: "Maya Chen",
+    property: "Maple Duplex",
+    detail: "Pacific Plumbing · Completed Sep 12",
+    state: "done",
+  },
+  {
+    id: "wo-fremont-disposal",
+    title: "Garbage disposal repair",
+    kind: "maintenance",
+    resident: "Luis Ortega",
+    property: "Fremont Studio",
+    detail: "Pacific Plumbing · Completed Sep 22",
+    state: "done",
+  },
+  {
     id: "req-maple-storage",
     title: "Storage unit",
     kind: "add-on",
@@ -431,41 +526,29 @@ export const SERVICE_ROWS: ServiceFixtureRow[] = [
   },
 ];
 
-/** The hero's dashboard panel — Occupancy 67%, rent collected $3,250 of
- * $6,450, three properties, "Needs attention", "Upcoming" (captain
- * 2026-09-26's exact numbers for the redesigned static hero). */
-export const DASHBOARD_KPIS = {
-  occupancy: { value: "67%", unit: "6 / 9 rooms" },
-  rentCollected: { value: "$3,250", unit: "of $6,450 due" },
-  openRequests: { value: "2", unit: "1 urgent" },
-  applicationsReady: { value: "2", unit: "2 properties" },
-};
+/** A sensible wall-clock time N days out — never a raw `Date.now()` offset,
+ * which lands on whatever minute the page happened to load
+ * (`docs/agents/lavish-plan-standard.md`'s "sensible times"). */
+export function atTime(daysFromToday: number, hour: number, minute = 0): number {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromToday);
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+}
 
+/** The dashboard's base rows. Its KPI cards and property cards are DERIVED in
+ * `world.ts` from the rows the other tabs draw (rooms, residents, charges,
+ * applications, services), never typed beside them. */
 export const DASHBOARD_ATTENTION = [
   { id: "att-app-maple", title: "Review Sample Applicant", detail: "Maple Duplex · screening flagged", actionLabel: "Review" as const, href: "#", tone: "pending" as const },
   { id: "att-wo-maple", title: "Dispatch a vendor", detail: "Maple Duplex · No hot water", actionLabel: "Review" as const, href: "#", tone: "danger" as const },
   { id: "att-lease-fremont", title: "Countersign Jamie P.'s lease", detail: "Fremont Studio · resident signed", actionLabel: "Sign" as const, href: "#", tone: "pending" as const },
 ];
 
-/** A sensible wall-clock time N days out — never a raw `Date.now()` offset,
- * which lands on whatever minute the page happened to load
- * (`docs/agents/lavish-plan-standard.md`'s "sensible times"). */
-function atTime(daysFromToday: number, hour: number, minute = 0): number {
-  const d = new Date();
-  d.setDate(d.getDate() + daysFromToday);
-  d.setHours(hour, minute, 0, 0);
-  return d.getTime();
-}
 export const DASHBOARD_UPCOMING = [
   { id: "up-tour-fremont", kind: "Tour", title: "Jamie P.", detail: "Fremont Studio", at: atTime(1, 14, 0), href: "#" },
   { id: "up-tour-alder", kind: "Tour", title: "Morgan Ito", detail: "Alder House · Room 2", at: atTime(2, 11, 0), href: "#" },
-  { id: "up-service-maple", kind: "Maintenance", title: "Pacific Plumbing", detail: "Maple Duplex", at: atTime(3, 10, 0), href: "#" },
-];
-
-export const DASHBOARD_PROPERTIES = [
-  { id: "prop-alder", title: "Alder House", address: "210 Alder St", spacesLabel: "3 rooms", rentLabel: "$1,650/mo" },
-  { id: "prop-maple", title: "Maple Duplex", address: "1412 Maple Ct", spacesLabel: "4 rooms", rentLabel: "$1,850/mo" },
-  { id: "prop-fremont", title: "Fremont Studio", address: "3301 Fremont Ave N", spacesLabel: "1 room", rentLabel: "$1,400/mo" },
+  { id: "up-service-alder", kind: "Maintenance", title: "Pacific Plumbing", detail: "Alder House", at: atTime(3, 10, 0), href: "#" },
 ];
 
 export type CommMessageFixture = {
@@ -507,14 +590,14 @@ export const COMM_CONVERSATIONS: CommConversationFixture[] = [
     ],
   },
   {
-    id: "comm-dana",
-    name: "Dana Reyes",
-    subtitle: "Maple Duplex · Resident",
+    id: "comm-liam",
+    name: "Liam Foster",
+    subtitle: "Alder House · Resident",
     preview: "Service request #1042 · Pacific Plumbing booked Thu 10–12",
     time: "8:41 AM",
     segment: "active",
     messages: [
-      { id: "m1", author: "Dana Reyes", body: "Hi, the kitchen faucet has been dripping for two days. Can someone take a look?", at: "Tue 8:41 AM", direction: "inbound", channel: "email" },
+      { id: "m1", author: "Liam Foster", body: "Hi, the kitchen faucet has been dripping for two days. Can someone take a look?", at: "Tue 8:41 AM", direction: "inbound", channel: "email" },
       { id: "m2", author: "You", body: "Service request #1042 is open — Pacific Plumbing is booked for Thursday between 10 and 12.", at: "8:50 AM", direction: "outbound", channel: "email" },
     ],
   },
@@ -526,8 +609,8 @@ export const COMM_CONVERSATIONS: CommConversationFixture[] = [
     time: "10:30 AM",
     segment: "active",
     messages: [
-      { id: "m1", author: "Pacific Plumbing", body: "Running 20 min late for Maple Duplex. Is there a gate code?", at: "Thu 9:48 AM", direction: "inbound", channel: "sms" },
-      { id: "m2", author: "You", body: "Gate code is 4471#. Dana confirmed she's home until noon.", at: "9:48 AM", direction: "outbound", channel: "sms" },
+      { id: "m1", author: "Pacific Plumbing", body: "Running 20 min late for Alder House. Is there a gate code?", at: "Thu 9:48 AM", direction: "inbound", channel: "sms" },
+      { id: "m2", author: "You", body: "Gate code is 4471#. Liam confirmed he's home until noon.", at: "9:48 AM", direction: "outbound", channel: "sms" },
       { id: "m3", author: "Pacific Plumbing", body: "The shut-off valve is corroded — bid for the fix is $90. OK to proceed?", at: "10:30 AM", direction: "inbound", channel: "sms" },
     ],
   },
@@ -548,8 +631,276 @@ export const COMM_CONVERSATIONS: CommConversationFixture[] = [
  * fixture residents only, never "Test Resident", never a "SAMPLE DATA" label
  * (integrator review, 2026-09-26). */
 export const HERO_ACTIVITY_EVENTS = [
-  { title: "Pacific Plumbing dispatched to Maple Duplex", detail: "No hot water · Thu 10–12 · resident notified", tag: "Done" },
+  { title: "Pacific Plumbing dispatched to Alder House", detail: "Kitchen faucet drip · Thu 10–12 · resident notified", tag: "Done" },
   { title: "Tour booked with Jamie P.", detail: "Fremont Studio · Sat 2:00 PM", tag: "Confirmed" },
-  { title: "Rent paid — $1,650", detail: "Liam Foster · Alder House · autopay", tag: "Paid" },
-  { title: "Application approved", detail: "Dana Reyes · Alder House", tag: "Approved" },
+  { title: "Rent paid — $1,120", detail: "Priya Nair · Willow Court · autopay", tag: "Paid" },
+  { title: "Application approved", detail: "Dana Reyes · Maple Duplex", tag: "Approved" },
+];
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * The rest of the demo's world — Properties, Residents, Calendar, Vendors for
+ * the manager, plus the resident (Jordan, Willow Court · Room 3) and the
+ * vendor (Pacific Plumbing) portals. Every row below agrees with the rows
+ * above: the same people, the same houses, the same charges and services.
+ * Counts a panel prints are derived from these rows, never typed beside them.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/** The manager the workspace belongs to. */
+export const MANAGER_NAME = "Manager";
+
+export type PropertyFixtureRow = {
+  id: string;
+  title: string;
+  street: string;
+  neighborhood: string;
+  rooms: number;
+  rentLabel: string;
+  stage: "listed" | "unlisted" | "draft";
+};
+
+export const PROPERTY_ROWS: PropertyFixtureRow[] = [
+  { id: "prop-alder", title: "Alder House", street: "210 Alder St", neighborhood: "Central District", rooms: 3, rentLabel: "$1,650/mo", stage: "listed" },
+  { id: "prop-maple", title: "Maple Duplex", street: "1412 Maple Ct", neighborhood: "Ballard", rooms: 4, rentLabel: "$1,850/mo", stage: "listed" },
+  { id: "prop-fremont", title: "Fremont Studio", street: "3301 Fremont Ave N", neighborhood: "Fremont", rooms: 1, rentLabel: "$1,400/mo", stage: "listed" },
+  // The home Jordan's story is about: Rooms 1 and 2 are leased, Room 3 is the one he asks about.
+  { id: "prop-willow", title: "Willow Court", street: "61 Willow Court", neighborhood: "Wallingford", rooms: 3, rentLabel: "$1,080/mo", stage: "listed" },
+];
+
+export type ResidentFixtureRow = {
+  id: string;
+  name: string;
+  email: string;
+  place: string;
+  /** The `M/D/YYYY` lease start the real row prints. */
+  leaseStart: string;
+  shared?: string;
+  status?: string;
+  tab: "potential" | "current" | "past";
+};
+
+const POTENTIAL_STATUS: Record<string, string> = {
+  incomplete: "Incomplete application",
+  pending: "Pending review",
+};
+
+/** Potential residents ARE the open applications — derived, so Applications and Residents never disagree. */
+const POTENTIAL_RESIDENTS: ResidentFixtureRow[] = APPLICATION_ROWS.filter(
+  (a) => a.bucket === "pending" || a.bucket === "incomplete",
+).map((a) => ({
+  id: `res-potential-${a.id}`,
+  name: a.name,
+  email: a.email,
+  place: `${a.unit} · ${a.property}`,
+  leaseStart: "10/1/2025",
+  shared: a.sharedFact,
+  status: POTENTIAL_STATUS[a.bucket],
+  tab: "potential" as const,
+}));
+
+export const RESIDENT_ROWS: ResidentFixtureRow[] = [
+  ...POTENTIAL_RESIDENTS,
+  { id: "res-liam", name: "Liam Foster", email: "liam.foster@example.com", place: "Room 1 · Alder House", leaseStart: "8/1/2025", tab: "current" },
+  { id: "res-dana", name: "Dana Reyes", email: "dana.reyes@example.com", place: "Unit A · Maple Duplex", leaseStart: "10/1/2025", tab: "current" },
+  { id: "res-maya", name: "Maya Chen", email: "maya.chen@example.com", place: "Unit B · Maple Duplex", leaseStart: "9/1/2025", tab: "current" },
+  { id: "res-priya", name: "Priya Nair", email: "priya.nair@example.com", place: "Room 1 · Willow Court", leaseStart: "7/1/2025", tab: "current" },
+  { id: "res-tomas", name: "Tomas Alvarez", email: "tomas.alvarez@example.com", place: "Room 2 · Willow Court", leaseStart: "8/1/2025", tab: "current" },
+  { id: "res-luis", name: "Luis Ortega", email: "luis.ortega@example.com", place: "Studio · Fremont Studio", leaseStart: "10/1/2025", tab: "current" },
+  { id: "res-sam", name: "Sam Chen", email: "sam.chen@example.com", place: "Unit B · Maple Duplex", leaseStart: "9/1/2024", tab: "past" },
+];
+
+export type CalendarFixtureItem = {
+  id: string;
+  kind: "tour" | "service" | "task";
+  /** `YYYY-MM-DD` — the demo week runs Mon Sep 22 – Sun Sep 28. */
+  dateStr: string;
+  startMin: number;
+  durationMin: number;
+  title: string;
+  place: string;
+  /** A tour request still waiting on the manager — drawn dashed. */
+  requested?: boolean;
+  assignee?: string;
+};
+
+export const CALENDAR_WEEK = ["2025-09-22", "2025-09-23", "2025-09-24", "2025-09-25", "2025-09-26", "2025-09-27", "2025-09-28"];
+/** Thursday, mid-morning — the "today" the grid highlights (Pacific Plumbing is on site). */
+export const CALENDAR_TODAY = "2025-09-25";
+export const CALENDAR_NOW_MIN = 10 * 60 + 35;
+
+export const CALENDAR_ITEMS: CalendarFixtureItem[] = [
+  { id: "cal-lockout", kind: "service", dateStr: "2025-09-24", startMin: 15 * 60, durationMin: 60, title: "Cascade Locksmiths", place: "Maple Duplex", assignee: "Cascade Locksmiths" },
+  { id: "cal-faucet", kind: "service", dateStr: "2025-09-25", startMin: 10 * 60, durationMin: 120, title: "Pacific Plumbing", place: "Alder House", assignee: "Pacific Plumbing" },
+  { id: "cal-countersign", kind: "task", dateStr: "2025-09-26", startMin: 9 * 60, durationMin: 30, title: "Countersign Jamie P.'s lease", place: "Fremont Studio", assignee: MANAGER_NAME },
+  { id: "cal-tour-jamie", kind: "tour", dateStr: "2025-09-27", startMin: 14 * 60, durationMin: 30, title: "Jamie P.", place: "Fremont Studio" },
+  { id: "cal-tour-noah", kind: "tour", dateStr: "2025-09-27", startMin: 16 * 60, durationMin: 30, title: "Noah Kessler", place: "Alder House" },
+  { id: "cal-tour-morgan", kind: "tour", dateStr: "2025-09-28", startMin: 11 * 60, durationMin: 30, title: "Morgan Ito", place: "Alder House", requested: true },
+];
+
+export type VendorDirectoryRow = {
+  id: string;
+  name: string;
+  trade: string;
+  phone: string;
+  email: string;
+  rank?: "Primary" | "Secondary" | "Inactive";
+  /** Present only when the vendor has reviews — printed as "4.8 (6)". */
+  rating?: string;
+};
+
+/** Pacific Plumbing's reviews — the vendor portal draws every one, and the
+ * manager's vendor row prints the rating derived from these same rows. */
+export type VendorReviewFixture = {
+  id: string;
+  stars: number;
+  body: string;
+  at: string;
+  reply?: string;
+};
+
+export const VENDOR_REVIEWS: VendorReviewFixture[] = [
+  { id: "rev-3", stars: 4, body: "Good work on the disposal. Arrived 20 minutes after the window started.", at: "Sep 22, 2025, 6:05 PM" },
+  { id: "rev-1", stars: 5, body: "Showed up in the window, fixed the drain in one visit, and left the bathroom spotless.", at: "Sep 15, 2025, 4:12 PM", reply: "Thank you, glad it's running clear." },
+  { id: "rev-2", stars: 5, body: "Clear quote up front and no surprises on the invoice.", at: "Sep 2, 2025, 11:40 AM", reply: "Appreciate it. Happy to help anytime." },
+  { id: "rev-4", stars: 5, body: "Explained what had failed and what it would cost before touching anything.", at: "Aug 28, 2025, 2:31 PM" },
+  { id: "rev-5", stars: 5, body: "Water heater flush done quickly. Would book again.", at: "Aug 20, 2025, 9:15 AM", reply: "Thanks for the kind words." },
+  { id: "rev-6", stars: 5, body: "Polite, on time, and tidy.", at: "Aug 6, 2025, 5:48 PM" },
+];
+
+export const VENDOR_RATING = {
+  count: VENDOR_REVIEWS.length,
+  average: VENDOR_REVIEWS.reduce((sum, r) => sum + r.stars, 0) / VENDOR_REVIEWS.length,
+};
+const VENDOR_RATING_LABEL = `${VENDOR_RATING.average.toFixed(1)} (${VENDOR_RATING.count})`;
+
+export const VENDOR_ROWS: VendorDirectoryRow[] = [
+  { id: "vendor-pacific", name: "Pacific Plumbing", trade: "Plumbing", phone: "(206) 555-0142", email: "office@pacificplumbing.example", rank: "Primary", rating: VENDOR_RATING_LABEL },
+  { id: "vendor-cascade", name: "Cascade Locksmiths", trade: "Locksmith", phone: "(206) 555-0177", email: "dispatch@cascadelocks.example", rank: "Secondary" },
+  { id: "vendor-evergreen", name: "Evergreen Electric", trade: "Electrical", phone: "(206) 555-0156", email: "jobs@evergreenelectric.example", rank: "Secondary" },
+  { id: "vendor-rainier", name: "Rainier Cleaning", trade: "Cleaning", phone: "(206) 555-0124", email: "hello@rainiercleaning.example", rank: "Inactive" },
+];
+
+export type CatalogVendorFixture = { id: string; name: string; trades: string; city: string; rating: string };
+export const CATALOG_VENDORS: CatalogVendorFixture[] = [
+  { id: "cat-puget-hvac", name: "Puget Sound HVAC", trades: "HVAC, Heating", city: "Seattle", rating: "4.8 (31)" },
+  { id: "cat-emerald-handyman", name: "Emerald City Handyman", trades: "Handyman, Carpentry", city: "Seattle", rating: "4.7 (22)" },
+  { id: "cat-lakeview-paint", name: "Lakeview Painting", trades: "Painting", city: "Shoreline", rating: "4.9 (17)" },
+  { id: "cat-northwest-pest", name: "Northwest Pest Control", trades: "Pest control", city: "Seattle", rating: "4.6 (40)" },
+];
+
+/** The general area an offered vendor sees before they are hired — never the street. */
+export const AREA_BY_PROPERTY: Record<string, string> = {
+  "Alder House": "Central District, Seattle",
+  "Maple Duplex": "Ballard, Seattle",
+  "Fremont Studio": "Fremont, Seattle",
+  "Willow Court": "Wallingford, Seattle",
+};
+
+/* ── Resident portal: Jordan · Willow Court · Room 3 ── */
+
+/** The prospect the whole home demo follows: asks about Room 3, tours, applies, signs, moves in. */
+/** How the resident is named in a manager's list rows: a plain first name. Their own account is RESIDENT_SELF. */
+export const RESIDENT_NAME = "Jordan";
+/** The resident's own account label in their portal and message thread (people are shown by role). */
+export const RESIDENT_SELF = "Resident";
+export const RESIDENT_EMAIL = "jordan@example.com";
+export const RESIDENT_HOME = {
+  property: "Willow Court",
+  address: "61 Willow Court",
+  room: "Room 3",
+  rent: "$1,080",
+  moveIn: "Oct 1, 2025",
+  leaseSigned: "Sep 25",
+};
+
+export type ResidentFormFixture = {
+  id: string;
+  title: string;
+  place: string;
+  fact: string;
+  blocks?: string;
+  bucket: "pending" | "completed";
+};
+/** Jordan's forms. Only `move-in details` is sent by the story (the Forms stage); the rest of the rows are decided in `world.ts`. */
+export const RESIDENT_FORMS: ResidentFormFixture[] = [
+  { id: "form-movein", title: "Move-in details", place: "Willow Court · Room 3", fact: "Due Oct 8", blocks: "Needed for move-in details", bucket: "pending" },
+  { id: "form-insurance", title: "Renters insurance proof", place: "Willow Court · Room 3", fact: "Not due yet", bucket: "pending" },
+  { id: "form-rules", title: "House rules acknowledgment", place: "Willow Court · Room 3", fact: "Submitted Sep 25", bucket: "completed" },
+];
+
+/* ── Vendor portal: Pacific Plumbing ── */
+
+export const VENDOR_NAME = "Pacific Plumbing";
+
+export type VendorServiceFixture = {
+  id: string;
+  title: string;
+  /** Property name — the area-only line is derived for jobs the vendor is not hired on yet. */
+  property: string;
+  unit?: string;
+  hired: boolean;
+  fact: string;
+  factIcon: "clock" | "sparkles" | "calendar" | "check";
+  figure?: string;
+  state: "open" | "assigned" | "scheduled" | "completed";
+};
+
+export const VENDOR_SERVICES: VendorServiceFixture[] = [
+  { id: "vsvc-hotwater", title: "No hot water", property: "Maple Duplex", hired: false, fact: "Requested by Manager · answer by Sep 26", factIcon: "sparkles", figure: "$250 budget", state: "open" },
+  { id: "vsvc-faucet", title: "Kitchen faucet drip", property: "Alder House", unit: "Room 1", hired: true, fact: "Thu, Sep 25 · 10am", factIcon: "calendar", figure: "$90", state: "scheduled" },
+  { id: "vsvc-drain", title: "Slow bathroom drain", property: "Maple Duplex", unit: "Unit B", hired: true, fact: "Paid Sep 15", factIcon: "check", figure: "$140", state: "completed" },
+  { id: "vsvc-disposal", title: "Garbage disposal repair", property: "Fremont Studio", hired: true, fact: "Invoice sent", factIcon: "check", figure: "$210", state: "completed" },
+];
+
+export type VendorPaymentFixture = {
+  id: string;
+  title: string;
+  place: string;
+  date: string;
+  status: string;
+  amount: string;
+};
+export const VENDOR_PAYMENTS: VendorPaymentFixture[] = [
+  { id: "vpay-disposal", title: "INV-1015", place: "Fremont Studio", date: "Sep 24, 2025", status: "Submitted", amount: "$210.00" },
+  { id: "vpay-drain", title: "INV-1012", place: "Maple Duplex · Unit B", date: "Sep 15, 2025", status: "Paid", amount: "$140.00" },
+  { id: "vpay-heater", title: "INV-1009", place: "Alder House", date: "Aug 28, 2025", status: "Paid", amount: "$95.00" },
+];
+
+export const VENDOR_CONVERSATIONS: CommConversationFixture[] = [
+  {
+    id: "vend-comm-avery",
+    name: MANAGER_NAME,
+    subtitle: "Seattle Homes · Manager",
+    preview: "OK to proceed with the $90 change order.",
+    time: "10:34 AM",
+    unread: true,
+    segment: "active",
+    messages: [
+      { id: "m1", author: VENDOR_NAME, body: "Running 20 min late for Alder House. Is there a gate code?", at: "Sep 25, 9:48 AM", direction: "outbound", channel: "sms" },
+      { id: "m2", author: MANAGER_NAME, body: "Gate code is 4471#. Liam confirmed he's home until noon.", at: "Sep 25, 9:48 AM", direction: "inbound", channel: "sms" },
+      { id: "m3", author: VENDOR_NAME, body: "The shut-off valve is corroded. The bid for the fix is $90. OK to proceed?", at: "Sep 25, 10:30 AM", direction: "outbound", channel: "sms" },
+      { id: "m4", author: MANAGER_NAME, body: "OK to proceed with the $90 change order.", at: "Sep 25, 10:34 AM", direction: "inbound", channel: "sms" },
+    ],
+  },
+  {
+    id: "vend-comm-invoice",
+    name: MANAGER_NAME,
+    subtitle: "Seattle Homes · INV-1012",
+    preview: "Paid. It will reach your bank in two business days.",
+    time: "Sep 15",
+    segment: "active",
+    messages: [
+      { id: "m1", author: MANAGER_NAME, body: "Paid. It will reach your bank in two business days.", at: "Sep 15, 4:30 PM", direction: "inbound", channel: "email" },
+    ],
+  },
+  {
+    id: "vend-comm-old",
+    name: MANAGER_NAME,
+    subtitle: "Seattle Homes · Manager",
+    preview: "Thanks for the quick turnaround on the disposal.",
+    time: "Sep 22",
+    segment: "archived",
+    messages: [
+      { id: "m1", author: MANAGER_NAME, body: "Thanks for the quick turnaround on the disposal.", at: "Sep 22, 5:10 PM", direction: "inbound", channel: "email" },
+    ],
+  },
 ];

@@ -1,18 +1,33 @@
 "use client";
 
 /**
- * The head of the manager dashboard after the Mobbin polish: four KPI cards
- * that each carry a direction and eight bars of history, a period selector
- * that sets their baseline, and two panels — what needs a decision now, and
- * what is coming in the next fortnight.
- *
- * References: 7shifts' "vs last Monday" stat row, Fresha's stat cards with a
- * sparkline under the figure, Zillow Rental Manager's "Upcoming tours" and
- * "Next steps" panels side by side.
+ * The head of every dashboard (manager, vendor; the resident one borrows the
+ * tile and tones): hairline KPI cards that each carry a direction and a few
+ * bars of history when the source has them, a period selector that sets their
+ * baseline, and two hairline panels — what needs a decision now, and what is
+ * coming in the next fortnight. Rows lead with a 28px tinted glyph tile, then
+ * a title, a place line and the one action that clears the row.
  */
 
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowDownRight,
+  ArrowUpRight,
+  CalendarDays,
+  ChevronRight,
+  ClipboardCheck,
+  ClipboardList,
+  FileSignature,
+  Home,
+  MapPin,
+  MessageSquare,
+  Minus,
+  Phone,
+  Wallet,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
 import { cn } from "@/lib/utils";
@@ -44,13 +59,45 @@ export function DashboardPeriodSelect({
   );
 }
 
+/* ───────────────────────── glyph tile ───────────────────────── */
+
+export type DashboardTone = "danger" | "pending" | "info" | "success";
+
+const TILE_TONE: Record<DashboardTone, string> = {
+  danger: "bg-[var(--status-overdue-bg)] text-[var(--status-overdue-fg)]",
+  pending: "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]",
+  info: "bg-[var(--status-approved-bg)] text-[var(--status-approved-fg)]",
+  success: "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]",
+};
+
+/** The 28px tinted glyph tile every dashboard row leads with (decorative). */
+export function DashboardGlyphTile({
+  icon: Icon,
+  tone = "info",
+  className,
+}: {
+  icon: LucideIcon;
+  tone?: DashboardTone;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      data-slot="dashboard-glyph-tile"
+      className={cn("grid size-7 shrink-0 place-items-center rounded-[7px]", TILE_TONE[tone], className)}
+    >
+      <Icon className="size-3.5" aria-hidden />
+    </span>
+  );
+}
+
 /* ───────────────────────── sparkline ───────────────────────── */
 
 /**
- * Eight thin bars, the last one the current period. One series, one hue; the
- * current bar is solid and the history is tinted so the eye lands on now.
- * Each bar carries its value as a title, which is the whole hover layer a
- * sparkline this small needs.
+ * Tiny bars pinned to the card's top-right corner, the last one the current
+ * period. One series, one hue; the current bar is solid and the history is
+ * tinted so the eye lands on now. Each bar carries its value as a title,
+ * which is the whole hover layer a sparkline this small needs.
  */
 export function Sparkline({
   values,
@@ -63,21 +110,20 @@ export function Sparkline({
 }) {
   const max = Math.max(1, ...values);
   return (
-    // A fixed footprint, whatever the period count: the bars share the width
-    // so twelve months never push the unit beside them into an ellipsis.
     <div
-      className="hidden h-7 w-14 shrink-0 items-end gap-[2px] sm:flex"
+      className="absolute right-3.5 top-4 hidden h-[30px] items-end gap-[2px] sm:flex"
       role="img"
       aria-label={`Last ${values.length} periods`}
+      data-slot="kpi-sparkline"
     >
       {values.map((v, i) => {
         const last = i === values.length - 1;
-        const h = Math.max(2, Math.round((v / max) * 28));
+        const h = Math.max(2, Math.round((v / max) * 30));
         return (
           <span
             key={i}
             title={`${labels[i] ?? ""}: ${format(v)}`}
-            className={cn("block min-w-0 flex-1 rounded-t-[2px]", last ? "bg-primary" : "bg-primary/25")}
+            className={cn("block w-1 rounded-[1px]", last ? "bg-primary" : "bg-primary/25")}
             style={{ height: `${h}px` }}
           />
         );
@@ -103,8 +149,9 @@ export function KpiCard({
 }: {
   label: string;
   value: string;
-  /** A small unit after the figure — "%", "/ 42". */
+  /** The line under the figure — "5 / 7", "2 properties". */
   unit?: string;
+  /** Only drawn when there is neither a `unit` line nor a delta. */
   detail?: string;
   delta?: KpiDelta | null;
   /** Eight values, oldest first. Omit when the source has no history. */
@@ -117,48 +164,38 @@ export function KpiCard({
   icon?: LucideIcon;
 }) {
   const Arrow = delta?.direction === "up" ? ArrowUpRight : delta?.direction === "down" ? ArrowDownRight : Minus;
+  const hasSeries = Boolean(series && series.length > 0);
+  const subLine = unit || (!delta ? detail : undefined);
   return (
     <Link
       href={href}
       data-attr={dataAttr}
-      className="flex h-full min-w-0 flex-col gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      className="relative flex h-full min-w-0 flex-col rounded-[10px] border border-border bg-card px-4 py-3.5 transition-colors hover:border-foreground/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
     >
-      <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
+      <span className={cn("flex items-center gap-1.5 text-[13px] font-[550] text-muted", hasSeries && "sm:pr-14")}>
         {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden /> : null}
-        {label}
+        <span className="truncate">{label}</span>
       </span>
-      {/* The number gets the full width; the history sits under it, never beside
-          it — "$7,…" beside a sparkline was the tile clipping its own figure. */}
-      <span className="block whitespace-nowrap text-[1.65rem] font-semibold leading-none tracking-[-0.02em] text-foreground">
+      <span className="my-1 block whitespace-nowrap text-[26px] font-[650] leading-[1.15] tracking-[-0.03em] text-foreground">
         {value}
       </span>
-      <span className="flex min-h-[15px] items-end justify-between gap-3">
-        <span className="truncate text-[12px] font-medium text-muted">{unit ?? ""}</span>
-        {series && series.length > 0 ? (
-          <Sparkline values={series} labels={seriesLabels ?? []} format={format ?? String} />
-        ) : null}
-      </span>
-      {delta || detail ? (
-        <span className="-mt-1 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-snug">
-          {delta ? (
-          <span
-            className={cn(
-              "inline-flex shrink-0 items-center gap-0.5 font-semibold",
-              delta.direction === "up"
-                ? "text-[var(--status-confirmed-fg)]"
-                : delta.direction === "down"
-                  ? "text-[var(--status-overdue-fg)]"
-                  : "text-muted",
-            )}
-          >
-            <Arrow className="size-3" aria-hidden />
-            {delta.label}
-          </span>
-          ) : (
-            <span className="truncate text-muted">{detail}</span>
+      {subLine ? <span className="truncate text-[12.5px] text-muted">{subLine}</span> : null}
+      {delta ? (
+        <span
+          className={cn(
+            "mt-1.5 flex min-w-0 items-center gap-1 text-[12.5px]",
+            delta.direction === "up"
+              ? "text-[var(--status-confirmed-fg)]"
+              : delta.direction === "down"
+                ? "text-[var(--status-overdue-fg)]"
+                : "text-muted",
           )}
+        >
+          <Arrow className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">{delta.label}</span>
         </span>
       ) : null}
+      {hasSeries ? <Sparkline values={series!} labels={seriesLabels ?? []} format={format ?? String} /> : null}
     </Link>
   );
 }
@@ -167,13 +204,24 @@ export function KpiCard({
 
 export type AttentionRow = ManagerAttentionRow;
 
-const ROW_DOT: Record<AttentionRow["tone"], string> = {
-  danger: "bg-[var(--status-overdue-fg)]",
-  pending: "bg-[var(--status-pending-fg)]",
-  info: "bg-primary",
+/** Which glyph a queue row wears, by its stable id. */
+const ROW_GLYPH: Record<string, LucideIcon> = {
+  overdue: AlertCircle,
+  applications: ClipboardList,
+  leases: FileSignature,
+  tours: MapPin,
+  messaging: Phone,
+  drafts: Home,
+  inbox: MessageSquare,
+  bids: Wrench,
+  payouts: Wallet,
+  // Admin dashboard (server aggregate): feedback, text failures, disputes.
+  feedback: MessageSquare,
+  "sms-failures": Phone,
+  disputes: AlertCircle,
 };
 
-function PanelShell({
+export function PanelShell({
   title,
   count,
   aside,
@@ -187,13 +235,11 @@ function PanelShell({
   dataAttr: string;
 }) {
   return (
-    <section className="flex h-full min-w-0 flex-col rounded-2xl border border-border bg-card shadow-sm" data-attr={dataAttr}>
-      <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+    <section className="flex h-full min-w-0 flex-col overflow-hidden rounded-[10px] border border-border bg-card" data-attr={dataAttr}>
+      <div className="flex items-center gap-2 border-b border-border px-3.5 py-[11px]">
+        <h2 className="text-sm font-[650] text-foreground">{title}</h2>
         {count != null && count > 0 ? (
-          <span className="rounded-full bg-[var(--secondary)] px-2 py-px text-[11px] font-semibold tabular-nums text-muted">
-            {count}
-          </span>
+          <span className="text-[12.5px] font-medium tabular-nums text-muted/70">{count}</span>
         ) : null}
         <span className="ml-auto">{aside}</span>
       </div>
@@ -211,8 +257,8 @@ export function AttentionPanel({
   rows,
   hideRowDetail = false,
   emptyCopy = "Nothing is waiting on you. Nice.",
-  rowClassName = "flex items-center gap-3 px-4 py-2.5",
-  actionClassName = "inline-flex min-h-11 shrink-0 items-center rounded-full border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary",
+  rowClassName = "flex items-center gap-2.5 px-3.5 py-2.5",
+  actionClassName = "inline-flex min-h-11 shrink-0 items-center rounded-[7px] border border-border bg-card px-3 text-[13px] font-[550] text-foreground transition hover:bg-[var(--secondary)] lg:min-h-8",
 }: {
   rows: AttentionRow[];
   /** Vendor metrics already carry the relevant status in their title. */
@@ -227,13 +273,13 @@ export function AttentionPanel({
       {rows.length === 0 ? (
         <p className="px-4 py-6 text-center text-[13px] text-muted">{emptyCopy}</p>
       ) : (
-        <ul className="divide-y divide-border/70">
+        <ul className="divide-y divide-border">
           {rows.map((row) => (
             <li key={row.id} className={rowClassName} data-attr={`dashboard-attention-${row.id}`}>
-              <span className={cn("size-2 shrink-0 rounded-full", ROW_DOT[row.tone])} aria-hidden />
+              <DashboardGlyphTile icon={ROW_GLYPH[row.id] ?? ClipboardList} tone={row.tone} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
-                {!hideRowDetail ? <span className="block truncate text-[12px] text-muted">{row.detail}</span> : null}
+                <span className="block truncate text-sm font-semibold text-foreground">{row.title}</span>
+                {!hideRowDetail ? <span className="block truncate text-[12.5px] text-muted">{row.detail}</span> : null}
               </span>
               <Link href={row.href} className={actionClassName}>
                 {row.actionLabel}
@@ -256,6 +302,15 @@ export type UpcomingRow = {
   at: number;
   href: string;
 };
+
+/** Glyph and tint for an upcoming row, by what kind of event it is. */
+function upcomingGlyph(kind: string): { icon: LucideIcon; tone: DashboardTone } {
+  const k = kind.toLowerCase();
+  if (k.startsWith("tour")) return { icon: MapPin, tone: "info" };
+  if (k.includes("inspection")) return { icon: ClipboardCheck, tone: "success" };
+  if (k.includes("lease")) return { icon: CalendarDays, tone: "pending" };
+  return { icon: Wrench, tone: "pending" };
+}
 
 /**
  * C240: `Date.prototype.getHours`/`toLocaleTimeString` without a `timeZone`
@@ -298,14 +353,14 @@ export function UpcomingPanel({
   calendarHref,
   emptyCopy = "Nothing scheduled in the next two weeks.",
   aside,
-  rowLinkClassName = "flex items-center gap-3 px-4 py-2.5 transition hover:bg-accent/30",
+  rowLinkClassName = "flex items-center gap-2.5 px-3.5 py-2.5 transition hover:bg-[var(--secondary)]",
 }: {
   rows: UpcomingRow[];
   nowMs: number;
   calendarHref: string;
   /** Surface-specific, factual empty state; manager copy remains the default. */
   emptyCopy?: string;
-  /** Replaces the default text Calendar link while preserving shared row behavior. */
+  /** Replaces the default text Calendar link while preserving shared row behavior; `null` draws none. */
   aside?: React.ReactNode;
   rowLinkClassName?: string;
 }) {
@@ -313,9 +368,10 @@ export function UpcomingPanel({
   return (
     <PanelShell
       title="Upcoming"
-      aside={aside ?? (
-        <Link href={calendarHref} className="text-[12.5px] font-semibold text-primary hover:underline">
-          Calendar →
+      aside={aside !== undefined ? aside : (
+        <Link href={calendarHref} className="inline-flex items-center gap-0.5 text-[13px] font-[550] text-primary hover:underline">
+          Calendar
+          <ChevronRight className="size-3.5" aria-hidden />
         </Link>
       )}
       dataAttr="dashboard-upcoming-panel"
@@ -323,9 +379,10 @@ export function UpcomingPanel({
       {sorted.length === 0 ? (
         <p className="px-4 py-6 text-center text-[13px] text-muted">{emptyCopy}</p>
       ) : (
-        <ul className="divide-y divide-border/70">
+        <ul className="divide-y divide-border">
           {sorted.map((row) => {
             const { day, time } = dayLabel(row.at, nowMs);
+            const glyph = upcomingGlyph(row.kind);
             return (
               <li key={row.id}>
                 {/* The analytics name is the fixed kebab name every funnel joins
@@ -335,16 +392,14 @@ export function UpcomingPanel({
                     into a rendered DOM attribute (CodeQL `js/xss-through-dom`).
                     The row's href already says which record was opened. */}
                 <Link href={row.href} className={rowLinkClassName} data-attr="dashboard-upcoming-row">
-                  <span className="w-[76px] shrink-0 leading-tight">
-                    <span className="block text-[12.5px] font-semibold text-foreground">{day}</span>
-                    <span className="block text-[11.5px] text-muted">{time || "All day"}</span>
-                  </span>
+                  <DashboardGlyphTile icon={glyph.icon} tone={glyph.tone} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] font-medium text-foreground">
-                      <span className="text-muted">{row.kind} · </span>
-                      {row.title}
+                    <span className="block truncate text-sm font-semibold text-foreground">
+                      {row.kind} · {row.title}
                     </span>
-                    <span className="block truncate text-[12px] text-muted">{row.detail}</span>
+                    <span className="block truncate text-[12.5px] text-muted">
+                      {[`${day}${time ? ` ${time}` : ""}`, row.detail].filter(Boolean).join(" · ")}
+                    </span>
                   </span>
                 </Link>
               </li>

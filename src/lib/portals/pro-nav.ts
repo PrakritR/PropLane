@@ -21,8 +21,8 @@ export const getProPortalRenderContext = cache(async () => {
   if (!ctx.user) redirect("/auth/sign-in");
 
   const preview = await getAdminPreviewFromCookies();
-  if (hasAdminRole(ctx) && preview?.portal === "manager") {
-    /* admin preview as manager — allowed */
+  if (preview?.portal === "manager") {
+    /* verified "View as" session for the manager portal — allowed (read-only) */
   } else if (hasAdminRole(ctx) && !hasRole(ctx, "manager") && !isPrimaryAdminEmail(ctx.user?.email)) {
     redirect("/admin/dashboard");
   } else if (!hasRole(ctx, "manager") && !isPrimaryAdminEmail(ctx.user?.email)) {
@@ -82,10 +82,10 @@ export const buildProPortalDefinition = cache(async (): Promise<{
    */
   planLapsedFromTrial: boolean;
 }> => {
-  const { ctx, preview, portalTitle, isFree, subscriptionTier, purchase } = await getProPortalRenderContext();
+  const { preview, portalTitle, isFree, subscriptionTier, purchase } = await getProPortalRenderContext();
   const planLabel = isFree ? "Free" : managerTierDisplayLabel(purchase.tier);
 
-  const showPreviewBanner = hasAdminRole(ctx) && !!preview?.targetUserId;
+  const showPreviewBanner = !!preview?.targetUserId;
 
   let previewLabel: string | null = null;
   if (showPreviewBanner && preview) {

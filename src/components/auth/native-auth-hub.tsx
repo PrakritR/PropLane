@@ -352,6 +352,10 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
             </div>
           ) : null}
 
+          {isNative ? null : (
+            <h1 className="auth-hub-title mb-6 text-center text-[1.75rem] font-bold tracking-tight text-foreground">Sign in</h1>
+          )}
+
           <div className="space-y-3">
             <OAuthSocialStack
               nextPath={signInNextPath}

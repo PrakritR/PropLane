@@ -62,9 +62,9 @@ export function WizardModal({
   headerAside?: ReactNode;
 }) {
   return (
-    <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] [html[data-theme=dark]_&]:bg-card">
-      <div className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5">
-        <b className="truncate text-[19px] font-bold tracking-tight text-foreground">{title}</b>
+    <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-[10px] bg-white shadow-[0_24px_60px_-12px_rgba(16,24,40,0.45)] [html[data-theme=dark]_&]:bg-card">
+      <div className="flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-b border-border px-5">
+        <b className="truncate text-[16px] font-[650] tracking-tight text-foreground">{title}</b>
         <div className="flex shrink-0 items-center gap-2">
           {headerAside}
           {onClose ? (
@@ -72,15 +72,15 @@ export function WizardModal({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50"
+              className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-foreground/5"
             >
               ✕
             </button>
           ) : null}
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto bg-white px-6 py-6 [html[data-theme=dark]_&]:bg-card">{children}</div>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-white px-6 py-4 [html[data-theme=dark]_&]:bg-card">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-white px-[22px] py-[18px] [html[data-theme=dark]_&]:bg-card">{children}</div>
+      <div className="flex min-h-[56px] shrink-0 items-center justify-between gap-3 border-t border-border bg-white px-4 py-2 [html[data-theme=dark]_&]:bg-card">
         {footer}
       </div>
     </div>
@@ -174,17 +174,17 @@ export function ListingWorkspace({
    */
   return (
     <WorkspaceUploadTarget.Provider value={uploadTarget}>
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-[20px] sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white sm:rounded-[10px] sm:shadow-[0_24px_60px_-12px_rgba(16,24,40,0.45)] [html[data-theme=dark]_&]:bg-card">
       {/*
        * The native shell draws under the status bar, so on a phone the header
        * pads by the safe-area inset the way Modal and the auth layout do;
        * the website (no inset) pads zero. Same again for the footer and the
        * home indicator.
        */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-4 py-3 sm:min-h-[68px] sm:px-6 [html[data-native]_&]:pt-[max(0.75rem,var(--native-safe-top,0px))]">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:min-h-[56px] sm:px-5 sm:py-2 [html[data-native]_&]:pt-[max(0.75rem,var(--native-safe-top,0px))]">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
-            <b className="truncate text-[19px] font-extrabold tracking-tight text-foreground">{title}</b>
+            <b className="truncate text-[16px] font-[650] tracking-tight text-foreground">{title}</b>
             <span className="shrink-0">{badge}</span>
           </div>
           {/* On a phone the address and the save state lose to the title and the
@@ -194,7 +194,7 @@ export function ListingWorkspace({
         {headerCenter ? <div className="min-w-0 shrink-0">{headerCenter}</div> : null}
         {saveState ? (
           <div
-            className="hidden shrink-0 text-[12.5px] font-medium text-muted sm:block"
+            className="hidden shrink-0 text-[13px] font-medium text-muted sm:block"
             data-testid="listing-wizard-autosave-status"
           >
             {saveState}
@@ -221,7 +221,7 @@ export function ListingWorkspace({
               disabled={closeDisabled}
               data-attr={closeDataAttr}
               aria-label="Close"
-              className="grid h-11 w-11 place-items-center rounded-full text-muted hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45"
+              className="grid h-11 w-11 place-items-center rounded-full text-muted hover:bg-foreground/5 disabled:pointer-events-none disabled:opacity-45 lg:h-8 lg:w-8 lg:rounded-lg"
             >
               ✕
             </button>
@@ -234,17 +234,17 @@ export function ListingWorkspace({
        * the grid split its spare height between the two and the rail grew a
        * band of empty grey under the chips.
        */}
-      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "lg:grid-cols-[220px_minmax(0,1fr)_300px] xl:grid-cols-[220px_minmax(0,1fr)_380px]")}>
+      <div className={cn("grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[190px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]", sidePanel && "lg:grid-cols-[190px_minmax(0,1fr)_260px]")}>
         <nav
           aria-label="Listing sections"
-          className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-0 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
+          className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border bg-white p-0 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-2.5 lg:py-3.5 [html[data-theme=dark]_&]:bg-black/20"
         >
           {railHeader ? <div className="hidden lg:block">{railHeader}</div> : null}
           {rail}
           {railFooter ? <div className="mt-auto hidden pt-4 lg:block">{railFooter}</div> : null}
         </nav>
         <main
-          className="min-h-0 min-w-0 overflow-y-auto px-4 py-4 sm:px-7 sm:py-7 xl:px-10"
+          className="min-h-0 min-w-0 overflow-y-auto px-4 py-4 sm:px-[22px] sm:py-[18px]"
           onKeyDown={(event) => {
             if (event.key !== "Enter" || event.defaultPrevented || event.nativeEvent.isComposing) return;
             const target = event.target;
@@ -256,13 +256,13 @@ export function ListingWorkspace({
         {sidePanel ? (
           <aside
             aria-label="Live panel"
-            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-4 lg:block xl:p-5 [html[data-theme=dark]_&]:bg-black/20"
+            className="hidden min-h-0 overflow-y-auto border-l border-border bg-[#fafbfc] p-4 lg:block [html[data-theme=dark]_&]:bg-black/20"
           >
             {sidePanel}
           </aside>
         ) : null}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border/60 bg-white px-4 py-3 sm:px-5 [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom,0px))] [html[data-theme=dark]_&]:bg-card">
+      <div className="flex min-h-[56px] shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border bg-white px-4 py-2 [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom,0px))] [html[data-theme=dark]_&]:bg-card">
         {footer}
       </div>
       {previewInEye && sidePanel && eyeOpen ? <PreviewSheet onClose={() => setEyeOpen(false)}>{sidePanel}</PreviewSheet> : null}
@@ -348,7 +348,7 @@ export function WizardFooterActions({
       <div className="flex items-center gap-2.5">
         {onDelete ? <WorkspaceDeleteButton onClick={onDelete} disabled={busy} dataAttr={deleteDataAttr ?? `${dataAttrPrefix}-delete`} /> : null}
       </div>
-      <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">{center}</span>
+      <span className="min-w-0 flex-1 text-center text-[13px] text-muted">{center}</span>
       <div className="flex items-center gap-2.5">
         {footer.showBack ? (
           <button
@@ -356,7 +356,7 @@ export function WizardFooterActions({
             disabled={busy}
             onClick={onBack}
             data-attr={`${dataAttrPrefix}-back`}
-            className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
+            className="min-h-[44px] rounded-lg border border-[var(--input)] bg-card px-4 text-[13.5px] font-semibold text-foreground disabled:opacity-45 lg:min-h-9"
           >
             Back
           </button>
@@ -367,7 +367,7 @@ export function WizardFooterActions({
             onClick={onFinish}
             disabled={busy}
             data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
-            className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+            className="min-h-[44px] rounded-lg bg-primary px-4 text-[13.5px] font-semibold text-white disabled:opacity-60 lg:min-h-9"
           >
             {busy ? "Saving…" : footer.primaryLabel}
           </button>
@@ -378,7 +378,7 @@ export function WizardFooterActions({
             disabled={busy}
             data-attr={nextDataAttr ?? `${dataAttrPrefix}-next`}
             aria-label={nextAriaLabel ?? "Next"}
-            className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45"
+            className="min-h-[44px] rounded-lg bg-primary px-4 text-[13.5px] font-semibold text-white disabled:opacity-45 lg:min-h-9"
           >
             {footer.primaryLabel}
           </button>
@@ -406,10 +406,10 @@ function PreviewSheet({ children, onClose }: { children: ReactNode; onClose: () 
       <aside
         role="dialog"
         aria-label="Preview"
-        className="relative flex h-full w-[min(420px,100vw)] flex-col overflow-y-auto bg-[var(--pl-surface-muted)] p-5 pt-[max(1.25rem,env(safe-area-inset-top,0px))] shadow-[-12px_0_40px_-12px_rgba(11,27,58,0.4)] [html[data-theme=dark]_&]:bg-card"
+        className="relative flex h-full w-[min(420px,100vw)] flex-col overflow-y-auto bg-[#fafbfc] p-5 pt-[max(1.25rem,env(safe-area-inset-top,0px))] shadow-[-12px_0_40px_-12px_rgba(11,27,58,0.4)] [html[data-theme=dark]_&]:bg-card"
       >
         <div className="mb-4 flex items-center justify-between">
-          <b className="text-[17px] font-extrabold tracking-tight text-foreground">Preview</b>
+          <b className="text-[16px] font-[650] tracking-tight text-foreground">Preview</b>
           <button type="button" onClick={onClose} aria-label="Close" className="grid size-11 place-items-center rounded-full text-muted hover:bg-accent/50">
             ✕
           </button>
@@ -511,6 +511,7 @@ export function StepRail({
       {steps.map((step, i) => {
         const on = i === current;
         const warn = (step.attention ?? 0) > 0;
+        const done = !on && !warn && (step.done ?? Boolean(visited?.has(step.id)));
         return (
           <li key={step.id}>
             <button
@@ -521,29 +522,34 @@ export function StepRail({
               aria-current={on ? "step" : undefined}
               data-attr={`listing-v2-rail-${step.id}`}
               className={cn(
-                "flex min-h-11 w-full shrink-0 items-start gap-2.5 whitespace-nowrap rounded-r-[10px] rounded-l-md border-l-[3px] px-3 py-2.5 text-left transition disabled:opacity-45",
+                "flex min-h-9 w-full shrink-0 items-center gap-[9px] whitespace-nowrap rounded-[7px] px-2 py-[7px] text-left transition-colors disabled:opacity-45",
                 on
-                  ? "border-primary bg-white [html[data-theme=dark]_&]:bg-card"
-                  : "border-transparent hover:bg-foreground/[0.045]",
+                  ? "bg-[#f1f5ff] text-primary [html[data-theme=dark]_&]:bg-primary/15"
+                  : "text-muted hover:bg-foreground/[0.035]",
               )}
             >
+              <span
+                aria-hidden
+                data-step-number={i + 1}
+                className={cn(
+                  "grid size-5 shrink-0 place-items-center rounded-full border-[1.5px] text-[11px] font-bold leading-none",
+                  done ? "border-[var(--green,#12805c)] bg-[var(--green,#12805c)] text-white" : "border-current",
+                )}
+              >
+                {done ? <Check className="size-3" strokeWidth={3} data-step-done="" /> : i + 1}
+              </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  {on ? <Circle className="size-3 shrink-0 text-primary" aria-hidden /> : warn ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : visited?.has(step.id) ? <Check className="size-3 shrink-0 text-primary" aria-hidden /> : <span className="size-3 shrink-0" aria-hidden />}
-                  <span
-                    className={cn(
-                      "min-w-0 truncate text-[13.5px]",
-                      on ? "font-bold text-foreground" : "font-semibold text-foreground/80",
-                    )}
-                  >
+                  <span className={cn("min-w-0 truncate text-[14px]", on && "font-semibold")}>
                     {step.label}
                   </span>
                   {step.count != null ? (
                     <span className="hidden shrink-0 text-[12px] tabular-nums text-muted lg:inline">{step.count}</span>
                   ) : null}
+                  {warn ? <span className="size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden /> : null}
                 </span>
                 {step.summary ? (
-                  <span className="mt-0.5 hidden truncate text-[12px] leading-snug text-muted lg:block">{step.summary}</span>
+                  <span className="mt-0.5 hidden truncate text-[12px] font-normal leading-snug text-muted lg:block">{step.summary}</span>
                 ) : null}
               </span>
               {warn ? <span className="sr-only">{step.attention} to look at</span> : null}
@@ -704,7 +710,7 @@ export function RailCover({
   return (
     <div className="mb-3">
       {photoUrl ? (
-        <div className="relative overflow-hidden rounded-xl border border-border bg-accent/40">
+        <div className="relative overflow-hidden rounded-[10px] border border-border bg-accent/40">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={photoUrl} alt="" className="block aspect-[16/10] w-full object-cover" />
           <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">
@@ -716,7 +722,7 @@ export function RailCover({
           type="button"
           onClick={onAddPhotos}
           data-attr="listing-v2-rail-add-photos"
-          className="grid aspect-[16/10] w-full place-items-center rounded-xl border border-dashed border-border bg-white text-[12.5px] font-semibold text-muted transition hover:border-primary/50 hover:text-primary [html[data-theme=dark]_&]:bg-card"
+          className="grid aspect-[16/10] w-full place-items-center rounded-lg border border-dashed border-border bg-white text-[12.5px] font-semibold text-muted transition hover:border-primary/50 hover:text-primary [html[data-theme=dark]_&]:bg-card"
         >
           <span className="flex flex-col items-center gap-1.5">
             <Camera className="h-5 w-5" strokeWidth={1.7} aria-hidden />
@@ -740,7 +746,7 @@ export function RailNotice({ count, onOpen }: { count: number; onOpen: () => voi
       type="button"
       onClick={onOpen}
       data-attr="listing-v2-rail-finish"
-      className="mb-3 flex w-full items-center gap-2.5 rounded-xl border border-border bg-white px-3 py-2.5 text-left hover:bg-accent/30 [html[data-theme=dark]_&]:bg-card"
+      className="mb-3 flex w-full items-center gap-2.5 rounded-lg border border-border bg-white px-3 py-2.5 text-left hover:bg-accent/30 [html[data-theme=dark]_&]:bg-card"
     >
       <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
       <span className="min-w-0 flex-1">
@@ -764,7 +770,7 @@ export function RailNotice({ count, onOpen }: { count: number; onOpen: () => voi
  */
 export function RailStatus({ listed }: { listed: boolean }) {
   return (
-    <div className="rounded-xl border border-border bg-white px-3 py-2.5 [html[data-theme=dark]_&]:bg-card">
+    <div className="rounded-lg border border-border bg-white px-3 py-2.5 [html[data-theme=dark]_&]:bg-card">
       <span className="flex items-center gap-2 text-[13px] font-bold text-foreground">
         <span
           className={cn("h-2 w-2 rounded-full", listed ? "bg-[var(--status-confirmed-fg)]" : "border border-muted/60")}
@@ -783,10 +789,10 @@ export function PanelSection({ title, aside, children }: { title: string; aside?
   return (
     <section className="mb-5 last:mb-0">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">{title}</h3>
+        <h3 className="text-xs font-semibold text-muted">{title}</h3>
         {aside}
       </div>
-      <div className="rounded-2xl border border-border bg-card p-3.5">{children}</div>
+      <div className="rounded-[10px] border border-border bg-card p-3.5">{children}</div>
     </section>
   );
 }
@@ -835,9 +841,9 @@ export function StepHeading({
    * one screen.
    */
   return (
-    <div className="mb-5 flex items-start justify-between gap-3">
+    <div className="mb-3.5 flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
-        <h2 className="text-[26px] font-extrabold leading-tight tracking-tight text-foreground">{title}</h2>
+        <h2 className="text-[16px] font-[650] leading-tight tracking-tight text-foreground">{title}</h2>
       </div>
       {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
     </div>
@@ -862,8 +868,8 @@ export function SectionGroup({
   first?: boolean;
 }) {
   return (
-    <section className={cn(first ? "" : "mt-8 border-t border-border/60 pt-6")}>
-      {title ? <h3 className="mb-4 text-[15.5px] font-bold tracking-tight text-foreground">{title}</h3> : null}
+    <section className={cn(first ? "" : "mt-6 border-t border-border pt-5")}>
+      {title ? <h3 className="mb-3 text-[13px] font-semibold text-foreground">{title}</h3> : null}
       {children}
     </section>
   );
@@ -941,8 +947,8 @@ export function Field(props: {
 
   if (group) {
     return (
-      <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className="mb-4">
-        <span id={id} className="mb-1.5 block text-[12.5px] font-bold text-foreground">
+      <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className="mb-3">
+        <span id={id} className="mb-[5px] block text-[13px] font-semibold text-foreground">
           {caption}
         </span>
         <div role="group" aria-labelledby={id}>
@@ -954,9 +960,9 @@ export function Field(props: {
     );
   }
   return (
-    <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className="mb-4">
+    <div data-wizard-field={id} data-wizard-label={label} data-wizard-required={required} className="mb-3">
       <label className="block">
-        <span className="mb-1.5 block text-[12.5px] font-bold text-foreground">{caption}</span>
+        <span className="mb-[5px] block text-[13px] font-semibold text-foreground">{caption}</span>
         {children}
       </label>
       <WizardFieldError id={id} />
@@ -1003,8 +1009,8 @@ export function ChoiceCard({
       aria-pressed={selected}
       data-attr={dataAttr}
       className={cn(
-        "mb-2.5 flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-colors",
-        selected ? "border-primary bg-primary/5 ring-[3px] ring-primary/10" : "border-border bg-card hover:bg-accent/30",
+        "mb-2 flex min-h-10 w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
+        selected ? "border-primary bg-[#f1f5ff] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15" : "border-[var(--input)] bg-card hover:bg-foreground/[0.035]",
       )}
     >
       <span
@@ -1013,7 +1019,7 @@ export function ChoiceCard({
           selected ? "border-[5.5px] border-primary" : "border-border",
         )}
       />
-      <b className="min-w-0 text-[13.5px] font-bold text-foreground">{title}</b>
+      <b className={cn("min-w-0 text-[14px] font-semibold", selected ? "text-primary" : "text-foreground")}>{title}</b>
     </button>
   );
 }
@@ -1038,8 +1044,8 @@ export function CheckCard({
       aria-checked={checked}
       data-attr={dataAttr}
       className={cn(
-        "mb-2.5 flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-colors",
-        checked ? "border-primary bg-primary/5 ring-[3px] ring-primary/10" : "border-border bg-card hover:bg-accent/30",
+        "mb-2 flex min-h-10 w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
+        checked ? "border-primary bg-[#f1f5ff] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15" : "border-[var(--input)] bg-card hover:bg-foreground/[0.035]",
       )}
     >
       <span
@@ -1055,7 +1061,7 @@ export function CheckCard({
           </svg>
         ) : null}
       </span>
-      <b className="min-w-0 text-[13.5px] font-bold text-foreground">{title}</b>
+      <b className={cn("min-w-0 text-[14px] font-semibold", checked ? "text-primary" : "text-foreground")}>{title}</b>
     </button>
   );
 }
@@ -1087,14 +1093,14 @@ export function KindTile({
       aria-pressed={selected}
       data-attr={dataAttr}
       className={cn(
-        "flex min-h-[84px] w-full flex-col items-start justify-between gap-2 rounded-xl border p-3 text-left transition-colors",
+        "flex min-h-10 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
         selected
-          ? "border-primary bg-primary/[0.05] ring-[3px] ring-primary/10"
-          : "border-border bg-card hover:border-foreground/25 hover:bg-accent/30",
+          ? "border-primary bg-[#f1f5ff] shadow-[inset_0_0_0_1px_var(--primary)] [html[data-theme=dark]_&]:bg-primary/15"
+          : "border-[var(--input)] bg-card hover:bg-foreground/[0.035]",
       )}
     >
-      <Icon className={cn("h-[22px] w-[22px]", selected ? "text-primary" : "text-muted")} strokeWidth={1.7} aria-hidden />
-      <span className="block min-w-0 text-[13.5px] font-bold leading-tight text-foreground">{label}</span>
+      <Icon className={cn("h-[18px] w-[18px] shrink-0", selected ? "text-primary" : "text-muted")} strokeWidth={1.7} aria-hidden />
+      <span className={cn("block min-w-0 text-[14px] font-semibold leading-tight", selected ? "text-primary" : "text-foreground")}>{label}</span>
     </button>
   );
 }
@@ -1134,12 +1140,12 @@ export function CountStepper({
   const dec = () => onChange(Math.max(min, round(value - step)));
   const inc = () => onChange(Math.min(max, round(value + step)));
   if (compact) {
-    const side = "grid h-8 w-8 shrink-0 place-items-center rounded-full text-[17px] leading-none text-foreground transition hover:bg-foreground/[0.06] disabled:opacity-35 disabled:hover:bg-transparent";
+    const side = "grid h-8 w-8 shrink-0 place-items-center rounded-md text-[17px] leading-none text-muted transition hover:bg-foreground/[0.06] disabled:opacity-35 disabled:hover:bg-transparent";
     return (
       <div
         className={cn(
-          "inline-flex h-9 items-center gap-1 rounded-full border bg-card px-1",
-          inherited ? "border-dashed border-border text-muted" : "border-border",
+          "inline-flex h-9 items-center gap-1 rounded-lg border bg-card px-1",
+          inherited ? "border-dashed border-border text-muted" : "border-[var(--input)]",
         )}
         data-attr={dataAttr}
         role="group"
@@ -1152,13 +1158,13 @@ export function CountStepper({
     );
   }
   const btn =
-    "grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card text-[18px] leading-none text-foreground transition hover:bg-accent/40 disabled:opacity-35 disabled:hover:bg-card";
+    "grid h-full w-[34px] shrink-0 place-items-center text-[16px] leading-none text-muted transition hover:bg-foreground/[0.05] disabled:opacity-35 disabled:hover:bg-transparent";
   return (
-    <div className="inline-flex items-center gap-3" data-attr={dataAttr}>
+    <div className="inline-flex h-9 w-[130px] items-stretch overflow-hidden rounded-lg border border-[var(--input)] bg-card" data-attr={dataAttr}>
       <button type="button" className={btn} aria-label={`Fewer ${label}`} disabled={value <= min} onClick={dec}>
         −
       </button>
-      <span className="min-w-[2ch] text-center text-[16px] font-bold tabular-nums text-foreground" aria-live="polite">
+      <span className="flex min-w-[2ch] flex-1 items-center justify-center text-[14px] font-semibold tabular-nums text-foreground" aria-live="polite">
         {value}
       </span>
       <button type="button" className={btn} aria-label={`More ${label}`} disabled={value >= max} onClick={inc}>
@@ -1192,7 +1198,7 @@ export function MoreOptions({
         onClick={onToggle}
         aria-expanded={open}
         data-attr={dataAttr}
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-accent/25 px-4 py-3 text-left transition hover:bg-accent/40"
+        className="flex w-full items-center justify-between gap-3 rounded-lg border border-border bg-accent/25 px-4 py-3 text-left transition hover:bg-accent/40"
       >
         <span className="min-w-0">
           <span className="block text-[13px] font-bold text-foreground">{open ? "Hide extra options" : "More options"}</span>
@@ -1203,7 +1209,7 @@ export function MoreOptions({
         </span>
       </button>
       {open ? (
-        <div className="mt-4 rounded-xl border border-border bg-accent/15 p-4">{children}</div>
+        <div className="mt-4 rounded-[10px] border border-border bg-accent/15 p-4">{children}</div>
       ) : null}
     </div>
   );
@@ -1232,7 +1238,7 @@ export function AdvancedPanel({
   dataAttr?: string;
 }) {
   return (
-    <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-accent/15">
+    <div className="mt-5 overflow-hidden rounded-[10px] border border-border bg-accent/15">
       <button
         type="button"
         onClick={onToggle}
@@ -1374,7 +1380,7 @@ export function SegmentedControl<T extends string>({
   ariaLabel: string;
 }) {
   return (
-    <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label={ariaLabel}>
+    <div className="flex gap-1 rounded-lg border border-[var(--input)] bg-foreground/[0.03] p-0.5" role="tablist" aria-label={ariaLabel}>
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -1386,7 +1392,7 @@ export function SegmentedControl<T extends string>({
             data-attr={dataAttrPrefix ? `${dataAttrPrefix}-${option.value}` : undefined}
             onClick={() => onChange(option.value)}
             className={cn(
-              "flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+              "min-h-8 flex-1 rounded-md px-3 py-1.5 text-[13px] font-semibold transition",
               active ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground",
             )}
           >
@@ -1428,7 +1434,7 @@ export function FloatingLabelField({
     <div>
       <div
         className={cn(
-          "rounded-xl border bg-card px-3.5 pb-2.5 pt-2 transition-colors",
+          "rounded-lg border bg-card px-3.5 pb-2.5 pt-2 transition-colors",
           error ? "border-rose-400" : focused ? "border-primary" : "border-border",
         )}
       >
@@ -1484,9 +1490,9 @@ export function RowList({
   children: ReactNode;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border">
+    <div className="overflow-hidden rounded-[10px] border border-border">
       <div
-        className="grid gap-2 border-b border-border bg-accent/25 px-3 py-2.5 text-[10.5px] font-extrabold uppercase tracking-[0.1em] text-muted"
+        className="grid gap-2 border-b border-border bg-[#fafbfc] px-3 py-2.5 text-[12px] font-semibold text-muted [html[data-theme=dark]_&]:bg-black/20"
         style={{ gridTemplateColumns: rowTemplate(columns.length) }}
       >
         <span />
@@ -1526,8 +1532,8 @@ export function Row({
   return (
     <div
       className={cn(
-        "grid items-center gap-2 border-b border-border/60 px-3 py-2 last:border-b-0",
-        selected ? "bg-primary/[0.04]" : "bg-card",
+        "grid items-center gap-2 border-b border-border px-3 py-2 last:border-b-0",
+        selected ? "bg-[#f1f5ff] [html[data-theme=dark]_&]:bg-primary/15" : "bg-card",
       )}
       style={{ gridTemplateColumns: rowTemplate(columnCount) }}
     >
@@ -1588,8 +1594,8 @@ export function RowCell({
       aria-label={ariaLabel}
       inputMode={inputMode}
       className={cn(
-        "min-h-[38px] w-full rounded-lg border px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:border-primary",
-        inherited ? "border-dashed border-border bg-accent/15 text-muted placeholder:text-muted" : "border-border bg-card",
+        "min-h-9 w-full rounded-lg border px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:border-primary",
+        inherited ? "border-dashed border-border bg-accent/15 text-muted placeholder:text-muted" : "border-[var(--input)] bg-card",
       )}
     />
   );
@@ -1752,7 +1758,7 @@ export function AddRowButton({
       onClick={onClick}
       data-attr={dataAttr}
       aria-label={label}
-      className="mt-3 flex w-full items-center justify-center gap-2.5 rounded-2xl border-2 border-dashed border-primary/45 bg-primary/[0.03] px-3 py-6 text-[12px] font-extrabold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/[0.07]"
+      className="mt-3 flex w-full items-center justify-center gap-2.5 rounded-lg border-2 border-dashed border-primary/45 bg-primary/[0.03] px-3 py-6 text-[12px] font-extrabold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/[0.07]"
     >
       {Icon ? <Icon className="h-5 w-5" aria-hidden /> : null}
       {label}
@@ -1833,11 +1839,11 @@ export function RecordCard({
     <div
       data-attr={dataAttr}
       className={cn(
-        "mb-2.5 rounded-2xl border border-border bg-card",
+        "mb-2.5 rounded-[10px] border border-border bg-card",
         propertyEditor && "pr9-card",
         propertyEditor && open && "is-open",
         every && "border-b-2 border-b-primary/25 bg-primary/[0.04]",
-        open && "shadow-[inset_3px_0_0_var(--pl-blue)]",
+        open && "border-primary/40",
         dimmed && "pointer-events-none opacity-50",
       )}
     >
@@ -1851,7 +1857,7 @@ export function RecordCard({
               onChange={(e) => onName(e.target.value)}
               className={cn(
                 "min-h-[38px] w-full min-w-0 px-1 text-[14px] font-bold text-foreground outline-none",
-                propertyEditor ? "border-0 bg-transparent focus:ring-2 focus:ring-primary/30 rounded-lg" : "rounded-xl border border-border bg-card px-3 focus:border-primary",
+                propertyEditor ? "border-0 bg-transparent focus:ring-2 focus:ring-primary/30 rounded-lg" : "rounded-lg border border-[var(--input)] bg-card px-3 focus:border-primary",
               )}
             />
           ) : (
@@ -1928,6 +1934,37 @@ export function RecordCard({
 }
 
 /**
+ * The one Reset control a row offers when its value is its own rather than the
+ * default it inherits. Used by {@link FactRow} and by rows that carry their own
+ * layout (a checkbox row) so there is a single affordance, not two that look alike.
+ */
+export function FactRowReset({
+  onReset,
+  label,
+  title,
+  dataAttr = "listing-v2-cell-reset",
+}: {
+  onReset: () => void;
+  label: string;
+  title: string;
+  dataAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onReset}
+      data-attr={dataAttr}
+      aria-label={label}
+      title={title}
+      className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
+    >
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+      Reset
+    </button>
+  );
+}
+
+/**
  * One row of a card: the label on the left, the control on the right.
  *
  * `own` marks a value the record set itself (a Reset puts it back on the
@@ -1959,28 +1996,22 @@ export function FactRow({
   return (
     <div
       className={cn(
-        "flex min-h-[52px] items-center justify-between gap-3 px-3.5 py-2",
+        "flex min-h-[48px] items-center justify-between gap-3 px-3.5 py-2",
         !first && "border-t border-border",
         sub && "bg-foreground/[0.025] pl-7",
       )}
     >
-      <span className={cn("flex min-w-0 shrink items-center gap-2 text-[14px] text-foreground", sub ? "font-medium" : "font-semibold")}>
+      <span className={cn("flex min-w-0 shrink items-center gap-2 text-[13px] text-foreground", sub ? "font-medium" : "font-semibold")}>
         <span className="truncate">
           {label}
           {required ? <span className="sr-only"> (required)</span> : <span aria-hidden="true" data-field-optional="" className="ml-2 text-xs font-normal text-muted">Optional</span>}
         </span>
         {own && onReset ? (
-          <button
-            type="button"
-            onClick={onReset}
-            data-attr="listing-v2-cell-reset"
-            aria-label={resetLabel ?? `Reset ${typeof label === "string" ? label : "this"} to the top card`}
+          <FactRowReset
+            onReset={onReset}
+            label={resetLabel ?? `Reset ${typeof label === "string" ? label : "this"} to the top card`}
             title={resetTitle ?? "Back to the Default card"}
-            className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
-          >
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
-            Reset
-          </button>
+          />
         ) : null}
       </span>
       <span className="flex min-w-0 shrink-0 items-center justify-end">{children}</span>
@@ -2203,8 +2234,8 @@ export function MoneyInput({
           setDraft(null);
         }}
         className={cn(
-          "min-h-[36px] w-full rounded-lg border bg-card pl-5 pr-2.5 text-right text-[13.5px] font-semibold tabular-nums text-foreground outline-none focus:border-primary",
-          inherited ? "border-dashed border-border text-muted placeholder:text-muted" : "border-border",
+          "min-h-9 w-full rounded-lg border bg-card pl-5 pr-2.5 text-right text-[14px] font-semibold tabular-nums text-foreground outline-none focus:border-primary",
+          inherited ? "border-dashed border-border text-muted placeholder:text-muted" : "border-[var(--input)]",
         )}
       />
     </span>

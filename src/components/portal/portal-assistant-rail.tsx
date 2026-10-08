@@ -63,16 +63,16 @@ export function PortalAssistantRail({
 
   return (
     <aside
-      className="portal-assistant-rail relative z-30 hidden h-full min-h-0 w-[var(--portal-assistant-rail-width)] shrink-0 self-stretch flex-col overflow-hidden border-l border-border bg-background lg:flex"
+      className="portal-assistant-rail relative z-30 hidden h-full min-h-0 w-[var(--portal-assistant-rail-width)] shrink-0 self-stretch flex-col overflow-hidden border-l border-border bg-white lg:flex dark:bg-background"
       data-attr="portal-assistant-rail"
       aria-label="PropLane Assistant"
     >
-      <div className="flex min-h-0 flex-1 flex-col p-2 pt-0">
+      <div className="flex min-h-0 flex-1 flex-col">
         <AssistantDockPanel
           managerName={managerName}
           endpoint={endpoint}
           onClose={closeRail}
-          className="h-full"
+          className="h-full rounded-none border-0 bg-transparent"
         />
       </div>
     </aside>

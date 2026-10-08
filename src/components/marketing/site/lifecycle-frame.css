@@ -1,0 +1,101 @@
+/* Lifecycle row frame: Akhil's workspace window, on the home page's own wavy background (no stage of its own). */
+.rlp-page.lrf-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  padding: 6px 8px 22px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.lrf-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  min-width: 0;
+}
+.lrf-window-slot {
+  min-width: 0;
+}
+/* The window keeps Akhil's dual-view look but is one child, not a grid. */
+.lrf-window.rlp-dual-view {
+  display: block;
+  max-width: none;
+  margin: 0;
+}
+.lrf-window .rlp-workspace {
+  margin: 0;
+  min-height: 0;
+  box-shadow: 0 24px 55px rgba(38, 72, 116, 0.16);
+}
+.lrf-window.rlp-dual-view > :last-child {
+  margin-top: 0;
+  align-self: auto;
+}
+
+/*
+ * The "Up and running" import window (switch-steps.tsx): the frame is as tall as the WHOLE scaled window
+ * plus the backdrop's own margins, so the last card ends inside it, never at its edge. The window is drawn
+ * at 1100px wide and 860px tall (`IMPORT_NATIVE_HEIGHT`), scaled to the frame's width minus its side
+ * margins (24px under sm, 40px from sm); the same margin sits above and below it.
+ */
+.sw-import-slot {
+  min-width: 0;
+  container-type: inline-size;
+}
+.sw-import-frame {
+  height: calc((100cqw - 3rem) * 0.7818 + 3rem);
+}
+@media (min-width: 640px) {
+  .sw-import-frame {
+    height: calc((100cqw - 5rem) * 0.7818 + 5rem);
+  }
+}
+
+/* Under lg: natural width, one fixed height, the screen scrolling inside it. */
+@media (max-width: 1023px) {
+  .lrf-window .rlp-workspace {
+    height: 560px;
+    max-height: none;
+  }
+}
+@media (max-width: 640px) {
+  .lrf-window .rlp-workspace {
+    height: 600px;
+  }
+}
+
+/* lg and up: a fixed desktop window scaled to the column, phone beside it. */
+@media (min-width: 1024px) {
+  .lrf-body {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 22px;
+  }
+  .lrf-window-slot {
+    flex: 0 0 auto;
+    width: calc(1120px * var(--lrf-s, 0.62));
+    height: calc(700px * var(--lrf-s, 0.62));
+  }
+  .lrf-window {
+    width: 1120px;
+    height: 700px;
+    transform: scale(var(--lrf-s, 0.62));
+    transform-origin: top left;
+  }
+  .lrf-window .rlp-workspace {
+    height: 100%;
+    max-height: none;
+  }
+  .lrf-window .rlp-main {
+    min-height: 0;
+  }
+  .lrf-window .rlp-canvas-panel {
+    min-height: 0;
+    overflow: auto;
+  }
+}

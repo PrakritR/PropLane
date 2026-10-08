@@ -21,6 +21,7 @@ import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/port
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
 import { AddBankFlow } from "@/components/portal/add-bank-flow";
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { isPayoutDestinationSummary, type PayoutDestinationSummary } from "@/components/portal/payout-bank-sheet";
@@ -181,17 +182,9 @@ export function VendorBalancePanel({ basePath }: { basePath: string }) {
               ) : null}
             </div>
           ) : null}
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm" data-attr="vendor-balance-card">
-            <div className="flex flex-1 flex-wrap gap-6">
-              <Figure label="Available" cents={figures.availableCents} dataAttr="vendor-balance-available" />
-              <Figure label="Pending" cents={figures.pendingCents} dataAttr="vendor-balance-pending" />
-              <Figure label="Held" cents={figures.heldCents} note={figures.heldReason} dataAttr="vendor-balance-held" />
-              <Figure label="On the way" cents={figures.onTheWayCents} dataAttr="vendor-balance-on-the-way" />
-              {figures.owedToPropLaneCents > 0 ? (
-                <Figure label="Owed to PropLane" cents={figures.owedToPropLaneCents} tone="danger" dataAttr="vendor-balance-owed" />
-              ) : null}
-            </div>
-            <div className="flex items-center gap-1.5">
+          <div className="mb-3 flex items-start gap-3" data-attr="vendor-balance-card">
+            <PortalStatStrip className="min-w-0 flex-1" dataAttr="vendor-balance-stats" items={balanceStats(figures)} />
+            <div className="flex shrink-0 items-center gap-1.5 pt-1">
               <PortalIconAction icon={Landmark} label="Bank" data-attr="vendor-balance-bank" onClick={() => setAddBankOpen(true)} />
               <PortalIconAction
                 icon={ArrowUpFromLine}
@@ -307,31 +300,18 @@ export function VendorBalancePanel({ basePath }: { basePath: string }) {
   );
 }
 
-function Figure({
-  label,
-  cents,
-  note,
-  tone,
-  dataAttr,
-}: {
-  label: string;
-  cents: number;
-  note?: string | null;
-  tone?: "danger";
-  dataAttr: string;
-}) {
-  return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">{label}</p>
-      <p
-        className={`mt-1 text-2xl font-extrabold leading-none tracking-tight ${tone === "danger" ? "text-danger" : "text-foreground"}`}
-        data-attr={dataAttr}
-      >
-        {formatMoney(cents, "usd")}
-      </p>
-      {note ? <p className="mt-1 text-xs text-muted">{note}</p> : null}
-    </div>
-  );
+/** The balance snapshot's figures, one hairline stat card each (Owed to PropLane only while something is owed). */
+function balanceStats(figures: ReturnType<typeof deriveVendorFinancesFigures>): PortalStat[] {
+  const stats: PortalStat[] = [
+    { id: "available", label: "Available", value: formatMoney(figures.availableCents, "usd"), dataAttr: "vendor-balance-available" },
+    { id: "pending", label: "Pending", value: formatMoney(figures.pendingCents, "usd"), dataAttr: "vendor-balance-pending" },
+    { id: "held", label: "Held", value: formatMoney(figures.heldCents, "usd"), dataAttr: "vendor-balance-held", note: figures.heldReason },
+    { id: "on-the-way", label: "On the way", value: formatMoney(figures.onTheWayCents, "usd"), dataAttr: "vendor-balance-on-the-way" },
+  ];
+  if (figures.owedToPropLaneCents > 0) {
+    stats.push({ id: "owed", label: "Owed to PropLane", value: formatMoney(figures.owedToPropLaneCents, "usd"), tone: "danger", dataAttr: "vendor-balance-owed" });
+  }
+  return stats;
 }
 
 /** One withdrawal's own page: the amounts, where it went, when it lands, and a printable receipt. */

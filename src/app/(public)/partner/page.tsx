@@ -11,13 +11,14 @@ import {
   MockDraft,
   MockFrame,
   MockRow,
-  SITE_MEASURE,
   SiteCtaPair,
   SiteEyebrow,
   SiteHeading,
   SiteIntro,
+  SitePageHero,
   SiteSection,
 } from "@/components/marketing/site/primitives";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 export const metadata: Metadata = {
   title: "For managers & landlords",
@@ -33,7 +34,8 @@ export const metadata: Metadata = {
  */
 const ROWS: SiteFeatureRow[] = [
   {
-    eyebrow: "Leasing",
+    id: "partner-forms",
+    eyebrow: "Applications & leases",
     title: "From listing to signed lease without a PDF",
     body: "Four answers make a listing. Tours book themselves. The application becomes the lease draft; you read it, tweak a clause, both of you sign online.",
     mock: (
@@ -46,6 +48,7 @@ const ROWS: SiteFeatureRow[] = [
     ),
   },
   {
+    id: "partner-payments",
     eyebrow: "Rent",
     title: "Rent that collects itself",
     body: "Card or bank, through PropLane. Reminders and late fees draft first and send on your approval. Deposits stay liability; the ledger balances.",
@@ -59,6 +62,7 @@ const ROWS: SiteFeatureRow[] = [
     ),
   },
   {
+    id: "partner-communication",
     eyebrow: "Inbox & work number",
     title: "One inbox, one number, drafts waiting",
     body: "Residents text your PropLane number, applicants email, vendors reply — one thread each, with a drafted answer you approve, edit or discard.",
@@ -93,25 +97,27 @@ function tierMonthlyPrice(id: PlanTierId): string {
 
 export default function PartnerLandingPage() {
   return (
-    <div className="relative min-h-0 flex-1">
-      <section className="border-b border-border/70 pb-14 pt-14 sm:pt-16 lg:pb-20 lg:pt-20" aria-labelledby="partner-title">
-        <div className={`${SITE_MEASURE} max-w-[860px]`}>
-          <SiteEyebrow className="mb-4">For managers &amp; landlords</SiteEyebrow>
-          <SiteHeading as="h1" id="partner-title">
+    <SitePage>
+      <SitePageHero
+        eyebrow="For managers & landlords"
+        id="partner-title"
+        title={
+          <>
             Run the portfolio.
-            <br />
-            <span className="text-primary">Approve the rest.</span>
-          </SiteHeading>
+            <span className="site-accent">Approve the rest.</span>
+          </>
+        }
+        actions={
           <SiteCtaPair
-            className="mt-7"
+            align="center"
             primaryHref={MANAGER_GET_STARTED_HREF}
             primaryLabel="Get started free"
             primaryAttr="partner-hero-get-started"
             secondaryAttr="partner-hero-book-demo"
             note="Free for one home · no card · 14-day Pro trial"
           />
-        </div>
-      </section>
+        }
+      />
 
       <SiteSection ariaLabelledBy="partner-rows-title">
         <SiteIntro
@@ -156,6 +162,6 @@ export default function PartnerLandingPage() {
         primaryAttr="partner-closing-get-started"
         secondaryAttr="partner-closing-book-demo"
       />
-    </div>
+    </SitePage>
   );
 }

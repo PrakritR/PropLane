@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CalendarClock, Clock3, MessageCircle, Receipt, Wrench } from "lucide-react";
+import { CalendarClock, Clock3, FileText, MessageCircle, Receipt, Wrench } from "lucide-react";
 
 import type { PendingAction } from "@/lib/axis-assistant/use-assistant-conversation";
 
@@ -226,6 +226,40 @@ export const VENDOR_ASSISTANT_SUGGESTIONS: AssistantSuggestion[] = [
   },
 ];
 
+/**
+ * Resident empty-state chips (captain, Oct 7). Every prompt maps to a real tool in the
+ * resident registry (`docs/ai-assistant.md` § Resident): `get_my_balance`, `get_my_lease`,
+ * `create_service_request`, `send_message_to_manager`. Never the manager-shaped list. An
+ * application-phase resident (or a free-tier manager's) has a smaller registry; the assistant
+ * then answers those prompts with the matching portal link instead of a tool.
+ */
+export const RESIDENT_ASSISTANT_SUGGESTIONS: AssistantSuggestion[] = [
+  {
+    label: "My balance",
+    prompt: "What's my balance?",
+    toneClass: "text-[var(--status-overdue-fg)]",
+    icon: <Receipt className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "My lease",
+    prompt: "When does my lease end and what is my rent?",
+    toneClass: "text-primary",
+    icon: <FileText className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Open a service",
+    prompt: "I need to open a service request.",
+    toneClass: "text-[var(--status-pending-fg)]",
+    icon: <Wrench className="h-full w-full" strokeWidth={2} />,
+  },
+  {
+    label: "Message my manager",
+    prompt: "I want to send a message to my property manager.",
+    toneClass: "text-[var(--status-approved-fg)]",
+    icon: <MessageCircle className="h-full w-full" strokeWidth={2} />,
+  },
+];
+
 /** Suggestion chip grid for the assistant empty state. */
 export function AssistantSuggestionChips({
   onPick,
@@ -252,7 +286,7 @@ export function AssistantSuggestionChips({
           type="button"
           onClick={() => (s.onSelect ? s.onSelect() : onPick(s.prompt))}
           disabled={disabled}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border bg-foreground/[0.04] px-3 text-xs font-medium text-foreground outline-none transition-[border-color,background-color,transform] hover:border-primary/25 hover:bg-foreground/[0.07] focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-full"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-[var(--input)] bg-card px-3.5 text-[13.5px] font-medium text-foreground outline-none transition-[border-color,background-color,transform] hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span className={`flex h-3.5 w-3.5 shrink-0 ${s.toneClass} [&_svg]:h-full [&_svg]:w-full`}>
             {s.icon}

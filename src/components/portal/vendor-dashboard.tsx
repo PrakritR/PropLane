@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { PortalHomeLayout } from "@/components/portal/portal-home-layout";
@@ -8,15 +8,16 @@ import {
   AttentionPanel,
   KpiCard,
   UpcomingPanel,
+  dayLabel,
   type UpcomingRow,
 } from "@/components/portal/pro-dashboard-kpis";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { VendorDashboardBalanceCard } from "@/components/portal/vendor-dashboard-balance-card";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { CalendarDays, Clock, LayoutGrid, Wrench, FileText, Mail } from "lucide-react";
+import { CalendarDays, Clock, Wrench, FileText, Mail } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -144,6 +145,82 @@ export function VendorDashboard({}: { displayName: string }) {
 
   const jobCards = openWorkOrders.slice(0, 3);
 
+  // The sub-line under "Upcoming visits": when the next one is, from the same
+  // scheduled stamp the Upcoming panel sorts on. Omitted when nothing is booked.
+  const nextVisitMs = upcomingRows[0] ? Math.min(...upcomingRows.map((r) => r.at)) : null;
+  const nextVisitLabel = nextVisitMs
+    ? (() => {
+        const { day, time } = dayLabel(nextVisitMs, nowMs);
+        return `Next: ${day}${time ? ` ${time}` : ""}`;
+      })()
+    : undefined;
+
+  return (
+    <VendorDashboardView
+      openJobs={openWorkOrders.length}
+      bidsDue={bidsPending.length}
+      upcomingVisits={upcomingVisits.length}
+      unreadMessages={inboxThreads.length}
+      nextVisitLabel={nextVisitLabel}
+      attentionRows={attentionRows}
+      upcomingRows={upcomingRows}
+      nowMs={nowMs}
+      jobs={jobCards.map((row) => ({
+        id: row.id,
+        title: row.title,
+        subtitle: propertyLabel(row),
+        bidNeeded: Boolean(row.biddingOpen && row.bucket !== "completed"),
+        scheduledLabel: row.bucket === "completed" ? "Done" : row.scheduled && row.scheduled !== "—" ? row.scheduled : "Scheduled",
+      }))}
+      belowKpis={<VendorDashboardBalanceCard />}
+      onAdd={() => router.push(`${vendorWorkOrderListHref(BASE, "open")}?add=1`)}
+      onOpenJob={(id) => router.push(vendorJobDetailHref(BASE, id))}
+    />
+  );
+}
+
+/** One job card the vendor's Dashboard lists under Services. */
+export type VendorDashboardJob = {
+  id: string;
+  title: string;
+  subtitle: string;
+  bidNeeded: boolean;
+  scheduledLabel: string;
+};
+
+/**
+ * The vendor Dashboard as pure presentation: the numbers and rows come in as props, so the real page
+ * (fed by the work-order store) and the home page's demo window (fed by fixtures, `product-mock/dashboards.tsx`)
+ * draw exactly the same tree.
+ */
+export function VendorDashboardView({
+  openJobs,
+  bidsDue,
+  upcomingVisits,
+  unreadMessages,
+  nextVisitLabel,
+  attentionRows,
+  upcomingRows,
+  nowMs,
+  jobs,
+  belowKpis,
+  onAdd,
+  onOpenJob,
+}: {
+  openJobs: number;
+  bidsDue: number;
+  upcomingVisits: number;
+  unreadMessages: number;
+  nextVisitLabel?: string;
+  attentionRows: ManagerAttentionRow[];
+  upcomingRows: UpcomingRow[];
+  nowMs: number;
+  jobs: VendorDashboardJob[];
+  /** Rendered above Services (the real page's balance card, which reads the payouts API). */
+  belowKpis?: ReactNode;
+  onAdd: () => void;
+  onOpenJob: (id: string) => void;
+}) {
   return (
     <ManagerPortalPageShell
       title="Dashboard"
@@ -155,28 +232,29 @@ export function VendorDashboard({}: { displayName: string }) {
           <>
             <KpiCard
               label="Open jobs"
-              value={String(openWorkOrders.length)}
+              value={String(openJobs)}
               href={vendorWorkOrderListHref(BASE, "open")}
               dataAttr="vendor-dashboard-kpi-jobs"
               icon={Wrench}
             />
             <KpiCard
               label="Bids due"
-              value={String(bidsPending.length)}
+              value={String(bidsDue)}
               href={vendorWorkOrderListHref(BASE, "open")}
               dataAttr="vendor-dashboard-kpi-bids"
               icon={FileText}
             />
             <KpiCard
               label="Upcoming visits"
-              value={String(upcomingVisits.length)}
+              value={String(upcomingVisits)}
+              unit={nextVisitLabel}
               href={`${BASE}/calendar`}
               dataAttr="vendor-dashboard-kpi-visits"
               icon={CalendarDays}
             />
             <KpiCard
               label="Unread messages"
-              value={String(inboxThreads.length)}
+              value={String(unreadMessages)}
               href={`${BASE}/communication/active`}
               dataAttr="vendor-dashboard-kpi-inbox"
               icon={Mail}
@@ -189,40 +267,34 @@ export function VendorDashboard({}: { displayName: string }) {
               rows={attentionRows}
               hideRowDetail
               emptyCopy="No items need attention."
-              rowClassName="flex items-center gap-3 p-4 min-h-[44px]"
-              actionClassName="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card px-4 text-[12.5px] font-semibold text-foreground transition hover:border-primary/40 hover:text-primary"
+              rowClassName="flex min-h-[44px] items-center gap-2.5 px-3.5 py-2.5"
+              actionClassName="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-[7px] border border-border bg-card px-3 text-[13px] font-[550] text-foreground transition hover:bg-[var(--secondary)] lg:min-h-8"
             />
             <UpcomingPanel
               rows={upcomingRows}
               nowMs={nowMs}
               calendarHref={`${BASE}/calendar`}
               emptyCopy="No upcoming visits."
-              rowLinkClassName="flex min-h-[44px] items-center gap-3 p-4 transition hover:bg-accent/30"
-              aside={<PortalIconAction icon={CalendarDays} label="Open calendar" onClick={() => router.push(`${BASE}/calendar`)} data-attr="vendor-dashboard-calendar-open" />}
+              rowLinkClassName="flex min-h-[44px] items-center gap-2.5 px-3.5 py-2.5 transition hover:bg-[var(--secondary)]"
+              aside={null}
             />
           </>
         }
         below={
           <>
-            <VendorDashboardBalanceCard />
+            {belowKpis}
             <section className="space-y-3" data-attr="dashboard-your-jobs">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Services</h2>
+              <h2 className="text-[15px] font-[650] text-foreground">Services</h2>
               <div className="flex flex-wrap items-center gap-2">
                 <PortalPrimaryIconAction
                   label="Add"
                   data-attr="vendor-dashboard-add"
-                  onClick={() => router.push(`${vendorWorkOrderListHref(BASE, "open")}?add=1`)}
-                />
-                <PortalIconAction
-                  icon={LayoutGrid}
-                  label="Manage services"
-                  data-attr="vendor-dashboard-manage-jobs"
-                  onClick={() => router.push(vendorWorkOrderListHref(BASE, "open"))}
+                  onClick={onAdd}
                 />
               </div>
             </div>
-            {jobCards.length === 0 ? (
+            {jobs.length === 0 ? (
               // Exactly one create control for "Services": the header icon
               // action above stays the CTA — this card explains the empty
               // state without a second, duplicate "Add" button (C147).
@@ -232,21 +304,19 @@ export function VendorDashboard({}: { displayName: string }) {
               />
             ) : (
               <PortalRecordListSurface isEmpty={false} dataAttr="vendor-dashboard-services">
-                {jobCards.map((row) => (
+                {jobs.map((job) => (
                   <PortalServiceRecordRow
-                    key={row.id}
-                    title={row.title}
-                    subtitle={propertyLabel(row)}
+                    key={job.id}
+                    title={job.title}
+                    subtitle={job.subtitle}
                     facts={
-                      row.biddingOpen && row.bucket !== "completed" ? (
+                      job.bidNeeded ? (
                         <PortalRowFact icon={Clock}>Bid needed</PortalRowFact>
                       ) : (
-                        <PortalRowFact icon={CalendarDays}>
-                          {row.bucket === "completed" ? "Done" : row.scheduled && row.scheduled !== "—" ? row.scheduled : "Scheduled"}
-                        </PortalRowFact>
+                        <PortalRowFact icon={CalendarDays}>{job.scheduledLabel}</PortalRowFact>
                       )
                     }
-                    onOpen={() => router.push(vendorJobDetailHref(BASE, row.id))}
+                    onOpen={() => onOpenJob(job.id)}
                     dataAttr="vendor-dashboard-job-card"
                   />
                 ))}

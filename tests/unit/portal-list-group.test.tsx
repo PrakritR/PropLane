@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe("PortalListGroup", () => {
-  it("renders the header, rows and footer inside ONE bordered, rounded, shadowed container", () => {
+  it("renders the header band, rows and footer inside ONE flat group (a sticky 34px band, no card)", () => {
     const { container } = render(
       <PortalListGroup
         listKey="payments"
@@ -39,9 +39,12 @@ describe("PortalListGroup", () => {
 
     const group = container.querySelector('[data-attr="portal-list-group"]');
     expect(group).toBeTruthy();
-    expect(group!.className).toContain("rounded-xl");
-    expect(group!.className).toContain("border");
-    expect(group!.className).toContain("shadow-sm");
+    // Flat on the page: the group is no longer a bordered, rounded, shadowed card.
+    expect(group!.className).not.toMatch(/(?:^|\s)rounded-xl(?:\s|$)/);
+    expect(group!.className).not.toMatch(/(?:^|\s)shadow-sm(?:\s|$)/);
+    const band = group!.querySelector('[data-attr="portal-list-group-header"]')!;
+    expect(band.className).toContain("sticky");
+    expect(band.className).toContain("h-[34px]");
 
     // The header, the rows and the footer are all descendants of that one container.
     expect(group!.querySelector('[data-attr="portal-list-group-header"]')).toBeTruthy();
@@ -101,12 +104,12 @@ describe("PortalListGroup", () => {
     expect(screen.queryByText("Security deposit")).toBeNull();
   });
 
-  it("a row rendered outside any group keeps its own card and shared spacing", () => {
+  it("a row rendered outside any group draws its own hairline divider, still no card", () => {
     const { container } = render(row("Standalone charge"));
     const card = container.querySelector('[data-attr="row-Standalone charge"]')!.closest(".portal-property-row");
-    expect(card?.className).toContain("rounded-xl");
-    expect(card?.className).toContain("shadow-sm");
-    expect(card?.className).toContain("mb-3");
-    expect(card?.className).toMatch(/(?:^|\s)border(?:\s|$)/);
+    expect(card?.className).toContain("border-b");
+    expect(card?.className).not.toMatch(/(?:^|\s)rounded-xl(?:\s|$)/);
+    expect(card?.className).not.toMatch(/(?:^|\s)shadow-sm(?:\s|$)/);
+    expect(card?.className).not.toMatch(/(?:^|\s)mb-\d+(?:\s|$)/);
   });
 });

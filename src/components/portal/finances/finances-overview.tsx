@@ -1,17 +1,20 @@
 "use client";
-import Link from "next/link";
 import { loadFinancialActivity, invalidateFinancialActivity } from "@/lib/financial-activity-cache";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import { MANAGER_OUTGOING_PAYMENTS_EVENT } from "@/lib/manager-outgoing-payments";
 import { HOUSEHOLD_CHARGES_EVENT } from "@/lib/household-charges";
 import { useEffect, useState } from "react";
-import { CalendarDays, Clock, Landmark, ReceiptText, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
-import type { summarizeFinancialActivity } from "@/lib/reports/financial-activity-totals";
+import { summarizeFinancialActivityByProperty, type summarizeFinancialActivity } from "@/lib/reports/financial-activity-totals";
+import { PortalStatStrip, type PortalStat } from "@/components/portal/portal-stat-strip";
+import { PortalListGroupRowContext } from "@/components/portal/portal-list-group";
+import { PortalPropertyRecordRow, PortalRowIconTile } from "@/components/portal/portal-record-row";
+import type { ReportRow } from "@/lib/reports/types";
 import { lastNMonths } from "@/lib/portal-monthly-profit";
 /** Overview figures read as whole dollars, like the studio ("$7,700"); exact cents stay in Reports. */
 const wholeMoney = (cents: number | undefined) => cents === undefined ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Math.round(cents / 100));
@@ -112,6 +115,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   basePath: string; propertyOptions: ManagerPropertyFilterOption[];
 }) {
   const [summary, setSummary] = useState<ReturnType<typeof summarizeFinancialActivity> | null>(null);
+  const [activityRows, setActivityRows] = useState<ReportRow[]>([]);
   const [balance, setBalance] = useState<{ availableCents: number; pendingCents: number } | null>(null);
   const [owed, setOwed] = useState<number>();
   const [billCount, setBillCount] = useState<number>();
@@ -120,7 +124,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   const [clock, setClock] = useState(0);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    const refresh = (event: Event) => { if (!invalidateFinancialActivity(event)) return; setSummary(null); setBalance(null); setOwed(undefined); setBillCount(undefined); setError(""); setRevision(n => n + 1); };
+    const refresh = (event: Event) => { if (!invalidateFinancialActivity(event)) return; setSummary(null); setActivityRows([]); setBalance(null); setOwed(undefined); setBillCount(undefined); setError(""); setRevision(n => n + 1); };
     const events = [WORKSPACE_SELECTION_EVENT, MANAGER_OUTGOING_PAYMENTS_EVENT, HOUSEHOLD_CHARGES_EVENT];
     events.forEach(name => window.addEventListener(name, refresh));
     return () => events.forEach(name => window.removeEventListener(name, refresh));
@@ -132,6 +136,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
     loadFinancialActivity(userId, propertyId).then(activity => {
       if (cancelled) return;
       setSummary(JSON.parse(String(activity.meta?.summary)));
+      setActivityRows(Array.isArray(activity.rows) ? activity.rows : []);
       setMonth(pacificCalendarDateYmd().slice(0, 7)); setClock(Date.now());
     }).catch(err => { if (!cancelled) setError(err.message); });
     Promise.all([fetchJson("/api/portal/proplane-balance").catch(() => null), fetchJson("/api/stripe/payouts/balance").catch(() => null)]).then(([ledger, stripe]) => {
@@ -147,28 +152,31 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
   if (!summary) return <div role="status" className="py-8">Loading finances…</div>;
   const totals = summary.months[month] ?? { revenueCents: 0, expenseCents: 0, profitCents: 0, rentCollectedCents: 0 };
   const months = lastNMonths(clock, 24);
-  const tile = (label: string, value: number | undefined, href?: string, fact?: string, icon?: LucideIcon, tone?: "positive") => {
-    const Icon = icon;
-    const body = <><span className="flex items-center gap-1.5 text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">{Icon ? <Icon className="size-3.5" aria-hidden /> : null}{label}</span><span className={`mt-2 block text-[22px] font-bold ${tone === "positive" && (value ?? 0) > 0 ? "text-emerald-600" : "text-foreground"}`}>{wholeMoney(value)}</span>{fact ? <span className="mt-1 block text-xs text-muted">{fact}</span> : null}</>;
-    return href ? <Link key={label} href={href} className="min-w-0 p-4 hover:bg-accent/30">{body}</Link> : <div key={label} className="min-w-0 p-4">{body}</div>;
-  };
+  const stat = (id: string, label: string, value: number | undefined, href?: string, note?: string, tone?: "ok"): PortalStat => ({
+    id, label, value: wholeMoney(value), href, note, tone: tone === "ok" && (value ?? 0) > 0 ? "ok" : undefined,
+  });
+  const byProperty = summarizeFinancialActivityByProperty(activityRows, month);
   return <div className="space-y-4 pb-6" data-attr="finances-overview">
-    <div className="grid grid-cols-2 divide-border rounded-xl border border-border bg-card md:grid-cols-4" data-attr="finances-balance-strip">
-      {tile("Available", balance?.availableCents, undefined, undefined, Landmark)}{tile("Pending", balance?.pendingCents, undefined, undefined, Clock)}
-      {tile("Held deposits", summary.heldDepositsCents, `${basePath}/financials/security-deposits`, undefined, ShieldCheck)}
-      {tile("To pay", owed, `${basePath}/outgoing/to-pay`, billCount === undefined ? undefined : `${billCount} ${billCount === 1 ? "bill" : "bills"}`, ReceiptText)}
+    <PortalStatStrip size="lg" dataAttr="finances-balance-strip" items={[
+      stat("available", "Available", balance?.availableCents), stat("pending", "Pending", balance?.pendingCents),
+      stat("held", "Held deposits", summary.heldDepositsCents, `${basePath}/financials/security-deposits`),
+      stat("to-pay", "To pay", owed, `${basePath}/outgoing/to-pay`, billCount === undefined ? undefined : `${billCount} ${billCount === 1 ? "bill" : "bills"}`),
+    ]} />
+    <div className="flex items-center gap-2">
+      <FieldSingleSelect hideLabel label="Month" value={month} onChange={setMonth} triggerClassName={FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} dataAttr="finances-month"
+        options={[...months].reverse().map(m => ({ value: m.key, label: new Date(`${m.key}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" }) }))} />
     </div>
-    <div className="rounded-xl border border-border bg-card">
-      <div className="flex items-center gap-2 border-b border-border p-3">
-        <CalendarDays className="size-4 text-muted" aria-hidden />
-        <FieldSingleSelect hideLabel label="Month" value={month} onChange={setMonth} triggerClassName={FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} dataAttr="finances-month"
-          options={[...months].reverse().map(m => ({ value: m.key, label: new Date(`${m.key}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" }) }))} />
-      </div>
-      <div className="grid grid-cols-3">
-        {tile("Revenue", totals.revenueCents, undefined, undefined, undefined, "positive")}{tile("Expenses", totals.expenseCents)}
-        {tile("Profit", totals.profitCents, undefined, undefined, undefined, "positive")}
-      </div>
-    </div>
+    <PortalStatStrip size="lg" dataAttr="finances-month-strip" className="[grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]" items={[
+      stat("revenue", "Revenue", totals.revenueCents, undefined, undefined, "ok"), stat("expenses", "Expenses", totals.expenseCents),
+      stat("profit", "Profit", totals.profitCents, undefined, undefined, "ok"),
+    ]} />
+    {byProperty.length > 0 ? <section className="overflow-hidden rounded-[10px] border border-border bg-card" data-attr="finances-by-property">
+      <h3 className="border-b border-border px-4 py-2.5 text-[14px] font-semibold text-foreground">By property</h3>
+      <PortalListGroupRowContext.Provider value>
+        {byProperty.map(row => <PortalPropertyRecordRow key={row.key || "portfolio"} title={row.label} leading={<PortalRowIconTile icon={Building2} />} leadingShape="square"
+          facts={<><span className="font-medium text-[var(--status-confirmed-fg)]">In {wholeMoney(row.inCents)}</span><span>Out {wholeMoney(row.outCents)}</span></>} dataAttr="finances-by-property-row" />)}
+      </PortalListGroupRowContext.Provider>
+    </section> : null}
     <MonthlyProfitChart onMonthSelect={setMonth} points={months.map(m => {
       const t = summary.months[m.key] ?? { revenueCents: 0, expenseCents: 0, profitCents: 0, rentCollectedCents: 0 };
       return { ...m, revenue: t.revenueCents / 100, expense: t.expenseCents / 100, profit: t.profitCents / 100 };

@@ -47,7 +47,8 @@ describe("listManagerCatalogVendors", () => {
 describe("vendors catalog list chrome", () => {
   it("drops the empty-state PropLane button and dashed footer Add", () => {
     const panel = read("src/components/portal/pro-vendors-panel.tsx");
-    expect(panel).toContain("vendors-empty-add");
+    expect(panel).not.toContain("vendors-empty-add");
+    expect(panel).not.toContain("vendors-catalog-empty-add");
     expect(panel).not.toContain("vendors-empty-proplane");
     expect(panel).not.toContain("vendors-add-footer");
     // The band never carries a ✕ (docs/agents/ui-change-checklist.md); catalog vs

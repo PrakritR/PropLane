@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { RowSelectionModeContext } from "@/components/ui/row-selection-mode";
-import type { LucideIcon } from "lucide-react";
+import { TriangleAlert, type LucideIcon } from "lucide-react";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { Button } from "@/components/ui/button";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -153,22 +153,36 @@ export function PortalRecordListSurface({
     <RowSelectionModeContext.Provider value={selectable ? false : null}>
       <PortalRecordShareHost>
       <RecordActionContext.Provider value={selectable ? { actions: bulkActions, clear: () => clearRef.current?.(), scope: `${pathname}:${scopeRevision}` } : null}>
-      <div className={cn(PORTAL_LIST_PAGE_BODY, className)} data-attr={dataAttr}>
+      <div className={cn(PORTAL_LIST_PAGE_BODY, className)} data-attr={dataAttr} data-slot="portal-record-list-surface">
         {listControls ? (
           // A whole header card (Move-in, House details) spans the row, left-justified
           // like every list; a small Group/Sort menu still sits at the right.
           <div
-            className="mb-3 flex items-center justify-end [&>[data-slot=portal-list-control-stack]]:w-full [&>[data-slot=portal-list-control-stack]]:flex-1"
+            className="flex items-center justify-end [&>[data-slot=portal-list-control-stack]]:w-full [&>[data-slot=portal-list-control-stack]]:flex-1"
             data-attr="portal-list-controls-row"
           >
             {listControls}
           </div>
         ) : null}
-        {loading ? <div role="status" aria-label="Loading records" className="space-y-3 rounded-2xl border border-border bg-card p-5">
+        {loading ? <div role="status" aria-label="Loading records" data-attr="portal-list-loading">
           <span className="sr-only">Loading records…</span>
-          {[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-accent/50 motion-reduce:animate-none" />)}
-        </div> : loadError ? <div role="alert" className="rounded-2xl border border-border bg-card p-6 text-center">
-          <p className="mb-3 text-sm">{loadError}</p><Button variant="outline" onClick={onRetry}>Try again</Button>
+          {/* Skeleton rows on the page itself (56px, hairline between) with a shimmer: no spinner, no card. */}
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex h-14 items-center gap-3 border-b border-border pl-[22px] pr-3.5 max-lg:h-16 max-lg:pl-4" aria-hidden>
+              <i className="portal-skel block size-[38px] shrink-0 rounded-lg" />
+              <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <i className="portal-skel block h-3 w-40 max-w-[60%] rounded-md" />
+                <i className="portal-skel block h-2.5 w-28 max-w-[40%] rounded-md" />
+              </span>
+              <i className="portal-skel block h-3 w-16 rounded-md max-md:hidden" />
+            </div>
+          ))}
+        </div> : loadError ? <div role="alert" className="flex flex-col items-center px-6 py-20 text-center" data-attr="portal-list-error">
+          <span className="mb-3 grid size-10 place-items-center rounded-[10px] border border-[var(--input)] text-muted/75" aria-hidden>
+            <TriangleAlert className="size-5" strokeWidth={1.6} />
+          </span>
+          <p className="mb-3 text-[15px] font-semibold text-foreground">{loadError}</p>
+          <Button variant="outline" onClick={onRetry}>Try again</Button>
         </div> : <div
           className={cn(justLoaded && "motion-just-loaded")}
           onAnimationEnd={justLoaded ? () => setJustLoaded(false) : undefined}

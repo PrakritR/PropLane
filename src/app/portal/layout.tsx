@@ -14,6 +14,7 @@ import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalHorizontalScrollRoot } from "@/components/portal/portal-horizontal-scroll";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -37,6 +38,8 @@ import { WorkspaceProvider } from "@/components/portal/workspace-provider";
 import { TestAccountBanner } from "@/components/portal/test-account-banner";
 import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
 import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
+import { ViewAsBanner } from "@/components/portal/view-as-banner";
+import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
 
 export default async function PropertyPortalLayout({ children }: { children: React.ReactNode }) {
   // A production admin (founder/ops) identity must not cross into the property
@@ -86,9 +89,13 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
     return <TestAccountUnavailable state={testWorkspace.state} />;
   }
 
+  // A "View as" support session: banner on top, assistant and its dock off.
+  const viewAs = await getViewAsBannerState();
+
   return (
-    <AxisAssistant managerName={profile?.full_name ?? null} smsTestPortal="manager" dockable>
+    <AxisAssistant managerName={profile?.full_name ?? null} smsTestPortal="manager" dockable disabled={Boolean(viewAs)}>
       <div className={PORTAL_SHELL_ROOT_CLASS}>
+        {viewAs ? <ViewAsBanner {...viewAs} /> : null}
         <WorkspaceProvider>
         <SurfaceThemeDefault theme="light" />
         <PortalDataPrefetch kind="pro" />
@@ -98,8 +105,23 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
         <PropertyPipelineAccountSync />
         <AccountLinksSync />
         <RateAppPrompt reporterRole="manager" />
+        <PortalTopBar
+          kind={nav.definition.kind}
+          basePath={nav.definition.basePath}
+          definition={nav.definition}
+          subscriptionTier={nav.subscriptionTier}
+          initialSidebarCollapsed={sidebarCollapsed}
+          name={profile?.full_name ?? null}
+          email={profile?.email ?? null}
+        />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
           <PortalSkipLink />
+          <PortalWorkspaceRail
+            kind={nav.definition.kind}
+            basePath={nav.definition.basePath}
+            name={profile?.full_name ?? null}
+            email={profile?.email ?? null}
+          />
           <PortalSidebar
             definition={nav.definition}
             subscriptionTier={nav.subscriptionTier}
@@ -108,12 +130,6 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
             smsUiEnabled={isSmsCommUiEnabled()}
           />
           <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <PortalTopBar
-              kind={nav.definition.kind}
-              basePath={nav.definition.basePath}
-              name={profile?.full_name ?? null}
-              email={profile?.email ?? null}
-            />
             {testWorkspace.kind === "classified" ? <TestAccountBanner state={testWorkspace.state} /> : null}
             {/* `showPlanBanner` has been computed for this all along; nothing
                 rendered it, so a lapsed trial took residents, leases, inbox and
@@ -151,10 +167,12 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
           </div>
           {/* Opt-in, desktop-only assistant rail. Renders nothing on the `popup`
               default, so the content column above keeps the full width. */}
-          <PortalAssistantDockRail
-            managerName={profile?.full_name ?? null}
-            initialCollapsed={assistantDockCollapsed}
-          />
+          {viewAs ? null : (
+            <PortalAssistantDockRail
+              managerName={profile?.full_name ?? null}
+              initialCollapsed={assistantDockCollapsed}
+            />
+          )}
         </div>
         </WorkspaceProvider>
       </div>

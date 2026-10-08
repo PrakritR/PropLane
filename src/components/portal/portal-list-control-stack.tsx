@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, Fragment, isValidElement, useEffect, useRef, type ReactElement, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import {
   BookOpen,
   CalendarClock,
@@ -12,6 +12,7 @@ import {
   Copy,
   Download,
   Phone,
+  Plug,
   RefreshCw,
   Bell,
   Search,
@@ -56,6 +57,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Phone, // Set up messaging
   CalendarClock, // Availability (Calendar band)
   Download, // Export CSV (N025)
+  Plug, // Integrations (Calendar, Bookings, Promotion, Communication)
   Coins, // Plan credit (admin Accounts, S27)
   Upload, // Upload / Import (documents, leases, properties)
   Send, // Send application link (Applications band)
@@ -126,6 +128,41 @@ function assertPortalListBandContract(filterRow: ReactNode, actions: ReactNode, 
   }
 }
 
+/** The row marker every shared record row carries (`portal-record-row.tsx`). */
+const RECORD_ROW_SELECTOR = "[data-record-row]";
+
+/**
+ * How many record rows the page is showing right now - counted from the rows
+ * in the DOM (a search, a filter, a tab or a collapsed group all change it), not
+ * from a number each list has to remember to pass. Returns 0 until a row exists.
+ */
+function useShownRecordCount(ref: { current: HTMLElement | null }, enabled: boolean): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!enabled || !el) return;
+    const root: ParentNode = el.closest('[data-slot="portal-page-shell"]') ?? el.parentElement ?? document;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      setCount(root.querySelectorAll(RECORD_ROW_SELECTOR).length);
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = typeof requestAnimationFrame === "function" ? requestAnimationFrame(measure) : (setTimeout(measure, 0) as unknown as number);
+    };
+    measure();
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(schedule);
+    observer.observe(root as Node, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      if (frame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+    };
+  }, [ref, enabled]);
+  return count;
+}
+
 /**
  * Appendix F — Communication-style list chrome (exactly three bands above data):
  * 1. Title + axis switch + actions — {@link ManagerPortalPageShell} / {@link PageHeader}
@@ -155,6 +192,9 @@ export function PortalListControlStack({
   actions,
   primary,
   embedded = false,
+  recordCount,
+  controlsInBand = false,
+  stats,
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
@@ -191,6 +231,19 @@ export function PortalListControlStack({
   primary?: ReactNode;
   /** When true, render inside a parent card (Communication list header) — no nested bordered surface. */
   embedded?: boolean;
+  /** Overrides the "N records" figure the tools line derives from the rows on screen. */
+  recordCount?: number;
+  /**
+   * A tab with no tabs and no search keeps its controls in its own band instead of publishing them
+   * into the record header, so a record's constant header icons (Edit, Delete) are never replaced.
+   */
+  controlsInBand?: boolean;
+  /**
+   * A PortalStatStrip between the tabs and the tools line (money lists: the bucket totals).
+   * A band that carries one scrolls with the page instead of sticking, so the strip never
+   * pins a third of a phone screen.
+   */
+  stats?: ReactNode;
 }) {
   assertPortalListBandContract(filterRow, actions, primary);
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
@@ -223,18 +276,26 @@ export function PortalListControlStack({
    * A tab with no status pills and no search has nothing for a toolbar to
    * hold but its controls; they still get the same card as every other tab.
    */
-  const controlsOnly = variant === "command" && !showDestinations && !search && Boolean(filterRow || actions || primary);
-  const controlsOnlyNode = controlsOnly ? (
-    <div className="flex items-center gap-1 sm:gap-1.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="portal-list-command-actions">
-      {filterRow}
-      {actions}
-      {primary}
-    </div>
-  ) : null;
-  // Never lifted into a title row any more: with the page title hidden the
-  // lifted icons landed at the left edge of an empty band. The command bar is
-  // the one home for list controls on every portal (PLAN-0914-1345).
-  const publishedToTitle = usePublishTitleActions(controlsOnlyNode, false);
+  const controlsOnly = !controlsInBand && variant === "command" && !showDestinations && !search && Boolean(filterRow || actions || primary);
+  /*
+   * The list's icon actions and its round + sit on the title row, at the right
+   * (approved list anatomy: title, then Filter / Settings icons and the blue +).
+   * The page shell that owns the title provides the slot; with no slot (a stack
+   * inside a record page, a test) they render in the band as before.
+   */
+  const controlsNode =
+    variant === "command" && !embedded && (filterRow || actions || primary) ? (
+      <div className="flex items-center gap-1 sm:gap-1.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="portal-list-command-actions">
+        {filterRow}
+        {actions}
+        {primary}
+      </div>
+    ) : null;
+  const publishedToTitle = usePublishTitleActions(controlsNode, controlsNode != null, { pageOnly: !controlsOnly });
+  const toolsRef = useRef<HTMLDivElement>(null);
+  const showToolsLine = variant === "command" && !embedded && Boolean(search || activeFilterChips);
+  const shownCount = useShownRecordCount(toolsRef, showToolsLine);
+  const count = recordCount ?? shownCount;
 
   if (!showDestinations && !showFindRow && !activeFilterChips && !actions && !primary) return null;
 
@@ -253,7 +314,7 @@ export function PortalListControlStack({
      */
     return (
       <div className={cn("shrink-0 space-y-2", className)} data-slot="portal-list-control-stack" data-variant="command">
-        <div className="flex min-w-0 items-center justify-end rounded-xl border border-border bg-card px-1.5 py-1 shadow-sm sm:px-2">{controlsOnlyNode}</div>
+        <div className="flex min-w-0 items-center justify-end border-b border-border px-4 py-1.5 lg:px-[22px]">{controlsNode}</div>
         {activeFilterChips ? <div className="min-w-0" data-attr="portal-list-active-filter-chips">{activeFilterChips}</div> : null}
       </div>
     );
@@ -292,34 +353,15 @@ export function PortalListControlStack({
      * the search sits on its own line beneath — the same pieces, stacked.
      */
     const showToolRow = Boolean(filterRow || search || actions || primary);
-    /*
-     * Phone rule: with no search and no utility icons there is nothing for a
-     * second band to hold but a filter and the primary, so they ride the tabs
-     * strip row instead of a near-empty white band under the tabs. Four or
-     * five icons squeeze the tabs to "Pendi…", so a fuller toolbar keeps its
-     * own row.
-     */
-    const toolsJoinTabsOnPhone = showDestinations && !search && !actions;
     const chipsNode = activeFilterChips ? (
       <div className="min-w-0 shrink-0" data-attr="portal-list-active-filter-chips">
         {activeFilterChips}
       </div>
     ) : null;
     const searchNode = search ? (
-      <div
-        className={cn(
-          // `w-0`: the input's own default width must not count toward the row's content size, or
-          // a crowded band keeps its tabs at full width and pushes the + off the card.
-          "relative w-0 flex-1",
-          // When tabs, icons and the + crowd the band (Communication's list pane,
-          // House details' six tabs), the search yields down to its glyph so no tab
-          // scrolls out of view and the + is never clipped; it opens back up while
-          // it has focus. With room to spare it still fills the band.
-          "min-w-[2.5rem] transition-[min-width] focus-within:min-w-[10rem]",
-        )}
-      >
+      <div className="relative min-w-0 flex-1">
         <Search
-          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
+          className="pointer-events-none absolute left-0 top-1/2 size-4 -translate-y-1/2 text-muted/70"
           strokeWidth={1.75}
           aria-hidden
         />
@@ -332,8 +374,8 @@ export function PortalListControlStack({
           placeholder={search.placeholder}
           aria-label={search.ariaLabel ?? search.placeholder}
           className={cn(
-            // Borderless inline search — the Pricing tab reference (ui-page-structure.md).
-            "portal-list-search h-10 min-h-10 w-full rounded-lg border-0 bg-transparent py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:bg-[var(--secondary)]/50 focus:ring-0",
+            // Borderless inline search on the tools line: glyph, 13.5px, no field chrome.
+            "portal-list-search h-[30px] min-h-[30px] w-full rounded-md border-0 bg-transparent py-0 pl-7 pr-2 text-[13.5px] shadow-none outline-none focus:bg-transparent focus:ring-0 max-lg:min-h-11",
             search.inputClassName,
           )}
           data-attr={search.dataAttr ?? "portal-list-search"}
@@ -343,7 +385,7 @@ export function PortalListControlStack({
     ) : (
       <div className="min-w-0 flex-1" aria-hidden />
     );
-    const controlsNode = filterRow || actions || primary ? (
+    const inlineControlsNode = filterRow || actions || primary ? (
       <div
         className={cn(
           "flex shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto sm:gap-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
@@ -365,6 +407,7 @@ export function PortalListControlStack({
           // destination strip — Settings lived outside the old sticky wrapper (PRP-389).
           stickyDestinations &&
             !embedded &&
+            !stats &&
             "sticky z-[38] bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]",
           embedded && "border-t border-border/60",
           className,
@@ -372,7 +415,7 @@ export function PortalListControlStack({
         data-slot="portal-list-control-stack"
         data-variant="command"
         data-embedded={embedded ? "" : undefined}
-        data-sticky={stickyDestinations && !embedded ? "" : undefined}
+        data-sticky={stickyDestinations && !embedded && !stats ? "" : undefined}
       >
         {embedded ? (
           <HorizontalScrollCapture
@@ -398,44 +441,48 @@ export function PortalListControlStack({
               >
                 {searchNode}
                 <span className="hidden lg:contents">{chipsNode}</span>
-                {controlsNode}
+                {inlineControlsNode}
               </div>
             ) : null}
           </HorizontalScrollCapture>
         ) : (
-          <div
-            className={cn(
-              "flex min-w-0 flex-col lg:flex-row lg:items-center lg:gap-2 lg:pr-2",
-              "rounded-xl border border-border bg-card shadow-sm",
-              toolsJoinTabsOnPhone && "max-lg:flex-row max-lg:items-center max-lg:pr-1.5",
-            )}
-          >
+          // The header band under the title: underline tabs with counts, a hairline, then ONE
+          // tools line (search glyph + field, the derived "N records") with its own hairline.
+          // Padding is the page's 22px (16px on a phone); the page shell lets this band run
+          // edge to edge (globals.css, `data-slot="portal-list-control-stack"`).
+          <div className="min-w-0 bg-background" data-attr="portal-list-band">
             {showDestinations ? (
-              <HorizontalScrollCapture
-                className={cn(
-                  "min-w-0 border-border px-1 pt-1 lg:shrink-0 lg:border-b-0 lg:py-1",
-                  showToolRow && !toolsJoinTabsOnPhone && "max-lg:border-b",
-                  toolsJoinTabsOnPhone && "max-lg:flex-1 max-lg:py-1",
-                )}
-              >
-                <div className="flex items-center gap-2" data-portal-list-destination-nav>
-                  {destinationContent}
-                  <span className="lg:hidden">{chipsNode}</span>
-                </div>
-              </HorizontalScrollCapture>
+              <div className="flex min-w-0 items-end gap-2 border-b border-border px-[22px] max-lg:px-4">
+                <HorizontalScrollCapture className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2" data-portal-list-destination-nav>
+                    {destinationContent}
+                  </div>
+                </HorizontalScrollCapture>
+                {publishedToTitle ? null : <div className="shrink-0 self-center py-1">{inlineControlsNode}</div>}
+              </div>
+            ) : null}
+            {stats ? (
+              <div className="min-w-0 px-[22px] pb-1.5 pt-3.5 max-lg:px-4" data-attr="portal-list-stats">
+                {stats}
+              </div>
             ) : null}
             {showToolRow || chipsNode ? (
-              <div
-                className={cn(
-                  "flex min-w-0 flex-1 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2 lg:px-0 lg:py-0",
-                  toolsJoinTabsOnPhone && "max-lg:contents",
-                )}
-                data-attr="portal-list-command-utilities"
-              >
-                {searchNode}
-                <span className="hidden lg:contents">{chipsNode}</span>
-                {controlsNode}
-              </div>
+              showToolsLine || (!showDestinations && !publishedToTitle) ? (
+                <div
+                  ref={toolsRef}
+                  className="flex min-w-0 items-center gap-2 border-b border-border px-[22px] py-1.5 max-lg:px-4"
+                  data-attr="portal-list-command-utilities"
+                >
+                  {searchNode}
+                  {chipsNode}
+                  {count > 0 ? (
+                    <span className="shrink-0 text-[12.5px] tabular-nums text-muted/75" data-slot="portal-list-count">
+                      {count} {count === 1 ? "record" : "records"}
+                    </span>
+                  ) : null}
+                  {!showDestinations && !publishedToTitle ? inlineControlsNode : null}
+                </div>
+              ) : null
             ) : null}
           </div>
         )}

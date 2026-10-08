@@ -120,7 +120,7 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
     const titleRow = header.firstElementChild!;
     const edit = screen.getByRole("button", { name: "Edit" });
     expect(titleRow.contains(edit)).toBe(true);
-    expect(edit.parentElement?.className).toContain("!size-9");
+    expect(edit.parentElement?.className).toContain("!size-8");
     expect(screen.getAllByRole("button", { name: "Delete" }).length).toBe(1);
   });
 

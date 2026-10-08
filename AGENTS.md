@@ -230,8 +230,9 @@ or `src/lib/agent/`.
   surfaces also pass `readOnly: true`.
 - One registry + resolver + route per role. Never cross them. Mounting
   `AxisAssistant` without a role-scoped `endpoint` 401s (how resident/vendor
-  assistants broke). The **resident portal mounts no assistant at all**; its
-  route and registry serve resident SMS and the inbox agents only.
+  assistants broke). The **resident portal mounts the assistant on its own
+  `/api/agent/resident-chat` endpoint** (captain, Oct 7; the same route and registry
+  also serve resident SMS and the inbox agents).
 - Manager SMS = portal catalog minus every `destructive` tool (derived from the
   flag). Leasing SMS inline-allows only `escalate_to_manager` and `request_tour`.
 - Approving an application and creating/editing a listing are **not** agent
@@ -309,7 +310,7 @@ text is reserved for a data-commit (Save) or a destructive confirm. See
 
 # Brand assets (PropLane)
 
-User-visible name is **PropLane**. Mark is the paper-plane glyph, never "AX".
+User-visible name is **PropLane**. Mark is the house mark (rounded house/chevron outline with an X — `public/brand/proplane-mark.svg`), never a paper plane and never "AX".
 Keep `src/app/icon.svg` and `src/app/favicon.ico` in sync. Lockup:
 `src/components/brand/axis-logo.tsx`. iOS assets: `scripts/generate-brand-assets.mjs`.
 
@@ -427,6 +428,7 @@ answer. Fail closed to `true`.
 | Documents | `docs/agents/documents-module.md` | Private bucket; bytes only via server-minted signed URLs |
 | Public listing payload | `docs/agents/lease-generation.md` | Explicit allowlist (`publicListingProjection`) for both anonymous readers |
 | Demo / sandbox | `docs/agents/demo-sandbox.md` | `/demo` never writes real rows; snapshot ships empty |
+| View as | `docs/agents/view-as.md` | Read-only, 30 minutes, reason required, allowlisted operators only; audit row BEFORE the cookie; the cookie is signed and bound to the signed-in operator; the middleware refuses every non-read request; a GET that heals on read checks `isViewAsSessionOpen()` |
 | Studio Live mode | `docs/agents/studio-live.md` | Frame-ancestors relaxation and `/api/dev/studio-sign-in` are dev-only (`NODE_ENV==="development"` + localhost + dev/test project); production/preview headers stay byte-identical |
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
 | Property owner | `docs/agents/co-manager-access.md` § Property owner | A team role, not a portal: four owner keys, no module key; owner rows are filtered out of every teammate-style reader (`withoutOwnerLinks`); the numbers are an allowlist projection of the manager's own reports, never names; the house and manager come from the membership, never the request |

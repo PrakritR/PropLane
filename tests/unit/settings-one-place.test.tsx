@@ -40,7 +40,7 @@ vi.mock("@/components/portal/pro-plan", () => ({ ManagerPlan: () => <div data-te
 vi.mock("@/components/portal/portal-change-password-panel", () => ({ PortalChangePasswordPanel: () => <div /> }));
 vi.mock("@/components/portal/pro-api-keys-panel", () => ({ ManagerApiKeysPanel: () => <div /> }));
 vi.mock("@/components/portal/pro-messaging-settings-panel", () => ({ ManagerMessagingSettingsPanel: () => <div /> }));
-vi.mock("@/components/portal/pro-portal-settings-panels", () => ({ CommunicationSettingsPanel: () => <div /> }));
+vi.mock("@/components/portal/pro-portal-settings-panels", () => ({ CommunicationSettingsPanel: () => <div />, TourSettingsPanel: () => <div /> }));
 vi.mock("@/components/portal/settings-module-page", () => ({ SettingsModulePage: ({ tab }: { tab: string }) => <div data-testid={`pane-module-${tab}`} /> }));
 vi.mock("@/components/portal/manager-sheet-link-panel", () => ({ ManagerSheetLinkPanel: () => <div /> }));
 vi.mock("@/components/portal/portal-settings-extras", () => ({ PortalSettingsExtras: () => <div /> }));
@@ -136,13 +136,14 @@ describe("Settings is one place", () => {
   });
 
   it("has no Profile row in either avatar menu — one Settings row", () => {
-    for (const file of ["src/components/portal/portal-top-bar.tsx", "src/components/portal/portal-mobile-nav-bar.tsx"]) {
+    // The desktop account menu moved from the old top bar to the workspace rail avatar (portal-account-menu.tsx).
+    for (const file of ["src/components/portal/portal-account-menu.tsx", "src/components/portal/portal-mobile-nav-bar.tsx"]) {
       const src = read(file);
       expect(src).not.toContain("profileHome=1");
       expect(src).not.toContain("settingsHome=1");
       expect(src).not.toMatch(/portal-(top-bar|mobile)-profile"/);
     }
-    expect(read("src/components/portal/portal-top-bar.tsx")).toContain("portal-top-bar-settings");
+    expect(read("src/components/portal/portal-account-menu.tsx")).toContain("portal-top-bar-settings");
   });
 
   it("keeps Settings open when the sidebar switcher changes workspace", () => {

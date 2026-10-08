@@ -1,6 +1,7 @@
 "use client";
 
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { promotionWorkContactLine } from "@/lib/promotion-default-sync";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -12,13 +13,10 @@ import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { LISTING_CHANNEL_DEFS } from "@/lib/listing-channels/registry";
 import { PropertyListingSitesPanel } from "@/components/portal/listing-sites-panel";
 import { resolveZillowSyndicationStatus } from "@/lib/listing-syndication/zillow-syndication-status";
-import { Settings } from "lucide-react";
-import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
-import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { PromotionAssetStack, promotionAssetCanEdit } from "@/components/portal/promotion-asset-list";
@@ -167,7 +165,7 @@ export function ManagerPropertyPromotionPanel({
   showToast: (m: string) => void;
   onUpdated?: () => void;
   headerActionsExtra?: ReactNode;
-  /** For the Settings gear's Zillow Rental Network toggle (S016). */
+  /** For the Listing sites tab's Zillow Rental Network switch (S016). */
   sub?: ManagerListingSubmissionV1 | null;
   saveTarget?: PromotionSaveTarget;
   propertyLabel?: string;
@@ -192,7 +190,6 @@ export function ManagerPropertyPromotionPanel({
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
   const [promoTab, setPromoTab] = useState<"flyers" | "social" | "sites" | "yours">("flyers");
   const [promoSearch, setPromoSearch] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [zillowSaving, setZillowSaving] = useState(false);
   const [builtinEditKey, setBuiltinEditKey] = useState<PropertyPromotionBuiltinKey | null>(null);
   const [builtinDraft, setBuiltinDraft] = useState<PromotionDraft>(EMPTY_DRAFT);
@@ -227,7 +224,7 @@ export function ManagerPropertyPromotionPanel({
   const workPhone = useListingContactSmsPhone({ listingId, viewerManagerUserId: userId });
   const autofillOpts = useMemo(
     () => ({
-      managerContact: [workPhone, workEmail].filter(Boolean).join(" · "),
+      managerContact: promotionWorkContactLine(workPhone, workEmail),
       appOrigin: typeof window !== "undefined" ? window.location.origin : "",
     }),
     [workPhone, workEmail],
@@ -957,38 +954,8 @@ export function ManagerPropertyPromotionPanel({
           placeholder: "Search promotions",
           dataAttr: "property-promotion-search",
         }}
-        actions={
-          sub && saveTarget ? (
-            <PortalIconAction
-              icon={Settings}
-              label="Promotion settings"
-              data-attr="property-promotion-settings-open"
-              onClick={() => setSettingsOpen(true)}
-            />
-          ) : undefined
-        }
         primary={<PortalPrimaryIconAction label="Add promotion" data-attr="property-promotion-add-top" onClick={openNewForTab} />}
       />
-      {sub && saveTarget ? (
-        <PortalPropertySectionSettingsModal
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          title="Promotion settings"
-          propertyLabel={propertyLabel ?? "This property"}
-          dataAttr="property-promotion-settings"
-        >
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-3.5 py-3">
-            <span className="text-sm font-semibold text-foreground">Zillow Rental Network</span>
-            <PortalSettingsToggle
-              checked={zillowEnabled}
-              onChange={(next) => persistZillowToggle(next)}
-              label="Zillow Rental Network"
-              disabled={zillowSaving}
-              dataAttr="property-promotion-zillow-toggle"
-            />
-          </div>
-        </PortalPropertySectionSettingsModal>
-      ) : null}
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">

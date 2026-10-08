@@ -8,6 +8,7 @@ import {
   rowInWorkspaceScope,
 } from "@/lib/auth/co-manager-module-scope";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -80,7 +81,8 @@ export async function GET() {
       // Heal orphans for this manager's residents before listing (wrong/empty
       // manager_user_id on older client-mirrored rows). TTL-gated so nav-count
       // polls and repeat page loads don't re-run the per-resident sweep.
-      if (shouldRunScopeRepair(`service-requests:${user.id}`)) {
+      // (Skipped while an operator is viewing as this account: a read-only session writes nothing.)
+      if (shouldRunScopeRepair(`service-requests:${user.id}`) && !(await isViewAsSessionOpen())) {
         await repairServiceRequestScopesForManager(db, user.id).catch(() => undefined);
       }
 

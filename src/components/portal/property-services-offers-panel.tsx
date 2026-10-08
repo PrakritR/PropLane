@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, CircleSlash, CreditCard, Wrench } from "lucide-react";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
+import { leasingPlusMenuEntries } from "@/lib/leasing-plus-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -59,7 +60,7 @@ type Props = {
 
 /**
  * Property Services = the services offered here (captain, Oct 5): tabs Long term · Short term, a service for
- * both stays in both, search + the round +, and a Quick add row. Requests live on the main Services page.
+ * both stays in both, search + the round + (its menu: blank "Add service" first, then the presets). Requests live on the main Services page.
  */
 export function PropertyServicesOffersPanel({
   sub,
@@ -164,11 +165,26 @@ export function PropertyServicesOffersPanel({
           dataAttr: "property-services-search",
         }}
         primary={
-          <PortalPrimaryIconAction
-            label="Add service"
-            data-attr="property-services-add-top"
-            onClick={openAdd}
-          />
+          quickAdds.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <PortalPrimaryIconAction label="Add service" data-attr="property-services-add-top" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" data-attr="property-services-add-menu">
+                {leasingPlusMenuEntries("Add service", quickAdds).map((entry) => (
+                  <DropdownMenuItem
+                    key={entry.key}
+                    data-attr={`property-services-add-${entry.kind === "blank" ? "blank" : entry.key}`}
+                    onSelect={() => (entry.kind === "blank" ? openAdd() : quickAdd(entry.key))}
+                  >
+                    {entry.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <PortalPrimaryIconAction label="Add service" data-attr="property-services-add-top" onClick={openAdd} />
+          )
         }
       />
 
@@ -222,8 +238,6 @@ export function PropertyServicesOffersPanel({
           />
         ))}
       </PortalRecordListSurface>
-
-      <LeasingQuickAddRow entries={quickAdds} onAdd={quickAdd} noun="service" dataAttr="property-services-quick-add" />
 
       <ServiceOfferingEditModal
         open={editOpen}

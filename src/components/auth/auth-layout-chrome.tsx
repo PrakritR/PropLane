@@ -3,6 +3,7 @@
 import { ChromeSubstrate } from "@/components/brand/chrome-substrate";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
 import { PublicFooter } from "@/components/layout/public-footer";
+import { SiteBackdrop } from "@/components/marketing/site/site-backdrop";
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
@@ -38,14 +39,6 @@ function useHideAuthSubstrate(): boolean {
   return useSyncExternalStore(subscribeAuthChrome, shouldHideAuthSubstrate, () => false);
 }
 
-function useAuthWelcomeActive(): boolean {
-  return useSyncExternalStore(
-    subscribeAuthChrome,
-    () => typeof document !== "undefined" && document.documentElement.hasAttribute("data-auth-welcome"),
-    () => false,
-  );
-}
-
 function useAuthNativeActive(): boolean {
   return useSyncExternalStore(
     subscribeAuthChrome,
@@ -58,9 +51,9 @@ function useAuthNativeActive(): boolean {
 }
 
 export function AuthLayoutHomeMark() {
-  const active = useAuthWelcomeActive();
   const isNative = useAuthNativeActive();
-  if (!active || isNative) return null;
+  // The split screen carries the mark top-left on every web auth page, not only the welcome ones.
+  if (isNative) return null;
   return (
     <Link
       href="/"
@@ -77,6 +70,16 @@ export function AuthLayoutSubstrate() {
   const hidden = useHideAuthSubstrate();
   if (hidden) return null;
   return <ChromeSubstrate variant="full" />;
+}
+
+/**
+ * The public site's wavy atmosphere behind every auth screen. The native shells
+ * keep their flat canvas (no wallpaper), exactly like the substrate.
+ */
+export function AuthLayoutBackdrop() {
+  const isNative = useAuthNativeActive();
+  if (isNative) return null;
+  return <SiteBackdrop />;
 }
 
 export function AuthLayoutFooter() {

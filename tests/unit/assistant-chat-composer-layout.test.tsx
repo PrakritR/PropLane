@@ -19,13 +19,13 @@ function renderComposer(input: string) {
 describe("assistant chat composer layout", () => {
   afterEach(cleanup);
 
-  it("keeps both controls 32px circles, clear of the portal's 44px button floor", () => {
+  it("keeps both controls 30px, clear of the portal's 44px button floor", () => {
     renderComposer("");
     for (const name of ["Send message", "Attach image or PDF"]) {
       const cls = screen.getByRole("button", { name }).className;
-      expect(cls, name).toContain("size-8");
+      expect(cls, name).toContain("size-[30px]");
       expect(cls, name).toContain("min-h-0");
-      expect(cls, name).toContain("rounded-full");
+      expect(cls, name).toContain("rounded-[7px]");
     }
   });
 

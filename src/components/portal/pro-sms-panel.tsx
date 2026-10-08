@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   forwardRef,
   useCallback,
   useEffect,
@@ -10,8 +11,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ChevronLeft, Pencil, RotateCcw, Search, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Archive, ChevronLeft, Pencil, Phone, RotateCcw, Search, Trash2 } from "lucide-react";
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
 import { Select } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -28,12 +28,15 @@ import {
 import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
 import {
   INBOX_LIST_SCROLL,
+  INBOX_THREAD_ICON_BTN,
+  INBOX_THREAD_ICON_BTN_DANGER,
   InboxAvatar,
   InboxComposer,
   InboxThreadEmpty,
   InboxThreadSkeleton,
   InboxTwoPane,
   PortalInboxEmptyState,
+  inboxMessageClock,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import {
@@ -1275,7 +1278,7 @@ export const ManagerSmsPanel = forwardRef<
   ) : (
     <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>
       <header
-        className="portal-inbox-thread-header sticky top-0 z-10 flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-2"
+        className="portal-inbox-thread-header sticky top-0 z-10 flex shrink-0 items-center gap-0.5 border-b border-border bg-card px-2 py-2 md:py-2.5 md:pl-[18px] md:pr-3.5"
         style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }}
       >
         <button
@@ -1287,18 +1290,21 @@ export const ManagerSmsPanel = forwardRef<
         >
           <ChevronLeft className="h-5 w-5" strokeWidth={2.25} />
         </button>
-        <div className="min-w-0 flex-1 px-1">
-          <p className="truncate text-sm font-semibold text-foreground">
-            {smsConversationDisplayName(active.resident)}
-          </p>
-          <p className="truncate text-xs text-muted">
-            {smsConversationSubtitle(active.resident) || " "}
-          </p>
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 px-1">
+          <InboxAvatar tile name={smsConversationDisplayName(active.resident)} className="size-8 rounded-lg" />
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-bold leading-tight text-foreground">
+              {smsConversationDisplayName(active.resident)}
+            </p>
+            <p className="mt-px truncate text-[12.5px] leading-tight text-muted">
+              {smsConversationSubtitle(active.resident) || " "}
+            </p>
+          </div>
         </div>
         {canEditContact ? (
           <button
             type="button"
-            className="flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+            className={INBOX_THREAD_ICON_BTN}
             aria-label="Edit contact details"
             data-attr="sms-contact-name-edit"
             onClick={openContactName}
@@ -1309,7 +1315,7 @@ export const ManagerSmsPanel = forwardRef<
         {active.archived ? (
           <button
             type="button"
-            className="flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+            className={INBOX_THREAD_ICON_BTN}
             aria-label="Restore conversation"
             title="Restore"
             data-attr="sms-messages-thread-restore"
@@ -1319,19 +1325,20 @@ export const ManagerSmsPanel = forwardRef<
           </button>
         ) : (
           <>
-            <Button
+            <button
               type="button"
-              variant="outline"
-              className="h-10 min-h-10 rounded-full px-3 text-xs"
+              className={INBOX_THREAD_ICON_BTN}
+              aria-label="Archive conversation"
+              title="Archive"
               data-attr="sms-messages-thread-archive"
               onClick={() => archiveConversation(active.resident)}
             >
-              Archive
-            </Button>
+              <Archive className="size-4" aria-hidden />
+            </button>
             {allowDelete ? (
               <button
                 type="button"
-                className="flex h-10 w-10 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
+                className={`${INBOX_THREAD_ICON_BTN_DANGER} disabled:opacity-50`}
                 aria-label={active.messages.length === 0 ? "Remove contact" : "Delete conversation"}
                 data-attr="sms-messages-thread-delete"
                 disabled={deletingId === active.rowId}
@@ -1341,7 +1348,7 @@ export const ManagerSmsPanel = forwardRef<
                     : deleteConversation(active.resident)
                 )}
               >
-                <Trash2 className="h-[18px] w-[18px]" strokeWidth={1.75} />
+                <Trash2 className="size-4" strokeWidth={1.75} />
               </button>
             ) : null}
           </>
@@ -1353,8 +1360,8 @@ export const ManagerSmsPanel = forwardRef<
         onScroll={pageScroll ? undefined : handleThreadScroll}
         className={
           pageScroll
-            ? "portal-inbox-thread-body space-y-2 bg-background/40 px-3 py-4"
-            : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-background/40 px-3 py-4 [-webkit-overflow-scrolling:touch]"
+            ? "portal-inbox-thread-body space-y-2 px-3 py-3 md:px-[18px] md:py-3.5"
+            : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch] md:px-[18px] md:py-3.5"
         }
       >
         {active.resident.projectionId && threadPages[active.resident.projectionId]?.nextCursor ? (
@@ -1391,25 +1398,42 @@ export const ManagerSmsPanel = forwardRef<
           </div>
         ) : (
           <div
-            className={`flex w-full flex-col gap-2 ${pageScroll ? "space-y-2" : "mt-auto"}`}
+            className={`flex w-full flex-col gap-0.5 ${pageScroll ? "" : "mt-auto"}`}
           >
-            {threadMessages.map((msg, index) => (
-              <Bubble
-                key={msg.id}
-                message={msg}
-                pending={msg.id.startsWith("pending-")}
-                cluster={
-                  threadMessages[index - 1]?.direction === msg.direction &&
-                  threadMessages[index + 1]?.direction === msg.direction
-                    ? "middle"
-                    : threadMessages[index - 1]?.direction === msg.direction
-                      ? "last"
-                      : threadMessages[index + 1]?.direction === msg.direction
-                        ? "first"
-                        : "single"
-                }
-              />
-            ))}
+            {threadMessages.map((msg, index) => {
+              const prev = threadMessages[index - 1];
+              const next = threadMessages[index + 1];
+              const dayKey = smsDayKey(msg.createdAt);
+              const dayChanged = !prev || smsDayKey(prev.createdAt) !== dayKey;
+              const sameRunAsPrev = Boolean(prev) && prev!.direction === msg.direction && !dayChanged;
+              const sameRunAsNext = Boolean(next) && next!.direction === msg.direction && smsDayKey(next!.createdAt) === dayKey;
+              return (
+                <Fragment key={msg.id}>
+                  {dayChanged && smsDayLabel(msg.createdAt) ? (
+                    <div
+                      className="my-3.5 flex w-full items-center gap-2.5 text-xs font-semibold text-muted/80 before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border first:mt-0"
+                      data-inbox-day-separator
+                    >
+                      {smsDayLabel(msg.createdAt)}
+                    </div>
+                  ) : null}
+                  <Bubble
+                    authorName={smsConversationDisplayName(active.resident)}
+                    message={msg}
+                    pending={msg.id.startsWith("pending-")}
+                    cluster={
+                      sameRunAsPrev && sameRunAsNext
+                        ? "middle"
+                        : sameRunAsPrev
+                          ? "last"
+                          : sameRunAsNext
+                            ? "first"
+                            : "single"
+                    }
+                  />
+                </Fragment>
+              );
+            })}
           </div>
         );
         })()}
@@ -1506,67 +1530,77 @@ export const ManagerSmsPanel = forwardRef<
   );
 });
 
+/** Pacific calendar day of a message's ISO instant — the zone every stamp is written in. */
+function smsDayKey(iso: string): string {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? "" : formatPacificDate(ms, { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+/** "Today" / "Yesterday" / "Sep 7, 2026" for a day separator; empty when the instant is unreadable. */
+function smsDayLabel(iso: string, nowMs: number = Date.now()): string {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return "";
+  const key = smsDayKey(iso);
+  const dayKey = (at: number) => formatPacificDate(at, { year: "numeric", month: "2-digit", day: "2-digit" });
+  if (key === dayKey(nowMs)) return "Today";
+  if (key === dayKey(nowMs - 86_400_000)) return "Yesterday";
+  return formatPacificDate(ms, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function Bubble({
   message,
   pending = false,
   cluster = "single",
+  authorName,
 }: {
   message: ManagerSmsMessageRow;
   pending?: boolean;
   cluster?: "single" | "first" | "middle" | "last";
+  /** The conversation's counterparty, named on each of their runs. */
+  authorName: string;
 }) {
   const outbound = message.direction === "outbound";
-  const radius = outbound
-    ? cluster === "first"
-      ? "rounded-[1.125rem] rounded-br-md"
-      : cluster === "middle"
-        ? "rounded-[1.125rem] rounded-tr-md rounded-br-md"
-        : cluster === "last"
-          ? "rounded-[1.125rem] rounded-tr-md"
-          : "rounded-[1.125rem] rounded-br-md"
-    : cluster === "first"
-      ? "rounded-[1.125rem] rounded-bl-md"
-      : cluster === "middle"
-        ? "rounded-[1.125rem] rounded-tl-md rounded-bl-md"
-        : cluster === "last"
-          ? "rounded-[1.125rem] rounded-tl-md"
-          : "rounded-[1.125rem] rounded-bl-md border border-border bg-secondary text-foreground";
-  // `min-w-0` + `ml-auto`/`mr-auto` keep long URLs from expanding the flex
-  // item to full width (default min-width:auto), which made outbound bubbles
-  // look left-aligned while staying blue.
+  const startsRun = cluster === "single" || cluster === "first";
+  const author = outbound ? message.sentBy?.name?.trim() || "You" : authorName;
+  const clock = inboxMessageClock(message.createdAt);
+  // Slack-style: every turn on the left, the name says who. `data-sms-bubble-align`
+  // keeps the viewer's own turns identifiable ("end").
   return (
-    <div className="group/msg flex w-full min-w-0">
-      <div
-        className={`portal-inbox-bubble-wrap flex min-w-0 flex-col ${
-          outbound ? "ml-auto items-end" : "mr-auto items-start"
-        }`}
-      >
+    <div className={`group/msg flex w-full min-w-0 gap-2.5 ${startsRun ? "mt-3 first:mt-0" : ""}`}>
+      {startsRun ? (
+        <InboxAvatar tile name={author} className="size-8 rounded-lg" />
+      ) : (
+        <span className="size-8 shrink-0" aria-hidden />
+      )}
+      <div className="portal-inbox-bubble-wrap min-w-0 flex-1">
+        {startsRun ? (
+          <p className="flex min-w-0 items-baseline gap-1.5 text-sm leading-snug text-foreground">
+            <span className="truncate font-[650]" data-inbox-author>{author}</span>
+            {clock ? <span className="shrink-0 text-xs text-muted/80">{clock}</span> : null}
+          </p>
+        ) : null}
         <div
-          className={`relative w-full px-4 py-2.5 text-[15px] leading-relaxed sm:text-base portal-inbox-inbound-bubble ${radius} ${
-            outbound
-              ? "portal-inbox-outbound-bubble"
-              : cluster === "single"
-                ? "border border-border bg-secondary text-foreground"
-                : "border border-border bg-secondary text-foreground"
-          } ${pending ? "opacity-80" : ""}`}
+          className={`portal-inbox-inbound-bubble min-w-0 text-sm leading-[1.45] text-foreground/85 ${pending ? "opacity-70" : ""}`}
           data-sms-bubble-align={outbound ? "end" : "start"}
         >
-        {isVoiceCallNoteSid(message.messageSid) ? (
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Call</p>
-        ) : null}
-        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
+          {isVoiceCallNoteSid(message.messageSid) ? (
+            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Call</p>
+          ) : null}
+          <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
         </div>
         {pending ? (
-          <span className={`mt-1 block px-1 text-[11px] italic text-muted ${outbound ? "text-right" : ""}`}>
-            Sending…
+          <span className="block text-[11.5px] italic text-muted/80">Sending…</span>
+        ) : (
+          <span className="flex items-center gap-1 text-[11.5px] leading-snug text-muted/80" data-inbox-via="sms">
+            <Phone className="size-3 shrink-0" strokeWidth={2} aria-hidden />
+            <span>Text</span>
+            {outbound && message.sentBy ? (
+              // One workspace number is shared by the whole team; this is the only
+              // place the owner can tell a co-manager's reply from their own.
+              <span data-attr="sms-sent-by">· Sent by {message.sentBy.name}</span>
+            ) : null}
           </span>
-        ) : outbound && message.sentBy ? (
-          // One workspace number is shared by the whole team; this is the only
-          // place the owner can tell a co-manager's reply from their own.
-          <span className="mt-1 block px-1 text-right text-[11px] text-muted" data-attr="sms-sent-by">
-            Sent by {message.sentBy.name}
-          </span>
-        ) : null}
+        )}
       </div>
     </div>
   );

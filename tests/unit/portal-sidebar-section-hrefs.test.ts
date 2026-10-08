@@ -9,7 +9,7 @@ import { MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
 
 describe("portal sidebar section hrefs", () => {
   const sidebarSrc = readFileSync(
-    join(process.cwd(), "src/components/portal/portal-sidebar.tsx"),
+    join(process.cwd(), "src/components/portal/portal-nav-model.ts"),
     "utf8",
   );
 

@@ -1,11 +1,13 @@
 "use client";
 
-import { Settings, type LucideIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 import { LocalDestinationNav, type LocalDestinationNavItem } from "@/components/ui/destination-nav";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { LeasingPlusMenuEntry } from "@/lib/leasing-plus-menu";
 
 export type FormAutomationPane = "form" | "automation";
 
@@ -16,16 +18,13 @@ const PANES: { id: FormAutomationPane; label: string }[] = [
 
 /**
  * Bookings-style command bar for a property Application / Lease page:
- * Form | Automation, optional filter, gear, and the filled +.
+ * Form | Automation, optional filter, and the filled +. It carries no settings
+ * gear: Settings is a page (Settings → Automations), never a pop-up.
  */
 export function PropertyFormAutomationCommandBar({
   pane,
   onPaneChange,
   filter,
-  onSettings,
-  settingsLabel,
-  settingsDataAttr,
-  settingsDisabled,
   onAdd,
   addLabel,
   addDataAttr,
@@ -34,6 +33,7 @@ export function PropertyFormAutomationCommandBar({
   panes = PANES,
   search,
   stayTabs,
+  addMenu,
 }: {
   pane: FormAutomationPane;
   onPaneChange: (pane: FormAutomationPane) => void;
@@ -45,14 +45,15 @@ export function PropertyFormAutomationCommandBar({
     placeholder: string;
     dataAttr: string;
   };
-  onSettings?: () => void;
-  settingsLabel?: string;
-  settingsDataAttr?: string;
-  settingsDisabled?: boolean;
   onAdd: () => void;
   addLabel: string;
   addDataAttr: string;
   addIcon?: LucideIcon;
+  /**
+   * When given (and it has more than the blank item), the round + opens this menu — blank item first,
+   * then the presets — instead of calling `onAdd` directly.
+   */
+  addMenu?: { entries: readonly LeasingPlusMenuEntry[]; onSelect: (entry: LeasingPlusMenuEntry) => void };
   /**
    * C228: the property record page dropped its own inline Automation pane
    * (that content moved onto the form itself, in Settings -> Forms), so it
@@ -108,26 +109,34 @@ export function PropertyFormAutomationCommandBar({
       destinationAriaLabel={stayTabs?.ariaLabel ?? "Form or automation"}
       search={search}
       actions={
-        <>
-          {filter}
-          {onSettings && settingsLabel && settingsDataAttr ? (
-            <PortalIconAction
-              icon={Settings}
-              label={settingsLabel}
-              data-attr={settingsDataAttr}
-              disabled={settingsDisabled}
-              onClick={onSettings}
-            />
-          ) : null}
-        </>
+        filter
       }
       primary={
-        <PortalPrimaryIconAction
-          label={addLabel}
-          icon={addIcon}
-          data-attr={addDataAttr}
-          onClick={onAdd}
-        />
+        addMenu && addMenu.entries.length > 1 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <PortalPrimaryIconAction label={addLabel} icon={addIcon} data-attr={addDataAttr} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" data-attr={`${addDataAttr}-menu`}>
+              {addMenu.entries.map((entry) => (
+                <DropdownMenuItem
+                  key={entry.key}
+                  data-attr={`${addDataAttr}-${entry.kind === "blank" ? "blank" : entry.key}`}
+                  onSelect={() => addMenu.onSelect(entry)}
+                >
+                  {entry.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <PortalPrimaryIconAction
+            label={addLabel}
+            icon={addIcon}
+            data-attr={addDataAttr}
+            onClick={onAdd}
+          />
+        )
       }
       activeFilterChips={activeFilterChips}
     />

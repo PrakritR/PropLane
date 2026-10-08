@@ -35,6 +35,7 @@ import { fillApplicantIdentityFromAccount } from "@/lib/rental-application/appli
 import { realApplicantName } from "@/lib/rental-application/applicant-name";
 import { isApplicantWizardRow } from "@/lib/rental-application/applicant-identity";
 import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
@@ -1019,7 +1020,8 @@ export async function GET(req: Request) {
     // via SQL migration, or a write-time failure) and is read-only for the caller:
     // bounded, after the response, never awaited, one attempt per row per 10 min.
     // It used to run inline and its auth lookup (listUsers) cost seconds per call.
-    scheduleApprovedResidentBackfill(db, scopedRows);
+    // A view-as session is read-only: it must not provision accounts either.
+    if (!(await isViewAsSessionOpen())) scheduleApprovedResidentBackfill(db, scopedRows);
 
     return NextResponse.json({ rows: scopedRows }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {

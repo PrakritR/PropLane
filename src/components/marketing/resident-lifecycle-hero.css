@@ -1,0 +1,140 @@
+/*
+ * The scroll-driven hero (captain 2026-10-07, portal redesign). `.rlp-grow` is a track as tall as its sticky
+ * frame plus a run of scrolling; the frame pins the headline and the window while the window grows (transform
+ * only) from 72% to full size, then releases and the page scrolls on. The track is always frame + run, so
+ * nothing in the layout moves. The window's height and the phone's resting top are derived from the headline's
+ * size in CSS, so first paint already matches (no measuring, no jump). Static from below md and under
+ * prefers-reduced-motion. The page-scroll progress (`--rlp-grow`, `--rlp-phone-top`) is written by
+ * resident-lifecycle-prototypes.tsx.
+ */
+.rlp-page .rlp-story {
+  /* The site's sticky top bar (public-navbar.tsx, 56px): the frame pins right under it. */
+  --rlp-hdr: 56px;
+  --rlp-h1: clamp(46px, 5vw, 72px);
+  --rlp-hero-h: calc(var(--rlp-h1) * 2.12 + 84px);
+  /* Where the window's top edge sits inside the track, and on screen while the frame is pinned. */
+  /* Breathing room between the buttons and the window at the start of the scroll (captain, Oct 7:
+     "move dashboard lower at start"). */
+  --rlp-stage-gap: 44px;
+  --rlp-stage-offset: calc(16px + var(--rlp-hero-h) + var(--rlp-stage-gap));
+  --rlp-stage-top: calc(var(--rlp-hdr) + var(--rlp-stage-offset));
+  --rlp-win-h: clamp(520px, calc(100svh - var(--rlp-stage-top) - 12px), 700px);
+}
+
+/* The track and its sticky frame. */
+.rlp-page .rlp-grow {
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+.rlp-page .rlp-grow-frame {
+  position: sticky;
+  top: var(--rlp-hdr);
+  min-height: calc(100svh - var(--rlp-hdr));
+  padding: 16px 0 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rlp-page .rlp-grow-run {
+  height: calc(100svh * 0.7);
+}
+.rlp-page .rlp-grow-stage {
+  min-width: 0;
+  margin-top: var(--rlp-stage-gap);
+}
+
+/* The headline block: fixed height (so the window below sits at a known offset), page-centered. */
+.rlp-page .rlp-grow-frame .rlp-hero {
+  width: auto;
+  height: var(--rlp-hero-h);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rlp-page .rlp-grow-frame .rlp-hero-copy {
+  width: 100%;
+  padding: 0;
+}
+.rlp-page .rlp-grow-frame .rlp-hero h1 {
+  font-size: var(--rlp-h1);
+  line-height: 1.06;
+}
+
+/* The window: grows from the top center, sized to fit the screen under the headline. */
+.rlp-page .rlp-story .rlp-hero-stage {
+  width: 100%;
+  transform: scale(var(--rlp-grow, 0.72));
+  transform-origin: top center;
+  will-change: transform;
+}
+.rlp-page .rlp-hero-stage .rlp-dual-view .rlp-workspace {
+  height: var(--rlp-win-h);
+  min-height: 0;
+}
+
+/* The phone: beside the window at lg, sticky and vertically centred in the viewport on the right (captain, Oct 7:
+   "keep the phone centered on screen, in the middle on the right side"). It stays there while the page scrolls,
+   never closer to the top than the site header, and its slot is as tall as the phone so nothing is cut off. */
+@media (min-width: 1024px) {
+  .rlp-page .rlp-grow {
+    grid-column: 1 / -1;
+  }
+  .rlp-page .rlp-grow-stage {
+    padding-right: calc(304px * var(--rlp-phone-s) + 24px);
+  }
+  .rlp-page .rlp-story-rail {
+    margin-top: 0;
+    z-index: 2;
+  }
+  .rlp-page .rlp-story-phone-slot {
+    top: max(calc(var(--rlp-hdr) + 12px), calc(50svh - (660px * var(--rlp-phone-s)) / 2));
+  }
+}
+
+/* Static: a phone, and anyone who asked for less motion, gets the full-size window with no pin. */
+@media (max-width: 767px) {
+  .rlp-page .rlp-story {
+    --rlp-h1: clamp(24px, 8.1vw, 44px);
+    --rlp-win-h: 600px;
+  }
+  .rlp-page .rlp-grow-run {
+    display: none;
+  }
+  .rlp-page .rlp-grow-frame {
+    position: static;
+    min-height: 0;
+    padding: 44px 0 0;
+  }
+  .rlp-page .rlp-grow-frame .rlp-hero {
+    height: auto;
+    padding: 0 0 26px;
+  }
+  .rlp-page .rlp-grow-frame .rlp-hero-copy {
+    padding: 0 0 4px;
+  }
+  .rlp-page .rlp-story .rlp-hero-stage {
+    transform: none;
+    will-change: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rlp-page .rlp-story {
+    --rlp-win-h: 640px;
+  }
+  .rlp-page .rlp-grow-run {
+    display: none;
+  }
+  .rlp-page .rlp-grow-frame {
+    position: static;
+    min-height: 0;
+  }
+  .rlp-page .rlp-story .rlp-hero-stage {
+    transform: none;
+    will-change: auto;
+  }
+}

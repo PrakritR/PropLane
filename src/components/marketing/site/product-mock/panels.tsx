@@ -16,7 +16,7 @@
  * `shared.tsx` and `docs/agents/marketing-mocks.md`).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
   CalendarDays,
@@ -51,16 +51,8 @@ import {
   InboxTwoPane,
 } from "@/components/portal/portal-inbox-ui";
 import {
-  APPLICATION_ROWS,
   COMM_CONVERSATIONS,
-  DASHBOARD_ATTENTION,
-  DASHBOARD_KPIS,
-  DASHBOARD_PROPERTIES,
-  DASHBOARD_UPCOMING,
-  LEASE_ROWS,
-  PAYMENT_ROWS,
-  SERVICE_ROWS,
-  TOUR_ROWS,
+  RESIDENT_NAME,
   type ApplicationFixtureRow,
   type CommConversationFixture,
   type LeaseFixtureRow,
@@ -68,7 +60,17 @@ import {
   type ServiceFixtureRow,
   type TourFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
-import { FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { DEMO_PAGE_CLASS, DemoTarget, FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
+
+/** A panel mounted while the story is running keeps showing Jordan's row: when the
+ * story moves his record to another tab, the panel follows it. */
+function useFollow<T>(target: T | null, set: (value: T) => void) {
+  useEffect(() => {
+    if (target !== null) set(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+}
 
 /** The real kebab: `RowSelectCheckbox` only renders `RecordActionMenu` when
  * the enclosing surface got `bulkActions` — two static, no-op actions is
@@ -96,8 +98,11 @@ const TOUR_TABS = [
   { id: "past" as const, label: "Past" },
 ];
 
-export function ToursPanel() {
-  const [bucket, setBucket] = useState<TourFixtureRow["bucket"]>("upcoming");
+export function ToursPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.tourOffered ? (world.story.tourAccepted ? "upcoming" : "pending") : null;
+  const [bucket, setBucket] = useState<TourFixtureRow["bucket"]>(jordan ?? "upcoming");
+  useFollow<TourFixtureRow["bucket"]>(jordan, setBucket);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<TourFixtureRow | null>(null);
   const [adding, setAdding] = useState(false);
@@ -106,18 +111,18 @@ export function ToursPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { pending: 0, upcoming: 0, past: 0 };
-    for (const r of TOUR_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
+    for (const r of world.tours) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
-  }, []);
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(TOUR_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.guest} ${r.place}`.toLowerCase() })), search),
-    [bucket, search],
+    () => filterBySearch(world.tours.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.guest} ${r.place}`.toLowerCase() })), search),
+    [world, bucket, search],
   );
 
   return (
     <ProductWindow path="/portal/tours/upcoming">
       <PortalSidebarFixture active="tours" counts={{ tours: counts.pending }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Tours">
           <PortalListControlStack
             variant="command"
@@ -199,28 +204,32 @@ const APPLICATION_TABS = [
   { id: "rejected" as const, label: "Rejected" },
 ];
 
-export function ApplicationsPanel() {
-  const [bucket, setBucket] = useState<ApplicationFixtureRow["bucket"]>("pending");
+export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.applicationSubmitted ? (world.story.applicationApproved ? "approved" : "pending") : null;
+  const [bucket, setBucket] = useState<ApplicationFixtureRow["bucket"]>(jordan ?? "pending");
+  useFollow<ApplicationFixtureRow["bucket"]>(jordan, setBucket);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<ApplicationFixtureRow | null>(null);
   const [adding, setAdding] = useState(false);
+  const [sending, setSending] = useState(false);
   const { show, node: toastNode } = useFixtureToast();
   const kebab = useFixtureKebab(show, "Application");
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { incomplete: 0, pending: 0, approved: 0, rejected: 0 };
-    for (const r of APPLICATION_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
+    for (const r of world.applications) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
-  }, []);
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(APPLICATION_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.name} ${r.property}`.toLowerCase() })), search),
-    [bucket, search],
+    () => filterBySearch(world.applications.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.name} ${r.property}`.toLowerCase() })), search),
+    [world, bucket, search],
   );
 
   return (
     <ProductWindow path="/portal/applications/pending">
       <PortalSidebarFixture active="applications" counts={{ applications: counts.pending }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Applications">
           <PortalListControlStack
             variant="command"
@@ -236,7 +245,12 @@ export function ApplicationsPanel() {
             actions={
               <>
                 <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
-                <PortalIconAction icon={Share2} label="Send application link" onClick={() => show("Application link copied")} />
+                <PortalIconAction
+                  icon={Share2}
+                  label="Send application"
+                  data-demo-target="applications-send"
+                  onClick={() => setSending(true)}
+                />
                 <PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />
               </>
             }
@@ -248,8 +262,8 @@ export function ApplicationsPanel() {
             bulkActions={kebab}
           >
             {rows.map((row) => (
+              <DemoTarget id="application-row" key={row.id}>
               <PortalApplicantRecordRow
-                key={row.id}
                 name={row.name}
                 address={`${row.property} · ${row.unit}`}
                 facts={
@@ -269,6 +283,7 @@ export function ApplicationsPanel() {
                 onOpen={() => setSelected(row)}
                 dataAttr="application-list-row"
               />
+              </DemoTarget>
             ))}
           </PortalRecordListSurface>
         </ManagerPortalPageShell>
@@ -281,6 +296,12 @@ export function ApplicationsPanel() {
             <FixtureField label="Stage" value={selected.stage} />
           </>
         ) : null}
+      </FixtureSheet>
+      <FixtureSheet open={sending} title="Send application" onClose={() => setSending(false)} primaryLabel="Send" onPrimary={() => { show("Application link sent"); setSending(false); }}>
+        <FixtureField label="To" value={`${RESIDENT_NAME} · (206) 555-0186`} />
+        <FixtureField label="Home" value="61 Willow Court · Room 3" />
+        <FixtureField label="Send via" value="SMS" />
+        <FixtureField label="Message" value="Apply for Room 3 — PropLane" />
       </FixtureSheet>
       <FixtureSheet open={adding} title="Add application" onClose={() => setAdding(false)} primaryLabel="Save" onPrimary={() => { show("Application added"); setAdding(false); }}>
         <FixtureField label="Property" value="Fremont Studio" />
@@ -300,16 +321,11 @@ const LEASE_TABS = [
   { id: "completed" as const, label: "Signed" },
 ];
 
-/** Same tone map `pro-leases.tsx` draws its pipeline progress segments in. */
-const LEASE_SEGMENT_TONE: Record<LeaseFixtureRow["bucket"], string> = {
-  manager: "bg-amber-400",
-  resident: "bg-sky-400",
-  signed: "bg-violet-400",
-  completed: "bg-emerald-500",
-};
-
-export function LeasesPanel() {
-  const [bucket, setBucket] = useState<LeaseFixtureRow["bucket"]>("signed");
+export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.applicationApproved ? world.leases[0]!.bucket : null;
+  const [bucket, setBucket] = useState<LeaseFixtureRow["bucket"]>(jordan ?? "signed");
+  useFollow<LeaseFixtureRow["bucket"]>(jordan, setBucket);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<LeaseFixtureRow | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -317,36 +333,19 @@ export function LeasesPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { manager: 0, resident: 0, signed: 0, completed: 0 };
-    for (const r of LEASE_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
+    for (const r of world.leases) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
-  }, []);
-  const total = LEASE_ROWS.length;
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(LEASE_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.place}`.toLowerCase() })), search),
-    [bucket, search],
+    () => filterBySearch(world.leases.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.place}`.toLowerCase() })), search),
+    [world, bucket, search],
   );
 
   return (
     <ProductWindow path="/portal/leases">
       <PortalSidebarFixture active="leases" />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Leases">
-          <div className="mb-2 rounded-xl border border-border bg-card px-3.5 py-2.5">
-            <p className="text-[13px] font-medium text-foreground">{counts.completed} of {total} leases signed</p>
-            <div className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-accent/40">
-              {(["manager", "resident", "signed", "completed"] as const).map((id) =>
-                counts[id] > 0 ? (
-                  <span
-                    key={id}
-                    className={LEASE_SEGMENT_TONE[id]}
-                    style={{ width: `${(counts[id] / total) * 100}%` }}
-                    role="img"
-                    aria-label={`${LEASE_TABS.find((t) => t.id === id)?.label}: ${counts[id]}`}
-                  />
-                ) : null,
-              )}
-            </div>
-          </div>
           <PortalListControlStack
             variant="command"
             destinationRow={
@@ -362,21 +361,22 @@ export function LeasesPanel() {
           />
           <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "No leases here", section: bucket }} bulkActions={kebab}>
             {rows.map((row) => (
-              <PortalApplicantRecordRow
-                key={row.id}
-                name={row.resident}
-                address={row.place}
-                facts={
-                  <>
-                    <PortalRowFact icon={Mail}>{row.email}</PortalRowFact>
-                    <PortalRowFact icon={CalendarDays}>{row.stage}</PortalRowFact>
-                    <PortalRowFact icon={Clock}>{row.updated}</PortalRowFact>
-                  </>
-                }
-                onSelectedChange={() => undefined}
-                onOpen={() => setSelected(row)}
-                dataAttr="lease-list-row"
-              />
+              <DemoTarget id="lease-row" key={row.id}>
+                <PortalApplicantRecordRow
+                  name={row.resident}
+                  address={row.place}
+                  facts={
+                    <>
+                      <PortalRowFact icon={Mail}>{row.email}</PortalRowFact>
+                      <PortalRowFact icon={CalendarDays}>{row.stage}</PortalRowFact>
+                      <PortalRowFact icon={Clock}>{row.updated}</PortalRowFact>
+                    </>
+                  }
+                  onSelectedChange={() => undefined}
+                  onOpen={() => setSelected(row)}
+                  dataAttr="lease-list-row"
+                />
+              </DemoTarget>
             ))}
           </PortalRecordListSurface>
         </ManagerPortalPageShell>
@@ -385,8 +385,11 @@ export function LeasesPanel() {
         open={!!selected}
         title={selected?.resident ?? ""}
         onClose={() => setSelected(null)}
-        primaryLabel="Countersign"
-        onPrimary={() => { show("Lease executed — deposit charge sent"); setSelected(null); }}
+        primaryLabel={selected?.bucket === "manager" ? "Send lease" : selected?.bucket === "signed" ? "Countersign" : undefined}
+        onPrimary={() => {
+          show(selected?.bucket === "manager" ? "Lease sent for signature" : "Lease executed — deposit charge sent");
+          setSelected(null);
+        }}
       >
         {selected ? (
           <>
@@ -409,8 +412,11 @@ const PAYMENT_TABS = [
   { id: "paid" as const, label: "Paid" },
 ];
 
-export function PaymentsPanel() {
-  const [bucket, setBucket] = useState<PaymentFixtureRow["bucket"]>("overdue");
+export function PaymentsPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.leaseStep === 3 ? (world.story.rentPaid ? "paid" : "pending") : null;
+  const [bucket, setBucket] = useState<PaymentFixtureRow["bucket"]>(jordan ?? "overdue");
+  useFollow<PaymentFixtureRow["bucket"]>(jordan, setBucket);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<PaymentFixtureRow | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -418,18 +424,18 @@ export function PaymentsPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { pending: 0, overdue: 0, paid: 0 };
-    for (const r of PAYMENT_ROWS) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
+    for (const r of world.payments) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
     return c;
-  }, []);
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(PAYMENT_ROWS.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.property}`.toLowerCase() })), search),
-    [bucket, search],
+    () => filterBySearch(world.payments.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.property}`.toLowerCase() })), search),
+    [world, bucket, search],
   );
 
   return (
     <ProductWindow path="/portal/payments/incoming/overdue">
       <PortalSidebarFixture active="payments" counts={{ payments: counts.overdue }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Payments">
           <PortalListControlStack
             variant="command"
@@ -446,17 +452,18 @@ export function PaymentsPanel() {
           />
           <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "No charges here", section: bucket }} bulkActions={kebab}>
             {rows.map((row) => (
-              <PortalApplicantRecordRow
-                key={row.id}
-                name={row.resident}
-                address={`${row.chargeTitle} · ${row.property}`}
-                facts={<PortalRowFact icon={CalendarDays}>{row.due}</PortalRowFact>}
-                amount={row.amount}
-                amountTone={row.tone}
-                onSelectedChange={() => undefined}
-                onOpen={() => setSelected(row)}
-                dataAttr="payment-list-row"
-              />
+              <DemoTarget id="payment-row" key={row.id}>
+                <PortalApplicantRecordRow
+                  name={row.resident}
+                  address={`${row.chargeTitle} · ${row.property}`}
+                  facts={<PortalRowFact icon={CalendarDays}>{row.due}</PortalRowFact>}
+                  amount={row.amount}
+                  amountTone={row.tone}
+                  onSelectedChange={() => undefined}
+                  onOpen={() => setSelected(row)}
+                  dataAttr="payment-list-row"
+                />
+              </DemoTarget>
             ))}
           </PortalRecordListSurface>
         </ManagerPortalPageShell>
@@ -465,8 +472,11 @@ export function PaymentsPanel() {
         open={!!selected}
         title={selected?.resident ?? ""}
         onClose={() => setSelected(null)}
-        primaryLabel={selected?.bucket === "paid" ? undefined : "Mark paid"}
-        onPrimary={() => { show(`${selected?.amount} paid — ${selected?.resident}`); setSelected(null); }}
+        primaryLabel={selected?.bucket === "paid" ? undefined : selected?.bucket === "pending" ? "Send reminder" : "Mark paid"}
+        onPrimary={() => {
+          show(selected?.bucket === "pending" ? `Reminder sent — ${selected?.resident}` : `${selected?.amount} paid — ${selected?.resident}`);
+          setSelected(null);
+        }}
       >
         {selected ? (
           <>
@@ -490,8 +500,11 @@ const SERVICE_TABS = [
   { id: "declined" as const, label: "Declined" },
 ];
 
-export function ServicesPanel() {
-  const [state, setState] = useState<ServiceFixtureRow["state"]>("scheduled");
+export function ServicesPanel({ story }: { story?: DemoStory } = {}) {
+  const world = worldFor(story);
+  const jordan = world.story.service === "none" ? null : world.services[0]!.state;
+  const [state, setState] = useState<ServiceFixtureRow["state"]>(jordan ?? "scheduled");
+  useFollow<ServiceFixtureRow["state"]>(jordan, setState);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<ServiceFixtureRow | null>(null);
   const { show, node: toastNode } = useFixtureToast();
@@ -499,18 +512,18 @@ export function ServicesPanel() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { open: 0, scheduled: 0, done: 0, declined: 0 };
-    for (const r of SERVICE_ROWS) c[r.state] = (c[r.state] ?? 0) + 1;
+    for (const r of world.services) c[r.state] = (c[r.state] ?? 0) + 1;
     return c;
-  }, []);
+  }, [world]);
   const rows = useMemo(
-    () => filterBySearch(SERVICE_ROWS.filter((r) => r.state === state).map((r) => ({ ...r, search: `${r.title} ${r.resident} ${r.property}`.toLowerCase() })), search),
-    [state, search],
+    () => filterBySearch(world.services.filter((r) => r.state === state).map((r) => ({ ...r, search: `${r.title} ${r.resident} ${r.property}`.toLowerCase() })), search),
+    [world, state, search],
   );
 
   return (
     <ProductWindow path="/portal/services">
       <PortalSidebarFixture active="services" counts={{ services: counts.open }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Services">
           <PortalListControlStack
             variant="command"
@@ -527,14 +540,15 @@ export function ServicesPanel() {
           />
           <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "Nothing here", section: state }} bulkActions={kebab}>
             {rows.map((row) => (
-              <PortalServiceRecordRow
-                key={row.id}
-                title={row.title}
-                subtitle={`${row.kind === "add-on" ? "Add-on service" : "Maintenance"} · ${row.property} · ${row.resident} · ${row.detail}`}
-                onSelectedChange={() => undefined}
-                onOpen={() => setSelected(row)}
-                dataAttr="service-list-row"
-              />
+              <DemoTarget id="service-row" key={row.id}>
+                <PortalServiceRecordRow
+                  title={row.title}
+                  subtitle={`${row.kind === "add-on" ? "Add-on service" : "Maintenance"} · ${row.property} · ${row.resident} · ${row.detail}`}
+                  onSelectedChange={() => undefined}
+                  onOpen={() => setSelected(row)}
+                  dataAttr="service-list-row"
+                />
+              </DemoTarget>
             ))}
           </PortalRecordListSurface>
         </ManagerPortalPageShell>
@@ -561,9 +575,10 @@ export function ServicesPanel() {
 
 /* ───────────────────────────── Dashboard (hero) ───────────────────────────── */
 
-export function DashboardPanel() {
+export function DashboardPanel({ story }: { story?: DemoStory } = {}) {
   const [nowMs] = useState(() => Date.now());
-  const propertyCards: PortfolioPropertyCardData[] = DASHBOARD_PROPERTIES.map((p) => ({
+  const { dashboard } = worldFor(story);
+  const propertyCards: PortfolioPropertyCardData[] = dashboard.properties.map((p) => ({
     key: p.id,
     stage: "listed",
     title: p.title,
@@ -577,17 +592,17 @@ export function DashboardPanel() {
   return (
     <ProductWindow path="/portal/dashboard" nativeHeight={900}>
       <PortalSidebarFixture active="dashboard" />
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
+      <div className={DEMO_PAGE_CLASS}>
         <p className="mb-3 text-[15px] font-bold text-foreground">Welcome back</p>
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <KpiCard label="Occupancy" value={DASHBOARD_KPIS.occupancy.value} unit={DASHBOARD_KPIS.occupancy.unit} href="#" dataAttr="dashboard-metric-occupied" />
-          <KpiCard label="Rent collected" value={DASHBOARD_KPIS.rentCollected.value} unit={DASHBOARD_KPIS.rentCollected.unit} href="#" dataAttr="dashboard-metric-collected" />
-          <KpiCard label="Open requests" value={DASHBOARD_KPIS.openRequests.value} unit={DASHBOARD_KPIS.openRequests.unit} href="#" dataAttr="dashboard-metric-open-requests" />
-          <KpiCard label="Applications ready" value={DASHBOARD_KPIS.applicationsReady.value} unit={DASHBOARD_KPIS.applicationsReady.unit} href="#" dataAttr="dashboard-metric-applications" />
+          <KpiCard label="Occupancy" value={dashboard.occupancy.value} unit={dashboard.occupancy.unit} href="#" dataAttr="dashboard-metric-occupied" />
+          <KpiCard label="Rent collected" value={dashboard.rentCollected.value} unit={dashboard.rentCollected.unit} href="#" dataAttr="dashboard-metric-collected" />
+          <KpiCard label="Open requests" value={dashboard.openRequests.value} unit={dashboard.openRequests.unit} href="#" dataAttr="dashboard-metric-open-requests" />
+          <KpiCard label="Applications ready" value={dashboard.applicationsReady.value} unit={dashboard.applicationsReady.unit} href="#" dataAttr="dashboard-metric-applications" />
         </div>
         <div className="mb-4 grid gap-3 sm:grid-cols-2">
-          <AttentionPanel rows={DASHBOARD_ATTENTION} />
-          <UpcomingPanel rows={DASHBOARD_UPCOMING} nowMs={nowMs} calendarHref="#" />
+          <AttentionPanel rows={dashboard.attention} />
+          <UpcomingPanel rows={dashboard.upcoming} nowMs={nowMs} calendarHref="#" />
         </div>
         <PortfolioPropertiesSection cards={propertyCards} basePath="/portal" />
       </div>
@@ -597,12 +612,12 @@ export function DashboardPanel() {
 
 /* ───────────────────────────── Switching: import review ───────────────────────────── */
 
-export function ImportReviewPanel() {
+export function ImportReviewPanel({ nativeHeight = 760, whole = false }: { nativeHeight?: number; whole?: boolean } = {}) {
   const [proposal, setProposal] = useState(DEMO_IMPORT_SAMPLE);
   const { show, node: toastNode } = useFixtureToast();
 
   return (
-    <ProductWindow path="/portal/properties/import" nativeWidth={1100} nativeHeight={760}>
+    <ProductWindow path="/portal/properties/import" nativeWidth={1100} nativeHeight={nativeHeight} whole={whole}>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-card">
         <PortfolioImportReviewStep
           proposal={proposal}
@@ -662,7 +677,7 @@ export function CommunicationPanel() {
   return (
     <ProductWindow path="/portal/communication/active" nativeHeight={780}>
       <PortalSidebarFixture active="communication" counts={{ communication: counts.active }} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={DEMO_PAGE_CLASS}>
         <ManagerPortalPageShell title="Communication" viewportFillBody>
           <InboxTwoPane
             threadOpen

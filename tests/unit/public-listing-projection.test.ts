@@ -413,6 +413,20 @@ describe("publicListingProjection", () => {
       expect(plain).not.toHaveProperty("applicationBeforeTour");
     });
 
+    it("stamps showProPlaneAttribution: true only when the server resolved it on, and nothing else with it", () => {
+      const ctx = { signingOrder: "application_first" as const, leaseSigningFeeCents: 0 };
+      const on = publicListingProjection(storedListing(), null, ctx, true);
+      expect(on.showProPlaneAttribution).toBe(true);
+      const off = publicListingProjection(storedListing(), null, ctx, false);
+      expect(off).not.toHaveProperty("showProPlaneAttribution");
+      const omitted = publicListingProjection(storedListing(), null, ctx);
+      expect(omitted).not.toHaveProperty("showProPlaneAttribution");
+      // The flag is the ONLY key it adds: no plan, setting or workspace id rides along.
+      const extra = Object.keys(on).filter((k) => !(k in off));
+      expect(extra).toEqual(["showProPlaneAttribution"]);
+      expect(allKeys(on).has("listingAttribution")).toBe(false);
+    });
+
     it("passes through application_first with a zero fee unchanged", () => {
       const projected = publicListingProjection(storedListing(), null, {
         signingOrder: "application_first",

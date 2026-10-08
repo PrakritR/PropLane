@@ -3,7 +3,7 @@
  * header under the status bar on tall phones); the wrapper in `Modal` pads by the same
  * insets so the panel always sits inside the visible viewport. */
 export const MODAL_PANEL_CLASS =
-  "modal-panel relative flex max-h-[min(92dvh,56rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border p-5 shadow-[var(--shadow-card)] sm:p-6 [html[data-native]_&]:max-h-[calc(100dvh-max(1rem,var(--native-safe-top))-max(1rem,var(--native-safe-bottom))-1rem)]";
+  "modal-panel relative flex max-h-[min(92dvh,56rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border p-5 shadow-[var(--shadow-card)] sm:p-6 lg:rounded-[10px] lg:border-0 lg:shadow-[0_24px_60px_-12px_rgba(16,24,40,0.45)] [html[data-native]_&]:max-h-[calc(100dvh-max(1rem,var(--native-safe-top))-max(1rem,var(--native-safe-bottom))-1rem)]";
 
 /** Bordered inset panel for message previews, link URLs, and read-only blocks inside modals. */
 export const MODAL_INSET_BOX_CLASS =
@@ -67,7 +67,8 @@ export const PORTAL_MOBILE_DRAWER_SHELL_CLASS =
 /** Studio popup frame: one desktop window, edge-to-edge phone sheet. */
 /** A short confirm: sized to its content (desktop card, phone bottom sheet), never a full window. */
 export const MODAL_COMPACT_PANEL_CLASS =
-  "!h-auto !max-h-[min(92dvh,40rem)] !w-full !max-w-lg !rounded-[20px] !p-0 max-lg:!max-w-none max-lg:!rounded-b-none";
+  "!h-auto !max-h-[min(92dvh,40rem)] !w-full !max-w-lg !rounded-[10px] !p-0 max-lg:!max-w-none max-lg:!rounded-b-none";
 
+/** The approved pop-up window: 10px panel, shadow only on the panel, 920 x 640 at most (phone: full sheet). */
 export const MODAL_STANDARD_PANEL_CLASS =
-  "!h-[calc(100dvh-40px)] !max-h-[calc(100dvh-40px)] !w-full !max-w-[1480px] !rounded-[20px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none max-sm:!pt-[var(--native-safe-top,env(safe-area-inset-top,0px))]";
+  "!h-[min(640px,calc(100dvh-40px))] !max-h-[calc(100dvh-40px)] !w-full !max-w-[920px] !rounded-[10px] !p-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!rounded-none max-sm:!pt-[var(--native-safe-top,env(safe-area-inset-top,0px))]";

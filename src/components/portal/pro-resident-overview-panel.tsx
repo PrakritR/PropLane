@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import type { ReactNode } from "react";
 import {
   AlertCircle,
   Check,
@@ -28,7 +26,6 @@ import {
   type ResidentNeedsAttentionItem,
 } from "@/lib/manager-resident-lifecycle";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useMemo, useState } from "react";
@@ -46,14 +43,6 @@ export type ResidentOverviewResident = {
   statusLabel: string;
   axisId: string;
   moveInInstructions?: string;
-};
-
-export type ResidentOverviewServiceItem = {
-  id: string;
-  title: string;
-  detail: string;
-  bucket: "pending" | "scheduled" | "completed";
-  href: string;
 };
 
 export type ResidentOverviewLinks = {
@@ -144,32 +133,6 @@ function NeedsRow({
   );
 }
 
-function PreviewCard({
-  title,
-  viewAllHref,
-  children,
-  dataAttr,
-}: {
-  title: string;
-  viewAllHref?: string;
-  children: ReactNode;
-  dataAttr?: string;
-}) {
-  return (
-    <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm" data-rt-prev={dataAttr}>
-      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
-        <span className="text-sm font-semibold text-foreground">{title}</span>
-        {viewAllHref ? (
-          <Link href={viewAllHref} className="text-[13px] font-semibold text-primary hover:underline" data-attr="resident-preview-view-all">
-            View all
-          </Link>
-        ) : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function runNextAction(
   next: ResidentLifecycleAction,
   onAction: (id: string) => void,
@@ -183,7 +146,6 @@ export function ResidentOverviewPanel({
   resident,
   ledgerRows,
   leaseRows,
-  services,
   links,
   lifecycleInput,
   onNavigate,
@@ -196,7 +158,6 @@ export function ResidentOverviewPanel({
   resident: ResidentOverviewResident;
   ledgerRows: DemoManagerPaymentLedgerRow[];
   leaseRows: LeasePipelineRow[];
-  services: ResidentOverviewServiceItem[];
   links: ResidentOverviewLinks;
   lifecycleInput?: Parameters<typeof buildResidentLifecycle>[0];
   onNavigate?: (href: string) => void;
@@ -249,7 +210,15 @@ export function ResidentOverviewPanel({
     ],
     [extraNeedsYou, lifecycle.todo],
   );
-  const shownNeeds = showAllNeeds ? allNeeds : allNeeds.slice(0, 5);
+  const nextActionId = lifecycle.next?.kind === "callback" ? lifecycle.next.actionId : null;
+  const nextHref = lifecycle.next?.kind === "navigate" ? lifecycle.next.href : null;
+  // A Needs-attention line whose action is the Next step button shows no button of its own.
+  const dedupedNeeds = allNeeds.map((item) =>
+    item.inline && (item.inline.actionId === nextActionId || (nextHref && item.href === nextHref))
+      ? { ...item, inline: undefined }
+      : item,
+  );
+  const shownNeeds = showAllNeeds ? dedupedNeeds : dedupedNeeds.slice(0, 5);
   const navigate = onNavigate ?? ((href: string) => {
     if (href.startsWith("/") || href.startsWith("http")) window.location.assign(href);
   });
@@ -266,98 +235,6 @@ export function ResidentOverviewPanel({
     resident.phone ? { key: "Phone", value: resident.phone, copy: true } : null,
     preferredContactLabel ? { key: "Prefers", value: preferredContactLabel } : null,
   ].filter(Boolean) as Array<{ key: string; value: string; copy?: boolean; gap?: boolean }>;
-
-  const lease = leaseRows[0];
-  const stage = lifecycle.stage;
-  const previews: React.ReactNode[] = [];
-
-  if (links.tours && ["prospect", "applicant", "approved"].includes(stage)) {
-    previews.push(
-      <PreviewCard key="tours" title="Tours" viewAllHref={links.tours} dataAttr="tours">
-        <p className="px-5 py-4 text-sm text-muted">Open Tours for this resident&apos;s schedule.</p>
-      </PreviewCard>,
-    );
-  }
-  if (lease && links.lease && ["approved", "lease_sent", "signed"].includes(stage)) {
-    previews.push(
-      <PreviewCard key="lease" title="Lease" viewAllHref={links.lease} dataAttr="lease">
-        <NeedsRow
-          item={{
-            id: "lease-prev",
-            icon: "lease",
-            title: "Lease",
-            fact: lease.stageLabel,
-            urgent: false,
-            rank: 0,
-            href: links.lease,
-          }}
-          onNavigate={navigate}
-        />
-      </PreviewCard>,
-    );
-  }
-  if (links.payments && ledgerRows.length > 0 && !["prospect", "applicant"].includes(stage)) {
-    const ordered = [...ledgerRows]
-      .sort((a, b) => {
-        const rank = (r: DemoManagerPaymentLedgerRow) => (r.bucket === "overdue" ? 0 : r.bucket === "pending" ? 1 : 2);
-        return rank(a) - rank(b) || (a.dueDateSortMs ?? 0) - (b.dueDateSortMs ?? 0);
-      })
-      .slice(0, 3);
-    previews.push(
-      <PreviewCard key="payments" title="Payments" viewAllHref={links.payments} dataAttr="payments">
-        {ordered.map((row) => (
-          <NeedsRow
-            key={row.id}
-            item={{
-              id: row.id,
-              icon: "payments",
-              title: row.chargeTitle,
-              fact: (() => {
-                const raw = (row.dueDate ?? "").trim();
-                const due = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? formatPortalListDate(raw) : raw;
-                // dueDate text can already read "Before lease signing" / "By Oct 5" — fold the case
-                // so it reads "Due before lease signing", never "Due Before …". Every bucket reads
-                // it mid-sentence, so every bucket gets the fold.
-                const dueText = /^(before|by)\b/i.test(due)
-                  ? due.replace(/^./, (c) => c.toLowerCase())
-                  : due;
-                return row.bucket === "paid"
-                  ? `Paid ${dueText}`
-                  : row.bucket === "overdue"
-                    ? `Overdue · ${dueText}`
-                    : `Due ${dueText}`;
-              })(),
-              urgent: row.bucket === "overdue",
-              rank: 0,
-              href: links.payments,
-            }}
-            onNavigate={navigate}
-          />
-        ))}
-      </PreviewCard>,
-    );
-  }
-  if (links.services && services.length > 0 && ["current", "moving_out"].includes(stage)) {
-    previews.push(
-      <PreviewCard key="services" title="Services" viewAllHref={links.services} dataAttr="services">
-        {services.slice(0, 3).map((s) => (
-          <NeedsRow
-            key={s.id}
-            item={{
-              id: s.id,
-              icon: "services",
-              title: s.title,
-              fact: s.detail,
-              urgent: false,
-              rank: 0,
-              href: s.href,
-            }}
-            onNavigate={navigate}
-          />
-        ))}
-      </PreviewCard>,
-    );
-  }
 
   const curIdx = lifecycle.steps.findIndex((s) => s.state === "current");
   const phoneKeep = new Set(
@@ -427,43 +304,37 @@ export function ResidentOverviewPanel({
             );
           })}
         </ol>
-        {lifecycle.next ? (
-          <div
-            className="mt-5 flex flex-col gap-2.5 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between"
-            data-rt-next
-          >
-            <div className="flex min-w-0 flex-col gap-0.5" data-rt-next-copy>
-              <span className="text-xs text-muted">Next step</span>
-              {lifecycle.next.description ? (
-                <span className="text-sm font-medium text-foreground">{lifecycle.next.description}</span>
-              ) : null}
-            </div>
-            <Button
-              onClick={() => {
-                if (lifecycle.next!.kind === "callback") onNextAction?.(lifecycle.next!.actionId);
-                else runNextAction(lifecycle.next!, onNextAction ?? (() => {}), navigate);
-              }}
-              data-attr="resident-overview-next-step"
-            >
-              {lifecycle.next.label}
-            </Button>
-          </div>
-        ) : null}
       </div>
 
-      {lifecycle.kpiTiles.length > 0 ? (
+      {lifecycle.next ? (
         <div
-          className="grid auto-cols-fr grid-flow-col overflow-x-auto rounded-2xl border border-border/80 bg-card shadow-sm max-sm:grid-flow-row max-sm:grid-cols-2 max-sm:gap-px max-sm:overflow-hidden max-sm:bg-border/70 max-sm:[&>:last-child:nth-child(odd)]:col-span-2"
-          data-rt-kpis
+          className="flex flex-col gap-2.5 rounded-2xl border border-border/80 bg-card px-5 py-3.5 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+          data-rt-next
         >
-          {lifecycle.kpiTiles.map((tile, i) => (
+          <div className="flex min-w-0 items-baseline gap-3.5" data-rt-next-copy>
+            <span className="shrink-0 text-xs text-muted">Next step</span>
+            {lifecycle.next.description ? (
+              <span className="min-w-0 text-sm font-semibold text-foreground">{lifecycle.next.description}</span>
+            ) : null}
+          </div>
+          <Button
+            onClick={() => {
+              if (lifecycle.next!.kind === "callback") onNextAction?.(lifecycle.next!.actionId);
+              else runNextAction(lifecycle.next!, onNextAction ?? (() => {}), navigate);
+            }}
+            data-attr="resident-overview-next-step"
+          >
+            {lifecycle.next.label}
+          </Button>
+        </div>
+      ) : null}
+
+      {lifecycle.kpiTiles.length > 0 ? (
+        <div className="grid gap-3 max-sm:grid-cols-2 sm:grid-cols-2 lg:grid-cols-4" data-rt-kpis>
+          {lifecycle.kpiTiles.slice(0, 4).map((tile) => (
             <div
               key={tile.label}
-              className={cn(
-                // Phone: a two-column grid on 1px hairlines; every fact wraps to a second line, none is cut off.
-                "flex min-w-0 flex-col gap-1 px-6 py-4 max-sm:bg-card max-sm:px-4",
-                i > 0 && "border-l border-border/70 max-sm:border-l-0",
-              )}
+              className="flex min-w-0 flex-col gap-1 rounded-2xl border border-border/80 bg-card px-4 py-3.5 shadow-sm"
             >
               <span className="text-[12.5px] text-muted">{tile.label}</span>
               <span className="truncate text-lg font-bold tracking-tight max-sm:overflow-visible max-sm:whitespace-normal max-sm:break-words max-sm:text-base">{tile.value}</span>
@@ -472,8 +343,8 @@ export function ResidentOverviewPanel({
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_344px] lg:grid-rows-[auto_1fr] lg:items-start">
-        <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm lg:row-start-1" data-rt-needs>
+      <div className="flex flex-col gap-6">
+        <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm " data-rt-needs>
           <div className="flex items-center justify-between border-b border-border/70 px-5 py-3.5">
             <span className="text-sm font-semibold">Needs attention</span>
           </div>
@@ -503,7 +374,7 @@ export function ResidentOverviewPanel({
           )}
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm lg:col-start-2 lg:row-span-2" data-rt-details>
+        <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm " data-rt-details>
           <div className="border-b border-border/70 px-5 py-3.5">
             <span className="text-sm font-semibold">Details</span>
           </div>
@@ -533,9 +404,6 @@ export function ResidentOverviewPanel({
           </div>
         </div>
 
-        {previews.length > 0 ? (
-          <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-2 rt-prevs">{previews}</div>
-        ) : null}
       </div>
     </div>
   );

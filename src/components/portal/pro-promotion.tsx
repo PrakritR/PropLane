@@ -1,4 +1,6 @@
 "use client";
+import { ManagerIntegrationsAction } from "@/components/portal/manager-integrations-action";
+import { promotionWorkContactLine } from "@/lib/promotion-default-sync";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { LISTING_CHANNEL_DEFS } from "@/lib/listing-channels/registry";
@@ -278,7 +280,7 @@ export function ManagerPromotion({
   const workPhone = useListingContactSmsPhone({ viewerManagerUserId: userId });
   const autofillOpts = useMemo(
     () => ({
-      managerContact: [workPhone, workEmail].filter(Boolean).join(" · "),
+      managerContact: promotionWorkContactLine(workPhone, workEmail),
       appOrigin: typeof window !== "undefined" ? window.location.origin : "",
     }),
     [workPhone, workEmail],
@@ -899,7 +901,14 @@ export function ManagerPromotion({
     </PortalFilterSortSheet>
   );
 
-  const promotionCommandActions = <>{promotionFilterSheet}</>;
+  // Listing sites is the tab whose rows come from an integration (Posting); Text and Image are
+  // assets PropLane drafts itself, so the Integrations icon rides only that tab.
+  const promotionCommandActions = (
+    <>
+      {promotionFilterSheet}
+      {showSites ? <ManagerIntegrationsAction section="posting" dataAttr="promotion-integrations" /> : null}
+    </>
+  );
 
   const promotionPrimaryAction = (
     <PortalPrimaryIconAction
@@ -1054,7 +1063,6 @@ export function ManagerPromotion({
                   activeKind,
                 ) ?? undefined
               }
-              actions={[{ label: portalListAddPrimaryLabel("promotion"), onClick: () => openNewPromotion(), dataAttr: "promotion-list-add" }]}
             />
           )
         ) : (

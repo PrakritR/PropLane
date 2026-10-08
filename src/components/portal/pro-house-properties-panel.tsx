@@ -69,7 +69,6 @@ import { ManagerPropertyTourPanel } from "@/components/portal/pro-property-tour-
 import { Modal } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
@@ -489,7 +488,6 @@ function ManagerPropertyInlineDetails({
   const [draftEditorOpen, setDraftEditorOpen] = useState(false);
   const [duplicateBusy, setDuplicateBusy] = useState(false);
   const [shareApplicationOpen, setShareApplicationOpen] = useState(false);
-  const [portalSettingsOpen, setPortalSettingsOpen] = useState(false);
   const [residentOnboardOpen, setResidentOnboardOpen] = useState(false);
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<
     "delete-queue" | "delete-draft" | "delete-listed" | "unlist" | null
@@ -1559,12 +1557,6 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
-      <ManagerPortalSettingsModal
-        open={portalSettingsOpen}
-        onClose={() => setPortalSettingsOpen(false)}
-        initialTab="tours"
-        scopedTitle="Tour"
-      />
     </div>
     </PortalRecordSectionChrome>
   );

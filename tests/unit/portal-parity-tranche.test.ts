@@ -67,14 +67,17 @@ describe("resident and vendor dashboard presentation parity", () => {
     expect(dashboard).not.toContain("VendorAttentionPanel");
     expect(dashboard).not.toContain("VendorUpcomingPanel");
     expect(dashboard).toContain("No upcoming visits.");
-    expect(dashboard).toContain("PortalIconAction");
-    expect(dashboard).toContain('label="Manage services"');
-    expect(dashboard).toContain('label="Open calendar"');
+    // "Manage services" and "Open calendar" were removed (the sidebar already has both).
+    expect(dashboard).toContain("PortalPrimaryIconAction");
+    expect(dashboard).not.toContain('label="Manage services"');
+    expect(dashboard).not.toContain('label="Open calendar"');
 
     const shared = read("src/components/portal/pro-dashboard-kpis.tsx");
     expect(shared).toContain('emptyCopy = "Nothing is waiting on you. Nice."');
     expect(shared).toContain('emptyCopy = "Nothing scheduled in the next two weeks."');
     expect(shared).toContain("hideRowDetail = false");
-    expect(shared).toContain("aside ?? (");
+    // `aside` replaces the default Calendar link; `null` draws none (vendor dashboard).
+    expect(shared).toContain("aside !== undefined ? aside : (");
+    expect(dashboard).toContain("aside={null}");
   });
 });

@@ -7,8 +7,6 @@ import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { Settings } from "lucide-react";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -22,7 +20,7 @@ import {
 } from "@/components/portal/portal-data-table";
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
-import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
+import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { ManagerBackgroundChecksGroupedTable } from "@/components/portal/pro-background-checks-grouped-table";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -117,7 +115,6 @@ export function ManagerBackgroundChecks({
   );
   const [filterOpen, setFilterOpen] = useState(false);
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
-  const [screeningSettingsOpen, setScreeningSettingsOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [checkrScreeningCosignerId, setCheckrScreeningCosignerId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
@@ -366,11 +363,10 @@ export function ManagerBackgroundChecks({
   );
 
   const settingsButton = (
-    <PortalIconAction
-      icon={Settings}
+    <ManagerSettingsGear
+      target="screening"
       label={backgroundChecksSettingsEntry.label}
-      data-attr={backgroundChecksSettingsEntry.dataAttr}
-      onClick={() => setScreeningSettingsOpen(true)}
+      dataAttr={backgroundChecksSettingsEntry.dataAttr}
     />
   );
 
@@ -423,7 +419,6 @@ export function ManagerBackgroundChecks({
     return (
       <>
         {screeningModal}
-        <ManagerScreeningSettingsModal open={screeningSettingsOpen} onClose={() => setScreeningSettingsOpen(false)} />
         <PortalRecordDetailPage
           pageTitle="Background check"
           title={applicantDisplayName(detailRow)}
@@ -538,7 +533,6 @@ export function ManagerBackgroundChecks({
           }
         />
         <div className="mt-2 space-y-4 max-md:mt-3">
-          <ManagerScreeningSettingsModal open={screeningSettingsOpen} onClose={() => setScreeningSettingsOpen(false)} />
           {screeningModal}
           {!authReady && rows.length === 0 ? (
             <div className={PORTAL_DATA_TABLE_WRAP}>

@@ -6,6 +6,7 @@
 // at a time is this list's shared selection mode.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { RECORD_ACTION_DESTRUCTIVE_SETTLE_MS } from "@/components/ui/record-action-menu";
 import { ManagerPromotion } from "@/components/portal/pro-promotion";
 import { createFlyerEntry, type ManagerPromotionRow } from "@/lib/promotion-flyer";
 import { composeFallbackPromotionText, createPromotionTextEntry } from "@/lib/promotion-text";
@@ -160,10 +161,17 @@ describe("Promotions card rows", () => {
     const { upsertManagerPromotion } = await import("@/lib/manager-promotions-storage");
     promoRows.current = [seedRow()];
     render(<ManagerPromotion />);
+    const dateSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
     fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Cedar Lane — Instagram caption/i }), {
       key: "ArrowDown",
     });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const del = await screen.findByRole("menuitem", { name: "Delete" });
+    // Destructive items ignore a tap inside the settle window after the menu opens (stray iOS
+    // taps); a real user's click lands after it, so move the clock past the window instead of
+    // sleeping through it.
+    dateSpy.mockReturnValue(1_000 + RECORD_ACTION_DESTRUCTIVE_SETTLE_MS + 1);
+    fireEvent.click(del);
+    dateSpy.mockRestore();
     // The row keeps its flyer entry, so deleting the text entry updates the
     // row rather than removing it outright.
     await waitFor(() => {

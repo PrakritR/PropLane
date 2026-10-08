@@ -77,9 +77,9 @@ export function VendorWorkNumberCard() {
     dataAttr: string,
     channel: "email",
   ) => {
-    if (contactLoad === "loading") return <div className="h-[52px] animate-pulse rounded-2xl bg-muted" data-attr={`${dataAttr}-loading`} aria-label={`Loading ${label}`} />;
-    if (contactLoad === "failed") return <div className="flex items-center gap-2"><PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-failed`} label={label} value="Could not load" actions={[]} /><button type="button" className="text-xs font-semibold underline" onClick={() => reload()}>Retry</button></div>;
-    if (!value) return <PortalInboxContactCard padded={false} tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-missing`} label={label} value="Set up work email" actions={[]} />;
+    if (contactLoad === "loading") return <div className="h-[50px] animate-pulse rounded-lg bg-muted" data-attr={`${dataAttr}-loading`} aria-label={`Loading ${label}`} />;
+    if (contactLoad === "failed") return <div className="flex items-center gap-2"><PortalInboxContactCard padded={false} frame="box" tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-failed`} label={label} value="Could not load" actions={[]} /><button type="button" className="text-xs font-semibold underline" onClick={() => reload()}>Retry</button></div>;
+    if (!value) return <PortalInboxContactCard padded={false} frame="box" tone="setup" href="/vendor/profile" dataAttr={`${dataAttr}-missing`} label={label} value="Set up work email" actions={[]} />;
     const shown = value;
     const caption = channelCaption(identityLoad, identity, channel);
     const actions: PortalInboxContactCardAction[] = [copyAction(shown, copied === dataAttr, () => setCopied(dataAttr))];
@@ -95,6 +95,7 @@ export function VendorWorkNumberCard() {
     return (
       <PortalInboxContactCard
         padded={false}
+        frame="box"
         dataAttr={dataAttr}
         label={label}
         value={shown}
@@ -105,7 +106,7 @@ export function VendorWorkNumberCard() {
     );
   };
   return (
-    <div className="grid gap-2 px-3 pt-3" data-attr="vendor-work-identity">
+    <div className="grid gap-2 px-3.5 pb-1 pt-3" data-attr="vendor-work-identity">
       {card("Your work email", contacts?.workEmail, "vendor-business-work-email", "email")}
     </div>
   );

@@ -2,9 +2,7 @@
 import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ServiceRequestCatalogEditor } from "@/components/portal/service-request-catalog-editor";
 import { PortalPropertySectionToolbar } from "@/components/portal/portal-property-section-toolbar";
-import { PortalPropertySectionSettingsModal } from "@/components/portal/portal-property-section-settings-modal";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { ManagerServiceCardRow } from "@/components/portal/pro-service-card-row";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
@@ -48,17 +46,13 @@ const STATUS_OPTIONS: { value: ServiceRowState; label: string }[] = [
 /**
  * Per-property Services tab (S015/S016/S017, captain 2026-09-27): the round
  * blue + reuses the EXISTING `ManagerAddServiceModal` add flow, pre-scoped to
- * this property. The service TYPES catalog (allow/deny + prices — "Other
- * service types") that used to render inline here now lives behind the
- * Settings gear, moved verbatim rather than rebuilt.
+ * this property. The service TYPES catalog (allow/deny + prices) is the
+ * property's Services tab (`PropertyServicesOffersPanel`); this list carries no
+ * settings gear of its own.
  */
 export function ManagerPropertyRequestsPanel({
-  sub,
   saveTarget,
   managerUserId,
-  onUpdated,
-  showToast,
-  onBulkActionsChange,
   propertyId,
   propertyLabel,
   propertiesBase,
@@ -78,7 +72,6 @@ export function ManagerPropertyRequestsPanel({
   const navigate = usePortalNavigate();
   const [dataTick, setDataTick] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string[]>(STATUS_OPTIONS.map((o) => o.value));
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
 
   useEffect(() => {
@@ -141,9 +134,6 @@ export function ManagerPropertyRequestsPanel({
           onChange: setStatusFilter,
           dataAttr: "property-services-filter",
         }}
-        onSettings={() => setSettingsOpen(true)}
-        settingsLabel="Service settings"
-        settingsDataAttr="property-services-settings-open"
         onAdd={propertyId ? () => setAddServiceOpen(true) : undefined}
         addLabel="Add service"
         addDataAttr="property-services-add-top"
@@ -186,23 +176,6 @@ export function ManagerPropertyRequestsPanel({
           );
         })}
       </PortalRecordListSurface>
-
-      <PortalPropertySectionSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        title="Service settings"
-        propertyLabel={propertyLabel ?? "This property"}
-        dataAttr="property-services-settings"
-      >
-        <ServiceRequestCatalogEditor
-          sub={sub}
-          saveTarget={saveTarget}
-          managerUserId={managerUserId}
-          onUpdated={onUpdated}
-          showToast={showToast}
-          onBulkActionsChange={onBulkActionsChange}
-        />
-      </PortalPropertySectionSettingsModal>
 
       {propertyId ? (
         <ManagerAddServiceModal

@@ -10,6 +10,8 @@ import { PenSquare, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import type { ResidentPhoneState } from "@/lib/communication/resident-conversation";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
+import { CommunicationDetailsPane, communicationDetailsFromRow } from "@/components/portal/communication-details-pane";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/portal/resident-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
@@ -19,7 +21,7 @@ import {
   InboxConversationRow,
   InboxListSegmentTabs,
   InboxTwoPane,
-  PORTAL_INBOX_LIST_TOOLBAR_CLASS,
+  InboxListHeader,
   PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
@@ -412,6 +414,15 @@ function ResidentUnifiedInbox({
     });
   }, [initialListReady, merged, routeThreadId]);
 
+  // Filter and the round + are the page's own tools: they sit on the title row (the shell's
+  // slot). With no slot (a test, a record pane) they render beside the search.
+  const listControls = listActions ? (
+    <div className="flex shrink-0 items-center gap-1 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+      {listActions}
+    </div>
+  ) : null;
+  const listControlsPublished = usePublishTitleActions(listControls, listControls != null);
+
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ResidentCommunicationIdentityCard />
@@ -425,36 +436,26 @@ function ResidentUnifiedInbox({
           Verify your number
         </Link>
       ) : null}
-      <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-        <InboxListSegmentTabs
-          commBase={commBase}
-          value={tabSegment}
-          counts={initialListReady ? tabCounts : undefined}
-          onChange={onSegmentChange}
-          interceptNavigation={Boolean(onSegmentChange)}
-        />
-        {/* Search + the tools that act on the list, in one row — the same
-            shape as the manager's Communication, so Filter and New message
-            are icon buttons beside the field rather than text pills. */}
-        <div className="flex min-w-0 items-center gap-1">
-          <div className="relative min-w-0 flex-1">
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search messages"
-              aria-label="Search messages"
-              className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-              data-attr="resident-inbox-search"
-            />
-          </div>
-          {listActions ? (
-            <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
-              {listActions}
-            </div>
-          ) : null}
-        </div>
-      </div>
+      <InboxListHeader
+        tabs={
+          <InboxListSegmentTabs
+            commBase={commBase}
+            value={tabSegment}
+            counts={initialListReady ? tabCounts : undefined}
+            onChange={onSegmentChange}
+            interceptNavigation={Boolean(onSegmentChange)}
+          />
+        }
+        search={{
+          value: query,
+          onChange: setQuery,
+          placeholder: "Search communication",
+          ariaLabel: "Search messages",
+          dataAttr: "resident-inbox-search",
+        }}
+        count={initialListReady ? merged.length : undefined}
+        trailing={listControlsPublished ? null : listControls}
+      />
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {!initialListReady ? (
           <CommunicationInboxInitialState
@@ -479,6 +480,7 @@ function ResidentUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
+              appearance="flat"
               // A text-only conversation is derived, read-only: nothing to archive.
               trailing={
                 emailThreads.find((t) => t.id === row.threadId)?.smsOnly ? undefined : (
@@ -513,6 +515,18 @@ function ResidentUnifiedInbox({
         )}
       </div>
     </div>
+  );
+
+  const selectedRow = useMemo(
+    () => (selectedKey ? merged.find((row) => row.key === selectedKey || (row.memberKeys ?? []).includes(selectedKey)) ?? null : null),
+    [merged, selectedKey],
+  );
+  const contactDetails = useMemo(
+    () =>
+      communicationDetailsFromRow(selectedRow, (kind, id) =>
+        recordRoutePath("resident", kind as RecordKind, id),
+      ),
+    [selectedRow],
   );
 
   const smsSelected = selection?.channel === "sms";
@@ -554,7 +568,8 @@ function ResidentUnifiedInbox({
   return (
     <>
       <InboxTwoPane
-        panes="split"
+        panes="flat"
+        details={contactDetails ? <CommunicationDetailsPane details={contactDetails} /> : undefined}
         heightMode="viewport"
         fillViewport={Boolean(selection)}
         fillParent

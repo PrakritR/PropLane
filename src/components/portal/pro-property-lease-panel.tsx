@@ -37,7 +37,7 @@ import {
   availableLeaseTemplateSeeds,
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
-import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
+import { leasingPlusMenuEntries, type LeasingPlusMenuEntry } from "@/lib/leasing-plus-menu";
 import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
 import { missingLeaseDefaults, submissionWithLeaseDefault } from "@/lib/leasing-quick-add";
 import type { PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
@@ -649,17 +649,20 @@ export function ManagerPropertyLeasePanel({
     return null;
   };
 
+  // The round + is a menu: the blank "Add lease" first, then each PropLane default the property lacks.
+  const addMenu = {
+    entries: leasingPlusMenuEntries("Add lease", missingDefaults),
+    onSelect: (entry: LeasingPlusMenuEntry) => {
+      if (entry.kind === "blank") openAdd();
+      else addSeedTemplate(entry.key as PropertyLeaseListingSeedKey);
+    },
+  };
+
   const catalogBody = (
     <>
       <>
         {visibleTemplates.map((template) => renderLeaseTemplateRow(template, seedTypeLabel(template.listingSeedKey)))}
       </>
-      <LeasingQuickAddRow
-        entries={missingDefaults}
-        noun="lease"
-        dataAttr="property-lease-quick-add"
-        onAdd={(key) => addSeedTemplate(key as PropertyLeaseListingSeedKey)}
-      />
     </>
   );
 
@@ -760,6 +763,7 @@ export function ManagerPropertyLeasePanel({
       }
       filter={activeStay ? formFilterSheet : null}
       onAdd={openAdd}
+      addMenu={addMenu}
       addLabel="Add lease"
       addDataAttr="property-lease-command-add"
       activeFilterChips={
@@ -791,6 +795,7 @@ export function ManagerPropertyLeasePanel({
       onPaneChange={() => {}}
       panes={[{ id: "form", label: "Form" }]}
       onAdd={openAdd}
+      addMenu={addMenu}
       addLabel="Add lease"
       addDataAttr="property-lease-add"
     />

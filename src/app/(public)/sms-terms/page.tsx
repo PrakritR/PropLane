@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { SitePage } from "@/components/marketing/site/site-page";
 
 export const metadata: Metadata = {
   title: "SMS Terms of Service",
@@ -11,8 +12,9 @@ const LAST_UPDATED = "July 25, 2026";
 
 export default function SmsTermsPage() {
   return (
+    <SitePage>
     <div className="min-h-screen px-4 py-16 sm:py-20">
-      <article className="glass-card mx-auto max-w-3xl rounded-3xl px-6 py-10 sm:px-10 sm:py-12">
+      <article className="glass-card site-prose-card mx-auto max-w-3xl rounded-3xl px-6 py-10 sm:px-10 sm:py-12">
         <header className="border-b border-border pb-8">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">Legal</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground">SMS Terms of Service</h1>
@@ -129,5 +131,6 @@ export default function SmsTermsPage() {
         </div>
       </article>
     </div>
+    </SitePage>
   );
 }

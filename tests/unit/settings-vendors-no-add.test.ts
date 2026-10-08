@@ -9,7 +9,8 @@ describe("vendor adding is not in Settings", () => {
   it("omits the Add vendor primary when the panel is bare (operations list)", () => {
     expect(src).toContain("primary={bare ? undefined : addVendorAction}");
     expect(src).toContain("settings-vendors-empty-open");
-    expect(src).toContain("vendors-empty-add");
+    // The empty state carries no Add pill: the round + in the band is the one create control.
+    expect(src).not.toContain("vendors-empty-add");
   });
 
   it("sends the retired Settings Vendors tab to the operations list", () => {

@@ -163,7 +163,8 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(rows).toHaveLength(2);
     for (const row of rows) {
       const card = row.closest(".portal-property-row");
-      expect(card?.className).toMatch(/(?:^|\s)rounded-xl(?:\s|$)/);
+      // Each charge is its own flat row (hairline divider), never a row inside a shared group box.
+      expect(card?.className).toMatch(/(?:^|\s)border-b(?:\s|$)/);
     }
   });
 

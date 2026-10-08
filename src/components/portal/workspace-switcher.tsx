@@ -30,6 +30,32 @@ export function workspaceInitials(name: string): string {
 }
 
 /**
+ * Rail tile labels for a list of workspaces. Two workspaces that share initials
+ * ("Seattle Homes", "Sunset Heights") would be indistinguishable tiles, so a
+ * colliding tile takes the first two letters of its second word ("HO", "HE"),
+ * and when that still collides, a running digit is appended ("HO1", "HO2").
+ */
+export function workspaceTileLabels(names: readonly string[]): string[] {
+  const base = names.map((name) => workspaceInitials(name));
+  const count = (labels: string[], label: string) => labels.filter((l) => l === label).length;
+  const second = base.map((label, index) => {
+    if (count(base, label) < 2) return label;
+    const words = names[index]!
+      .split(/\s+/)
+      .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+      .filter(Boolean);
+    return words.length > 1 ? words[1]!.slice(0, 2).toUpperCase() : label;
+  });
+  const seen = new Map<string, number>();
+  return second.map((label) => {
+    if (count(second, label) < 2) return label;
+    const n = (seen.get(label) ?? 0) + 1;
+    seen.set(label, n);
+    return `${label}${n}`;
+  });
+}
+
+/**
  * Top-left workspace control.
  *
  * The `header` variant is the sidebar's first block, the way Linear and Loom
@@ -75,7 +101,7 @@ export function WorkspaceSwitcher({
   variant = "header",
 }: {
   compact?: boolean;
-  variant?: "header" | "mobile";
+  variant?: "header" | "mobile" | "sidebar";
 }) {
   const ctx = useWorkspaces();
   const pathname = usePathname();
@@ -96,7 +122,7 @@ export function WorkspaceSwitcher({
   // label beside it and in the switcher menu below.
   const avatar = (
     <span
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10"
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-[var(--portal-active-bg,rgba(40,99,240,0.1))]"
       aria-hidden
     >
       <AxisLogoGlyph size="micro" />
@@ -104,7 +130,28 @@ export function WorkspaceSwitcher({
   );
 
   const trigger =
-    variant === "mobile" ? (
+    variant === "sidebar" ? (
+      // The redesigned sidebar header: the workspace name at 16px/700 with a
+      // chevron, opening this same menu. The "Property · N houses" line under it
+      // belongs to the sidebar header, not to this trigger.
+      <button
+        type="button"
+        className="-ml-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-left text-[16px] font-bold tracking-[-0.02em] text-foreground outline-none transition hover:bg-[rgba(17,24,39,0.045)] focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-70"
+        aria-label={`Switch workspace: ${name}`}
+        disabled={ctx.loading}
+        data-attr="workspace-switcher"
+      >
+        {ctx.loading ? (
+          <span
+            className="inline-block h-[1em] w-24 animate-pulse rounded-full bg-accent/60 motion-reduce:animate-none"
+            aria-hidden
+          />
+        ) : (
+          <span className="min-w-0 truncate">{name}</span>
+        )}
+        <ChevronDown className="size-3.5 shrink-0 text-muted" strokeWidth={2} aria-hidden />
+      </button>
+    ) : variant === "mobile" ? (
       <button
         type="button"
         className="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-lg px-1 text-left text-base font-semibold tracking-[-0.02em] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
@@ -138,8 +185,8 @@ export function WorkspaceSwitcher({
       <button
         type="button"
         className={cn(
-          "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1.5 text-left outline-none transition",
-          "hover:bg-[var(--secondary)]/70 focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-70",
+          "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-[10px] border border-border bg-card px-1.5 py-1.5 text-left outline-none transition",
+          "hover:border-primary/30 hover:bg-[var(--portal-active-bg,var(--secondary))]/50 focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-70",
         )}
         aria-label={`Switch workspace: ${name}`}
         disabled={ctx.loading}
@@ -153,9 +200,9 @@ export function WorkspaceSwitcher({
               aria-hidden
             />
           ) : (
-            <span className="block truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">{name}</span>
+            <span className="block truncate text-[14px] font-semibold tracking-[-0.03em] text-foreground">{name}</span>
           )}
-          {meta ? <span className="block truncate text-[10.5px] text-muted">{meta}</span> : null}
+          {meta ? <span className="block truncate text-[11px] text-muted">{meta}</span> : null}
         </span>
         <ChevronDown className="size-3.5 shrink-0 text-muted" aria-hidden />
       </button>

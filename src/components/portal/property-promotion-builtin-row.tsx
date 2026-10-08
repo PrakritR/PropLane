@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import type { PropertyPromotionBuiltinDef } from "@/lib/property-promotion-builtin";
 
@@ -50,18 +51,25 @@ export function PropertyPromotionBuiltinRow({
         <>
           <PortalRowFact icon={Check}>Default</PortalRowFact>
           {facts}
-          {!enabled ? <PortalRowFact icon={Clock}>Off</PortalRowFact> : null}
         </>
       }
       onOpen={onOpen}
       dataAttr={dataAttr}
+      // The on/off switch sits at the row's end, before the menu; Download and Share live in the menu.
       actions={
-        <RowActionsMenu label={`Actions for ${def.name}`} items={[
-          { id: "edit", label: def.kind === "print" ? "Open to print" : "Edit", onSelect: onOpen },
-          onDownload && def.kind !== "print" ? { id: "download", label: "Download", onSelect: onDownload } : null,
-          onShare && def.kind !== "print" ? { id: "share", label: "Share", onSelect: onShare } : null,
-          { id: "toggle", label: enabled ? "Turn off" : "Turn on", onSelect: onToggle },
-        ]} />
+        <>
+          <PortalSettingsToggle
+            checked={enabled}
+            onChange={() => onToggle()}
+            label={`${def.name} on or off`}
+            dataAttr={`${dataAttr}-switch`}
+          />
+          <RowActionsMenu label={`Actions for ${def.name}`} items={[
+            { id: "edit", label: def.kind === "print" ? "Open to print" : "Edit", onSelect: onOpen },
+            onDownload && def.kind !== "print" ? { id: "download", label: "Download", onSelect: onDownload } : null,
+            onShare && def.kind !== "print" ? { id: "share", label: "Share", onSelect: onShare } : null,
+          ]} />
+        </>
       }
     />
   );

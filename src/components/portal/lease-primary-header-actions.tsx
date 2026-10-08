@@ -20,7 +20,6 @@ import {
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import {
   leaseAllowsSignedPdfUpload,
   leaseCanBeMarkedSignedOffPlatform,
@@ -55,8 +54,6 @@ type LeasePrimaryHeaderActionsProps = {
   signingReminderBusy?: boolean;
   onDelete?: () => void;
   onSendToResident?: () => void;
-  /** When set, shows a Share action for a public view URL. */
-  shareRecordId?: string;
   sendToResidentBusy?: boolean;
   sendToResidentDisabled?: boolean;
   onMoveToManagerReview?: () => void;
@@ -140,7 +137,6 @@ export function LeasePrimaryHeaderActions({
   signingReminderBusy = false,
   onDelete,
   onSendToResident,
-  shareRecordId,
   sendToResidentBusy = false,
   sendToResidentDisabled = false,
   onMoveToManagerReview,
@@ -218,7 +214,7 @@ export function LeasePrimaryHeaderActions({
         node: (
           <LeaseHeaderIcon
             icon={FileCheck2}
-            label={exportBusy ? "Exporting…" : "Export"}
+            label={exportBusy ? "Exporting…" : "Download with audit trail"}
             dataAttr={exportDataAttr}
             disabled={exportBusy}
             onClick={onExport}
@@ -237,21 +233,6 @@ export function LeasePrimaryHeaderActions({
             dataAttr={sendToResidentDataAttr}
             disabled={sendToResidentBusy || sendToResidentDisabled}
             onClick={onSendToResident}
-          />
-        ),
-      });
-    }
-
-    if (hasDocument && shareRecordId) {
-      actions.push({
-        id: "share",
-        node: (
-          <PortalRecordShareLinkButton
-            kind="lease"
-            recordId={shareRecordId}
-            icon
-            dataAttr="lease-share"
-            recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
           />
         ),
       });
@@ -414,8 +395,8 @@ export function LeasePrimaryHeaderActions({
       });
     }
 
-    // Edit · Send · Remind/Sign · Download first, the rest after, Mark as signed / Share in the ⋯, Delete last.
-    const ORDER = ["edit", "send", "sign", "reminder", "download", "export", "new-terms", "review-import", "generate", "upload", "move-review", "mark-signed", "share", "delete"];
+    // Edit · Send · Remind/Sign · Download first, the rest after, Mark as signed in the ⋯, Delete last.
+    const ORDER = ["edit", "send", "sign", "reminder", "download", "export", "new-terms", "review-import", "generate", "upload", "move-review", "mark-signed", "delete"];
     return actions
       .map((action, index) => ({ action, index }))
       .sort((a, b) => {
@@ -447,10 +428,6 @@ export function LeasePrimaryHeaderActions({
     sendToResidentBusy,
     sendToResidentDisabled,
     onSendToResident,
-    shareRecordId,
-    row.residentName,
-    row.unit,
-    row.propertyId,
     moveToManagerReviewDataAttr,
     onMoveToManagerReview,
     signManagerDataAttr,

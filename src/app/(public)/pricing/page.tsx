@@ -9,16 +9,19 @@ import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
 import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
 import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
-import { SiteFaq, type SiteFaqItem } from "@/components/marketing/site/faq";
+import { TrackOnMount } from "@/components/analytics/track-on-mount";
+import { SiteFaq,type SiteFaqItem } from "@/components/marketing/site/faq";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import { CellValue, Check, Dash, COMPARE } from "@/components/marketing/site/pricing-compare-data";
 import {
   SITE_BTN_PRIMARY,
   SITE_BTN_SECONDARY,
   SITE_MEASURE,
-  SiteHeading,
+  SitePageHero,
   SiteSection,
 } from "@/components/marketing/site/primitives";
+import { SitePage } from "@/components/marketing/site/site-page";
+import "@/components/marketing/site/page-polish.css";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -142,20 +145,20 @@ function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: b
   return (
     <div
       className={cn(
-        "relative flex flex-col rounded-2xl border bg-card p-6",
-        featured ? "border-primary/40 ring-[3px] ring-primary/10" : "border-border",
+        "pricing-card relative flex flex-col rounded-3xl border bg-card p-6 sm:p-7",
+        featured ? "pricing-card-featured border-primary/50 pt-12 sm:pt-14" : "border-border",
       )}
       data-attr={`pricing-plan-${tier.id}`}
     >
       {featured ? (
-        <span className="absolute -top-3 left-6 rounded-full bg-primary px-3 py-1 text-[11px] font-bold uppercase tracking-[0.07em] text-white">
+        <span className="absolute inset-x-0 top-0 rounded-t-[23px] bg-primary py-2 text-center text-[11.5px] font-bold uppercase tracking-[0.1em] text-white">
           Most popular
         </span>
       ) : null}
       <p className="text-[13px] font-bold uppercase tracking-[0.07em] text-muted">{tier.label}</p>
-      <p className="mt-1.5 min-h-[40px] text-[13.5px] leading-snug text-muted">{TIER_TAGLINE[tier.id]}</p>
-      <p className="mt-4 flex items-end gap-1">
-        <span className="text-[42px] font-bold leading-none tracking-[-0.03em] text-foreground">{headline}</span>
+      <p className="mt-2 min-h-[40px] text-[14px] leading-snug text-muted">{TIER_TAGLINE[tier.id]}</p>
+      <p className="mt-5 flex items-end gap-1.5">
+        <span className="site-display text-[52px] font-bold leading-none tracking-[-0.04em] text-foreground">{headline}</span>
         {period ? <span className="pb-1 text-[14px] text-muted">{period}</span> : null}
       </p>
       <p className="mt-1.5 text-[12.5px] text-muted">
@@ -164,15 +167,15 @@ function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: b
       <Link
         href={cta.href}
         data-attr={`pricing-plan-${tier.id}-cta`}
-        className={cn("mt-5 w-full", featured ? SITE_BTN_PRIMARY : SITE_BTN_SECONDARY)}
+        className={cn("mt-6 w-full", featured ? SITE_BTN_PRIMARY : SITE_BTN_SECONDARY)}
       >
         {cta.label}
       </Link>
-      <p className="mt-6 text-[11.5px] font-bold uppercase tracking-[0.08em] text-muted">{includes.heading}</p>
-      <ul className="mt-3 flex flex-col gap-2.5">
+      <p className="mt-7 border-t border-border/70 pt-6 text-[12px] font-bold uppercase tracking-[0.08em] text-foreground">{includes.heading}</p>
+      <ul className="mt-4 flex flex-col gap-3">
         {includes.items.map((f) => (
           <li key={f.text} className="flex items-start gap-2.5 text-[13.5px] leading-snug">
-            <span className="mt-[3px] grid h-4 w-4 place-items-center">{f.included ? <Check /> : <Dash />}</span>
+            <span className="mt-[2px] grid h-[18px] w-[18px] shrink-0 place-items-center">{f.included ? <Check /> : <Dash />}</span>
             <span className={f.included ? "text-foreground" : "text-muted/70"}>{f.text}</span>
           </li>
         ))}
@@ -188,7 +191,7 @@ function PlanCard({ tier, annual }: { tier: ManagerPlanTierDefinition; annual: b
 
 function CompareTable() {
   return (
-    <details id="compare" className="group mt-10 scroll-mt-24 rounded-2xl border border-border bg-card" data-attr="pricing-compare" open>
+    <details id="compare" className="pricing-compare group mt-12 scroll-mt-24 rounded-3xl border border-border bg-card" data-attr="pricing-compare" open>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-[15.5px] font-bold text-foreground sm:px-6 [&::-webkit-details-marker]:hidden">
         Compare every feature
         <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border text-muted transition-transform group-open:rotate-180">
@@ -343,26 +346,26 @@ export default async function PricingPage({
   const rates = COMMS_BILLING_RATES_CENTS;
 
   return (
-    <div className="relative min-h-0 flex-1 pb-16 md:pb-0">
-      <section className="border-b border-border/70 pb-12 pt-14 sm:pt-16 lg:pt-20" aria-labelledby="pricing-title">
-        <div className={`${SITE_MEASURE} flex flex-col items-center text-center`}>
-          <SiteHeading as="h1" id="pricing-title">
+    <SitePage className="pb-16 md:pb-0">
+      <TrackOnMount event="pricing_viewed" properties={{ billing: annual ? "annual" : "monthly" }} />
+      <SitePageHero
+        id="pricing-title"
+        wide
+        title={
+          <>
             Free for {RATE_CARD.free.includedDoors} residents.
-            <br />
-            <span className="text-primary">Pay when the portfolio earns it.</span>
-          </SiteHeading>
-          <div className="mt-7">
-            <BillingToggle annual={annual} />
-          </div>
-        </div>
-      </section>
+            <span className="site-accent">Pay when the portfolio earns it.</span>
+          </>
+        }
+        actions={<BillingToggle annual={annual} />}
+      />
 
       <section className="py-12 sm:py-14" aria-label="Plans">
         {/* C178 (captain-requested reversal of PRP-314's side-by-side snap
             scroller): phone stacks full-width cards in one column; md+ keeps
             the unchanged 3-column grid. */}
         <div
-          className={`${SITE_MEASURE} flex flex-col gap-4 pt-3 md:grid md:grid-cols-3 md:gap-5 md:pt-0`}
+          className={`${SITE_MEASURE} flex flex-col gap-5 pt-3 md:grid md:grid-cols-3 md:items-stretch md:gap-6 md:pt-0`}
           data-attr="pricing-plan-stack"
         >
           {MANAGER_PLAN_TIERS.map((tier) => (
@@ -384,7 +387,7 @@ export default async function PricingPage({
 
       <SiteSection ariaLabel="Credit and fees">
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-border bg-card p-6 sm:p-7">
+          <div className="rounded-3xl border border-border bg-card p-6 sm:p-8">
             <h2 className="text-[18px] font-bold tracking-tight text-foreground">Texting, calling and AI use — what the credit covers</h2>
             <p className="mt-3 text-[14.5px] leading-relaxed text-muted">
               Pro includes {formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!)} and Business{" "}
@@ -396,7 +399,7 @@ export default async function PricingPage({
               own.
             </p>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-6 sm:p-7">
+          <div className="rounded-3xl border border-border bg-card p-6 sm:p-8">
             <h2 className="text-[18px] font-bold tracking-tight text-foreground">Processing fees</h2>
             <p className="mt-3 text-[14.5px] leading-relaxed text-muted">
               No plan includes card or bank processing fees. Residents pay them by default. On Pro and Business a manager may choose
@@ -407,13 +410,13 @@ export default async function PricingPage({
       </SiteSection>
 
       <SiteSection ariaLabel="Add-ons">
-        <div className="rounded-2xl border border-border bg-card p-6 sm:p-7">
+        <div className="rounded-3xl border border-border bg-card p-6 sm:p-8">
           <h2 className="text-[18px] font-bold tracking-tight text-foreground">Add-ons — a price for everything past the bundle</h2>
           <p className="mt-2 text-[14.5px] leading-relaxed text-muted">
             One at a time, from Settings → Billing & plan, billed with your subscription. Free upgrades to Pro instead.
           </p>
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[32rem] text-[14px]">
+          <div className="pricing-addons mt-5">
+            <table className="w-full text-[14px]">
               <thead>
                 <tr className="text-left text-[12px] font-bold uppercase tracking-[0.08em] text-muted">
                   <th className="py-2 pr-4 font-bold">Add-on</th>
@@ -428,10 +431,10 @@ export default async function PricingPage({
                       <span className="font-semibold text-foreground">{a.label}</span>
                       <span className="block text-[12.5px] text-muted">{a.description}</span>
                     </td>
-                    <td className="py-2.5 pr-4 tabular-nums text-foreground">
+                    <td data-label="Pro" className="py-2.5 pr-4 tabular-nums text-foreground">
                       {formatAddonPrice(a.monthlyCents.pro)}/mo{a.maxQuantity.pro !== null ? ` · up to ${a.maxQuantity.pro}` : ""}
                     </td>
-                    <td className="py-2.5 pr-4 tabular-nums text-foreground">{formatAddonPrice(a.monthlyCents.business)}/mo</td>
+                    <td data-label="Business" className="py-2.5 pr-4 tabular-nums text-foreground">{formatAddonPrice(a.monthlyCents.business)}/mo</td>
                   </tr>
                 ))}
                 <tr className="border-t border-border/60">
@@ -439,8 +442,8 @@ export default async function PricingPage({
                     <span className="font-semibold text-foreground">Communication credit packs</span>
                     <span className="block text-[12.5px] text-muted">Carry forward; spent after included credit.</span>
                   </td>
-                  <td className="py-2.5 pr-4 tabular-nums text-foreground">{CREDIT_PACKS_TEXT}</td>
-                  <td className="py-2.5 pr-4 tabular-nums text-foreground">{CREDIT_PACKS_TEXT}</td>
+                  <td data-label="Pro" className="py-2.5 pr-4 tabular-nums text-foreground">{CREDIT_PACKS_TEXT}</td>
+                  <td data-label="Business" className="py-2.5 pr-4 tabular-nums text-foreground">{CREDIT_PACKS_TEXT}</td>
                 </tr>
               </tbody>
             </table>
@@ -457,6 +460,6 @@ export default async function PricingPage({
         secondaryAttr="pricing-closing-book-demo"
         primaryHref={TIER_CTA.free.href}
       />
-    </div>
+    </SitePage>
   );
 }

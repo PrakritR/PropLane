@@ -23,7 +23,7 @@ export function PortalHomeLayout({
     <div className={PORTAL_DASHBOARD_STACK}>
       {banner}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{kpis}</div>
-      <div className="grid gap-3 lg:grid-cols-2">{split}</div>
+      <div className="grid gap-4 lg:grid-cols-2">{split}</div>
       {below}
     </div>
   );

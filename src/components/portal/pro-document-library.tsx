@@ -61,7 +61,7 @@ import { useSearchParams } from "next/navigation";
 import { MANAGER_VENDORS_EVENT, readManagerVendorRows, syncManagerVendorsFromServer, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
-import { Upload, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 
 const SCOPE_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All scopes" },
@@ -690,12 +690,11 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   const hasLibraryQuery = Boolean(search.trim() || categoryFilter || scopeFilter || propertyFilter || expiryFilter);
 
   // The dashed "+ Add" row is gone (PLAN-0914-1345): the command bar's upload
-  // glyph adds, and an empty library says so with one button.
+  // glyph adds, and an empty library just says so.
   const emptyLibraryCard = demo ? null : (
     <PortalListEmptyCard
       section="documents"
       title={portalEmptyCopy("documents.other").title}
-      actions={[{ label: "Upload document", icon: Upload, onClick: () => setUploadOpen(true), dataAttr: "documents-list-add" }]}
     />
   );
   const clearLibraryFilters = () => {

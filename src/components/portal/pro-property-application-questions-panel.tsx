@@ -56,7 +56,7 @@ import {
   submissionAfterRemovingApplicationTemplate,
   syncPropertyApplicationTemplatesFromListing,
 } from "@/lib/property-application-template-sync";
-import { LeasingQuickAddRow } from "@/components/portal/leasing-quick-add-row";
+import { leasingPlusMenuEntries, type LeasingPlusMenuEntry } from "@/lib/leasing-plus-menu";
 import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
 import { missingApplicationDefaults, submissionWithApplicationDefault } from "@/lib/leasing-quick-add";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
@@ -667,13 +667,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
         ))}
       </>
 
-      <LeasingQuickAddRow
-        entries={quickAddEntries}
-        noun="application"
-        dataAttr="property-application-quick-add"
-        onAdd={(key) => void addSeedTemplate(key)}
-      />
-
     </>
   );
 
@@ -712,6 +705,15 @@ export function ManagerPropertyApplicationQuestionsPanel({
   // C228: the property page no longer carries its own application automation
   // block. The gear now opens Settings -> Forms, where every application
   // form's Automation block lives (same workspace-scoped storage) alongside "Used at".
+  // The round + is a menu: the blank "Add application" first, then each PropLane default the property lacks.
+  const addMenu = {
+    entries: leasingPlusMenuEntries("Add application", quickAddEntries),
+    onSelect: (entry: LeasingPlusMenuEntry) => {
+      if (entry.kind === "blank") openAdd();
+      else void addSeedTemplate(entry.key);
+    },
+  };
+
   const commandBar = !embedInModal ? (
     <PropertyFormAutomationCommandBar
       pane={pane}
@@ -731,6 +733,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
       }}
       filter={formFilterSheet}
       onAdd={openAdd}
+      addMenu={addMenu}
       addLabel="Add application"
       addDataAttr="property-application-command-add"
       activeFilterChips={
@@ -760,6 +763,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
       onPaneChange={() => {}}
       panes={[{ id: "form", label: "Form" }]}
       onAdd={openAdd}
+      addMenu={addMenu}
       addLabel="Add application"
       addDataAttr="property-application-add"
     />

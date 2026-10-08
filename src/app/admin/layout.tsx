@@ -5,6 +5,7 @@ import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import { assertAdminPortalAccess } from "@/lib/auth/portal-access";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
@@ -47,16 +48,24 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         */}
         <SurfaceThemeDefault theme="light" />
         <PortalClientSessionGuard />
+        <PortalTopBar
+          kind={adminPortal.kind}
+          basePath={adminPortal.basePath}
+          definition={adminPortal}
+          initialSidebarCollapsed={sidebarCollapsed}
+          name={profile?.full_name ?? null}
+          email={profile?.email ?? null}
+        />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
           <PortalSkipLink />
+          <PortalWorkspaceRail
+            kind={adminPortal.kind}
+            basePath={adminPortal.basePath}
+            name={profile?.full_name ?? null}
+            email={profile?.email ?? null}
+          />
           <PortalSidebar definition={adminPortal} subtitle="Admin" initialCollapsed={sidebarCollapsed} />
           <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <PortalTopBar
-              kind={adminPortal.kind}
-              basePath={adminPortal.basePath}
-              name={profile?.full_name ?? null}
-              email={profile?.email ?? null}
-            />
             <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
               <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
                 <PortalMobileNavBar

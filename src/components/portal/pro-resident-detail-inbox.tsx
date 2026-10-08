@@ -29,6 +29,7 @@ import {
   buildInboxThreadAssistantContext,
 } from "@/components/portal/inbox-thread-assistant-strip";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
+import { usePublishThreadScheduledItems } from "@/components/portal/use-thread-scheduled-cards";
 import { sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
@@ -489,6 +490,8 @@ export function ResidentDirectChatPane({
       ),
     [email, manualScheduledMessages, reminderAutomationSettings, scheduledPaymentMessages],
   );
+  // The contact-details column lists these without loading them again.
+  usePublishThreadScheduledItems(email, threadScheduledItems);
 
   const cancelScheduledItem = useCallback(
     async (item: { id: string; source: "manual" | "automation" }) => {

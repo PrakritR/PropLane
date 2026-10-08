@@ -16,7 +16,7 @@ import {
 const CASES = [
   // Settings (profile) has no sidebar row anywhere — every portal reaches it
   // only from the account menu. Admin exposes Feedback as its own sidebar
-  // item under Operations; manager/resident/vendor feedback stays embedded
+  // item under Support; manager/resident/vendor feedback stays embedded
   // inside Settings.
   {
     kind: "pro" as const,
@@ -113,25 +113,26 @@ describe("groupNavItems", () => {
       .map((s) => ({ section: s.section }));
     const result = groupNavItems("pro", items);
 
-    // "workspace" heads the sidebar with the portfolio's two own destinations.
-    // "app" (the download page) is excluded from every nav since the portal
-    // redesign — it stays routable, it is just not a row. Asserted in full
-    // because this case is specifically about bucketing in config order.
+    // The unheaded home group opens the sidebar, then Portfolio / Leasing /
+    // People / Money. "app" (the download page) is excluded from every nav:
+    // it stays routable, it is just not a row. Asserted in full because this
+    // case is specifically about bucketing in config order.
+    expect(result.map((g) => g.id)).toEqual(["home", "portfolio", "leasing", "people", "money"]);
     expect(result[0]).toEqual({
-      id: "workspace",
-      label: "Workspace",
-      items: [{ section: "dashboard" }, { section: "properties" }],
+      id: "home",
+      label: null,
+      items: [{ section: "dashboard" }, { section: "tasks" }, { section: "calendar" }, { section: "communication" }],
     });
     expect(result.flatMap((g) => g.items).map((i) => i.section)).not.toContain("app");
-    const leasing = result.find((g) => g.id === "leasing");
-    expect(leasing?.label).toBe("Leasing");
-    expect(leasing?.items.map((i) => i.section)).toEqual(["tours", "applications", "leases"]);
-    const operations = result.find((g) => g.id === "operations");
-    expect(operations?.items.map((i) => i.section)).toEqual(["vendors", "outgoing", "tasks", "calendar", "bookings", "communication"]);
-    const tenancy = result.find((g) => g.id === "tenancy");
-    expect(tenancy?.items.map((i) => i.section)).toEqual(["residents", "forms", "payments", "services"]);
-    const finances = result.find((g) => g.id === "finances");
-    expect(finances?.items.map((i) => i.section)).toEqual(["financials", "documents"]);
+    const sectionsOf = (id: string) => result.find((g) => g.id === id)?.items.map((i) => i.section);
+    expect(result.find((g) => g.id === "portfolio")?.label).toBe("Portfolio");
+    expect(sectionsOf("portfolio")).toEqual(["properties", "bookings", "promotion"]);
+    expect(result.find((g) => g.id === "leasing")?.label).toBe("Leasing");
+    expect(sectionsOf("leasing")).toEqual(["tours", "applications", "leases", "forms"]);
+    expect(result.find((g) => g.id === "people")?.label).toBe("People");
+    expect(sectionsOf("people")).toEqual(["residents", "vendors", "services"]);
+    expect(result.find((g) => g.id === "money")?.label).toBe("Money");
+    expect(sectionsOf("money")).toEqual(["payments", "outgoing", "financials", "documents"]);
     // profile was filtered out of `items` above (pro's sidebar otherwise surfaces it)
     expect(result.flatMap((g) => g.items).map((i) => i.section)).not.toContain("profile");
   });
@@ -152,8 +153,52 @@ describe("groupNavItems", () => {
       { section: "profile", label: "Settings", href: "/resident/profile" },
     ];
     const result = groupNavItems("resident", items);
-    expect(result.map((g) => g.id)).toEqual(["home", "my-home", "messages"]);
-    expect(result[0]?.items.map((i) => i.section)).toEqual(["dashboard", "tour", "applications"]);
+    expect(result.map((g) => g.id)).toEqual(["home", "my-home", "applying"]);
+    expect(result[0]?.items.map((i) => i.section)).toEqual(["dashboard", "communication"]);
+    expect(result[1]?.items.map((i) => i.section)).toEqual(["lease"]);
+    expect(result[2]?.items.map((i) => i.section)).toEqual(["tour", "applications"]);
     expect(result.flatMap((g) => g.items).map((i) => i.section)).not.toContain("profile");
+  });
+});
+
+describe("phase 1 regroup: headings and exact order per portal", () => {
+  const headings = (kind: "manager" | "resident" | "vendor") =>
+    PORTAL_NAV_GROUPS[kind].map((g) => [g.label, g.sections] as const);
+
+  it("manager: home, Portfolio, Leasing, People, Money", () => {
+    expect(headings("manager")).toEqual([
+      [null, ["dashboard", "tasks", "calendar", "communication"]],
+      ["Portfolio", ["properties", "bookings", "promotion"]],
+      ["Leasing", ["tours", "applications", "leases", "forms"]],
+      ["People", ["residents", "vendors", "services"]],
+      ["Money", ["payments", "outgoing", "financials", "documents"]],
+    ]);
+  });
+
+  it("resident: home, My home, Applying, Money", () => {
+    expect(headings("resident")).toEqual([
+      [null, ["dashboard", "communication"]],
+      ["My home", ["move-in", "lease", "forms", "services"]],
+      ["Applying", ["tour", "applications"]],
+      ["Money", ["payments", "documents"]],
+    ]);
+  });
+
+  it("vendor: home, Work, Money", () => {
+    expect(headings("vendor")).toEqual([
+      [null, ["dashboard", "communication", "calendar"]],
+      ["Work", ["work-orders", "reviews"]],
+      ["Money", ["financials", "documents"]],
+    ]);
+  });
+
+  it("every manager sidebar row (all but excluded) lands in exactly one group via groupNavItems", () => {
+    const items = proPortal.sections.map((s) => ({ section: s.section }));
+    const placed = groupNavItems("manager", items).flatMap((g) => g.items.map((i) => i.section));
+    const expected = proPortal.sections
+      .map((s) => s.section)
+      .filter((s) => !SIDEBAR_EXCLUDED_SECTIONS.has(s) && s !== "move-in" && s !== "teams");
+    expect([...placed].sort()).toEqual([...new Set(expected)].sort());
+    expect(placed.length).toBe(new Set(placed).size);
   });
 });

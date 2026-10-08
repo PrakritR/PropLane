@@ -197,7 +197,7 @@ describe("Vendors places each vendor under its pipeline tab, with counts", () =>
     expect(screen.queryByText("Estimate Co")).toBeNull();
     // Approve bid lives in the Bids row's ⋯ (a submitted bid only); there is no inline button.
     expect(screen.queryByRole("button", { name: /Approve bid from Bid Co/ })).toBeNull();
-    expect(await rowActionItems("Bid Co")).toEqual(["Approve bid", "Message"]);
+    expect(await rowActionItems("Bid Co")).toEqual(["Message", "Approve bid"]);
     expect(screen.getByRole("menuitem", { name: "Approve bid" }).hasAttribute("disabled")).toBe(false);
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     fireEvent.click(document.querySelector('[data-attr="service-vendor-cycle-tab-sent"]')!);

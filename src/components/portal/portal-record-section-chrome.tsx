@@ -11,6 +11,7 @@ import {
 import { PortalRecordSectionPicker } from "@/components/portal/portal-record-section-picker";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalRecordDecisionPair, splitRecordDecisionActions } from "@/components/portal/portal-record-decision-pair";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import type { RecordSections } from "@/lib/portals/record-sections";
 
@@ -22,7 +23,7 @@ import type { RecordSections } from "@/lib/portals/record-sections";
  * into the anchored menu while the primary stays at the right edge.
  */
 export function PortalRecordHeaderIconActions({
-  actions,
+  actions: allActions,
   onAction,
   primaryId,
 }: {
@@ -31,9 +32,13 @@ export function PortalRecordHeaderIconActions({
   /** The one filled action, when it is not the first icon (a vendor leads with Edit but fills Message). */
   primaryId?: string;
 }) {
-  if (actions.length === 0) return null;
-  const filledIndex = primaryId ? actions.findIndex((action) => action.id === primaryId) : 0;
-  return (
+  if (allActions.length === 0) return null;
+  // Approve / Decline are the one labelled pair, at the right behind a hairline; the rest stay icons.
+  const { rest, positive, negative } = splitRecordDecisionActions(allActions);
+  const hasPair = Boolean(positive || negative);
+  const actions = rest;
+  const filledIndex = primaryId ? actions.findIndex((action) => action.id === primaryId) : hasPair ? -1 : 0;
+  const row = actions.length === 0 ? null : (
     <PortalAdaptiveActionRow
       align="end"
       gapPx={6}
@@ -56,6 +61,13 @@ export function PortalRecordHeaderIconActions({
         >{action.label}</DropdownMenuItem>,
       }))}
     />
+  );
+  if (!hasPair) return row;
+  return (
+    <>
+      {row}
+      <PortalRecordDecisionPair positive={positive} negative={negative} onAction={onAction} />
+    </>
   );
 }
 
@@ -158,7 +170,7 @@ function PortalRecordSectionChromeFromRegistry({
         subtitle={subtitle}
         groups={railGroups}
         ariaLabel={ariaLabel}
-        className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
+        className="lg:mr-5"
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
         <div className="px-0 pt-3 lg:hidden">
@@ -213,7 +225,7 @@ function PortalRecordSectionChromeLegacy({
         subtitle={subtitle}
         groups={groups}
         ariaLabel={ariaLabel}
-        className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
+        className="lg:mr-5"
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
         <div className="px-0 pt-3 lg:hidden">

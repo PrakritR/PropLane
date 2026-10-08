@@ -119,12 +119,13 @@ export function PortalListEmptyCard({
   // Every action here needs a home to act on, so an empty workspace offers none.
   const shownActions = emptyWorkspace || tone === "muted" ? [] : actions;
   const tileNode =
-    icon ?? (section ? <PortalNavIcon section={section} className="size-[22px]" strokeWidth={1.6} /> : null);
+    icon ?? (section ? <PortalNavIcon section={section} className="size-5" strokeWidth={1.6} /> : null);
   return (
     <section
       className={cn(
-        "flex flex-col items-center rounded-2xl border border-border bg-card px-6 text-center shadow-sm",
-        compact ? "py-7" : "py-9 sm:py-10",
+        // Centred on the white page: no card, a 40px outlined tile and one bold line.
+        "flex flex-col items-center px-6 text-center",
+        compact ? "py-7" : "py-20",
         className,
       )}
       data-attr={dataAttr}
@@ -133,15 +134,14 @@ export function PortalListEmptyCard({
       {tileNode ? (
         <span
           className={cn(
-            "mb-3.5 grid size-12 place-items-center rounded-[14px]",
-            tone === "muted" ? "bg-[var(--secondary)] text-muted/70" : "bg-accent/70 text-primary",
+            "mb-3 grid size-10 place-items-center rounded-[10px] border border-[var(--input)] text-muted/75",
           )}
           data-slot="portal-list-empty-tile"
         >
           {tileNode}
         </span>
       ) : null}
-      <h3 className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">{shownTitle}</h3>
+      <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{shownTitle}</h3>
       {shownSibling?.href ? (
         <Link
           href={shownSibling.href}
@@ -185,7 +185,7 @@ export function PortalListEmptyCard({
             );
             const tooltip = action.disabled ? action.reason : undefined;
             return action.href && !action.disabled ? (
-              <Button key={action.label} asChild variant={action.secondary ? "outline" : "primary"} className="rounded-full gap-1.5">
+              <Button key={action.label} asChild variant={action.secondary ? "outline" : "primary"} className="gap-1.5">
                 <Link href={action.href} data-attr={action.dataAttr} title={tooltip}>
                   {body}
                 </Link>
@@ -195,7 +195,7 @@ export function PortalListEmptyCard({
                 <Button
                   type="button"
                   variant={action.secondary ? "outline" : "primary"}
-                  className="rounded-full gap-1.5"
+                  className="gap-1.5"
                   onClick={action.onClick}
                   disabled={action.disabled}
                   title={tooltip}

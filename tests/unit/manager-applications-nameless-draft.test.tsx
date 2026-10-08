@@ -154,7 +154,7 @@ describe("manager Applications — an applicant with no stored name", () => {
     // as its own "Email" fact row, so the email now legitimately appears
     // more than once — this only checks the title itself is styled right
     // and that the subtitle never repeats the exact same string right under it.
-    expect(titled[0]!.className).toMatch(/font-(semi)?bold/);
+    expect(titled[0]!.className).toMatch(/font-(semi)?bold|font-\[[5-9]\d\d\]/); // redesign header title is font-[650]
     expect(titled.length).toBeGreaterThanOrEqual(1);
     // The Overview tab's own "Application form" card legitimately has a
     // fact row LABELED "Applicant" (its muted label span) — this only

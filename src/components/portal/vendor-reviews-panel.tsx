@@ -73,13 +73,13 @@ function ReviewStatsStrip({ reviews, loading }: { reviews: PublicVendorReview[] 
   ];
   return (
     <div
-      className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-4"
+      className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4"
       data-attr="vendor-reviews-stats"
     >
       {cells.map((cell) => (
-        <div key={cell.id} className="bg-card px-4 py-3" data-attr={`vendor-reviews-stat-${cell.id}`}>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">{cell.label}</p>
-          <p className="mt-1 text-xl font-extrabold leading-none tracking-tight text-foreground">{cell.value}</p>
+        <div key={cell.id} className="rounded-[10px] border border-border bg-card px-4 py-3" data-attr={`vendor-reviews-stat-${cell.id}`}>
+          <p className="text-[13px] text-muted">{cell.label}</p>
+          <p className="mt-1 text-xl font-[650] leading-none tracking-tight text-foreground tabular-nums">{cell.value}</p>
         </div>
       ))}
     </div>

@@ -193,10 +193,20 @@ describe("buildZillowRentalFeedXml", () => {
     expect(xml).not.toContain("personal@example.com");
   });
 
-  it("omits contact elements entirely rather than falling back to another field", () => {
-    const noContact = projectedListing({ contactWorkEmail: undefined, contactSmsPhone: undefined });
-    const { xml } = buildZillowRentalFeedXml([noContact], "https://prop-lane.space");
-    expect(xml).not.toContain("<contactEmail>");
+  it("holds a listing with no work number out of the feed, never publishing it with another number", () => {
+    const noPhone = projectedListing({ contactSmsPhone: undefined });
+    const { xml, includedIds, excluded } = buildZillowRentalFeedXml([noPhone], "https://prop-lane.space");
+    expect(includedIds).toEqual([]);
+    expect(excluded).toEqual([{ propertyId: noPhone.id, reasons: ["no_work_number"] }]);
+    expect(xml).not.toContain("<Listing ");
     expect(xml).not.toContain("<contactPhone>");
+  });
+
+  it("omits the email element, not the listing, when only the work email is missing", () => {
+    const noEmail = projectedListing({ contactWorkEmail: undefined });
+    const { xml, includedIds } = buildZillowRentalFeedXml([noEmail], "https://prop-lane.space");
+    expect(includedIds).toEqual([noEmail.id]);
+    expect(xml).not.toContain("<contactEmail>");
+    expect(xml).toContain("<contactPhone>+12065551234</contactPhone>");
   });
 });

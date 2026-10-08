@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
-import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import {
+  LeaseFilterFields,
+  leaseUpdatedWindowLabel,
+  leaseUpdatedWithinWindow,
+  type LeaseUpdatedWindow,
+} from "@/components/portal/lease-filter-fields";
+import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -65,6 +71,8 @@ export function ManagerLeases({
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [stageFilters, setStageFilters] = useState<string[]>([]);
+  const [updatedWindow, setUpdatedWindow] = useState<LeaseUpdatedWindow>("any");
   const [listSearch, setListSearch] = useState("");
   const [clientReady, setClientReady] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
@@ -122,13 +130,35 @@ export function ManagerLeases({
     return `${propertyFilters.length} properties`;
   }, [propertyFilters, propertyOptions]);
 
+  const stageOptions = useMemo(() => {
+    if (!clientReady) return [];
+    void tick;
+    const seen = new Set<string>();
+    for (const row of readLeasePipeline(userId)) {
+      const label = row.stageLabel?.trim();
+      if (label && label !== "—") seen.add(label);
+    }
+    return [...seen].sort((a, b) => a.localeCompare(b)).map((label) => ({ value: label, label }));
+  }, [clientReady, tick, userId]);
+
   const rows = useMemo(() => {
     if (!clientReady) return [];
     void tick;
-    const allRows = readLeasePipeline(userId);
-    if (propertyFilters.length === 0) return allRows;
-    return allRows.filter((row) => propertyFilters.includes(row.application?.propertyId?.trim() ?? ""));
-  }, [clientReady, tick, propertyFilters, userId]);
+    const now = Date.now();
+    return readLeasePipeline(userId).filter(
+      (row) =>
+        (propertyFilters.length === 0 || propertyFilters.includes(row.application?.propertyId?.trim() ?? "")) &&
+        (stageFilters.length === 0 || stageFilters.includes(row.stageLabel?.trim() ?? "")) &&
+        leaseUpdatedWithinWindow(row.updatedAtIso, updatedWindow, now),
+    );
+  }, [clientReady, tick, propertyFilters, stageFilters, updatedWindow, userId]);
+
+  const hasActiveFilters = propertyFilters.length > 0 || stageFilters.length > 0 || updatedWindow !== "any";
+  const clearAllFilters = () => {
+    setPropertyFilters([]);
+    setStageFilters([]);
+    setUpdatedWindow("any");
+  };
 
   const counts = useMemo(() => countLeaseListTabs(rows), [rows]);
   const tabs = useMemo(
@@ -137,27 +167,38 @@ export function ManagerLeases({
   );
   const leasesFilterSheet = (
     <PortalFilterSortSheet
-      activeCount={portalFilterActiveCount([propertyFilters])}
+      activeCount={portalFilterActiveCount([propertyFilters, stageFilters, updatedWindow === "any" ? "" : updatedWindow])}
       compactPanel
       commandStripTrigger
-      filterFieldCount={1}
+      filterFieldCount={3}
       constrainDropdownToTitleBand={false}
       mobileFlushBody
       className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
-      onReset={() => setPropertyFilters([])}
+      onReset={clearAllFilters}
       dataAttr="leases-filter-sheet-open"
     >
-      <ApplicationFilterSortFields
+      <LeaseFilterFields
         propertyOptions={propertyOptions}
         propertyFilters={propertyFilters}
         onPropertyFiltersChange={setPropertyFilters}
-        dataAttr="leases-filter-property"
+        stageOptions={stageOptions}
+        stageFilters={stageFilters}
+        onStageFiltersChange={setStageFilters}
+        updatedWindow={updatedWindow}
+        onUpdatedWindowChange={setUpdatedWindow}
       />
     </PortalFilterSortSheet>
   );
 
-  // Upload is not a header icon: the round + opens Send lease, whose own header carries Upload.
-  const leasesListActions = leasesFilterSheet;
+  // Header order: Filter · Settings · round +. Upload is not a header icon: the + opens Send lease,
+  // whose own "Start from a file" card reads an uploaded lease. The gear opens the Leases section
+  // of Settings -> Automations (deposit accounting, auto-send), never a pop-up.
+  const leasesListActions = (
+    <>
+      {leasesFilterSheet}
+      <ManagerSettingsGear target="leases" label="Lease settings" dataAttr="leases-settings-open" />
+    </>
+  );
 
   const openLeaseAfterSend = (leaseId: string) => {
     navigate(leaseDetailHref(basePath, "resident", leaseId));
@@ -232,14 +273,24 @@ export function ManagerLeases({
             />
           }
           activeFilterChips={
-            propertyFilters.length > 0 ? (
+            hasActiveFilters ? (
               <PortalActiveFilterChips
                 chips={[
-                  {
-                    id: "property",
-                    label: `Property: ${propertyFilterLabel}`,
-                    onRemove: () => setPropertyFilters([]),
-                  },
+                  ...(propertyFilters.length > 0
+                    ? [{ id: "property", label: `Property: ${propertyFilterLabel}`, onRemove: () => setPropertyFilters([]) }]
+                    : []),
+                  ...(stageFilters.length > 0
+                    ? [
+                        {
+                          id: "stage",
+                          label: `Stage: ${stageFilters.length === 1 ? stageFilters[0] : `${stageFilters.length} stages`}`,
+                          onRemove: () => setStageFilters([]),
+                        },
+                      ]
+                    : []),
+                  ...(updatedWindow !== "any"
+                    ? [{ id: "updated", label: `Updated: ${leaseUpdatedWindowLabel(updatedWindow)}`, onRemove: () => setUpdatedWindow("any") }]
+                    : []),
                 ]}
               />
             ) : null
@@ -257,12 +308,12 @@ export function ManagerLeases({
           searchQuery={listSearch}
           onClearSearch={() => setListSearch("")}
           emptyCard={
-            propertyFilters.length > 0
+            hasActiveFilters
               ? {
                   title: portalEmptyNoMatchTitle("leases"),
                   section: "leases",
                   tone: "muted",
-                  clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "leases-empty-clear-filters" },
+                  clear: { label: "Clear filters", onClick: clearAllFilters, dataAttr: "leases-empty-clear-filters" },
                 }
               : {
                   title: portalEmptyCopy(`leases.${tab}` as PortalEmptyCopyKey).title,

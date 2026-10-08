@@ -8,6 +8,7 @@ import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { VendorMessagingSetupBanner } from "@/components/portal/vendor-messaging-setup-banner";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import {
@@ -21,6 +22,8 @@ import { assertPortalLayoutRole } from "@/lib/auth/portal-layout-guard";
 import { vendorPortal } from "@/lib/portals/vendor";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { getAssistantDockCollapsed, getAssistantDocked } from "@/lib/assistant-dock-state";
+import { ViewAsBanner } from "@/components/portal/view-as-banner";
+import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
 
 export default async function VendorLayout({ children }: { children: React.ReactNode }) {
   await assertPortalLayoutRole("vendor", "vendor");
@@ -32,16 +35,35 @@ export default async function VendorLayout({ children }: { children: React.React
     getAssistantDocked(),
   ]);
 
+  // A "View as" support session: banner on top, assistant and its rail off.
+  const viewAs = await getViewAsBannerState();
+
   return (
-    <AxisAssistant endpoint="/api/agent/vendor-chat" managerName={profile?.full_name ?? null}>
+    <AxisAssistant endpoint="/api/agent/vendor-chat" managerName={profile?.full_name ?? null} disabled={Boolean(viewAs)}>
     <div className={PORTAL_SHELL_ROOT_CLASS}>
+      {viewAs ? <ViewAsBanner {...viewAs} /> : null}
       <SurfaceThemeDefault theme="light" />
       <PortalDataPrefetch kind="vendor" />
       <PortalClientSessionGuard />
       <PendingServiceLinkRedeemer />
       <RateAppPrompt reporterRole="vendor" />
+      <PortalTopBar
+        kind={vendorPortal.kind}
+        basePath={vendorPortal.basePath}
+        definition={vendorPortal}
+        subscriptionTier={null}
+        initialSidebarCollapsed={sidebarCollapsed}
+        name={profile?.full_name ?? null}
+        email={profile?.email ?? null}
+      />
       <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
         <PortalSkipLink />
+        <PortalWorkspaceRail
+          kind={vendorPortal.kind}
+          basePath={vendorPortal.basePath}
+          name={profile?.full_name ?? null}
+          email={profile?.email ?? null}
+        />
         <PortalSidebar
           definition={vendorPortal}
           subscriptionTier={null}
@@ -49,12 +71,6 @@ export default async function VendorLayout({ children }: { children: React.React
           initialCollapsed={sidebarCollapsed}
         />
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <PortalTopBar
-            kind={vendorPortal.kind}
-            basePath={vendorPortal.basePath}
-            name={profile?.full_name ?? null}
-            email={profile?.email ?? null}
-          />
           <VendorMessagingSetupBanner />
           <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
             <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
@@ -67,12 +83,14 @@ export default async function VendorLayout({ children }: { children: React.React
             </div>
           </main>
         </div>
-        <PortalAssistantRail
-          managerName={profile?.full_name ?? null}
-          endpoint="/api/agent/vendor-chat"
-          initialCollapsed={assistantDockCollapsed}
-          initialDocked={assistantDocked}
-        />
+        {viewAs ? null : (
+          <PortalAssistantRail
+            managerName={profile?.full_name ?? null}
+            endpoint="/api/agent/vendor-chat"
+            initialCollapsed={assistantDockCollapsed}
+            initialDocked={assistantDocked}
+          />
+        )}
       </div>
     </div>
     </AxisAssistant>

@@ -8,7 +8,7 @@
 //  2. SMS conversation rows always come from the shared projection. The flag
 //     gates SMS-specific compose chrome, while the same rows remain visible.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, cleanup, waitFor, within } from "@testing-library/react";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -473,7 +473,8 @@ describe("unread results do not cascade", () => {
       // on the row's disappearance alone returns on the first paint that satisfies it, so a
       // loaded runner could read the pane while the list was still settling.
       await waitFor(() => {
-        expect(screen.queryByText("Dana Ramirez")).toBeNull();
+        // The row is gone from the LIST; the open conversation's details column still names her.
+        expect(within(document.querySelector("[data-communication-inbox-list]") as HTMLElement).queryByText("Dana Ramirez")).toBeNull();
         expect(screen.getByText("Second Unread")).toBeTruthy();
         expect(screen.getByTestId("embedded-email-thread").getAttribute("data-thread-id")).toBe(EMAIL_INBOX.id);
       });

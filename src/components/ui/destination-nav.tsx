@@ -208,11 +208,12 @@ function DestinationNavStrip({
               itemLayout === "equal"
                 ? "min-w-0"
                 : destinationNavItemWidthClass(compactItems, appearance),
-              "portal-pressable inline-flex items-center justify-center gap-1.5 font-semibold transition-[color,border-color,background-color] duration-100",
+              "portal-pressable inline-flex items-center justify-center gap-1.5 transition-[color,border-color,background-color] duration-100",
+              appearance === "command" ? "font-medium" : "font-semibold",
               appearance === "command"
                 ? itemLayout === "equal" && denseEqualRow
                   ? "min-h-11 rounded-none border-b-2 px-0 py-2 text-center leading-none lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
-                  : "min-h-11 rounded-none border-b-2 px-2.5 py-2 text-sm sm:px-3"
+                  : "min-h-11 rounded-none border-b-2 px-2.5 py-2 text-[15px] sm:px-3 lg:min-h-0 lg:px-0 lg:pb-[9px] lg:pt-[7px] lg:text-[14px] lg:font-[550]"
                 : itemLayout === "equal"
                 ? denseEqualRow
                   ? "min-h-9 min-w-0 px-0 py-1 text-center leading-none lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
@@ -223,7 +224,7 @@ function DestinationNavStrip({
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               appearance === "command"
                 ? active
-                  ? "border-primary text-primary"
+                  ? "border-primary text-foreground"
                   : "border-transparent text-muted hover:border-border hover:text-foreground"
                 : active
                   ? "bg-card text-foreground shadow-[var(--shadow-sm)] ring-1 ring-primary/25"
@@ -253,8 +254,8 @@ function DestinationNavStrip({
             {appearance === "command" && item.count != null ? (
               <span
                 className={cn(
-                  "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
-                  active ? "bg-primary/10 text-primary" : "bg-accent text-muted",
+                  "inline-flex items-center justify-center rounded-md px-1 text-[11px] font-medium tabular-nums lg:px-0 lg:text-[12px]",
+                  active ? "text-primary" : "text-muted/80",
                   // M014 — flashes once, right when the count you're already
                   // looking at changes underneath you.
                   flashing.has(item.id) && "motion-value-flash",
@@ -296,7 +297,7 @@ function destinationNavShellClassName(
             ? "mx-auto grid w-full min-w-0 max-w-2xl auto-cols-fr grid-flow-col gap-0 border-0 bg-transparent p-0 max-lg:max-w-none"
             : "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-0 border-0 bg-transparent p-0"
         : cn(
-            "flex w-full min-w-0 max-w-full gap-1 border-0 bg-transparent p-0",
+            "flex w-full min-w-0 max-w-full gap-1 border-0 bg-transparent p-0 lg:gap-[18px]",
             PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
             "snap-x snap-mandatory scroll-px-2",
           )
@@ -437,11 +438,11 @@ function LocalDestinationNavStrip({
                 ? itemLayout === "equal" && denseEqualRow
                   ? "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 px-0 py-2 text-center leading-none font-semibold transition-[color,border-color,background-color] duration-100 lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
                   : cn(
-                      "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 py-2 text-sm font-semibold transition-[color,border-color,background-color] duration-100",
+                      "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 py-2 text-[15px] font-medium transition-[color,border-color,background-color] duration-100 lg:min-h-0 lg:px-0 lg:pb-[9px] lg:pt-[7px] lg:text-[14px] lg:font-[550]",
                       tight ? "px-1.5 sm:px-2" : "px-2.5 sm:px-3",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       active
-                        ? "border-primary text-primary"
+                        ? "border-primary text-foreground"
                         : "border-transparent text-muted hover:border-border hover:text-foreground",
                       item.alert && !active && "text-[var(--status-overdue-fg)]",
                     )
@@ -454,7 +455,7 @@ function LocalDestinationNavStrip({
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               appearance === "command" && itemLayout === "equal"
                 ? active
-                  ? "border-primary text-primary"
+                  ? "border-primary text-foreground"
                   : "border-transparent text-muted hover:border-border hover:text-foreground"
                 : null,
               appearance !== "command" && itemLayout === "equal"
@@ -488,8 +489,8 @@ function LocalDestinationNavStrip({
             {appearance === "command" && item.count != null ? (
               <span
                 className={cn(
-                  "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
-                  active ? "bg-primary/10 text-primary" : "bg-accent text-muted",
+                  "inline-flex items-center justify-center rounded-md px-1 text-[11px] font-medium tabular-nums lg:px-0 lg:text-[12px]",
+                  active ? "text-primary" : "text-muted/80",
                   flashing.has(item.id) && "motion-value-flash",
                 )}
                 aria-label={`${item.count} ${item.count === 1 ? "item" : "items"}`}

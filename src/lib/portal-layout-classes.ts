@@ -40,7 +40,7 @@ export const PORTAL_NATIVE_BOTTOM_NAV_INSET = "var(--portal-native-bottom-nav-in
 
 /**
  * Scrollable main column: safe-area insets + the 32px desktop / 16px phone page rhythm (all authenticated portals).
- * The light canvas is one flat soft gray (`--portal-canvas`) so white cards read as
+ * The light canvas is flat white (`--portal-canvas`, redesign 1007): bands and rows sit flat on it; cards read as
  * surfaces; the old blue gradient + radial highlight fought every card edge.
  */
 export const PORTAL_MAIN_CONTENT_CLASS =

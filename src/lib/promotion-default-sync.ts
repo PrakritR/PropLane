@@ -5,7 +5,6 @@
  */
 
 import type { MockProperty } from "@/data/types";
-import { PUBLIC_LEASING_EMAIL, PUBLIC_SUPPORT_PHONE_DISPLAY } from "@/lib/marketing/public-contact";
 import {
   composeFallbackFlyerCopy,
   defaultFlyerEntryTitle,
@@ -52,9 +51,19 @@ export function isSystemOwnedPromotionEntryId(entryId: string): boolean {
   return id.endsWith(DEFAULT_PROMOTION_FLYER_SEED_SUFFIX) || id.endsWith(DEFAULT_PROMOTION_TEXT_SEED_SUFFIX);
 }
 
+/**
+ * The contact line a flyer or promotion text carries: the workspace work number and work email,
+ * and nothing else. No work number means no contact line at all - never a personal phone and never
+ * PropLane's own support line standing in for the manager's number.
+ */
+export function promotionWorkContactLine(workPhone?: string | null, workEmail?: string | null): string {
+  const phone = (workPhone ?? "").trim();
+  if (!phone) return "";
+  return [phone, (workEmail ?? "").trim()].filter(Boolean).join(" · ");
+}
+
 function defaultPromotionContact(managerContact?: string): string {
-  const email = managerContact?.trim() || PUBLIC_LEASING_EMAIL;
-  return `${email} · ${PUBLIC_SUPPORT_PHONE_DISPLAY}`;
+  return managerContact?.trim() ?? "";
 }
 
 function inputsFromListing(

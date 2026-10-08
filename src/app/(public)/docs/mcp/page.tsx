@@ -4,6 +4,8 @@ import Link from "next/link";
 import { DocsScrollspyNav, type DocsNavGroup } from "@/components/docs/docs-scrollspy-nav";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { mcpToolCatalog, mcpToolCounts } from "@/lib/mcp/catalog";
+import { SitePage } from "@/components/marketing/site/site-page";
+import { SitePageHero } from "@/components/marketing/site/primitives";
 
 export const metadata: Metadata = {
   title: "MCP server & API",
@@ -88,34 +90,19 @@ export default function McpDocsPage() {
   const writeTools = tools.filter((t) => t.kind === "write");
 
   return (
-    <div className="relative min-h-screen overflow-x-clip bg-background text-foreground">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-32 left-1/2 h-[420px] w-[820px] max-w-[130%] -translate-x-1/2 opacity-70"
-        style={{
-          background:
-            "radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--primary) 12%, transparent), color-mix(in srgb, var(--primary) 5%, transparent) 44%, transparent 72%)",
-          filter: "blur(44px)",
-        }}
-      />
+    <SitePage>
+    <div className="relative overflow-x-clip text-foreground">
 
-      <header className="relative mx-auto max-w-6xl px-5 pb-10 pt-16 sm:px-6 sm:pt-20">
-        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted/60">
-          Developers
-        </div>
-        <h1 className="mt-2 text-[2.4rem] font-semibold leading-[1.06] tracking-[-0.035em] sm:text-[3rem]">
-          MCP server &amp; API
-        </h1>
-        <p className="mt-4 max-w-2xl text-[15.5px] leading-relaxed text-muted">
-          Connect your agent to {counts.total} manager tools through MCP or a scoped REST API key.
-          Both use the same tool layer as PropLane’s assistant.
-        </p>
-      </header>
+      <SitePageHero
+        eyebrow="Developers"
+        title={<>MCP server &amp; API</>}
+        lede={`Connect your agent to ${counts.total} manager tools through MCP or a scoped REST API key. Both use the same tool layer as PropLane’s assistant.`}
+      />
 
       <div className="relative mx-auto grid max-w-6xl gap-10 px-5 pb-24 sm:px-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-14">
         <DocsScrollspyNav groups={NAV_GROUPS} dataAttrPrefix="mcp-docs-toc" />
 
-        <div className="min-w-0 max-w-3xl">
+        <div className="site-prose-card min-w-0 max-w-3xl rounded-3xl px-6 py-8 sm:px-9 sm:py-10">
           <DocSection id="connect" kicker="Start here" title="Connect your agent">
             <p>
               Connect an MCP client by adding <Chip>{MCP_URL}</Chip>. On first use, the client opens
@@ -305,6 +292,7 @@ export default function McpDocsPage() {
         </div>
       </div>
     </div>
+    </SitePage>
   );
 }
 

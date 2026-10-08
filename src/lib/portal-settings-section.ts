@@ -13,7 +13,7 @@ import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-se
  * Old `/portal/settings/<id>` URLs redirect onto Profile via
  * `resolveSettingsRedirectHubTab`.
  *
- * Hub `?tab=` ids can differ: automation → reminders, communication → messaging.
+ * Hub `?tab=` ids can differ: automation and communication both → messaging.
  */
 export const MANAGER_PORTAL_SETTINGS_TABS: readonly { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "applications", label: "Applications" },
@@ -33,7 +33,7 @@ export const MANAGER_PORTAL_SETTINGS_TABS: readonly { id: ManagerPortalSettingsT
   // rules and automated messages, including Bookings' and Inspections' —
   // both former tabs held only that content and are gone. The tab id stays
   // `automation` (the `ManagerPortalSettingsTab` union value). The hub query
-  // is `reminders`.
+  // is `messaging` (`reminders` left Settings).
   { id: "automation", label: "Reminders" },
 ];
 
@@ -60,13 +60,13 @@ export function parseManagerSettingsAreaTab(area: string | undefined | null): Ma
 }
 
 /**
- * Main Settings `?tab=` for a module. Communication folds into the existing
- * messaging pane; the reminder matrix is `reminders` so it does not collide
- * with Account Notifications.
+ * Main Settings `?tab=` for a module. Communication and the reminder matrix
+ * both fold into the messaging pane (`What PropLane sends`).
  */
 export function managerSettingsHubTab(tab: ManagerPortalSettingsTab | null | undefined): string {
   if (!tab || tab === "properties") return "applications";
-  if (tab === "automation") return "reminders";
+  // `?tab=reminders` left Settings; reminder timing and automated messages are "What PropLane sends" on Communication.
+  if (tab === "automation") return "messaging";
   if (tab === "communication") return "messaging";
   if (tab === "payouts") return "payments";
   return tab;
@@ -91,4 +91,38 @@ export function resolveSettingsRedirectHubTab(raw: string | null | undefined): s
   const parsed = parseManagerSettingsAreaTab(raw);
   if (!parsed) return null;
   return managerSettingsHubTab(parsed);
+}
+
+/**
+ * Where each manager list-page settings gear goes. A gear is a link to a real
+ * Settings page (and the section on it), never a pop-up (captain, Oct 7):
+ * the control moved into that section, so the gear only navigates.
+ */
+export const MANAGER_SETTINGS_GEAR_TARGETS = {
+  payments: { tab: "payments", anchor: "rent-and-fees" },
+  reminders: { tab: "messaging", anchor: "what-proplane-sends" },
+  leases: { tab: "applicationsLeases", anchor: "leases" },
+  tours: { tab: "applicationsLeases", anchor: "tours" },
+  moveInForms: { tab: "applicationsLeases", anchor: "move-in-forms" },
+  screening: { tab: "applicationsLeases", anchor: "screening" },
+  vendors: { tab: "applicationsLeases", anchor: "vendors" },
+} as const;
+
+export type ManagerSettingsGearTarget = keyof typeof MANAGER_SETTINGS_GEAR_TARGETS;
+
+export function managerSettingsGearHref(target: ManagerSettingsGearTarget, basePath = "/portal"): string {
+  const { tab, anchor } = MANAGER_SETTINGS_GEAR_TARGETS[target];
+  return `${basePath}/profile?tab=${tab}#${anchor}`;
+}
+
+/** The four sections of Settings -> Integrations (`INTEGRATIONS_TABS`), as the `&integration=` deep-link value. */
+export type ManagerIntegrationsSection = "messages" | "bookings" | "posting" | "google";
+
+/**
+ * Where a list page's Integrations icon goes: the Integrations page, scrolled to the section the
+ * page's data comes from (Calendar -> google, Bookings -> bookings, Promotion -> posting,
+ * Communication -> messages). `docs/agents/integrations.md`.
+ */
+export function managerIntegrationsHref(section: ManagerIntegrationsSection, basePath = "/portal"): string {
+  return `${basePath}/profile?tab=spreadsheets&integration=${section}`;
 }

@@ -1,17 +1,19 @@
 "use client";
 
-import type { ServiceFeePayer } from "@/lib/payment-policy";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { activeWorkspaceIdentity } from "@/lib/workspaces/selection";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
-import { PropertyPricingSettingsModal } from "@/components/portal/property-pricing-settings-modal";
 import {
   PropertyRoomPricingWorkspace,
   type PropertyPricingSubject,
 } from "@/components/portal/property-room-pricing-workspace";
+import {
+  PropertyPaymentSettingsCard,
+  type WorkspacePaymentDefaults,
+} from "@/components/portal/property-payment-settings-card";
 import {
   emptyBundleRow,
   isEntireHomeListing,
@@ -29,6 +31,7 @@ import {
   propertyPricingWholeHouseSummary,
 } from "@/lib/property-pricing-summary";
 import { resetRoomToWorkspaceDefault, resetWholeHouseToWorkspaceDefault } from "@/lib/property-pricing-publish";
+import { pickPaymentSettings } from "@/lib/property-payment-settings-scope";
 import {
   normalizeWorkspacePricingDefaults,
   type WorkspacePricingDefaults,
@@ -44,8 +47,7 @@ import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } 
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { House, Layers, MoreHorizontal, PanelsTopLeft, ScrollText, ShieldCheck, type LucideIcon } from "lucide-react";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { Settings } from "lucide-react";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 
 type PricingTab = "rooms" | "bundles" | "whole";
 
@@ -83,9 +85,7 @@ export function PropertyPricingPanel({
   const [workspacePricingDefaults, setWorkspacePricingDefaults] = useState<WorkspacePricingDefaults>(
     () => normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp ?? {}),
   );
-  const [workspacePayment, setWorkspacePayment] = useState<{ serviceFeePayer?: ServiceFeePayer | null } | null>(
-    null,
-  );
+  const [workspacePayment, setWorkspacePayment] = useState<WorkspacePaymentDefaults | null>(null);
 
   const loadWorkspace = useCallback(async () => {
     const wsId = activeWorkspaceIdentity()?.id;
@@ -97,21 +97,30 @@ export function PropertyPricingPanel({
     const data = await res.json();
     const row = data.workspacePaymentSettings?.[wsId];
     if (row?.pricingDefaults) setWorkspacePricingDefaults(normalizeWorkspacePricingDefaults(row.pricingDefaults));
-    if (row) setWorkspacePayment({ serviceFeePayer: row.serviceFeePayer });
+    if (row) setWorkspacePayment({ serviceFeePayer: row.serviceFeePayer ?? null });
   }, []);
 
   useEffect(() => {
     if (workspacePricingDefaultsProp && Object.keys(workspacePricingDefaultsProp).length > 0) {
       setWorkspacePricingDefaults(normalizeWorkspacePricingDefaults(workspacePricingDefaultsProp));
-      return;
     }
     void loadWorkspace();
   }, [loadWorkspace, workspacePricingDefaultsProp]);
 
   const sub = useMemo(() => normalizeManagerListingSubmissionV1(submission), [submission]);
+  /**
+   * The Rent & fees card's own answers while a save is in flight (or still
+   * being typed), so a toggle never snaps back while the record re-reads. Only
+   * the payment fields are held, and every save rebases them onto the stored
+   * submission, so an edit made elsewhere is never written back stale.
+   */
+  const [paymentPatch, setPaymentPatch] = useState<Partial<ManagerListingSubmissionV1> | null>(null);
+  const paymentSub = useMemo(
+    () => (paymentPatch ? { ...sub, ...paymentPatch } : sub),
+    [paymentPatch, sub],
+  );
   const [tab, setTab] = useState<PricingTab>("rooms");
   const [query, setQuery] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [subject, setSubject] = useState<PropertyPricingSubject | null>(null);
 
@@ -211,14 +220,6 @@ export function PropertyPricingPanel({
           ariaLabel: "Search pricing",
           dataAttr: "property-pricing-search",
         }}
-        actions={
-          <PortalIconAction
-            icon={Settings}
-            label="Payment settings"
-            data-attr="ps40-settings"
-            onClick={() => setSettingsOpen(true)}
-          />
-        }
         primary={
           <PortalPrimaryIconAction label={addLabel} data-attr="property-pricing-add" onClick={addForTab} />
         }
@@ -335,16 +336,17 @@ export function PropertyPricingPanel({
         ) : null}
       </PortalRecordListSurface>
 
-      <PropertyPricingSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        sub={sub}
-        saveTarget={saveTarget}
-        managerUserId={managerUserId}
-        propertyLabel={propertyLabel}
-        onSaved={onUpdated}
-        showToast={showToast}
+      <PropertyPaymentSettingsCard
+        sub={paymentSub}
         workspacePayment={workspacePayment}
+        onDraft={(next) => setPaymentPatch(pickPaymentSettings(next))}
+        onCommit={(next) => {
+          const patch = pickPaymentSettings(next);
+          setPaymentPatch(patch);
+          void persist({ ...sub, ...patch }).then((ok) => {
+            if (!ok) setPaymentPatch(null);
+          });
+        }}
       />
 
       {subject ? (

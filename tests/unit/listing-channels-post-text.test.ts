@@ -38,11 +38,43 @@ function projected(overrides: Partial<MockProperty> = {}, sub: Record<string, un
   } as unknown as MockProperty;
 }
 
-function build(property: MockProperty, channel: Parameters<typeof buildListingPostText>[0]["channel"] = "facebook_marketplace", contact = CONTACT) {
-  return buildListingPostText({ property, origin: "https://proplane.ai", contact, channel });
+function build(
+  property: MockProperty,
+  channel: Parameters<typeof buildListingPostText>[0]["channel"] = "facebook_marketplace",
+  contact = CONTACT,
+  attribution = true,
+) {
+  return buildListingPostText({ property, origin: "https://proplane.ai", contact, channel, attribution });
 }
 
 describe("listing post text", () => {
+  it("ends with the Listed with PropLane line when attribution is on", () => {
+    const result = build(projected());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const paragraphs = result.text.split("\n\n");
+    expect(paragraphs[paragraphs.length - 1]).toBe("Listed with PropLane — free for landlords: https://proplane.ai/partner");
+  });
+
+  it("leaves the line out when attribution is off, and keeps the link and contact", () => {
+    const result = build(projected(), "facebook_marketplace", CONTACT, false);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.text).not.toContain("Listed with PropLane");
+    expect(result.text).toContain("Text (206) 555-0100");
+  });
+
+  it("keeps the attribution line on every channel even when the body is trimmed to the limit", () => {
+    const long = projected({}, { houseOverview: "A lovely home near the water. ".repeat(40) });
+    for (const channel of ["instagram", "craigslist", "roomster", "google_business_profile"] as const) {
+      const result = build(long, channel);
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.text.endsWith("https://proplane.ai/partner")).toBe(true);
+      expect(result.text).toContain("Text (206) 555-0100");
+    }
+  });
+
   it("carries the headline, price, facts, link and the workspace work number and email", () => {
     const result = build(projected());
     expect(result.ok).toBe(true);

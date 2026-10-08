@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { invalidateFinancialActivity } from "@/lib/financial-activity-cache";
 import { ManagerFinancesOverview } from "@/components/portal/finances/finances-overview";
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 function setup(enabled: boolean, fail = false) {
   invalidateFinancialActivity(new Event("test-mutation"));
@@ -28,7 +29,31 @@ describe("Finances simplified overview", () => {
   });
   it("removes pay cards, plan credit and secondary overview cards", async () => {
     setup(true); await screen.findByText("Held deposits");
-    for (const name of ["Pay vendors", "Plan & credit", "Recent activity", "Coming up", "Expenses by category", "By property"]) expect(screen.queryByText(name)).toBeNull();
+    for (const name of ["Pay vendors", "Plan & credit", "Recent activity", "Coming up", "Expenses by category"]) expect(screen.queryByText(name)).toBeNull();
+  });
+  it("lists By property only from the ledger rows of the month, and nothing when there are none", async () => {
+    setup(true); await screen.findByText("Held deposits");
+    expect(screen.queryByText("By property")).toBeNull();
+  });
+  it("draws one row per property with the month's In and Out taken from the same ledger rows", async () => {
+    const date = pacificCalendarDateYmd();
+    const rows = [
+      { date, amountCents: 545000, categoryCode: "rent_income", accountType: "income", propertyId: "p1", property: "61 Willow Court" },
+      { date, amountCents: -31000, categoryCode: "maintenance", accountType: "expense", propertyId: "p1", property: "61 Willow Court" },
+      { date, amountCents: 500000, categoryCode: "security_deposit_liability", accountType: "liability", propertyId: "p1", property: "61 Willow Court" },
+    ];
+    invalidateFinancialActivity(new Event("test-mutation"));
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (input.startsWith("/api/reports/")) return Response.json({ rows, meta: { summary: JSON.stringify({ heldDepositsCents: 0, months: {} }) } });
+      if (input.includes("vendor-invoices")) return Response.json({ totals: { owedCents: 0, billCount: 0 } });
+      return Response.json({ enabled: true, availableCents: 0, pendingCents: 0 });
+    }));
+    render(<ManagerFinancesOverview userId="manager" ready propertyId="" period="month" basePath="/portal" propertyOptions={[]} />);
+    expect(await screen.findByText("By property")).toBeTruthy();
+    const row = document.querySelector('[data-attr="finances-by-property"] [data-record-row]')!;
+    expect(row.textContent).toContain("61 Willow Court");
+    expect(row.textContent).toContain("In $5,450");
+    expect(row.textContent).toContain("Out $310");
   });
   it("does not invent an available balance when the balance ledger is disabled", async () => {
     setup(false); await screen.findByText("Held deposits"); expect(screen.queryByText("$123")).toBeNull();

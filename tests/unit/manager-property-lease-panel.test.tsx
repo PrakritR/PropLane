@@ -69,7 +69,7 @@ describe("ManagerPropertyLeasePanel", () => {
     expect(document.querySelectorAll('[data-slot="portal-row-icon-tile"]').length).toBeGreaterThan(0);
   });
 
-  it("counts exactly the rows it shows; a lease-less property shows no placeholder rows, only a Quick add under the list", async () => {
+  it("counts exactly the rows it shows; a lease-less property shows no placeholder rows, its presets live in the round + menu", async () => {
     const sub = createDefaultListingSubmission();
     const onUpdated = vi.fn();
     render(
@@ -89,9 +89,11 @@ describe("ManagerPropertyLeasePanel", () => {
     // The header count is exactly the rows shown: none.
     const link = screen.getByRole("button", { name: /^Long-term leases/ });
     expect(link.textContent).toMatch(/Long-term leases\s*0/);
-    const row = document.querySelector('[data-attr="property-lease-quick-add"]')!;
-    expect(row.textContent).toContain("Quick add");
-    expect(Array.from(row.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Long-term lease"]); // the open tab's stay only
+    // No separate Quick add row: the open tab's stay presets sit in the round + menu, after the blank item.
+    expect(document.querySelector('[data-attr="property-lease-quick-add"]')).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Add lease" }), { key: "ArrowDown" });
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["Add lease", "Long-term lease"]);
   });
 
   it("leaseListRowCount: exactly the leases the property has", () => {

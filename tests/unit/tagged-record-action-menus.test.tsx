@@ -55,7 +55,7 @@ describe("tagged ⋯ menus render the canonical order", () => {
     );
     openMenu("Task row");
     expect(await screen.findByRole("menu"));
-    expect(menuItemShape()).toEqual(["Edit", "Mark done", "—", "Delete"]);
+    expect(menuItemShape()).toEqual(["Edit", "—", "Mark done", "Delete"]);
   });
 
   it("Payments row: own actions keep their given order, Delete still sorts after the divider once tagged", async () => {
@@ -82,7 +82,7 @@ describe("tagged ⋯ menus render the canonical order", () => {
     // "delete" here has no danger styling of its own (payments' plain outline
     // button) — `data-record-action-id="delete"` alone is what must move it
     // after the divider.
-    expect(menuItemShape()).toEqual(["Mark as paid", "Send reminder", "Edit", "—", "Delete"]);
+    expect(menuItemShape()).toEqual(["Send reminder", "Edit", "—", "Mark as paid", "Delete"]);
   });
 
   it("Bookings row: own actions, then Message, then Copy link, then Cancel after the divider — even declared out of order", async () => {

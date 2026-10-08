@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   buildCalendarPeople,
   openTourSlotKeys,
@@ -411,7 +412,7 @@ function RecurringBlockModalFormFields({
 }
 
 const CALENDAR_HEADER_CELL =
-  "bg-accent/30 font-bold uppercase tracking-[0.12em] text-muted [html[data-theme=dark]_&]:portal-calendar-header-cell";
+  "bg-card font-semibold text-muted [html[data-theme=dark]_&]:portal-calendar-header-cell";
 /**
  * The day/date row pins directly under the week toolbar.
  *
@@ -3993,104 +3994,72 @@ export function PortalCalendarPanels({
       { value: "agenda", label: "Agenda" },
     ];
     const navUnit = viewMode === "agenda" ? "week" : viewMode;
-    // Desktop: the controls ride in the page's header card. A phone's header card has no room for
-    // them beside the search and icons, so they sit in their own card right under it.
-    const hostedNav = Boolean(navControlsHost) && !phone;
     const navButtonClass =
-      "inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-foreground transition hover:bg-accent active:scale-95";
-    const calendarNavControls = (
+      "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95";
+    // One row above the grid: Day · Week · Month underline tabs on the left, the range with its
+    // chevrons on the right (studio calendar header). On a phone the tabs fold into a picker.
+    const calendarToolbar = (
       <div
-        className="flex min-w-0 flex-wrap items-center justify-center gap-1.5 max-sm:w-full max-sm:flex-nowrap"
-        data-attr="calendar-nav"
+        className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border px-1"
+        data-attr="calendar-toolbar"
       >
-        <button
-          type="button"
-          className={navButtonClass}
-          aria-label={`Previous ${navUnit}`}
-          data-attr="calendar-nav-prev"
-          onClick={() => shiftAnchor(-1)}
-        >
-          <ChevronLeft className="size-4" aria-hidden />
-        </button>
-        <button
-          type="button"
-          className="h-8 shrink-0 rounded-full border border-border bg-card px-3.5 text-[13px] font-semibold text-foreground transition hover:bg-accent"
-          data-attr="calendar-today"
-          onClick={jumpToToday}
-        >
-          Today
-        </button>
-        <button
-          type="button"
-          className={navButtonClass}
-          aria-label={`Next ${navUnit}`}
-          data-attr="calendar-nav-next"
-          onClick={() => shiftAnchor(1)}
-        >
-          <ChevronRight className="size-4" aria-hidden />
-        </button>
-        <span
-          className="min-w-0 truncate whitespace-nowrap px-1 text-sm font-bold text-foreground max-sm:flex-1 max-sm:text-center max-sm:text-[13px]"
-          data-attr="calendar-range-label"
-        >
-          {rangeLabel}
-        </span>
-        {hideViewModeControl ? null : (
-          <FieldSingleSelect
-            hideLabel
-            label="Calendar view"
-            value={viewMode}
+        {hideViewModeControl ? (
+          <span />
+        ) : (
+          <LocalDestinationNav
+            appearance="command"
+            ariaLabel="Calendar view"
+            activeId={viewMode}
             onChange={(next) => setViewMode(next as CalendarMode)}
-            options={viewOptions}
-            wrapperClassName="w-[6.75rem] shrink-0 max-sm:w-[5.75rem]"
-            triggerClassName="h-8 min-h-8 rounded-full border border-border bg-card px-3 text-[13px] font-semibold text-foreground"
-            dataAttr="calendar-view-mode"
+            items={viewOptions.map((option) => ({
+              id: option.value,
+              label: option.label,
+              dataAttr: `calendar-view-mode-${option.value}`,
+            }))}
+            className="w-auto max-w-full"
           />
         )}
+        <div className="flex min-w-0 items-center gap-1" data-attr="calendar-nav">
+          <button
+            type="button"
+            className="h-7 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground"
+            data-attr="calendar-today"
+            onClick={jumpToToday}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            className={navButtonClass}
+            aria-label={`Previous ${navUnit}`}
+            data-attr="calendar-nav-prev"
+            onClick={() => shiftAnchor(-1)}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+          </button>
+          <span
+            className="min-w-0 truncate whitespace-nowrap px-0.5 text-[13px] text-muted"
+            data-attr="calendar-range-label"
+          >
+            {rangeLabel}
+          </span>
+          <button
+            type="button"
+            className={navButtonClass}
+            aria-label={`Next ${navUnit}`}
+            data-attr="calendar-nav-next"
+            onClick={() => shiftAnchor(1)}
+          >
+            <ChevronRight className="size-4" aria-hidden />
+          </button>
+        </div>
       </div>
     );
 
     const copyToHousesDisabledStudio = !onCopyWeekToHouses || !otherProperties?.length;
-    const availabilityMenu =
-      canEditWeekStudio || extraAvailabilityAction ? (
-        <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <PortalIconAction icon={Clock} label="Availability" data-attr="calendar-availability-menu" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" data-attr="calendar-availability-menu-content">
-              {canEditWeekStudio ? (
-                <>
-                  <DropdownMenuItem data-attr="calendar-add-availability" onSelect={() => openAddAvailability()}>
-                    Add availability
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem data-attr="calendar-copy-previous-week" onSelect={copyPreviousWeek}>
-                    Copy previous week
-                  </DropdownMenuItem>
-                  <DropdownMenuItem data-attr="calendar-clear-week" onSelect={clearCurrentWeek}>
-                    Clear week
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-attr="calendar-copy-to-houses"
-                    disabled={copyToHousesDisabledStudio}
-                    onSelect={() => {
-                      setSelectedHouseIds(new Set());
-                      setCopyToHousesScope("week");
-                      setUpdateToHousesOpen(true);
-                    }}
-                  >
-                    {copyToHousesDisabledStudio ? "Add another house to copy availability" : "Copy to houses"}
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-              {canEditWeekStudio && extraAvailabilityAction ? <DropdownMenuSeparator /> : null}
-              {extraAvailabilityAction ? <div className="px-1 py-1">{extraAvailabilityAction}</div> : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      ) : null;
 
+    // ONE round + (captain, Oct 7): New tour · New task · New service · Add availability, then the
+    // week tools the separate Availability (clock) icon used to hold, then Connect Google Calendar.
     const renderAddMenu = (trigger: ReactNode) => (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
@@ -4117,6 +4086,37 @@ export function PortalCalendarPanels({
           <DropdownMenuItem data-attr="calendar-create-service" onSelect={() => setAddServiceOpen(true)}>
             New service
           </DropdownMenuItem>
+          {canEditWeekStudio ? (
+            <>
+              <DropdownMenuItem data-attr="calendar-add-availability" onSelect={() => openAddAvailability()}>
+                Add availability
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem data-attr="calendar-copy-previous-week" onSelect={copyPreviousWeek}>
+                Copy previous week
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="calendar-clear-week" onSelect={clearCurrentWeek}>
+                Clear week
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-attr="calendar-copy-to-houses"
+                disabled={copyToHousesDisabledStudio}
+                onSelect={() => {
+                  setSelectedHouseIds(new Set());
+                  setCopyToHousesScope("week");
+                  setUpdateToHousesOpen(true);
+                }}
+              >
+                {copyToHousesDisabledStudio ? "Add another house to copy availability" : "Copy to houses"}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          {extraAvailabilityAction ? (
+            <>
+              <DropdownMenuSeparator />
+              <div className="px-1 py-1">{extraAvailabilityAction}</div>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -4242,14 +4242,7 @@ export function PortalCalendarPanels({
               {saveStatus === "saving" ? "Saving…" : "Save failed"}
             </p>
           ) : null}
-          {hostedNav ? null : (
-            <div
-              className={cn(phone && "rounded-xl border border-border bg-card px-2 py-1.5")}
-              data-attr="calendar-nav-inline"
-            >
-              {calendarNavControls}
-            </div>
-          )}
+          {calendarToolbar}
           {calendarPeople.length > 1 ? (
             <div className="rounded-[14px] border border-border bg-card">
               <CalendarPeopleRow people={calendarPeople} hidden={hiddenPeople} onToggle={toggleHiddenPerson} />
@@ -4257,8 +4250,6 @@ export function PortalCalendarPanels({
           ) : null}
           {body}
         </div>
-        {hostedNav && navControlsHost ? createPortal(calendarNavControls, navControlsHost) : null}
-        {weekActionsHost ? createPortal(availabilityMenu, weekActionsHost) : availabilityMenu}
         {weekPrimaryActionHost ? createPortal(addAction, weekPrimaryActionHost) : addAction}
         <CalendarAvailabilityDialog
           open={Boolean(availDialog)}
@@ -4736,30 +4727,24 @@ export function PortalCalendarPanels({
 
     const calendarNavControls = (
       <div className="flex min-w-0 flex-wrap items-center justify-center gap-1 sm:gap-1.5" data-attr="calendar-nav">
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
-          onClick={() => shiftAnchor(-1)}
-          aria-label={`Previous ${viewMode === "agenda" ? "week" : viewMode}`}
-        >
-          ←
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-7 shrink-0 rounded-full px-2 text-xs"
+          className="h-7 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground"
           onClick={jumpToToday}
           data-attr="calendar-today"
         >
           Today
-        </Button>
+        </button>
+        <button
+          type="button"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95"
+          onClick={() => shiftAnchor(-1)}
+          aria-label={`Previous ${viewMode === "agenda" ? "week" : viewMode}`}
+        >
+          <ChevronLeft className="size-4" aria-hidden />
+        </button>
         <p
-          className={cn(
-            "shrink-0 whitespace-nowrap px-0.5 text-center text-foreground",
-            CALENDAR_COMPACT_TOOLBAR_TEXT,
-            "lg:text-sm lg:font-semibold",
-          )}
+          className="shrink-0 whitespace-nowrap px-0.5 text-center text-[13px] text-muted"
           data-attr="calendar-range-label"
         >
           {viewMode === "week" || viewMode === "agenda" ? (
@@ -4772,15 +4757,14 @@ export function PortalCalendarPanels({
             <span>{formatNavTitle(anchorDate, viewMode)}</span>
           )}
         </p>
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95"
           onClick={() => shiftAnchor(1)}
           aria-label={`Next ${viewMode === "agenda" ? "week" : viewMode}`}
         >
-          →
-        </Button>
+          <ChevronRight className="size-4" aria-hidden />
+        </button>
         {calendarViewSelect}
       </div>
     );
@@ -4943,18 +4927,14 @@ export function PortalCalendarPanels({
                               isWeekend ? "bg-accent/10" : "bg-card",
                             )}
                           >
-                            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-muted">
-                              {d.toLocaleDateString(undefined, { weekday: "short" })}
-                            </p>
-                            <p className="mt-0.5 flex items-center justify-center">
-                              <span
-                                className={cn(
-                                  "flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold leading-tight",
-                                  isToday ? "bg-primary text-primary-foreground" : "text-foreground",
-                                )}
-                              >
-                                {d.getDate()}
-                              </span>
+                            <p
+                              className={cn(
+                                "flex items-center justify-center gap-1 text-[12.5px] font-semibold",
+                                isToday ? "text-primary" : "text-muted",
+                              )}
+                            >
+                              <span>{d.toLocaleDateString(undefined, { weekday: "short" })}</span>
+                              <span className="tabular-nums">{d.getDate()}</span>
                             </p>
                             <p className={`mt-0.5 text-[9px] font-medium uppercase leading-tight ${CALENDAR_OPEN_COUNT}`}>
                               {dayHeaderCountLabel(ds)}

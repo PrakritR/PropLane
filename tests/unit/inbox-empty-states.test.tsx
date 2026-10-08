@@ -2,13 +2,12 @@
 //
 // Communication UX quality pass: every inbox tab (Unopened, Opened, Schedule,
 // Sent, Trash) must render the SAME polished empty treatment as the Schedule
-// tab — a bordered card (PORTAL_EMPTY_STATE_WRAP) with tab-specific copy —
+// tab — the shared empty state (PortalEmptyState) with tab-specific copy —
 // across all four portals. The list panes derive their copy from the shared
 // `inboxTabEmptyCopy` helper; the thread pane (`InboxThreadView`) renders the
 // same PortalInboxEmptyState card instead of the old bare "<p>No messages yet".
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { PORTAL_EMPTY_STATE_WRAP } from "@/components/portal/portal-empty-state";
 import {
   InboxThreadView,
   inboxTabEmptyCopy,
@@ -33,16 +32,18 @@ describe("inboxTabEmptyCopy", () => {
 });
 
 describe("InboxThreadView empty state", () => {
-  it("renders the polished bordered empty card (not a bare paragraph) when a thread has no messages", () => {
+  it("renders the shared empty state (not a bare paragraph) when a thread has no messages", () => {
     const { container } = render(
       <InboxThreadView title="Jane Resident" messages={[]} emptyLabel="No messages in this conversation." />,
     );
     // The tab-specific copy is shown…
     expect(screen.getByText("No messages in this conversation.")).toBeTruthy();
     // …inside the shared polished empty-state card, same chrome as Schedule.
-    const card = container.querySelector(`.${PORTAL_EMPTY_STATE_WRAP.split(" ")[0]}`);
-    expect(container.innerHTML).toContain("rounded-2xl");
-    expect(card).not.toBeNull();
+    // Portal redesign: the shared empty state is a flat centred block (outlined
+    // glyph tile + one bold title, no card chrome), not a bare paragraph.
+    const tile = container.querySelector('[data-slot="portal-list-empty-tile"]');
+    expect(tile).not.toBeNull();
+    expect(container.querySelector("h3")?.textContent).toBe("No messages in this conversation.");
   });
 
   it("renders message bubbles (no empty card) when the thread has messages", () => {

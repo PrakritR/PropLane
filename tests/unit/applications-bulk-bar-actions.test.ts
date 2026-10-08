@@ -22,13 +22,13 @@ describe("applications list bulk bar mirrors detail footer actions", () => {
     expect(PANEL).toContain("canBulkSendReminder");
   });
 
-  it("exposes download, move-to-pending and Decline for single-row selections; sharing lives on the record", () => {
+  it("exposes download, move-to-pending and Decline for single-row selections; the record header carries no Share", () => {
     expect(PANEL).toContain('data-attr="applications-bulk-move-pending"');
     expect(PANEL).toContain('data-attr="applications-bulk-decline"');
     expect(PANEL).toContain("ApplicationPdfDownloadButton");
     expect(PANEL).toContain("applicationRowCanMoveToPending");
     expect(PANEL).not.toContain('dataAttr="applications-bulk-share"');
-    expect(PANEL).toContain('dataAttr="application-share"');
+    expect(PANEL).not.toContain('application-share');
   });
 
   it("declines in one click (no confirm dialog) with an Undo", () => {

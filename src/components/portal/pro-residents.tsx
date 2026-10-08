@@ -4,7 +4,6 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Settings as SettingsIcon } from "lucide-react";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
@@ -21,10 +20,8 @@ import { Button } from "@/components/ui/button";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { recordSections } from "@/lib/portals/record-sections";
-import {
-  ResidentOverviewPanel,
-  type ResidentOverviewServiceItem,
-} from "@/components/portal/pro-resident-overview-panel";
+import { ResidentOverviewPanel } from "@/components/portal/pro-resident-overview-panel";
+import { ResidentPaymentsBalanceStrip } from "@/components/portal/resident-payments-balance-strip";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import {Input, Textarea, Select} from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -84,21 +81,13 @@ import {
 } from "@/lib/portal-detail-routes";
 import {
   RESIDENT_DETAIL_APPLICATION_BUCKET_TABS,
-  RESIDENT_DETAIL_BACKGROUND_CHECK_TABS,
-  residentBackgroundCheckCompletedCount,
   RESIDENT_DETAIL_LEASE_PIPELINE_TABS,
   residentApplicationStatusBucket,
   type ResidentRecordStatusBucketId,
 } from "@/lib/resident-detail-subsection-tabs";
-import {
-  ProPortalSettingsModal,
-  type ManagerPortalSettingsTab,
-} from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  getSettingsEntryPointForTab,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
+import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
+import { managerSettingsGearHref } from "@/lib/portal-settings-section";
 import { PortalServiceRecordRow, PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -334,7 +323,6 @@ import {
   managerServiceRequestPricingSummary,
 } from "@/components/portal/pro-service-request-detail";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import type { ManagerServiceResidentOption } from "@/components/portal/pro-create-service-request-modal";
@@ -349,10 +337,6 @@ import {
   shortTermStayNightCount,
 } from "@/lib/short-term-stay-pricing";
 
-const residentsSettingsEntry = getSettingsEntryPoint("residents");
-const leasesSettingsEntry = getSettingsEntryPoint("leases");
-const applicationsSettingsEntry = getSettingsEntryPoint("applications");
-const paymentsSettingsEntry = getSettingsEntryPoint("payments");
 const toursSettingsEntry = getSettingsEntryPoint("tours");
 
 /**
@@ -599,7 +583,6 @@ export function ManagerResidents({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_LIST_DEFAULT_GROUP_MODE);
   const residentsTab = parseResidentsTab(tabIdProp);
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
-  const [residentPaymentSettingsOpen, setResidentPaymentSettingsOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
   const [bulkDeletePreview, setBulkDeletePreview] = useState<ResidentDeletePreviewState>(
@@ -663,12 +646,10 @@ export function ManagerResidents({
   const [applicationEditInitialStep, setApplicationEditInitialStep] = useState<number | undefined>(undefined);
   const [messageReminderForPayment, setMessageReminderForPayment] = useState(false);
   const [residentDocumentTab, setResidentDocumentTab] = useState<ManagerResidentDocTabId>("application");
+  const [residentDocumentsSearch, setResidentDocumentsSearch] = useState("");
   const [residentApplicationBucket, setResidentApplicationBucket] =
     useState<ResidentRecordStatusBucketId>("pending");
   const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<LeaseListTabId>("draft");
-  const [residentDetailSettingsOpen, setResidentDetailSettingsOpen] = useState(false);
-  const [residentDetailSettingsTab, setResidentDetailSettingsTab] =
-    useState<ManagerPortalSettingsTab>("applications");
   const [addResidentPaymentOpen, setAddResidentPaymentOpen] = useState(false);
   const [addResidentServiceOpen, setAddResidentServiceOpen] = useState(false);
   const [embeddedPaymentFooterActions, setEmbeddedPaymentFooterActions] = useState<ReactNode>(null);
@@ -1385,7 +1366,9 @@ export function ManagerResidents({
     return counts;
   }, [selectedApplicationRow]);
 
-  const residentBackgroundCheckCount = residentBackgroundCheckCompletedCount(selectedApplicationRow);
+  // The status tabs earn their place only when this resident has more than one application.
+  const residentHasSeveralApplications =
+    Object.values(residentApplicationBucketCounts).reduce((sum, n) => sum + n, 0) > 1;
 
   // Open on the tab the record is under; the manager can still look at the others.
   const selectedApplicationBucket = selectedApplicationRow
@@ -1394,11 +1377,6 @@ export function ManagerResidents({
   useEffect(() => {
     setResidentApplicationBucket(selectedApplicationBucket ?? "pending");
   }, [selectedApplicationBucket, selectedApplicationRow?.id]);
-
-  const openResidentDetailSettings = useCallback((tab: ManagerPortalSettingsTab) => {
-    setResidentDetailSettingsTab(tab);
-    setResidentDetailSettingsOpen(true);
-  }, []);
 
   const activeCosignerIndexParam = searchParams.get("cosigner");
   const activeCosignerIndex =
@@ -2479,16 +2457,6 @@ export function ManagerResidents({
       .finally(() => setErSaving(false));
   }
 
-  function openResidentPaymentSettings() {
-    if (!selected) return;
-    const propId = selected.propertyId.trim();
-    if (!propId) {
-      showToast("This resident isn't linked to a property yet.");
-      return;
-    }
-    setResidentPaymentSettingsOpen(true);
-  }
-
   /**
    * Whether this resident exists ONLY in the browser — absent from the manager's
    * own server-scoped applications list. A read failure answers `false`, so an
@@ -3005,26 +2973,6 @@ export function ManagerResidents({
     };
   }, [portalBase, residentDetailTabsAvailable, residentsTab, residentRecordHeaderActions]);
 
-  const residentOverviewServices = useMemo((): ResidentOverviewServiceItem[] => {
-    if (!selected) return [];
-    const requests: ResidentOverviewServiceItem[] = residentServiceRequests.map((req) => ({
-      id: `request-${req.id}`,
-      title: req.offerName,
-      detail: managerServiceRequestPricingSummary(req),
-      bucket: residentUnifiedServiceBucketForRequest(req),
-      href: managerResidentItemDetailHref(portalBase, residentsTab, selected.id, "services", `request-${req.id}`),
-    }));
-    const workOrders: ResidentOverviewServiceItem[] = residentWorkOrders.map((row) => ({
-      id: `work-order-${row.id}`,
-      title: row.title,
-      detail: [row.scheduled?.trim(), row.status?.trim()].filter(Boolean).join(" · ") || "Service",
-      bucket: residentUnifiedServiceBucketForWorkOrder(row),
-      href: managerResidentItemDetailHref(portalBase, residentsTab, selected.id, "services", `work-order-${row.id}`),
-    }));
-    const order = { pending: 0, scheduled: 1, completed: 2 } as const;
-    return [...requests, ...workOrders].sort((a, b) => order[a.bucket] - order[b.bucket]);
-  }, [portalBase, residentServiceRequests, residentWorkOrders, residentsTab, selected]);
-
   const residentOverviewLinks = useMemo(() => {
     if (!selected) return {};
     const has = (tab: ResidentDetailTabId) => residentDetailTabsAvailable.includes(tab);
@@ -3331,7 +3279,6 @@ export function ManagerResidents({
                                   }}
                                   ledgerRows={residentLedgerRows}
                                   leaseRows={residentLeaseRows}
-                                  services={residentOverviewServices}
                                   links={residentOverviewLinks}
                                   lifecycleInput={residentLifecycleInput ?? undefined}
                                   onNavigate={(href) => navigate(href)}
@@ -3411,6 +3358,7 @@ export function ManagerResidents({
                                 actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
                                 destinationRow={
+                                  residentLeaseRows.length > 1 ? (
                                   <LocalDestinationNav
                                     items={RESIDENT_DETAIL_LEASE_PIPELINE_TABS.map((tab) => ({
                                       id: tab.id,
@@ -3424,6 +3372,7 @@ export function ManagerResidents({
                                     appearance="command"
                                     className="w-full"
                                   />
+                                  ) : undefined
                                 }
                               />
                               {residentLease ? (
@@ -3455,21 +3404,6 @@ export function ManagerResidents({
                               <ManagerResidentSectionToolbar
                                 actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
-                                destinationRow={
-                                  <LocalDestinationNav
-                                    items={RESIDENT_DETAIL_BACKGROUND_CHECK_TABS.map((tab) => ({
-                                      id: tab.id,
-                                      label: tab.label,
-                                      count: residentBackgroundCheckCount,
-                                      dataAttr: tab.dataAttr,
-                                    }))}
-                                    activeId="completed"
-                                    onChange={() => undefined}
-                                    ariaLabel="Background check"
-                                    appearance="command"
-                                    className="w-full"
-                                  />
-                                }
                               />
                               {selectedApplicationRow && applicationShowsBackgroundCheck(selectedApplicationRow) ? (
                                 <ManagerResidentBackgroundCheckPanel row={selectedApplicationRow} />
@@ -3485,6 +3419,7 @@ export function ManagerResidents({
                                 actions={residentSectionHeaderActions}
                                 onAction={onResidentSectionHeaderAction}
                                 destinationRow={
+                                  residentHasSeveralApplications ? (
                                   <LocalDestinationNav
                                     items={RESIDENT_DETAIL_APPLICATION_BUCKET_TABS.map((tab) => ({
                                       id: tab.id,
@@ -3498,9 +3433,10 @@ export function ManagerResidents({
                                     appearance="command"
                                     className="w-full"
                                   />
+                                  ) : undefined
                                 }
                               />
-                              {selectedApplicationBucket && residentApplicationBucket !== selectedApplicationBucket ? (
+                              {residentHasSeveralApplications && selectedApplicationBucket && residentApplicationBucket !== selectedApplicationBucket ? (
                                 <p className="text-sm text-muted">
                                   No {residentApplicationBucket} application.
                                 </p>
@@ -3547,13 +3483,12 @@ export function ManagerResidents({
                                     onAction={onResidentSectionHeaderAction}
                                     destinationRow={destinationRow}
                                     search={toursSearch}
-                                    // Tour rules (notice, auto-confirm, reminders) are reachable from here and nowhere else.
+                                    // The gear links to Settings → Automations → Tours (notice, auto-confirm, tour times).
                                     extraActions={
-                                      <PortalIconAction
-                                        icon={SettingsIcon}
+                                      <ManagerSettingsGear
+                                        target="tours"
                                         label={toursSettingsEntry.label}
-                                        data-attr={toursSettingsEntry.dataAttr}
-                                        onClick={() => openResidentDetailSettings("tours")}
+                                        dataAttr={toursSettingsEntry.dataAttr}
                                       />
                                     }
                                   />
@@ -3590,6 +3525,7 @@ export function ManagerResidents({
                             {resolvedDetailTab === "payments" ? (
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
+                              {!paymentIdProp ? <ResidentPaymentsBalanceStrip rows={residentLedgerRows} /> : null}
                               {!paymentIdProp ? (
                                 <ManagerResidentSectionToolbar
                                   actions={residentSectionHeaderActions}
@@ -3637,7 +3573,7 @@ export function ManagerResidents({
                                   scheduledMessages={scheduledPaymentMessages}
                                   reminderScheduleSummary={residentReminderScheduleSummary}
                                   reminderAutomationSettings={residentReminderSettings}
-                                  onOpenReminderSettings={() => setResidentPaymentSettingsOpen(true)}
+                                  onOpenReminderSettings={() => navigate(managerSettingsGearHref("reminders", portalBase))}
                                   onScheduleChanged={() => void reloadResidentPaymentSchedule()}
                                   onRowsChanged={() => {
                                     setHcTick((n) => n + 1);
@@ -3733,14 +3669,6 @@ export function ManagerResidents({
                                   placeholder: "Search services",
                                   dataAttr: "resident-services-search",
                                 }}
-                                extraActions={
-                                  <PortalIconAction
-                                    icon={SettingsIcon}
-                                    label={residentsSettingsEntry.label}
-                                    data-attr={residentsSettingsEntry.dataAttr}
-                                    onClick={() => openResidentDetailSettings("resident")}
-                                  />
-                                }
                               />
                               {!residentServicesHasRows ? (
                                 <p className="text-sm text-muted">No services for this resident.</p>
@@ -3846,10 +3774,17 @@ export function ManagerResidents({
                                       className="w-full"
                                     />
                                   }
+                                  search={{
+                                    value: residentDocumentsSearch,
+                                    onChange: setResidentDocumentsSearch,
+                                    placeholder: "Search documents",
+                                    dataAttr: "resident-documents-search",
+                                  }}
                                 />
                                 <ManagerResidentDocumentsPanel
                                   sections={residentDocumentSections}
                                   tab={residentDocumentTab}
+                                  query={residentDocumentsSearch}
                                 />
                               </ResidentDetailTabPanel>
                             ) : null}
@@ -4228,13 +4163,6 @@ export function ManagerResidents({
           </>
         }
       />
-      <ManagerPortalSettingsModal
-        open={residentPaymentSettingsOpen}
-        onClose={() => setResidentPaymentSettingsOpen(false)}
-        initialTab="payments"
-        scopedTitle={settingsDialogTitlePrefix(paymentsSettingsEntry)}
-        paymentsMode="incoming"
-      />
 
       {addResidentOpen ? (
         <AddResidentWizard
@@ -4516,23 +4444,6 @@ export function ManagerResidents({
           if (!applicationReminderPreview) return;
           void sendApplicationCompletionReminder(applicationReminderPreview.row, channels, draft);
         }}
-      />
-
-      {/*
-        Shared by every resident-detail Settings gear that routes through
-        `openResidentDetailSettings` (lease, applications, resident, and the
-        embedded tours subsection) — one dialog instance, so its title is
-        resolved per-tab from the same registry the triggering button's own
-        label (where we control it) comes from, instead of a fixed string.
-      */}
-      <ProPortalSettingsModal
-        open={residentDetailSettingsOpen}
-        onClose={() => setResidentDetailSettingsOpen(false)}
-        initialTab={residentDetailSettingsTab}
-        scoped
-        scopedTitle={settingsDialogTitlePrefix(getSettingsEntryPointForTab(residentDetailSettingsTab))}
-        propertyOptions={propertyOptions}
-        initialPropertyId={selected?.propertyId?.trim() || propertyOptions[0]?.id}
       />
 
       <ManagerResidentUploadModal
