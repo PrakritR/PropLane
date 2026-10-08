@@ -324,11 +324,22 @@ and § Vendor side). The work **email** stays free and is not part of the gate.
   dollars, one purchase id per attempt). At $0 the row reads **Out of credit** (texts and AI replies are paused until
   the 1st or until the vendor buys credit). A held number of a lapsed vendor shows **Paused** beside Subscribe.
   `/demo` and a flag-off server render none of this.
+- **Never sold undeliverable (Oct 8).** `getNumberAvailability` (`number-subscription/availability.server.ts`) must be
+  true for a NEW checkout: `vendor_work_identity_runtime.enabled` with `max_active_identities > 0` (a resident needs only
+  `enabled`), the SMS provider configured (`VENDOR_WORK_IDENTITY_PROVIDER_ENABLED=1`, Twilio, `TWILIO_MESSAGING_SERVICE_SID`,
+  `VENDOR_WORK_IDENTITY_SMS_WEBHOOK_URL` and `..._STATUS_CALLBACK_URL`) and `SMS_PROVISIONING_ENABLED=1` (or a non-production
+  `VENDOR_WORK_NUMBER_DRY_RUN=1`). Otherwise the Subscribe row reads **Unavailable** (no button) and `POST .../checkout`
+  answers 409 `not_available`. Existing subscribers are untouched. `GET /api/number-subscription` and the resident snapshot
+  carry `available`.
+- **Back from Checkout (`?number=success`)** the page shows **Activating** and polls quietly (status + identity, ~3s,
+  up to a minute) because the webhook that records the subscription and buys the number can land after the redirect.
 - **Provisioning on activation.** The signed Stripe webhook, only after it recorded the subscription `applied`,
   calls `provisionVendorNumberOnActivation` for a vendor with a verified phone: the owner comes from our
   `number_subscriptions` row (never event metadata), the claim key is seeded with the Stripe subscription id (a
   replay buys once; a new subscription after a released number buys a new one), and a failure never fails the
-  webhook - the vendor can still claim from Settings.
+  webhook - the vendor can still claim from Settings. The same activation also sets up the **work email** (its own
+  per-subscription key; independent of the number, so an unverified phone does not hold it back). A skipped or failed
+  step is logged with its reason (`[vendor number] activation`), never silent.
 - **Lapsed (canceled / incomplete).** The number is paused: no outbound text, no AI, `sendReady` false with
   `blockedReason: subscription_required`; inbound still lands in the inbox; a manager's text falls back to the
   vendor's own phone from the manager's work number (`getRoutableVendorNumber`, used by `providerDestinationFor` and the

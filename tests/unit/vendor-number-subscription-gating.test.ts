@@ -49,7 +49,10 @@ beforeEach(() => {
   mocks.getActiveVendorNumber.mockResolvedValue(null);
   mocks.loadVendorVerifiedPhone.mockResolvedValue({ verified: true, phone: "+12065550142" });
   mocks.searchVendorWorkNumberCandidates.mockResolvedValue(["+12065550177"]);
-  mocks.setupVendorWorkIdentity.mockResolvedValue({ sms: { state: "ready", value: "+12065550177" } });
+  mocks.setupVendorWorkIdentity.mockResolvedValue({
+    sms: { state: "ready", value: "+12065550177" },
+    email: { state: "ready", value: "vendor-1@vendors.proplane.ai", blockedReason: "none" },
+  });
   mocks.resolveVendorPortalUserId.mockResolvedValue({ ok: true, userId: "vendor-1" });
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -198,5 +201,36 @@ describe("auto-provision when the subscription becomes active (webhook)", () => 
     vi.stubEnv("NUMBER_SUBSCRIPTION_ENABLED", "1");
     provision.mockRejectedValue(new Error("twilio down"));
     expect(await provisionVendorNumberOnActivation(fakeDb([sub()]), "sub_1", { provision })).toBe("failed");
+  });
+
+  it("the work email is set up under the same subscription, with its own per-subscription key", async () => {
+    vi.stubEnv("NUMBER_SUBSCRIPTION_ENABLED", "1");
+    const setupEmail = vi.fn().mockResolvedValue({ email: { state: "ready", blockedReason: "none" } });
+    await provisionVendorNumberOnActivation(fakeDb([sub()]), "sub_1", { provision, setupEmail });
+    expect(setupEmail).toHaveBeenCalledTimes(1);
+    expect(setupEmail.mock.calls[0]![1]).toBe("vendor-1");
+    expect(setupEmail.mock.calls[0]![2]).toBe(vendorSignupIdempotencyKey("vendor-1", "email:sub_1"));
+    expect(setupEmail.mock.calls[0]![3]).toBe("email");
+    // Distinct from the number's claim key, so neither can swallow the other.
+    expect(setupEmail.mock.calls[0]![2]).not.toBe(vendorSignupIdempotencyKey("vendor-1", "sub_1"));
+  });
+
+  it("an unverified phone (no number) still gets the email, and the skip is reported honestly", async () => {
+    vi.stubEnv("NUMBER_SUBSCRIPTION_ENABLED", "1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    provision.mockResolvedValue({ status: "skipped", reason: "phone_unverified" });
+    const setupEmail = vi.fn().mockResolvedValue({ email: { state: "ready", blockedReason: "none" } });
+    expect(await provisionVendorNumberOnActivation(fakeDb([sub()]), "sub_1", { provision, setupEmail })).toBe("skipped");
+    expect(setupEmail).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("[vendor number] activation", expect.objectContaining({ what: "number", outcome: "skipped:phone_unverified" }));
+    warn.mockRestore();
+  });
+
+  it("an email failure never throws into the webhook or hides the number", async () => {
+    vi.stubEnv("NUMBER_SUBSCRIPTION_ENABLED", "1");
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const setupEmail = vi.fn().mockRejectedValue(new Error("resend down"));
+    expect(await provisionVendorNumberOnActivation(fakeDb([sub()]), "sub_1", { provision, setupEmail })).toBe("provisioned");
+    error.mockRestore();
   });
 });
