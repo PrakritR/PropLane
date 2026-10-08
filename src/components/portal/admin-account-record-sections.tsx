@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { RecordFactCard, RecordFactRow, RecordRowsCard } from "@/components/portal/portal-record-overview-kit";
-import { ManagerPlanBillingCard } from "@/components/portal/admin-manager-account-detail";
+import { ManagerBillingCards } from "@/components/portal/admin-manager-account-detail";
+import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
+import type { AdminAccountBilling } from "@/lib/admin/admin-account-billing.server";
 import { formatPacificDate, formatPacificDateTime } from "@/lib/pacific-time";
 import { ADMIN_ACCOUNT_ROLE_LABEL, type AdminAccountRowKind } from "@/lib/admin/admin-account-keys";
 import type { AdminAccountDetail } from "@/lib/admin/admin-account-detail.server";
@@ -111,6 +114,11 @@ export function AccountWorkspacesSection({ detail }: { detail: AdminAccountDetai
   );
 }
 
+/**
+ * Billing & plan: Subscription, Trial & discounts and Limits as fact cards, then the payments
+ * Stripe has taken from this account. One read (`GET /api/admin/accounts/<id>/billing`) feeds all
+ * of it; a change in any popup re-reads the record and this.
+ */
 export function AccountBillingSection({
   detail,
   onRefresh,
@@ -120,20 +128,74 @@ export function AccountBillingSection({
   onRefresh: () => void;
   showToast: (m: string) => void;
 }) {
+  const accountId = detail.id;
+  const isManager = Boolean(detail.manager);
+  const [billing, setBilling] = useState<AdminAccountBilling | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!isManager) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchWithTimeout(`/api/admin/accounts/${encodeURIComponent(accountId)}/billing`, {}, 20_000);
+        if (cancelled) return;
+        if (!res.ok) {
+          setState("error");
+          return;
+        }
+        setBilling((await res.json()) as AdminAccountBilling);
+        setState("ready");
+      } catch {
+        if (!cancelled) setState("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, isManager, tick]);
+
   if (!detail.manager) return null;
+
+  const onChanged = () => {
+    setTick((n) => n + 1);
+    onRefresh();
+  };
+
   return (
-    <RecordFactCard title="Plan & billing" dataAttr="admin-account-plan-billing">
-      <ManagerPlanBillingCard
+    <>
+      <ManagerBillingCards
         row={{
           id: detail.id,
           tier: detail.manager.tier,
           active: detail.status === "active",
           joinedAt: detail.createdAt,
         }}
-        onRefresh={onRefresh}
+        billing={billing}
+        billingState={state}
+        onChanged={onChanged}
         showToast={showToast}
       />
-    </RecordFactCard>
+      <RecordRowsCard
+        title="Payments from this account"
+        dataAttr="admin-account-billing-payments"
+        emptyLabel={
+          state === "loading"
+            ? "Loading…"
+            : billing && !billing.stripe.available
+              ? "Stripe could not be reached."
+              : "No payments yet."
+        }
+        rows={(billing?.payments ?? []).map((p) => ({
+          id: p.id,
+          title: p.description,
+          sub: `${dateOnly(p.at)}${p.number ? ` · ${p.number}` : ""}`,
+          figure: <span className="text-[13.5px] font-semibold tabular-nums text-foreground">{money(p.amountCents)}</span>,
+          onClick: p.invoiceUrl ? () => window.open(p.invoiceUrl!, "_blank", "noopener,noreferrer") : undefined,
+        }))}
+      />
+    </>
   );
 }
 

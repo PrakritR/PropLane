@@ -8,7 +8,8 @@ import {
   listAdminPortalManagerUserIds,
   loadProfilesByIdChunks,
 } from "@/lib/auth/admin-portal-manager-ids.server";
-import { normalizeManagerSkuTier, pickBestManagerPurchaseRow } from "@/lib/manager-access";
+import { normalizeAdminAuditReason, writeAdminBillingAudit } from "@/lib/admin-billing-audit.server";
+import { normalizeManagerSkuTier, pickBestManagerPurchaseRow, type ManagerSkuTier } from "@/lib/manager-access";
 import { setManagerPurchaseTier } from "@/lib/manager-access-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
@@ -178,38 +179,76 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    if (!(await requireAdminActor()).ok) {
+    const auth = await requireAdminActor();
+    if (!auth.ok) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
-    const body = (await req.json()) as { id?: string; active?: boolean; tier?: string };
+    const body = (await req.json().catch(() => ({}))) as { id?: string; active?: boolean; tier?: string; reason?: unknown };
     const { id, active, tier } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
     if (typeof active !== "boolean" && tier === undefined) {
       return NextResponse.json({ error: "Provide active and/or tier to update." }, { status: 400 });
     }
 
+    // A plan change is a commercial decision about one account. The reason is what a future reader
+    // needs, so it is required and refused BEFORE anything changes — including a bundled `active`.
+    let normalizedTier: ManagerSkuTier | null = null;
+    let reason: string | null = null;
+    if (tier !== undefined) {
+      normalizedTier = normalizeManagerSkuTier(tier);
+      if (!normalizedTier) {
+        return NextResponse.json({ error: "tier must be free, pro, or business." }, { status: 400 });
+      }
+      reason = normalizeAdminAuditReason(body.reason);
+      if (!reason) return NextResponse.json({ error: "A reason is required." }, { status: 400 });
+    }
+
     const supabase = createSupabaseServiceRoleClient();
 
     if (typeof active === "boolean") {
       const { error } = await supabase.from("profiles").update({ application_approved: active }).eq("id", id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error) {
+        console.error("PATCH /api/admin/managers: profile update failed", error);
+        return NextResponse.json({ error: "Could not update account." }, { status: 500 });
+      }
     }
 
-    if (tier !== undefined) {
-      const normalizedTier = normalizeManagerSkuTier(tier);
-      if (!normalizedTier) {
-        return NextResponse.json({ error: "tier must be free, pro, or business." }, { status: 400 });
+    let auditRecorded = true;
+    if (normalizedTier) {
+      // The before-value for the trail: the plan row the resolver reads, or Free when there is none.
+      const { data: beforeRows, error: beforeError } = await supabase
+        .from("manager_purchases")
+        .select("id, tier, billing, paid_at, user_id, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id")
+        .eq("user_id", id);
+      if (beforeError) {
+        console.error("PATCH /api/admin/managers: plan read failed", beforeError);
+        return NextResponse.json({ error: "Could not read this account's plan." }, { status: 500 });
       }
+      const beforePurchase = pickBestManagerPurchaseRow(
+        (beforeRows ?? []).map((r) => ({ ...r, id: String(r.id) })) as Parameters<typeof pickBestManagerPurchaseRow>[0],
+        id,
+      );
+      const beforeTier = normalizeManagerSkuTier(beforePurchase?.tier) ?? "free";
+
       const result = await setManagerPurchaseTier(id, normalizedTier, { adminOverride: true });
       if (!result.ok) {
-        return NextResponse.json({ error: result.error }, { status: 500 });
+        console.error("PATCH /api/admin/managers: plan write failed", result.error);
+        return NextResponse.json({ error: "Could not update the plan." }, { status: 500 });
       }
+      const audit = await writeAdminBillingAudit({
+        db: supabase,
+        actorUserId: auth.actorId,
+        managerUserId: id,
+        entries: [{ field: "plan", before: beforeTier, after: normalizedTier }],
+        reason,
+      });
+      auditRecorded = audit.ok;
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, auditRecorded });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("PATCH /api/admin/managers failed", e);
+    return NextResponse.json({ error: "Could not update the account." }, { status: 500 });
   }
 }
 
