@@ -2713,7 +2713,7 @@ export const ManagerInbox = forwardRef<
         <div
           className={`${
             embeddedResidentChat || !pageScroll
-              ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+              ? "flex h-full min-h-0 flex-1 flex-col min-w-0 overflow-clip"
               : "flex flex-col"
           }`}
         >
@@ -2726,7 +2726,7 @@ export const ManagerInbox = forwardRef<
   );
 
   if (embeddedInCommunication) {
-    return <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">{inboxBody}</div>;
+    return <div className="flex h-full min-h-0 flex-1 flex-col min-w-0 overflow-clip">{inboxBody}</div>;
   }
 
   return (

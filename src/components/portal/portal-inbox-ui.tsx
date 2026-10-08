@@ -930,7 +930,7 @@ export const INBOX_THREAD_ICON_BTN_DANGER =
 
 /** Scrollable body for a conversation list pane (inbox split view). */
 export const INBOX_LIST_SCROLL =
-  "min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 [-webkit-overflow-scrolling:touch]";
+  "min-h-0 flex-1 overflow-y-auto overflow-x-clip overscroll-contain pb-3 [-webkit-overflow-scrolling:touch]";
 
 /** Full-page record lists — let #portal-main-content scroll (no nested panel). */
 export const PORTAL_LIST_PAGE_BODY =
@@ -3663,7 +3663,7 @@ export function InboxTwoPane({
   return (
     <div
       ref={rootRef}
-      className={`portal-inbox-two-pane ${rootCard} ${flowLayout || (split && !flat) ? "overflow-visible" : "overflow-hidden"} ${flexFillMobile || flexFillLayout ? "flex min-h-0 flex-1 flex-col" : ""} ${fullScreenDrawn ? "z-30 bg-background" : ""} ${className}`}
+      className={`portal-inbox-two-pane ${rootCard} ${flowLayout || (split && !flat) ? "overflow-visible" : "overflow-clip"} ${flexFillMobile || flexFillLayout ? "flex min-h-0 flex-1 flex-col" : ""} ${fullScreenDrawn ? "z-30 bg-background" : ""} ${className}`}
       style={
         fullScreenDrawn && fullScreenRect
           ? {
@@ -3698,7 +3698,7 @@ export function InboxTwoPane({
         }`}
       >
         <section
-          className={`portal-inbox-list-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${
+          className={`portal-inbox-list-pane flex h-full min-h-0 min-w-0 flex-col overflow-clip ${
             flat
               ? flatColumns === 1
                 ? "border-border"
@@ -3712,7 +3712,7 @@ export function InboxTwoPane({
         </section>
         <section
           ref={threadSectionRef}
-          className={`portal-inbox-thread-pane relative h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${showDetails ? "border-border border-r" : ""} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${flat ? threadDisplay : listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
+          className={`portal-inbox-thread-pane relative h-full min-h-0 min-w-0 flex-col overflow-clip ${paneCard} ${showDetails ? "border-border border-r" : ""} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${flat ? threadDisplay : listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
         >
           <InboxDetailsPanelContext.Provider value={panelCtx}>
             <InboxFullScreenContext.Provider value={fullScreenCtx}>{thread}</InboxFullScreenContext.Provider>
