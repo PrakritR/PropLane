@@ -41,8 +41,10 @@ export function GrowthAdminClient({ tab = "queue", postId }: { tab?: GrowthTabId
 
   return (
     <ManagerPortalPageShell title="Growth" hideTitleOnMobileNav navigationProvidesTitle titleInlineFilter={null} compactFilterRow>
+      {/* Wrapped so the band keeps the column's padding: this page has no page-header, and the shell's -2rem
+          bleed for a direct-child band is clipped by .portal-main-inner without one. */}
+      <div className="mb-3" data-attr="admin-growth-band">
       <PortalListControlStack
-        className="mb-3"
         variant="command"
         stickyDestinations={false}
         destinations={tabs}
@@ -52,6 +54,7 @@ export function GrowthAdminClient({ tab = "queue", postId }: { tab?: GrowthTabId
           <PortalPrimaryIconAction label="Add post" data-attr="admin-growth-new-post" onClick={() => setNewPostOpen(true)} />
         }
       />
+      </div>
       {postId ? (
         <GrowthPostDetail postId={postId} />
       ) : tab === "queue" ? (

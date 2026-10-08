@@ -23,10 +23,25 @@ const TIMEOUT_MS = 20_000;
 export type GrowthResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
 
 /** A post as the list/detail routes return it; publications and assets ride along when the server includes them. */
+export type GrowthPublicationLite = Pick<
+  GrowthPublication,
+  "id" | "status" | "platform" | "platformUrl" | "platformPostId" | "error"
+>;
+
 export type GrowthPostView = GrowthPost & {
-  publications?: GrowthPublication[];
+  publications?: GrowthPublicationLite[];
   assets?: GrowthAsset[];
 };
+
+export type GrowthPublisherStatus = {
+  configured: boolean;
+  publisher: GrowthPublisherId | null;
+  logDriverAllowed: boolean;
+  message: string | null;
+  keys: Record<GrowthPublisherId, boolean>;
+};
+
+export type GrowthAccountsView = { accounts: GrowthAccount[]; publisher: GrowthPublisherStatus | null };
 
 export type GrowthAnalyticsPostRow = {
   postId: string;
@@ -107,7 +122,10 @@ export const growthApi = {
     call(`/posts/${encodeURIComponent(id)}/regenerate`, { method: "POST", body: {} }, (j) => one<GrowthPostView>(j, "post")),
   retryPublication: (id: string) =>
     call(`/publications/${encodeURIComponent(id)}/retry`, { method: "POST", body: {} }, () => true as const),
-  listAccounts: () => call("/accounts", {}, (j) => arr<GrowthAccount>(j, "accounts")),
+  listAccounts: () => call("/accounts", {}, (j): GrowthAccountsView => ({
+      accounts: arr<GrowthAccount>(j, "accounts"),
+      publisher: (j.publisher as GrowthPublisherStatus | undefined) ?? null,
+    })),
   createAccount: (input: {
     platform: GrowthPlatform;
     handle: string;

@@ -13,6 +13,7 @@ import { GROWTH_PLATFORMS, type GrowthCaptions, type GrowthPlatform } from "@/li
 import {
   FORMAT_LABEL,
   GrowthErrorBanner,
+  GrowthPublicationList,
   GrowthSkeletonBlocks,
   GrowthStatusPill,
   PLATFORM_LABEL,
@@ -46,22 +47,55 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function PhonePreview({ post, caption }: { post: GrowthPostView; caption: string }) {
+function PhonePreview({ post }: { post: GrowthPostView }) {
+  const platforms = GROWTH_PLATFORMS.filter((p) => post.platforms.includes(p));
+  const [picked, setPicked] = useState<GrowthPlatform | null>(null);
+  const active = picked && platforms.includes(picked) ? picked : (platforms[0] ?? null);
+  const caption = active ? (post.captions[active] ?? "") : "";
+  const label = active ? PLATFORM_LABEL[active] : "no platform";
   const image = (post.assets ?? []).find((a) => a.kind === "image" || a.kind === "shot");
+  const empty = active ? `No ${PLATFORM_LABEL[active]} caption yet.` : "Select a platform to preview.";
   return (
     <div data-attr="admin-growth-preview">
-      <p className={MODAL_FIELD_LABEL_CLASS}>Preview &middot; Instagram</p>
-      <div className="mx-auto w-[220px] rounded-[28px] border-4 border-foreground/80 bg-card p-1.5">
-        <div
-          className="relative flex aspect-[9/16] items-end overflow-hidden rounded-[20px] bg-gradient-to-br from-[#2863f0] to-[#0b1f6b] p-3 text-white"
-          style={image ? { backgroundImage: `url(${image.publicUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
-        >
-          <div className="w-full rounded-lg bg-black/35 p-2 text-[10px] leading-snug backdrop-blur-sm">
-            <b>proplane</b>
-            <p className="mt-0.5 line-clamp-5 whitespace-pre-line opacity-90">{caption || "No Instagram caption yet."}</p>
+      <p className={MODAL_FIELD_LABEL_CLASS} data-attr="admin-growth-preview-label">
+        Preview &middot; {label}
+      </p>
+      {platforms.length > 1 ? (
+        <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Preview platform" data-attr="admin-growth-preview-platforms">
+          {platforms.map((p) => (
+            <button
+              key={p}
+              type="button"
+              aria-pressed={p === active}
+              data-attr={`admin-growth-preview-platform-${p}`}
+              onClick={() => setPicked(p)}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                p === active ? "border-primary bg-primary text-white" : "border-border bg-card text-muted hover:text-foreground"
+              }`}
+            >
+              {PLATFORM_LABEL[p]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {post.format === "text" ? (
+        <div className="rounded-2xl border border-border bg-card p-4 text-sm leading-snug text-foreground" data-attr="admin-growth-preview-card">
+          <b className="text-xs">PropLane</b>
+          <p className="mt-1 whitespace-pre-line text-[13px]">{caption || empty}</p>
+        </div>
+      ) : (
+        <div className="mx-auto w-[220px] rounded-[28px] border-4 border-foreground/80 bg-card p-1.5">
+          <div
+            className="relative flex aspect-[9/16] items-end overflow-hidden rounded-[20px] bg-gradient-to-br from-[#2863f0] to-[#0b1f6b] p-3 text-white"
+            style={image ? { backgroundImage: `url(${image.publicUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+          >
+            <div className="w-full rounded-lg bg-black/35 p-2 text-[10px] leading-snug backdrop-blur-sm">
+              <b>proplane</b>
+              <p className="mt-0.5 line-clamp-5 whitespace-pre-line opacity-90">{caption || empty}</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -130,6 +164,12 @@ export function GrowthPostDetail({ postId }: { postId: string }) {
         <p className="rounded-2xl border border-border bg-accent/30 px-4 py-2 text-sm text-foreground" data-attr="admin-growth-post-review-note">
           <b>Note:</b> {post.reviewNote}
         </p>
+      ) : null}
+      {(post.publications ?? []).some((p) => p.status === "published" || p.status === "failed") ? (
+        <div className="rounded-2xl border border-border bg-card px-4 py-3" data-attr="admin-growth-post-publications">
+          <span className={MODAL_FIELD_LABEL_CLASS}>Publications</span>
+          <GrowthPublicationList publications={post.publications ?? []} />
+        </div>
       ) : null}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
         <div className="space-y-4">
@@ -269,7 +309,7 @@ export function GrowthPostDetail({ postId }: { postId: string }) {
             </div>
           ) : null}
         </div>
-        <PhonePreview post={post} caption={post.captions.instagram ?? ""} />
+        <PhonePreview post={post} />
       </div>
     </div>
   );

@@ -27,6 +27,33 @@ export async function listPosts(status?: GrowthPostStatus, db: GrowthDb = growth
   return (must(await q, "list posts") as Record<string, unknown>[]).map(mapPost);
 }
 
+export type GrowthPublicationSummary = Pick<
+  GrowthPublication,
+  "id" | "postId" | "status" | "platform" | "platformUrl" | "platformPostId" | "error"
+>;
+
+/** One query for every listed post's publications, trimmed to what the queue cards and failed banner show. */
+export async function listPublicationSummaries(
+  postIds: string[],
+  db: GrowthDb = growthDb(),
+): Promise<Record<string, GrowthPublicationSummary[]>> {
+  const out: Record<string, GrowthPublicationSummary[]> = {};
+  if (postIds.length === 0) return out;
+  const rows = must(await db.from("growth_publications").select("*").in("post_id", postIds), "list publication summaries");
+  for (const r of (rows as Record<string, unknown>[]).map(mapPublication)) {
+    (out[r.postId] ??= []).push({
+      id: r.id,
+      postId: r.postId,
+      status: r.status,
+      platform: r.platform,
+      platformUrl: r.platformUrl,
+      platformPostId: r.platformPostId,
+      error: r.error,
+    });
+  }
+  return out;
+}
+
 export async function getPost(id: string, db: GrowthDb = growthDb()): Promise<GrowthPost | null> {
   const { data, error } = await db.from("growth_posts").select("*").eq("id", id).maybeSingle();
   if (error) throw new Error(`get post: ${error.message}`);
