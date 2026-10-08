@@ -145,6 +145,29 @@ export function vendorExpenseSegmentCounts(
   return counts;
 }
 
+function csvCell(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/** The expenses as CSV (Download on Outgoing payments). Dollars come from integer cents, never floats. */
+export function vendorExpensesCsv(expenses: readonly VendorExpense[]): string {
+  const header = ["Date", "Category", "Amount", "Service", "Property", "Note", "Receipt"];
+  const lines = expenses.map((expense) =>
+    [
+      expense.expenseDate,
+      vendorExpenseCategoryLabel(expense.category),
+      `${Math.floor(expense.amountCents / 100)}.${String(expense.amountCents % 100).padStart(2, "0")}`,
+      expense.workOrderTitle ?? "",
+      expense.propertyLabel ?? "",
+      expense.memo ?? "",
+      expense.hasReceipt ? "Yes" : "No",
+    ]
+      .map(csvCell)
+      .join(","),
+  );
+  return [header.join(","), ...lines].join("\n");
+}
+
 /** Receipts: images and PDFs, 5 MB at most (the same limits as the vendor's other private uploads). */
 export const VENDOR_EXPENSE_RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
 export const VENDOR_EXPENSE_RECEIPT_MIME = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;

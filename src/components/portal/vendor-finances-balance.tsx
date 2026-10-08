@@ -12,7 +12,7 @@
  * Instant fee from the one constant and guards against a double submit.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, ArrowUpFromLine, Calendar, FileText, Landmark, Zap } from "lucide-react";
+import { ArrowUp, ArrowUpFromLine, Calendar, FileText, Landmark, RefreshCw, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -43,10 +43,13 @@ import {
   vendorWithdrawableCents,
   vendorWithdrawDisabledReason,
 } from "@/lib/vendor-banking/finances";
+import type { VendorFinancesOverview } from "@/lib/vendor-banking/overview";
 
-type LoadState =
+export type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
+  /** Stripe (or the bank list) could not answer: the page falls back to the PropLane ledger, it does not fail. */
+  | { status: "unavailable" }
   | { status: "relink"; balance: null }
   | { status: "ready"; balance: PortalPayoutBalance; banks: PayoutDestinationSummary[] };
 
@@ -79,7 +82,7 @@ function payoutStateLabel(row: PortalPayoutHistoryRow): string {
   return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
-function useVendorBalance() {
+export function useVendorBalance() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const sequence = useRef(0);
 
@@ -102,7 +105,7 @@ function useVendorBalance() {
       !Array.isArray(bankBody.destinations) ||
       !bankBody.destinations.every(isPayoutDestinationSummary)
     ) {
-      setState({ status: "error", message: "Could not load your balance." });
+      setState({ status: "unavailable" });
       return;
     }
     setState({ status: "ready", balance: balanceRead.data, banks: bankBody.destinations });
@@ -166,6 +169,8 @@ export function VendorBalancePanel({ basePath }: { basePath: string }) {
         <PortalRecordListSurface loading dataAttr="vendor-balance-loading" />
       ) : state.status === "error" ? (
         <PortalRecordListSurface loadError={state.message} onRetry={reload} dataAttr="vendor-balance-error" />
+      ) : state.status === "unavailable" ? (
+        <VendorBalanceLedgerFallback onRetry={reload} />
       ) : snapshot && figures ? (
         <>
           {banner ? (
@@ -322,10 +327,16 @@ export function VendorWithdrawalDetail({ basePath, withdrawalId }: { basePath: s
   if (state.status === "loading") {
     return <PortalRecordListSurface loading dataAttr="vendor-withdrawal-loading" />;
   }
-  if (state.status === "error" || state.status === "relink") {
+  if (state.status === "error" || state.status === "unavailable" || state.status === "relink") {
     return (
       <PortalRecordListSurface
-        loadError={state.status === "error" ? state.message : "Reconnect your Stripe account to view payouts."}
+        loadError={
+          state.status === "error"
+            ? state.message
+            : state.status === "unavailable"
+              ? "Could not load your balance."
+              : "Reconnect your Stripe account to view payouts."
+        }
         onRetry={reload}
         dataAttr="vendor-withdrawal-error"
       />
@@ -376,5 +387,118 @@ export function VendorWithdrawalDetail({ basePath, withdrawalId }: { basePath: s
         </PortalSettingsSection>
       </div>
     </PortalRecordDetailPage>
+  );
+}
+
+/**
+ * Balance & payouts when Stripe cannot answer (no key locally, an unreachable account): the
+ * figures the PropLane ledger can vouch for, with a quiet "Stripe unavailable" fact and a Try
+ * again, instead of a dead "could not load" page. Withdrawing needs Stripe, so it is not offered.
+ */
+function VendorBalanceLedgerFallback({ onRetry }: { onRetry: () => void }) {
+  const [overview, setOverview] = useState<VendorFinancesOverview | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void sharedGet("/api/vendor/finances/overview", { ttlMs: 0 }).then((read) => {
+      if (!active) return;
+      if (!read.ok || !read.data || typeof (read.data as VendorFinancesOverview).balance?.availableCents !== "number") {
+        setFailed(true);
+        return;
+      }
+      setOverview(read.data as VendorFinancesOverview);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (failed) {
+    return <PortalRecordListSurface loadError="Could not load your balance." onRetry={onRetry} dataAttr="vendor-balance-error" />;
+  }
+  if (!overview) return <PortalRecordListSurface loading dataAttr="vendor-balance-loading" />;
+  const cur = overview.balance.currency;
+  return (
+    <div data-attr="vendor-balance-fallback">
+      <div className="mb-3 flex items-start gap-3">
+        <PortalStatStrip
+          className="min-w-0 flex-1"
+          dataAttr="vendor-balance-stats"
+          items={[
+            { id: "available", label: "Available", value: formatMoney(overview.balance.availableCents, cur), dataAttr: "vendor-balance-available" },
+            { id: "pending", label: "Pending", value: "—", dataAttr: "vendor-balance-pending" },
+            { id: "owed", label: "Owed to you", value: formatMoney(overview.balance.owedCents, cur), dataAttr: "vendor-balance-owed-to-you" },
+          ]}
+        />
+        <div className="flex shrink-0 items-center gap-1.5 pt-1">
+          <PortalIconAction icon={RefreshCw} label="Try again" data-attr="vendor-balance-retry" onClick={onRetry} />
+        </div>
+      </div>
+      <p role="status" className="px-1 text-sm text-muted" data-attr="vendor-balance-stripe-unavailable">
+        Stripe unavailable
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The Withdraw icon for a Finances header (Overview): the same derivations and the same
+ * `PayoutWithdrawSheet` as Balance & payouts - nothing new on the money path. Disabled, with the
+ * reason in its label, while Stripe cannot answer or nothing is withdrawable.
+ */
+export function VendorWithdrawAction({ state, reload }: { state: LoadState; reload: () => void }) {
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const snapshot = state.status === "ready" ? state.balance : null;
+  const readyBanks = state.status === "ready" ? state.banks : null;
+  const withdrawAccounts: PayoutWithdrawAccount[] = useMemo(
+    () =>
+      (readyBanks ?? [])
+        .filter((row) => row.payable)
+        .sort((a, b) => Number(b.default) - Number(a.default))
+        .map((row) => ({ id: row.id, label: row.label, last4: row.last4, kind: row.kind, instantEligible: row.instantEligible })),
+    [readyBanks],
+  );
+  const instantFee = useMemo(
+    () => ({ label: VENDOR_INSTANT_WITHDRAW_FEE_LABEL, quoteCents: vendorInstantWithdrawFeeQuoteCents }),
+    [],
+  );
+  const disabledReason = snapshot
+    ? vendorWithdrawDisabledReason(snapshot, withdrawAccounts.length > 0)
+    : state.status === "loading"
+      ? "Loading your balance"
+      : state.status === "relink"
+        ? "Reconnect your Stripe account first"
+        : "Stripe unavailable";
+  return (
+    <>
+      <PortalIconAction
+        icon={ArrowUpFromLine}
+        label={disabledReason ? `Withdraw — ${disabledReason}` : "Withdraw"}
+        data-attr="vendor-overview-withdraw"
+        disabled={disabledReason !== null}
+        onClick={() => {
+          track("payout_withdraw_started", { portal: "vendor", source: "finances_overview" });
+          setWithdrawOpen(true);
+        }}
+      />
+      {snapshot ? (
+        <PayoutWithdrawSheet
+          open={withdrawOpen}
+          onClose={() => setWithdrawOpen(false)}
+          apiBase="/api/vendor"
+          currency={snapshot.currency}
+          availableCents={vendorWithdrawableCents(snapshot)}
+          instantAvailableCents={snapshot.instantAvailableCents}
+          accounts={withdrawAccounts}
+          instantFee={typeof snapshot.feeBps === "number" ? instantFee : undefined}
+          onSuccess={(result) => {
+            setWithdrawOpen(false);
+            track("payout_withdraw_completed", { portal: "vendor", method: result.method, amount_cents: result.amountCents });
+            reload();
+          }}
+        />
+      ) : null}
+    </>
   );
 }
