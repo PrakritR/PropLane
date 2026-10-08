@@ -94,6 +94,8 @@ function baseSeed(overrides: Record<string, Row[]> = {}): Record<string, Row[]> 
     ],
     profile_roles: [{ user_id: RESIDENT, role: "resident" }],
     portal_workspaces: [{ id: WORKSPACE, owner_user_id: MANAGER }],
+    // Written only by the resident's own signed-in application submit.
+    resident_workspace_bindings: [{ resident_user_id: RESIDENT, manager_user_id: MANAGER }],
     manager_application_records: [{ id: "app-a", manager_user_id: MANAGER, resident_email: EMAIL }],
     portal_inbox_thread_records: [
       // The resident's own copy of the conversation with manager A's workspace.
@@ -125,6 +127,32 @@ describe("deleting a resident deletes their PropLane account only when nothing e
     expect(deleteOwnPortalAccount).toHaveBeenCalledWith(db, RESIDENT, "resident");
     expect(rows.manager_application_records).toEqual([]);
     expect(rows.portal_inbox_thread_records).toEqual([]);
+  });
+
+  it("a manager-created application with a victim's email keeps the victim's login", async () => {
+    // Resident-only, no other relationship, email matches - but the victim never bound themselves
+    // to this manager (no resident_workspace_bindings row): the email was typed by the manager.
+    const { db, rows } = database(baseSeed({ resident_workspace_bindings: [] }));
+    expect(await previewResidentApplicationRemoval(db as never, actor, input)).toMatchObject({ ok: true, account: "kept" });
+    expect(await decideResidentAccountFate(db as never, { actorUserId: MANAGER, managerUserId: MANAGER, email: EMAIL, residentUserId: RESIDENT }))
+      .toMatchObject({ status: "keep", reason: "unverified_link" });
+    const result = await removeResidentApplication(db as never, actor, input);
+    expect(result).toMatchObject({ ok: true, account: "kept" });
+    expect(deleteOwnPortalAccount).not.toHaveBeenCalled();
+    expect(rows.profiles.map((row) => row.id)).toContain(RESIDENT);
+    expect(rows.manager_application_records).toEqual([]);
+  });
+
+  it("a binding to a DIFFERENT manager is not proof for this one", async () => {
+    const { db } = database(baseSeed({ resident_workspace_bindings: [{ resident_user_id: RESIDENT, manager_user_id: OTHER_MANAGER }] }));
+    expect(await decideResidentAccountFate(db as never, { actorUserId: MANAGER, managerUserId: MANAGER, email: EMAIL, residentUserId: RESIDENT }))
+      .toMatchObject({ status: "keep", reason: "unverified_link" });
+  });
+
+  it("a resident-self-submitted application (bound to this manager) deletes the login", async () => {
+    const { db } = database(baseSeed());
+    expect(await decideResidentAccountFate(db as never, { actorUserId: MANAGER, managerUserId: MANAGER, email: EMAIL, residentUserId: RESIDENT }))
+      .toEqual({ status: "delete", userId: RESIDENT });
   });
 
   it("a resident who also holds a vendor role keeps the account, but loses the workspace rows", async () => {

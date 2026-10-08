@@ -12,6 +12,7 @@ import {
   findResidentOwnedWorkspaceThreadIds,
   removeResidentOwnedWorkspaceThreads,
 } from "@/lib/auth/resident-account-deletion";
+import { clearResidentWorkspaceBinding } from "@/lib/auth/resident-workspace-binding";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -197,6 +198,10 @@ export async function removeResidentApplication(
     residentUserId: target.residentUserId,
   });
   const account = await applyResidentAccountDecision(db, decision);
+  if (account.outcome !== "deleted" && target.residentUserId) {
+    // This manager's relationship has ended; the proof must not outlive it.
+    await clearResidentWorkspaceBinding(db, target.residentUserId, target.managerUserId).catch(() => undefined);
+  }
   return {
     ok: true as const,
     mode: "removed_application" as const,

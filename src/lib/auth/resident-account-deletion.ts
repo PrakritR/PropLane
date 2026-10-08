@@ -4,6 +4,7 @@ import { ACCOUNT_PURGE_TABLES } from "@/lib/auth/account-purge-manifest";
 import { deleteOwnPortalAccount, normalizedRolesForUser } from "@/lib/auth/delete-portal-account";
 import { loadAccountCleanupRows } from "@/lib/auth/load-account-cleanup-rows";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
+import { residentBoundToManager } from "@/lib/auth/resident-workspace-binding";
 import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 
 /**
@@ -19,7 +20,11 @@ import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
  *      `profiles.role`) — never a login that is also manager/vendor/admin/owner;
  *   2. it is not the acting manager and not the workspace owner;
  *   3. its Auth email is the application's email (a profile contact field is not
- *      proof of which identity is being deleted);
+ *      proof of which identity is being deleted), AND the account's own owner
+ *      bound it to THIS manager: a `resident_workspace_bindings` row, written
+ *      only by the resident's own authenticated application submit. The email
+ *      on an application is typed by the manager, so email equality alone would
+ *      let a manager delete anyone's login by adding an application for them;
  *   4. nothing links it to anyone ELSE once this manager's rows are gone: no
  *      application, lease, charge, rent profile, service, work order, autopay or
  *      ledger row stamped to another manager, no inbox conversation with another
@@ -37,6 +42,7 @@ export type ResidentAccountKeepReason =
   | "other_relationships"
   | "is_actor"
   | "identity_mismatch"
+  | "unverified_link"
   | "unreadable";
 
 export type ResidentAccountDecision =
@@ -302,6 +308,11 @@ export async function decideResidentAccountFate(
     const roles = await normalizedRolesForUser(db, residentUserId);
     if (roles.length === 0 || roles.some((role) => role !== "resident")) {
       return { status: "keep", reason: "other_roles" };
+    }
+    // The application's email is whatever the manager typed, so a matching email proves nothing
+    // about who owns the account. Only the resident's own signed-in submit leaves this row.
+    if (!(await residentBoundToManager(db, residentUserId, input.managerUserId.trim()))) {
+      return { status: "keep", reason: "unverified_link" };
     }
     const relationship = await findOtherRelationship(db, {
       managerUserId: input.managerUserId.trim(),
