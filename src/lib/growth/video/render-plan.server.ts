@@ -3,18 +3,14 @@ import "server-only";
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { createHash } from "node:crypto";
 
 import { growthDb, mapPost, must, type GrowthDb } from "../db.server";
-import type { GrowthAsset, GrowthFormat, GrowthPost, GrowthScene } from "../types";
-import {
-  DEFAULT_END_CARD_MS,
-  reelDurationMs,
-  type ReelProps,
-  type ReelScene,
-  type ReelWord,
-} from "../../../../remotion/growth/types";
+import { RENDER_FORMATS, RENDER_STATUSES } from "../types";
+import type { GrowthAsset, GrowthPost, GrowthScene } from "../types";
+import { DEFAULT_END_CARD_MS, type ReelProps, type ReelScene, type ReelWord } from "../../../../remotion/growth/types";
 import {
   findAsset,
   generateClipWithFallback,
@@ -27,7 +23,7 @@ import {
 import { normalizeWords } from "./captions.server";
 import { MissingKeyError } from "./driver-types";
 
-export const RENDER_FORMATS: GrowthFormat[] = ["reel", "carousel", "image"];
+export { RENDER_FORMATS, RENDER_STATUSES };
 export const BRAND = { mark: "brand/proplane-mark.svg", blue: "#2863f0" } as const;
 
 export type SceneAction = "reuse" | "generate" | "shoot" | "template";
@@ -121,7 +117,7 @@ export type MaterializedPlan = {
   fallbacks: Array<{ sceneIndex: number; from: string; to: "template"; reason: string }>;
 };
 
-const REPO = resolve(new URL("../../../../", import.meta.url).pathname);
+const REPO = resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
 
 export function defaultShoot({ postId, scene, baseUrl }: ShootInput): Promise<Buffer> {
   const out = resolve(REPO, "output/growth", postId, `scene-${scene.index}.mp4`);
@@ -179,7 +175,7 @@ export async function materializeScene(
   const fetchBuffer = deps.fetchBuffer ?? defaultFetchBuffer;
   try {
     if (need.action === "generate") {
-      const drivers = deps.drivers ?? (await resolveDrivers());
+      const drivers = deps.drivers ?? (await resolveDrivers(undefined, deps.log));
       const clip = await generateClipWithFallback(drivers, scene.direction || scene.text, {
         durationMs: Math.max(1000, scene.endMs - scene.startMs),
         aspect: "9:16",
@@ -213,7 +209,7 @@ export async function materializeScene(
 /** Run every missing piece, then return the Remotion props. Safe to re-run: existing assets are reused. */
 export async function materializePlan(plan: RenderPlan, deps: MaterializeDeps): Promise<MaterializedPlan> {
   const { post } = plan;
-  const drivers = deps.drivers ?? (await resolveDrivers());
+  const drivers = deps.drivers ?? (await resolveDrivers(undefined, deps.log));
   const d = { ...deps, drivers };
   const scenes: ReelScene[] = [];
   const sceneAssetIds: Array<string | null> = [];
@@ -267,10 +263,6 @@ export async function materializePlan(plan: RenderPlan, deps: MaterializeDeps): 
   return { props, sceneAssetIds, voiceAssetId, fallbacks };
 }
 
-export function plannedDurationMs(props: ReelProps): number {
-  return reelDurationMs(props);
-}
-
 // ── Finalize & pending ──────────────────────────────────────────────────────
 
 export type FinalizeInput = {
@@ -299,20 +291,32 @@ export async function saveFinalAsset(store: AssetStore, input: FinalizeInput): P
 
 export async function markRendered(db: GrowthDb, post: GrowthPost, signature: string): Promise<void> {
   const row = must(await db.from("growth_posts").select("meta").eq("id", post.id).single(), "read post meta");
-  const meta = { ...((row as { meta?: Record<string, unknown> }).meta ?? {}), rendered: true, renderSignature: signature, renderedAt: new Date().toISOString() };
+  const meta: Record<string, unknown> = {
+    ...((row as { meta?: Record<string, unknown> }).meta ?? {}),
+    rendered: true,
+    renderSignature: signature,
+    renderedAt: new Date().toISOString(),
+  };
+  delete meta.renderRequested;
+  delete meta.renderRequestedAt;
   const res = await db.from("growth_posts").update({ meta }).eq("id", post.id);
   if (res.error) throw new Error(`mark rendered (growth_posts.meta column applied?): ${res.error.message}`);
 }
 
-/** Posts the nightly job should render: review/approved/scheduled, a rendered format, not rendered for their current content. */
+/**
+ * Posts the nightly job should render: review/approved/scheduled, a rendered format, and either not rendered
+ * for their current content or explicitly requested from the Reel studio (`meta.renderRequested`, cleared by
+ * `markRendered`).
+ */
 export async function listPendingPostIds(db: GrowthDb = growthDb()): Promise<string[]> {
   const rows = must(
-    await db.from("growth_posts").select("*").in("status", ["review", "approved", "scheduled"]).in("format", RENDER_FORMATS).order("created_at"),
+    await db.from("growth_posts").select("*").in("status", RENDER_STATUSES).in("format", RENDER_FORMATS).order("created_at"),
     "list pending",
   ) as Array<Record<string, unknown>>;
   return rows
     .filter((r) => {
       const meta = (r.meta as Record<string, unknown> | null) ?? {};
+      if (meta.renderRequested === true) return true;
       return !(meta.rendered === true && meta.renderSignature === renderSignature(mapPost(r)));
     })
     .map((r) => r.id as string);

@@ -6,6 +6,10 @@ import type { GrowthMetric, GrowthPublication } from "./types";
 
 const DAY_MS = 86_400_000;
 export const BEAT_MEDIAN_FACTOR = 1.5;
+/** Metrics are only pulled for publications published inside this window... */
+export const INSIGHTS_WINDOW_DAYS = 30;
+/** ...and at most this many per publisher per tick, newest first, so the cron stays inside its time budget. */
+export const INSIGHTS_MAX_PER_TICK = 50;
 
 export function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -21,15 +25,21 @@ export function nextWeight(weight: number, outcome: "beat" | "under" | "flat"): 
 }
 
 export async function runInsightsTick(db: GrowthDb = growthDb(), now: Date = new Date()) {
+  const windowStart = new Date(now.getTime() - INSIGHTS_WINDOW_DAYS * DAY_MS);
   const rows = must(
-    await db.from("growth_publications").select("*").eq("status", "published"),
+    await db
+      .from("growth_publications")
+      .select("*")
+      .eq("status", "published")
+      .gte("published_at", windowStart.toISOString())
+      .order("published_at", { ascending: false }),
     "published publications",
   ) as Record<string, unknown>[];
   const pubs = rows.map(mapPublication);
   let stored = 0;
   for (const driver of allPublishers()) {
     if (!driver.fetchMetrics) continue;
-    const mine = pubs.filter((p) => p.publisher === driver.id);
+    const mine = pubs.filter((p) => p.publisher === driver.id).slice(0, INSIGHTS_MAX_PER_TICK);
     if (mine.length === 0) continue;
     const metrics = await driver.fetchMetrics(mine);
     if (metrics.length === 0) continue;

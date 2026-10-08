@@ -61,8 +61,10 @@ export const metaPublisher: GrowthPublisher = {
           followersSnapshot: null,
           raw: m.raw,
         });
-      } catch {
-        // One failing media must not block the others; the insights step retries next run.
+      } catch (e) {
+        // One failing media must not block the others; the insights step retries next run. The log line is
+        // the only signal that e.g. GROWTH_META_PAGE_TOKEN expired, so it must never be silent (never the token).
+        console.warn(`[growth] meta insights failed for publication ${pub.id}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     return out;

@@ -21,10 +21,24 @@ function sceneAsset(assets: GrowthAsset[], scene: GrowthScene, position: number)
   return pool.find((a) => Number(a.meta?.sceneIndex) === scene.index) ?? (pool.every((a) => a.meta?.sceneIndex == null) ? (pool[position] ?? null) : null);
 }
 
-function sceneState(scene: GrowthScene, asset: GrowthAsset | null): SceneState {
-  if (asset?.meta?.fallback) return "fallback";
+function sceneState(scene: GrowthScene, asset: GrowthAsset | null, fellBack: boolean): SceneState {
+  if (fellBack) return "fallback";
   if (scene.kind === "template" || scene.kind === "still") return "ready";
   return asset ? "ready" : "missing";
+}
+
+/**
+ * Why each scene degraded on the last render, by scene index. The renderer writes them to the final video
+ * asset's `meta.fallbacks` (a degraded scene saves no asset row of its own).
+ */
+function fallbackReasons(video: GrowthAsset | undefined): Map<number, string> {
+  const out = new Map<number, string>();
+  const raw = video?.meta?.fallbacks;
+  if (!Array.isArray(raw)) return out;
+  for (const f of raw as Array<{ sceneIndex?: unknown; reason?: unknown }>) {
+    if (typeof f?.sceneIndex === "number") out.set(f.sceneIndex, typeof f.reason === "string" && f.reason ? f.reason : "fell back to a template scene");
+  }
+  return out;
 }
 
 const STATE_TONE = { ready: "success", missing: "warning", fallback: "info" } as const;
@@ -42,7 +56,12 @@ export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onP
   const [notice, setNotice] = useState<string | null>(null);
   const [runbook, setRunbook] = useState<string | null>(null);
   const assets = post.assets ?? [];
-  const video = assets.find((a) => a.kind === "video");
+  const video = [...assets].reverse().find((a) => a.kind === "video");
+  // Carousel/image posts render Card stills, not a reel: saveFinalAsset marks them meta.final.
+  const stills = assets
+    .filter((a) => a.kind === "image" && a.meta?.final === true)
+    .sort((a, b) => Number(a.meta?.sceneIndex ?? 0) - Number(b.meta?.sceneIndex ?? 0));
+  const fallbacks = fallbackReasons(video);
 
   useEffect(() => {
     let live = true;
@@ -80,7 +99,7 @@ export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onP
     setBusy(null);
     if (res.ok) return setNotice("Render requested. The cockpit Mac picks it up on its next run.");
     setError(res.error);
-    if (res.status === 501) setRunbook(`node scripts/growth-render.mjs ${post.id}`);
+    if (res.status === 501 || res.status === 409) setRunbook(`node scripts/growth-render.mjs ${post.id}`);
   };
 
   const cost = status?.estimatePerReelUsd;
@@ -115,7 +134,8 @@ export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onP
           <ol className="space-y-2" data-attr="admin-growth-reel-scenes">
             {scenes.map((s, i) => {
               const asset = sceneAsset(assets, s, i);
-              const state = sceneState(s, asset);
+              const fellBack = fallbacks.get(s.index);
+              const state = sceneState(s, asset, fellBack !== undefined);
               return (
                 <li key={i} className="flex gap-3 rounded-2xl border border-border bg-card p-3" data-attr="admin-growth-reel-scene" data-state={state}>
                   <div
@@ -139,6 +159,11 @@ export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onP
                       </span>
                       <Badge tone={STATE_TONE[state]}>{state}</Badge>
                     </div>
+                    {fellBack ? (
+                      <p className="text-[11px] text-muted" data-attr="admin-growth-reel-fallback-reason">
+                        Last render used a template scene: {fellBack}
+                      </p>
+                    ) : null}
                     <Input value={s.text} disabled={locked} aria-label={`Scene ${i + 1} text`} onChange={(e) => edit(i, { text: e.target.value })} />
                     <Textarea
                       rows={2}
@@ -205,11 +230,20 @@ export function ReelStudio({ post, onPost, locked }: { post: GrowthPostView; onP
           ) : null}
         </div>
         <div data-attr="admin-growth-reel-player">
-          <span className={MODAL_FIELD_LABEL_CLASS}>Rendered reel</span>
+          <span className={MODAL_FIELD_LABEL_CLASS}>{post.format === "reel" ? "Rendered reel" : "Rendered stills"}</span>
           {video ? (
             <div className="mx-auto w-[200px] overflow-hidden rounded-[22px] border-4 border-foreground/80 bg-black">
               <video src={video.publicUrl} muted autoPlay loop playsInline controls className="aspect-[9/16] w-full object-cover" />
             </div>
+          ) : stills.length > 0 ? (
+            <ol className="mx-auto w-[200px] space-y-2" data-attr="admin-growth-reel-stills">
+              {stills.map((a, i) => (
+                <li key={a.id} className="overflow-hidden rounded-2xl border border-border bg-black">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={a.publicUrl} alt={stills.length > 1 ? `Slide ${i + 1}` : "Rendered still"} className="aspect-[4/5] w-full object-cover" />
+                </li>
+              ))}
+            </ol>
           ) : (
             <p className="text-xs text-muted">Not rendered yet. Render once the scenes look right.</p>
           )}

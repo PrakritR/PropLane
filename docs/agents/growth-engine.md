@@ -18,8 +18,10 @@ Meta Graph client). Plan of record: studio plan `claude-1/growth-engine-1007`.
    one `growth_publications` row per platform → the configured publisher driver. Per-platform
    failure never fails the others; a paused/disconnected account pauses only its platform.
    Idempotent on `(post_id, platform)`; retries with backoff up to 3 attempts, then `failed`.
-6. **Insights** (cron `growth-insights`, nightly): pull metrics into `growth_metrics`; write one
-   `growth_learned` line per clear signal; re-weight ideas.
+6. **Insights** (cron `growth-insights`, nightly): pull metrics into `growth_metrics` for publications
+   published in the last 30 days, at most 50 per publisher per tick (newest first), so the vendor call
+   count stays bounded; write one `growth_learned` line per clear signal; re-weight ideas. A per-media
+   fetch failure is logged (`console.warn`, never the token) and retried next run.
 7. **Digest** (part of `growth-draft`): 8am PT email to admins listing posts in `review` with links
    into the admin UI. Approval always happens in the UI with an admin session; no token-approve links.
 
@@ -123,7 +125,8 @@ permanently (platform terms).
 ## Render runbook
 
 - Render one post: `node scripts/growth-render.mjs <postId>`; nightly set: `--pending` (review/approved/scheduled
-  reel/carousel/image posts not rendered for their current content; `growth_posts.meta.renderSignature`). It never
+  reel/carousel/image posts not rendered for their current content, by `growth_posts.meta.renderSignature`, plus any
+  post the Reel studio's Render button flagged with `meta.renderRequested`, which a successful render clears). It never
   changes approval status. Output: `output/growth/<postId>/final.mp4` (Reel 1080x1920) or `final.png` / `final-<n>.png` (Card 1080x1350).
 - No AI keys needed: a `generated` scene falls back to a template scene (`meta.fallbacks` on the video asset), voice is
   skipped (per-scene burned captions). With keys, `veo`/`kling`/`elevenlabs` drivers are loaded by dynamic import.

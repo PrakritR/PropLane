@@ -29,6 +29,11 @@ export const GROWTH_POST_STATUSES = [
 ] as const;
 export type GrowthPostStatus = (typeof GROWTH_POST_STATUSES)[number];
 
+/** Formats the renderer produces media for; `text` has none. */
+export const RENDER_FORMATS: GrowthFormat[] = ["reel", "carousel", "image"];
+/** The statuses the nightly `--pending` render run looks at, so a studio request is never silently dropped. */
+export const RENDER_STATUSES: GrowthPostStatus[] = ["review", "approved", "scheduled"];
+
 export const GROWTH_PUBLICATION_STATUSES = ["pending", "published", "failed", "paused"] as const;
 export type GrowthPublicationStatus = (typeof GROWTH_PUBLICATION_STATUSES)[number];
 

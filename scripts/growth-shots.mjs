@@ -171,8 +171,9 @@ async function main() {
     await page.waitForTimeout(args.duration + 400);
     const video = page.video();
     await ctx.close();
-    const raw = video ? await video.path() : resolve(rawDir, readdirSync(rawDir).find((f) => f.endsWith(".webm")));
-    if (!existsSync(raw) || statSync(raw).size === 0) throw new Error("Playwright produced no video");
+    const recorded = video ? null : readdirSync(rawDir).find((f) => f.endsWith(".webm"));
+    const raw = video ? await video.path() : recorded ? resolve(rawDir, recorded) : null;
+    if (!raw || !existsSync(raw) || statSync(raw).size === 0) throw new Error("Playwright produced no video");
 
     const ss = Math.max(0, leadMs - 300) / 1000;
     mkdirSync(dirname(out), { recursive: true });

@@ -152,7 +152,7 @@ export const Reel: React.FC<ReelProps> = ({ scenes, voiceUrl, words, musicUrl, b
         <EndCard mark={brand.mark} />
       </Sequence>
       {hasWords ? (
-        <Sequence from={0} durationInFrames={Math.max(1, endStart)} layout="none">
+        <Sequence from={0} durationInFrames={durationInFrames} layout="none">
           <KaraokeCaptions words={words as CaptionWord[]} blue={brand.blue} />
         </Sequence>
       ) : null}

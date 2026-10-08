@@ -188,7 +188,7 @@ export async function publishInstagramReel(
   });
   let waited = 0;
   for (;;) {
-    const st = await graph<{ status_code?: string; status?: string }>("GET", container.id, { fields: "status_code", access_token: args.token });
+    const st = await graph<{ status_code?: string; status?: string }>("GET", container.id, { fields: "status_code,status", access_token: args.token });
     if (st.status_code === "FINISHED") break;
     if (st.status_code === "ERROR" || st.status_code === "EXPIRED") {
       throw new MetaReelError(`Instagram could not process the reel (${st.status_code}${st.status ? `: ${st.status}` : ""})`);

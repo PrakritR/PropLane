@@ -34,7 +34,7 @@ export function assetSceneIndex(a: Pick<GrowthAsset, "meta">): number {
 }
 
 export function findAsset(assets: GrowthAsset[], key: AssetKey): GrowthAsset | undefined {
-  return assets.find((a) => a.kind === key.kind && assetSceneIndex(a) === key.sceneIndex);
+  return assets.find((a) => a.postId === key.postId && a.kind === key.kind && assetSceneIndex(a) === key.sceneIndex);
 }
 
 export function supabaseAssetStore(db: GrowthDb): AssetStore {
@@ -72,10 +72,15 @@ export function supabaseAssetStore(db: GrowthDb): AssetStore {
 type ClipFn = VideoDriver["generateClip"];
 type VoiceFn = VideoDriver["synthesizeVoice"];
 
+/** A driver module that could not be imported. `notFound` separates "not installed" from a broken module. */
+export type DriverLoadFailure = { specifier: string; message: string; notFound: boolean };
+
 export type ResolvedDrivers = {
   /** Clip drivers in preference order; a driver whose module is missing is simply absent. */
   clips: Array<{ id: string; generateClip: ClipFn }>;
   voice: VoiceFn | null;
+  /** Import failures, so an empty `clips` is not reported as a missing key. */
+  loadFailures?: DriverLoadFailure[];
 };
 
 export type ModuleLoader = (specifier: string) => Promise<Record<string, unknown>>;
@@ -85,12 +90,21 @@ const defaultLoader: ModuleLoader = (specifier) => import(/* webpackIgnore: true
 /**
  * Resolve the vendor drivers by dynamic import. A module that is not there (or does not export the function)
  * is skipped, so the render still runs with template scenes. GROWTH_VIDEO_DRIVER picks which clip driver is first.
+ * Every import failure is logged and kept on `loadFailures`: a broken module must not read as a missing key.
  */
-export async function resolveDrivers(loader: ModuleLoader = defaultLoader): Promise<ResolvedDrivers> {
+export async function resolveDrivers(
+  loader: ModuleLoader = defaultLoader,
+  log?: (line: string) => void,
+): Promise<ResolvedDrivers> {
+  const loadFailures: DriverLoadFailure[] = [];
   const load = async (spec: string) => {
     try {
       return await loader(spec);
-    } catch {
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      const notFound = (e as { code?: string } | null)?.code === "ERR_MODULE_NOT_FOUND" || /cannot find module/i.test(message);
+      loadFailures.push({ specifier: spec, message, notFound });
+      log?.(`driver ${spec} ${notFound ? "not installed" : "failed to load"}: ${message}`);
       return null;
     }
   };
@@ -100,10 +114,10 @@ export async function resolveDrivers(loader: ModuleLoader = defaultLoader): Prom
   if (typeof kling?.generateClip === "function") clips.push({ id: "kling", generateClip: kling.generateClip as ClipFn });
   if (process.env.GROWTH_VIDEO_DRIVER?.trim().toLowerCase() === "kling") clips.reverse();
   const voice = typeof eleven?.synthesizeVoice === "function" ? (eleven.synthesizeVoice as VoiceFn) : null;
-  return { clips, voice };
+  return { clips, voice, loadFailures };
 }
 
-/** Try each clip driver in order. Throws MissingKeyError only when no driver could run for lack of a key/module. */
+/** Try each clip driver in order. Throws MissingKeyError only when no driver could run for lack of a key. */
 export async function generateClipWithFallback(
   drivers: ResolvedDrivers,
   prompt: string,
@@ -121,7 +135,10 @@ export async function generateClipWithFallback(
       throw e;
     }
   }
-  throw missing ?? new MissingKeyError("GEMINI_API_KEY");
+  if (missing) throw missing;
+  const broken = (drivers.loadFailures ?? []).filter((f) => !f.notFound);
+  if (broken.length) throw new Error(`no clip driver loaded: ${broken.map((f) => `${f.specifier}: ${f.message}`).join("; ")}`);
+  throw new MissingKeyError("GEMINI_API_KEY");
 }
 
 export async function synthesizeVoiceOrNull(drivers: ResolvedDrivers, text: string): Promise<VoiceResult | null> {

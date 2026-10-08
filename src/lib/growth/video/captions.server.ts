@@ -7,18 +7,6 @@ import type { VoiceWord } from "./driver-types";
 export type CaptionWord = VoiceWord;
 export type CaptionChunk = { startMs: number; endMs: number; words: CaptionWord[] };
 
-/** Spread the words of `text` evenly over [startMs, endMs). Used when a scene has text but no voice timings. */
-export function wordsFromText(text: string, startMs: number, endMs: number): CaptionWord[] {
-  const tokens = text.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0 || endMs <= startMs) return [];
-  const step = (endMs - startMs) / tokens.length;
-  return tokens.map((word, i) => ({
-    word,
-    startMs: Math.round(startMs + step * i),
-    endMs: Math.round(startMs + step * (i + 1)),
-  }));
-}
-
 /** Drop malformed timings, sort, and clamp so every word ends after it starts and none overlap backwards. */
 export function normalizeWords(words: ReadonlyArray<Partial<CaptionWord>> | undefined | null): CaptionWord[] {
   if (!Array.isArray(words)) return [];
@@ -76,11 +64,6 @@ export function activeWordIndex(chunk: CaptionChunk, ms: number): number {
   let idx = -1;
   for (let i = 0; i < chunk.words.length; i++) if (ms >= chunk.words[i].startMs) idx = i;
   return idx;
-}
-
-/** Shift every word by `deltaMs` (voice that starts after the reel's first frame). */
-export function shiftWords(words: CaptionWord[], deltaMs: number): CaptionWord[] {
-  return words.map((w) => ({ ...w, startMs: w.startMs + deltaMs, endMs: w.endMs + deltaMs }));
 }
 
 /** meta.captions stored on the final asset: per-chunk text with timings, enough to rebuild SRT/VTT later. */

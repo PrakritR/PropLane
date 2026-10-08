@@ -7,12 +7,3 @@ export const angleSchema = z.enum(GROWTH_ANGLES);
 export const publisherSchema = z.enum(GROWTH_PUBLISHER_IDS);
 export const uuidSchema = z.string().uuid();
 export const isoSchema = z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), "invalid date");
-
-export const sceneSchema = z.object({
-  index: z.number().int(),
-  kind: z.enum(["generated", "template", "shot", "still"]),
-  startMs: z.number().int().min(0),
-  endMs: z.number().int().min(0),
-  text: z.string(),
-  direction: z.string(),
-});

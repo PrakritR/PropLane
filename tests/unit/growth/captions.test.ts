@@ -6,23 +6,15 @@ import {
   chunkAt,
   groupCaptionWords,
   normalizeWords,
-  shiftWords,
-  wordsFromText,
+  type CaptionWord,
 } from "@/lib/growth/video/captions.server";
 
-describe("wordsFromText", () => {
-  it("spreads words evenly across the window", () => {
-    const w = wordsFromText("one two three four", 1000, 3000);
-    expect(w.map((x) => x.word)).toEqual(["one", "two", "three", "four"]);
-    expect(w[0].startMs).toBe(1000);
-    expect(w[3].endMs).toBe(3000);
-    expect(w[1].startMs).toBe(w[0].endMs);
-  });
-  it("returns nothing for empty text or an empty window", () => {
-    expect(wordsFromText("   ", 0, 1000)).toEqual([]);
-    expect(wordsFromText("hi", 500, 500)).toEqual([]);
-  });
-});
+/** Fixture: spread the words of `text` evenly over [startMs, endMs). */
+function evenWords(text: string, startMs: number, endMs: number): CaptionWord[] {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const step = (endMs - startMs) / tokens.length;
+  return tokens.map((word, i) => ({ word, startMs: Math.round(startMs + step * i), endMs: Math.round(startMs + step * (i + 1)) }));
+}
 
 describe("normalizeWords", () => {
   it("drops malformed entries, sorts, and removes overlaps", () => {
@@ -42,9 +34,7 @@ describe("normalizeWords", () => {
 });
 
 describe("groupCaptionWords / chunkAt / activeWordIndex", () => {
-  const words = [
-    ...wordsFromText("Rent is collected. Repairs are handled by us", 0, 4000),
-  ];
+  const words = evenWords("Rent is collected. Repairs are handled by us", 0, 4000);
   it("breaks at sentence ends and the word cap", () => {
     const chunks = groupCaptionWords(words, { maxWords: 4 });
     expect(chunks[0].words.map((w) => w.word)).toEqual(["Rent", "is", "collected."]);
@@ -65,8 +55,7 @@ describe("groupCaptionWords / chunkAt / activeWordIndex", () => {
     expect(activeWordIndex(c, c.words[1].startMs + 1)).toBe(1);
     expect(chunkAt(chunks, 999_999)).toBeNull();
   });
-  it("shifts and exports a track", () => {
-    expect(shiftWords([{ word: "a", startMs: 0, endMs: 100 }], 500)[0]).toEqual({ word: "a", startMs: 500, endMs: 600 });
+  it("exports a track", () => {
     const track = captionTrack(words);
     expect(track[0]).toMatchObject({ text: "Rent is collected.", startMs: 0 });
   });
