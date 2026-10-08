@@ -2,10 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  accountMatchesQuery,
-  loadAccountProfilesByKind,
+  profileSearchFilter,
+  resolveAccountKinds,
+  scanNewestProfiles,
   type AdminAccountKind,
-  type AdminAccountProfile,
+  type AdminProfileScanRow,
 } from "@/lib/admin/admin-accounts.server";
 
 export type AdminAccountSearchRow = {
@@ -29,6 +30,12 @@ export type AdminAccountSearchResult = {
   rows: AdminAccountSearchRow[];
   /** Match counts for every kind (so the tabs stay derived from the same query). */
   counts: { manager: number; resident: number; vendor: number };
+  /**
+   * Whether the scan reached the end of the matching accounts. False means
+   * `counts` only describes the rows that were scanned, so the UI shows no
+   * total rather than a number that is too low.
+   */
+  countsComplete: boolean;
 };
 
 export const ADMIN_ACCOUNT_SEARCH_LIMIT = 100;
@@ -75,64 +82,75 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
 }
 
 /**
- * One query across Managers, Residents and Vendors: the match is on name, email,
- * phone or PropLane ID. Only the requested kind's page is enriched with
- * last sign-in (`auth.users`) and workspace count — the tab counts need none.
+ * The Accounts list, matched in the DATABASE.
+ *
+ * The match (name, email, PropLane ID, phone — `profileSearchFilter`) is one
+ * `or=` over `profiles`, read newest-first a window at a time until the asked
+ * kind has a full page or the rows run out (`scanNewestProfiles`), and each
+ * window's kinds are resolved from `profile_roles` / `manager_purchases` for
+ * those rows only. Loading every profile of all three kinds and filtering in
+ * JS is what this replaced: it grew with the account table and timed the page
+ * out. An empty query is the first page of accounts.
+ *
+ * Only the requested kind's page is enriched with last sign-in (`auth.users`)
+ * and workspace count — the tab counts need neither.
  */
 export async function searchAdminAccounts(
   db: SupabaseClient,
   opts: { kind: AdminAccountKind; query: string },
 ): Promise<AdminAccountSearchResult> {
-  const kinds: AdminAccountKind[] = ["manager", "resident", "vendor"];
-  const lists = await Promise.all(kinds.map((kind) => loadAccountProfilesByKind(db, kind)));
-  const matched = new Map<AdminAccountKind, AdminAccountProfile[]>();
-  kinds.forEach((kind, index) => {
-    matched.set(kind, lists[index]!.filter((profile) => accountMatchesQuery(profile, opts.query)));
-  });
-
-  const page = (matched.get(opts.kind) ?? []).slice(0, ADMIN_ACCOUNT_SEARCH_LIMIT);
+  const counts = { manager: 0, resident: 0, vendor: 0 };
+  const { kept: page, complete } = await scanNewestProfiles<AdminProfileScanRow>(
+    db,
+    { match: profileSearchFilter(opts.query), limit: ADMIN_ACCOUNT_SEARCH_LIMIT },
+    async (rows) => {
+      const kindsById = await resolveAccountKinds(db, rows);
+      const forThisKind: AdminProfileScanRow[] = [];
+      for (const row of rows) {
+        const kinds = kindsById.get(row.id);
+        if (!kinds) continue;
+        for (const kind of kinds) counts[kind] += 1;
+        if (kinds.includes(opts.kind)) forThisKind.push(row);
+      }
+      return forThisKind;
+    },
+  );
+  const pageRows = page.slice(0, ADMIN_ACCOUNT_SEARCH_LIMIT);
 
   const workspaceCounts = new Map<string, number>();
-  if (opts.kind === "manager" && page.length > 0) {
+  if (opts.kind === "manager" && pageRows.length > 0) {
     const { data } = await db
       .from("portal_workspaces")
       .select("owner_user_id")
       .in(
         "owner_user_id",
-        page.map((profile) => profile.id),
+        pageRows.map((row) => row.id),
       );
     for (const row of (data ?? []) as { owner_user_id: string }[]) {
       workspaceCounts.set(row.owner_user_id, (workspaceCounts.get(row.owner_user_id) ?? 0) + 1);
     }
   }
 
-  const lastSignIns = await mapWithConcurrency(page, LAST_SIGN_IN_CONCURRENCY, (profile) =>
-    lastSignInFor(db, profile.id),
+  const lastSignIns = await mapWithConcurrency(pageRows, LAST_SIGN_IN_CONCURRENCY, (row) =>
+    lastSignInFor(db, row.id),
   );
 
-  const rows: AdminAccountSearchRow[] = page.map((profile, index) => {
+  const rows: AdminAccountSearchRow[] = pageRows.map((row, index) => {
     const signIn = lastSignIns[index];
     const known = signIn !== undefined && signIn !== "unknown";
     return {
-      id: profile.id,
+      id: row.id,
       kind: opts.kind,
-      email: profile.email,
-      fullName: profile.fullName,
-      managerId: profile.propLaneId,
-      active: profile.active,
-      joinedAt: profile.joinedAt,
+      email: row.email ?? "",
+      fullName: row.full_name ?? "",
+      managerId: row.manager_id ?? "",
+      active: row.application_approved !== false,
+      joinedAt: row.created_at ?? null,
       lastSignInAt: known ? signIn.at : null,
       lastSignInKnown: known,
-      ...(opts.kind === "manager" ? { workspaceCount: workspaceCounts.get(profile.id) ?? 0 } : {}),
+      ...(opts.kind === "manager" ? { workspaceCount: workspaceCounts.get(row.id) ?? 0 } : {}),
     };
   });
 
-  return {
-    rows,
-    counts: {
-      manager: matched.get("manager")?.length ?? 0,
-      resident: matched.get("resident")?.length ?? 0,
-      vendor: matched.get("vendor")?.length ?? 0,
-    },
-  };
+  return { rows, counts, countsComplete: complete };
 }

@@ -301,7 +301,8 @@ function AdminAccountsList() {
     { id: "disabled", label: `Disabled${disabledCount ? ` (${disabledCount})` : ""}`, dataAttr: "admin-accounts-status-disabled" },
   ];
 
-  const counts = result?.counts;
+  // A partial scan knows a floor, not a total: no pill beats a number that is too low.
+  const counts = result?.countsComplete ? result.counts : undefined;
   const ROLE_TABS = [
     { id: "management", label: "Managers", count: counts?.manager },
     { id: "resident", label: "Residents", count: counts?.resident },

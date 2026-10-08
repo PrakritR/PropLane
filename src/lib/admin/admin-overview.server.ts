@@ -4,8 +4,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   countActiveAccounts,
   countActiveAccountsWithPayouts,
-  listAccountIdsByKind,
+  listAccountIdsForEveryKind,
   listSandboxAccountIds,
+  scanNewestProfiles,
   type AdminAccountKind,
 } from "@/lib/admin/admin-accounts.server";
 import { CLOSED_DISPUTE_STATUSES_FILTER } from "@/lib/admin/admin-dispute-status";
@@ -36,22 +37,22 @@ export type AdminOverview = {
   smsFailures24h: number | null;
   openDisputes: number | null;
   managersWithoutPayouts: number;
-  recentSignups: {
-    id: string;
-    kind: AdminAccountKind;
-    name: string;
-    email: string;
-    joinedAt: string | null;
-  }[];
+  /** Null when the read failed, so the card is omitted instead of reading as "no sign-ups yet". */
+  recentSignups:
+    | {
+        id: string;
+        kind: AdminAccountKind;
+        name: string;
+        email: string;
+        joinedAt: string | null;
+      }[]
+    | null;
 };
 
 const SMS_FAILED_STATUSES = ["failed", "undelivered"];
 const SMS_ATTEMPT_FAILED_STATES = ["provider_rejected", "pre_dispatch_failed"];
-/**
- * How far back the newest-sign-ups card looks. The six it shows come from the
- * newest profiles, so this is a bounded read instead of every account row.
- */
-const RECENT_SIGNUP_SCAN = 200;
+/** How many newest sign-ups the dashboard card lists. */
+const RECENT_SIGNUP_COUNT = 6;
 
 async function countOrNull(run: () => PromiseLike<{ count: number | null; error: unknown }>): Promise<number | null> {
   try {
@@ -84,21 +85,53 @@ async function countOpenFeedback(db: SupabaseClient): Promise<number | null> {
   }
 }
 
+/**
+ * The newest real sign-ups, read a window at a time until six of them hold a
+ * portal kind or the accounts run out (`scanNewestProfiles`) — a sandbox seed
+ * run cannot push the card empty, and the read stays bounded. Null when it
+ * failed, which the card reads as "omit me", never as "no sign-ups yet".
+ */
+async function recentSignupsOf(
+  db: SupabaseClient,
+  kindById: Map<string, AdminAccountKind>,
+): Promise<AdminOverview["recentSignups"]> {
+  try {
+    const { kept } = await scanNewestProfiles(
+      db,
+      { match: null, limit: RECENT_SIGNUP_COUNT },
+      (rows) =>
+        rows
+          .filter((row) => kindById.has(row.id))
+          .map((row) => ({
+            id: row.id,
+            kind: kindById.get(row.id)!,
+            name: row.full_name?.trim() || (row.email ?? ""),
+            email: row.email ?? "",
+            joinedAt: row.created_at ?? null,
+          })),
+    );
+    return kept.slice(0, RECENT_SIGNUP_COUNT);
+  } catch {
+    return null;
+  }
+}
+
 export async function loadAdminOverview(db: SupabaseClient, now = new Date()): Promise<AdminOverview> {
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  // One paged id read per kind (one column), then the numbers are counted in the
-  // database: the dashboard never materializes the account table to count it.
-  const [managerIds, residentIds, vendorIds, sandboxIds] = await Promise.all([
-    listAccountIdsByKind(db, "manager"),
-    listAccountIdsByKind(db, "resident"),
-    listAccountIdsByKind(db, "vendor"),
-    listSandboxAccountIds(db),
-  ]);
+  // One paged id read per role (one column, every kind resolved in that pass),
+  // then the numbers are counted in the database: the dashboard never
+  // materializes the account table to count it.
+  const [idsByKind, sandboxIds] = await Promise.all([listAccountIdsForEveryKind(db), listSandboxAccountIds(db)]);
   const real = (ids: string[]) => ids.filter((id) => !sandboxIds.has(id));
-  const realManagers = real(managerIds);
-  const realResidents = real(residentIds);
-  const realVendors = real(vendorIds);
+  const realManagers = real(idsByKind.manager);
+  const realResidents = real(idsByKind.resident);
+  const realVendors = real(idsByKind.vendor);
+
+  const kindById = new Map<string, AdminAccountKind>();
+  for (const id of realManagers) kindById.set(id, "manager");
+  for (const id of realResidents) if (!kindById.has(id)) kindById.set(id, "resident");
+  for (const id of realVendors) if (!kindById.has(id)) kindById.set(id, "vendor");
 
   const [
     activeManagers,
@@ -109,7 +142,7 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     smsLog,
     smsAttempts,
     disputes,
-    newestProfiles,
+    recentSignups,
   ] = await Promise.all([
     countActiveAccounts(db, realManagers),
     countActiveAccounts(db, realResidents),
@@ -133,31 +166,10 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     countOrNull(() =>
       db.from("stripe_disputes").select("id", { count: "exact", head: true }).not("status", "in", CLOSED_DISPUTE_STATUSES_FILTER),
     ),
-    db
-      .from("profiles")
-      .select("id, email, full_name, created_at")
-      .order("created_at", { ascending: false })
-      .limit(RECENT_SIGNUP_SCAN),
+    recentSignupsOf(db, kindById),
   ]);
 
   const smsFailures24h = smsLog === null && smsAttempts === null ? null : (smsLog ?? 0) + (smsAttempts ?? 0);
-
-  const kindById = new Map<string, AdminAccountKind>();
-  for (const id of realManagers) kindById.set(id, "manager");
-  for (const id of realResidents) if (!kindById.has(id)) kindById.set(id, "resident");
-  for (const id of realVendors) if (!kindById.has(id)) kindById.set(id, "vendor");
-
-  type NewestRow = { id: string; email: string | null; full_name: string | null; created_at: string | null };
-  const recentSignups = ((newestProfiles.data ?? []) as unknown as NewestRow[])
-    .filter((row) => kindById.has(String(row.id)))
-    .slice(0, 6)
-    .map((row) => ({
-      id: String(row.id),
-      kind: kindById.get(String(row.id))!,
-      name: row.full_name?.trim() || (row.email ?? ""),
-      email: row.email ?? "",
-      joinedAt: row.created_at ?? null,
-    }));
 
   return {
     activeManagers,
