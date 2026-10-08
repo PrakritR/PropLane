@@ -551,7 +551,7 @@ export function ManagerProperties({
               You&apos;ve reached your plan limit of {limitMax} propert{limitMax === 1 ? "y" : "ies"}.
               <span className="native-hide">
                 {" "}
-                <Link className="font-semibold underline underline-offset-2 hover:text-rose-900" href={MANAGER_PLAN_PORTAL_URL}>
+                <Link className="font-semibold underline underline-offset-2 hover:text-rose-900 max-md:inline-block max-md:-my-3 max-md:py-3" href={MANAGER_PLAN_PORTAL_URL}>
                   View plans
                 </Link>{" "}
                 to add more.

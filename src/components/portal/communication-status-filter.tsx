@@ -2,6 +2,7 @@
 
 import { FilterCollapsibleSection, FilterSingleSelectList } from "@/components/portal/filter-field-lists";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
+import { useScheduledSendCount } from "@/hooks/use-scheduled-send-count";
 
 /**
  * `active` (the default) is every conversation that is not archived. `all` is
@@ -12,7 +13,7 @@ import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
  * Manager Communication drops Archived from this list: Active | Archived tabs
  * own the folder. Resident and vendor still pick Archived here.
  */
-export type CommunicationStatus = "active" | "all" | "read" | "unread" | "archived";
+export type CommunicationStatus = "active" | "all" | "read" | "unread" | "archived" | "scheduled";
 
 const COMMUNICATION_STATUS_OPTIONS: { value: CommunicationStatus; label: string }[] = [
   { value: "active", label: "Active" },
@@ -28,6 +29,15 @@ const MANAGER_COMMUNICATION_STATUS_OPTIONS: { value: CommunicationStatus; label:
   { value: "read", label: "Read" },
 ];
 
+/**
+ * The phone-only "Scheduled N" entry. Scheduled sends sit inline in their person's thread on every
+ * width; this is the one list of them, reached from the Filter because a phone has no Schedule tab
+ * (and the Active | Archived tabs never grow one).
+ */
+export function communicationScheduledOption(count: number): { value: CommunicationStatus; label: string } {
+  return { value: "scheduled", label: count > 0 ? `Scheduled ${count}` : "Scheduled" };
+}
+
 export function communicationStatusLabel(
   value: CommunicationStatus,
   options: { value: CommunicationStatus; label: string }[] = COMMUNICATION_STATUS_OPTIONS,
@@ -39,12 +49,17 @@ export function CommunicationStatusFilter({
   value,
   onChange,
   hideArchived = false,
+  showScheduled = false,
 }: {
   value: CommunicationStatus;
   onChange: (value: CommunicationStatus) => void;
   hideArchived?: boolean;
+  /** Phone-only: offer the Scheduled list view (manager Communication). */
+  showScheduled?: boolean;
 }) {
-  const options = hideArchived ? MANAGER_COMMUNICATION_STATUS_OPTIONS : COMMUNICATION_STATUS_OPTIONS;
+  const scheduledCount = useScheduledSendCount(showScheduled);
+  const baseOptions = hideArchived ? MANAGER_COMMUNICATION_STATUS_OPTIONS : COMMUNICATION_STATUS_OPTIONS;
+  const options = showScheduled ? [...baseOptions, communicationScheduledOption(scheduledCount)] : baseOptions;
   return (
     <FilterCollapsibleSection
       sectionId="status"

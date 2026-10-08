@@ -1228,7 +1228,7 @@ export function ResidentPaymentsPanel({
       className={cn(
         PORTAL_BULK_BAR_BTN,
         PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-        "!w-auto max-w-none shrink-0 justify-start",
+        "!w-auto max-w-none shrink-0 justify-start max-md:!h-11 max-md:!min-h-11",
       )}
       style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr={selectedIds.size > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
@@ -1322,7 +1322,7 @@ export function ResidentPaymentsPanel({
     <div
       className={cn(
         "portal-list-page-body w-full min-w-0 pb-4 lg:pb-5",
-        !showPayActions && "max-lg:pb-[calc(5.5rem+var(--portal-mobile-scroll-bottom-inset,0px))]",
+        !showPayActions && "max-lg:pb-2",
       )}
     >
       <ResidentPortalGroupedDataList

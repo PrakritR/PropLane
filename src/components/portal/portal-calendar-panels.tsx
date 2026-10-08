@@ -4006,7 +4006,7 @@ export function PortalCalendarPanels({
     ];
     const navUnit = viewMode === "agenda" ? "week" : viewMode;
     const navButtonClass =
-      "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95";
+      "inline-flex size-7 max-md:size-11 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95";
     // One row above the grid: Day · Week · Month underline tabs on the left, the range with its
     // chevrons on the right (studio calendar header). On a phone the tabs fold into a picker.
     const calendarToolbar = (
@@ -4033,7 +4033,7 @@ export function PortalCalendarPanels({
         <div className="flex min-w-0 items-center gap-1" data-attr="calendar-nav">
           <button
             type="button"
-            className="h-7 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground"
+            className="h-7 max-md:h-11 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground"
             data-attr="calendar-today"
             onClick={jumpToToday}
           >
@@ -4753,7 +4753,7 @@ export function PortalCalendarPanels({
       <div className="flex min-w-0 flex-wrap items-center justify-center gap-1 sm:gap-1.5" data-attr="calendar-nav">
         <button
           type="button"
-          className="h-7 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground"
+          className="h-7 max-md:h-11 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground"
           onClick={jumpToToday}
           data-attr="calendar-today"
         >
@@ -4761,7 +4761,7 @@ export function PortalCalendarPanels({
         </button>
         <button
           type="button"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95"
+          className="inline-flex size-7 max-md:size-11 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95"
           onClick={() => shiftAnchor(-1)}
           aria-label={`Previous ${viewMode === "agenda" ? "week" : viewMode}`}
         >
@@ -4783,7 +4783,7 @@ export function PortalCalendarPanels({
         </p>
         <button
           type="button"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95"
+          className="inline-flex size-7 max-md:size-11 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95"
           onClick={() => shiftAnchor(1)}
           aria-label={`Next ${viewMode === "agenda" ? "week" : viewMode}`}
         >

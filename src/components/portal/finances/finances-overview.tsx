@@ -163,7 +163,7 @@ export function ManagerFinancesOverview({ userId, ready, propertyId, basePath }:
       stat("to-pay", "To pay", owed, `${basePath}/outgoing/to-pay`, billCount === undefined ? undefined : `${billCount} ${billCount === 1 ? "bill" : "bills"}`),
     ]} />
     <div className="flex items-center gap-2">
-      <FieldSingleSelect hideLabel label="Month" value={month} onChange={setMonth} triggerClassName={FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} dataAttr="finances-month"
+      <FieldSingleSelect hideLabel label="Month" value={month} onChange={setMonth} triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-md:!min-h-11`} dataAttr="finances-month"
         options={[...months].reverse().map(m => ({ value: m.key, label: new Date(`${m.key}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" }) }))} />
     </div>
     <PortalStatStrip size="lg" dataAttr="finances-month-strip" className="[grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]" items={[

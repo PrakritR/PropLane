@@ -258,7 +258,7 @@ export function PortalNativeMoreNavButton({
       >
         <MoreGridIcon />
         {count > 0 ? (
-          <span className="absolute -top-1 -right-1.5">
+          <span className="absolute -top-1 left-1/2 ml-1.5">
             <PortalNavCountBadge count={count} tone="alert" />
           </span>
         ) : null}

@@ -72,7 +72,7 @@ function FilterResetLink({ onReset, label = "Reset" }: { onReset: () => void; la
   return (
     <button
       type="button"
-      className="text-xs font-semibold text-primary hover:underline"
+      className="text-xs font-semibold text-primary hover:underline max-md:-mx-2 max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:px-2"
       onClick={onReset}
       data-attr="portal-filter-reset"
     >

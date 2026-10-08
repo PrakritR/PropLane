@@ -2984,8 +2984,11 @@ html[data-communication-surface] .portal-inbox-thread-pane > * {
     flex-direction: column;
   }
 
-  html[data-communication-thread-reading] .portal-inbox-composer {
-    padding-bottom: max(0.375rem, env(safe-area-inset-bottom, 0px));
+  /* The bottom nav already clears the home indicator and #portal-main-content pads by the nav's
+     measured height, so a second safe-area pad under the composer was a dead band. */
+  html[data-communication-thread-reading] .portal-inbox-composer,
+  html:has(.portal-native-bottom-nav) #portal-main-content .portal-inbox-composer {
+    padding-bottom: 0.25rem;
   }
 
   html[data-communication-thread-reading] .portal-inbox-thread-header {
