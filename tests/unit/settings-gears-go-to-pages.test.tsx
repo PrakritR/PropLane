@@ -28,6 +28,7 @@ describe("ManagerSettingsGear", () => {
   it.each([
     ["payments", "/portal/profile?tab=payments#rent-and-fees"],
     ["reminders", "/portal/profile?tab=messaging#what-proplane-sends"],
+    ["leases", "/portal/profile?tab=applicationsLeases#leases"],
     ["tours", "/portal/profile?tab=applicationsLeases#tours"],
     ["moveInForms", "/portal/profile?tab=applicationsLeases#move-in-forms"],
     ["screening", "/portal/profile?tab=applicationsLeases#screening"],

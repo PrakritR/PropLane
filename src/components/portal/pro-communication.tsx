@@ -1,4 +1,5 @@
 "use client";
+import { ManagerIntegrationsAction } from "@/components/portal/manager-integrations-action";
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 
@@ -363,7 +364,12 @@ export function ManagerCommunication({
 
   // Filter is the only tool on this toolbar (captain, 2026-10-05): Communication-wide preferences
   // are reached from the central Settings hub's Communication tab, not a gear of their own here.
-  const communicationCommandActions = communicationFilterSheet;
+  const communicationCommandActions = (
+    <>
+      {communicationFilterSheet}
+      <ManagerIntegrationsAction section="messages" dataAttr="communication-integrations" />
+    </>
+  );
 
   // The chips stay on the page background between the title band and the cards.
   // PortalActiveFilterChips returns null when empty, and the shell drops its

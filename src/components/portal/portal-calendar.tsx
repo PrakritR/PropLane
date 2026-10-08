@@ -1,5 +1,6 @@
 "use client";
 
+import { ManagerIntegrationsAction } from "@/components/portal/manager-integrations-action";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -645,13 +646,14 @@ function PortalCalendarManager({
     };
   }, [portal, authReady, userId, soleCalendarPropertyId]);
 
-  // One band, in order: tabs · search · Filter · Availability · + ; the Day/Week/Month tabs and the range ride in the toolbar row above the grid.
+  // One band, in order: tabs · search · Filter · Integrations · + (Add availability lives in the +'s menu); the Day/Week/Month tabs and the range ride in the toolbar row above the grid.
   const calendarCommandActions =
     portal === "manager" ? (
       <>
         {calendarFilterSheet}
         {calendarSettingsButton}
         <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
+        <ManagerIntegrationsAction section="google" dataAttr="calendar-integrations" />
         <div ref={setWeekPrimaryActionHost} className="flex items-center" data-slot="calendar-primary-action-host" />
       </>
     ) : null;

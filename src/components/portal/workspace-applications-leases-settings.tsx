@@ -232,7 +232,7 @@ export function WorkspaceApplicationsLeasesSettings() {
           </PortalSettingsRow>
         </PortalSettingsGroup>
       </PortalSettingsSection>
-      <PortalSettingsSection title="Leases">
+      <PortalSettingsSection id="leases" title="Leases">
         <PortalSettingsGroup>
           <PortalSettingsRow label="Roommates in a shared room sign">
             <FieldSingleSelect

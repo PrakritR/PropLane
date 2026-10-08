@@ -101,6 +101,7 @@ export function resolveSettingsRedirectHubTab(raw: string | null | undefined): s
 export const MANAGER_SETTINGS_GEAR_TARGETS = {
   payments: { tab: "payments", anchor: "rent-and-fees" },
   reminders: { tab: "messaging", anchor: "what-proplane-sends" },
+  leases: { tab: "applicationsLeases", anchor: "leases" },
   tours: { tab: "applicationsLeases", anchor: "tours" },
   moveInForms: { tab: "applicationsLeases", anchor: "move-in-forms" },
   screening: { tab: "applicationsLeases", anchor: "screening" },
@@ -112,4 +113,16 @@ export type ManagerSettingsGearTarget = keyof typeof MANAGER_SETTINGS_GEAR_TARGE
 export function managerSettingsGearHref(target: ManagerSettingsGearTarget, basePath = "/portal"): string {
   const { tab, anchor } = MANAGER_SETTINGS_GEAR_TARGETS[target];
   return `${basePath}/profile?tab=${tab}#${anchor}`;
+}
+
+/** The four sections of Settings -> Integrations (`INTEGRATIONS_TABS`), as the `&integration=` deep-link value. */
+export type ManagerIntegrationsSection = "messages" | "bookings" | "posting" | "google";
+
+/**
+ * Where a list page's Integrations icon goes: the Integrations page, scrolled to the section the
+ * page's data comes from (Calendar -> google, Bookings -> bookings, Promotion -> posting,
+ * Communication -> messages). `docs/agents/integrations.md`.
+ */
+export function managerIntegrationsHref(section: ManagerIntegrationsSection, basePath = "/portal"): string {
+  return `${basePath}/profile?tab=spreadsheets&integration=${section}`;
 }
