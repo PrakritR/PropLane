@@ -65,6 +65,16 @@ afterEach(() => {
 
 const scheduleButton = () => screen.queryByRole("button", { name: /schedule/i, hidden: false });
 const toolsFor = (name: RegExp | string) => screen.queryByRole("button", { name });
+/** The Communication type dropdown: absent when the role has no choice, else its offered options. */
+const typeField = () => screen.queryByText("Communication type");
+const typeOptions = () => {
+  const trigger = typeField()?.closest("div")?.querySelector("button");
+  if (!trigger) return null;
+  fireEvent.click(trigger);
+  const names = screen.getAllByRole("option").map((o) => o.textContent?.trim());
+  const listbox = screen.queryByRole("listbox", { name: "Communication type" });
+  return { names: names.filter((n) => ["SMS", "Email", "PropLane"].includes(n ?? "")), listbox };
+};
 
 function pickManagerAndWrite() {
   const to = screen.getByRole("combobox");
@@ -75,7 +85,7 @@ function pickManagerAndWrite() {
 }
 
 describe("one composer, per-role capabilities", () => {
-  it("resident: In-app and Email, attach, no schedule, no Text, no draft", () => {
+  it("resident: PropLane and Email, attach, no schedule, no SMS, no draft", () => {
     render(
       <ManagerCommunicationComposeModal
         open
@@ -86,9 +96,8 @@ describe("one composer, per-role capabilities", () => {
         smsUiEnabled
       />,
     );
-    expect(toolsFor("In-app")).toBeTruthy();
-    expect(toolsFor("Email")).toBeTruthy();
-    expect(toolsFor("Text message")).toBeNull();
+    expect(typeOptions()?.names).toEqual(["Email", "PropLane"]);
+    expect(toolsFor("Email")).toBeNull();
     expect(scheduleButton()).toBeNull();
     expect(screen.queryByLabelText("Attach files")).toBeTruthy();
     expect(toolsFor("Draft with PropLane")).toBeNull();
@@ -105,29 +114,27 @@ describe("one composer, per-role capabilities", () => {
         smsUiEnabled
       />,
     );
-    expect(toolsFor("Text message")).toBeNull();
-    expect(toolsFor("In-app")).toBeNull();
+    expect(typeField()).toBeNull();
     expect(scheduleButton()).toBeNull();
     expect(toolsFor("Draft with PropLane")).toBeNull();
     expect(screen.queryByLabelText("Attach files")).toBeTruthy();
   });
 
-  it("manager: unchanged tools row (attach, draft, schedule, In-app, Email, Text)", () => {
+  it("manager: tools row (attach, draft, schedule) and a Communication type of SMS, Email, PropLane", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ contacts: [] })));
     render(<ManagerCommunicationComposeModal open onClose={vi.fn()} liveContacts={[manager]} smsUiEnabled />);
     expect(screen.queryByLabelText("Attach files")).toBeTruthy();
     expect(toolsFor("Draft with PropLane")).toBeTruthy();
     expect(scheduleButton()).toBeTruthy();
-    expect(toolsFor("In-app")).toBeTruthy();
-    expect(toolsFor("Email")).toBeTruthy();
-    expect(toolsFor("Text message")).toBeTruthy();
+    expect(toolsFor("Email")).toBeNull();
+    expect(typeOptions()?.names).toEqual(["SMS", "Email", "PropLane"]);
     vi.unstubAllGlobals();
   });
 
-  it("manager without the SMS UI has no Text toggle", () => {
+  it("manager without the SMS UI is not offered SMS", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ contacts: [] })));
     render(<ManagerCommunicationComposeModal open onClose={vi.fn()} liveContacts={[manager]} />);
-    expect(toolsFor("Text message")).toBeNull();
+    expect(typeOptions()?.names).toEqual(["Email", "PropLane"]);
     vi.unstubAllGlobals();
   });
 
@@ -192,7 +199,7 @@ describe("a refused send keeps the draft and adds nothing", () => {
     );
   });
 
-  it("resident: a thrown send keeps the draft; In-app only turns email off", async () => {
+  it("resident: a thrown send keeps the draft; PropLane only turns email off", async () => {
     const onSend = vi.fn(async () => {
       throw new Error("network");
     });
@@ -207,8 +214,12 @@ describe("a refused send keeps the draft and adds nothing", () => {
     );
     await waitFor(() => expect(screen.getByRole("combobox")).toBeTruthy());
     pickManagerAndWrite();
-    // Email off: In-app only.
-    fireEvent.click(screen.getByRole("button", { name: "Email" }));
+    // Email off: PropLane only.
+    fireEvent.click(screen.getByText("Communication type").closest("div")!.querySelector("button")!);
+    const emailOption = screen.getByRole("option", { name: "Email" });
+    fireEvent.pointerDown(emailOption, { pointerId: 1 });
+    fireEvent.pointerUp(emailOption, { pointerId: 1 });
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(onSend.mock.calls[0]![0]).toMatchObject({ deliverViaEmail: false, deliverViaInbox: true, scheduleLater: false });
