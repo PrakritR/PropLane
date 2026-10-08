@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PropLane">
+  <g fill="none" stroke="#2F6BFF" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 84 452 L 84 218 a 54 54 0 0 1 21 -43 L 233 79 a 38 38 0 0 1 46 0 L 407 175 a 54 54 0 0 1 21 43 L 428 452" />
+    <path d="M 170 288 L 342 452" />
+    <path d="M 342 288 L 170 452" />
+  </g>
+</svg>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Growth engine nightly render: `node scripts/growth-render.mjs --pending` at 02:00 local.
+  NOT loaded automatically. To install on the cockpit Mac:
+    1. Replace WORKTREE_PATH below (3 places) with the absolute worktree path, e.g. /Users/prakrit/projects/proplane-claude
+       (the worktree needs .env.local, node_modules, and a dev server on :3007 for product shots; dev/test DB only).
+    2. Set the node path if it is not /opt/homebrew/bin/node.
+    3. cp this file to ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.proplane.growth-render.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.proplane.growth-render</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>WORKTREE_PATH/scripts/growth-render.mjs</string>
+    <string>--pending</string>
+  </array>
+  <key>WorkingDirectory</key><string>WORKTREE_PATH</string>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>2</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>WORKTREE_PATH/output/growth/render.log</string>
+  <key>StandardErrorPath</key><string>WORKTREE_PATH/output/growth/render.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+</dict>
+</plist>

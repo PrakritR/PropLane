@@ -119,3 +119,17 @@ permanently (platform terms).
 - **Proof without keys**: a reel whose scenes are template + shot renders to a playable mp4 locally
   with burned captions; drivers unit-tested with mocked HTTP; Meta container flow unit-tested with a
   fake fetch.
+
+## Render runbook
+
+- Render one post: `node scripts/growth-render.mjs <postId>`; nightly set: `--pending` (review/approved/scheduled
+  reel/carousel/image posts not rendered for their current content; `growth_posts.meta.renderSignature`). It never
+  changes approval status. Output: `output/growth/<postId>/final.mp4` (Reel 1080x1920) or `final.png` / `final-<n>.png` (Card 1080x1350).
+- No AI keys needed: a `generated` scene falls back to a template scene (`meta.fallbacks` on the video asset), voice is
+  skipped (per-scene burned captions). With keys, `veo`/`kling`/`elevenlabs` drivers are loaded by dynamic import.
+- Product shots need the showcase manager (`npm run app-store:seed`, SHOT_EMAIL/SHOT_PASSWORD) and a dev server on :3007
+  (`--base`); direction format `route:/portal/dashboard action:click[data-demo-target=approve]`. Non-localhost refused.
+- Rendering uses Playwright's Chromium (no Remotion browser download); bundled ffmpeg lacks the `fps` filter.
+- Needs migration `20261008120000_growth_posts_meta.sql` (applied to dev/test with `supabase db query --linked -f`).
+- Launchd: `ops/launchd/com.proplane.growth-render.plist` (02:00 daily; edit WORKTREE_PATH; not loaded by default).
+- Remotion is free for companies of 3 or fewer; revisit its license when the team grows.
