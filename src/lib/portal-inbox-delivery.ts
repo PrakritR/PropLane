@@ -598,6 +598,8 @@ export async function deliverPortalMessageThreadSide(
     delivery?: "sending" | "sent" | "failed";
     /** Stamped onto the appended turn only — see `InboxThreadMessage.automated`. */
     automated?: boolean;
+    /** Stamped onto the appended turn only - see `InboxThreadMessage.sentByAi`. */
+    sentByAi?: boolean;
     /**
      * Stored type for a brand-new row. A keyed conversation that already
      * exists keeps its own type. Defaults to `portal_message`.
@@ -681,6 +683,7 @@ export async function deliverPortalMessageThreadSide(
       ...(args.messageSubject?.trim() ? { subject: args.messageSubject.trim() } : {}),
       ...(args.delivery ? { delivery: args.delivery } : {}),
       ...(args.automated ? { automated: true } : {}),
+      ...(args.sentByAi ? { sentByAi: true } : {}),
       ...(houseId ? { houseId } : {}),
       ...(houseLabel ? { houseLabel } : {}),
     });

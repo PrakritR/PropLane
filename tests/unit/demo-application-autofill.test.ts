@@ -42,13 +42,13 @@ describe("buildDemoApplicationAutofill", () => {
 
   it("passes wizard validation for steps 1–10", () => {
     const form = buildDemoApplicationAutofill(TEST_PROPERTY_ID);
-    for (let step = 1; step <= 10; step++) {
+    for (let step = 1; step <= RENTAL_WIZARD_STEP_COUNT; step++) {
       const errors = validateRentalWizardStep(step, form);
       expect(countValidationErrors(errors), `step ${step} errors: ${JSON.stringify(errors)}`).toBe(0);
     }
     expect(form.leaseTerm).toBe("12-Month");
     expect(form.consentCredit).toBe(true);
     expect(form.applicationFeeAcknowledged).toBe(true);
-    expect(RENTAL_WIZARD_STEP_COUNT).toBe(11);
+    expect(RENTAL_WIZARD_STEP_COUNT).toBe(7);
   });
 });

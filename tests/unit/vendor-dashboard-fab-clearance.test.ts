@@ -20,9 +20,7 @@ describe("vendor dashboard FAB clearance (N058)", () => {
     expect(VENDOR_DASHBOARD_SOURCE).toContain('data-attr="dashboard-your-jobs"');
   });
 
-  it("raises the assistant FAB clear of that section's own header controls", () => {
-    expect(GLOBALS_CSS).toMatch(
-      /html:has\(\[data-attr="dashboard-your-jobs"\]\)\s*\.axis-assistant-fab\s*\{[^}]*bottom:/,
-    );
+  it("has no floating assistant FAB to raise: the side panel and top bar are the only surface (assistant-side-panel-1007)", () => {
+    expect(GLOBALS_CSS).not.toContain(".axis-assistant-fab");
   });
 });

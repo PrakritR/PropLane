@@ -230,17 +230,53 @@ const PRIVATE_BYTES_PATTERNS: RegExp[] = [
   /^\/api\/share\/documents\/[^/]+$/,
   /^\/api\/share\/leases\/[^/]+\/pdf$/,
   // Built from rows rather than storage, so the service-role storage proxy
-  // never sees them: an owner statement and the formal-document exports (rent
-  // receipts, verification letters) are the same private download.
+  // never sees them: an owner statement, the formal-document exports (rent
+  // receipts, verification letters) and every report download are the same
+  // private download — a resident-naming PDF or CSV leaving the account.
   /^\/api\/owner\/statements\/pdf$/,
   /^\/api\/owner\/documents\/[^/]+\/signed-url$/,
   /^\/api\/reports\/formal-documents\/export$/,
+  /^\/api\/reports\/owner-statement\/formal-export$/,
+  /^\/api\/reports\/1099-nec\/export$/,
+  /^\/api\/reports\/deposit-disposition\/export$/,
+  /^\/api\/reports\/operational-export$/,
+  /^\/api\/reports\/[^/]+\/export$/,
+  /^\/api\/portal\/tours-export$/,
+  /^\/api\/vendor\/export$/,
+  // Row-built resident PDFs (claude-2 land, Oct 8): an inspection report, a move-in
+  // form (filled or the original template, the manager's and the resident's own
+  // "mine" copy), and the lease template the portal streams inline from storage.
+  /^\/api\/inspections\/[^/]+\/pdf$/,
+  /^\/api\/move-in-forms\/[^/]+\/(pdf|template-pdf)$/,
+  /^\/api\/move-in-forms\/template-pdf$/,
+  /^\/api\/move-in-forms\/mine\/[^/]+\/(pdf|template-pdf)$/,
+  /^\/api\/portal\/lease-template$/,
 ];
 
-export function viewAsDeniesPrivateBytes(method: string, pathname: string): boolean {
+/**
+ * The same refusal where a QUERY PARAMETER, not the path, asks for the file:
+ * `?format=csv` turns the vendor statement and the property worksheet into a
+ * ledger built from rows, while the JSON read on that same path (the list, the
+ * `summary=1` stamp) is ordinary metadata a session may see. A path pattern
+ * cannot tell those two apart, so the format decides.
+ */
+const PRIVATE_BYTES_FORMATS = new Set(["csv", "pdf"]);
+const PRIVATE_BYTES_FORMAT_PATHS: RegExp[] = [
+  /^\/api\/vendor\/payouts\/statement$/,
+  /^\/api\/reports\/property-worksheet$/,
+];
+
+export function viewAsDeniesPrivateBytes(
+  method: string,
+  pathname: string,
+  search: string | URLSearchParams = "",
+): boolean {
   if (!SAFE_METHODS.has(method.toUpperCase())) return false;
   const p = normalizePath(pathname).toLowerCase();
-  return PRIVATE_BYTES_PATTERNS.some((re) => re.test(p));
+  if (PRIVATE_BYTES_PATTERNS.some((re) => re.test(p))) return true;
+  if (!PRIVATE_BYTES_FORMAT_PATHS.some((re) => re.test(p))) return false;
+  const params = typeof search === "string" ? new URLSearchParams(search) : search;
+  return PRIVATE_BYTES_FORMATS.has((params.get("format") ?? "").trim().toLowerCase());
 }
 
 /**

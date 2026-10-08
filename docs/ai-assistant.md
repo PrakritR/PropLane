@@ -127,12 +127,26 @@ Cancelled/expired proposals stay in
 
 #### Portal chat archive
 
-The portal-wide popup and dock share one `AssistantConversationProvider`, so
-opening, pinning, closing, or switching the display mode in Settings never
-starts a second transport or strands a pending confirmation. Desktop (`lg`+)
-opens the assistant only from the top bar's Ask PropLane (⌘K); the floating
-button is phone and tablet only. The dock's ✕ closes the rail and keeps the
-docked preference. Their archive is server-backed and follows the
+The assistant has **one surface**: the side panel on desktop (`lg`+) and a
+full-screen sheet on phones (below `lg`). There is no floating button, no
+pop-up, and no Pop-up/Docked preference (a stored `popup` value is ignored).
+Every portal layout (manager, vendor, admin, resident) mounts
+`PortalAssistantRail` inside its own role-scoped `<AxisAssistant>`; the resident
+portal's panel and provider both use `/api/agent/resident-chat`, never the
+manager registry. The panel and the sheet read the same
+`AssistantConversationProvider`, so resizing or switching between them never
+starts a second transport or strands a pending confirmation.
+
+Entry points all go through `openAxisAssistant()` / `sendAxisAssistantPrompt()`
+(`src/lib/axis-assistant/open-store.ts`, via `useAssistantLauncher`): the top
+strip's panel button, the ⌘K palette's Ask row, the phone top bar's sparkle
+button (`portal-mobile-nav-bar.tsx`), the composer's "Ask PropLane", and record
+pages. They expand the side panel and focus its input on `lg`+, or open the
+sheet below `lg`, and send the prompt when one is given. The panel remembers
+open/closed per device in `localStorage` (`axis:assistant-panel-open:v1`, see
+`dock-store.ts`); its ✕ only closes it. The modal task strip
+(`modal-assistant-strip.tsx`) and the `/demo` scripted assistant are separate
+surfaces and unchanged. The archive is server-backed and follows the
 signed-in person across devices:
 
 - Pressing **New chat** immediately creates a main portal
@@ -430,6 +444,48 @@ Reads: `get_vendor_links`, `list_my_jobs`, `get_job_details`, `list_my_bids`, `l
 (refuses once a bid is accepted), `mark_job_done`, `update_my_availability`,
 `send_message_to_manager`, `submit_vendor_invoice`. Stripe Connect onboarding,
 W-9/tax, and document uploads stay on the Profile page (deep-link only).
+
+### Resident personal agent (`src/lib/tools/resident-personal-agent-index.ts`)
+
+The AI behind the number a subscribed resident owns (PropLane Number, $5/month,
+`NUMBER_SUBSCRIPTION_ENABLED`; billing in `comms-billing.md` § PropLane Number). A fifth surface
+with its own context (`ResidentPersonalAgentContext`), registry (`residentPersonalAgentRegistry`),
+resolver (`buildResidentPersonalAgentContext`), turn (`runResidentPersonalAgentReply`) and
+inbound webhook branch (`ingestResidentAgentNumberSms`); it is never the manager, leasing, resident
+portal or vendor registry, and it has no route of its own (SMS only).
+
+- **Who it serves.** The owner of the TEXTED number (`resident_agent_numbers`), and only when the
+  sender is that account's verified phone and the account still holds `resident` in `profile_roles`.
+  The resident's user id, email, name and phone come from the account, never from the message or a
+  tool input. A text from anyone else only lands in the owner's PropLane inbox: no AI, no reply.
+- **Tools.** Reads `search_listings` (area, beds, max rent, move-in, short/long term) and
+  `get_tour_times`; writes `request_tour` and `send_inquiry`. Both reads see the PUBLIC catalog only:
+  `getPublicListings()` (already `publicListingProjection`), narrowed again to a card built field by
+  field (`src/lib/resident-agent/listing-search.ts`: no manager id, phone, email or workspace).
+  A listing is addressed by its public id; the managing user, the manager's email and the tour host
+  are re-derived server-side from that listing (and `listOpenTourSlots` for the host of a slot) in
+  both preview and handler.
+- **Confirm-first.** Neither write is ever inline. The loop proposes, the resident is texted the exact
+  request ending `Reply YES to send or NO to cancel.`, and only their YES (the same exact vocabulary and
+  one-open-proposal rule as the other SMS agents, `sms/agent-confirmation.server.ts`) runs the handler
+  through `decidePendingAction` under the `resident_agent` portal. A YES never reaches the model.
+  `request_tour` files the same pending inquiry the website form files (`createTourInquiry`, the
+  manager still approves; nothing books). `send_inquiry` opens or continues the resident's
+  conversation with that manager through `deliverResidentPropertyManagerChatMessage` (the keyed
+  conversation spine: authorize, then append).
+- **Credit.** Before the model or the provider is touched, one AI turn (`ai_agent_turn`) plus
+  the reply's worst case of four segments are reserved from the resident's number ledger
+  (`reserveNumberCredit`); the reply is sized to that and the unused segments are refunded
+  (`settleNumberCreditQuantity`). A received text is debited with `allowUnfunded`. A turn that cannot
+  be paid for sends a short out-of-credit text only if that text is itself affordable, else nothing.
+  A lapsed subscription, a number that is not send-ready, STOP or a paused provider do no paid work.
+- **Trace.** `traceAgentTurn`, session `resident-personal-agent:<userId>:<sha256(phone)[0:16]>`;
+  prompt id `resident-personal-agent`.
+- **Number.** `provisionResidentAgentNumber` (`src/lib/resident-agent-number/number.server.ts`) on
+  subscription activation (Stripe webhook, flag-independent) and from Settings > PropLane agent
+  (`POST /api/number-subscription/resident-number`). Same provider adapter, runtime switch and release
+  worker as the vendor number, its own table; the row insert is the purchase claim.
+- Tests: `resident-personal-agent`, `resident-agent-listing-search`, `resident-agent-number-provisioning`.
 
 ## Links first (every conversational surface)
 

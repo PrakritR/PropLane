@@ -185,6 +185,7 @@ export function AdminDashboard({ displayName }: { displayName: string }) {
                 hideRowDetail
                 emptyCopy="Nothing is waiting on you. Nice."
               />
+              {overview.recentSignups === null ? null : (
               <PanelShell title="Recent sign-ups" dataAttr="admin-dashboard-recent-signups">
                 {overview.recentSignups.length === 0 ? (
                   <p className="px-4 py-6 text-center text-[13px] text-muted">No sign-ups yet.</p>
@@ -222,6 +223,7 @@ export function AdminDashboard({ displayName }: { displayName: string }) {
                   </ul>
                 )}
               </PanelShell>
+              )}
             </div>
           </>
         )}

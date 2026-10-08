@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/twilio";
 import { resolveOwnVendorRecords } from "@/lib/vendor-own-record";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
+import { EMPTY_VENDOR_AI_INFO, readVendorAiInfo, type VendorAiInfo } from "@/lib/vendor-ai-info";
 
 export type VendorBusinessProfile = {
   businessName: string;
@@ -28,6 +29,8 @@ export type VendorBusinessProfile = {
   /** When true (and onboarding is complete), this vendor is discoverable in the manager-facing directory. */
   directoryListed: boolean;
   onboardingCompletedAt: string | null;
+  /** Facts the AI on the vendor's PropLane number may state (hours, rates, how to book, emergencies, anything else). */
+  aiInfo: VendorAiInfo;
 };
 
 /**
@@ -113,10 +116,11 @@ const EMPTY: VendorBusinessProfile = {
   insuranceDocPath: null,
   directoryListed: false,
   onboardingCompletedAt: null,
+  aiInfo: EMPTY_VENDOR_AI_INFO,
 };
 
 const PROFILE_COLUMNS =
-  "business_name, contact_name, work_email, work_phone, service_area, notify_new_offers, notify_schedule_changes, notify_payments, trades, service_area_zips, service_radius_miles, license_number, license_doc_path, insurance_provider, insurance_policy_number, insurance_expires_at, insurance_doc_path, directory_listed, onboarding_completed_at";
+  "business_name, contact_name, work_email, work_phone, service_area, notify_new_offers, notify_schedule_changes, notify_payments, trades, service_area_zips, service_radius_miles, license_number, license_doc_path, insurance_provider, insurance_policy_number, insurance_expires_at, insurance_doc_path, directory_listed, onboarding_completed_at, ai_info";
 
 type Row = {
   business_name: string | null;
@@ -138,6 +142,7 @@ type Row = {
   insurance_doc_path: string | null;
   directory_listed: boolean | null;
   onboarding_completed_at: string | null;
+  ai_info: unknown;
 };
 
 function fromRow(row: Row | null): VendorBusinessProfile {
@@ -162,6 +167,7 @@ function fromRow(row: Row | null): VendorBusinessProfile {
     insuranceDocPath: row.insurance_doc_path ?? null,
     directoryListed: row.directory_listed ?? false,
     onboardingCompletedAt: row.onboarding_completed_at ?? null,
+    aiInfo: readVendorAiInfo(row.ai_info),
   };
 }
 
@@ -188,7 +194,7 @@ export type SaveVendorBusinessProfileResult =
 export async function saveVendorBusinessProfile(
   db: SupabaseClient,
   userId: string,
-  patch: Partial<VendorBusinessProfile>,
+  patch: Partial<Omit<VendorBusinessProfile, "aiInfo">> & { aiInfo?: Partial<VendorAiInfo> },
 ): Promise<SaveVendorBusinessProfileResult> {
   const current = await loadVendorBusinessProfile(db, userId);
   const next: VendorBusinessProfile = { ...current };
@@ -236,6 +242,8 @@ export async function saveVendorBusinessProfile(
     else return { ok: false, status: 400, error: "Insurance expiration must be a valid date." };
   }
 
+  if (patch.aiInfo !== undefined) next.aiInfo = { ...current.aiInfo, ...patch.aiInfo };
+
   // Server-derived, never client-trusted: once the checklist minimum is met it
   // stays met, even if the vendor later clears a field (PLAN-0925 onboarding).
   const onboardingCompletedAt =
@@ -261,6 +269,7 @@ export async function saveVendorBusinessProfile(
       insurance_policy_number: next.insurancePolicyNumber,
       insurance_expires_at: next.insuranceExpiresAt,
       directory_listed: next.directoryListed,
+      ai_info: next.aiInfo,
       onboarding_completed_at: onboardingCompletedAt,
       updated_at: nowIso,
     },

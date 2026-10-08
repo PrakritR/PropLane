@@ -1,5 +1,19 @@
 import type { ManagerVendorRow, ManagerVendorTypicalRate } from "@/lib/manager-vendors-storage";
 
+/**
+ * `propertyId` on a typical rate that applies to every property. A vendor
+ * with no `propertyIds` ("Every property") serves the whole portfolio, so its
+ * price is keyed on this sentinel instead of on whichever houses happen to be
+ * loaded in the browser.
+ */
+export const ALL_PROPERTIES_RATE_ID = "*";
+
+/** Rate-cell property ids for a vendor: the sentinel for "Every property", else the chosen houses. */
+export function typicalRatePropertyIds(propertyIds: readonly string[] | undefined): string[] {
+  const chosen = (propertyIds ?? []).map((id) => id.trim()).filter(Boolean);
+  return chosen.length ? chosen : [ALL_PROPERTIES_RATE_ID];
+}
+
 function asFiniteCents(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) return Math.round(value);
   if (typeof value === "string" && value.trim()) {

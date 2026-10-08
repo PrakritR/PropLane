@@ -25,7 +25,20 @@ describe("rental-application validate", () => {
     expect(errors.applyingAsGroup).toBeDefined();
   });
 
-  it("passes step 1 when the lease is chosen and not applying as group", () => {
+  it("passes step 1 when the lease is chosen with its dates and not applying as group", () => {
+    const state = {
+      ...createInitialRentalWizardState(),
+      propertyId: "prop-1",
+      leaseTerm: "Long-term",
+      roomChoice1: "prop-1",
+      applyingAsGroup: "no" as const,
+      hasCosigner: "no" as const,
+      ...futureStayDates(),
+    };
+    expect(validateRentalWizardStep(1, state)).toEqual({});
+  });
+
+  it("a missing date is an error on step 1 (Your lease), not on a later step", () => {
     const state = {
       ...createInitialRentalWizardState(),
       propertyId: "prop-1",
@@ -34,7 +47,10 @@ describe("rental-application validate", () => {
       applyingAsGroup: "no" as const,
       hasCosigner: "no" as const,
     };
-    expect(validateRentalWizardStep(1, state)).toEqual({});
+    const errors = validateRentalWizardStep(1, state);
+    expect(errors.leaseStart).toBeDefined();
+    expect(errors.leaseEnd).toBeDefined();
+    expect(validateRentalWizardStep(1, { ...state, leaseTerm: "Month-to-Month" }).leaseEnd).toBeUndefined();
   });
 
   it("opens with the lease question: step 1 asks for the property and lease type before anything else", () => {
@@ -102,7 +118,7 @@ describe("rental-application validate", () => {
       applicationFeePayChannel: "zelle" as const,
       applicationFeeZelleSentConfirmed: false,
     };
-    const errors = validateRentalWizardStep(11, state, {
+    const errors = validateRentalWizardStep(7, state, {
       property: { id: "prop-zelle", listingSubmission: sub },
     });
     expect(errors.applicationFeeZelleSentConfirmed).toBeUndefined();
@@ -144,7 +160,7 @@ describe("rental-application validate", () => {
       rentalType: "short_term" as const,
       leaseTerm: "Short-Term Stay",
     };
-    const errors = validateRentalWizardStep(3, state, {
+    const errors = validateRentalWizardStep(1, state, {
       property: { id: "prop-no-short", listingSubmission: sub },
     });
     expect(errors.leaseTerm).toContain("short-term");
@@ -164,7 +180,7 @@ describe("rental-application validate", () => {
       applicationFeePayChannel: "venmo" as const,
       applicationFeeZelleSentConfirmed: true,
     };
-    const errors = validateRentalWizardStep(11, state, {
+    const errors = validateRentalWizardStep(7, state, {
       property: { id: "prop-venmo", listingSubmission: sub },
     });
     expect(errors.applicationFeeZelleSentConfirmed).toBeUndefined();
@@ -188,9 +204,11 @@ describe("rental-application validate", () => {
       roomChoice1: "prop-short-term::room-1",
       rentalType: "short_term" as const,
       leaseTerm: SHORT_TERM_LEASE_TERM,
+      applyingAsGroup: "no" as const,
+      hasCosigner: "no" as const,
       ...futureStayDates(),
     };
-    const missing = validateRentalWizardStep(3, state, {
+    const missing = validateRentalWizardStep(1, state, {
       property: { id: "prop-short-term", listingSubmission: sub },
     });
     expect(missing.leaseTerm).toBeUndefined();
@@ -200,7 +218,7 @@ describe("rental-application validate", () => {
     expect(missing.shortTermRulesAck).toContain("house rules");
 
     const filled = validateRentalWizardStep(
-      3,
+      1,
       { ...state, shortTermCheckInTime: "15:00", shortTermCheckOutTime: "11:00", shortTermRulesAck: true },
       { property: { id: "prop-short-term", listingSubmission: sub } },
     );
@@ -229,7 +247,7 @@ describe("rental-application validate", () => {
     const iso = (d: Date) => d.toISOString().slice(0, 10);
     const property = { id: "prop-shared", listingSubmission: sub };
     const missing = validateRentalWizardStep(
-      3,
+      1,
       {
         ...createInitialRentalWizardState(),
         propertyId: "prop-shared",
@@ -243,7 +261,7 @@ describe("rental-application validate", () => {
     expect(missing.roomChoice1).toContain("which resident");
 
     const filled = validateRentalWizardStep(
-      3,
+      1,
       {
         ...createInitialRentalWizardState(),
         propertyId: "prop-shared",
@@ -270,7 +288,7 @@ describe("rental-application validate", () => {
       shortTermCheckInTime: "15:00",
       shortTermCheckOutTime: "11:00",
     };
-    const errors = validateRentalWizardStep(3, state, {
+    const errors = validateRentalWizardStep(1, state, {
       property: { id: "prop-no-short-term", listingSubmission: sub },
     });
     expect(errors.leaseTerm).toContain("does not allow short-term stays");

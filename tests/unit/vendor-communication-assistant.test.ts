@@ -86,12 +86,13 @@ describe("vendor-shaped assistant suggestions (VD23)", () => {
 });
 
 describe("vendor assistant surfaces pass the vendor chip set and placeholder (VD23)", () => {
-  it("the popup/dock (axis-assistant.tsx) is vendor-aware", () => {
+  it("the phone sheet (axis-assistant.tsx) has no popup and hands the role endpoint to the vendor-aware dock panel", () => {
+    // assistant-side-panel-1007: no floating FAB / pop-up; the side panel + top bar are the surfaces,
+    // and the phone sheet reuses AssistantDockPanel with the role-scoped endpoint (vendor-aware below).
     const source = read("src/components/portal/axis-assistant.tsx");
-    expect(source).toContain("VENDOR_ASSISTANT_ENDPOINT");
-    expect(source).toContain("isVendorAssistant");
-    expect(source).toContain("VENDOR_ASSISTANT_SUGGESTIONS");
-    expect(source).toContain('"Ask about your jobs…"');
+    expect(source).not.toContain("axis-assistant-fab");
+    expect(source).toContain("<AssistantDockPanel");
+    expect(source).toMatch(/<AssistantDockPanel[^>]*endpoint=\{endpoint\}/s);
   });
 
   it("the embeddable dock panel (assistant-dock-panel.tsx, reused by Communication) is vendor-aware too", () => {

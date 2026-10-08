@@ -3,6 +3,7 @@ import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorSponsoredOutbound } from "@/lib/vendor-sponsored-outbound.server";
 import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
+import { vendorNumberRefusalMessage } from "@/lib/number-subscription/vendor-number.server";
 
 export const runtime = "nodejs";
 
@@ -82,6 +83,6 @@ export async function POST(req: Request) {
   const deliveries = results.filter((result): result is Extract<typeof result, { ok: true }> => result.ok).map((result) => result.delivery);
   const delivery = deliveries.length === 0 ? "refused" : new Set(deliveries).size === 1 ? deliveries[0] : "mixed";
   const failure = results.find((result) => !result.ok);
-  if (failure && !failure.ok) return NextResponse.json({ ok: false, error: failure.reason ?? failure.error, delivery, results: childResults }, { status: 409 });
+  if (failure && !failure.ok) return NextResponse.json({ ok: false, error: vendorNumberRefusalMessage(failure.reason) ?? failure.error, delivery, results: childResults }, { status: 409 });
   return NextResponse.json({ ok: true, delivery, results: childResults });
 }

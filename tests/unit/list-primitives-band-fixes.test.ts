@@ -52,16 +52,11 @@ describe("assistant desktop side panel gets a real close", () => {
     expect(dockPanelSource).toMatch(/onClose=\{onClose\}/);
   });
 
-  it("both desktop rails close themselves instead of jumping to the popup", () => {
-    for (const file of ["portal-assistant-rail.tsx", "portal-assistant-dock-rail.tsx"]) {
-      const railSource = source(file);
-      expect(railSource, file).toMatch(/onClose=\{closeRail\}/);
-      expect(railSource, file).toMatch(/focusAskPropLane\(\)/);
-      expect(railSource, file).not.toMatch(/openAxisAssistant/);
-    }
-    // The manager rail keeps its docked preference (Settings owns the switch)...
-    expect(source("portal-assistant-dock-rail.tsx")).toMatch(/collapseAssistantDock\(\);/);
-    // ...admin/vendor have no Settings toggle, so their ✕ leaves rail mode.
-    expect(source("portal-assistant-rail.tsx")).toMatch(/undockAssistantFromRail\(\);/);
+  it("the side panel closes itself instead of jumping to another surface", () => {
+    const railSource = source("portal-assistant-rail.tsx");
+    expect(railSource).toMatch(/onClose=\{closeRail\}/);
+    expect(railSource).toMatch(/focusAskPropLane\(\)/);
+    expect(railSource).toMatch(/collapseAssistantDock\(\);/);
+    expect(railSource).not.toMatch(/openAxisAssistant/);
   });
 });

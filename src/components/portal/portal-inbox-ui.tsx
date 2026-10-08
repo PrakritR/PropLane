@@ -11,12 +11,13 @@ import {
   cloneElement,
   createContext,
   isValidElement,
+  useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -32,7 +33,8 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Phone, Plus, Search, Send, Sparkles, House, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, Sparkles, House, X } from "lucide-react";
+import { pickInboxColumns, type InboxColumns } from "@/lib/inbox-columns";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
@@ -628,6 +630,8 @@ export type InboxBubbleMessage = {
   at: string;
   direction: InboxMessageDirection;
   automated?: boolean;
+  /** A text the AI on the vendor's PropLane number sent for them. */
+  sentByAi?: boolean;
   eventTitle?: string;
   /** Optional delivery/status caption under the bubble (e.g. "Scheduled"). */
   status?: string;
@@ -1535,6 +1539,11 @@ export function InboxBubble({
           <p className="flex min-w-0 items-baseline gap-1.5 text-sm leading-snug text-foreground">
             <span className="truncate font-[650]" data-inbox-author>{author}</span>
             {clock ? <span className="shrink-0 text-xs font-normal text-muted/80">{clock}</span> : null}
+            {message.sentByAi ? (
+              <span className="shrink-0 text-xs font-normal text-muted/80" data-inbox-sent-by-ai>
+                Sent by AI
+              </span>
+            ) : null}
           </p>
         ) : null}
         <div
@@ -1926,7 +1935,7 @@ export function InboxComposer({
           if (canSend) onSubmit();
         }}
       >
-        <div className="portal-inbox-composer-card overflow-hidden rounded-[10px] border border-input bg-card transition-[border-color,box-shadow] focus-within:border-primary/40 focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--primary)_12%,transparent)]">
+        <div className="portal-inbox-composer-card @container overflow-hidden rounded-[10px] border border-input bg-card transition-[border-color,box-shadow] focus-within:border-primary/40 focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--primary)_12%,transparent)]">
         {attachments?.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-2.5">
             {attachments.map((att) => {
@@ -3129,6 +3138,56 @@ function InboxFullScreenAction() {
   );
 }
 
+/**
+ * Provided by a `flat` InboxTwoPane while a conversation is open. `panelMode` is true when the
+ * contact details exist but the details COLUMN is not drawn (the surface is too narrow, or full
+ * screen): the thread header's info icon then opens the same details as a panel over the thread's
+ * right edge. `columns` says how many columns the surface draws, so the back control shows exactly
+ * when the thread stands alone, at any viewport width. Absent (null) everywhere else.
+ */
+type InboxDetailsPanelCtx = {
+  panelMode: boolean;
+  panelOpen: boolean;
+  /** Columns the surface draws now (null before its width is measured). */
+  columns: InboxColumns | null;
+  togglePanel: () => void;
+  closePanel: () => void;
+  /** The open thread registers its Edit contact action so the panel can offer it. */
+  registerEditContact: (edit: (() => void) | null) => () => void;
+};
+const InboxDetailsPanelContext = createContext<InboxDetailsPanelCtx | null>(null);
+
+/** True when the info icon should open the details panel instead of its usual action. */
+export function useInboxDetailsPanelMode(): boolean {
+  return useContext(InboxDetailsPanelContext)?.panelMode ?? false;
+}
+
+/** Hand the pane the open thread's Edit contact action (null when there is none). */
+export function useRegisterInboxContactEdit(edit: (() => void) | null) {
+  const register = useContext(InboxDetailsPanelContext)?.registerEditContact;
+  useEffect(() => {
+    return register?.(edit);
+  }, [register, edit]);
+}
+
+function InboxDetailsInfoAction() {
+  const ctx = useContext(InboxDetailsPanelContext);
+  if (!ctx?.panelMode) return null;
+  return (
+    <button
+      type="button"
+      className={INBOX_THREAD_ICON_BTN}
+      aria-label="Contact information"
+      aria-expanded={ctx.panelOpen}
+      title="Contact information"
+      data-attr="inbox-thread-details-toggle"
+      onClick={ctx.togglePanel}
+    >
+      <Info className="h-4 w-4" aria-hidden />
+    </button>
+  );
+}
+
 /** Right pane: thread header, scrolling bubble history, and a composer slot. */
 export function InboxThreadView({
   title,
@@ -3187,6 +3246,7 @@ export function InboxThreadView({
 }) {
   const pageScroll = scrollMode === "page";
   const inFullScreenPane = useContext(InboxFullScreenContext) !== null;
+  const paneColumns = useContext(InboxDetailsPanelContext)?.columns ?? null;
   const showHeader = Boolean(onBack || !hideIdentityHeader || headerActions || inFullScreenPane);
   const { scrollRef, endRef, handleScroll: handleThreadScroll } = useInboxThreadScroll(
     threadKey,
@@ -3203,7 +3263,7 @@ export function InboxThreadView({
           <button
             type="button"
             onClick={onBack}
-            className="flex min-h-8 shrink-0 items-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary lg:hidden"
+            className={`flex min-h-8 shrink-0 items-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary ${paneColumns === 1 ? "" : paneColumns ? "hidden" : "lg:hidden"}`}
             aria-label="Back to conversations"
             data-attr="inbox-thread-back"
           >
@@ -3228,6 +3288,7 @@ export function InboxThreadView({
         )}
         {headerActions || inFullScreenPane ? (
           <div className="flex shrink-0 items-center gap-0.5">
+            <InboxDetailsInfoAction />
             {headerActions}
             <InboxFullScreenAction />
           </div>
@@ -3270,20 +3331,6 @@ export function InboxThreadView({
   );
 }
 
-/** True from `px` wide up. False on the server, before hydration, and wherever matchMedia is absent. */
-function useMinWidth(px: number): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      if (typeof window === "undefined" || !window.matchMedia) return () => {};
-      const list = window.matchMedia(`(min-width: ${px}px)`);
-      list.addEventListener("change", onChange);
-      return () => list.removeEventListener("change", onChange);
-    },
-    () => (typeof window === "undefined" || !window.matchMedia ? false : window.matchMedia(`(min-width: ${px}px)`).matches),
-    () => false,
-  );
-}
-
 /** Responsive two-pane shell: list + thread on desktop; list-then-thread on mobile.
  *
  * The shell fills the space between its top edge and the bottom of the viewport
@@ -3318,8 +3365,9 @@ export function InboxTwoPane({
    */
   panes = "joined",
   /**
-   * `panes="flat"` only: a contact-details column at the right edge, drawn from
-   * 1280px up while a conversation is open. Below that it is not rendered.
+   * `panes="flat"` only: a contact-details column at the right edge, drawn while a conversation
+   * is open and the surface itself is 1040px wide or more (`pickInboxColumns`). Narrower, it is not
+   * rendered and the thread header's info icon opens the same content as a panel over the thread.
    */
   details,
   /** A thread-only pane (`listHidden`) that still offers Full screen — a record page's Communication section. */
@@ -3344,7 +3392,33 @@ export function InboxTwoPane({
   // swap, viewport measuring) and differs only in drawing: no cards, no gutter.
   const split = panes === "split" || flat;
   const rootRef = useRef<HTMLDivElement>(null);
+  const threadSectionRef = useRef<HTMLElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
+
+  // Columns come from this surface's OWN width, never the viewport: the docked assistant, the
+  // sidebar and full screen all take space from it, and only it knows what is left. Null until
+  // the first measure (server render, or a surface with no layout), when the lg: classes stand in.
+  const [columns, setColumns] = useState<InboxColumns | null>(null);
+  useLayoutEffect(() => {
+    if (!flat) return;
+    const el = rootRef.current;
+    if (!el) return;
+    const read = () => {
+      const width = el.getBoundingClientRect().width;
+      setColumns(width > 0 ? pickInboxColumns(width) : null);
+    };
+    read();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [flat]);
+
+  // Contact details as a panel over the thread, for when the details column does not fit.
+  const [panelOpenState, setPanelOpenState] = useState(false);
+  const [editContact, setEditContact] = useState<(() => void) | null>(null);
+  const [panelTop, setPanelTop] = useState(0);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Full screen: Communication only (split), only with a thread open, only on a
   // wide viewport. The pane is pinned over the portal content area (under the
@@ -3500,9 +3574,92 @@ export function InboxTwoPane({
     : split
       ? "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl"
       : "";
-  // The details column is drawn only where it fits (1280px up); below that it is not in the DOM at all.
-  const detailsFit = useMinWidth(1280);
-  const showDetails = flat && details != null && threadOpen && !listHidden && detailsFit;
+  // The details column is drawn only where it fits (1040px of this surface up); narrower, it is not
+  // in the DOM at all and the info icon opens a panel instead.
+  const detailsAvailable = flat && details != null && threadOpen && !listHidden;
+  const showDetails = detailsAvailable && columns === 3 && !fullScreenDrawn;
+  const panelMode = detailsAvailable && columns !== null && !showDetails;
+  const panelOpen = panelMode && panelOpenState;
+  if (!panelMode && panelOpenState) setPanelOpenState(false);
+  const closePanel = useCallback(() => setPanelOpenState(false), []);
+  const togglePanel = useCallback(() => setPanelOpenState((open) => !open), []);
+  const registerEditContact = useCallback((edit: (() => void) | null) => {
+    setEditContact(() => edit);
+    // Clear only our own registration, so a thread that mounts as another unmounts keeps its action.
+    return () => setEditContact((current) => (current === edit ? null : current));
+  }, []);
+  const panelCtx = useMemo(
+    () =>
+      flat
+        ? { panelMode, panelOpen, columns, togglePanel, closePanel, registerEditContact }
+        : null,
+    [flat, panelMode, panelOpen, columns, togglePanel, closePanel, registerEditContact],
+  );
+
+  // The panel sits below the thread header so the info icon stays reachable to close it.
+  useLayoutEffect(() => {
+    if (!panelOpen) return;
+    const header = threadSectionRef.current?.querySelector<HTMLElement>(".portal-inbox-thread-header");
+    setPanelTop(header ? header.offsetHeight : 0);
+  }, [panelOpen, columns]);
+
+  // Closes on an outside click and on Escape; an open dialog or menu owns Escape first.
+  useEffect(() => {
+    if (!panelOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      if (!target) return;
+      if (panelRef.current?.contains(target)) return;
+      if (target.closest?.('[data-attr="inbox-thread-details-toggle"]')) return;
+      setPanelOpenState(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"], [role="menu"], [aria-modal="true"]')) return;
+      e.preventDefault();
+      setPanelOpenState(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [panelOpen]);
+
+  // Pane visibility. `flat` with a measured width follows the columns; everything else (and flat
+  // before its first measure) keeps the lg: classes.
+  const flatColumns = flat ? columns : null;
+  const listHiddenNow = listHidden || fullScreenDrawn;
+  const listDisplay = listHiddenNow
+    ? "hidden"
+    : flatColumns === 1
+      ? threadOpen
+        ? "hidden"
+        : "flex"
+      : flatColumns
+        ? "flex"
+        : threadOpen
+          ? "hidden lg:flex"
+          : "flex";
+  const threadDisplay =
+    flatColumns === 1
+      ? listHidden || threadOpen
+        ? "flex"
+        : "hidden"
+      : flatColumns
+        ? "flex"
+        : listHidden || threadOpen
+          ? "flex"
+          : "hidden lg:flex";
+  const flatGrid =
+    flatColumns === 3
+      ? "grid-cols-[320px_minmax(440px,1fr)_280px]"
+      : flatColumns === 2
+        ? "grid-cols-[320px_minmax(440px,1fr)]"
+        : flatColumns === 1
+          ? "grid-cols-1"
+          : "lg:grid-cols-[320px_minmax(0,1fr)]";
   return (
     <div
       ref={rootRef}
@@ -3531,9 +3688,7 @@ export function InboxTwoPane({
           listHidden || fullScreenDrawn
             ? "grid-cols-1"
             : flat
-              ? showDetails
-                ? "lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_280px]"
-                : "lg:grid-cols-[320px_minmax(0,1fr)]"
+              ? flatGrid
               : split
               // Column gap only. Below `lg` exactly one pane is display:none and
               // contributes nothing, but a row gap would silently subtract from
@@ -3544,19 +3699,53 @@ export function InboxTwoPane({
       >
         <section
           className={`portal-inbox-list-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${
-            flat ? "border-border lg:border-r" : split ? paneCard : "border-border lg:border-r"
-          } ${listHidden || fullScreenDrawn ? "hidden" : threadOpen ? "hidden lg:flex" : "flex"}`}
+            flat
+              ? flatColumns === 1
+                ? "border-border"
+                : "border-border lg:border-r"
+              : split
+                ? paneCard
+                : "border-border lg:border-r"
+          } ${flat ? listDisplay : listHidden || fullScreenDrawn ? "hidden" : threadOpen ? "hidden lg:flex" : "flex"}`}
         >
           {list}
         </section>
         <section
-          className={`portal-inbox-thread-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${showDetails ? "border-border xl:border-r" : ""} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
+          ref={threadSectionRef}
+          className={`portal-inbox-thread-pane relative h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${showDetails ? "border-border border-r" : ""} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${flat ? threadDisplay : listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
         >
-          <InboxFullScreenContext.Provider value={fullScreenCtx}>{thread}</InboxFullScreenContext.Provider>
+          <InboxDetailsPanelContext.Provider value={panelCtx}>
+            <InboxFullScreenContext.Provider value={fullScreenCtx}>{thread}</InboxFullScreenContext.Provider>
+          </InboxDetailsPanelContext.Provider>
+          {panelOpen ? (
+            <div
+              ref={panelRef}
+              className="portal-inbox-details-panel absolute bottom-0 right-0 z-20 flex w-[280px] max-w-full flex-col overflow-y-auto overscroll-contain border-l border-border bg-card shadow-[var(--shadow-card)]"
+              style={{ top: panelTop }}
+              data-attr="inbox-details-panel"
+              role="complementary"
+              aria-label="Contact details"
+            >
+              {editContact ? (
+                <div className="flex shrink-0 justify-end px-2 pt-2">
+                  <PortalIconAction
+                    icon={Pencil}
+                    label="Edit contact"
+                    data-attr="inbox-details-edit-contact"
+                    onClick={() => {
+                      setPanelOpenState(false);
+                      editContact();
+                    }}
+                  />
+                </div>
+              ) : null}
+              {details}
+            </div>
+          ) : null}
         </section>
         {showDetails && !fullScreenDrawn ? (
           <aside
-            className="portal-inbox-details-pane hidden h-full min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain xl:flex"
+            className="portal-inbox-details-pane flex h-full min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain"
             data-attr="inbox-details-pane"
             aria-label="Contact details"
           >

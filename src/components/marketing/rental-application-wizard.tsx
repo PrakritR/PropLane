@@ -117,7 +117,7 @@ import { applicationPinForStayTerm } from "@/lib/property-form-stay-type-routing
 import { applicationPinForLinkedForm } from "@/lib/send-forms";
 import { APPLY_FORM_PARAM } from "@/lib/rental-application/apply-from-listing";
 import { digitsOnly, maskSsnInput } from "@/lib/rental-application/masks";
-import { countValidationErrors, hasLeaseChoiceError, validateRentalWizardStep } from "@/lib/rental-application/validate";
+import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
 import {
   sanitizeApplicationFormForListing,
   validateResidentApplicationSubmit,
@@ -753,7 +753,7 @@ function RentalApplicationWizardInner({
   // room and dates so the list and the date check use live occupancy. The sync
   // itself dedupes calls inside its TTL, and the endpoint is CDN-cached.
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 1) return;
     const refresh = () =>
       void syncPublicApprovedApplicationsFromServer().then(() => setOccupancySyncEpoch((n) => n + 1));
     refresh();
@@ -1648,7 +1648,7 @@ function RentalApplicationWizardInner({
     setStep(n);
     setErrors({});
     setReviewReturnStep(null);
-    if (n === 3) setShowAvailabilityWarnings(false);
+    if (n === 1) setShowAvailabilityWarnings(false);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }, [maxStepReached]);
 
@@ -1657,7 +1657,7 @@ function RentalApplicationWizardInner({
     setStep(n);
     setErrors({});
     setReviewReturnStep(n);
-    if (n === 3) setShowAvailabilityWarnings(false);
+    if (n === 1) setShowAvailabilityWarnings(false);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }, [maxStepReached]);
 
@@ -1703,6 +1703,17 @@ function RentalApplicationWizardInner({
     );
     return false;
   }, [form, setStep, showToast, templatePreview, templatePreviewSubmission]);
+
+  // The card form on the last step opens only once every answer and the signature would pass the submit
+  // gate: a fee paid for an application the server then refuses has to be refunded by hand.
+  const paymentReady = useMemo(() => {
+    if (step !== RENTAL_WIZARD_STEP_COUNT) return true;
+    const storedProperty = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
+    const property = storedProperty && templatePreview && templatePreviewSubmission
+      ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
+      : storedProperty;
+    return validateResidentApplicationSubmit({ application: form, property, inProgress: false }).ok;
+  }, [form, step, templatePreview, templatePreviewSubmission, extrasTick]);
 
   const applicationFeeGate = useMemo(() => {
     void chargeTick;
@@ -2148,10 +2159,10 @@ function RentalApplicationWizardInner({
   }, [demoAutofillSubmitPending, finalizeApplicationSubmit, form]);
 
   const primaryButtonLabel = useMemo(() => {
-    if (mode === "manager" && step === 10) {
+    if (mode === "manager" && step === RENTAL_WIZARD_STEP_COUNT) {
       return managerActionBusy ? "Loading preview…" : "Send to resident";
     }
-    if (step !== 11) return "Continue";
+    if (step !== RENTAL_WIZARD_STEP_COUNT) return "Continue";
     if (applicationFeeGate.listingUnavailable) return "Listing unavailable";
     if (applicationFeeGate.feePreviewFailed) return "Fee unavailable — try again";
     if (!applicationFeeGate.needsFee) return submitting ? "Submitting…" : "Submit application";
@@ -2474,7 +2485,7 @@ function RentalApplicationWizardInner({
       showToast("Preview only — applicants submit from this screen.");
       return;
     }
-    if (step === 11) {
+    if (step === RENTAL_WIZARD_STEP_COUNT && mode !== "manager") {
       if (!validateAllPrior()) return;
       if (applicationFeeGate.listingUnavailable || applicationFeeGate.feePreviewFailed) return;
       void (async () => {
@@ -2574,30 +2585,24 @@ function RentalApplicationWizardInner({
       })();
       return;
     }
-    if (step === 10) {
+    if (step === RENTAL_WIZARD_STEP_COUNT) {
       if (!validateAllPrior()) return;
-      if (mode === "manager") {
-        const axisId = ensureApplicationId();
-        const email = (sessionEmail ?? form.email).trim();
-        syncInProgressApplicationRow({
-          axisId,
-          form,
-          residentEmail: email,
-          wizardStep: step,
-          wizardMaxStepReached: maxStepReached,
-        });
-        onManagerSendToResident?.({ axisId });
-        return;
-      }
-      setStep(11);
-      setMaxStepReached((m) => nextWizardMaxReached(m, 11));
-      setErrors({});
-      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+      // Only a manager filling the form on someone's behalf gets here: an applicant's last step submits above.
+      const axisId = ensureApplicationId();
+      const email = (sessionEmail ?? form.email).trim();
+      syncInProgressApplicationRow({
+        axisId,
+        form,
+        residentEmail: email,
+        wizardStep: step,
+        wizardMaxStepReached: maxStepReached,
+      });
+      onManagerSendToResident?.({ axisId });
       return;
     }
     if (step === 1 && form.applicantRole === "cosigner") return;
     void (async () => {
-      if (step === 3 && form.roomChoice1.trim() && !templatePreview) {
+      if (step === 1 && form.roomChoice1.trim() && !templatePreview) {
         if (availabilityCheckingRef.current) return;
         availabilityCheckingRef.current = true;
         setAvailabilityChecking(true);
@@ -2634,19 +2639,17 @@ function RentalApplicationWizardInner({
       setErrors(e);
       if (countValidationErrors(e) > 0) {
         showToast("Please fix the highlighted fields before continuing.");
-        // The property, lease type and room live on step 1 ("Which lease are you applying for?"),
-        // so a draft that reaches the dates step without them goes back to the question.
-        const errorStep = step !== 1 && hasLeaseChoiceError(e) ? 1 : step;
-        if (errorStep !== step) setStep(errorStep);
+        // The property, lease type, dates and room all live on step 1 ("Your lease"), so a missing date
+        // is an error there and never a later surprise.
         queueMicrotask(() =>
-          scrollToFirstWizardFieldError(RENTAL_WIZARD_STEP_FIELD_ORDER[errorStep] ?? [], e),
+          scrollToFirstWizardFieldError(RENTAL_WIZARD_STEP_FIELD_ORDER[step] ?? [], e),
         );
         return;
       }
       if (step === 1 && maxStepReached < 2) {
         track("rental_application_started", { property_id: form.propertyId || undefined });
       }
-      if (step === 3) {
+      if (step === 1) {
         const approvedConflict = form.roomChoice1
           ? isRoomApprovedConflict(form.roomChoice1, form.leaseStart, form.leaseEnd)
           : false;
@@ -2661,7 +2664,7 @@ function RentalApplicationWizardInner({
         }
       }
       if (reviewReturnStep != null && reviewReturnStep === step) {
-        setStep(10);
+        setStep(RENTAL_WIZARD_STEP_COUNT);
         setReviewReturnStep(null);
       } else {
         const next = nextActiveStep(step);
@@ -2678,14 +2681,8 @@ function RentalApplicationWizardInner({
       exitApplication();
       return;
     }
-    if (step === 11) {
-      setStep(10);
-      setErrors({});
-      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
     if (reviewReturnStep != null && reviewReturnStep === step) {
-      setStep(10);
+      setStep(RENTAL_WIZARD_STEP_COUNT);
       setErrors({});
       setReviewReturnStep(null);
       if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2694,7 +2691,7 @@ function RentalApplicationWizardInner({
     const prev = prevActiveStep(step);
     setStep(prev);
     setErrors({});
-    if (prev === 3) setShowAvailabilityWarnings(false);
+    if (prev === 1) setShowAvailabilityWarnings(false);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -2837,7 +2834,7 @@ function RentalApplicationWizardInner({
                   }),
                 );
                 setBedConflict(null);
-                setStep(3);
+                setStep(1);
               }}
             />
             <div className="rental-wizard-step-content pt-5 sm:pt-8">
@@ -2869,6 +2866,7 @@ function RentalApplicationWizardInner({
                   void handleApplyWaiverCode();
                 }}
                 applyReturnPath={wizardApplyPath}
+                paymentReady={paymentReady}
                 occupancySyncEpoch={occupancySyncEpoch}
                 showAvailabilityWarnings={showAvailabilityWarnings}
                 setPhone={setPhone}
@@ -2945,14 +2943,14 @@ function RentalApplicationWizardInner({
                   availabilityChecking ||
                   variantRestorePending ||
                   (mode === "manager" && managerActionBusy) ||
-                  (step === 11 &&
+                  (step === RENTAL_WIZARD_STEP_COUNT && mode !== "manager" &&
                     (applicationFeeGate.listingUnavailable || applicationFeeGate.feePreviewFailed))
                 }
               >
                 {submitting ? "Submitting…" : availabilityChecking ? "Checking rooms…" : primaryButtonLabel}
               </Button>
             </div>
-            {step <= 3 && mode !== "manager" ? (
+            {step === 1 && mode !== "manager" ? (
               <p className="rental-wizard-browse-homes mt-4 text-center text-sm">
                 <Link
                   href={browseHomesHref}

@@ -229,7 +229,7 @@ describe("POST /api/manager-applications — resident submit attribution", () =>
     const res = await submit(residentRow());
 
     expect(res.status).toBe(422);
-    expect(res.body.step).toBe(10);
+    expect(res.body.step).toBe(7);
     expect(res.body.fieldErrors).toMatchObject({
       "custom:review-confirmation": "This box must be checked to continue.",
     });

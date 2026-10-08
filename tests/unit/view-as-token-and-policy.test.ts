@@ -198,6 +198,20 @@ describe("view-as private document bytes", () => {
       "/api/owner/statements/pdf",
       "/api/owner/documents/doc-1/signed-url",
       "/api/reports/formal-documents/export",
+      "/api/reports/owner-statement/formal-export",
+      "/api/reports/1099-nec/export",
+      "/api/reports/deposit-disposition/export",
+      "/api/reports/operational-export",
+      "/api/reports/rpt-42/export",
+      "/api/portal/tours-export",
+      "/api/vendor/export",
+      "/api/inspections/7b8c/pdf",
+      "/api/move-in-forms/7b8c/pdf",
+      "/api/move-in-forms/7b8c/template-pdf",
+      "/api/move-in-forms/template-pdf",
+      "/api/move-in-forms/mine/7b8c/pdf",
+      "/api/move-in-forms/mine/7b8c/template-pdf",
+      "/api/portal/lease-template",
     ]) {
       expect(viewAsDeniesPrivateBytes("GET", path), path).toBe(true);
     }
@@ -210,10 +224,29 @@ describe("view-as private document bytes", () => {
     expect(viewAsDeniesPrivateBytes("GET", "/api/manager-documents/doc-1%2Fsigned-url")).toBe(true);
   });
 
-  it("still lists document metadata", () => {
+  it("refuses a download a query parameter asks for, and allows the read on the same path", () => {
+    for (const path of ["/api/vendor/payouts/statement", "/api/reports/property-worksheet"]) {
+      for (const search of ["?format=csv", "?format=pdf", "?month=2026-10&format=CSV", "?format=%20pdf%20"]) {
+        expect(viewAsDeniesPrivateBytes("GET", path, search), `${path}${search}`).toBe(true);
+      }
+      // The JSON the list and the stamp read is metadata, not the file.
+      for (const search of ["", "?month=2026-10", "?summary=1", "?format=", "?format=json"]) {
+        expect(viewAsDeniesPrivateBytes("GET", path, search), `${path}${search}`).toBe(false);
+      }
+    }
+    // A format on a path that hands out no file is not suddenly private.
+    expect(viewAsDeniesPrivateBytes("GET", "/api/property-records", "?format=csv")).toBe(false);
+  });
+
+  it("still lists document metadata, reports and vendor rows", () => {
     expect(viewAsDeniesPrivateBytes("GET", "/api/manager-documents")).toBe(false);
     expect(viewAsDeniesPrivateBytes("GET", "/api/vendor/documents")).toBe(false);
     expect(viewAsDeniesPrivateBytes("GET", "/api/property-records")).toBe(false);
+    // The report itself (and the vendor list behind the export) is a read.
+    expect(viewAsDeniesPrivateBytes("GET", "/api/reports/rpt-42")).toBe(false);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/reports/1099-nec")).toBe(false);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/portal/tours")).toBe(false);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/vendor/work-orders")).toBe(false);
   });
 });
 
@@ -235,5 +268,16 @@ describe("view-as identity scope and same-origin", () => {
     expect(isSameOrigin(h("https://evil.example"))).toBe(false);
     expect(isSameOrigin(h())).toBe(false);
     expect(isSameOrigin(h("not a url"))).toBe(false);
+  });
+});
+
+describe("View as: inspection / move-in form / lease template files (Oct 8)", () => {
+  it("refuses the PDFs but keeps the JSON reads on the same routes", () => {
+    for (const path of ["/api/inspections/7b8c", "/api/move-in-forms/7b8c", "/api/move-in-forms/mine/7b8c", "/api/move-in-forms"]) {
+      expect(viewAsDeniesPrivateBytes("GET", path), path).toBe(false);
+    }
+    expect(viewAsDeniesPrivateBytes("GET", "/api/inspections/7b8c/pdf")).toBe(true);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/move-in-forms/mine/7b8c/template-pdf")).toBe(true);
+    expect(viewAsDeniesPrivateBytes("GET", "/api/portal/lease-template")).toBe(true);
   });
 });

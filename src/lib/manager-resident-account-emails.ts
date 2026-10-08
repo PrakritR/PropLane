@@ -10,10 +10,10 @@ import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
  * never kept, so the next tick retries.
  *
  * Every surface that asks this question reads through here (Residents, the manager Dashboard, the
- * lease send sheet) so there is ONE answer per page and ONE place to drop it. `{ force: true }` is
- * how a caller says "an account may have just been created" — the sheet polling after an invite —
- * and it drops the whole cache, not just its own list, so the other surfaces see the new account on
- * their next tick instead of waiting out the TTL.
+ * lease send sheet) so there is ONE answer per page. `{ force: true }` is how a caller says "this
+ * list may have just changed" — the sheet polling after an invite — and it refreshes THAT list
+ * only: the sheet polls every 8 seconds, so dropping every entry would put the pages behind it
+ * back to one POST per tick, which is exactly the loop this cache removed.
  * Coverage: `tests/unit/manager-resident-account-emails.test.ts`.
  */
 export const RESIDENT_ACCOUNT_EMAILS_TTL_MS = 30_000;
@@ -41,8 +41,6 @@ export function loadResidentAccountEmails(emails: string[], opts?: { force?: boo
   const key = listKey(emails);
   const existing = entries.get(key);
   if (!opts?.force && existing && Date.now() - existing.at < RESIDENT_ACCOUNT_EMAILS_TTL_MS) return existing.promise;
-  // A forced read is a caller saying the answer may have changed, so no list keeps a stale one.
-  if (opts?.force) invalidateResidentAccountEmails();
   if (entries.size >= MAX_ENTRIES) entries.clear();
   const entry: Entry = {
     at: Date.now(),

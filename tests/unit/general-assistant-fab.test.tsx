@@ -38,14 +38,37 @@ describe("GeneralAssistantFab", () => {
     },
   );
 
-  it("treats only the resident and owner portal subtrees as assistant-free", () => {
+  it.each([
+    "/portal",
+    "/portal/calendar",
+    "/portal/settings",
+    "/portal/properties/abc",
+    "/vendor",
+    "/vendor/services",
+    "/vendor/settings",
+    "/admin",
+    "/admin/inbox",
+  ])("renders nothing inside the authenticated portal path %s", (path) => {
+    pathnameMock.value = path;
+    const { container } = render(<GeneralAssistantFab />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("treats every authenticated portal subtree as assistant-free, not lookalike public paths", () => {
+    expect(isAssistantFreePath("/portal/communication")).toBe(true);
+    expect(isAssistantFreePath("/vendor/settings")).toBe(true);
+    expect(isAssistantFreePath("/admin/inbox")).toBe(true);
+    expect(isAssistantFreePath("/vendors")).toBe(false);
+    expect(isAssistantFreePath("/portals")).toBe(false);
+    expect(isAssistantFreePath("/administrators")).toBe(false);
+  });
+
+  it("treats the resident and owner portal subtrees as assistant-free", () => {
     expect(isAssistantFreePath(RESIDENT_PORTAL_BASE_PATH)).toBe(true);
     expect(isAssistantFreePath("/resident/communication")).toBe(true);
     expect(isAssistantFreePath("/portal/owner")).toBe(true);
     expect(isAssistantFreePath("/portal/owner/statements")).toBe(true);
-    expect(isAssistantFreePath("/portal/ownership")).toBe(false);
     expect(isAssistantFreePath("/residents-guide")).toBe(false);
-    expect(isAssistantFreePath("/portal/communication")).toBe(false);
     expect(isAssistantFreePath(null)).toBe(false);
   });
 });

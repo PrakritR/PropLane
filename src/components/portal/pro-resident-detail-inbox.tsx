@@ -21,6 +21,8 @@ import {
   InboxScheduledThreadList,
   InboxThreadView,
   InboxTwoPane,
+  useInboxDetailsPanelMode,
+  useRegisterInboxContactEdit,
   type InboxBubbleMessage,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
@@ -977,22 +979,30 @@ export function ResidentDirectChatPane({
     [displayName, email, onSent, showToast],
   );
 
+  const openContactEdit = useCallback(() => {
+    setContactEditError(null);
+    setContactEditOpen(true);
+  }, []);
+  // When Communication has no room for the details column, the header's info icon belongs to the
+  // details panel, and Edit contact lives inside it.
+  const detailsPanelMode = useInboxDetailsPanelMode();
+  useRegisterInboxContactEdit(openContactEdit);
+
   // One row of matching circular controls, same as every other thread header.
   const threadHeaderActions = (
     <>
-      <button
-        type="button"
-        className={INBOX_THREAD_ICON_BTN}
-        aria-label="Contact information"
-        title="Contact information"
-        data-attr="inbox-thread-contact-edit"
-        onClick={() => {
-          setContactEditError(null);
-          setContactEditOpen(true);
-        }}
-      >
-        <Info className="h-4 w-4" aria-hidden />
-      </button>
+      {detailsPanelMode ? null : (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Contact information"
+          title="Contact information"
+          data-attr="inbox-thread-contact-edit"
+          onClick={openContactEdit}
+        >
+          <Info className="h-4 w-4" aria-hidden />
+        </button>
+      )}
       {onRestore ? (
         <button type="button" className={INBOX_THREAD_ICON_BTN} aria-label="Restore conversation" title="Restore" data-attr="inbox-thread-restore" onClick={() => onRestore()}>
           <ArchiveRestore className="h-4 w-4" aria-hidden />

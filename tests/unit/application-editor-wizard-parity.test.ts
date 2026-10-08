@@ -39,7 +39,8 @@ describe("C2-R30-6 editor sections align with applicant wizard steps", () => {
     for (const section of RENTAL_APPLICATION_SECTIONS) {
       if (section.id === "review") continue;
       const step = section.wizardStep;
-      const wizardKeys = customFieldsForWizardStep(custom, step)
+      // Several sections share a step in the 7-step application, so ask for this section's own questions.
+      const wizardKeys = customFieldsForWizardStep(custom, step, { onlySections: [section.id] })
         .map((f) => f.key)
         .sort();
       const editorKeys = resolved

@@ -1,8 +1,11 @@
+/** The address endings that mark a sandbox account. One list: the predicate and every admin count read it. */
+export const PORTAL_SANDBOX_EMAIL_SUFFIXES = ["@axis.local", "@test.proplane.local"] as const;
+
 /** Emails used for the public `/demo` sandbox and production demo seeds — hidden from real portal admin views. */
 export function isPortalSandboxEmail(email: string | null | undefined): boolean {
   const normalized = email?.trim().toLowerCase() ?? "";
   if (!normalized.includes("@")) return false;
-  return normalized.endsWith("@axis.local") || normalized.endsWith("@test.proplane.local");
+  return PORTAL_SANDBOX_EMAIL_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }
 
 /** Skip Resend / external SMTP for sandbox seed accounts (same rule as isPortalSandboxEmail). */

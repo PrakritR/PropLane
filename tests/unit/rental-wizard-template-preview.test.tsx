@@ -105,11 +105,9 @@ describe("RentalApplicationWizard templatePreview", () => {
         templatePreviewSubmission={sub}
       />,
     );
-    // Step 1 opens with the lease question, so a lease type is chosen before the household answers.
-    fireEvent.click(screen.getByRole("button", { name: "Select a lease term" }));
-    const option = await screen.findByRole("option", { name: "Long-term" });
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 0, clientY: 0 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 0, clientY: 0 });
+    // Step 1 is "Your lease": the move-in and move-out dates are answered with the lease, before the household answers.
+    fireEvent.change(await screen.findByLabelText(/^Move-in date/), { target: { value: "01/01/2099" } });
+    fireEvent.change(await screen.findByLabelText(/^Move-out date/), { target: { value: "12/31/2099" } });
     fireEvent.click(screen.getByRole("group", { name: "Group application" }).querySelectorAll("button")[1]);
     fireEvent.click(screen.getByRole("group", { name: "Co-signer" }).querySelectorAll("button")[1]);
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));

@@ -116,6 +116,7 @@ import {
   weekdayOfDateStr,
   type AvailabilityDraft,
 } from "@/lib/calendar-availability-window";
+import { isVendorBlockMeetingId } from "@/lib/vendor-availability";
 import { bandsForTab, calendarRangeLabel, fitGridWindow, openRunsSummary, type CalendarTabId } from "@/lib/calendar-grid";
 import {
   addExplicitTourSlotKeys,
@@ -2353,7 +2354,9 @@ export function PortalCalendarPanels({
   }, [coManagerAvailabilityOverlays]);
 
   /* ---------------------------------------------------------------- manager Calendar (studio-redesign-0929) */
-  const studioActive = studioGrid && compactAvailability && !vendorViewer && !vendorDayFlexibility;
+  // A vendor gets the same Day / Week / Month / Agenda grid as the manager; their editing (weekly
+  // hours, blocks) stays in the vendor availability editor, so `canEditWeekStudio` is off for them.
+  const studioActive = studioGrid && compactAvailability && !vendorDayFlexibility;
   const canEditWeekStudio = studioActive && !isVendorViewer && canEditAvailability;
   const nowMinutes = nowClock.getHours() * 60 + nowClock.getMinutes();
   const anchorDateStr = toLocalDateStr(anchorDate);
@@ -2450,11 +2453,14 @@ export function PortalCalendarPanels({
     const map = new Map<string, ReturnType<typeof bandsForTab>>();
     const selfHidden = Boolean(selfPerson && hiddenPeople.has(selfPerson.userId));
     for (const ds of rangeDates) {
-      const bands = bandsForTab(openRunsByDate.get(ds) ?? [], calendarTab);
+      const rawBands = bandsForTab(openRunsByDate.get(ds) ?? [], calendarTab);
+      // A vendor's weekly hours are one plain "open hours" hatch; the Tours/Services/Tasks stripes
+      // are the manager's availability types and mean nothing on a vendor's calendar.
+      const bands = isVendorViewer ? rawBands.map((band) => ({ ...band, kinds: [] })) : rawBands;
       map.set(ds, selfHidden ? bands.filter((band) => band.source !== "typed") : bands);
     }
     return map;
-  }, [calendarTab, hiddenPeople, openRunsByDate, rangeDates, selfPerson]);
+  }, [calendarTab, hiddenPeople, isVendorViewer, openRunsByDate, rangeDates, selfPerson]);
   /** Everyone else's open hours for the range, for the tab's kinds. */
   const peerAvailabilityForRange = useMemo(
     () =>
@@ -2541,6 +2547,11 @@ export function PortalCalendarPanels({
    */
   const openGridItem = useCallback(
     (item: CalendarGridItem, target: HTMLElement | null) => {
+      // A vendor's blocked time opens the availability editor it was made in (where it is removed).
+      if (isVendorViewer && isVendorBlockMeetingId(item.meeting.id)) {
+        onVendorAvailabilityEdit?.(item.meeting.dateStr, item.allDay ? undefined : item.meeting.startSlot);
+        return;
+      }
       const href = onOpenRecord ? recordHrefFor?.(item.meeting) : null;
       if (href && onOpenRecord) {
         onOpenRecord(href);
@@ -2548,7 +2559,7 @@ export function PortalCalendarPanels({
       }
       openSlotDetails(item.meeting.dateStr, item.meeting.startSlot, target ?? document.body, item.meeting);
     },
-    [onOpenRecord, openSlotDetails, recordHrefFor],
+    [isVendorViewer, onOpenRecord, onVendorAvailabilityEdit, openSlotDetails, recordHrefFor],
   );
   const openAgendaItem = openGridItem;
 
@@ -4064,8 +4075,12 @@ export function PortalCalendarPanels({
     // whenever there was an availability action, so a viewer who may only connect a calendar (a
     // co-manager without Calendar edit, an account with no houses yet) must still reach that item.
     const canCreateFromStudioBand = canEditWeekStudio && !readOnly;
+    // `modal={false}`, like every other menu in the portal whose items open a
+    // dialog (`record-action-menu.tsx`): a modal menu still owns the focus trap
+    // while the dialog it just opened mounts, and the two scopes fight over
+    // focus instead of handing it over.
     const renderAddMenu = (trigger: ReactNode) => (
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent align="end" data-attr="calendar-create-menu-content">
           {canCreateFromStudioBand ? (
@@ -4220,6 +4235,11 @@ export function PortalCalendarPanels({
             onOpenItem={openGridItem}
             onBookSlot={bookTourSlot}
             onAddAvailability={openAddAvailability}
+            openLabel={isVendorViewer ? "Open hours" : undefined}
+            emptyOpenLabel={
+              isVendorViewer ? `No open hours on ${new Date(`${anchorDateStr}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" })}s` : undefined
+            }
+            showSlots={!isVendorViewer}
           />
         </div>
       ) : (
@@ -4326,7 +4346,7 @@ export function PortalCalendarPanels({
     const showAvailabilityMenu = canEditWeek || Boolean(extraAvailabilityAction);
     const availabilityMenuAction = showAvailabilityMenu ? (
       <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <PortalIconAction icon={CalendarClock} label="Availability" data-attr="calendar-availability-menu" />
           </DropdownMenuTrigger>
@@ -4366,7 +4386,7 @@ export function PortalCalendarPanels({
     ) : null;
     const calendarCreateMenu =
       canEditWeek && !readOnly ? (
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-create-menu" />
           </DropdownMenuTrigger>

@@ -8,6 +8,7 @@ import {
 } from "@/lib/vendor-work-identity.server";
 import { isUsLocalSmsNumber, verifyVendorWorkNumberClaim } from "@/lib/vendor-work-number-claim-token.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { vendorNumberEntitled } from "@/lib/number-subscription/vendor-number.server";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,16 @@ async function actor() {
   const resolved = await resolveVendorPortalUserId();
   if (!resolved.ok) return { response: NextResponse.json({ ok: false, error: "Unauthorized." }, { status: resolved.status }) };
   return { userId: resolved.userId };
+}
+
+/** 403 `subscription_required` when the PropLane Number subscription is on and the vendor is not entitled; 503 if unreadable. */
+async function subscriptionGate(userId: string) {
+  try {
+    if (await vendorNumberEntitled(createSupabaseServiceRoleClient(), userId)) return null;
+  } catch {
+    return NextResponse.json({ ok: false, error: "Your subscription could not be checked right now." }, { status: 503 });
+  }
+  return NextResponse.json({ ok: false, code: "subscription_required", error: "Subscribe to PropLane Number to get a work number." }, { status: 403 });
 }
 
 export async function GET() {
@@ -50,6 +61,9 @@ export async function POST(req: Request) {
     if (!(await loadVendorVerifiedPhone(createSupabaseServiceRoleClient(), current.userId)).verified) {
       return NextResponse.json({ ok: false, code: "phone_unverified", error: "Verify your phone to get a work number." }, { status: 403 });
     }
+    // PropLane Number (flag on): a number is for a subscriber. Checked before the claim token is even read.
+    const gate = await subscriptionGate(current.userId);
+    if (gate) return gate;
     const phoneNumber = typeof body?.phoneNumber === "string" ? body.phoneNumber.trim() : "";
     const claimToken = typeof body?.claimToken === "string" ? body.claimToken.trim() : "";
     if (!phoneNumber || !claimToken) return invalid("phoneNumber and claimToken are both required to claim a work number.");

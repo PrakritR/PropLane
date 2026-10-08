@@ -6,7 +6,7 @@
  * summary (earnings, fees, refunds) and the 1099 line for each year. The tax ID
  * is encrypted server-side and only its last four digits ever come back.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Pencil } from "lucide-react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -60,7 +60,17 @@ function draftFrom(profile: VendorW9Profile | null): Draft {
   };
 }
 
-export function VendorTaxPanel({ basePath }: { basePath: string }) {
+/** The page shell, or nothing when the panel sits inside another page (Documents > Tax). */
+function TaxShell({ embedded, children }: { embedded: boolean; children: ReactNode }) {
+  if (embedded) return <div data-attr="vendor-tax-embedded">{children}</div>;
+  return (
+    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
+      {children}
+    </ManagerPortalPageShell>
+  );
+}
+
+export function VendorTaxPanel({ basePath, embedded = false }: { basePath: string; embedded?: boolean }) {
   const { showToast } = useAppUi();
   const [data, setData] = useState<TaxPayload | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -89,7 +99,7 @@ export function VendorTaxPanel({ basePath }: { basePath: string }) {
   const hasW9 = Boolean(profile?.tinLast4 && profile.attested);
 
   return (
-    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
+    <TaxShell embedded={embedded}>
       {state === "loading" ? (
         <PortalRecordListSurface loading dataAttr="vendor-tax-loading" />
       ) : state === "error" || !data ? (
@@ -113,21 +123,23 @@ export function VendorTaxPanel({ basePath }: { basePath: string }) {
               )}
             </PortalSettingsGroup>
           </PortalSettingsSection>
-          <PortalListControlStack
-            className="mb-2 max-lg:mb-1.5"
-            variant="command"
-            destinations={[
-              {
-                id: "years",
-                label: "Tax years",
-                count: data.years.length,
-                href: `${basePath}/financials/tax`,
-                dataAttr: "vendor-tax-years-tab",
-              },
-            ]}
-            activeDestinationId="years"
-            destinationAriaLabel="Tax years"
-          />
+          {embedded ? null : (
+            <PortalListControlStack
+              className="mb-2 max-lg:mb-1.5"
+              variant="command"
+              destinations={[
+                {
+                  id: "years",
+                  label: "Tax years",
+                  count: data.years.length,
+                  href: `${basePath}/documents/tax`,
+                  dataAttr: "vendor-tax-years-tab",
+                },
+              ]}
+              activeDestinationId="years"
+              destinationAriaLabel="Tax years"
+            />
+          )}
           <PortalRecordListSurface
             isEmpty={data.years.length === 0}
             emptyCard={{ title: "No tax years yet", section: "financials", tone: "muted" }}
@@ -168,7 +180,7 @@ export function VendorTaxPanel({ basePath }: { basePath: string }) {
           }}
         />
       ) : null}
-    </ManagerPortalPageShell>
+    </TaxShell>
   );
 }
 

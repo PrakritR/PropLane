@@ -44,8 +44,12 @@ function toActive(w: PortalWorkspace): ActiveWorkspace {
  * `manager-access-server` use). Null means "not provisioned": the caller reads
  * whatever already exists rather than writing to the account being viewed.
  */
-async function provisionWorkspace(db: SupabaseClient, ownerUserId: string): Promise<string | null> {
-  if (await isViewAsSessionOpen()) return null;
+async function provisionWorkspace(
+  db: SupabaseClient,
+  ownerUserId: string,
+  viewing: boolean,
+): Promise<string | null> {
+  if (viewing) return null;
   const { data, error } = await db.rpc("ensure_default_portal_workspace", { p_owner: ownerUserId });
   if (error || !data) return null;
   return String(data);
@@ -58,13 +62,12 @@ export async function listViewerWorkspaces(
 ): Promise<ActiveWorkspace[]> {
   const workspaces = await loadWorkspaces(db, viewerUserId);
   if (!workspaces.some((w) => w.owned)) {
-    const provisioned = await provisionWorkspace(db, viewerUserId);
+    const viewing = await isViewAsSessionOpen();
+    const provisioned = await provisionWorkspace(db, viewerUserId, viewing);
     if (provisioned) return listViewerWorkspaces(db, viewerUserId);
     // A read-only session reads the shared workspaces it can already see; any
     // other failure is a real one and the caller must not get a partial answer.
-    if (!(await isViewAsSessionOpen())) {
-      throw new Error("Could not prepare this account's workspace. Please retry.");
-    }
+    if (!viewing) throw new Error("Could not prepare this account's workspace. Please retry.");
   }
   return workspaces
     .slice()
@@ -156,7 +159,7 @@ export async function loadWorkspaceById(
 
 /** The owner's default workspace id, created when missing (never under a View-as session). */
 export async function ensureDefaultWorkspaceId(db: SupabaseClient, ownerUserId: string): Promise<string> {
-  const provisioned = await provisionWorkspace(db, ownerUserId);
+  const provisioned = await provisionWorkspace(db, ownerUserId, await isViewAsSessionOpen());
   if (provisioned) return provisioned;
   const owned = (await loadWorkspaces(db, ownerUserId)).filter((w) => w.owned);
   const existing = owned.find((w) => w.isDefault) ?? owned[0];

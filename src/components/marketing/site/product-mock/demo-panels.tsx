@@ -58,10 +58,11 @@ import {
   VendorCalendarPanel,
   VendorCommunicationPanel,
   VendorDocumentsPanel,
-  VendorFinancesPanel,
+  VendorFinancesRouter,
   VendorPaymentsPanel,
   VendorReviewsPanel,
   VendorServicesPanel,
+  VendorOutgoingPanel,
 } from "@/components/marketing/site/product-mock/panels-vendor";
 
 /**
@@ -133,8 +134,11 @@ const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode
     calendar: ({ story }) => <VendorCalendarPanel story={story} />,
     "work-orders": ({ story }) => <VendorServicesPanel story={story} />,
     reviews: () => <VendorReviewsPanel />,
-    // The real Finances nests five sections; bare /vendor/financials lands on Balance & payouts, the sidebar sub-row opens Payments.
-    financials: ({ story, sub }) => (sub === "income" ? <VendorPaymentsPanel story={story} /> : <VendorFinancesPanel story={story} />),
+    // The Money group: Incoming payments · Outgoing payments · Finances (vendor-portal-ia-1007).
+    payments: ({ story }) => <VendorPaymentsPanel story={story} />,
+    outgoing: () => <VendorOutgoingPanel />,
+    // Finances nests Overview, Balance & payouts and Refunds; bare /vendor/financials lands on Overview.
+    financials: ({ story, sub }) => <VendorFinancesRouter story={story} sub={sub} />,
     documents: () => <VendorDocumentsPanel />,
   },
 };

@@ -6,7 +6,7 @@
  * each opening the month's full statement (every ledger event type, PDF + CSV).
  * A failed read is a real error with Retry, never an empty list.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Download, FileText } from "lucide-react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -22,7 +22,17 @@ type StatementsPayload = {
   reconciliation: { matches: boolean; reconciledAt: string } | null;
 };
 
-export function VendorStatementsPanel({ basePath }: { basePath: string }) {
+/** The page shell, or nothing when the panel sits inside another page (Documents > Statements). */
+function StatementsShell({ embedded, children }: { embedded: boolean; children: ReactNode }) {
+  if (embedded) return <div data-attr="vendor-statements-embedded">{children}</div>;
+  return (
+    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
+      {children}
+    </ManagerPortalPageShell>
+  );
+}
+
+export function VendorStatementsPanel({ basePath, embedded = false }: { basePath: string; embedded?: boolean }) {
   const [data, setData] = useState<StatementsPayload | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [openMonth, setOpenMonth] = useState<string | null>(null);
@@ -49,8 +59,8 @@ export function VendorStatementsPanel({ basePath }: { basePath: string }) {
   const months = data?.months ?? [];
 
   return (
-    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
-      <PortalListControlStack
+    <StatementsShell embedded={embedded}>
+      {embedded ? null : <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
         destinations={[
@@ -58,7 +68,7 @@ export function VendorStatementsPanel({ basePath }: { basePath: string }) {
             id: "statements",
             label: "Statements",
             count: state === "ready" ? months.length : undefined,
-            href: `${basePath}/financials/statements`,
+            href: `${basePath}/documents/statements`,
             dataAttr: "vendor-statements-tab",
           },
         ]}
@@ -73,7 +83,7 @@ export function VendorStatementsPanel({ basePath }: { basePath: string }) {
             onClick={() => window.open("/api/vendor/payouts/statement?format=csv", "_blank", "noopener")}
           />
         }
-      />
+      />}
       <PortalRecordListSurface
         loading={state === "loading"}
         loadError={state === "error" ? "Could not load your statements." : undefined}
@@ -125,6 +135,6 @@ export function VendorStatementsPanel({ basePath }: { basePath: string }) {
         ))}
       </PortalRecordListSurface>
       {openMonth ? <VendorStatementModal open onClose={() => setOpenMonth(null)} month={openMonth} /> : null}
-    </ManagerPortalPageShell>
+    </StatementsShell>
   );
 }

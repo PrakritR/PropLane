@@ -8,6 +8,7 @@ const {
   removePortalAccess,
   getStripe,
   isAdminManagedManagerPurchase,
+  cancelNumberSubscription,
 } = vi.hoisted(() => ({
   purgeResidentPortalData: vi.fn(),
   purgeManagerPortalData: vi.fn(),
@@ -16,7 +17,11 @@ const {
   removePortalAccess: vi.fn(),
   getStripe: vi.fn(),
   isAdminManagedManagerPurchase: vi.fn(),
+  cancelNumberSubscription: vi.fn(async () => "none"),
 }));
+
+// PropLane Number billing is stopped before any purge removes its rows (cancel.server.ts is tested on its own).
+vi.mock("@/lib/number-subscription/cancel.server", () => ({ cancelNumberSubscriptionForAccount: cancelNumberSubscription }));
 
 vi.mock("@/lib/auth/purge-portal-account-data", () => ({
   purgeResidentPortalData,
@@ -46,6 +51,7 @@ import {
   deleteOwnPortalAccount,
   deletePortalAccountCompletely,
   deleteResidentAccount,
+  deleteVendorAccount,
 } from "@/lib/auth/delete-portal-account";
 
 
@@ -408,6 +414,10 @@ describe("delete-portal-account", () => {
     const result = await deleteOwnAccount(db as never, "user-self");
 
     expect(cancel).toHaveBeenCalledWith("sub_123");
+    // The PropLane Number subscription is cancelled before ANY purge deletes its row (and the Stripe ids with it).
+    expect(cancelNumberSubscription).toHaveBeenCalledWith(db, "user-self");
+    expect(cancelNumberSubscription.mock.invocationCallOrder[0]).toBeLessThan(purgeVendorPortalData.mock.invocationCallOrder[0]!);
+    expect(cancelNumberSubscription.mock.invocationCallOrder[0]).toBeLessThan(purgeManagerPortalData.mock.invocationCallOrder[0]!);
     expect(purgeVendorPortalData).toHaveBeenCalledWith(db, { userId: "user-self", email: "me@test.com" });
     expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-self", true, "me@test.com");
     expect(deleteUser).toHaveBeenCalledWith("user-self");
@@ -445,5 +455,86 @@ describe("delete-portal-account", () => {
     expect(cancel).not.toHaveBeenCalled();
     expect(deleteUser).toHaveBeenCalledWith("user-comp");
     expect(result).toEqual({ ok: true, mode: "deleted_auth_user" });
+  });
+  it("a Stripe failure cancelling the number subscription aborts the delete before anything is purged", async () => {
+    getStripe.mockReturnValue({ subscriptions: { cancel: vi.fn(async () => ({})) } });
+    isAdminManagedManagerPurchase.mockReturnValue(true);
+    cancelNumberSubscription.mockRejectedValueOnce(new Error("stripe unavailable"));
+    const deleteUser = vi.fn(async () => ({ error: null }));
+    const db = {
+      from: (table: string) => {
+        if (table === "manager_purchases") return purchaseQuery([]);
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { email: "me@test.com" } }) }) }),
+          delete: () => ({ eq: async () => ({ error: null }) }),
+        };
+      },
+      auth: { admin: { getUserById, deleteUser } },
+    };
+    await expect(deleteOwnAccount(db as never, "user-self")).rejects.toThrow("stripe unavailable");
+    expect(purgeVendorPortalData).not.toHaveBeenCalled();
+    expect(purgeManagerPortalData).not.toHaveBeenCalled();
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("deleting only the vendor portal cancels the number subscription before the vendor purge", async () => {
+    removePortalAccess.mockResolvedValue({ ok: true, mode: "revoked_role", remainingRoles: ["manager"] });
+    const db = {
+      from: (table: string) => {
+        if (table === "profiles") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: "vendor" } }) }) }) };
+        if (table === "profile_roles") return { select: () => ({ eq: async () => ({ data: [{ role: "vendor" }], error: null }) }) };
+        return {};
+      },
+      auth: { admin: { getUserById, deleteUser: vi.fn() } },
+    };
+    await deleteVendorAccount(db as never, "user-self");
+    expect(cancelNumberSubscription).toHaveBeenCalledWith(db, "user-self", {});
+    expect(cancelNumberSubscription.mock.invocationCallOrder[0]).toBeLessThan(purgeVendorPortalData.mock.invocationCallOrder[0]!);
+  });
+  it("a whole-account delete stops the number subscription exactly once (the vendor purge removes the row before the shared cascade)", async () => {
+    isAdminManagedManagerPurchase.mockReturnValue(true);
+    getStripe.mockReturnValue({ subscriptions: { cancel: vi.fn(async () => ({})) } });
+    const db = {
+      from: (table: string) => {
+        if (table === "manager_purchases") return purchaseQuery([]);
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { email: "me@test.com" } }) }) }),
+          delete: () => ({ eq: async () => ({ error: null }) }),
+        };
+      },
+      auth: { admin: { getUserById, deleteUser: vi.fn(async () => ({ error: null })) } },
+    };
+    await deleteOwnAccount(db as never, "user-self");
+    expect(cancelNumberSubscription).toHaveBeenCalledTimes(1);
+    // The admin complete-delete has no earlier pass, so the shared cascade does it once.
+    cancelNumberSubscription.mockClear();
+    await deletePortalAccountCompletely(db as never, "user-self");
+    expect(cancelNumberSubscription).toHaveBeenCalledTimes(1);
+  });
+
+  it("removing one portal of a multi-role login only stops a number subscription bought as that role", async () => {
+    const dual = (roles: string[]) => ({
+      from: (table: string) => {
+        if (table === "profiles") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: roles[0], email: "me@test.com" } }) }) }) };
+        if (table === "profile_roles") return { select: () => ({ eq: async () => ({ data: roles.map((role) => ({ role })), error: null }) }) };
+        return {};
+      },
+      auth: { admin: { getUserById, deleteUser: vi.fn() } },
+    });
+    removePortalAccess.mockResolvedValue({ ok: true, mode: "revoked_role", remainingRoles: ["resident"] });
+    await deleteVendorAccount(dual(["vendor", "resident"]) as never, "user-self");
+    expect(cancelNumberSubscription).toHaveBeenLastCalledWith(expect.anything(), "user-self", { role: "vendor" });
+    expect(purgeVendorPortalData).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ complete: false }));
+
+    // The last portal takes the whole subscription, whichever role bought it.
+    await deleteVendorAccount(dual(["vendor"]) as never, "user-self");
+    expect(cancelNumberSubscription).toHaveBeenLastCalledWith(expect.anything(), "user-self", {});
+
+    const resident = mockDb([{ role: "resident" }, { role: "vendor" }]);
+    await deleteResidentAccount(resident as never, { email: "dual@test.com", purgeData: true });
+    expect(cancelNumberSubscription).toHaveBeenLastCalledWith(resident, "user-dual", { role: "resident" });
+    const only = mockDb([{ role: "resident" }]);
+    await deleteResidentAccount(only as never, { email: "dual@test.com", purgeData: true });
+    expect(cancelNumberSubscription).toHaveBeenLastCalledWith(only, "user-dual", {});
   });
 });

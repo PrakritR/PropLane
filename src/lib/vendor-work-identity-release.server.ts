@@ -4,6 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { releaseTwilioNumber } from "@/lib/twilio-provisioning";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { VENDOR_NUMBER_IDLE_RELEASE_DAYS } from "@/lib/vendor-work-number";
+import { isNumberSubscriptionEnabled, NUMBER_LAPSED_RELEASE_DAYS } from "@/lib/number-subscription/constants";
+import { numberServiceEntitled } from "@/lib/number-subscription/subscription.server";
 
 /** Bounded account-deletion cleanup. Capacity stays reserved until this writes released. */
 export async function releaseQueuedVendorWorkIdentities(db: SupabaseClient, limit = 20): Promise<{ released: number; failed: number }> {
@@ -119,7 +121,7 @@ export async function releaseIdleVendorWorkNumbers(
   let released = 0;
   let failed = 0;
   let active = 0;
-  for (const row of (data ?? []) as { id: string; phone_number_sid: string }[]) {
+  for (const row of (data ?? []) as { id: string; vendor_user_id: string; phone_number_sid: string }[]) {
     const { data: usage, error: usageError } = await db.from("vendor_work_identity_usage_events")
       .select("id").eq("identity_id", row.id).gte("created_at", cutoff).limit(1);
     if (usageError) throw new Error(usageError.message);
@@ -128,27 +130,83 @@ export async function releaseIdleVendorWorkNumbers(
     const { data: conversations, error: conversationError } = await db.from("vendor_work_number_conversations")
       .select("id").eq("identity_id", row.id).gte("last_activity_at", cutoff).limit(1);
     if (!conversationError && (conversations ?? []).length > 0) { active += 1; continue; }
-    const { data: claimed, error: claimError } = await db.from("vendor_work_identities")
-      .update({ sms_state: "disabled", sms_send_ready: false, sms_receive_ready: false, updated_at: now.toISOString() })
-      .eq("id", row.id).eq("sms_state", "ready").eq("phone_number_sid", row.phone_number_sid).select("id").maybeSingle();
-    if (claimError) throw new Error(claimError.message);
-    if (!claimed) continue;
-    const ok = isDryRunSid(row.phone_number_sid) ? true : await release(row.phone_number_sid).catch(() => false);
-    if (ok) {
-      const { error: resetError } = await db.from("vendor_work_identities").update({
-        phone_number: null, phone_number_sid: null, messaging_service_sid: null, carrier_ready: false,
-        sms_registration_state: "not_submitted", sms_state: "not_started", attachment_state: "not_started",
-        quarantined_at: null, quarantine_reason: null, last_error: null, updated_at: now.toISOString(),
-      }).eq("id", row.id);
-      if (resetError) throw new Error(resetError.message);
-      released += 1;
-    } else {
-      failed += 1;
-      const { error: holdError } = await db.from("vendor_work_identities")
-        .update({ sms_state: "reconciling", quarantined_at: now.toISOString(), quarantine_reason: "idle_release_unconfirmed", updated_at: now.toISOString() })
-        .eq("id", row.id);
-      if (holdError) throw new Error(holdError.message);
-    }
+    // PropLane Number (flag on): a vendor who is paying for the number keeps it however quiet it is.
+    if (isNumberSubscriptionEnabled() && (await numberServiceEntitled(row.vendor_user_id, db))) { active += 1; continue; }
+    const outcome = await claimThenReleaseVendorNumber(db, row, now, release, "idle_release_unconfirmed");
+    if (outcome === "released") released += 1;
+    else if (outcome === "failed") failed += 1;
   }
   return { released, failed, active };
+}
+
+/**
+ * Take one ready number out of service and give it back to the provider: a conditional update takes the row out
+ * of `ready` first (so two runs never remove twice), then the provider remove runs, and a remove that cannot be
+ * confirmed leaves the row `reconciling` (never re-bought, never freed). `skipped` = another run got there first.
+ */
+async function claimThenReleaseVendorNumber(
+  db: SupabaseClient,
+  row: { id: string; phone_number_sid: string },
+  now: Date,
+  release: (sid: string) => Promise<boolean>,
+  unconfirmedReason: string,
+): Promise<"released" | "failed" | "skipped"> {
+  const { data: claimed, error: claimError } = await db.from("vendor_work_identities")
+    .update({ sms_state: "disabled", sms_send_ready: false, sms_receive_ready: false, updated_at: now.toISOString() })
+    .eq("id", row.id).eq("sms_state", "ready").eq("phone_number_sid", row.phone_number_sid).select("id").maybeSingle();
+  if (claimError) throw new Error(claimError.message);
+  if (!claimed) return "skipped";
+  const ok = isDryRunSid(row.phone_number_sid) ? true : await release(row.phone_number_sid).catch(() => false);
+  if (ok) {
+    const { error: resetError } = await db.from("vendor_work_identities").update({
+      phone_number: null, phone_number_sid: null, messaging_service_sid: null, carrier_ready: false,
+      sms_registration_state: "not_submitted", sms_state: "not_started", attachment_state: "not_started",
+      quarantined_at: null, quarantine_reason: null, last_error: null, updated_at: now.toISOString(),
+    }).eq("id", row.id);
+    if (resetError) throw new Error(resetError.message);
+    return "released";
+  }
+  const { error: holdError } = await db.from("vendor_work_identities")
+    .update({ sms_state: "reconciling", quarantined_at: now.toISOString(), quarantine_reason: unconfirmedReason, updated_at: now.toISOString() })
+    .eq("id", row.id);
+  if (holdError) throw new Error(holdError.message);
+  return "failed";
+}
+
+/**
+ * PropLane Number (flag on): a vendor whose subscription has been `canceled` or `incomplete` for more than 30
+ * days loses the NUMBER (the email, the identity row and the history stay). While lapsed the number is already
+ * paused (no outbound, no AI; managers' texts fall back to the vendor's own phone). The lapse clock is the
+ * subscription row's `updated_at`, which Stripe's cancellation writes and nothing else touches afterwards.
+ * Re-checks entitlement right before the remove, so a vendor who just re-subscribed keeps the number.
+ * A vendor with a number from before the flag and NO subscription row is not "lapsed" and is left to the idle rule.
+ */
+export async function releaseLapsedVendorWorkNumbers(
+  db: SupabaseClient,
+  options: { now?: Date; days?: number; limit?: number; release?: (sid: string) => Promise<boolean> } = {},
+): Promise<{ released: number; failed: number; kept: number }> {
+  if (!isNumberSubscriptionEnabled()) return { released: 0, failed: 0, kept: 0 };
+  const now = options.now ?? new Date();
+  const cutoff = new Date(now.getTime() - (options.days ?? NUMBER_LAPSED_RELEASE_DAYS) * 86_400_000).toISOString();
+  const release = options.release ?? releaseTwilioNumber;
+  const { data: lapsed, error } = await db.from("number_subscriptions")
+    .select("owner_user_id")
+    .eq("owner_role", "vendor").in("status", ["canceled", "incomplete"]).lt("updated_at", cutoff)
+    .order("updated_at", { ascending: true }).limit(Math.max(1, Math.min(options.limit ?? 20, 50)));
+  if (error) throw new Error(error.message);
+  let released = 0;
+  let failed = 0;
+  let kept = 0;
+  for (const owner of (lapsed ?? []) as { owner_user_id: string }[]) {
+    const { data: identity, error: identityError } = await db.from("vendor_work_identities")
+      .select("id,phone_number_sid").eq("vendor_user_id", owner.owner_user_id).eq("sms_state", "ready").not("phone_number_sid", "is", null).maybeSingle();
+    if (identityError) throw new Error(identityError.message);
+    const row = identity as { id: string; phone_number_sid: string } | null;
+    if (!row) continue;
+    if (await numberServiceEntitled(owner.owner_user_id, db)) { kept += 1; continue; }
+    const outcome = await claimThenReleaseVendorNumber(db, row, now, release, "lapsed_release_unconfirmed");
+    if (outcome === "released") released += 1;
+    else if (outcome === "failed") failed += 1;
+  }
+  return { released, failed, kept };
 }

@@ -14,7 +14,16 @@ import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
-import { resolveVendorSettingsTab } from "@/lib/portals/vendor-settings-pages";
+import { resolveVendorSettingsTab, vendorSettingsMovedHref } from "@/lib/portals/vendor-settings-pages";
+import {
+  isVendorDocumentRouteTab,
+  isVendorIncomingSegment,
+  isVendorOutgoingSegment,
+  vendorDocumentsHref,
+  vendorIncomingHref,
+  vendorMovedMoneyPath,
+  vendorOutgoingHref,
+} from "@/lib/vendor-money-routes";
 import { resolveSettingsRedirectHubTab } from "@/lib/portal-settings-section";
 import type { PortalPanels } from "@/lib/render-portal-section/panels";
 import type { Crumb } from "@/components/layout/breadcrumbs";
@@ -279,7 +288,7 @@ export async function renderPortalSectionWith(
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
     VendorFinancesPanel, VendorBalancePanel, VendorWithdrawalDetail, VendorRefundsPanel,
     VendorStatementsPanel, VendorTaxPanel, VendorDocumentsPanel, VendorSettingsPanel,
-    VendorReviewsPanel, ManagerPortalPageShell, loadManagerAllServicesPanel, loadManagerTaskList,
+    VendorOutgoingPaymentsPanel, VendorFinancesOverview, VendorReviewsPanel, ManagerPortalPageShell, loadManagerAllServicesPanel, loadManagerTaskList,
     loadManagerTours, loadManagerBookings, loadManagerApplications, loadManagerCommunication,
     loadManagerFormsPage, loadManagerProperties, loadManagerResidents, loadManagerVendorsPanel,
     loadManagerOutgoingInvoicesPanel, loadPortalCalendar, loadResidentServicesPanel,
@@ -434,8 +443,25 @@ export async function renderPortalSectionWith(
     redirect(legacyTaskListSectionRedirectPath(def.basePath, tabParts));
   }
 
+  // Money group (vendor-portal-ia-1007): Incoming payments (`payments`) · Outgoing payments
+  // (`outgoing`) · Finances · Documents. Old URLs land first, before any section lookup.
+  if (kind === "vendor") {
+    const moved = vendorMovedMoneyPath(def.basePath, section, tabParts, firstSearchParam(searchParams, "tab"));
+    if (moved) redirect(moved);
+  }
   if (kind === "vendor" && section === "payments") {
-    redirect(`${def.basePath}/financials/income`);
+    if (tabParts && tabParts.length > 1) notFound();
+    const segment = tabParts?.[0];
+    if (!segment) redirect(vendorIncomingHref(def.basePath));
+    if (!isVendorIncomingSegment(segment)) notFound();
+    return <VendorFinancesPanel tabId="income" basePath={def.basePath} segment={segment} />;
+  }
+  if (kind === "vendor" && section === "outgoing") {
+    if (tabParts && tabParts.length > 1) notFound();
+    const segment = tabParts?.[0];
+    if (!segment) redirect(vendorOutgoingHref(def.basePath));
+    if (!isVendorOutgoingSegment(segment)) notFound();
+    return <VendorOutgoingPaymentsPanel basePath={def.basePath} segment={segment} />;
   }
 
   if (kind === "vendor" && section === "tasks") {
@@ -557,6 +583,8 @@ export async function renderPortalSectionWith(
   if (kind === "vendor" && section === "settings") {
     if (tabParts && tabParts.length > 1) notFound();
     const raw = tabParts?.[0] ?? firstSearchParam(searchParams, "tab");
+    const moved = vendorSettingsMovedHref(raw, def.basePath);
+    if (moved) redirect(moved);
     const tab = resolveVendorSettingsTab(raw);
     redirect(`${def.basePath}/profile${tab ? `?tab=${encodeURIComponent(tab)}` : ""}`);
   }
@@ -570,25 +598,24 @@ export async function renderPortalSectionWith(
   }
   if (kind === "vendor" && section === "profile") {
     if (tabParts?.length) notFound();
+    const movedTab = vendorSettingsMovedHref(firstSearchParam(searchParams, "tab"), def.basePath);
+    if (movedTab) redirect(movedTab);
     return <VendorSettingsPanel />;
   }
   if (kind === "vendor" && section === "reviews") {
-    // Top bar with sections (VD21, 2026-09-27) — a real routed tab, not a
-    // client-only toggle.
-    const { VENDOR_REVIEW_STATUS_TABS, isVendorReviewStatusTab } = await import("@/lib/vendor-reviews");
-    if (tabParts && tabParts.length > 1) notFound();
-    const raw = tabParts?.[0];
-    if (!raw) redirect(`${def.basePath}/${section}/${VENDOR_REVIEW_STATUS_TABS[0].id}`);
-    if (!isVendorReviewStatusTab(raw)) notFound();
-    return <VendorReviewsPanel tabId={raw} basePath={def.basePath} />;
+    // One list, no tabs: the retired /reviews/all, /needs-reply and /replied land on the bare section.
+    if (tabParts?.length) redirect(`${def.basePath}/${section}`);
+    return <VendorReviewsPanel basePath={def.basePath} />;
   }
   if (kind === "vendor" && section === "documents") {
-    // Status (All / On file / Missing) tabs and the tax/insurance/licensing
-    // category tabs are gone (VD16/VD17, 2026-09-27) — the vendor's own
-    // checklist is grouped by section inline instead. A stale bookmark or
-    // emailed link to any old segment still lands, on the bare section.
-    if (tabParts?.length) redirect(`${def.basePath}/${section}`);
-    return <VendorDocumentsPanel basePath={def.basePath} />;
+    // Tax · Business license · Insurance · Statements · From managers. The old bare
+    // section and any retired segment (`/documents/licensing`) land on a real tab.
+    if (!tabParts?.length) redirect(vendorDocumentsHref(def.basePath));
+    if (tabParts.length > 1) notFound();
+    const tab = tabParts[0]!;
+    if (tab === "licensing") redirect(vendorDocumentsHref(def.basePath, "license"));
+    if (!isVendorDocumentRouteTab(tab)) redirect(vendorDocumentsHref(def.basePath));
+    return <VendorDocumentsPanel basePath={def.basePath} tabId={tab} />;
   }
 
   const meta = findSection(def, section);
@@ -1898,23 +1925,12 @@ export async function renderPortalSectionWith(
   }
 
   if (kind === "vendor" && section === "calendar") {
-    const {
-      parseVendorCalendarViewTab,
-      VENDOR_CALENDAR_VIEW_TABS,
-      vendorCalendarViewHref,
-      DEFAULT_VENDOR_CALENDAR_VIEW,
-    } = await import("@/lib/portal-detail-routes");
-    if (tabParts && tabParts.length > 1) notFound();
-    const raw = tabParts?.[0];
-    // "all" is the default and canonicalizes to the bare route. day/week/month/list
-    // were view-mode ids from the retired agenda-only calendar (C155); tasks/tours
-    // never existed for vendor. All fall back to the default tab rather than 404ing.
-    if (raw === "all" || raw === "list" || raw === "day" || raw === "week" || raw === "month" || raw === "tasks" || raw === "tours") {
-      redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
-    }
-    if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();
+    const { vendorCalendarHref } = await import("@/lib/portal-detail-routes");
+    // One view: every retired /calendar/<tab> (all, services, availability, day, week, month, list,
+    // tasks, tours) lands on the bare route instead of 404ing.
+    if (tabParts?.length) redirect(vendorCalendarHref(def.basePath));
     const PortalCalendar = await loadPortalCalendar();
-    return <PortalCalendar portal="vendor" vendorCalendarView={parseVendorCalendarViewTab(raw)} />;
+    return <PortalCalendar portal="vendor" />;
   }
 
   if (kind === "vendor" && section === "communication") {
@@ -1971,18 +1987,13 @@ export async function renderPortalSectionWith(
   if (kind === "vendor" && section === "financials") {
     if (!meta.tabs.length) notFound();
     if (!tabParts?.length) {
-      // Finances opens on Balance & payouts; `income` (Payments) is still its own tab.
-      redirect(`${def.basePath}/financials/balance`);
+      // Finances opens on Overview.
+      redirect(`${def.basePath}/financials/overview`);
     }
     const finTab = tabParts[0]!;
-    // "payouts" is a detail-only tab id: VD10/VD11 merged the visible Payouts
-    // door into Payments (`income`), so it never appears in `meta.tabs`, but a
-    // payout's own record page (`/financials/payouts/<id>[/<tab>]`, linked
-    // from the merged list and from a paid invoice with a matching
-    // `vendor_payouts` row) must still resolve rather than 404 on a tab the
-    // nav no longer shows.
-    // `invoices` joined it when Finances became five tabs: an invoice's own
-    // record page lives under it, the bare id is a door to Payments.
+    // "payouts" and "invoices" are detail-only ids: a payment's / an invoice's own record page
+    // (`/financials/payouts/<id>[/<tab>]`, `/financials/invoices/<id>[/<tab>]`) must still resolve
+    // although neither is a tab (the bare ids are doors, handled below).
     const DETAIL_ONLY_FINANCIALS_TABS = ["payouts", "invoices"] as const;
     if (
       !meta.tabs.some((tab) => tab.id === finTab) &&
@@ -1996,17 +2007,9 @@ export async function renderPortalSectionWith(
       // (PLAN-0920-1058, area 1c).
       if (tabParts.length > 3) notFound();
       if (tabParts.length === 1) {
-        // The bare `payouts` id is a door to Balance & payouts (it used to open
-        // Settings → Payouts, which now keeps only bank accounts + schedule). A
-        // payment's own record below still renders here.
-        if (finTab === "payouts") {
-          redirect(`${def.basePath}/financials/balance`);
-        }
-        // VD11 — Income and Invoices merged into one Payments list at the
-        // `income` tabId; the bare Invoices tab is a door to it, same shape
-        // as the Payouts redirect above. An invoice record below still
-        // renders here.
-        redirect(`${def.basePath}/financials/income`);
+        // The bare `payouts` id is a door to Balance & payouts; the bare `invoices` id (handled by
+        // `vendorMovedMoneyPath` above) to Incoming payments. A record below still renders here.
+        redirect(`${def.basePath}/financials/balance`);
       }
       if (tabParts.length === 2 && tabParts[1] === "pending") {
         redirect(`${def.basePath}/financials/${finTab}`);
@@ -2043,11 +2046,9 @@ export async function renderPortalSectionWith(
       }
       notFound();
     }
+    if (finTab === "overview") return <VendorFinancesOverview basePath={def.basePath} />;
     if (finTab === "balance") return <VendorBalancePanel basePath={def.basePath} />;
-    if (finTab === "refunds") return <VendorRefundsPanel basePath={def.basePath} />;
-    if (finTab === "statements") return <VendorStatementsPanel basePath={def.basePath} />;
-    if (finTab === "tax") return <VendorTaxPanel basePath={def.basePath} />;
-    return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
+    return <VendorRefundsPanel basePath={def.basePath} />;
   }
 
   if (!meta.tabs.length) {

@@ -121,13 +121,15 @@ async function getUserContext() {
   if (!user) return null;
   const db = createSupabaseServiceRoleClient();
   const { data: profile } = await db.from("profiles").select("email, full_name, role").eq("id", user.id).maybeSingle();
-  const admin = await isAdminUser(user.id);
-  const role = admin
-    ? "admin"
-    : await resolveResidentScopedActorRole(db, {
-        userId: user.id,
-        legacyRole: profile?.role ?? user.user_metadata?.role,
-      });
+  // The resident-portal tiebreak runs before the admin check: an account that
+  // also holds admin, acting in the resident portal, is the resident here. Read
+  // as admin, its own signature was judged a forgery of the resident's (403).
+  // The tiebreak only ever narrows to "resident", so admin keeps the admin portal.
+  const scopedRole = await resolveResidentScopedActorRole(db, {
+    userId: user.id,
+    legacyRole: profile?.role ?? user.user_metadata?.role,
+  });
+  const role = scopedRole === "resident" ? "resident" : (await isAdminUser(user.id)) ? "admin" : scopedRole;
   return {
     db,
     user: {

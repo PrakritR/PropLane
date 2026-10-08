@@ -213,6 +213,23 @@ describe("portal-lease-pipeline — admin", () => {
   });
 });
 
+describe("portal-lease-pipeline — admin+resident acting in the resident portal", () => {
+  beforeEach(() => {
+    PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
+    PROFILE_ROLES = ["resident", "vendor", "admin", "manager"];
+    PORTAL_ROLES = ["resident", "vendor", "admin", "manager"];
+    EFFECTIVE_ROLE = "resident";
+    isAdminUser.mockResolvedValue(true);
+  });
+
+  it("is the resident, not admin — reads only their own lease", async () => {
+    const { status, ids } = await loadLeases();
+    expect(status).toBe(200);
+    expect(fetchLeasesForManagerUser).not.toHaveBeenCalled();
+    expect(ids).toEqual([OWN_LEASE.id]);
+  });
+});
+
 describe("portal-lease-pipeline — unauthenticated", () => {
   beforeEach(() => {
     PROFILE = null;

@@ -2,8 +2,8 @@
 //
 // A manager's custom question is asked on the step its SECTION maps to, and
 // `validateRentalWizardStep` demands an answer on that same step. The renderer
-// only covered steps 2–9, so a required question tagged `household` (step 1) or
-// `review` (step 10) was validated but never drawn: Continue did nothing at all,
+// only covered some steps, so a required question tagged `household` or `review`
+// (steps 1 and 7 of the 7-step application) was validated but never drawn: Continue did nothing at all,
 // with no field to fill and no error text anywhere on screen. Household is the
 // FIRST step, so that application could not be started or edited past it.
 import { describe, expect, it, vi, afterEach } from "vitest";
@@ -64,6 +64,9 @@ function applicationRow() {
     roomChoice1: property.id,
     applyingAsGroup: "no",
     hasCosigner: "no",
+    // Step 1 is "Your lease": the dates are asked there too, so a saved application carries them.
+    leaseStart: "2099-01-01",
+    leaseEnd: "2099-06-30",
   };
   // The editor takes a manager application row; only these fields matter here.
   return {
@@ -102,7 +105,7 @@ afterEach(cleanup);
 describe("manager custom questions on the household step", () => {
   it("are asked on the step that validates them", () => {
     renderEditor();
-    expect(screen.getByText("Which lease are you applying for?")).toBeTruthy();
+    expect(screen.getByText("Your lease")).toBeTruthy();
     expect(screen.getByText(QUESTION_LABEL, { exact: false })).toBeTruthy();
   });
 
@@ -110,7 +113,7 @@ describe("manager custom questions on the household step", () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
     // Still on step 1 — the answer is genuinely required...
-    expect(screen.getByText("Which lease are you applying for?")).toBeTruthy();
+    expect(screen.getByText("Your lease")).toBeTruthy();
     // ...and the applicant can see why. Before the fix the question was absent,
     // so the button simply did nothing.
     expect(screen.getAllByText(QUESTION_LABEL, { exact: false }).length).toBeGreaterThan(1);
@@ -122,7 +125,7 @@ describe("manager custom questions on the household step", () => {
     expect(input).toBeTruthy();
     fireEvent.change(input!, { target: { value: "1" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    expect(screen.getByText("Signer Information")).toBeTruthy();
+    expect(screen.getByText("About you")).toBeTruthy();
   });
 });
 
@@ -130,7 +133,7 @@ describe("paired built-in question labels", () => {
   it("labels each employment input separately with the default questions", () => {
     const noop = () => {};
     render(<RentalWizardStepBody
-      step={6}
+      step={4}
       form={{ ...createInitialRentalWizardState(), propertyId: property.id }}
       errors={{}}
       mode="portal"
@@ -150,8 +153,8 @@ describe("every section's step can draw its questions", () => {
   it("no section maps to a step the wizard never renders them on", () => {
     // The render window is derived from this catalog, so a section added with a
     // step whose body does not render `stepManagerQuestions` is the only way to
-    // reopen the hole. These are the ten step bodies that render it.
-    const rendered = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    // reopen the hole. These are the seven steps of the application.
+    const rendered = new Set([1, 2, 3, 4, 5, 6, 7]);
     for (const section of RENTAL_APPLICATION_SECTIONS) {
       expect(rendered.has(section.wizardStep)).toBe(true);
     }
@@ -209,11 +212,11 @@ describe("personal application question order", () => {
 
 describe("configured address and reference question order", () => {
   it.each([
-    [4, "current_address", "currentStreet", "Current address to verify"],
-    [5, "previous_address", "prevStreet", "Prior address to verify"],
-    [6, "employment", "employer", "Current employer details"],
-    [7, "references", "ref1Name", "Primary reference details"],
-    [9, "consent", "digitalSignature", "Signed applicant name"],
+    [3, "current_address", "currentStreet", "Current address to verify"],
+    [3, "previous_address", "prevStreet", "Prior address to verify"],
+    [4, "employment", "employer", "Current employer details"],
+    [5, "references", "ref1Name", "Primary reference details"],
+    [7, "consent", "digitalSignature", "Signed applicant name"],
   ] as const)("interleaves a custom question before the first built-in on step %i", (step, section, firstKey, renamed) => {
     const standard = STANDARD_APPLICATION_FIELD_CATALOG.find((field) => field.section === section && field.wizardFormKeys[0] === firstKey)!;
     const custom = { id: `${section}-custom`, key: `${section}_note`, label: "Manager follow-up", type: "text" as const,
@@ -227,16 +230,20 @@ describe("configured address and reference question order", () => {
     const { container } = render(<RentalWizardStepBody step={step}
       form={{ ...createInitialRentalWizardState(), propertyId: property.id }} errors={{}} mode="portal"
       propertyOptions={[{ value: property.id, label: property.title }]} patch={noop} applicationConfigOverride={config}
+      applicationFeeGate={{ needsFee: false, paid: true, displayLabel: "", amount: 0 }}
       setPhone={noop} setLandlordPhone={noop} setPrevLandlordPhone={noop} setSupervisorPhone={noop}
       setRef1Phone={noop} setRef2Phone={noop} setSsn={noop} goToStep={noop} editFromReview={noop} />);
     const ids = [...container.querySelectorAll("[data-application-question-id]")].map((node) => node.getAttribute("data-application-question-id"));
-    expect(ids.slice(0, 2)).toEqual([custom.id, `std-${standard.standardKey}`]);
+    // Several sections can share a step, so find this section's pair rather than the first two on the screen.
+    const at = ids.indexOf(custom.id);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(ids.slice(at, at + 2)).toEqual([custom.id, `std-${standard.standardKey}`]);
     expect(container.textContent).toContain(renamed);
   });
 });
 
 describe("a conditional custom question on the additional-details step (N037)", () => {
-  // Step 8 (the untagged/`additional` section, DEFAULT_CUSTOM_FIELD_SECTION_ID)
+  // Step 6 (the untagged/`additional` section, DEFAULT_CUSTOM_FIELD_SECTION_ID)
   // rendered every field with a hand-rolled loop that never applied
   // `isCustomFieldHiddenByCondition`, unlike every other step's
   // `stepManagerQuestions` box. A "if yes, explain" follow-up always showed,
@@ -269,7 +276,7 @@ describe("a conditional custom question on the additional-details step (N037)", 
     };
     const noop = () => {};
     return {
-      step: 8,
+      step: 6,
       form: { ...createInitialRentalWizardState(), propertyId: property.id, customFieldAnswers },
       errors: {},
       mode: "portal",
@@ -316,13 +323,13 @@ describe("a background sync must not throw away the edit in progress", () => {
     const input = document.querySelector<HTMLInputElement>('[data-wizard-field="custom:cars_parked"] input');
     fireEvent.change(input!, { target: { value: "1" } });
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    expect(screen.getByText("Signer Information")).toBeTruthy();
+    expect(screen.getByText("About you")).toBeTruthy();
 
     // The reload runs in a microtask, so flush before judging.
     await act(async () => {
       rerender(editor(applicationRow()));
       await Promise.resolve();
     });
-    expect(screen.getByText("Signer Information")).toBeTruthy();
+    expect(screen.getByText("About you")).toBeTruthy();
   });
 });

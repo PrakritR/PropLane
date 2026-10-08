@@ -257,7 +257,7 @@ describe("validate-application-submit", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.step).toBe(10);
+      expect(result.step).toBe(7);
       expect(result.fieldErrors["custom:review-confirmation"]).toBe(
         "This box must be checked to continue.",
       );

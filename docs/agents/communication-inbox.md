@@ -346,8 +346,9 @@ conversations) plus the archive toggle. Invariants:
 - **A resident schedules from the thread composer, never from New message** —
   the reply composer carries the same clock tool as the manager's
   (`InboxComposerScheduleMenu` in `resident-inbox-panel`), while
-  `PortalMessageScheduleFields` stays `hidden` for `portal === "resident"` in
-  `inbox-scoped-compose-modal.tsx`. Scheduled rows stay cancel-only (no inline
+  the shared New message composer drops its schedule control for
+  `portal === "resident"` (`roleComposeCapabilities` in `src/lib/role-compose.ts`).
+  Scheduled rows stay cancel-only (no inline
   edit). The resident thread composer has no assistant strip or AI draft (the
   Ask PropLane pill in the top bar is the resident assistant, see
   [`../ai-assistant.md`](../ai-assistant.md)); `hideAssistantFab` on

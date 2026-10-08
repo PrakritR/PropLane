@@ -70,7 +70,6 @@ import {
 } from "@/lib/workspaces/selection";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
-import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { WhatProplaneSends } from "@/components/portal/what-proplane-sends";
@@ -458,7 +457,7 @@ export function PortalProfileClient({
     ];
     // Preferences and Notifications left manager Settings entirely (S019,
     // captain 2026-09-27: "simplify settings fully"): the assistant popup/dock
-    // choice moved onto the assistant itself (`AssistantDisplaySetting`),
+    // choice is gone (the side panel is the one assistant surface),
     // manager alert routing is fixed (portal + email, always), and appearance
     // has no other control worth a pane. Admin keeps this pane unchanged.
     if (variant !== "manager") {
@@ -789,7 +788,6 @@ export function PortalProfileClient({
                 </PortalSettingsGroup>
               </PortalSettingsSection>
             ) : null}
-            <AssistantDisplaySetting />
             <AssistantCustomInstructionsSetting role={variant} />
           </>
         );

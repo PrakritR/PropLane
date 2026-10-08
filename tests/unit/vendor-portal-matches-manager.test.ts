@@ -17,13 +17,14 @@ describe("vendor portal matches manager chrome", () => {
   it("labels Communication, not Inbox, and has no Payments nav section", () => {
     const communication = vendorPortal.sections.find((s) => s.section === "communication");
     expect(communication?.label).toBe("Communication");
-    expect(vendorPortal.sections.some((s) => s.section === "payments")).toBe(false);
+    // Money group: Incoming payments (`payments`), Outgoing payments (`outgoing`), Finances, Documents.
+    expect(vendorPortal.sections.find((s) => s.section === "payments")?.label).toBe("Incoming payments");
+    expect(vendorPortal.sections.find((s) => s.section === "outgoing")?.label).toBe("Outgoing payments");
     expect(vendorPortal.sections.some((s) => s.label === "Inbox")).toBe(false);
     const finances = vendorPortal.sections.find((s) => s.section === "financials");
     expect(finances?.label).toBe("Finances");
-    expect(finances?.tabs.map((t) => t.label)).toEqual(["Balance & payouts", "Payments", "Refunds", "Statements", "Tax info"]);
-    // `income` keeps its id so every old /vendor/financials/income link still lands on Payments.
-    expect(finances?.tabs.map((t) => t.id)).toEqual(["balance", "income", "refunds", "statements", "tax"]);
+    expect(finances?.tabs.map((t) => t.label)).toEqual(["Overview", "Balance & payouts", "Refunds"]);
+    expect(finances?.tabs.map((t) => t.id)).toEqual(["overview", "balance", "refunds"]);
   });
 
   it("native bar is Services · Calendar · Dashboard · Communication", () => {
@@ -73,8 +74,8 @@ describe("vendor portal matches manager chrome", () => {
   it("calendar and finance setup fold into the shared surfaces", () => {
     expect(read("src/components/portal/portal-calendar.tsx")).toContain('portal === "vendor"');
     expect(read("src/lib/render-portal-section.tsx")).toContain('portal="vendor"');
-    expect(read("src/lib/render-portal-section.tsx")).toContain("/financials/income");
-    expect(vendorLinkPaths().payments).toBe("/vendor/financials/income");
+    expect(read("src/lib/vendor-money-routes.ts")).toContain("/payments/");
+    expect(vendorLinkPaths().payments).toBe("/vendor/payments/pending");
   });
 
   it("has no Tasks nav and redirects /vendor/tasks to services", () => {
@@ -86,7 +87,7 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
   });
 
-  it("vendor calendar (C155 superseded, captain 2026-09-26) is the shared week-grid engine with All/Services/Availability tabs", () => {
+  it("vendor calendar (C155 superseded, captain 2026-09-26) is the manager studio grid in one view, no tabs", () => {
     const calendar = read("src/components/portal/vendor-calendar-panel.tsx");
     // The agenda-only redesign (C155) was reverted: the vendor Calendar is now
     // the same week-grid engine the manager Calendar uses, in `vendorViewer`
@@ -94,14 +95,17 @@ describe("vendor portal matches manager chrome", () => {
     expect(calendar).toContain("PortalCalendarPanels");
     expect(calendar).toContain("vendorViewer");
     expect(calendar).toContain("onVendorAvailabilityEdit");
-    expect(calendar).toContain("hideViewModeControl");
+    expect(calendar).toContain("studioGrid");
+    // No view-mode override and no kind tabs: Day / Week / Month / Agenda come from the grid itself.
+    expect(calendar).not.toContain("hideViewModeControl");
+    expect(calendar).not.toContain("VENDOR_CALENDAR_VIEW_TABS");
     expect(calendar).toContain("VendorCalendarIntegrationsAction");
     // Set-availability edits and removal both go through the one canonical
     // editor — clicking a painted block re-opens it rather than a bespoke
     // grid-level delete.
     expect(calendar).toContain("VendorAvailabilityEditor");
     expect(calendar).toContain("VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT");
-    expect(read("src/lib/portal-detail-routes.ts")).toContain('["all", "services", "availability"]');
+    expect(read("src/lib/portal-detail-routes.ts")).not.toContain('["all", "services", "availability"]');
     // The old "Flexible weekday" / "Add work" vendor-only chrome never
     // returns — those are vendorDayFlexibility/vendorCalendarActions, both
     // deliberately left unset here.
@@ -136,9 +140,9 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/components/portal/vendor-quote-wizard.tsx")).not.toContain("VendorAddChooser");
   });
 
-  it("documents uses the command bar and upload workspace", () => {
+  it("documents uses the Services-style tab band and upload workspace", () => {
     const docs = read("src/components/portal/vendor-documents-panel.tsx");
-    expect(docs).toContain("PortalListControlStack");
+    expect(docs).toContain("RecordTabBand");
     expect(docs).toContain("VendorUploadDocumentWorkspace");
     expect(docs).not.toContain("VENDOR_DOCUMENT_HINTS");
     expect(docs).not.toContain("TabNav");

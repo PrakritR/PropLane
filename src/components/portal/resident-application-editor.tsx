@@ -44,7 +44,7 @@ import {
   prevActiveWizardStep,
 } from "@/lib/wizard-step-nav";
 
-const EDIT_STEP_META = RENTAL_WIZARD_STEP_TITLES.slice(0, 11).map((title, index) => ({
+const EDIT_STEP_META = RENTAL_WIZARD_STEP_TITLES.map((title, index) => ({
   n: index + 1,
   title,
 }));
@@ -184,7 +184,7 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
       if (!canNavigateToWizardStep(n, maxStepReached)) return;
       setStep(n);
       setErrors({});
-      if (n === 3) setShowAvailabilityWarnings(false);
+      if (n === 1) setShowAvailabilityWarnings(false);
     },
     [maxStepReached],
   );
@@ -194,7 +194,7 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
       if (!canNavigateToWizardStep(n, maxStepReached)) return;
       setStep(n);
       setErrors({});
-      if (n === 3) setShowAvailabilityWarnings(false);
+      if (n === 1) setShowAvailabilityWarnings(false);
     },
     [maxStepReached],
   );
@@ -210,7 +210,7 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
   }, [form, step]);
 
   const validateAllPrior = useCallback(() => {
-    for (let s = 1; s <= 10; s++) {
+    for (let s = 1; s <= EDIT_STEP_COUNT; s++) {
       const e = validateRentalWizardStep(s, form);
       if (countValidationErrors(e) > 0) {
         setErrors(e);

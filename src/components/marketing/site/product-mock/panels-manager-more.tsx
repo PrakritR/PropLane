@@ -1,42 +1,28 @@
 "use client";
 
 /**
- * The four manager tabs the home page's other panels do not draw —
- * Properties, Residents, Calendar and Vendors — built from the same real
- * components the logged-in manager portal uses (`PortalPropertyRecordRow`,
- * `PortalApplicantRecordRow`, the calendar's own `CalendarTimeGrid` /
- * `CalendarMonthView` / `CalendarAgendaView`) and fed the one "Seattle Homes"
- * world in `fixtures.ts`. Static: tabs, search and the view switch work, the
- * ⋯ menus open, and nothing saves or fetches.
+ * The manager Properties and Calendar tabs the home page's other panels do not draw, built from the same
+ * real components the logged-in manager portal uses (`PortalPropertyRecordRow`, the calendar's own
+ * `CalendarTimeGrid` / `CalendarMonthView` / `CalendarAgendaView`) and fed the one "Seattle Homes" world in
+ * `fixtures.ts`. (Residents and Vendors live in `panels-manager-people.tsx`; the last line re-exports them.)
  *
- * Source of truth for tab names, header icons and row anatomy:
- * `pro-properties.tsx`, `pro-residents.tsx`, `portal-calendar.tsx`,
- * `pro-vendors-panel.tsx`.
+ * What a click opens is what the real page opens, drawn in `demo-popups-home.tsx` and loaded on demand:
+ *  - Properties: the round + is the New property wizard, the Share icon is "Send listing", a row is the
+ *    property's record page, and the row's ⋯ is that row's own menu (View, Edit, Share, Duplicate, Unlist
+ *    or Relist, Delete on a draft).
+ *  - Calendar: the + is a menu (New tour, New task, New service, Add availability, the week tools, Connect
+ *    Google Calendar) whose first four open the real pop-ups; an item on the grid is its tour / task / service
+ *    record page; the view switch is the underline Day / Week / Month / Agenda tabs of the toolbar row.
+ * Nothing saves or fetches: a primary only closes the pop-up and toasts "(sample)".
+ *
+ * Source of truth for tab names, header icons and row anatomy: `pro-house-properties-panel.tsx`,
+ * `portal-calendar.tsx`, `portal-calendar-panels.tsx`.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  CalendarClock,
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  FileCheck2,
-  Filter,
-  Home,
-  Mail,
-  MapPin,
-  Phone,
-  Settings,
-  Share2,
-  ShieldCheck,
-  Star,
-  TriangleAlert,
-  UserRound,
-  Users,
-  Wrench,
-} from "lucide-react";
-import { PortalApplicantRecordRow, PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, CircleOff, FileText, Home, Plug, Plus, Share2, TriangleAlert } from "lucide-react";
+import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import {
   CalendarAgendaView,
   CalendarMonthView,
@@ -44,23 +30,38 @@ import {
   type CalendarGridItem,
 } from "@/components/portal/manager-calendar-views";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CALENDAR_VIEW_TAB_LABELS } from "@/lib/portal-detail-routes";
 import { type GridBand, type GridWindow } from "@/lib/calendar-grid";
 import {
   CALENDAR_NOW_MIN,
   CALENDAR_TODAY,
   CALENDAR_WEEK,
-  CATALOG_VENDORS,
   type CalendarFixtureItem,
   type PropertyFixtureRow,
-  type ResidentFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
-import { countBy, FixtureListScreen, FixtureMenuItems, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
-import { FixtureField, FixtureSheet, PortalSidebarFixture, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { countBy, FixtureListScreen, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
+import { DemoFilterSheet } from "@/components/marketing/site/product-mock/demo-filter";
+import { DEMO_PAGE_CLASS, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import { useRowSelection } from "@/components/marketing/site/product-mock/row-selection";
+import {
+  DemoAddServicePopup,
+  DemoAddTaskPopup,
+  DemoAddTourPopup,
+  DemoAvailabilityPopup,
+  DemoCalendarFilterFields,
+  DemoCalendarRecord,
+  DemoNewPropertyPopup,
+  DemoPropertyRecord,
+  DemoShareListingPopup,
+} from "@/components/marketing/site/product-mock/demo-popups-lazy-home";
+import { HOME_EXTRA_PROPERTIES, homePropertyTitle } from "@/components/marketing/site/product-mock/fixtures-popups-home";
 import { worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
 
 /* ───────────────────────────── Properties ───────────────────────────── */
 
+/** The real tabs (`MANAGER_STAGES` in `pro-house-properties-panel.tsx`): All, Listed, Unlisted, Drafts. */
 const PROPERTY_TABS = [
   { id: "all", label: "All" },
   { id: "listed", label: "Listed" },
@@ -77,18 +78,102 @@ function PropertyTile() {
   );
 }
 
+type PropertyRow = PropertyFixtureRow & { attention?: string };
+
+/**
+ * The real Properties page: All · Listed · Unlisted · Drafts with counts, the Share listing link icon, the
+ * round + (New property wizard), rows that open the property's record page, and a ⋯ that shows only what
+ * applies to that row.
+ */
 export function PropertiesPanel({ story }: { story?: DemoStory } = {}) {
-  const { properties: PROPERTY_ROWS } = worldFor(story);
+  const { properties: worldProperties } = worldFor(story);
+  const PROPERTY_ROWS = useMemo<PropertyRow[]>(() => [...worldProperties, ...HOME_EXTRA_PROPERTIES], [worldProperties]);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<PropertyFixtureRow | null>(null);
+  const selection = useRowSelection();
+  const [record, setRecord] = useState<PropertyRow | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<PropertyRow | null>(null);
+  const [sharing, setSharing] = useState<string[] | null>(null);
   const { show, node: toastNode } = useFixtureToast();
 
   const counts = useMemo(() => {
     const c = countBy(PROPERTY_ROWS, (r) => r.stage, ["listed", "unlisted", "draft"]);
     return { all: PROPERTY_ROWS.length, ...c };
   }, [PROPERTY_ROWS]);
-  const rows = PROPERTY_ROWS.filter((r) => (tab === "all" || r.stage === tab) && matchesSearch(search, r.title, r.street, r.neighborhood));
+  const rows = PROPERTY_ROWS.filter(
+    (r) => (tab === "all" || r.stage === tab) && matchesSearch(search, homePropertyTitle(r), r.street, r.neighborhood),
+  );
+  const selectedRow = PROPERTY_ROWS.find((r) => r.id === selection.only);
+
+  const overlays = (
+    <>
+      {creating ? (
+        <DemoNewPropertyPopup
+          onClose={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false);
+            show("Property created (sample)");
+          }}
+        />
+      ) : null}
+      {editing ? (
+        <DemoNewPropertyPopup
+          editing={editing}
+          onClose={() => setEditing(null)}
+          onCreated={() => {
+            setEditing(null);
+            show("Property saved (sample)");
+          }}
+        />
+      ) : null}
+      {sharing ? (
+        <DemoShareListingPopup
+          properties={PROPERTY_ROWS}
+          presetIds={sharing}
+          onClose={() => setSharing(null)}
+          onSent={() => {
+            setSharing(null);
+            show("Listing sent (sample)");
+          }}
+        />
+      ) : null}
+      {toastNode}
+    </>
+  );
+
+  if (record) {
+    return (
+      <ProductWindow path={`/portal/properties/${record.stage === "draft" ? "drafts" : record.stage}/${record.id}`}>
+        <PortalSidebarFixture active="properties" />
+        <div className={DEMO_PAGE_CLASS}>
+          <DemoPropertyRecord
+            row={record}
+            onBack={() => setRecord(null)}
+            onEdit={() => setEditing(record)}
+            onShare={() => setSharing([record.id])}
+            onToast={show}
+          />
+        </div>
+        {overlays}
+      </ProductWindow>
+    );
+  }
+
+  const rowMenu = (row: PropertyRow) => (
+    <>
+      <DropdownMenuItem onSelect={() => setRecord(row)}>Edit</DropdownMenuItem>
+      {row.stage === "listed" ? <DropdownMenuItem onSelect={() => setSharing([row.id])}>Share</DropdownMenuItem> : null}
+      <DropdownMenuItem onSelect={() => show("Property duplicated (sample)")}>Duplicate</DropdownMenuItem>
+      {row.stage === "listed" ? <DropdownMenuItem onSelect={() => show("Unlisted (sample)")}>Unlist</DropdownMenuItem> : null}
+      {row.stage === "unlisted" ? <DropdownMenuItem onSelect={() => show("Relisted (sample)")}>Relist</DropdownMenuItem> : null}
+      {row.stage === "draft" ? (
+        <DropdownMenuItem className="text-danger" onSelect={() => show("Draft deleted (sample)")}>
+          Delete
+        </DropdownMenuItem>
+      ) : null}
+    </>
+  );
 
   return (
     <FixtureListScreen
@@ -97,132 +182,66 @@ export function PropertiesPanel({ story }: { story?: DemoStory } = {}) {
       title="Properties"
       tabs={PROPERTY_TABS.map((t) => ({ ...t, count: counts[t.id as keyof typeof counts] }))}
       activeId={tab}
-      onTab={setTab}
+      onTab={(id) => {
+        setTab(id);
+        selection.clear();
+      }}
       search={search}
       onSearch={setSearch}
       searchPlaceholder="Search properties"
-      actions={<PortalIconAction icon={Share2} label="Share listing link" onClick={() => show("Listing link copied")} />}
-      primary={{ label: "Add property", onClick: () => show("Add property") }}
+      actions={<PortalIconAction icon={Share2} label="Share listing link" onClick={() => setSharing([])} />}
+      primary={{ label: "Add property", onClick: () => setCreating(true) }}
       isEmpty={rows.length === 0}
       emptyTitle="Nothing in Seattle Homes yet"
       emptySection="properties"
-      menu={<FixtureMenuItems toast={show} items={["Edit", "Share", "Duplicate", "Unlist"]} />}
-      overlay={
-        <>
-          <FixtureSheet open={!!selected} title={selected?.title ?? ""} onClose={() => setSelected(null)} primaryLabel="Edit" onPrimary={() => { show("Property saved (sample)"); setSelected(null); }}>
-            {selected ? (
-              <>
-                <FixtureField label="Address" value={`${selected.street} · ${selected.neighborhood}`} />
-                <FixtureField label="Rooms" value={`${selected.rooms} ${selected.rooms === 1 ? "room" : "rooms"}`} />
-                <FixtureField label="Listing" value={selected.stage === "listed" ? "Listed" : selected.stage === "unlisted" ? "Off the market" : "Draft"} />
-              </>
-            ) : null}
-          </FixtureSheet>
-          {toastNode}
-        </>
-      }
+      menu={selectedRow ? rowMenu(selectedRow) : undefined}
+      onBulkClear={selection.clear}
+      overlay={overlays}
     >
-      {rows.map((p) => (
-        <PortalPropertyRecordRow
-          key={p.id}
-          title={p.title}
-          address={`${p.street} · ${p.neighborhood}`}
-          meta={{ rooms: p.rooms }}
-          facts={p.attention ? <PortalRowFact icon={TriangleAlert}>{p.attention}</PortalRowFact> : undefined}
-          leading={<PropertyTile />}
-          onSelectedChange={() => undefined}
-          onOpen={() => setSelected(p)}
-          dataAttr="property-list-row"
-        />
-      ))}
-    </FixtureListScreen>
-  );
-}
-
-/* ───────────────────────────── Residents ───────────────────────────── */
-
-const RESIDENT_TABS = [
-  { id: "potential", label: "Potential" },
-  { id: "current", label: "Current" },
-  { id: "past", label: "Past" },
-];
-
-export function ResidentsPanel({ story }: { story?: DemoStory } = {}) {
-  const { residents: RESIDENT_ROWS, story: progress } = worldFor(story);
-  const jordan = progress.applicationSubmitted ? (progress.applicationApproved && progress.leaseStep === 3 ? "current" : "potential") : null;
-  const [tab, setTab] = useState<ResidentFixtureRow["tab"]>(jordan ?? "current");
-  useEffect(() => {
-    if (jordan !== null) setTab(jordan);
-  }, [jordan]);
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<ResidentFixtureRow | null>(null);
-  const { show, node: toastNode } = useFixtureToast();
-
-  const counts = useMemo(() => countBy(RESIDENT_ROWS, (r) => r.tab, ["potential", "current", "past"]), [RESIDENT_ROWS]);
-  const rows = RESIDENT_ROWS.filter((r) => r.tab === tab && matchesSearch(search, r.name, r.email, r.place));
-
-  return (
-    <FixtureListScreen
-      path="/portal/residents/current"
-      sidebar={<PortalSidebarFixture active="residents" />}
-      title="Residents"
-      tabs={RESIDENT_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
-      activeId={tab}
-      onTab={(id) => setTab(id as ResidentFixtureRow["tab"])}
-      search={search}
-      onSearch={setSearch}
-      searchPlaceholder="Search residents"
-      actions={<PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />}
-      primary={{ label: "Add resident", onClick: () => show("Add resident") }}
-      isEmpty={rows.length === 0}
-      emptyTitle="No residents here"
-      emptySection="residents"
-      menu={<FixtureMenuItems toast={show} items={tab === "potential" ? ["Approve", "Remind to finish", "Edit"] : ["Edit"]} />}
-      overlay={
-        <>
-          <FixtureSheet open={!!selected} title={selected?.name ?? ""} onClose={() => setSelected(null)}>
-            {selected ? (
-              <>
-                <FixtureField label="Home" value={selected.place} />
-                <FixtureField label="Email" value={selected.email} />
-                <FixtureField label="Lease start" value={selected.leaseStart} />
-              </>
-            ) : null}
-          </FixtureSheet>
-          {toastNode}
-        </>
-      }
-    >
-      {rows.map((r) => (
-        <PortalApplicantRecordRow
-          key={r.id}
-          name={r.name}
-          address={r.place}
-          facts={
+      {rows.map((p) => {
+        const draftFact = p.stage === "draft" && tab === "all";
+        const facts =
+          draftFact || p.stage === "unlisted" || p.attention ? (
             <>
-              <PortalRowFact icon={Mail}>{r.email}</PortalRowFact>
-              {r.shared ? <PortalRowFact icon={Users}>{r.shared}</PortalRowFact> : null}
-              <PortalRowFact icon={CalendarDays}>{r.leaseStart}</PortalRowFact>
-              {r.status ? <span className="truncate">{r.status}</span> : null}
+              {draftFact ? (
+                <PortalRowFact icon={FileText} srLabel="Stage">
+                  Draft
+                </PortalRowFact>
+              ) : null}
+              {p.stage === "unlisted" ? (
+                <PortalRowFact icon={CircleOff} srLabel="Stage">
+                  Off the market
+                </PortalRowFact>
+              ) : null}
+              {p.attention ? (
+                <PortalRowFact icon={TriangleAlert} srLabel="Needs you">
+                  {p.attention}
+                </PortalRowFact>
+              ) : null}
             </>
-          }
-          onSelectedChange={() => undefined}
-          onOpen={() => setSelected(r)}
-          dataAttr="resident-list-row"
-        />
-      ))}
+          ) : undefined;
+        return (
+          <PortalPropertyRecordRow
+            key={p.id}
+            title={homePropertyTitle(p)}
+            address={`${p.street} · ${p.neighborhood}`}
+            meta={{ rooms: p.rooms }}
+            facts={facts}
+            leading={<PropertyTile />}
+            checked={selection.isChecked(p.id)}
+            onSelectedChange={(checked) => selection.set(p.id, checked)}
+            onOpen={() => setRecord(p)}
+            dataAttr="property-list-row"
+          />
+        );
+      })}
     </FixtureListScreen>
   );
 }
 
 /* ───────────────────────────── Calendar ───────────────────────────── */
 
-const CALENDAR_TABS = [
-  { id: "all", label: "All" },
-  { id: "tours", label: "Tours" },
-  { id: "services", label: "Services" },
-  { id: "tasks", label: "Tasks" },
-];
+const CALENDAR_TABS = (["all", "tours", "services", "tasks"] as const).map((id) => ({ id, label: CALENDAR_VIEW_TAB_LABELS[id] }));
 const KIND_BY_TAB: Record<string, CalendarFixtureItem["kind"] | null> = { all: null, tours: "tour", services: "service", tasks: "task" };
 
 const VIEW_OPTIONS = [
@@ -261,20 +280,28 @@ function toGridItem(item: CalendarFixtureItem): CalendarGridItem {
   };
 }
 
-function clock(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  const hour = h % 12 === 0 ? 12 : h % 12;
-  return `${hour}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
-}
+type CalendarPopup = "tour" | "task" | "service" | "availability" | null;
 
+const NAV_BUTTON_CLASS =
+  "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-accent hover:text-foreground active:scale-95";
+
+/**
+ * The real Calendar page: All · Tours · Services · Tasks, Filter (Property), Integrations and the + menu in
+ * the header; the Day · Week · Month · Agenda underline tabs at the left of the toolbar row and Today, the
+ * chevrons and the range at the right; the real grid; and an item opens its record page.
+ */
 export function CalendarPanel({ story }: { story?: DemoStory } = {}) {
-  const { calendar: CALENDAR_ITEMS } = worldFor(story);
+  const { calendar: CALENDAR_ITEMS, properties } = worldFor(story);
   const [tab, setTab] = useState("all");
   const [view, setView] = useState("week");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<CalendarGridItem | null>(null);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [record, setRecord] = useState<CalendarFixtureItem | null>(null);
+  const [popup, setPopup] = useState<CalendarPopup>(null);
   const { show, node: toastNode } = useFixtureToast();
+
+  const propertyNames = useMemo(() => properties.map((p) => p.title), [properties]);
+  const propertyOptions = useMemo(() => propertyNames.map((name) => ({ id: name, label: name })), [propertyNames]);
 
   const counts = useMemo(() => {
     const c = countBy(CALENDAR_ITEMS, (r) => r.kind, ["tour", "service", "task"]);
@@ -283,8 +310,10 @@ export function CalendarPanel({ story }: { story?: DemoStory } = {}) {
 
   const items = useMemo(() => {
     const kind = KIND_BY_TAB[tab];
-    return CALENDAR_ITEMS.filter((i) => (!kind || i.kind === kind) && matchesSearch(search, i.title, i.place)).map(toGridItem);
-  }, [CALENDAR_ITEMS, tab, search]);
+    return CALENDAR_ITEMS.filter(
+      (i) => (!kind || i.kind === kind) && (!propertyFilters.length || propertyFilters.includes(i.place)) && matchesSearch(search, i.title, i.place),
+    ).map(toGridItem);
+  }, [CALENDAR_ITEMS, tab, search, propertyFilters]);
 
   // Weekdays are open 9 to 5 by default; Saturday carries a typed tour window.
   const bandsByDate = useMemo(() => {
@@ -299,9 +328,72 @@ export function CalendarPanel({ story }: { story?: DemoStory } = {}) {
   }, [tab]);
 
   const dates = view === "day" ? [CALENDAR_TODAY] : CALENDAR_WEEK;
-  const open = (item: CalendarGridItem) => setSelected(item);
+  const open = (item: CalendarGridItem) => {
+    const found = CALENDAR_ITEMS.find((i) => i.id === item.id);
+    if (found) setRecord(found);
+  };
   const noop = () => undefined;
   const rangeLabel = view === "day" ? "Thu, Sep 25" : view === "month" ? "September 2025" : "Sep 22 - Sep 28";
+  const navUnit = view === "agenda" ? "week" : view;
+
+  const overlays = (
+    <>
+      {popup === "tour" ? (
+        <DemoAddTourPopup
+          properties={propertyNames}
+          onClose={() => setPopup(null)}
+          onAdded={() => {
+            setPopup(null);
+            show("Tour added (sample)");
+          }}
+        />
+      ) : null}
+      {popup === "task" ? (
+        <DemoAddTaskPopup
+          properties={propertyNames}
+          onClose={() => setPopup(null)}
+          onAdded={() => {
+            setPopup(null);
+            show("Task added (sample)");
+          }}
+        />
+      ) : null}
+      {popup === "service" ? (
+        <DemoAddServicePopup
+          properties={propertyNames}
+          onClose={() => setPopup(null)}
+          onAdded={() => {
+            setPopup(null);
+            show("Service added (sample)");
+          }}
+        />
+      ) : null}
+      {popup === "availability" ? (
+        <DemoAvailabilityPopup
+          properties={propertyOptions}
+          onClose={() => setPopup(null)}
+          onSaved={() => {
+            setPopup(null);
+            show("Availability added (sample)");
+          }}
+        />
+      ) : null}
+      {toastNode}
+    </>
+  );
+
+  if (record) {
+    const section = record.kind === "tour" ? "tours" : record.kind === "task" ? "tasks" : "services";
+    return (
+      <ProductWindow path={`/portal/${section}/${record.id}`}>
+        <PortalSidebarFixture active="calendar" />
+        <div className={DEMO_PAGE_CLASS}>
+          <DemoCalendarRecord item={record} onBack={() => setRecord(null)} onToast={show} />
+        </div>
+        {overlays}
+      </ProductWindow>
+    );
+  }
 
   return (
     <FixtureListScreen
@@ -316,52 +408,94 @@ export function CalendarPanel({ story }: { story?: DemoStory } = {}) {
       searchPlaceholder="Search calendar"
       actions={
         <>
-          <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
-          <PortalIconAction icon={CalendarClock} label="Availability" onClick={() => show("Availability")} />
+          <DemoFilterSheet
+            activeCount={propertyFilters.length ? 1 : 0}
+            compactPanel
+            commandStripTrigger
+            dropdownAlign="start"
+            filterFieldCount={1}
+            mobileFlushBody
+            onReset={() => setPropertyFilters([])}
+            dataAttr="calendar-filter-sheet-open"
+          >
+            <DemoCalendarFilterFields
+              propertyOptions={propertyOptions}
+              propertyFilters={propertyFilters}
+              onPropertyFiltersChange={setPropertyFilters}
+              dataAttr="calendar-filter-property"
+            />
+          </DemoFilterSheet>
+          <PortalIconAction icon={Plug} label="Integrations" data-attr="calendar-integrations" onClick={() => show("Integrations (sample)")} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <PortalPrimaryIconAction icon={Plus} label="Add" data-attr="calendar-create-menu" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" data-attr="calendar-create-menu-content">
+              <DropdownMenuItem data-attr="calendar-create-tour" onSelect={() => setPopup("tour")}>
+                New tour
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="calendar-create-task" onSelect={() => setPopup("task")}>
+                New task
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="calendar-create-service" onSelect={() => setPopup("service")}>
+                New service
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="calendar-add-availability" onSelect={() => setPopup("availability")}>
+                Add availability
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem data-attr="calendar-copy-previous-week" onSelect={() => show("Previous week copied (sample)")}>
+                Copy previous week
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="calendar-clear-week" onSelect={() => show("Week cleared (sample)")}>
+                Clear week
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="calendar-copy-to-houses" onSelect={() => show("Copied to houses (sample)")}>
+                Copy to houses
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem data-attr="calendar-connect-google" onSelect={() => show("Connect Google Calendar (sample)")}>
+                Connect Google Calendar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </>
       }
-      primary={{ label: "Add event", onClick: () => show("Add tour, task or service") }}
       isEmpty={false}
       emptyTitle=""
       menu={null}
       surface={false}
-      overlay={
-        <>
-          <FixtureSheet open={!!selected} title={selected?.title ?? ""} onClose={() => setSelected(null)}>
-            {selected ? (
-              <>
-                <FixtureField label="Type" value={selected.kind === "tour" ? "Tour" : selected.kind === "service" ? "Service" : "Task"} />
-                <FixtureField label="Where" value={selected.place} />
-                <FixtureField label="When" value={`${clock(selected.startMin)} – ${clock(selected.startMin + selected.durationMin)}`} />
-              </>
-            ) : null}
-          </FixtureSheet>
-          {toastNode}
-        </>
-      }
+      overlay={overlays}
     >
       <div className="flex min-w-0 flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <div className="flex items-center gap-1" data-attr="calendar-nav">
-            <button type="button" aria-label="Previous week" onClick={() => show("Previous week")} className="grid size-8 place-items-center rounded-full text-muted hover:bg-accent/60">
-              <ChevronLeft className="size-4" />
-            </button>
-            <button type="button" onClick={() => show("Today")} className="h-8 rounded-full border border-border px-3 text-[13px] font-semibold text-foreground">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border px-1" data-attr="calendar-toolbar">
+          <LocalDestinationNav
+            appearance="command"
+            ariaLabel="Calendar view"
+            activeId={view}
+            onChange={setView}
+            items={VIEW_OPTIONS.map((option) => ({ id: option.value, label: option.label, dataAttr: `calendar-view-mode-${option.value}` }))}
+            className="w-auto max-w-full"
+          />
+          <div className="flex min-w-0 items-center gap-1" data-attr="calendar-nav">
+            <button
+              type="button"
+              className="h-7 shrink-0 rounded-md px-2 text-[13px] font-semibold text-muted transition hover:bg-accent hover:text-foreground"
+              data-attr="calendar-today"
+              onClick={() => show("Today (sample)")}
+            >
               Today
             </button>
-            <button type="button" aria-label="Next week" onClick={() => show("Next week")} className="grid size-8 place-items-center rounded-full text-muted hover:bg-accent/60">
-              <ChevronRight className="size-4" />
+            <button type="button" className={NAV_BUTTON_CLASS} aria-label={`Previous ${navUnit}`} data-attr="calendar-nav-prev" onClick={() => show(`Previous ${navUnit} (sample)`)}>
+              <ChevronLeft className="size-4" aria-hidden />
             </button>
-            <span className="ml-1 text-[14px] font-bold text-foreground">{rangeLabel}</span>
+            <span className="min-w-0 truncate whitespace-nowrap px-0.5 text-[13px] text-muted" data-attr="calendar-range-label">
+              {rangeLabel}
+            </span>
+            <button type="button" className={NAV_BUTTON_CLASS} aria-label={`Next ${navUnit}`} data-attr="calendar-nav-next" onClick={() => show(`Next ${navUnit} (sample)`)}>
+              <ChevronRight className="size-4" aria-hidden />
+            </button>
           </div>
-          <FieldSingleSelect
-            hideLabel
-            label="Calendar view"
-            wrapperClassName="w-[6.75rem] shrink-0"
-            value={view}
-            onChange={setView}
-            options={VIEW_OPTIONS}
-          />
         </div>
         <div className="overflow-hidden rounded-[14px] border border-border bg-card">
           {view === "agenda" ? (
@@ -406,119 +540,4 @@ export function CalendarPanel({ story }: { story?: DemoStory } = {}) {
   );
 }
 
-/* ───────────────────────────── Vendors ───────────────────────────── */
-
-const VENDOR_TABS = [
-  { id: "yours", label: "Your vendors" },
-  { id: "catalog", label: "PropLane vendors" },
-];
-
-export function VendorsPanel({ story }: { story?: DemoStory } = {}) {
-  const { vendors: VENDOR_ROWS } = worldFor(story);
-  const [tab, setTab] = useState("yours");
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<{ title: string; fields: Array<[string, string]> } | null>(null);
-  const { show, node: toastNode } = useFixtureToast();
-
-  const yours = VENDOR_ROWS.filter((v) => matchesSearch(search, v.name, v.trade, v.email));
-  const catalog = CATALOG_VENDORS.filter((v) => matchesSearch(search, v.name, v.trades, v.city));
-
-  return (
-    <FixtureListScreen
-      path="/portal/vendors"
-      sidebar={<PortalSidebarFixture active="vendors" />}
-      title="Vendors"
-      tabs={[
-        { ...VENDOR_TABS[0]!, count: VENDOR_ROWS.length },
-        { ...VENDOR_TABS[1]!, count: CATALOG_VENDORS.length },
-      ]}
-      activeId={tab}
-      onTab={setTab}
-      search={search}
-      onSearch={setSearch}
-      searchPlaceholder="Search vendors"
-      actions={
-        tab === "catalog" ? (
-          <PortalIconAction icon={Filter} label="Filter by trade or rating" onClick={() => show("Filter")} />
-        ) : (
-          <PortalIconAction icon={Settings} label="Vendor defaults" onClick={() => show("Vendor defaults")} />
-        )
-      }
-      primary={{ label: "Add vendor", onClick: () => show("Add vendor") }}
-      isEmpty={(tab === "yours" ? yours : catalog).length === 0}
-      emptyTitle="No vendors here"
-      emptySection="vendors"
-      menu={<FixtureMenuItems toast={show} items={tab === "catalog" ? ["Add to your vendors"] : ["Edit", "Remove"]} />}
-      overlay={
-        <>
-          <FixtureSheet open={!!selected} title={selected?.title ?? ""} onClose={() => setSelected(null)}>
-            {selected?.fields.map(([label, value]) => <FixtureField key={label} label={label} value={value} />)}
-          </FixtureSheet>
-          {toastNode}
-        </>
-      }
-    >
-      {tab === "yours"
-        ? yours.map((v) => (
-            <PortalApplicantRecordRow
-              key={v.id}
-              name={v.name}
-              address={v.trade}
-              facts={
-                <>
-                  <PortalRowFact icon={Phone}>{v.phone}</PortalRowFact>
-                  <PortalRowFact icon={Mail}>{v.email}</PortalRowFact>
-                  {v.rating ? <PortalRowFact icon={Star}>{v.rating}</PortalRowFact> : null}
-                  {v.rank ? <span className="truncate">{v.rank}</span> : null}
-                </>
-              }
-              amount={v.services > 0 ? `${v.services} ${v.services === 1 ? "service" : "services"}` : undefined}
-              onSelectedChange={() => undefined}
-              onOpen={() =>
-                setSelected({
-                  title: v.name,
-                  fields: [
-                    ["Trade", v.trade],
-                    ["Phone", v.phone],
-                    ["Email", v.email],
-                  ],
-                })
-              }
-              dataAttr="vendor-list-row"
-            />
-          ))
-        : catalog.map((v) => (
-            <PortalPropertyRecordRow
-              key={v.id}
-              title={v.name}
-              leading={
-                <span className="flex h-[66px] w-[88px] shrink-0 items-center justify-center rounded-[10px] bg-secondary text-primary" aria-hidden>
-                  <UserRound className="size-[22px]" strokeWidth={1.5} />
-                </span>
-              }
-              facts={
-                <>
-                  <PortalRowFact icon={Wrench}>{v.trades}</PortalRowFact>
-                  <PortalRowFact icon={MapPin}>{v.city}</PortalRowFact>
-                  <PortalRowFact icon={ShieldCheck}>Insured</PortalRowFact>
-                  <PortalRowFact icon={FileCheck2}>Licensed</PortalRowFact>
-                  <PortalRowFact icon={Star}>{v.rating}</PortalRowFact>
-                </>
-              }
-              onSelectedChange={() => undefined}
-              onOpen={() =>
-                setSelected({
-                  title: v.name,
-                  fields: [
-                    ["Trades", v.trades],
-                    ["City", v.city],
-                    ["Rating", v.rating],
-                  ],
-                })
-              }
-              dataAttr="vendor-catalog-row"
-            />
-          ))}
-    </FixtureListScreen>
-  );
-}
+export { ResidentsPanel, VendorsPanel } from "@/components/marketing/site/product-mock/panels-manager-people";

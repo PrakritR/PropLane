@@ -1,9 +1,12 @@
 "use client";
 
+import { consumeVendorComposePrefill } from "@/lib/vendor-compose-prefill";
+import type { ResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
-import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
+import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
+import type { ScopedInboxSendPayload } from "@/lib/role-compose";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
 import { Archive, ArchiveRestore, MailOpen, MessageSquare, Trash2 } from "lucide-react";
@@ -164,6 +167,8 @@ export const VendorInboxPanel = forwardRef<
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [smsConfigured, setSmsConfigured] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  // Staged by a "Message manager" row action elsewhere in the portal; consumed once by the compose it opens.
+  const [composeDraft, setComposeDraft] = useState<ResidentComposePrefill | null>(null);
   // Threads marked read while viewing "Unopened" stay listed until the tab is
   // switched or the page is refreshed; they only move to "Opened" on reset.
   const [retainedIds, setRetainedIds] = useState<Set<string>>(() => new Set());
@@ -466,7 +471,10 @@ export const VendorInboxPanel = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      openCompose: () => setComposeOpen(true),
+      openCompose: () => {
+        setComposeDraft(consumeVendorComposePrefill());
+        setComposeOpen(true);
+      },
       emptyArchive,
     }),
     [emptyArchive],
@@ -496,6 +504,7 @@ export const VendorInboxPanel = forwardRef<
             text: p.body.trim(),
             channel: "email",
             sendId: p.sendId,
+            attachmentUrls: p.attachmentUrls?.length ? p.attachmentUrls : undefined,
           }),
         });
         const data = (await res.json().catch(() => ({}))) as {
@@ -924,6 +933,7 @@ export const VendorInboxPanel = forwardRef<
       return {
         id: m.id,
         automated: m.automated,
+        sentByAi: m.sentByAi,
         eventTitle: m.subject,
         author: m.from,
         body: fields.body,
@@ -1034,9 +1044,13 @@ export const VendorInboxPanel = forwardRef<
           </Button>
         </div>
       ) : null}
-      <ScopedInboxComposeModal
+      <ManagerCommunicationComposeModal
         open={composeOpen}
-        onClose={() => setComposeOpen(false)}
+        onClose={() => {
+          setComposeOpen(false);
+          setComposeDraft(null);
+        }}
+        initialDraft={composeDraft}
         onSend={handleComposeSend}
         portal="vendor"
         senderName={vendorIdentity.name}

@@ -88,4 +88,30 @@ describe("GoogleCalendarConnectPanel apiBase routing", () => {
     expect(patchCall?.url).toContain("/api/vendor/google-calendar");
     expect(patchCall?.url).not.toContain("/api/portal/google-calendar");
   });
+
+  it("never asks a vendor's apiBase for link-session (manager-only, 404s for vendors); the manager base still does", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        urls.push(String(input));
+        return new Response(JSON.stringify({ connected: false, configured: true }), { status: 200 });
+      }),
+    );
+    const vendor = render(
+      <AppUiProvider>
+        <GoogleCalendarConnectPanel apiBase="/api/vendor/google-calendar" />
+      </AppUiProvider>,
+    );
+    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+    expect(urls.some((u) => u.includes("link-session"))).toBe(false);
+    vendor.unmount();
+    urls.length = 0;
+    render(
+      <AppUiProvider>
+        <GoogleCalendarConnectPanel />
+      </AppUiProvider>,
+    );
+    await waitFor(() => expect(urls.some((u) => u === "/api/portal/google-calendar/link-session")).toBe(true));
+  });
 });

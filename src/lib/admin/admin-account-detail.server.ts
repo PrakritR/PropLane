@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { pickBestManagerPurchaseRow } from "@/lib/manager-access";
+import { likeLiteral } from "@/lib/admin/admin-accounts.server";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import { adminAiTracesUrl, adminSessionReplaysUrl } from "@/lib/admin/admin-external-links";
 
@@ -93,15 +94,6 @@ export function isAdminAccountId(value: string): boolean {
 function maskPhone(phone: string | null | undefined): string {
   const digits = String(phone ?? "").replace(/\D+/g, "");
   return digits.length >= 4 ? `•••• ${digits.slice(-4)}` : "•••";
-}
-
-/**
- * A value used as a LIKE/ILIKE pattern, with the pattern characters escaped so
- * it only ever matches itself: an address holding `_` or `%` would otherwise
- * wildcard into another account's rows (`jo_n@x.com` matching `joan@x.com`).
- */
-export function likeLiteral(value: string): string {
-  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
 type Row = Record<string, unknown>;

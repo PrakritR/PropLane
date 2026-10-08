@@ -3,6 +3,7 @@ import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
 import { loadVendorVerifiedPhone, searchVendorWorkNumberCandidates } from "@/lib/vendor-work-identity.server";
 import { isVendorNumberDryRun } from "@/lib/vendor-work-number-dry-run.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { vendorNumberEntitled } from "@/lib/number-subscription/vendor-number.server";
 import { signVendorWorkNumberClaim } from "@/lib/vendor-work-number-claim-token.server";
 
 export const runtime = "nodejs";
@@ -35,6 +36,10 @@ export async function POST(req: Request) {
   try {
     if (!(await loadVendorVerifiedPhone(createSupabaseServiceRoleClient(), resolved.userId)).verified) {
       return NextResponse.json({ ok: false, code: "phone_unverified", error: "Verify your phone to get a work number." }, { status: 403 });
+    }
+    // PropLane Number (flag on): searching is for subscribers too, so no claim token is ever minted otherwise.
+    if (!(await vendorNumberEntitled(createSupabaseServiceRoleClient(), resolved.userId))) {
+      return NextResponse.json({ ok: false, code: "subscription_required", error: "Subscribe to PropLane Number to get a work number." }, { status: 403 });
     }
     const numbers = await searchVendorWorkNumberCandidates(areaCode);
     const candidates = numbers.map((phoneNumber) => ({

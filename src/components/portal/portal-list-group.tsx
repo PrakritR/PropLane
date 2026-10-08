@@ -75,6 +75,8 @@ export function PortalListGroup({
   count,
   footer,
   defaultCollapsed = false,
+  collapsed: controlledCollapsed,
+  onCollapsedChange,
   dataAttr,
   children,
 }: {
@@ -92,16 +94,30 @@ export function PortalListGroup({
   count?: string;
   footer?: PortalListGroupFooter;
   defaultCollapsed?: boolean;
+  /**
+   * Controlled mode: the caller owns whether the group is open (a long grouped
+   * list drives Expand all / Collapse all and opens every group while a search
+   * is active). Nothing is read from or written to local storage in this mode.
+   */
+  collapsed?: boolean;
+  onCollapsedChange?: (next: boolean) => void;
   dataAttr?: string;
   children: ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const controlled = controlledCollapsed !== undefined;
+  const [storedCollapsed, setCollapsed] = useState(defaultCollapsed);
+  const collapsed = controlled ? controlledCollapsed : storedCollapsed;
   useEffect(() => {
+    if (controlled) return;
     const stored = readStoredCollapsed(listKey, groupKey);
     if (stored != null) setCollapsed(stored);
-  }, [listKey, groupKey]);
+  }, [controlled, listKey, groupKey]);
 
   const toggle = () => {
+    if (controlled) {
+      onCollapsedChange?.(!collapsed);
+      return;
+    }
     setCollapsed((prev) => {
       const next = !prev;
       writeStoredCollapsed(listKey, groupKey, next);

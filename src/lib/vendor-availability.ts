@@ -17,6 +17,13 @@ export type VendorAvailabilityRule =
 /** Prefix for calendar meeting ids backed by a vendor `event` availability rule. */
 export const VENDOR_WORK_MEETING_ID_PREFIX = "vendor-work-";
 
+/** Prefix for the calendar items a vendor's "block" rules draw as (grey, open in the availability editor). */
+export const VENDOR_BLOCK_MEETING_ID_PREFIX = "vendor-block-";
+
+export function isVendorBlockMeetingId(meetingId: string): boolean {
+  return meetingId.startsWith(VENDOR_BLOCK_MEETING_ID_PREFIX);
+}
+
 export const DEFAULT_VISIT_DURATION_MINUTES = 60;
 export const SLOT_STEP_MINUTES = 30;
 export const MINUTES_PER_DAY = 1440;

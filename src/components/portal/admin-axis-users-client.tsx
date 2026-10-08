@@ -240,7 +240,7 @@ function AdminAccountsList() {
           setLoadError(json.error ?? "Could not load accounts.");
           return;
         }
-        setResult({ rows: json.rows, counts: json.counts });
+        setResult({ rows: json.rows, counts: json.counts, countsComplete: json.countsComplete === true });
       } catch (error) {
         if (cancelled) return;
         setLoadError(
@@ -301,7 +301,9 @@ function AdminAccountsList() {
     { id: "disabled", label: `Disabled${disabledCount ? ` (${disabledCount})` : ""}`, dataAttr: "admin-accounts-status-disabled" },
   ];
 
-  const counts = result?.counts;
+  // A total gets a pill; an answer that could not be totalled gets none, because
+  // a number that is too low reads as the truth.
+  const counts = result?.countsComplete ? result.counts : undefined;
   const ROLE_TABS = [
     { id: "management", label: "Managers", count: counts?.manager },
     { id: "resident", label: "Residents", count: counts?.resident },

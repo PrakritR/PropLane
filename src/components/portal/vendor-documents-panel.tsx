@@ -1,24 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AlertTriangle, Check, Clock, FileText } from "lucide-react";
+import { AlertTriangle, Check, Clock, Download, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { RecordTabBand } from "@/components/portal/record-list-band";
+import { VendorStatementsPanel } from "@/components/portal/vendor-statements-panel";
+import { VendorTaxPanel } from "@/components/portal/vendor-tax-panel";
+import { VendorInsuranceFields, VendorLicenseFields, useVendorBusinessProfile } from "@/components/portal/vendor-business-settings";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
+import {
+  VENDOR_DOCUMENT_ROUTE_TABS,
+  VENDOR_DOCUMENT_TAB_SECTION,
+  vendorDocumentsHref,
+  type VendorDocumentRouteTab,
+} from "@/lib/vendor-money-routes";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { DocumentInlineViewer, triggerDocumentDownload } from "@/components/portal/resident-other-documents";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
-import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
-import {
-  FilterCollapsibleSection,
-  FilterFieldsAccordion,
-  FilterSingleSelectList,
-  filterSingleSelectSummary,
-} from "@/components/portal/filter-field-lists";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { VendorUploadDocumentWorkspace } from "@/components/portal/vendor-upload-document-workspace";
 import { isDemoModeActive, subscribeDemoPath } from "@/lib/demo/demo-session";
@@ -27,7 +31,6 @@ import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
   VENDOR_DOCUMENT_LABELS,
   VENDOR_DOCUMENT_SECTIONS,
-  VENDOR_DOCUMENT_TABS,
   isVendorComplianceDocumentKind,
   readVendorDocumentDataUrl,
   type VendorDocumentKind,
@@ -35,6 +38,14 @@ import {
 } from "@/lib/vendor-documents";
 
 import { DOCUMENT_CATEGORY_LABELS, type ManagerDocumentDTO } from "@/lib/documents/manager-documents";
+
+const DOCUMENT_TAB_LABELS: Record<VendorDocumentRouteTab, string> = {
+  tax: "Tax",
+  license: "Business license",
+  insurance: "Insurance",
+  statements: "Statements",
+  "from-managers": "From managers",
+};
 
 const DEMO_VENDOR_DOCUMENTS: VendorDocumentRecord[] = [
   {
@@ -61,8 +72,6 @@ type DocumentsPayload = {
   linked?: boolean;
   documents?: VendorDocumentRecord[];
 };
-
-type DocumentSource = "all" | "mine" | "managers";
 
 /**
  * One row's ⋯ — mirrors `BookingsRowOverflow` (`bookings-row-overflow.tsx`),
@@ -142,13 +151,19 @@ function VendorDocumentRowOverflow({
 export function VendorDocumentsPanel({
   basePath = "/vendor",
   demo: demoProp,
+  tabId = "tax",
 }: {
   basePath?: string;
   demo?: boolean;
+  /** The routed tab: Tax · Business license · Insurance · Statements · From managers. */
+  tabId?: VendorDocumentRouteTab;
 }) {
   const { showToast } = useAppUi();
+  const navigate = usePortalNavigate();
   const demoFromPath = useSyncExternalStore(subscribeDemoPath, isDemoModeActive, () => false);
   const demo = demoProp ?? demoFromPath;
+  // License number and insurance fields live on the vendor's own business record.
+  const business = useVendorBusinessProfile(!demo && (tabId === "license" || tabId === "insurance"));
   const loadToastShown = useRef(false);
   const sharedLoadToastShown = useRef(false);
   const fileRefs = useRef<Partial<Record<VendorDocumentKind, HTMLInputElement | null>>>({});
@@ -165,8 +180,6 @@ export function VendorDocumentsPanel({
   const [accessDenied, setAccessDenied] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
-  const [source, setSource] = useState<DocumentSource>("all");
-  const [category, setCategory] = useState<string>("");
   const [sharedDocuments, setSharedDocuments] = useState<ManagerDocumentDTO[]>([]);
   const [sharedLoading, setSharedLoading] = useState(!demo);
   const [sharedExpandedId, setSharedExpandedId] = useState<string | null>(null);
@@ -241,7 +254,8 @@ export function VendorDocumentsPanel({
   useEffect(() => {
     setSharedExpandedId(null);
     setPreviewKind(null);
-  }, [source, category]);
+    setListSearch("");
+  }, [tabId]);
 
   useEffect(() => {
     if (!previewKind || demo) {
@@ -288,62 +302,35 @@ export function VendorDocumentsPanel({
     [documentsByKind],
   );
 
-  // Source: "mine" keeps only the vendor's own checklist; "managers" keeps
-  // only manager-shared files (always on file); "all" keeps both.
-  const sourceOwnRows = source === "managers" ? [] : ownRows;
-  const sourceSharedRows = source === "mine" ? [] : sharedDocuments;
-
-  // Category (Section) groups the vendor's own three-section checklist —
-  // Tax / Business license / Insurance. Manager-shared files use a different,
-  // wider category taxonomy of their own (lease/notice/invoice/…) — picking a
-  // vendor section narrows to the vendor's own rows rather than guessing an
-  // equivalence between the two enums.
-  const categoryOwnRows = category ? sourceOwnRows.filter((row) => row.sectionId === category) : sourceOwnRows;
-  const categorySharedRows = category ? [] : sourceSharedRows;
-
+  // Each uploads tab shows its own section of the checklist (Tax, Business license, Insurance);
+  // From managers shows the files managers shared. Statements and the W-9 card are their own panels.
+  const sectionId = VENDOR_DOCUMENT_TAB_SECTION[tabId];
   const needle = listSearch.trim().toLowerCase();
-  const ownRowsVisible = useMemo(() => {
-    if (!needle) return categoryOwnRows;
-    return categoryOwnRows.filter((row) => {
-      const haystack = `${VENDOR_DOCUMENT_LABELS[row.kind]} ${row.sectionLabel} ${row.doc?.fileName ?? ""}`.toLowerCase();
-      return haystack.includes(needle);
-    });
-  }, [categoryOwnRows, needle]);
+  const tabRows = useMemo(() => {
+    const rows = sectionId ? ownRows.filter((row) => row.sectionId === sectionId) : [];
+    if (!needle) return rows;
+    return rows.filter((row) =>
+      `${VENDOR_DOCUMENT_LABELS[row.kind]} ${row.doc?.fileName ?? ""}`.toLowerCase().includes(needle),
+    );
+  }, [ownRows, sectionId, needle]);
   const sharedRowsVisible = useMemo(() => {
-    if (!needle) return categorySharedRows;
-    return categorySharedRows.filter((doc) =>
+    if (tabId !== "from-managers") return [];
+    if (!needle) return sharedDocuments;
+    return sharedDocuments.filter((doc) =>
       `${doc.displayName} ${DOCUMENT_CATEGORY_LABELS[doc.category]}`.toLowerCase().includes(needle),
     );
-  }, [categorySharedRows, needle]);
-
-  // No status tabs any more (VD16) — the checklist renders grouped by
-  // section instead, each header showing "uploaded of total" for that
-  // section's real kinds (unaffected by search, which only narrows the rows
-  // shown underneath). A section with no rows matching the current
-  // section/search filters is left out entirely.
-  const ownSectionsVisible = useMemo(() => {
-    const visibleIds = new Set(ownRowsVisible.map((row) => row.kind));
-    return VENDOR_DOCUMENT_SECTIONS.filter((section) => !category || category === section.id)
-      .map((section) => {
-        const fullRows = sourceOwnRows.filter((row) => row.sectionId === section.id);
-        const rows = fullRows.filter((row) => visibleIds.has(row.kind));
-        const uploadedCount = fullRows.filter((row) => row.doc).length;
-        return { section, rows, uploadedCount, totalCount: fullRows.length };
-      })
-      .filter((entry) => entry.rows.length > 0);
-  }, [category, ownRowsVisible, sourceOwnRows]);
+  }, [sharedDocuments, tabId, needle]);
 
   // First still-missing REQUIRED kind, in section order — the header upload
   // picker's default selection (VD19); falls back to the first missing kind
   // of any kind, then to nothing (every document already on file).
   const defaultUploadKind = useMemo<VendorDocumentKind | undefined>(() => {
-    const missing = ownRows.filter((row) => !row.doc);
+    const missing = ownRows.filter((row) => !row.doc && (!sectionId || row.sectionId === sectionId));
     return (missing.find((row) => isVendorComplianceDocumentKind(row.kind)) ?? missing[0])?.kind;
-  }, [ownRows]);
+  }, [ownRows, sectionId]);
 
   const previewDoc = previewKind ? documentsByKind.get(previewKind) : undefined;
-  const visibleRowCount = ownRowsVisible.length + sharedRowsVisible.length;
-  const includesMine = source !== "managers";
+  const hasUploads = Boolean(sectionId);
 
   const uploadFile = async (kind: VendorDocumentKind, file: File) => {
     if (demo) {
@@ -439,210 +426,168 @@ export function VendorDocumentsPanel({
     }
   };
 
-  // No status tabs (VD16) — the Filter sheet narrows by Source and Section
-  // only, never the same dimension twice.
-  const filterActiveCount = portalFilterActiveCount([source !== "all" ? source : "", category]);
-  const sourceOptions = [
-    { value: "all", label: "All" },
-    { value: "mine", label: "Mine" },
-    { value: "managers", label: "From managers" },
-  ];
-  const sectionOptions = [
-    { value: "", label: "All sections" },
-    ...VENDOR_DOCUMENT_TABS.map((tab) => ({ value: tab.id, label: tab.label })),
-  ];
-
-  const filterSheet = (
-    <PortalFilterSortSheet
-      activeCount={filterActiveCount}
-      compactPanel
-      filterFieldCount={2}
-      commandStripTrigger
-      onReset={() => {
-        setSource("all");
-        setCategory("");
+  const ownRowsList = (
+    <PortalRecordListSurface
+      isEmpty={tabRows.length === 0}
+      emptyCard={{
+        title: listSearch.trim() ? "No documents match this search" : portalEmptyCopy("documents.other").title,
+        section: portalEmptyCopy("documents.other").section,
+        tone: listSearch.trim() ? "muted" : "default",
+        actions: [],
+        clear: listSearch.trim()
+          ? { label: "Clear search", onClick: () => setListSearch(""), dataAttr: "vendor-documents-empty-clear-search" }
+          : undefined,
       }}
-      dataAttr="vendor-documents-filter-open"
+      dataAttr="vendor-documents-list"
     >
-      <FilterFieldsAccordion>
-        <FilterCollapsibleSection
-          sectionId="source"
-          label="Source"
-          summary={filterSingleSelectSummary(source, sourceOptions, "All")}
-          empty={source === "all"}
-          menuOptionCount={sourceOptions.length}
-          dataAttr="vendor-documents-filter-source"
-        >
-          <FilterSingleSelectList
-            options={sourceOptions}
-            value={source}
-            onChange={(next) => setSource(next as DocumentSource)}
-            dataAttr="vendor-documents-source"
-          />
-        </FilterCollapsibleSection>
-        <FilterCollapsibleSection
-          sectionId="section"
-          label="Section"
-          summary={filterSingleSelectSummary(category, sectionOptions, "All sections")}
-          empty={!category}
-          menuOptionCount={sectionOptions.length}
-          dataAttr="vendor-documents-filter-section"
-        >
-          <FilterSingleSelectList options={sectionOptions} value={category} onChange={setCategory} dataAttr="vendor-documents-section" />
-        </FilterCollapsibleSection>
-      </FilterFieldsAccordion>
-    </PortalFilterSortSheet>
+      {tabRows.map(({ kind, doc }) => {
+        const complianceMissing = !doc && isVendorComplianceDocumentKind(kind);
+        return (
+          <VendorDocumentRowOverflow
+            key={kind}
+            label={VENDOR_DOCUMENT_LABELS[kind]}
+            hasDoc={Boolean(doc)}
+            onReplace={() => fileRefs.current[kind]?.click()}
+            onDownload={doc ? () => void downloadOwnDocument(kind, doc.fileName) : undefined}
+            onDelete={doc ? () => removeDocument(kind) : undefined}
+          >
+            <PortalPropertyRecordRow
+              title={VENDOR_DOCUMENT_LABELS[kind]}
+              attention={complianceMissing}
+              address={doc?.fileName}
+              leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
+              // Uploaded shows the date; a required-but-missing kind reads "Required" with an alert
+              // glyph, an optional missing kind reads "Not uploaded" with a clock glyph - never a pill.
+              facts={
+                doc ? (
+                  <PortalRowFact icon={Check} srLabel="Uploaded">
+                    {`Uploaded ${safeFormatDateTime(doc.uploadedAt)}`}
+                  </PortalRowFact>
+                ) : complianceMissing ? (
+                  <PortalRowFact icon={AlertTriangle} srLabel="Required">
+                    Required
+                  </PortalRowFact>
+                ) : (
+                  <PortalRowFact icon={Clock} srLabel="Not uploaded">
+                    Not uploaded
+                  </PortalRowFact>
+                )
+              }
+              omitActionView={!doc}
+              // A selection handler is what draws the row's ⋯ (View · Download · Replace · Delete).
+              checked={false}
+              onSelectedChange={() => undefined}
+              onOpen={doc ? () => setPreviewKind((cur) => (cur === kind ? null : kind)) : () => fileRefs.current[kind]?.click()}
+              dataAttr="vendor-document-row"
+            />
+            <input
+              ref={(el) => {
+                fileRefs.current[kind] = el;
+              }}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void uploadFile(kind, file);
+              }}
+              data-attr={`vendor-documents-upload-input-${kind}`}
+            />
+            {uploadingKind === kind ? <p className="px-1 text-xs text-muted">Uploading…</p> : null}
+          </VendorDocumentRowOverflow>
+        );
+      })}
+    </PortalRecordListSurface>
   );
+
+  const sharedRowsList = (
+    <PortalRecordListSurface
+      isEmpty={sharedRowsVisible.length === 0}
+      emptyCard={{
+        title: listSearch.trim() ? "No documents match this search" : "No files from your managers yet",
+        section: portalEmptyCopy("documents.other").section,
+        tone: "muted",
+        actions: [],
+        clear: listSearch.trim()
+          ? { label: "Clear search", onClick: () => setListSearch(""), dataAttr: "vendor-documents-empty-clear-search" }
+          : undefined,
+      }}
+      dataAttr="vendor-shared-documents-list"
+    >
+      {sharedRowsVisible.map((doc) => {
+        const expanded = sharedExpandedId === doc.id;
+        return (
+          <div key={doc.id}>
+            <PortalPropertyRecordRow
+              title={doc.displayName}
+              address={DOCUMENT_CATEGORY_LABELS[doc.category]}
+              leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
+              facts={safeFormatDateTime(doc.createdAt)}
+              selected={expanded}
+              onOpen={() => {
+                setSharedExpandedId((current) => (current === doc.id ? null : doc.id));
+                void previewSharedDocument(doc);
+              }}
+              dataAttr="vendor-document-row"
+            />
+          </div>
+        );
+      })}
+    </PortalRecordListSurface>
+  );
+
+  const showSearch = tabId !== "statements";
 
   return (
     <ManagerPortalPageShell title="Documents" hideTitleOnMobileNav compactFilterRow>
-      <PortalListControlStack
-        className="mb-2 max-lg:mb-1.5"
-        variant="command"
-        search={{
-          value: listSearch,
-          onChange: setListSearch,
-          placeholder: "Search documents",
-          dataAttr: "vendor-documents-search",
-        }}
-        actions={filterSheet}
-        primary={
-          includesMine ? (
-            <PortalPrimaryIconAction
-              label={portalListAddPrimaryLabel("document")}
-              data-attr="vendor-documents-add"
-              onClick={() => setUploadOpen(true)}
-            />
-          ) : undefined
-        }
-      />
-
-      {accessDenied ? (
-        <PortalListEmptyCard
-          title="Sign in as a vendor"
-          section="documents"
-          dataAttr="vendor-documents-access-denied-banner"
-        />
-      ) : loading || sharedLoading ? (
-        <ListSkeleton rows={4} showLeading={false} />
-      ) : (
-        <PortalRecordListSurface
-          isEmpty={visibleRowCount === 0}
-          emptyCard={{
-            title: listSearch.trim() ? "No documents match this search" : portalEmptyCopy("documents.other").title,
-            section: portalEmptyCopy("documents.other").section,
-            tone: listSearch.trim() ? "muted" : "default",
-            actions: [],
-            clear: listSearch.trim()
-              ? {
-                  label: "Clear search",
-                  onClick: () => setListSearch(""),
-                  dataAttr: "vendor-documents-empty-clear-search",
-                }
-              : undefined,
-          }}
-          add={
-            includesMine
-              ? {
-                  ariaLabel: "Upload document",
-                  onClick: () => setUploadOpen(true),
-                  dataAttr: "vendor-documents-list-add",
-                }
+      <div className="mb-2 max-lg:mb-1.5">
+        <RecordTabBand
+          dataAttr="vendor-documents-band"
+          ariaLabel="Document type"
+          tabs={VENDOR_DOCUMENT_ROUTE_TABS.map((id) => ({ id, label: DOCUMENT_TAB_LABELS[id] }))}
+          activeId={tabId}
+          onChange={(id) => navigate(vendorDocumentsHref(basePath, id as VendorDocumentRouteTab))}
+          search={
+            showSearch
+              ? { value: listSearch, onChange: setListSearch, placeholder: "Search documents" }
               : undefined
           }
-          dataAttr="vendor-documents-list"
-        >
-          {ownSectionsVisible.map(({ section, rows, uploadedCount, totalCount }) => (
-            <div key={section.id} data-attr="vendor-documents-section" className="vdoc-section">
-              <div className="flex items-baseline justify-between px-1 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
-                <span>{section.label}</span>
-                <span className="font-semibold normal-case tracking-normal text-[12.5px]">
-                  {uploadedCount} of {totalCount}
-                </span>
-              </div>
-              {rows.map(({ kind, doc }) => {
-                const complianceMissing = !doc && isVendorComplianceDocumentKind(kind);
-                return (
-                  <VendorDocumentRowOverflow
-                    key={kind}
-                    label={VENDOR_DOCUMENT_LABELS[kind]}
-                    hasDoc={Boolean(doc)}
-                    onReplace={() => fileRefs.current[kind]?.click()}
-                    onDownload={doc ? () => void downloadOwnDocument(kind, doc.fileName) : undefined}
-                    onDelete={doc ? () => removeDocument(kind) : undefined}
-                  >
-                    <PortalPropertyRecordRow
-                      title={VENDOR_DOCUMENT_LABELS[kind]}
-                      attention={complianceMissing}
-                      address={doc?.fileName}
-                      leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
-                      // Uploaded shows the date; a required-but-missing kind
-                      // reads "Required" with an alert glyph, an optional
-                      // missing kind reads "Not uploaded" with a clock glyph
-                      // — never the old on-file/missing tab wording (VD18).
-                      facts={
-                        doc ? (
-                          <PortalRowFact icon={Check} srLabel="Uploaded">
-                            {`Uploaded ${safeFormatDateTime(doc.uploadedAt)}`}
-                          </PortalRowFact>
-                        ) : complianceMissing ? (
-                          <PortalRowFact icon={AlertTriangle} srLabel="Required">
-                            Required
-                          </PortalRowFact>
-                        ) : (
-                          <PortalRowFact icon={Clock} srLabel="Not uploaded">
-                            Not uploaded
-                          </PortalRowFact>
-                        )
-                      }
-                      omitActionView={!doc}
-                      // A selection handler is what draws the row's ⋯ (View ·
-                      // Download · Replace · Delete) — the studio's rows all have it.
-                      checked={false}
-                      onSelectedChange={() => undefined}
-                      onOpen={doc ? () => setPreviewKind((cur) => (cur === kind ? null : kind)) : () => fileRefs.current[kind]?.click()}
-                      dataAttr="vendor-document-row"
-                    />
-                    <input
-                      ref={(el) => {
-                        fileRefs.current[kind] = el;
-                      }}
-                      type="file"
-                      accept="application/pdf"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = "";
-                        if (file) void uploadFile(kind, file);
-                      }}
-                      data-attr={`vendor-documents-upload-input-${kind}`}
-                    />
-                    {uploadingKind === kind ? <p className="px-1 text-xs text-muted">Uploading…</p> : null}
-                  </VendorDocumentRowOverflow>
-                );
-              })}
-            </div>
-          ))}
-          {sharedRowsVisible.map((doc) => {
-            const expanded = sharedExpandedId === doc.id;
-            return (
-              <div key={doc.id}>
-                <PortalPropertyRecordRow
-                  title={doc.displayName}
-                  address={DOCUMENT_CATEGORY_LABELS[doc.category]}
-                  leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
-                  facts={safeFormatDateTime(doc.createdAt)}
-                  selected={expanded}
-                  onOpen={() => {
-                    setSharedExpandedId((current) => (current === doc.id ? null : doc.id));
-                    void previewSharedDocument(doc);
-                  }}
-                  dataAttr="vendor-document-row"
-                />
-              </div>
-            );
-          })}
-        </PortalRecordListSurface>
+          actions={
+            tabId === "statements" ? (
+              <PortalIconAction
+                icon={Download}
+                label="Export all activity CSV"
+                data-attr="vendor-statements-export-all"
+                onClick={() => window.open("/api/vendor/payouts/statement?format=csv", "_blank", "noopener")}
+              />
+            ) : undefined
+          }
+          plus={
+            hasUploads
+              ? { label: portalListAddPrimaryLabel("document"), onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-add" }
+              : undefined
+          }
+        />
+      </div>
+
+      {tabId === "statements" ? (
+        <VendorStatementsPanel basePath={basePath} embedded />
+      ) : accessDenied ? (
+        <PortalListEmptyCard title="Sign in as a vendor" section="documents" dataAttr="vendor-documents-access-denied-banner" />
+      ) : (
+        <>
+          {tabId === "tax" ? <VendorTaxPanel basePath={basePath} embedded /> : null}
+          {tabId === "license" && !demo ? <VendorLicenseFields ctx={business} /> : null}
+          {tabId === "insurance" && !demo ? <VendorInsuranceFields ctx={business} /> : null}
+          {loading || sharedLoading ? (
+            <ListSkeleton rows={4} showLeading={false} />
+          ) : tabId === "from-managers" ? (
+            sharedRowsList
+          ) : (
+            ownRowsList
+          )}
+        </>
       )}
 
       {previewDoc && previewKind ? (

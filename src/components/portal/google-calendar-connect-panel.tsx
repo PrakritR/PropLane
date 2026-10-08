@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CalendarDays } from "lucide-react";
-import { PortalSettingsRow } from "@/components/portal/portal-settings-ui";
+import { IntegrationRow } from "@/components/portal/integration-row";
+import { PortalSettingsRow, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -29,6 +30,8 @@ type GoogleCalendarStatus = {
   vendorPushEnabled?: boolean;
 };
 
+const DEFAULT_API_BASE = "/api/portal/google-calendar";
+
 /**
  * Status card, not an instruction wall.
  *
@@ -50,12 +53,13 @@ export function GoogleCalendarConnectPanel({
   /** Manager (default) reads/writes `/api/portal/google-calendar/*`; a role that
    * clones the manager OAuth flow onto its own storage (vendor) passes its own
    * base, e.g. `/api/vendor/google-calendar`. */
-  apiBase = "/api/portal/google-calendar",
+  apiBase = DEFAULT_API_BASE,
   /** Vendor calendar only: offer the "push my assigned visits to Google" toggle (default off). */
   showVendorPushToggle = false,
 }: {
   onConnectionChange?: () => void;
-  presentation?: "card" | "dialog" | "row";
+  /** `integration` is the grouped Integrations page row (logo tile · name · fact · action). */
+  presentation?: "card" | "dialog" | "row" | "integration";
   apiBase?: string;
   showVendorPushToggle?: boolean;
 }) {
@@ -68,10 +72,14 @@ export function GoogleCalendarConnectPanel({
 
   const load = useCallback(async () => {
     try {
-      await fetch(`${apiBase}/link-session`, {
-        method: "POST",
-        credentials: "include",
-      }).catch(() => undefined);
+      // link-session finishes a manager's post-sign-in Google link from the live auth session. The
+      // vendor connect has its own OAuth flow and no such route, so it never asks (it 404'd).
+      if (apiBase === DEFAULT_API_BASE) {
+        await fetch(`${apiBase}/link-session`, {
+          method: "POST",
+          credentials: "include",
+        }).catch(() => undefined);
+      }
       const res = await fetch(
         `${apiBase}?origin=${encodeURIComponent(window.location.origin)}`,
         { credentials: "include" },
@@ -188,6 +196,47 @@ export function GoogleCalendarConnectPanel({
       setBusy(false);
     }
   };
+
+  if (presentation === "integration") {
+    const connected = Boolean(status?.connected);
+    return (
+      <>
+        <IntegrationRow
+          icon={CalendarDays}
+          tone="text-blue-500"
+          name="Google Calendar"
+          dataAttr="integrations-google-calendar-row"
+          fact={connected ? status?.email || "Connected" : status?.revoked ? "Reconnect needed" : ""}
+          action={
+            <Button
+              variant="ghost"
+              data-attr="vendor-integrations-google-calendar-connect"
+              disabled={busy || !status || (!connected && !status.configured)}
+              onClick={connected ? () => void disconnect() : startConnect}
+            >
+              {connected ? "Disconnect" : status?.revoked ? "Reconnect" : "Connect"}
+            </Button>
+          }
+        />
+        {connected && showVendorPushToggle ? (
+          <PortalSettingsRow label="Send my visits to Google Calendar">
+            <PortalSettingsToggle
+              checked={status?.vendorPushEnabled === true}
+              disabled={busy}
+              label="Send my visits to Google Calendar"
+              dataAttr="google-calendar-vendor-push-toggle"
+              onChange={(next) => void toggleVendorPush(next)}
+            />
+          </PortalSettingsRow>
+        ) : null}
+        {connectError ? (
+          <p role="alert" className="px-4 py-2 text-sm text-danger">
+            {connectError}
+          </p>
+        ) : null}
+      </>
+    );
+  }
 
   if (presentation === "row") return <>
     <PortalSettingsRow label={<span className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-blue-500" />Google Calendar</span>}>

@@ -25,7 +25,9 @@ environment after the deploy: `POST /api/admin/release-free-work-numbers` (admin
 
 ## Vendor work number (Oct 6): covered by the service fee, not a wallet
 
-A vendor's PropLane number (and work email) is never a subscription and never touches a
+(Superseded when `NUMBER_SUBSCRIPTION_ENABLED=1`: the number is then the $5/month PropLane Number, see
+§ PropLane Number below; this section is exactly true with the flag off.)
+A vendor's PropLane number (and work email) is never a manager-wallet charge and never touches a
 manager wallet. A vendor with a verified phone claims one free; PropLane keeps the
 **service fee on payouts** instead (the 3% `VENDOR_PAY_FEE_BPS`, label "PropLane service fee";
 see [financials.md](financials.md) § PropLane service fee). Two meters stay separate:
@@ -38,8 +40,82 @@ see [financials.md](financials.md) § PropLane service fee). Two meters stay sep
   billing". They are capped at **1,000 SMS segments per Pacific calendar month** per number (fair use),
   reserved atomically in `claim_vendor_work_identity_outbound`; at the cap forwarding and
   replies pause with a notice in Settings while inbound keeps arriving in PropLane.
+- **Vendor-number AI (Oct 8):** the AI's replies on the vendor's number are vendor-side texts like
+  these - no manager wallet, no credit reserve - counted in the same monthly cap, plus 5 AI replies per
+  sender per hour, and sent only when the vendor wrote AI info. See sms-system.md § Vendor-number AI.
 
 Details and the routing rules: [sms-system.md](sms-system.md) § Vendor work number.
+
+## PropLane Number (Oct 8): $5/month for a vendor or resident
+
+Accounts stay free. A vendor or resident who wants their own number subscribes to **PropLane
+Number**: $5.00/month (Stripe Price lookup key `proplane_number_monthly`, created lazily and
+idempotently like `ensureAddonPrice`, and refused if the existing Price is not exactly $5 USD monthly)
+for a work number, work email and **$3.00 of message credit every UTC calendar month**. More credit is
+bought in $5-$500 whole dollars and never expires. No auto-recharge; a saved card never authorizes a charge.
+`NUMBER_SUBSCRIPTION_ENABLED=1` turns checkout on (default off); webhook fulfilment and credit reads stay
+live regardless so money already taken is never stranded.
+
+This is a **separate ledger from the manager pool** (`src/lib/number-subscription/`,
+`20261008200000_number_subscriptions.sql`): the manager pool is keyed on workspaces, manager plan tiers
+and `manager_comms_usage_events`, none of which a vendor or resident has. The meter rates are the same
+`rates.ts` (text out 3¢/segment, in 2¢, AI turn 15¢).
+
+- **Tables** (RLS on, service-role writes only): `number_subscriptions` (one row per user; the owner may
+  SELECT their own row's non-secret columns, no Stripe id), `number_credit_accounts`,
+  `number_credit_usage_events`, `number_credit_purchases`, `number_credit_adjustments`. All classified in
+  `account-purge-manifest.ts`.
+- **Entitlement.** `numberSubscriptionActive(userId)` is exactly `active` (the only state that carries the
+  included $3). `numberServiceEntitled(userId)` is `active` or `past_due` (card retry grace) - gate features
+  on it; purchased credit is spendable only while entitled. `canceled`/`incomplete` spend nothing.
+- **Credit order.** Included credit first, then purchased. Included resets to $3.00 on the 1st 00:00 UTC
+  (applied lazily by the next reserve), never rolls over, and exists only while `active`.
+- **Reserve before work.** `reserveNumberCredit(ownerUserId, meter, quantity, idempotencyKey)` before any
+  provider or model call; `finishNumberCredit(..., {release:true})` on failure. Idempotent per key.
+  `allowUnfunded` is only for an unavoidable cost (a received text): the platform absorbs what the balance
+  cannot cover.
+- **Ownership is never client input.** The checkout route writes the owner id into the session and
+  subscription metadata and creates an `incomplete` `number_subscriptions` row first. The signed webhook
+  resolves ownership through that row (by subscription id, or metadata owner id + the row's Stripe
+  customer), then **re-reads the subscription from Stripe** and requires our price, our customer, quantity 1
+  and our owner id. Every write carries the time of that read; the database function drops an older write
+  (`stale`), a different customer (`customer_mismatch`) and a second live subscription
+  (`other_subscription`). Replays and reordered events therefore only ever write Stripe's current state.
+- **Number purchases** use purpose `number_communication_credit`; webhook fulfilment is exact-amount,
+  USD, undiscounted, owner-bound, once per purchase; refunds and disputes reverse once per provider event.
+- **Routes:** `GET /api/number-subscription` (own status + balance), `POST .../checkout`, `POST .../portal`,
+  `POST .../credit-checkout` - vendor or resident via `profile_roles` only, a View-as session is refused.
+- **Resident (Oct 8).** The subscription gives a resident a personal number (`resident_agent_numbers`,
+  `20261008210000_resident_agent_numbers.sql`, provisioned on activation and from Settings > PropLane
+  agent: `GET/POST /api/number-subscription/resident-number`) and the PropLane agent behind it
+  (docs/ai-assistant.md § Resident personal agent). Its texts spend this ledger: AI turn 15c and reply
+  3c/segment reserved before the model or the provider (reply sized to four segments, unused refunded),
+  received text 2c/segment absorbed if unfunded. Out of credit: one short notice only if affordable, else nothing.
+
+### Vendor side (Oct 8, with `NUMBER_SUBSCRIPTION_ENABLED=1`)
+
+The free vendor number above becomes the subscription; flag off, the "Vendor work number" section is exactly true.
+
+- **Meters (reserve before provider/model work, `vendor-number.server.ts`).** A vendor text from the vendor's own
+  number - forwards to the vendor's phone, routed replies, "Reply to" prompts, an inbox reply, a hand-off, an AI reply -
+  all leave through `deliverVendorWorkIdentity`, which reserves `sms_outbound_segment` x segments
+  (`vendorNumberSegments`) under the key `vendor-sms:<idempotencyKey>` AFTER the opt-out / quiet-hours /
+  shield checks and BEFORE the operation claim and the provider call. It keeps the debit once the text is sent or the
+  outcome is uncertain, and `release`s it when the cap blocks, the claim fails or the provider definitively rejects.
+  An AI turn reserves `ai_agent_turn` x 1 under `vendor-ai-turn:<sender hash>:<sid>` before the model runs; a model
+  error or a reply refused before any send was attempted hands it back. A received text debits
+  `sms_inbound_segment` with `allowUnfunded` (an unavoidable cost: the platform absorbs what the balance cannot cover,
+  and a received text is never refused). Email is free and unmetered.
+- **Refusals.** Not entitled -> `subscription_inactive`; balance too low -> `out_of_credit`; an unreadable ledger ->
+  `credit_unavailable` (never a free send). The AI also checks, read-only, that the credit covers a turn plus a
+  full-length reply before it pays the model. The vendor sees **Out of credit** in Settings and the send route's
+  message ("Out of credit. Buy credit in Settings to text from your number."). Inbound keeps landing in the inbox.
+- **The 1,000-segment monthly fair-use cap, the per-sender 5/hour AI limit and the 200/day AI ceiling stay** as
+  additional ceilings; credit does not replace them.
+- **Lapsed** (`canceled` / `incomplete`): nothing leaves the number and no AI runs; managers' texts fall back to the
+  vendor's phone; the number is released after 30 days lapsed. Purchased credit is spendable only while entitled.
+- **Account deletion cancels the subscription** before its rows are purged ([vendor-portal.md](vendor-portal.md)
+  § PropLane Number). Unspent credit is forfeited with the account.
 
 ## Add-ons
 

@@ -4,63 +4,69 @@
  * The home page's product panels — captain 2026-09-26: "remove live demo no
  * need" + the Codex-style redesign. Each panel reuses the REAL portal
  * presentational components (`PortalRecordListSurface`, `PortalApplicantRecordRow`,
- * `PortalServiceRecordRow`, `ManagerPortalPageShell`, `PortalListControlStack`,
- * `PortalIconAction`, `KpiCard`, `AttentionPanel`, `UpcomingPanel`,
+ * `ManagerPortalPageShell`, `PortalListControlStack`, `PortalIconAction`,
+ * `PortalFilterSortSheet`, `KpiCard`, `AttentionPanel`, `UpcomingPanel`,
  * `PortfolioPropertiesSection`, `PortfolioImportReviewStep`) fed the static
  * fixtures in `fixtures.ts` — never a hand-drawn lookalike, never a network
- * request. Tabs and search filter the fixture rows client-side; the primary
- * action and row clicks open `FixtureSheet` with default values; the row's
- * "⋯" is the real kebab (`PortalRecordListSurface`'s `bulkActions` slot).
- * "Save"/"Approve" only closes the sheet and shows the real toast pattern —
- * nothing persists, nothing fetches (see the file's own docstring in
- * `shared.tsx` and `docs/agents/marketing-mocks.md`).
+ * request. Tabs and search filter the fixture rows client-side.
+ *
+ * Tours, Applications and Leases copy their real pages (captain 2026-10-08: "a lot of the pop ups in home page
+ * are not accurate to real portal"): the real tab names, header icons, Filter popover and round +, the real
+ * pop-ups behind them (`demo-popups-leasing.tsx`, loaded on demand), a row that opens its RECORD PAGE (rail,
+ * header icons, section cards) and a ⋯ that carries that row's own actions. Saving, sending and approving only
+ * close the pop-up and show a small "(sample)" toast — nothing persists, nothing fetches (see `shared.tsx`
+ * and `docs/agents/marketing-mocks.md`).
  */
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  Bell,
-  CalendarDays,
-  Clock,
-  Download,
-  Filter,
-  Mail,
-  Phone,
-  Home,
-  Settings,
-  ShieldAlert,
-  ShieldCheck,
-  Share2,
-  Users,
-  Video,
-} from "lucide-react";
-import { PortalApplicantRecordRow, PortalRowFact, PortalServiceRecordRow } from "@/components/portal/portal-record-row";
-import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Bell, CalendarDays, CalendarPlus, Clock, Mail, Phone, Send, Settings, ShieldAlert, ShieldCheck, Share2, Users, Video } from "lucide-react";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import type { LeaseUpdatedWindow } from "@/components/portal/lease-filter-fields";
+import { portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { AttentionPanel, KpiCard, UpcomingPanel } from "@/components/portal/pro-dashboard-kpis";
 import { PortfolioPropertiesSection, type PortfolioPropertyCardData } from "@/components/portal/pro-dashboard-portfolio";
 import { PortfolioImportReviewStep } from "@/components/portal/portfolio-import/review-step";
 import { DEMO_IMPORT_SAMPLE } from "@/lib/demo/demo-import-sample";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { MANAGER_TOUR_BUCKET_LABELS } from "@/lib/portal-detail-routes";
+import { DEFAULT_PORTAL_LIST_GROUP_MODE, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import {
-  InboxComposer,
-  InboxConversationRow,
-  InboxThreadView,
-  InboxTwoPane,
-} from "@/components/portal/portal-inbox-ui";
-import {
-  COMM_CONVERSATIONS,
-  RESIDENT_NAME,
   type ApplicationFixtureRow,
-  type CommConversationFixture,
   type LeaseFixtureRow,
-  type PaymentFixtureRow,
-  type ServiceFixtureRow,
   type TourFixtureRow,
 } from "@/components/marketing/site/product-mock/fixtures";
-import { DEMO_PAGE_CLASS, DemoTarget, FixtureField, FixtureSheet, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
+import {
+  DemoAddApplicationPopup,
+  DemoAddTourPopup,
+  DemoApplicationRecord,
+  DemoApplicationsFilter,
+  DemoLeaseRecord,
+  DemoLeasesFilter,
+  DemoNotifyPopup,
+  DemoSendLeasePopup,
+  DemoShareLinkPopup,
+  DemoTourAvailabilityPopup,
+  DemoToursFilter,
+  DemoTourRecord,
+  prefetchLeasingPopups,
+} from "@/components/marketing/site/product-mock/demo-popups-lazy-leasing";
+import {
+  LEASE_TAB_LABELS,
+  LEASING_PROPERTIES,
+  TOUR_NOTIFY_COPY,
+  applicationTabOf,
+  daysSinceStamp,
+  isIncompleteApplication,
+  placeProperty,
+  tourNotifyMessage,
+  type DemoApplicationTab,
+  type TourNotifyAction,
+} from "@/components/marketing/site/product-mock/fixtures-popups-leasing";
+import { countBy, FixtureListScreen, matchesSearch } from "@/components/marketing/site/product-mock/panel-kit";
+import { useRowSelection } from "@/components/marketing/site/product-mock/row-selection";
+import { DEMO_PAGE_CLASS, DemoTarget, PortalSidebarFixture, ProductWindow, useFixtureToast } from "@/components/marketing/site/product-mock/shared";
 import { worldFor, type DemoStory } from "@/components/marketing/site/product-mock/world";
 
 /** A panel mounted while the story is running keeps showing Jordan's row: when the
@@ -72,504 +78,718 @@ function useFollow<T>(target: T | null, set: (value: T) => void) {
   }, [target]);
 }
 
-/** The real kebab: `RowSelectCheckbox` only renders `RecordActionMenu` when
- * the enclosing surface got `bulkActions` — two static, no-op actions is
- * enough to prove the real "⋯" opens, without inventing new mutation UI. */
-function useFixtureKebab(toast: (text: string) => void, noun: string) {
-  return (
-    <>
-      <DropdownMenuItem onSelect={() => toast(`${noun} archived`)}>Archive</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => toast(`${noun} muted`)}>Mute reminders</DropdownMenuItem>
-    </>
-  );
+/**
+ * Moves a manager makes on a row (confirm a tour, decline an application, delete a lease). A move only
+ * applies while the row is still in the tab it left, so when the story moves the same row on its own
+ * (Jordan's application, his lease) the story wins and no stale move lingers.
+ */
+function useBucketMoves<B extends string>() {
+  const [moves, setMoves] = useState<Record<string, { from: B; to: B | "gone" }>>({});
+  return {
+    bucketOf: (id: string, base: B): B | "gone" => {
+      const move = moves[id];
+      return move && move.from === base ? move.to : base;
+    },
+    move: (id: string, from: B, to: B | "gone") => setMoves((prev) => ({ ...prev, [id]: { from, to } })),
+  };
 }
 
-function filterBySearch<T extends { search: string }>(rows: T[], query: string): T[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return rows;
-  return rows.filter((row) => row.search.includes(q));
+/** The record page's own frame: the same window, sidebar and page padding the list sits in. */
+function RecordFrame({ path, sidebar, children, overlay }: { path: string; sidebar: ReactNode; children: ReactNode; overlay?: ReactNode }) {
+  return (
+    <ProductWindow path={path}>
+      {sidebar}
+      <div className={DEMO_PAGE_CLASS}>{children}</div>
+      {overlay}
+    </ProductWindow>
+  );
 }
 
 /* ───────────────────────────── Tours ───────────────────────────── */
 
-const TOUR_TABS = [
-  { id: "pending" as const, label: "Pending" },
-  { id: "upcoming" as const, label: "Upcoming" },
-  { id: "past" as const, label: "Past" },
-];
+const TOUR_TAB_IDS = ["pending", "upcoming", "past"] as const;
+type TourBucket = TourFixtureRow["bucket"];
 
+type TourPopup =
+  | { kind: "add" }
+  | { kind: "availability" }
+  | { kind: "share" }
+  | { kind: "notify"; action: TourNotifyAction; row: TourFixtureRow };
+
+/**
+ * The real Tours page (`pro-tours.tsx`): Pending · Upcoming · Past, a Filter popover (Group by and Property), "Add
+ * availability", "Share tour link" and the round +. A row opens the tour's record (Tour · Communication); its ⋯
+ * is Message · Reschedule · Approve / Reject (pending) · Cancel tour (upcoming) · Delete.
+ */
 export function ToursPanel({ story }: { story?: DemoStory } = {}) {
+  useEffect(() => prefetchLeasingPopups(), []);
   const world = worldFor(story);
   const jordan = world.story.tourOffered ? (world.story.tourAccepted ? "upcoming" : "pending") : null;
-  const [bucket, setBucket] = useState<TourFixtureRow["bucket"]>(jordan ?? "upcoming");
-  useFollow<TourFixtureRow["bucket"]>(jordan, setBucket);
+  const [bucket, setBucket] = useState<TourBucket>(jordan ?? "upcoming");
+  useFollow<TourBucket>(jordan, setBucket);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<TourFixtureRow | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [added, setAdded] = useState<TourFixtureRow[]>([]);
+  const [recordId, setRecordId] = useState<string | null>(null);
+  const [popup, setPopup] = useState<TourPopup | null>(null);
+  const selection = useRowSelection();
+  const moves = useBucketMoves<TourBucket>();
   const { show, node: toastNode } = useFixtureToast();
-  const kebab = useFixtureKebab(show, "Tour");
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { pending: 0, upcoming: 0, past: 0 };
-    for (const r of world.tours) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
-    return c;
-  }, [world]);
-  const rows = useMemo(
-    () => filterBySearch(world.tours.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.guest} ${r.place}`.toLowerCase() })), search),
-    [world, bucket, search],
+  const propertyOptions = useMemo(() => LEASING_PROPERTIES.map((p) => ({ id: p.id, label: p.label })), []);
+  const rowsNow = useMemo(
+    () =>
+      [...added, ...world.tours].flatMap((row) => {
+        const effective = moves.bucketOf(row.id, row.bucket);
+        return effective === "gone" ? [] : [{ ...row, bucket: effective }];
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, added, moves.bucketOf],
+  );
+  const counts = useMemo(() => countBy(rowsNow, (r) => r.bucket, [...TOUR_TAB_IDS]), [rowsNow]);
+  const propertyTitles = propertyFilters.map((id) => propertyOptions.find((o) => o.id === id)?.label).filter(Boolean);
+  const rows = useMemo(() => {
+    const matching = rowsNow.filter(
+      (r) =>
+        r.bucket === bucket &&
+        matchesSearch(search, r.guest, r.place, r.email) &&
+        (propertyTitles.length === 0 || propertyTitles.includes(placeProperty(r.place))),
+    );
+    return groupMode === "house" ? [...matching].sort((a, b) => placeProperty(a.place).localeCompare(placeProperty(b.place))) : matching;
+  }, [rowsNow, bucket, search, propertyTitles, groupMode]);
+  const sidebar = <PortalSidebarFixture active="tours" counts={{ tours: counts.pending ?? 0 }} />;
+  const recordRow = recordId ? (rowsNow.find((r) => r.id === recordId) ?? null) : null;
+  const selectedRow = rowsNow.find((r) => r.id === selection.only);
+
+  const notify = (action: TourNotifyAction, row: TourFixtureRow) => setPopup({ kind: "notify", action, row });
+  const finishNotify = (action: TourNotifyAction, row: TourFixtureRow) => {
+    if (action === "confirm") moves.move(row.id, row.bucket, "upcoming");
+    else if (action === "decline" || action === "cancel") moves.move(row.id, row.bucket, "past");
+    else if (action === "delete") moves.move(row.id, row.bucket, "gone");
+    setPopup(null);
+    setRecordId(null);
+    selection.clear();
+    show(TOUR_NOTIFY_COPY[action].done);
+  };
+
+  const popupNode =
+    popup?.kind === "add" ? (
+      <DemoAddTourPopup
+        onClose={() => setPopup(null)}
+        onAdded={(tour) => {
+          setAdded((prev) => [{ ...tour, id: `tour-added-${prev.length + 1}`, bucket: "upcoming" }, ...prev]);
+          setBucket("upcoming");
+          setPopup(null);
+          show("Tour scheduled (sample)");
+        }}
+      />
+    ) : popup?.kind === "availability" ? (
+      <DemoTourAvailabilityPopup onClose={() => setPopup(null)} />
+    ) : popup?.kind === "share" ? (
+      <DemoShareLinkPopup
+        kind="tour"
+        onClose={() => setPopup(null)}
+        onToast={show}
+        onSent={() => {
+          setPopup(null);
+          show("Tour link sent (sample)");
+        }}
+      />
+    ) : popup?.kind === "notify" ? (
+      <DemoNotifyPopup
+        title={TOUR_NOTIFY_COPY[popup.action].title}
+        recipient={popup.row.email}
+        recipientPhone={popup.row.phone}
+        {...tourNotifyMessage(popup.action, popup.row)}
+        skipLabel={TOUR_NOTIFY_COPY[popup.action].skip}
+        confirmLabel={TOUR_NOTIFY_COPY[popup.action].confirm}
+        onClose={() => {
+          setPopup(null);
+          selection.clear();
+        }}
+        onConfirm={() => finishNotify(popup.action, popup.row)}
+        onSkip={() => finishNotify(popup.action, popup.row)}
+      />
+    ) : null;
+
+  if (recordRow) {
+    return (
+      <RecordFrame
+        path={`/portal/tours/${recordRow.bucket}/${recordRow.id}`}
+        sidebar={sidebar}
+        overlay={
+          <>
+            {popupNode}
+            {toastNode}
+          </>
+        }
+      >
+        <DemoTourRecord
+          row={recordRow}
+          onBack={() => setRecordId(null)}
+          onAction={(id) => {
+            if (id === "confirm") {
+              moves.move(recordRow.id, recordRow.bucket, "upcoming");
+              setRecordId(null);
+              show("Tour confirmed (sample)");
+            } else {
+              notify(id, recordRow);
+            }
+          }}
+        />
+      </RecordFrame>
+    );
+  }
+
+  const menuItems = (row: TourFixtureRow) => (
+    <>
+      <DropdownMenuItem onSelect={() => notify("message", row)}>Message</DropdownMenuItem>
+      {row.bucket !== "past" ? <DropdownMenuItem onSelect={() => notify("reschedule", row)}>Reschedule</DropdownMenuItem> : null}
+      {row.bucket === "pending" ? (
+        <>
+          <DropdownMenuItem onSelect={() => notify("confirm", row)}>Approve</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => notify("decline", row)}>Reject</DropdownMenuItem>
+        </>
+      ) : null}
+      {row.bucket === "upcoming" ? <DropdownMenuItem onSelect={() => notify("cancel", row)}>Cancel tour</DropdownMenuItem> : null}
+      <DropdownMenuItem onSelect={() => notify("delete", row)} className="text-danger">
+        Delete
+      </DropdownMenuItem>
+    </>
   );
 
   return (
-    <ProductWindow path="/portal/tours/upcoming">
-      <PortalSidebarFixture active="tours" counts={{ tours: counts.pending }} />
-      <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title="Tours">
-          <PortalListControlStack
-            variant="command"
-            destinationRow={
-              <LocalDestinationNav
-                appearance="command"
-                items={TOUR_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
-                activeId={bucket}
-                onChange={(id) => setBucket(id as TourFixtureRow["bucket"])}
-              />
-            }
-            search={{ value: search, onChange: setSearch, placeholder: "Search tours" }}
-            actions={
-              <>
-                <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
-                <PortalIconAction icon={Download} label="Export" onClick={() => show("Export")} />
-                <PortalIconAction icon={Share2} label="Share tour link" onClick={() => show("Tour link copied")} />
-                <PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />
-              </>
-            }
-            primary={<PortalPrimaryIconAction label="Add tour" onClick={() => setAdding(true)} />}
+    <FixtureListScreen
+      path="/portal/tours/upcoming"
+      sidebar={sidebar}
+      title="Tours"
+      tabs={TOUR_TAB_IDS.map((id) => ({ id, label: MANAGER_TOUR_BUCKET_LABELS[id], count: counts[id], alert: id === "pending" && (counts[id] ?? 0) > 0 }))}
+      activeId={bucket}
+      onTab={(id) => {
+        setBucket(id as TourBucket);
+        selection.clear();
+      }}
+      tabAriaLabel="Tour status"
+      search={search}
+      onSearch={setSearch}
+      searchPlaceholder="Search tours"
+      actions={
+        <>
+          <DemoToursFilter
+            groupMode={groupMode}
+            onGroupModeChange={setGroupMode}
+            propertyOptions={propertyOptions}
+            propertyFilters={propertyFilters}
+            onPropertyFiltersChange={setPropertyFilters}
           />
-          <PortalRecordListSurface
-            isEmpty={rows.length === 0}
-            emptyCard={{ title: "No tours here", section: bucket }}
-            bulkActions={kebab}
-          >
-            {rows.map((row) => (
-              <PortalApplicantRecordRow
-                key={row.id}
-                name={row.guest}
-                address={row.place}
-                facts={
-                  <>
-                    <PortalRowFact icon={CalendarDays}>{row.when}</PortalRowFact>
-                    {row.format === "virtual" ? <PortalRowFact icon={Video}>Virtual</PortalRowFact> : null}
-                    <PortalRowFact icon={Mail}>{row.email}</PortalRowFact>
-                    <PortalRowFact icon={Phone}>{row.phone}</PortalRowFact>
-                    {row.reminder ? (
-                      <PortalRowFact icon={Bell}>
-                        <span data-attr="tours-row-scheduled">{row.reminder}</span>
-                      </PortalRowFact>
-                    ) : null}
-                  </>
-                }
-                onSelectedChange={() => undefined}
-                onOpen={() => setSelected(row)}
-                dataAttr="tour-list-row"
-              />
-            ))}
-          </PortalRecordListSurface>
-        </ManagerPortalPageShell>
-      </div>
-      <FixtureSheet open={!!selected} title={selected?.guest ?? ""} onClose={() => setSelected(null)} primaryLabel="Confirm tour" onPrimary={() => { show("Tour confirmed"); setSelected(null); }}>
-        {selected ? (
-          <>
-            <FixtureField label="Property" value={selected.place} />
-            <FixtureField label="When" value={selected.when} />
-            <FixtureField label="Guest" value={`${selected.guest} · ${selected.email}`} />
-          </>
-        ) : null}
-      </FixtureSheet>
-      <FixtureSheet open={adding} title="Add tour" onClose={() => setAdding(false)} primaryLabel="Save" onPrimary={() => { show("Tour added"); setAdding(false); }}>
-        <FixtureField label="Property" value="Fremont Studio" />
-        <FixtureField label="Date & time" value="Sat, Sep 27 · 2:00 PM" />
-        <FixtureField label="Guest" value="New prospect" />
-      </FixtureSheet>
-      {toastNode}
-    </ProductWindow>
+          <PortalIconAction icon={CalendarPlus} label="Add availability" data-attr="tours-add-availability-open" onClick={() => setPopup({ kind: "availability" })} />
+          <PortalIconAction icon={Share2} label="Share tour link" data-attr="tours-share-open" onClick={() => setPopup({ kind: "share" })} />
+        </>
+      }
+      primary={{ label: portalListAddPrimaryLabel("tour"), onClick: () => setPopup({ kind: "add" }) }}
+      isEmpty={rows.length === 0}
+      emptyTitle={
+        search.trim() ? portalEmptyNoMatchTitle("tours", search) : propertyFilters.length > 0 ? portalEmptyNoMatchTitle("tours") : portalEmptyCopy(`tours.${bucket}` as PortalEmptyCopyKey).title
+      }
+      emptySection="tours"
+      menu={selectedRow ? menuItems(selectedRow) : undefined}
+      onBulkClear={selection.clear}
+      overlay={
+        <>
+          {popupNode}
+          {toastNode}
+        </>
+      }
+    >
+      {rows.map((row) => (
+        <PortalApplicantRecordRow
+          key={row.id}
+          name={row.guest}
+          address={row.place}
+          facts={
+            <>
+              <PortalRowFact icon={CalendarDays} srLabel="When">
+                {row.when}
+              </PortalRowFact>
+              {row.format === "virtual" ? (
+                <PortalRowFact icon={Video} srLabel="Format">
+                  Virtual
+                </PortalRowFact>
+              ) : null}
+              <PortalRowFact icon={Mail} srLabel="Email">
+                {row.email}
+              </PortalRowFact>
+              <PortalRowFact icon={Phone} srLabel="Phone">
+                {row.phone}
+              </PortalRowFact>
+              {row.reminder ? (
+                <PortalRowFact icon={Bell} srLabel="Reminders">
+                  <span data-attr="tours-row-scheduled">{row.reminder}</span>
+                </PortalRowFact>
+              ) : null}
+            </>
+          }
+          checked={selection.isChecked(row.id)}
+          onSelectedChange={(checked) => selection.set(row.id, checked)}
+          selectLabel={`${row.guest} · ${row.when}`}
+          onOpen={() => setRecordId(row.id)}
+          dataAttr="tour-list-row"
+        />
+      ))}
+    </FixtureListScreen>
   );
 }
 
 /* ───────────────────────────── Applications ───────────────────────────── */
 
-const APPLICATION_TABS = [
-  { id: "incomplete" as const, label: "Incomplete" },
-  { id: "pending" as const, label: "Pending" },
-  { id: "approved" as const, label: "Approved" },
-  { id: "rejected" as const, label: "Rejected" },
+/** The real Applications tabs (pro-applications.tsx): Pending · Approved · Declined. */
+const APPLICATION_TABS: { id: DemoApplicationTab; label: string }[] = [
+  { id: "pending", label: "Pending" },
+  { id: "approved", label: "Approved" },
+  { id: "rejected", label: "Declined" },
 ];
 
+type ApplicationPopup = { kind: "send" } | { kind: "add" };
+
+/**
+ * The real Applications page: Pending · Approved · Declined, a Filter popover (Property), "Send application link"
+ * and the round +. A row opens the application's record (Application · Background check · Communication); its
+ * ⋯ is Approve · Download · Move to pending · Decline · Delete (declined only).
+ */
 export function ApplicationsPanel({ story }: { story?: DemoStory } = {}) {
+  useEffect(() => prefetchLeasingPopups(), []);
   const world = worldFor(story);
   const jordan = world.story.applicationSubmitted ? (world.story.applicationApproved ? "approved" : "pending") : null;
-  const [bucket, setBucket] = useState<ApplicationFixtureRow["bucket"]>(jordan ?? "pending");
-  useFollow<ApplicationFixtureRow["bucket"]>(jordan, setBucket);
+  const [bucket, setBucket] = useState<DemoApplicationTab>(jordan ?? "pending");
+  useFollow<DemoApplicationTab>(jordan, setBucket);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<ApplicationFixtureRow | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [added, setAdded] = useState<ApplicationFixtureRow[]>([]);
+  const [recordId, setRecordId] = useState<string | null>(null);
+  const [popup, setPopup] = useState<ApplicationPopup | null>(null);
+  const selection = useRowSelection();
+  const moves = useBucketMoves<DemoApplicationTab>();
   const { show, node: toastNode } = useFixtureToast();
-  const kebab = useFixtureKebab(show, "Application");
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { incomplete: 0, pending: 0, approved: 0, rejected: 0 };
-    for (const r of world.applications) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
-    return c;
-  }, [world]);
-  const rows = useMemo(
-    () => filterBySearch(world.applications.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.name} ${r.property}`.toLowerCase() })), search),
-    [world, bucket, search],
+  const propertyOptions = useMemo(() => LEASING_PROPERTIES.map((p) => ({ id: p.id, label: p.label })), []);
+  const propertyTitles = propertyFilters.map((id) => propertyOptions.find((o) => o.id === id)?.label).filter(Boolean);
+  // The real page has no Incomplete tab (an unfinished application is a draft in Pending), and the sidebar badge counts
+  // the submitted ones, so the demo's two drafts stay out of the list: Pending is the badge's count.
+  const rowsNow = useMemo(
+    () =>
+      [...added, ...world.applications.filter((row) => !isIncompleteApplication(row))].flatMap((row) => {
+        const effective = moves.bucketOf(row.id, applicationTabOf(row));
+        return effective === "gone" ? [] : [{ row, tab: effective }];
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, added, moves.bucketOf],
+  );
+  const visibleByFilter = rowsNow.filter(({ row }) => propertyTitles.length === 0 || propertyTitles.includes(row.property));
+  const counts = useMemo(() => countBy(visibleByFilter, (r) => r.tab, APPLICATION_TABS.map((t) => t.id)), [visibleByFilter]);
+  const rows = visibleByFilter.filter(({ row, tab }) => tab === bucket && matchesSearch(search, row.name, row.property, row.email));
+  const sidebar = <PortalSidebarFixture active="applications" counts={{ applications: counts.pending ?? 0 }} />;
+  const recordEntry = recordId ? (rowsNow.find(({ row }) => row.id === recordId) ?? null) : null;
+  const selectedEntry = rowsNow.find(({ row }) => row.id === selection.only);
+
+  const popupNode =
+    popup?.kind === "send" ? (
+      <DemoShareLinkPopup
+        kind="apply"
+        startAtReview
+        onClose={() => setPopup(null)}
+        onToast={show}
+        onSent={() => {
+          setPopup(null);
+          show("Application link sent (sample)");
+        }}
+      />
+    ) : popup?.kind === "add" ? (
+      <DemoAddApplicationPopup
+        onClose={() => setPopup(null)}
+        onAdded={(application) => {
+          setAdded((prev) => [
+            { ...application, id: `app-added-${prev.length + 1}`, submitted: "Started Sep 26", stage: "Documents complete", bucket: "pending" },
+            ...prev,
+          ]);
+          setBucket("pending");
+          setPopup(null);
+          show("Application added (sample)");
+        }}
+      />
+    ) : null;
+
+  /** One action on an application, from the record header or the row's ⋯. */
+  const act = (id: string, row: ApplicationFixtureRow, tab: DemoApplicationTab) => {
+    selection.clear();
+    if (id === "approve") {
+      moves.move(row.id, tab, "approved");
+      setRecordId(null);
+      show("Application approved (sample)");
+    } else if (id === "reject") {
+      moves.move(row.id, tab, "rejected");
+      setRecordId(null);
+      show("Application declined (sample)");
+    } else if (id === "pending") {
+      moves.move(row.id, tab, "pending");
+      setRecordId(null);
+      show("Moved to pending (sample)");
+    } else if (id === "delete") {
+      moves.move(row.id, tab, "gone");
+      setRecordId(null);
+      show("Application deleted (sample)");
+    } else if (id === "download") {
+      show("Download started (sample)");
+    } else if (id === "upload-for-resident") {
+      show("Upload for resident (sample)");
+    } else if (id === "send-lease") {
+      setRecordId(null);
+      show("Send lease opens on the Leases tab (sample)");
+    }
+  };
+
+  if (recordEntry) {
+    return (
+      <RecordFrame
+        path={`/portal/applications/${recordEntry.tab}/${recordEntry.row.id}`}
+        sidebar={sidebar}
+        overlay={
+          <>
+            {popupNode}
+            {toastNode}
+          </>
+        }
+      >
+        <DemoApplicationRecord
+          row={{ ...recordEntry.row, bucket: recordEntry.tab }}
+          onBack={() => setRecordId(null)}
+          onAction={(id) => act(id, recordEntry.row, recordEntry.tab)}
+        />
+      </RecordFrame>
+    );
+  }
+
+  const menuItems = (row: ApplicationFixtureRow, tab: DemoApplicationTab) => (
+    <>
+      {tab === "pending" ? <DropdownMenuItem onSelect={() => act("approve", row, tab)}>Approve</DropdownMenuItem> : null}
+      <DropdownMenuItem onSelect={() => act("download", row, tab)}>Download</DropdownMenuItem>
+      {tab !== "pending" ? <DropdownMenuItem onSelect={() => act("pending", row, tab)}>Move to pending</DropdownMenuItem> : null}
+      {tab !== "rejected" ? (
+        <DropdownMenuItem onSelect={() => act("reject", row, tab)} className="text-danger">
+          Decline
+        </DropdownMenuItem>
+      ) : null}
+      {tab === "rejected" ? (
+        <DropdownMenuItem onSelect={() => act("delete", row, tab)} className="text-danger">
+          Delete
+        </DropdownMenuItem>
+      ) : null}
+    </>
   );
 
   return (
-    <ProductWindow path="/portal/applications/pending">
-      <PortalSidebarFixture active="applications" counts={{ applications: counts.pending }} />
-      <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title="Applications">
-          <PortalListControlStack
-            variant="command"
-            destinationRow={
-              <LocalDestinationNav
-                appearance="command"
-                items={APPLICATION_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
-                activeId={bucket}
-                onChange={(id) => setBucket(id as ApplicationFixtureRow["bucket"])}
-              />
-            }
-            search={{ value: search, onChange: setSearch, placeholder: "Search applications" }}
-            actions={
+    <FixtureListScreen
+      path="/portal/applications/pending"
+      sidebar={sidebar}
+      title="Applications"
+      tabs={APPLICATION_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
+      activeId={bucket}
+      onTab={(id) => {
+        setBucket(id as DemoApplicationTab);
+        selection.clear();
+      }}
+      search={search}
+      onSearch={setSearch}
+      searchPlaceholder="Search applications"
+      actions={
+        <>
+          <DemoApplicationsFilter propertyOptions={propertyOptions} propertyFilters={propertyFilters} onPropertyFiltersChange={setPropertyFilters} />
+          <PortalIconAction icon={Send} label="Send application link" data-attr="applications-send" data-demo-target="applications-send" onClick={() => setPopup({ kind: "send" })} />
+        </>
+      }
+      primary={{ label: portalListAddPrimaryLabel("application"), onClick: () => setPopup({ kind: "add" }) }}
+      isEmpty={rows.length === 0}
+      emptyTitle={
+        search.trim()
+          ? portalEmptyNoMatchTitle("applications", search)
+          : propertyFilters.length > 0
+            ? portalEmptyNoMatchTitle("applications")
+            : portalEmptyCopy(`applications.${bucket}` as PortalEmptyCopyKey).title
+      }
+      emptySection="applications"
+      menu={selectedEntry ? menuItems(selectedEntry.row, selectedEntry.tab) : undefined}
+      onBulkClear={selection.clear}
+      overlay={
+        <>
+          {popupNode}
+          {toastNode}
+        </>
+      }
+    >
+      {rows.map(({ row, tab }) => (
+        <DemoTarget id="application-row" key={row.id}>
+          <PortalApplicantRecordRow
+            name={row.name}
+            address={`${row.property} · ${row.unit}`}
+            facts={
               <>
-                <PortalIconAction icon={Filter} label="Filter" onClick={() => show("Filter")} />
-                <PortalIconAction
-                  icon={Share2}
-                  label="Send application"
-                  data-demo-target="applications-send"
-                  onClick={() => setSending(true)}
-                />
-                <PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />
+                <PortalRowFact icon={Mail} srLabel="Email">
+                  {row.email}
+                </PortalRowFact>
+                <PortalRowFact icon={CalendarDays} srLabel="Date">
+                  {row.submitted}
+                </PortalRowFact>
+                {row.sharedFact ? (
+                  <PortalRowFact icon={Users} srLabel="Resident">
+                    {row.sharedFact}
+                  </PortalRowFact>
+                ) : null}
+                {row.screening === "flagged" ? (
+                  <PortalRowFact icon={ShieldAlert} srLabel="Screening">
+                    Screening flagged
+                  </PortalRowFact>
+                ) : row.screening === "passed" ? (
+                  <PortalRowFact icon={ShieldCheck} srLabel="Screening">
+                    Screening passed
+                  </PortalRowFact>
+                ) : null}
               </>
             }
-            primary={<PortalPrimaryIconAction label="Add application" onClick={() => setAdding(true)} />}
+            checked={selection.isChecked(row.id)}
+            onSelectedChange={(checked) => selection.set(row.id, checked)}
+            selectLabel={row.name}
+            onOpen={() => setRecordId(row.id)}
+            dataAttr="application-list-row"
           />
-          <PortalRecordListSurface
-            isEmpty={rows.length === 0}
-            emptyCard={{ title: "No applications here", section: bucket }}
-            bulkActions={kebab}
-          >
-            {rows.map((row) => (
-              <DemoTarget id="application-row" key={row.id}>
-              <PortalApplicantRecordRow
-                name={row.name}
-                address={`${row.property} · ${row.unit}`}
-                facts={
-                  <>
-                    <PortalRowFact icon={Mail}>{row.email}</PortalRowFact>
-                    <PortalRowFact icon={Clock}>{row.submitted}</PortalRowFact>
-                    <PortalRowFact icon={Home}>{row.stage}</PortalRowFact>
-                    {row.sharedFact ? <PortalRowFact icon={Users}>{row.sharedFact}</PortalRowFact> : null}
-                    {row.screening === "flagged" ? (
-                      <PortalRowFact icon={ShieldAlert}>Screening flagged</PortalRowFact>
-                    ) : row.screening === "passed" ? (
-                      <PortalRowFact icon={ShieldCheck}>Screening passed</PortalRowFact>
-                    ) : null}
-                  </>
-                }
-                onSelectedChange={() => undefined}
-                onOpen={() => setSelected(row)}
-                dataAttr="application-list-row"
-              />
-              </DemoTarget>
-            ))}
-          </PortalRecordListSurface>
-        </ManagerPortalPageShell>
-      </div>
-      <FixtureSheet open={!!selected} title={selected?.name ?? ""} onClose={() => setSelected(null)} primaryLabel="Approve" onPrimary={() => { show("Application approved"); setSelected(null); }}>
-        {selected ? (
-          <>
-            <FixtureField label="Property" value={`${selected.property} · ${selected.unit}`} />
-            <FixtureField label="Submitted" value={selected.submitted} />
-            <FixtureField label="Stage" value={selected.stage} />
-          </>
-        ) : null}
-      </FixtureSheet>
-      <FixtureSheet open={sending} title="Send application" onClose={() => setSending(false)} primaryLabel="Send" onPrimary={() => { show("Application link sent"); setSending(false); }}>
-        <FixtureField label="To" value={`${RESIDENT_NAME} · (206) 555-0186`} />
-        <FixtureField label="Home" value="61 Willow Court · Room 3" />
-        <FixtureField label="Send via" value="SMS" />
-        <FixtureField label="Message" value="Apply for Room 3 — PropLane" />
-      </FixtureSheet>
-      <FixtureSheet open={adding} title="Add application" onClose={() => setAdding(false)} primaryLabel="Save" onPrimary={() => { show("Application added"); setAdding(false); }}>
-        <FixtureField label="Property" value="Fremont Studio" />
-        <FixtureField label="Applicant" value="New applicant" />
-      </FixtureSheet>
-      {toastNode}
-    </ProductWindow>
+        </DemoTarget>
+      ))}
+    </FixtureListScreen>
   );
 }
 
 /* ───────────────────────────── Leasing ───────────────────────────── */
 
-const LEASE_TABS = [
-  { id: "manager" as const, label: "Manager review" },
-  { id: "resident" as const, label: "Resident signature" },
-  { id: "signed" as const, label: "Manager signature" },
-  { id: "completed" as const, label: "Signed" },
-];
+type LeaseBucket = LeaseFixtureRow["bucket"];
+const LEASE_EMPTY_KEY: Record<LeaseBucket, PortalEmptyCopyKey> = {
+  manager: "leases.draft",
+  resident: "leases.resident",
+  signed: "leases.manager",
+  completed: "leases.completed",
+};
 
+type LeasePopup = { kind: "send" } | { kind: "remind"; row: LeaseFixtureRow };
+
+/**
+ * The real Leases page: Draft · Resident signature · Manager signature · Signed, a Filter popover (Property,
+ * Stage, Updated), the Lease settings gear (a Settings page in the real portal, a sample toast here) and the
+ * round + that opens Send lease. A row opens the lease's record (Lease · Communication); its ⋯ is Send (drafts) ·
+ * Download · Mark as signed · Delete.
+ */
 export function LeasesPanel({ story }: { story?: DemoStory } = {}) {
+  useEffect(() => prefetchLeasingPopups(), []);
   const world = worldFor(story);
   const jordan = world.story.applicationApproved ? world.leases[0]!.bucket : null;
-  const [bucket, setBucket] = useState<LeaseFixtureRow["bucket"]>(jordan ?? "signed");
-  useFollow<LeaseFixtureRow["bucket"]>(jordan, setBucket);
+  const [bucket, setBucket] = useState<LeaseBucket>(jordan ?? "signed");
+  useFollow<LeaseBucket>(jordan, setBucket);
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<LeaseFixtureRow | null>(null);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [stageFilters, setStageFilters] = useState<string[]>([]);
+  const [updatedWindow, setUpdatedWindow] = useState<LeaseUpdatedWindow>("any");
+  const [added, setAdded] = useState<LeaseFixtureRow[]>([]);
+  const [recordId, setRecordId] = useState<string | null>(null);
+  const [popup, setPopup] = useState<LeasePopup | null>(null);
+  const selection = useRowSelection();
+  const moves = useBucketMoves<LeaseBucket>();
   const { show, node: toastNode } = useFixtureToast();
-  const kebab = useFixtureKebab(show, "Lease");
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { manager: 0, resident: 0, signed: 0, completed: 0 };
-    for (const r of world.leases) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
-    return c;
-  }, [world]);
-  const rows = useMemo(
-    () => filterBySearch(world.leases.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.place}`.toLowerCase() })), search),
-    [world, bucket, search],
+  const propertyOptions = useMemo(() => LEASING_PROPERTIES.map((p) => ({ id: p.id, label: p.label })), []);
+  const propertyTitles = propertyFilters.map((id) => propertyOptions.find((o) => o.id === id)?.label).filter(Boolean);
+  const allRows = useMemo(
+    () =>
+      [...added, ...world.leases].flatMap((row) => {
+        const effective = moves.bucketOf(row.id, row.bucket);
+        return effective === "gone" ? [] : [{ ...row, bucket: effective }];
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, added, moves.bucketOf],
   );
+  const stageOptions = useMemo(() => [...new Set(world.leases.map((l) => l.stage))].sort().map((value) => ({ value, label: value })), [world]);
+  const windowDays = updatedWindow === "7d" ? 7 : updatedWindow === "30d" ? 30 : updatedWindow === "90d" ? 90 : null;
+  const visibleByFilter = allRows.filter(
+    (r) =>
+      (propertyTitles.length === 0 || propertyTitles.includes(placeProperty(r.place))) &&
+      (stageFilters.length === 0 || stageFilters.includes(r.stage)) &&
+      (windowDays === null || daysSinceStamp(r.updated) <= windowDays),
+  );
+  const counts = useMemo(() => countBy(visibleByFilter, (r) => r.bucket, LEASE_TAB_LABELS.map((t) => t.id)), [visibleByFilter]);
+  const rows = visibleByFilter.filter((r) => r.bucket === bucket && matchesSearch(search, r.resident, r.place, r.email, r.stage));
+  const filtersActive = propertyFilters.length > 0 || stageFilters.length > 0 || updatedWindow !== "any";
+  const sidebar = <PortalSidebarFixture active="leases" />;
+  const recordRow = recordId ? (allRows.find((r) => r.id === recordId) ?? null) : null;
+  const selectedRow = allRows.find((r) => r.id === selection.only);
 
-  return (
-    <ProductWindow path="/portal/leases">
-      <PortalSidebarFixture active="leases" />
-      <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title="Leases">
-          <PortalListControlStack
-            variant="command"
-            destinationRow={
-              <LocalDestinationNav
-                appearance="command"
-                items={LEASE_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
-                activeId={bucket}
-                onChange={(id) => setBucket(id as LeaseFixtureRow["bucket"])}
-              />
-            }
-            search={{ value: search, onChange: setSearch, placeholder: "Search leases" }}
-            actions={<PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />}
-          />
-          <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "No leases here", section: bucket }} bulkActions={kebab}>
-            {rows.map((row) => (
-              <DemoTarget id="lease-row" key={row.id}>
-                <PortalApplicantRecordRow
-                  name={row.resident}
-                  address={row.place}
-                  facts={
-                    <>
-                      <PortalRowFact icon={Mail}>{row.email}</PortalRowFact>
-                      <PortalRowFact icon={CalendarDays}>{row.stage}</PortalRowFact>
-                      <PortalRowFact icon={Clock}>{row.updated}</PortalRowFact>
-                    </>
-                  }
-                  onSelectedChange={() => undefined}
-                  onOpen={() => setSelected(row)}
-                  dataAttr="lease-list-row"
-                />
-              </DemoTarget>
-            ))}
-          </PortalRecordListSurface>
-        </ManagerPortalPageShell>
-      </div>
-      <FixtureSheet
-        open={!!selected}
-        title={selected?.resident ?? ""}
-        onClose={() => setSelected(null)}
-        primaryLabel={selected?.bucket === "manager" ? "Send lease" : selected?.bucket === "signed" ? "Countersign" : undefined}
-        onPrimary={() => {
-          show(selected?.bucket === "manager" ? "Lease sent for signature" : "Lease executed — deposit charge sent");
-          setSelected(null);
+  const act = (id: string, row: LeaseFixtureRow) => {
+    selection.clear();
+    if (id === "send") {
+      moves.move(row.id, row.bucket, "resident");
+      setRecordId(null);
+      show("Lease sent for signature (sample)");
+    } else if (id === "sign") {
+      moves.move(row.id, row.bucket, "completed");
+      setRecordId(null);
+      show("Lease executed — deposit charge sent (sample)");
+    } else if (id === "mark-signed") {
+      moves.move(row.id, row.bucket, "completed");
+      setRecordId(null);
+      show("Lease marked as signed (sample)");
+    } else if (id === "delete") {
+      moves.move(row.id, row.bucket, "gone");
+      setRecordId(null);
+      show("Lease deleted (sample)");
+    } else if (id === "remind") {
+      setPopup({ kind: "remind", row });
+    } else if (id === "download") {
+      show("Download started (sample)");
+    } else if (id === "edit") {
+      show("Edit lease (sample)");
+    }
+  };
+
+  const popupNode =
+    popup?.kind === "send" ? (
+      <DemoSendLeasePopup
+        onClose={() => setPopup(null)}
+        onSent={(candidate) => {
+          setAdded((prev) => [
+            { id: `lease-added-${prev.length + 1}`, resident: candidate.name, email: candidate.email, place: candidate.place, stage: "Resident signature pending", updated: "Sep 26", bucket: "resident" },
+            ...prev,
+          ]);
+          setBucket("resident");
+          setPopup(null);
+          show("Lease sent for signature (sample)");
         }}
-      >
-        {selected ? (
-          <>
-            <FixtureField label="Property" value={selected.place} />
-            <FixtureField label="Stage" value={selected.stage} />
-            <FixtureField label="Last update" value={selected.updated} />
-          </>
-        ) : null}
-      </FixtureSheet>
-      {toastNode}
-    </ProductWindow>
-  );
-}
-
-/* ───────────────────────────── Payments ───────────────────────────── */
-
-const PAYMENT_TABS = [
-  { id: "pending" as const, label: "Pending" },
-  { id: "overdue" as const, label: "Overdue" },
-  { id: "paid" as const, label: "Paid" },
-];
-
-export function PaymentsPanel({ story }: { story?: DemoStory } = {}) {
-  const world = worldFor(story);
-  const jordan = world.story.leaseStep === 3 ? (world.story.rentPaid ? "paid" : "pending") : null;
-  const [bucket, setBucket] = useState<PaymentFixtureRow["bucket"]>(jordan ?? "overdue");
-  useFollow<PaymentFixtureRow["bucket"]>(jordan, setBucket);
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<PaymentFixtureRow | null>(null);
-  const { show, node: toastNode } = useFixtureToast();
-  const kebab = useFixtureKebab(show, "Charge");
-
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { pending: 0, overdue: 0, paid: 0 };
-    for (const r of world.payments) c[r.bucket] = (c[r.bucket] ?? 0) + 1;
-    return c;
-  }, [world]);
-  const rows = useMemo(
-    () => filterBySearch(world.payments.filter((r) => r.bucket === bucket).map((r) => ({ ...r, search: `${r.resident} ${r.property}`.toLowerCase() })), search),
-    [world, bucket, search],
-  );
-
-  return (
-    <ProductWindow path="/portal/payments/incoming/overdue">
-      <PortalSidebarFixture active="payments" counts={{ payments: counts.overdue }} />
-      <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title="Payments">
-          <PortalListControlStack
-            variant="command"
-            destinationRow={
-              <LocalDestinationNav
-                appearance="command"
-                items={PAYMENT_TABS.map((t) => ({ ...t, count: counts[t.id], alert: t.id === "overdue" && counts[t.id] > 0 }))}
-                activeId={bucket}
-                onChange={(id) => setBucket(id as PaymentFixtureRow["bucket"])}
-              />
-            }
-            search={{ value: search, onChange: setSearch, placeholder: "Search payments" }}
-            actions={<PortalIconAction icon={Download} label="Export" onClick={() => show("Export")} />}
-          />
-          <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "No charges here", section: bucket }} bulkActions={kebab}>
-            {rows.map((row) => (
-              <DemoTarget id="payment-row" key={row.id}>
-                <PortalApplicantRecordRow
-                  name={row.resident}
-                  address={`${row.chargeTitle} · ${row.property}`}
-                  facts={<PortalRowFact icon={CalendarDays}>{row.due}</PortalRowFact>}
-                  amount={row.amount}
-                  amountTone={row.tone}
-                  onSelectedChange={() => undefined}
-                  onOpen={() => setSelected(row)}
-                  dataAttr="payment-list-row"
-                />
-              </DemoTarget>
-            ))}
-          </PortalRecordListSurface>
-        </ManagerPortalPageShell>
-      </div>
-      <FixtureSheet
-        open={!!selected}
-        title={selected?.resident ?? ""}
-        onClose={() => setSelected(null)}
-        primaryLabel={selected?.bucket === "paid" ? undefined : selected?.bucket === "pending" ? "Send reminder" : "Mark paid"}
-        onPrimary={() => {
-          show(selected?.bucket === "pending" ? `Reminder sent — ${selected?.resident}` : `${selected?.amount} paid — ${selected?.resident}`);
-          setSelected(null);
+      />
+    ) : popup?.kind === "remind" ? (
+      <DemoNotifyPopup
+        title="Lease signing reminder · preview"
+        recipient={popup.row.email}
+        subject={`Reminder: sign your lease for ${popup.row.place}`}
+        body={`Hi ${popup.row.resident.split(/\s+/)[0]},\n\nYour lease for ${popup.row.place} is waiting for your signature. Open it from your PropLane account to review and sign.`}
+        confirmLabel="Send reminder"
+        onClose={() => {
+          setPopup(null);
+          selection.clear();
         }}
-      >
-        {selected ? (
+        onConfirm={() => {
+          setPopup(null);
+          selection.clear();
+          show("Lease-signing reminder sent (sample)");
+        }}
+      />
+    ) : null;
+
+  if (recordRow) {
+    return (
+      <RecordFrame
+        path={`/portal/leases/${recordRow.bucket}/${recordRow.id}`}
+        sidebar={sidebar}
+        overlay={
           <>
-            <FixtureField label="Charge" value={`${selected.chargeTitle} · ${selected.property}`} />
-            <FixtureField label="Due" value={selected.due} />
-            <FixtureField label="Amount" value={selected.amount} />
+            {popupNode}
+            {toastNode}
           </>
-        ) : null}
-      </FixtureSheet>
-      {toastNode}
-    </ProductWindow>
-  );
-}
+        }
+      >
+        <DemoLeaseRecord row={recordRow} onBack={() => setRecordId(null)} onAction={(id) => act(id, recordRow)} />
+      </RecordFrame>
+    );
+  }
 
-/* ───────────────────────────── Services ───────────────────────────── */
-
-const SERVICE_TABS = [
-  { id: "open" as const, label: "Open" },
-  { id: "scheduled" as const, label: "Scheduled" },
-  { id: "done" as const, label: "Done" },
-  { id: "declined" as const, label: "Declined" },
-];
-
-export function ServicesPanel({ story }: { story?: DemoStory } = {}) {
-  const world = worldFor(story);
-  const jordan = world.story.service === "none" ? null : world.services[0]!.state;
-  const [state, setState] = useState<ServiceFixtureRow["state"]>(jordan ?? "scheduled");
-  useFollow<ServiceFixtureRow["state"]>(jordan, setState);
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<ServiceFixtureRow | null>(null);
-  const { show, node: toastNode } = useFixtureToast();
-  const kebab = useFixtureKebab(show, "Service");
-
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { open: 0, scheduled: 0, done: 0, declined: 0 };
-    for (const r of world.services) c[r.state] = (c[r.state] ?? 0) + 1;
-    return c;
-  }, [world]);
-  const rows = useMemo(
-    () => filterBySearch(world.services.filter((r) => r.state === state).map((r) => ({ ...r, search: `${r.title} ${r.resident} ${r.property}`.toLowerCase() })), search),
-    [world, state, search],
+  const menuItems = (row: LeaseFixtureRow) => (
+    <>
+      {row.bucket === "manager" ? <DropdownMenuItem onSelect={() => act("send", row)}>Send</DropdownMenuItem> : null}
+      <DropdownMenuItem onSelect={() => act("download", row)}>Download</DropdownMenuItem>
+      {row.bucket !== "completed" ? <DropdownMenuItem onSelect={() => act("mark-signed", row)}>Mark as signed</DropdownMenuItem> : null}
+      {row.bucket !== "completed" ? (
+        <DropdownMenuItem onSelect={() => act("delete", row)} className="text-danger">
+          Delete
+        </DropdownMenuItem>
+      ) : null}
+    </>
   );
 
   return (
-    <ProductWindow path="/portal/services">
-      <PortalSidebarFixture active="services" counts={{ services: counts.open }} />
-      <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title="Services">
-          <PortalListControlStack
-            variant="command"
-            destinationRow={
-              <LocalDestinationNav
-                appearance="command"
-                items={SERVICE_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
-                activeId={state}
-                onChange={(id) => setState(id as ServiceFixtureRow["state"])}
-              />
-            }
-            search={{ value: search, onChange: setSearch, placeholder: "Search services" }}
-            actions={<PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />}
+    <FixtureListScreen
+      path="/portal/leases"
+      sidebar={sidebar}
+      title="Leases"
+      tabs={LEASE_TAB_LABELS.map((t) => ({ ...t, count: counts[t.id] }))}
+      activeId={bucket}
+      onTab={(id) => {
+        setBucket(id as LeaseBucket);
+        selection.clear();
+      }}
+      tabAriaLabel="Lease pipeline stage"
+      search={search}
+      onSearch={setSearch}
+      searchPlaceholder="Search leases"
+      actions={
+        <>
+          <DemoLeasesFilter
+            propertyOptions={propertyOptions}
+            propertyFilters={propertyFilters}
+            onPropertyFiltersChange={setPropertyFilters}
+            stageOptions={stageOptions}
+            stageFilters={stageFilters}
+            onStageFiltersChange={setStageFilters}
+            updatedWindow={updatedWindow}
+            onUpdatedWindowChange={setUpdatedWindow}
           />
-          <PortalRecordListSurface isEmpty={rows.length === 0} emptyCard={{ title: "Nothing here", section: state }} bulkActions={kebab}>
-            {rows.map((row) => (
-              <DemoTarget id="service-row" key={row.id}>
-                <PortalServiceRecordRow
-                  title={row.title}
-                  subtitle={`${row.kind === "add-on" ? "Add-on service" : "Maintenance"} · ${row.property} · ${row.resident} · ${row.detail}`}
-                  onSelectedChange={() => undefined}
-                  onOpen={() => setSelected(row)}
-                  dataAttr="service-list-row"
-                />
-              </DemoTarget>
-            ))}
-          </PortalRecordListSurface>
-        </ManagerPortalPageShell>
-      </div>
-      <FixtureSheet
-        open={!!selected}
-        title={selected?.title ?? ""}
-        onClose={() => setSelected(null)}
-        primaryLabel={selected?.state === "open" ? "Dispatch vendor" : selected?.state === "scheduled" ? "Approve change order" : undefined}
-        onPrimary={() => { show(selected?.state === "open" ? "Dispatched — Pacific Plumbing" : "Change order approved — $90"); setSelected(null); }}
-      >
-        {selected ? (
-          <>
-            <FixtureField label="Property" value={selected.property} />
-            <FixtureField label="Resident" value={selected.resident} />
-            <FixtureField label="Detail" value={selected.detail} />
-          </>
-        ) : null}
-      </FixtureSheet>
-      {toastNode}
-    </ProductWindow>
+          <PortalIconAction icon={Settings} label="Lease settings" data-attr="leases-settings-open" onClick={() => show("Lease settings (sample)")} />
+        </>
+      }
+      primary={{ label: portalListAddPrimaryLabel("lease"), onClick: () => setPopup({ kind: "send" }) }}
+      isEmpty={rows.length === 0}
+      emptyTitle={
+        search.trim() ? portalEmptyNoMatchTitle("leases", search) : filtersActive ? portalEmptyNoMatchTitle("leases") : portalEmptyCopy(LEASE_EMPTY_KEY[bucket]).title
+      }
+      emptySection="leases"
+      menu={selectedRow ? menuItems(selectedRow) : undefined}
+      onBulkClear={selection.clear}
+      overlay={
+        <>
+          {popupNode}
+          {toastNode}
+        </>
+      }
+    >
+      {rows.map((row) => (
+        <DemoTarget id="lease-row" key={row.id}>
+          <PortalApplicantRecordRow
+            name={row.resident}
+            address={row.place}
+            facts={
+              <>
+                <PortalRowFact icon={Mail} srLabel="Email">
+                  {row.email}
+                </PortalRowFact>
+                <PortalRowFact icon={CalendarDays} srLabel="Stage">
+                  {row.stage}
+                </PortalRowFact>
+                <PortalRowFact icon={Clock} srLabel="Last update">
+                  Updated {row.updated}
+                </PortalRowFact>
+              </>
+            }
+            checked={selection.isChecked(row.id)}
+            onSelectedChange={(checked) => selection.set(row.id, checked)}
+            selectLabel={row.resident}
+            onOpen={() => setRecordId(row.id)}
+            dataAttr="lease-list-row"
+          />
+        </DemoTarget>
+      ))}
+    </FixtureListScreen>
   );
 }
 
@@ -640,91 +860,4 @@ export function ImportReviewPanel({ nativeHeight = 760, whole = false }: { nativ
   );
 }
 
-/* ───────────────────────────── Communication ───────────────────────────── */
-
-const COMM_TABS = [
-  { id: "active" as const, label: "Active" },
-  { id: "archived" as const, label: "Archived" },
-];
-
-export function CommunicationPanel() {
-  const [segment, setSegment] = useState<"active" | "archived">("active");
-  const activeConversations = useMemo(() => COMM_CONVERSATIONS.filter((c) => c.segment === "active"), []);
-  const [selectedId, setSelectedId] = useState(activeConversations[0]!.id);
-  const [draft, setDraft] = useState("");
-  const [sent, setSent] = useState<Record<string, { id: string; author: string; body: string; at: string; direction: "outbound" }[]>>({});
-  const { show, node: toastNode } = useFixtureToast();
-
-  const counts = useMemo(() => {
-    const c = { active: 0, archived: 0 };
-    for (const conv of COMM_CONVERSATIONS) c[conv.segment] += 1;
-    return c;
-  }, []);
-  const visible = COMM_CONVERSATIONS.filter((c) => c.segment === segment);
-  const selected: CommConversationFixture | undefined = COMM_CONVERSATIONS.find((c) => c.id === selectedId) ?? visible[0];
-  const messages = selected ? [...selected.messages, ...(sent[selected.id] ?? [])] : [];
-
-  function send() {
-    if (!draft.trim() || !selected) return;
-    setSent((m) => ({
-      ...m,
-      [selected.id]: [...(m[selected.id] ?? []), { id: `local-${(m[selected.id]?.length ?? 0) + 1}`, author: "You", body: draft, at: "Just now", direction: "outbound" }],
-    }));
-    setDraft("");
-    show("Sent");
-  }
-
-  return (
-    <ProductWindow path="/portal/communication/active" nativeHeight={780}>
-      <PortalSidebarFixture active="communication" counts={{ communication: counts.active }} />
-      <div className={DEMO_PAGE_CLASS}>
-        <ManagerPortalPageShell title="Communication" viewportFillBody>
-          <InboxTwoPane
-            threadOpen
-            fillParent
-            panes="split"
-            list={
-              <div className="flex h-full flex-col">
-                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-                  <LocalDestinationNav
-                    appearance="command"
-                    items={COMM_TABS.map((t) => ({ ...t, count: counts[t.id] }))}
-                    activeId={segment}
-                    onChange={(id) => setSegment(id as "active" | "archived")}
-                  />
-                  <PortalIconAction icon={Settings} label="Settings" onClick={() => show("Settings")} />
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                  {visible.map((c) => (
-                    <InboxConversationRow
-                      key={c.id}
-                      name={c.name}
-                      subtitle={c.subtitle}
-                      preview={c.preview}
-                      time={c.time}
-                      unread={c.unread}
-                      selected={c.id === selected?.id}
-                      onOpen={() => setSelectedId(c.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            }
-            thread={
-              selected ? (
-                <InboxThreadView
-                  title={selected.name}
-                  subtitle={selected.subtitle}
-                  avatarName={selected.name}
-                  messages={messages}
-                  composer={<InboxComposer value={draft} onChange={setDraft} onSubmit={send} placeholder="Write a reply…" dataAttr="comm-panel-composer" />}
-                />
-              ) : null
-            }
-          />
-        </ManagerPortalPageShell>
-      </div>
-      {toastNode}
-    </ProductWindow>
-  );
-}
+export { PaymentsPanel, ServicesPanel, CommunicationPanel } from "@/components/marketing/site/product-mock/panels-manager-money";

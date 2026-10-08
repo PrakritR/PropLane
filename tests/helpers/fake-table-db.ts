@@ -95,6 +95,11 @@ export function createFakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       in: (column: string, values: unknown[]) => (filters.push((row) => values.includes(readPath(row, column))), builder),
       gt: (column: string, value: unknown) => (filters.push((row) => String(readPath(row, column) ?? "") > String(value)), builder),
       gte: (column: string, value: unknown) => (filters.push((row) => String(readPath(row, column) ?? "") >= String(value)), builder),
+      like: (column: string, pattern: string) => {
+        const re = new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`);
+        filters.push((row) => re.test(String(readPath(row, column) ?? "")));
+        return builder;
+      },
       lt: (column: string, value: unknown) => (filters.push((row) => readPath(row, column) != null && String(readPath(row, column)) < String(value)), builder),
       not: (column: string, op: string, value: unknown) => {
         if (op === "is") filters.push((row) => (readPath(row, column) ?? null) !== value);

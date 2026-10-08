@@ -12,34 +12,42 @@ export const vendorPortal: PortalDefinition = {
     { section: "calendar", label: "Calendar", tabs: [] },
     { section: "communication", label: "Communication", tabs: [] },
     {
-      // Finances (vendor-banking-1006): one section, five routed tabs. `income`
-      // keeps its id so every old `/vendor/financials/income` link still lands
-      // on the Payments list (VD10/VD11). `invoices` and `payouts` are detail-only
-      // ids (an invoice / payment record page) — see render-portal-section.tsx.
+      // Money group (vendor-portal-ia-1007), mirroring the manager's: each its own sidebar row.
+      // `payments` is "Incoming payments" (the old Finances > Payments list); like the manager's it
+      // declares no registry tabs and owns its Pending / Paid / Overdue segment in the URL
+      // (`/vendor/payments/pending`). `/vendor/financials/income` redirects here.
+      section: "payments",
+      label: "Incoming payments",
+      tabs: [],
+    },
+    // What the vendor spends to do the work (materials, tools, fuel...). Private to the vendor.
+    // This month / Last month / Earlier is the URL segment (`/vendor/outgoing/this-month`).
+    { section: "outgoing", label: "Outgoing payments", tabs: [] },
+    {
+      // Overview is the default. `invoices` and `payouts` stay detail-only ids (an invoice / payment
+      // record page) and are not tabs; Statements and Tax moved to Documents.
       section: "financials",
       label: "Finances",
       tabs: [
+        { id: "overview", label: "Overview" },
         { id: "balance", label: "Balance & payouts" },
-        { id: "income", label: "Payments" },
         { id: "refunds", label: "Refunds" },
-        { id: "statements", label: "Statements" },
-        { id: "tax", label: "Tax info" },
       ],
     },
-    // No status tabs (VD16, 2026-09-27) — the checklist groups by section
-    // (Tax / Business license / Insurance) inline instead.
-    { section: "documents", label: "Documents", tabs: [] },
-    // Top bar with sections (VD21, 2026-09-27) — All / Needs reply / Replied,
-    // a real routed tab like every other portal list.
     {
-      section: "reviews",
-      label: "Reviews",
+      // Tax (W-9 / 1099) · Business license · Insurance · Statements · From managers.
+      section: "documents",
+      label: "Documents",
       tabs: [
-        { id: "all", label: "All" },
-        { id: "needs-reply", label: "Needs reply" },
-        { id: "replied", label: "Replied" },
+        { id: "tax", label: "Tax" },
+        { id: "license", label: "Business license" },
+        { id: "insurance", label: "Insurance" },
+        { id: "statements", label: "Statements" },
+        { id: "from-managers", label: "From managers" },
       ],
     },
+    // One list of every review, newest first — no tabs, no stat cards (vendor-portal-ia-1007, D4).
+    { section: "reviews", label: "Reviews", tabs: [] },
     { section: "profile", label: "Settings", tabs: [] },
   ],
 };
@@ -50,12 +58,12 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Services", path: "/vendor/work-orders" },
   { label: "Calendar", path: "/vendor/calendar" },
   { label: "Communication", path: "/vendor/communication/active" },
+  { label: "Incoming payments", path: "/vendor/payments/pending" },
+  { label: "Outgoing payments", path: "/vendor/outgoing/this-month" },
+  { label: "Finances", path: "/vendor/financials/overview" },
   { label: "Balance & payouts", path: "/vendor/financials/balance" },
-  { label: "Payments", path: "/vendor/financials/income" },
   { label: "Refunds", path: "/vendor/financials/refunds" },
-  { label: "Statements", path: "/vendor/financials/statements" },
-  { label: "Tax info", path: "/vendor/financials/tax" },
-  { label: "Documents", path: "/vendor/documents" },
+  { label: "Documents", path: "/vendor/documents/tax" },
   { label: "Reviews", path: "/vendor/reviews" },
   { label: "Settings", path: "/vendor/profile" },
 ] as const;

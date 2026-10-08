@@ -64,20 +64,6 @@ export function AssistantMessageRating({
   );
 }
 
-/**
- * "Pin to the right side" — a panel with its right column filled, i.e. what the
- * layout becomes once the assistant is docked.
- */
-export function AssistantPinIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="16" rx="2.5" stroke="currentColor" strokeWidth="2" />
-      <path d="M14 4v16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M14 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5V4Z" fill="currentColor" />
-    </svg>
-  );
-}
-
 export type AssistantSuggestion = {
   label: string;
   /** Sent as a chat prompt — ignored when `onSelect` is set. */

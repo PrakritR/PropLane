@@ -398,6 +398,15 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"] },
   },
   {
+    // vendor-portal-ia-1007: the vendor's own expense log (Outgoing payments). Private to the
+    // vendor and deleted with the account (the FK cascades from auth.users too). The receipt
+    // files live under the vendor's `vendor-documents/<id>/` storage prefix, which the account
+    // storage purge already removes.
+    table: "vendor_expense_entries",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
     // vendor-banking-1006: a vendor's refund request and a dispute on their charge are
     // financial history (the money moved on the central rail), preserved like the ledger.
     table: "vendor_payout_refunds",
@@ -670,6 +679,39 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "comms_pool_credit_adjustments",
     phase: 2,
     manager: { ids: ["funder_user_id"] },
+  },
+  {
+    // PropLane Number ($5/month, vendor or resident): the subscription row and the owner's credit
+    // ledger. Keyed by the owner's auth user id; classified under both scopes because the owner is
+    // either a vendor or a resident. All five are service-role-only.
+    table: "number_subscriptions",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "number_credit_accounts",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "number_credit_usage_events",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "number_credit_purchases",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    table: "number_credit_adjustments",
+    phase: 2,
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
   },
   {
     table: "manager_document_templates",
@@ -1179,6 +1221,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 3,
     vendor: { ids: ["vendor_user_id"] },
   },
+  {
+    // A resident's PropLane agent number: the provider release is queued
+    // (queue_resident_agent_number_release) before this row cascades away.
+    table: "resident_agent_numbers",
+    phase: 3,
+    resident: { ids: ["resident_user_id"] },
+  },
 ];
 
 /**
@@ -1203,6 +1252,13 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",
   payment_reminder_channel_coverage: "Child of payment_reminder_occurrences; deleted by cascade.",
   comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",
+  growth_ideas: "PropLane's own marketing content (growth engine); no account data.",
+  growth_posts: "PropLane's own marketing posts; approved_by is an admin uuid set null when that account is deleted (FK on delete set null).",
+  growth_assets: "Media for PropLane's own marketing posts; no account data.",
+  growth_accounts: "PropLane's own social accounts (platform handles and publisher ids); no customer data, no tokens.",
+  growth_publications: "Delivery records for PropLane's own marketing posts; no account data.",
+  growth_metrics: "Engagement metrics for PropLane's own marketing posts; no account data.",
+  growth_learned: "Aggregated content learnings for PropLane's own marketing; no account data.",
   comms_plan_credit_rules: "Admin-editable per-tier defaults for the messaging-credit pool; global plan config, not owned by any one account.",
   account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
   account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",

@@ -98,6 +98,8 @@ describe("workspace send identity", () => {
  */
 describe("direct shared-sender (RESEND_FROM) references are classified", () => {
   const PLATFORM_MAIL = new Set([
+    // Growth engine digest: an internal email to PropLane admins, never a customer send.
+    "src/lib/growth/digest.server.ts",
     // Auth / account recovery.
     "src/app/api/auth/password-reset/route.ts",
     "src/app/api/auth/resident-setup-link/route.ts",

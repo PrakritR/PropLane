@@ -6,6 +6,8 @@ import {
   loadVendorWorkspaceAccess,
   saveVendorBusinessProfile,
 } from "@/lib/vendor-business-profile.server";
+import { parseVendorAiInfoPatch } from "@/lib/vendor-ai-info";
+import { provisionVendorWorkNumberAtSignup, type SignupWorkNumberResult } from "@/lib/vendor-work-number-signup.server";
 
 export const runtime = "nodejs";
 
@@ -50,7 +52,14 @@ export async function PATCH(req: Request) {
       if (body[key] === null) return null;
       return typeof body[key] === "number" ? (body[key] as number) : undefined;
     };
+    // Only the five known AI-info keys are read, each validated; a user id in the body is never read.
+    let aiInfo: ReturnType<typeof parseVendorAiInfoPatch> | null = null;
+    if ("aiInfo" in body) {
+      aiInfo = parseVendorAiInfoPatch(body.aiInfo);
+      if (!aiInfo.ok) return NextResponse.json({ error: aiInfo.error }, { status: 400 });
+    }
     const result = await saveVendorBusinessProfile(auth.db, auth.userId, {
+      ...(aiInfo?.ok ? { aiInfo: aiInfo.patch } : {}),
       businessName: str("businessName"),
       contactName: str("contactName"),
       workEmail: str("workEmail"),
@@ -69,7 +78,13 @@ export async function PATCH(req: Request) {
       directoryListed: bool("directoryListed"),
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json({ profile: result.profile });
+    // The Finish button of onboarding: give a vendor with a verified phone their number. Soft-fails
+    // (and does nothing while the vendor-number switches are off); the number never comes from the body.
+    let workNumber: SignupWorkNumberResult | undefined;
+    if (body.finishOnboarding === true && result.profile.onboardingCompletedAt) {
+      workNumber = await provisionVendorWorkNumberAtSignup(auth.db, auth.userId, { serviceAreaZips: result.profile.serviceAreaZips });
+    }
+    return NextResponse.json({ profile: result.profile, ...(workNumber ? { workNumber } : {}) });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed to save business profile." }, { status: 500 });
   }

@@ -63,10 +63,12 @@ export function FixtureListScreen({
   actions,
   primary,
   above,
+  recordSummary,
   isEmpty,
   emptyTitle,
   emptySection,
   menu,
+  onBulkClear,
   surface = true,
   children,
   overlay,
@@ -85,11 +87,15 @@ export function FixtureListScreen({
   primary?: { label: string; onClick: () => void };
   /** Cards that sit above the command bar on the real page (a balance, a summary). */
   above?: ReactNode;
+  /** The command bar's one summary line (`PortalListControlStack recordSummary`), derived from the rows drawn. */
+  recordSummary?: ReactNode;
   isEmpty: boolean;
   emptyTitle: string;
   emptySection?: string;
   /** Items for the real ⋯ (rows become selectable); omit for a list whose rows carry their own menu. */
   menu?: ReactNode;
+  /** With `menu`: clears the panel's row selection (a list whose ⋯ acts on the one selected row, like the real Forms list). */
+  onBulkClear?: () => void;
   /** False for a page whose body is not a record list (the Calendar grid). */
   surface?: boolean;
   children: ReactNode;
@@ -117,11 +123,12 @@ export function FixtureListScreen({
               ) : undefined
             }
             search={onSearch ? { value: search ?? "", onChange: onSearch, placeholder: searchPlaceholder ?? "Search" } : undefined}
+            recordSummary={recordSummary}
             actions={actions}
             primary={primary ? <PortalPrimaryIconAction label={primary.label} onClick={primary.onClick} /> : undefined}
           />
           {surface ? (
-            <PortalRecordListSurface isEmpty={isEmpty} emptyCard={{ title: emptyTitle, section: emptySection }} bulkActions={menu}>
+            <PortalRecordListSurface isEmpty={isEmpty} emptyCard={{ title: emptyTitle, section: emptySection }} bulkActions={menu} onBulkClear={onBulkClear}>
               {children}
             </PortalRecordListSurface>
           ) : (

@@ -97,6 +97,37 @@ describe("GET /api/admin/accounts/search", () => {
     expect(shared.rows.map((r: { id: string }) => r.id)).toEqual(["r1"]);
   });
 
+  it("matches a term holding a comma or parentheses (PostgREST reserves both)", async () => {
+    asAdmin();
+    const base = seed();
+    db = createAdminFakeDb(
+      {
+        ...base,
+        profiles: [
+          ...base.profiles!,
+          { id: "m4", email: "jane@doe.com", full_name: "Doe, Jane", manager_id: "AXIS-1004", application_approved: true, created_at: "2026-09-06T00:00:00Z" },
+          { id: "m5", email: "old@smith.com", full_name: "Smith (old)", manager_id: "AXIS-1005", application_approved: true, created_at: "2026-09-07T00:00:00Z" },
+        ],
+      },
+      { m1: { last_sign_in_at: "2026-10-04T12:00:00Z" } },
+    );
+    serviceRoleFactory.mockImplementation(() => db);
+
+    const comma = await (await search(`kind=manager&q=${encodeURIComponent("Doe, Jane")}`)).json();
+    expect(comma.rows.map((r: { id: string }) => r.id)).toEqual(["m4"]);
+    expect(comma.counts).toEqual({ manager: 1, resident: 0, vendor: 0 });
+
+    const parens = await (await search(`kind=manager&q=${encodeURIComponent("Smith (old)")}`)).json();
+    expect(parens.rows.map((r: { id: string }) => r.id)).toEqual(["m5"]);
+  });
+
+  it("totals every tab count, and says so, whatever the page scan found", async () => {
+    asAdmin();
+    const body = await (await search("kind=manager&q=")).json();
+    expect(body.countsComplete).toBe(true);
+    expect(body.counts).toEqual({ manager: 2, resident: 1, vendor: 1 });
+  });
+
   it("returns residents and vendors without a workspace count", async () => {
     asAdmin();
     const residents = await (await search("kind=resident")).json();

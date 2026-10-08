@@ -30,6 +30,8 @@ export type VendorPaymentRow = {
   payoutId: string | null;
   /** The manager the money comes from, when the row's job (or the vendor's only linked manager) names one. */
   managerLabel: string | null;
+  /** The manager's user id when known (an invoice's payer, or the job's owner) - the target of "Message manager". */
+  managerUserId: string | null;
   /** The invoice number, kept for search when `title` is the service's own title. */
   reference: string | null;
   /** The invoice's payment due date (yyyy-mm-dd) from the manager's bill; null when none is set. */
@@ -65,6 +67,7 @@ export function vendorPaymentRowFromIncome(
   row: VendorIncomeRow,
   payout?: VendorPayout,
   managerLabel: string | null = null,
+  managerUserId: string | null = null,
 ): VendorPaymentRow {
   return {
     id: `income:${row.id}`,
@@ -79,6 +82,7 @@ export function vendorPaymentRowFromIncome(
     currency: "usd",
     payoutId: payout?.id ?? null,
     managerLabel,
+    managerUserId,
     reference: null,
     dueIso: null,
     income: row,
@@ -115,6 +119,7 @@ export function vendorPaymentRowFromInvoice(
     currency: invoice.currency,
     payoutId: payout?.id ?? null,
     managerLabel: job?.managerName?.trim() || defaultManagerLabel,
+    managerUserId: invoice.managerUserId?.trim() || job?.managerUserId?.trim() || null,
     reference,
     dueIso: invoice.dueDate?.slice(0, 10) || null,
     income: null,
@@ -138,6 +143,7 @@ export function buildVendorPaymentRows(
         row,
         payoutsByWorkOrderId[row.workOrderId],
         jobsById[row.workOrderId]?.managerName?.trim() || defaultManagerLabel,
+        jobsById[row.workOrderId]?.managerUserId?.trim() || null,
       ),
     ),
     ...invoices.map((invoice) =>

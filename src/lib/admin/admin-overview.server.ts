@@ -2,11 +2,16 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  loadAccountProfilesByKind,
+  countActiveAccounts,
+  countActiveAccountsWithPayouts,
+  listAccountIdsForEveryKind,
+  listSandboxAccountIds,
+  scanNewestProfiles,
   type AdminAccountKind,
-  type AdminAccountProfile,
 } from "@/lib/admin/admin-accounts.server";
 import { CLOSED_DISPUTE_STATUSES_FILTER } from "@/lib/admin/admin-dispute-status";
+import { readAllPages } from "@/lib/auth/admin-portal-manager-ids.server";
+import { normalizeBugFeedbackStatus } from "@/lib/portal-bug-feedback-utils";
 
 /**
  * Server-authoritative aggregates for the admin Dashboard. Every number is a
@@ -32,19 +37,22 @@ export type AdminOverview = {
   smsFailures24h: number | null;
   openDisputes: number | null;
   managersWithoutPayouts: number;
-  recentSignups: {
-    id: string;
-    kind: AdminAccountKind;
-    name: string;
-    email: string;
-    joinedAt: string | null;
-  }[];
+  /** Null when the read failed, so the card is omitted instead of reading as "no sign-ups yet". */
+  recentSignups:
+    | {
+        id: string;
+        kind: AdminAccountKind;
+        name: string;
+        email: string;
+        joinedAt: string | null;
+      }[]
+    | null;
 };
 
 const SMS_FAILED_STATUSES = ["failed", "undelivered"];
-/** Feedback that is no longer open; everything else (including a row with no status) is. */
-const CLOSED_FEEDBACK_STATUSES = ["completed", "in_progress"];
 const SMS_ATTEMPT_FAILED_STATES = ["provider_rejected", "pre_dispatch_failed"];
+/** How many newest sign-ups the dashboard card lists. */
+const RECENT_SIGNUP_COUNT = 6;
 
 async function countOrNull(run: () => PromiseLike<{ count: number | null; error: unknown }>): Promise<number | null> {
   try {
@@ -56,22 +64,91 @@ async function countOrNull(run: () => PromiseLike<{ count: number | null; error:
   }
 }
 
+/**
+ * Open feedback: the status is read (one tiny column, paged) and normalized the
+ * same way the Feedback page does (`normalizeBugFeedbackStatus` accepts
+ * `reviewing` / `resolved` / `closed` and any casing), because a `.in()` on the
+ * raw JSON value would count `"Completed"` as open.
+ */
+async function countOpenFeedback(db: SupabaseClient): Promise<number | null> {
+  try {
+    const rows = await readAllPages<{ status: string | null }>((from, to) =>
+      db
+        .from("portal_bug_feedback_records")
+        .select("id, status:row_data->>status")
+        .order("id")
+        .range(from, to),
+    );
+    return rows.filter((row) => normalizeBugFeedbackStatus(row.status) === "open").length;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The newest real sign-ups, read a window at a time until six of them hold a
+ * portal kind or the accounts run out (`scanNewestProfiles`) — a sandbox seed
+ * run cannot push the card empty, and the read stays bounded. Null when it
+ * failed, which the card reads as "omit me", never as "no sign-ups yet".
+ */
+async function recentSignupsOf(
+  db: SupabaseClient,
+  kindById: Map<string, AdminAccountKind>,
+): Promise<AdminOverview["recentSignups"]> {
+  try {
+    const kept = await scanNewestProfiles(
+      db,
+      { match: null, limit: RECENT_SIGNUP_COUNT },
+      (rows) =>
+        rows
+          .filter((row) => kindById.has(row.id))
+          .map((row) => ({
+            id: row.id,
+            kind: kindById.get(row.id)!,
+            name: row.full_name?.trim() || (row.email ?? ""),
+            email: row.email ?? "",
+            joinedAt: row.created_at ?? null,
+          })),
+    );
+    return kept.slice(0, RECENT_SIGNUP_COUNT);
+  } catch {
+    return null;
+  }
+}
+
 export async function loadAdminOverview(db: SupabaseClient, now = new Date()): Promise<AdminOverview> {
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [managers, residents, vendors, feedbackTotal, feedbackClosed, smsLog, smsAttempts, disputes] = await Promise.all([
-    loadAccountProfilesByKind(db, "manager"),
-    loadAccountProfilesByKind(db, "resident"),
-    loadAccountProfilesByKind(db, "vendor"),
-    // Counted in the database, not by fetching the rows: a row with no status
-    // at all is open, so open is the total less the closed ones.
-    countOrNull(() => db.from("portal_bug_feedback_records").select("id", { count: "exact", head: true })),
-    countOrNull(() =>
-      db
-        .from("portal_bug_feedback_records")
-        .select("id", { count: "exact", head: true })
-        .in("row_data->>status", CLOSED_FEEDBACK_STATUSES),
-    ),
+  // One paged id read per role (one column, every kind resolved in that pass),
+  // then the numbers are counted in the database: the dashboard never
+  // materializes the account table to count it.
+  const [idsByKind, sandboxIds] = await Promise.all([listAccountIdsForEveryKind(db), listSandboxAccountIds(db)]);
+  const real = (ids: string[]) => ids.filter((id) => !sandboxIds.has(id));
+  const realManagers = real(idsByKind.manager);
+  const realResidents = real(idsByKind.resident);
+  const realVendors = real(idsByKind.vendor);
+
+  const kindById = new Map<string, AdminAccountKind>();
+  for (const id of realManagers) kindById.set(id, "manager");
+  for (const id of realResidents) if (!kindById.has(id)) kindById.set(id, "resident");
+  for (const id of realVendors) if (!kindById.has(id)) kindById.set(id, "vendor");
+
+  const [
+    activeManagers,
+    activeResidents,
+    activeVendors,
+    managersWithPayouts,
+    openFeedback,
+    smsLog,
+    smsAttempts,
+    disputes,
+    recentSignups,
+  ] = await Promise.all([
+    countActiveAccounts(db, realManagers),
+    countActiveAccounts(db, realResidents),
+    countActiveAccounts(db, realVendors),
+    countActiveAccountsWithPayouts(db, realManagers),
+    countOpenFeedback(db),
     countOrNull(() =>
       db
         .from("sms_delivery_log")
@@ -89,39 +166,19 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     countOrNull(() =>
       db.from("stripe_disputes").select("id", { count: "exact", head: true }).not("status", "in", CLOSED_DISPUTE_STATUSES_FILTER),
     ),
+    recentSignupsOf(db, kindById),
   ]);
-
-  const active = (rows: AdminAccountProfile[]) => rows.filter((row) => row.active);
-
-  const openFeedback =
-    feedbackTotal === null || feedbackClosed === null ? null : Math.max(0, feedbackTotal - feedbackClosed);
 
   const smsFailures24h = smsLog === null && smsAttempts === null ? null : (smsLog ?? 0) + (smsAttempts ?? 0);
 
-  const signupCandidates: { row: AdminAccountProfile; kind: AdminAccountKind }[] = [
-    ...managers.map((row) => ({ row, kind: "manager" as const })),
-    ...residents.map((row) => ({ row, kind: "resident" as const })),
-    ...vendors.map((row) => ({ row, kind: "vendor" as const })),
-  ];
-  const recentSignups = signupCandidates
-    .sort((a, b) => (Date.parse(b.row.joinedAt ?? "") || 0) - (Date.parse(a.row.joinedAt ?? "") || 0))
-    .slice(0, 6)
-    .map(({ row, kind }) => ({
-      id: row.id,
-      kind,
-      name: row.fullName || row.email,
-      email: row.email,
-      joinedAt: row.joinedAt,
-    }));
-
   return {
-    activeManagers: active(managers).length,
-    activeResidents: active(residents).length,
-    activeVendors: active(vendors).length,
+    activeManagers,
+    activeResidents,
+    activeVendors,
     openFeedback,
     smsFailures24h,
     openDisputes: disputes,
-    managersWithoutPayouts: active(managers).filter((row) => !row.stripeConnectAccountId).length,
+    managersWithoutPayouts: Math.max(0, activeManagers - managersWithPayouts),
     recentSignups,
   };
 }

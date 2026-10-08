@@ -127,9 +127,9 @@ describe("applicant lease-term filtering for a restricted room", () => {
       roomChoice1: "prop-1::r2",
       leaseTerm: "Long-term",
     };
-    const errors = validateStandardWizardStep(3, f);
+    const errors = validateStandardWizardStep(1, f);
     expect(errors.roomChoice1).toMatch(/isn't offered on this lease type/);
-    const ok = validateStandardWizardStep(3, { ...f, leaseTerm: "Month-to-Month" });
+    const ok = validateStandardWizardStep(1, { ...f, leaseTerm: "Month-to-Month" });
     expect(ok.roomChoice1 ?? "").not.toMatch(/isn't offered/);
   });
 });
