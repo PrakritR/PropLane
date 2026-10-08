@@ -308,7 +308,7 @@ export function ManagerWorkNumberCard() {
 
   return (
     <div
-      className="grid shrink-0 grid-cols-2 gap-2 px-3.5 pb-1 pt-3"
+      className="grid min-w-0 shrink-0 grid-cols-2 gap-2 px-3.5 pb-1 pt-3"
       data-attr="manager-work-identity"
     >
       {numberBox}

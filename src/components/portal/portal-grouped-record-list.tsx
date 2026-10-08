@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { PortalListGroup } from "@/components/portal/portal-list-group";
 import {
   GROUPED_LIST_PAGE_SIZE,
@@ -20,9 +19,9 @@ import {
  * - Groups sort A to Z with the catch-all ("No house", "Other") last.
  * - A group draws its first `pageSize` rows; a row-level "Show all N" draws the
  *   rest, so a thousand residents never mount at once.
- * - A long list of groups starts collapsed; Expand all / Collapse all is one
- *   icon at the top, and an active search opens every group that still has a
- *   match. Groups the search empties are not drawn at all.
+ * - Every group starts expanded; a header click collapses or reopens just that
+ *   group. There is no expand-all / collapse-all control. Groups a search
+ *   empties are not drawn at all.
  *
  * Pass `key` (tab, filters, sort) to reset the open/closed state when the list
  * is rebuilt around a different question.
@@ -65,7 +64,6 @@ export function PortalGroupedRecordList<T>({
     [items, groupLabel, groupId, otherLabel, countOf],
   );
   const [override, setOverride] = useState<Record<string, boolean>>({});
-  const [allMode, setAllMode] = useState<"expanded" | "collapsed" | null>(null);
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
 
   // Starting a search forgets earlier clicks, so every match is on screen.
@@ -73,43 +71,15 @@ export function PortalGroupedRecordList<T>({
   useEffect(() => {
     if (searchActive && !wasSearching.current) {
       setOverride({});
-      setAllMode(null);
     }
     wasSearching.current = searchActive;
   }, [searchActive]);
 
   const collapsedOf = (group: GroupedListGroup<T>) =>
-    resolveGroupCollapsed({
-      override: override[group.key],
-      allMode,
-      searchActive,
-      groupCount: groups.length,
-    });
-  const anyOpen = groups.some((group) => !collapsedOf(group));
-  const toggleAll = () => {
-    setOverride({});
-    setAllMode(anyOpen ? "collapsed" : "expanded");
-  };
-
-  const toggleLabel = anyOpen ? "Collapse all" : "Expand all";
-  const ToggleIcon = anyOpen ? ChevronsDownUp : ChevronsUpDown;
+    resolveGroupCollapsed({ override: override[group.key], searchActive });
 
   return (
     <div data-attr={dataAttr ?? `${listKey}-grouped-list`} data-group-count={groups.length}>
-      {groups.length > 1 ? (
-        <div className="flex justify-end px-2.5 pb-1 max-lg:px-3">
-          <button
-            type="button"
-            onClick={toggleAll}
-            aria-label={toggleLabel}
-            title={toggleLabel}
-            data-attr={`${listKey}-groups-toggle-all`}
-            className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary max-lg:size-11"
-          >
-            <ToggleIcon className="size-4" strokeWidth={1.8} aria-hidden />
-          </button>
-        </div>
-      ) : null}
       {groups.map((group) => {
         const collapsed = collapsedOf(group);
         const expandedAll = showAll[group.key] === true;

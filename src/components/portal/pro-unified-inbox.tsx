@@ -1434,7 +1434,7 @@ export function ManagerUnifiedInbox({
   const listControlsPublished = usePublishTitleActions(listControls, listChrome === "internal" && listControls != null);
 
   const listPane = (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col min-w-0 overflow-clip">
       <div className="shrink-0" data-attr="communication-list-header-card">
         <ManagerWorkNumberCard />
         {listChrome === "internal" ? (

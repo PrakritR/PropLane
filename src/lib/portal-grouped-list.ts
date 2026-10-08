@@ -14,9 +14,6 @@
 /** Rows a group draws before "Show all N" takes over. */
 export const GROUPED_LIST_PAGE_SIZE = 25;
 
-/** More groups than this start collapsed, so a hundred houses open as a hundred headers, not 2,500 rows. */
-export const GROUPED_LIST_AUTO_COLLAPSE_AFTER = 8;
-
 export type GroupedListGroup<T> = {
   /** Stable id for collapsed / show-all state. `"__other__"` for the catch-all bucket. */
   key: string;
@@ -83,21 +80,15 @@ export function visibleGroupItems<T>(
 }
 
 /**
- * Whether a group is collapsed. A click (`override`) always wins; otherwise an
- * active search opens everything (the matches are what you came for), then an
- * Expand all / Collapse all choice, then the size default: a long list of
- * groups starts collapsed.
+ * Whether a group is collapsed. A click (`override`) always wins; otherwise
+ * every group starts expanded (there is no Expand all control, so nothing may
+ * start shut). Each group still draws only its first page of rows, so a long
+ * list stays cheap. `searchActive` is kept for callers: a search never hides a
+ * group that still has a match.
  */
-export function resolveGroupCollapsed(args: {
-  override: boolean | undefined;
-  allMode: "expanded" | "collapsed" | null;
-  searchActive: boolean;
-  groupCount: number;
-}): boolean {
+export function resolveGroupCollapsed(args: { override: boolean | undefined; searchActive: boolean }): boolean {
   if (args.override !== undefined) return args.override;
-  if (args.searchActive) return false;
-  if (args.allMode) return args.allMode === "collapsed";
-  return args.groupCount > GROUPED_LIST_AUTO_COLLAPSE_AFTER;
+  return false;
 }
 
 /** The sort the Residents and Applications Filter popovers offer (House is the default). */
