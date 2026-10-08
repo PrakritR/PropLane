@@ -92,6 +92,8 @@ import {
   type InboxBubbleMessage,
   INBOX_THREAD_ICON_BTN,
   INBOX_THREAD_ICON_BTN_DANGER,
+  useInboxDetailsPanelMode,
+  useRegisterInboxContactEdit,
 } from "./portal-inbox-ui";
 import { annotateInboxOutboundReadReceipts } from "@/lib/inbox-outbound-read-receipt";
 import {
@@ -1463,6 +1465,10 @@ export const ManagerInbox = forwardRef<
     setThreadPhoneError(null);
     setThreadPhoneOpen(true);
   }, []);
+  // When Communication has no room for the details column, the header's info icon belongs to the
+  // details panel, and Edit contact lives inside it.
+  const detailsPanelMode = useInboxDetailsPanelMode();
+  useRegisterInboxContactEdit(canEditThreadContact ? openThreadPhone : null);
 
 
   useEffect(() => {
@@ -2321,7 +2327,7 @@ export const ManagerInbox = forwardRef<
     </div>
   );
 
-  const threadContactEditButton = canEditThreadContact ? (
+  const threadContactEditButton = canEditThreadContact && !detailsPanelMode ? (
     <button
       type="button"
       className={INBOX_THREAD_ICON_BTN}
