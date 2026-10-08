@@ -1,16 +1,23 @@
 "use client";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 
-import { ArrowUpRight, FileCheck2, Filter, Mail, MapPin, MessageSquare, Phone, ShieldCheck, Star, UserRound, Wrench } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { ArrowUpRight, FileCheck2, Mail, MapPin, MessageSquare, Phone, ShieldCheck, Star, UserRound, Wrench } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import { VendorListFilterFields } from "@/components/portal/vendor-list-filter-fields";
+import { PortalGroupedRecordList } from "@/components/portal/portal-grouped-record-list";
+import {
+  VENDOR_OTHER_CATEGORY,
+  vendorCategories,
+  vendorCategoryOptions,
+  vendorGroupCategory,
+  vendorMatchesCategories,
+} from "@/lib/vendor-category";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -163,8 +170,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [listError, setListError] = useState(false);
   const [vendorSearch, setVendorSearch] = useState("");
   const [directoryVendors, setDirectoryVendors] = useState<AxisCatalogVendor[]>([]);
-  const [directoryFilterOpen, setDirectoryFilterOpen] = useState(false);
-  const [directoryTradeFilter, setDirectoryTradeFilter] = useState("");
+  // Category (the vendor's trade) narrows both tabs; Area and Rating narrow the PropLane directory.
+  const [vendorCategoryFilter, setVendorCategoryFilter] = useState<string[]>([]);
   const [directoryAreaFilter, setDirectoryAreaFilter] = useState("");
   const [directoryMinRatingFilter, setDirectoryMinRatingFilter] = useState("");
   const [addingDirectoryId, setAddingDirectoryId] = useState<string | null>(null);
@@ -210,12 +217,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   }, []);
 
   // Directory-listed self-serve vendors, merged into the "PropLane vendors" tab
-  // alongside the curated catalog — filterable by trade/area (Filter popover).
+  // alongside the curated catalog — every directory vendor, filterable by category/area/rating (Filter popover).
   useEffect(() => {
     if (!authReady) return;
     let cancelled = false;
     const params = new URLSearchParams();
-    if (directoryTradeFilter) params.set("trade", directoryTradeFilter);
     if (directoryAreaFilter.trim()) params.set("area", directoryAreaFilter.trim());
     if (directoryMinRatingFilter) params.set("minRating", directoryMinRatingFilter);
     void fetch(`/api/manager/vendor-directory?${params.toString()}`, { credentials: "include" })
@@ -229,7 +235,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     return () => {
       cancelled = true;
     };
-  }, [authReady, directoryTradeFilter, directoryAreaFilter, directoryMinRatingFilter, tick]);
+  }, [authReady, directoryAreaFilter, directoryMinRatingFilter, tick]);
 
   const addDirectoryVendorToRoster = useCallback(
     async (row: AxisCatalogVendor) => {
@@ -325,18 +331,21 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   // The search box narrows the current tab only; the tab counts stay the totals.
   const visibleVendors = useMemo(
     () =>
-      vendors.filter((row) =>
-        matchesPortalListSearch(
-          vendorSearch,
-          row.name,
-          row.trade,
-          ...(row.trades ?? []),
-          row.email,
-          row.phone,
-          vendorRowMeta(row),
-        ),
+      vendors.filter(
+        (row) =>
+          vendorMatchesCategories(row, vendorCategoryFilter) &&
+          matchesPortalListSearch(
+            vendorSearch,
+            row.name,
+            row.trade,
+            ...(row.trades ?? []),
+            row.email,
+            row.phone,
+            row.notes,
+            vendorRowMeta(row),
+          ),
       ),
-    [vendors, vendorSearch],
+    [vendors, vendorSearch, vendorCategoryFilter],
   );
 
   const routeVendorId = vendorIdProp?.trim() || null;
@@ -863,9 +872,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   // rating at all, so it fails a minimum-rating filter too rather than
   // silently staying visible.
   const minRatingFloor = directoryMinRatingFilter ? Number(directoryMinRatingFilter) : 0;
-  const catalogRows = [...listManagerCatalogVendors(vendors), ...directoryVendors].filter(
+  const allCatalogRows = [...listManagerCatalogVendors(vendors), ...directoryVendors];
+  const catalogRows = allCatalogRows.filter(
     (row) =>
-      catalogVendorMatchesTradeArea(row, directoryTradeFilter, directoryAreaFilter) &&
+      vendorMatchesCategories(row, vendorCategoryFilter) &&
+      catalogVendorMatchesTradeArea(row, "", directoryAreaFilter) &&
       (minRatingFloor <= 0 || (row.rating ?? 0) >= minRatingFloor),
   );
   const visibleCatalogRows = catalogRows.filter((row) =>
@@ -876,7 +887,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       section="vendors"
       title={portalEmptyNoMatchTitle("vendors", vendorSearch)}
       tone="muted"
-      clear={{ label: "Clear search", onClick: () => setVendorSearch(""), dataAttr: clearDataAttr }}
+      clear={{
+        label: vendorSearch.trim() ? "Clear search" : "Clear filters",
+        onClick: () => {
+          setVendorSearch("");
+          setVendorCategoryFilter([]);
+        },
+        dataAttr: clearDataAttr,
+      }}
       dataAttr={dataAttr}
     />
   );
@@ -1016,19 +1034,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     );
   }
 
-  const listBody =
-    directoryTab === "catalog" && catalogRows.length === 0 ? (
-      <PortalListEmptyCard
-        section="vendors"
-        title={portalEmptyCopy("vendors.catalog").title}
-        workspaceAware
-        dataAttr="vendors-catalog-empty"
-      />
-    ) : directoryTab === "catalog" && visibleCatalogRows.length === 0 ? (
-      noMatchCard("vendors-catalog-empty", "vendors-catalog-empty-clear-search")
-    ) : directoryTab === "catalog" ? (
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        {visibleCatalogRows.map((row) => {
+  const catalogGroupLabel = (row: AxisCatalogVendor) => vendorGroupCategory(row, vendorCategoryFilter);
+  const renderCatalogRow = (row: AxisCatalogVendor) => {
           const existing = findRosterCatalogMatch(vendors, row);
           const isDirectory = Boolean(row.directoryVendorUserId);
           const busy = isDirectory && addingDirectoryId === row.directoryVendorUserId;
@@ -1084,27 +1091,17 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               />
             </RecordActionContext.Provider>
           );
-        })}
-      </div>
-    ) : vendors.length === 0 ? (
-      <PortalListEmptyCard
-        section="vendors"
-        title={portalEmptyCopy("vendors").title}
-        workspaceAware
-        actions={
-          bare
-            ? [{ label: "Open Vendors", href: vendorListHref(basePath), dataAttr: "settings-vendors-empty-open", icon: null }]
-            : []
-        }
-        dataAttr="vendors-empty"
-      />
-    ) : visibleVendors.length === 0 ? (
-      noMatchCard("vendors-empty", "vendors-empty-clear-search")
-    ) : (
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        {visibleVendors.map((row) => {
+  };
+
+  const yoursGroupLabel = (row: ManagerVendorRow) => vendorGroupCategory(row, vendorCategoryFilter);
+  const renderYoursRow = (row: ManagerVendorRow, group: { label: string }) => {
           const phone = row.phone.trim();
           const email = row.email.trim();
+          const tradeLabel = row.trade.trim() || "Not set";
+          const hasTrade = Boolean(row.trade.trim() || row.trades?.length);
+          const otherCategories = vendorCategories(row)
+            .filter((category) => category !== group.label)
+            .join(", ");
           const linkPhoneFact = vendorLinkPhoneFact(row);
           const meta = vendorRowMeta(row);
           const reviewAggregate = row.vendorUserId ? reviewAggregatesByVendorUserId[row.vendorUserId] : undefined;
@@ -1119,7 +1116,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               name={row.name}
               // C267: "Not set" is the app's one empty-value word (C254);
               // "—" stays only for the unused count/rating/money state.
-              address={row.trade.trim() || "Not set"}
+              // Under its category header the trade is already said; a vendor who works
+              // in more than one category lists the others, and one with no trade says so.
+              address={hasTrade ? otherCategories || undefined : tradeLabel}
               facts={
                 phone || linkPhoneFact || email || meta || reviewFact ? (
                   <>
@@ -1158,7 +1157,61 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               dataAttr="vendor-list-row"
             />
           );
-        })}
+  };
+
+  const listBody =
+    directoryTab === "catalog" && catalogRows.length === 0 ? (
+      <PortalListEmptyCard
+        section="vendors"
+        title={portalEmptyCopy("vendors.catalog").title}
+        workspaceAware
+        dataAttr="vendors-catalog-empty"
+      />
+    ) : directoryTab === "catalog" && visibleCatalogRows.length === 0 ? (
+      noMatchCard("vendors-catalog-empty", "vendors-catalog-empty-clear-search")
+    ) : directoryTab === "catalog" ? (
+      <div className={PORTAL_LIST_PAGE_BODY}>
+        <PortalGroupedRecordList
+          // A different question (category, area, rating) starts the open / closed state over.
+          key={`catalog:${vendorCategoryFilter.join(",")}:${directoryAreaFilter}:${directoryMinRatingFilter}`}
+          items={visibleCatalogRows}
+          groupLabel={catalogGroupLabel}
+          otherLabel={VENDOR_OTHER_CATEGORY}
+          itemKey={(row) => row.catalogId}
+          renderItem={renderCatalogRow}
+          listKey="vendors-catalog"
+          searchActive={vendorSearch.trim().length > 0}
+          dataAttr="vendors-catalog-groups"
+        />
+      </div>
+    ) : vendors.length === 0 ? (
+      <PortalListEmptyCard
+        section="vendors"
+        title={portalEmptyCopy("vendors").title}
+        workspaceAware
+        actions={
+          bare
+            ? [{ label: "Open Vendors", href: vendorListHref(basePath), dataAttr: "settings-vendors-empty-open", icon: null }]
+            : []
+        }
+        dataAttr="vendors-empty"
+      />
+    ) : visibleVendors.length === 0 ? (
+      noMatchCard("vendors-empty", "vendors-empty-clear-search")
+    ) : (
+      <div className={PORTAL_LIST_PAGE_BODY}>
+        <PortalGroupedRecordList
+          // A different question (category) starts the open / closed state over.
+          key={`yours:${vendorCategoryFilter.join(",")}`}
+          items={visibleVendors}
+          groupLabel={yoursGroupLabel}
+          otherLabel={VENDOR_OTHER_CATEGORY}
+          itemKey={(row) => row.id}
+          renderItem={renderYoursRow}
+          listKey="vendors-yours"
+          searchActive={vendorSearch.trim().length > 0}
+          dataAttr="vendors-yours-groups"
+        />
       </div>
     );
 
@@ -1221,69 +1274,45 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     });
   }
 
-  const directoryFilterActive = Boolean(directoryTradeFilter || directoryAreaFilter.trim() || directoryMinRatingFilter);
-  const directoryFilterPanel =
-    directoryTab === "catalog" && directoryFilterOpen ? (
-      <div
-        className="mb-3 flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-card p-3"
-        data-attr="vendor-directory-filter-panel"
-      >
-        <div className="min-w-[10rem]">
-          <FieldSingleSelect
-            label="Trade"
-            value={directoryTradeFilter}
-            onChange={setDirectoryTradeFilter}
-            options={[{ value: "", label: "Any trade" }, ...VENDOR_TRADE_OPTIONS.map((t) => ({ value: t, label: t }))]}
-            dataAttr="vendor-directory-filter-trade"
-          />
-        </div>
-        <div className="min-w-[10rem]">
-          <label className="text-xs font-semibold uppercase tracking-wide text-muted" htmlFor="vendor-directory-filter-area">
-            Area
-          </label>
-          <Input
-            id="vendor-directory-filter-area"
-            value={directoryAreaFilter}
-            onChange={(e) => setDirectoryAreaFilter(e.target.value)}
-            placeholder="City or ZIP"
-            data-attr="vendor-directory-filter-area"
-          />
-        </div>
-        <div className="min-w-[10rem]">
-          <FieldSingleSelect
-            label="Rating"
-            value={directoryMinRatingFilter}
-            onChange={setDirectoryMinRatingFilter}
-            options={[
-              { value: "", label: "Any rating" },
-              { value: "3", label: "3+ stars" },
-              { value: "4", label: "4+ stars" },
-              { value: "4.5", label: "4.5+ stars" },
-            ]}
-            dataAttr="vendor-directory-filter-rating"
-          />
-        </div>
-        {directoryFilterActive ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setDirectoryTradeFilter("");
-              setDirectoryAreaFilter("");
-              setDirectoryMinRatingFilter("");
-            }}
-            data-attr="vendor-directory-filter-reset"
-          >
-            Reset
-          </Button>
-        ) : null}
-      </div>
-    ) : null;
+  const vendorCategoryChoices = vendorCategoryOptions(
+    directoryTab === "catalog" ? allCatalogRows : vendors,
+    vendorCategoryFilter,
+  );
+  const vendorFilterSheet = (
+    <PortalFilterSortSheet
+      activeCount={portalFilterActiveCount([
+        vendorCategoryFilter,
+        directoryTab === "catalog" ? directoryAreaFilter.trim() : "",
+        directoryTab === "catalog" ? directoryMinRatingFilter : "",
+      ])}
+      compactPanel
+      commandStripTrigger
+      filterFieldCount={directoryTab === "catalog" ? 3 : 1}
+      constrainDropdownToTitleBand={false}
+      mobileFlushBody
+      onReset={() => {
+        setVendorCategoryFilter([]);
+        setDirectoryAreaFilter("");
+        setDirectoryMinRatingFilter("");
+      }}
+      dataAttr="vendor-directory-filter-toggle"
+    >
+      <VendorListFilterFields
+        categoryOptions={vendorCategoryChoices}
+        categories={vendorCategoryFilter}
+        onCategoriesChange={setVendorCategoryFilter}
+        directory={directoryTab === "catalog"}
+        area={directoryAreaFilter}
+        onAreaChange={setDirectoryAreaFilter}
+        rating={directoryMinRatingFilter}
+        onRatingChange={setDirectoryMinRatingFilter}
+      />
+    </PortalFilterSortSheet>
+  );
 
   const body = (
     <>
       {modals}
-      {directoryFilterPanel}
       <PortalRecordListSurface
         className="mt-0"
         onBulkClear={directoryTab === "yours" ? clearSelection : undefined}
@@ -1305,17 +1334,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const vendorToolbar = (
     <>
-      {directoryTab === "catalog" ? (
-        <PortalIconAction
-          // C256: the generic "Filter" tooltip gave no hint the popover covers
-          // trade and rating — name what it filters, and say when one is applied.
-          label={`Filter by trade or rating${directoryFilterActive ? " · active" : ""}`}
-          icon={Filter}
-          active={directoryFilterOpen || directoryFilterActive}
-          onClick={() => setDirectoryFilterOpen((v) => !v)}
-          data-attr="vendor-directory-filter-toggle"
-        />
-      ) : null}
+      {vendorFilterSheet}
       <ManagerVendorsToolbar />
     </>
   );
