@@ -465,25 +465,11 @@ export function calendarViewHref(basePath: string, tab: CalendarViewTabId | "boo
 }
 
 /**
- * Vendor Calendar's own destination tabs — a kind filter over the week grid,
- * not a day/week/month view switcher (the grid itself is always the week
- * view; there is no separate view-mode picker). "All" shows both scheduled
- * services and painted availability; "Services" hides availability painting;
- * "Availability" hides scheduled-visit blocks.
+ * Vendor Calendar is ONE view (the manager calendar's Day / Week / Month / Agenda with the vendor's
+ * weekly hours drawn on it). The retired All / Services / Availability tab URLs land here.
  */
-export const VENDOR_CALENDAR_VIEW_TABS = ["all", "services", "availability"] as const;
-export type VendorCalendarViewTabId = (typeof VENDOR_CALENDAR_VIEW_TABS)[number];
-export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "all";
-
-export function parseVendorCalendarViewTab(raw: string | undefined | null): VendorCalendarViewTabId {
-  if (raw && (VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
-    return raw as VendorCalendarViewTabId;
-  }
-  return DEFAULT_VENDOR_CALENDAR_VIEW;
-}
-
-export function vendorCalendarViewHref(basePath: string, tab: VendorCalendarViewTabId): string {
-  return tab === DEFAULT_VENDOR_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
+export function vendorCalendarHref(basePath: string): string {
+  return `${basePath}/calendar`;
 }
 
 export function bookingsHref(basePath: string): string {

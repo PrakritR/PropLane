@@ -1884,23 +1884,12 @@ export async function renderPortalSectionWith(
   }
 
   if (kind === "vendor" && section === "calendar") {
-    const {
-      parseVendorCalendarViewTab,
-      VENDOR_CALENDAR_VIEW_TABS,
-      vendorCalendarViewHref,
-      DEFAULT_VENDOR_CALENDAR_VIEW,
-    } = await import("@/lib/portal-detail-routes");
-    if (tabParts && tabParts.length > 1) notFound();
-    const raw = tabParts?.[0];
-    // "all" is the default and canonicalizes to the bare route. day/week/month/list
-    // were view-mode ids from the retired agenda-only calendar (C155); tasks/tours
-    // never existed for vendor. All fall back to the default tab rather than 404ing.
-    if (raw === "all" || raw === "list" || raw === "day" || raw === "week" || raw === "month" || raw === "tasks" || raw === "tours") {
-      redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
-    }
-    if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();
+    const { vendorCalendarHref } = await import("@/lib/portal-detail-routes");
+    // One view: every retired /calendar/<tab> (all, services, availability, day, week, month, list,
+    // tasks, tours) lands on the bare route instead of 404ing.
+    if (tabParts?.length) redirect(vendorCalendarHref(def.basePath));
     const PortalCalendar = await loadPortalCalendar();
-    return <PortalCalendar portal="vendor" vendorCalendarView={parseVendorCalendarViewTab(raw)} />;
+    return <PortalCalendar portal="vendor" />;
   }
 
   if (kind === "vendor" && section === "communication") {
