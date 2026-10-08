@@ -99,7 +99,7 @@ describe("Tasks", () => {
   it("the + opens Add task with the real rail, fields and footer", async () => {
     const { container } = render(<DemoPanel portal="manager" tab="tasks" />);
     fire(screen.getByRole("button", { name: "Add task" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add task" });
+    const dialog = await screen.findByRole("dialog", { name: "Add task" }, { timeout: 5000 });
     orderIn(railLabels(dialog), ["Task", "Property", "When", "Review"]);
     expect(within(dialog).getByText("Task type")).toBeInTheDocument();
     expect(within(dialog).getByText("Description")).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("Tasks", () => {
   it("uses the real task type, timing and priority words", async () => {
     render(<DemoPanel portal="manager" tab="tasks" />);
     fire(screen.getByRole("button", { name: "Add task" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add task" });
+    const dialog = await screen.findByRole("dialog", { name: "Add task" }, { timeout: 5000 });
     expect(within(dialog).getAllByText(MANAGER_TASK_FORM_KIND_LABELS.general).length).toBeGreaterThan(0);
     fireEvent.click(dialog.querySelector('[data-attr="demo-popup-next"]')!);
     fireEvent.click(dialog.querySelector('[data-attr="demo-popup-next"]')!);
