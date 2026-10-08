@@ -27,6 +27,40 @@ function likePatternToRegExp(pattern: string): RegExp {
   return new RegExp(`^${source}$`, "i");
 }
 
+/** Clause boundaries in a PostgREST `or=` list: commas outside double quotes. */
+function splitTopLevel(expr: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < expr.length; index += 1) {
+    const character = expr[index]!;
+    if (quoted && character === "\\" && index + 1 < expr.length) {
+      current += character + expr[index + 1]!;
+      index += 1;
+      continue;
+    }
+    if (character === '"') {
+      quoted = !quoted;
+      current += character;
+      continue;
+    }
+    if (character === "," && !quoted) {
+      out.push(current);
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  out.push(current);
+  return out.filter((clause) => clause.length > 0);
+}
+
+/** A double-quoted filter value, back to the string PostgREST would hand Postgres. */
+function unquoteFilterValue(value: string): string {
+  if (!value.startsWith('"') || !value.endsWith('"') || value.length < 2) return value;
+  return value.slice(1, -1).replace(/\\(.)/g, "$1");
+}
+
 function read(row: Row, column: string): unknown {
   if (column in row) return row[column];
   const arrow = column.split("->>");
@@ -119,13 +153,18 @@ export function createAdminFakeDb(
         }),
         builder
       ),
-      /** `col.eq.value,col.ilike.pattern,col.is.null` — any clause matching keeps the row. */
+      /**
+       * `col.eq.value,col.ilike.pattern,col.is.null` — any clause matching keeps
+       * the row. A value may be double-quoted, which is how PostgREST carries
+       * one holding a comma or a parenthesis; the split respects those quotes
+       * and the value is unescaped before matching.
+       */
       or: (expr: string) => {
-        const clauses = expr.split(",").map((clause) => {
+        const clauses = splitTopLevel(expr).map((clause) => {
           const column = clause.slice(0, clause.indexOf("."));
           const rest = clause.slice(column.length + 1);
           const op = rest.slice(0, rest.indexOf("."));
-          return { column, op, value: rest.slice(op.length + 1) };
+          return { column, op, value: unquoteFilterValue(rest.slice(op.length + 1)) };
         });
         filters.push((row) =>
           clauses.some(({ column, op, value }) => {

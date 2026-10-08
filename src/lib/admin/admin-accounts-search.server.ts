@@ -2,6 +2,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  countMatchingAccounts,
+  listAccountIdsForEveryKind,
+  listSandboxAccountIds,
   profileSearchFilter,
   resolveAccountKinds,
   scanNewestProfiles,
@@ -31,9 +34,9 @@ export type AdminAccountSearchResult = {
   /** Match counts for every kind (so the tabs stay derived from the same query). */
   counts: { manager: number; resident: number; vendor: number };
   /**
-   * Whether the scan reached the end of the matching accounts. False means
-   * `counts` only describes the rows that were scanned, so the UI shows no
-   * total rather than a number that is too low.
+   * Whether `counts` are real totals. They are counted in the database, so this
+   * is true for every answer this server builds; a response without it (an
+   * older one) makes the UI show no pill rather than a number it cannot trust.
    */
   countsComplete: boolean;
 };
@@ -99,20 +102,24 @@ export async function searchAdminAccounts(
   db: SupabaseClient,
   opts: { kind: AdminAccountKind; query: string },
 ): Promise<AdminAccountSearchResult> {
-  const counts = { manager: 0, resident: 0, vendor: 0 };
-  const { kept: page, complete } = await scanNewestProfiles<AdminProfileScanRow>(
+  const match = profileSearchFilter(opts.query);
+
+  // The tab counts are totals: counted in the database over each kind's role
+  // holders (minus the sandbox accounts), never a tally of the scanned page.
+  const [idsByKind, sandboxIds] = await Promise.all([listAccountIdsForEveryKind(db), listSandboxAccountIds(db)]);
+  const real = (ids: string[]) => ids.filter((id) => !sandboxIds.has(id));
+  const [manager, resident, vendor] = await Promise.all([
+    countMatchingAccounts(db, real(idsByKind.manager), match),
+    countMatchingAccounts(db, real(idsByKind.resident), match),
+    countMatchingAccounts(db, real(idsByKind.vendor), match),
+  ]);
+
+  const { kept: page } = await scanNewestProfiles<AdminProfileScanRow>(
     db,
-    { match: profileSearchFilter(opts.query), limit: ADMIN_ACCOUNT_SEARCH_LIMIT },
+    { match, limit: ADMIN_ACCOUNT_SEARCH_LIMIT },
     async (rows) => {
       const kindsById = await resolveAccountKinds(db, rows);
-      const forThisKind: AdminProfileScanRow[] = [];
-      for (const row of rows) {
-        const kinds = kindsById.get(row.id);
-        if (!kinds) continue;
-        for (const kind of kinds) counts[kind] += 1;
-        if (kinds.includes(opts.kind)) forThisKind.push(row);
-      }
-      return forThisKind;
+      return rows.filter((row) => kindsById.get(row.id)?.includes(opts.kind));
     },
   );
   const pageRows = page.slice(0, ADMIN_ACCOUNT_SEARCH_LIMIT);
@@ -152,5 +159,5 @@ export async function searchAdminAccounts(
     };
   });
 
-  return { rows, counts, countsComplete: complete };
+  return { rows, counts: { manager, resident, vendor }, countsComplete: true };
 }

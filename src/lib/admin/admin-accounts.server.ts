@@ -89,6 +89,21 @@ export async function countActiveAccounts(db: SupabaseClient, ids: string[]): Pr
   );
 }
 
+/**
+ * How many of `ids` the search term matches, counted in the database. The tab
+ * counts are totals, not a tally of whatever page happened to be scanned.
+ */
+export async function countMatchingAccounts(
+  db: SupabaseClient,
+  ids: string[],
+  match: string | null,
+): Promise<number> {
+  return countByIdChunks(ids, (chunk) => {
+    const query = db.from("profiles").select("id", { count: "exact", head: true }).in("id", chunk);
+    return match ? query.or(match) : query;
+  });
+}
+
 /** Active accounts among `ids` that have a linked Stripe Connect account. */
 export async function countActiveAccountsWithPayouts(db: SupabaseClient, ids: string[]): Promise<number> {
   return countByIdChunks(ids, (chunk) =>
@@ -208,6 +223,16 @@ const PROFILE_SCAN_WINDOW = 200;
 const PROFILE_SCAN_MAX_WINDOWS = 10;
 
 /**
+ * A filter value, double-quoted the way PostgREST requires for anything holding
+ * a character it reserves inside `or=(...)`: a comma would otherwise end the
+ * clause and a parenthesis would regroup it, so a search for "Doe, Jane"
+ * reached the database as two broken clauses and 500ed the Accounts list.
+ */
+function quotedFilterValue(value: string): string {
+  return `"${value.replace(/["\\]/g, (character) => `\\${character}`)}"`;
+}
+
+/**
  * The `or=` filter for an admin search term: email, name or PropLane ID
  * contains it. Null for an empty term, which matches every account.
  *
@@ -220,11 +245,15 @@ const PROFILE_SCAN_MAX_WINDOWS = 10;
 export function profileSearchFilter(query: string): string | null {
   const term = query.trim();
   if (!term) return null;
-  const pattern = `%${likeLiteral(term)}%`;
+  const pattern = quotedFilterValue(`%${likeLiteral(term)}%`);
   const clauses = [`email.ilike.${pattern}`, `full_name.ilike.${pattern}`, `manager_id.ilike.${pattern}`];
   const termDigits = digits(term);
   const termIsANumber = /^[\d\s()+.-]+$/.test(term) && termDigits.length >= 3;
-  clauses.push(termIsANumber ? `phone.ilike.%${termDigits.split("").join("%")}%` : `phone.ilike.${pattern}`);
+  clauses.push(
+    termIsANumber
+      ? `phone.ilike.${quotedFilterValue(`%${termDigits.split("").join("%")}%`)}`
+      : `phone.ilike.${pattern}`,
+  );
   return clauses.join(",");
 }
 
