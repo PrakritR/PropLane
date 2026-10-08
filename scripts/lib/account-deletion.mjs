@@ -224,6 +224,7 @@ export const DELETE_ORDER = [
   "number_credit_accounts",
   "number_subscriptions",
   "resident_agent_numbers",
+  "resident_workspace_bindings",
   "manager_document_templates",
   "manager_promotion_records",
   "manager_reserve_policies",
