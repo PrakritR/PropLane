@@ -24,12 +24,8 @@ import {
 } from "@/components/portal/filter-field-lists";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import {
-  VENDOR_REVIEW_BODY_MAX_LENGTH,
-  VENDOR_REVIEW_STATUS_TABS,
-  type PublicVendorReview,
-  type VendorReviewStatusTab,
-} from "@/lib/vendor-reviews";
+import { VENDOR_REVIEW_BODY_MAX_LENGTH, type PublicVendorReview } from "@/lib/vendor-reviews";
+import { Button } from "@/components/ui/button";
 
 
 /**
@@ -59,31 +55,11 @@ function formatReviewDate(iso: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-/** The header stats strip: Average rating, Reviews, Needs reply, Response rate — every figure derived from the rows. */
-function ReviewStatsStrip({ reviews, loading }: { reviews: PublicVendorReview[] | null; loading: boolean }) {
-  const total = reviews?.length ?? 0;
-  const needsReply = reviews?.filter((r) => !r.vendorReply).length ?? 0;
-  const average = total > 0 ? reviews!.reduce((sum, r) => sum + r.stars, 0) / total : null;
-  const responseRate = total > 0 ? Math.round(((total - needsReply) / total) * 100) : null;
-  const cells: { id: string; label: string; value: string }[] = [
-    { id: "average", label: "Average rating", value: loading || average == null ? "—" : `${average.toFixed(1)} ★` },
-    { id: "count", label: "Reviews", value: loading ? "—" : String(total) },
-    { id: "needs-reply", label: "Needs reply", value: loading ? "—" : String(needsReply) },
-    { id: "response-rate", label: "Response rate", value: loading || responseRate == null ? "—" : `${responseRate}%` },
-  ];
-  return (
-    <div
-      className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4"
-      data-attr="vendor-reviews-stats"
-    >
-      {cells.map((cell) => (
-        <div key={cell.id} className="rounded-[10px] border border-border bg-card px-4 py-3" data-attr={`vendor-reviews-stat-${cell.id}`}>
-          <p className="text-[13px] text-muted">{cell.label}</p>
-          <p className="mt-1 text-xl font-[650] leading-none tracking-tight text-foreground tabular-nums">{cell.value}</p>
-        </div>
-      ))}
-    </div>
-  );
+/** "★ 4.7 · 3 reviews" — every figure derived from the rows on screen. */
+export function reviewsSummary(reviews: PublicVendorReview[] | null): string | null {
+  if (!reviews || reviews.length === 0) return null;
+  const average = reviews.reduce((sum, r) => sum + r.stars, 0) / reviews.length;
+  return `★ ${average.toFixed(1)} · ${reviews.length} ${reviews.length === 1 ? "review" : "reviews"}`;
 }
 
 /**
@@ -186,19 +162,15 @@ function ReviewReplyDialog({
 }
 
 /**
- * Vendor Reviews — a Services-style top bar (sections, search, Filter) over
- * every review left on the vendor's completed services, with one editable
- * reply each (VD21, 2026-09-27).
+ * Vendor Reviews — ONE list of every review left on the vendor's completed services, newest first
+ * (vendor-portal-ia-1007, D4: no tabs, no stat cards). The header line carries the average and the
+ * count as plain facts; search and the Filter icon narrow the list. A review with no reply offers
+ * Reply in its ⋯, a replied one offers Edit reply, one editable reply each.
  */
-export function VendorReviewsPanel({
-  tabId = "all",
-  basePath = "/vendor",
-}: {
-  tabId?: VendorReviewStatusTab;
-  basePath?: string;
-}) {
+export function VendorReviewsPanel({ basePath = "/vendor" }: { basePath?: string }) {
   const [reviews, setReviews] = useState<PublicVendorReview[] | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [loadTick, setLoadTick] = useState(0);
   const [ratingFilter, setRatingFilter] = useState<RatingFilterValue>("0");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -208,15 +180,16 @@ export function VendorReviewsPanel({
   useEffect(() => {
     let cancelled = false;
     setState("loading");
-    fetch("/api/vendor/reviews")
-      .then((res) => res.json())
-      .then((data: { reviews?: PublicVendorReview[]; error?: string }) => {
+    fetch("/api/vendor/reviews", { credentials: "include" })
+      .then(async (res) => {
+        // A 401 / 403 / 500 is a failed load, not "no reviews": say so and offer Try again.
+        const data = (await res.json().catch(() => ({}))) as { reviews?: PublicVendorReview[]; error?: string };
         if (cancelled) return;
-        if (data.error) {
+        if (!res.ok || data.error || !Array.isArray(data.reviews)) {
           setState("error");
           return;
         }
-        setReviews(data.reviews ?? []);
+        setReviews([...data.reviews].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
         setState("ready");
       })
       .catch(() => {
@@ -225,20 +198,9 @@ export function VendorReviewsPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadTick]);
 
-  const byTab = useMemo(() => {
-    if (!reviews) return null;
-    if (tabId === "needs-reply") return reviews.filter((r) => !r.vendorReply);
-    if (tabId === "replied") return reviews.filter((r) => Boolean(r.vendorReply));
-    return reviews;
-  }, [reviews, tabId]);
-
-  const tabCounts = useMemo(() => {
-    const all = reviews?.length ?? 0;
-    const needsReply = reviews?.filter((r) => !r.vendorReply).length ?? 0;
-    return { all, "needs-reply": needsReply, replied: all - needsReply };
-  }, [reviews]);
+  const byTab = reviews;
 
   const minStars = ratingFilter === "0" ? null : Number(ratingFilter);
   const needle = search.trim().toLowerCase();
@@ -298,28 +260,16 @@ export function VendorReviewsPanel({
 
   return (
     <ManagerPortalPageShell title="Reviews" hideTitleOnMobileNav compactFilterRow>
-      {/* The stats card stays above the tabs bar whichever tab is selected, like the balance card on Payments. */}
-      <div className="px-3 sm:px-4">
-        <ReviewStatsStrip reviews={reviews} loading={state === "loading"} />
-      </div>
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        destinations={VENDOR_REVIEW_STATUS_TABS.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          count: tabCounts[tab.id],
-          href: `${basePath}/reviews/${tab.id}`,
-          dataAttr: `vendor-reviews-tab-${tab.id}`,
-        }))}
-        activeDestinationId={tabId}
-        destinationAriaLabel="Review status"
         search={{
           value: search,
           onChange: setSearch,
           placeholder: "Search reviews",
           dataAttr: "vendor-reviews-search",
         }}
+        recordSummary={state === "ready" ? reviewsSummary(reviews) : null}
         actions={
           <>
             {filterSheet}
@@ -331,7 +281,12 @@ export function VendorReviewsPanel({
         {state === "loading" ? (
           <p className="py-10 text-center text-sm">Loading reviews…</p>
         ) : state === "error" ? (
-          <p className="py-10 text-center text-sm">Could not load reviews.</p>
+          <div className="flex flex-col items-center gap-3 py-10 text-center" data-attr="vendor-reviews-error">
+            <p className="text-sm font-semibold text-foreground">Could not load reviews.</p>
+            <Button type="button" variant="outline" data-attr="vendor-reviews-retry" onClick={() => setLoadTick((n) => n + 1)}>
+              Try again
+            </Button>
+          </div>
         ) : (
           <PortalRecordListSurface
             isEmpty={!filteredReviews || filteredReviews.length === 0}

@@ -577,14 +577,9 @@ export async function renderPortalSectionWith(
     return <VendorSettingsPanel />;
   }
   if (kind === "vendor" && section === "reviews") {
-    // Top bar with sections (VD21, 2026-09-27) — a real routed tab, not a
-    // client-only toggle.
-    const { VENDOR_REVIEW_STATUS_TABS, isVendorReviewStatusTab } = await import("@/lib/vendor-reviews");
-    if (tabParts && tabParts.length > 1) notFound();
-    const raw = tabParts?.[0];
-    if (!raw) redirect(`${def.basePath}/${section}/${VENDOR_REVIEW_STATUS_TABS[0].id}`);
-    if (!isVendorReviewStatusTab(raw)) notFound();
-    return <VendorReviewsPanel tabId={raw} basePath={def.basePath} />;
+    // One list, no tabs: the retired /reviews/all, /needs-reply and /replied land on the bare section.
+    if (tabParts?.length) redirect(`${def.basePath}/${section}`);
+    return <VendorReviewsPanel basePath={def.basePath} />;
   }
   if (kind === "vendor" && section === "documents") {
     // Status (All / On file / Missing) tabs and the tax/insurance/licensing

@@ -29,17 +29,8 @@ export const vendorPortal: PortalDefinition = {
     // No status tabs (VD16, 2026-09-27) — the checklist groups by section
     // (Tax / Business license / Insurance) inline instead.
     { section: "documents", label: "Documents", tabs: [] },
-    // Top bar with sections (VD21, 2026-09-27) — All / Needs reply / Replied,
-    // a real routed tab like every other portal list.
-    {
-      section: "reviews",
-      label: "Reviews",
-      tabs: [
-        { id: "all", label: "All" },
-        { id: "needs-reply", label: "Needs reply" },
-        { id: "replied", label: "Replied" },
-      ],
-    },
+    // One list of every review, newest first — no tabs, no stat cards (vendor-portal-ia-1007, D4).
+    { section: "reviews", label: "Reviews", tabs: [] },
     { section: "profile", label: "Settings", tabs: [] },
   ],
 };
