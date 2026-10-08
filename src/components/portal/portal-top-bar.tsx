@@ -32,9 +32,18 @@ function portalDisplayName(kind: PortalKind): string {
   }
 }
 
+/**
+ * The Ask PropLane popup is a floating panel, not a modal that owns the
+ * keyboard: the manager types into its composer, and Cmd/Ctrl+K from there is
+ * still "jump somewhere / ask" (the palette's Ask row is how it opens). Neither
+ * its dialog role nor its composer may swallow the shortcut.
+ */
+const ASSISTANT_SURFACE = ".axis-assistant-root, .axis-assistant-panel";
+
 /** A text field, a number field or a rich-text area owns its own Ctrl/Cmd+K. */
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
+  if (target.closest(ASSISTANT_SURFACE)) return false;
   if (target.isContentEditable) return true;
   const tag = target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
@@ -51,9 +60,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
  */
 function hasOpenDialog(): boolean {
   if (typeof document === "undefined") return false;
-  return Boolean(
-    document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [aria-modal="true"]'),
-  );
+  const open = document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="menu"], [aria-modal="true"]');
+  return Array.from(open).some((el) => !el.closest(ASSISTANT_SURFACE));
 }
 
 /**
