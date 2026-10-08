@@ -39,7 +39,7 @@ async function authAccountEmail(db: ServiceDb, userId: string): Promise<string> 
   return normalizeEmail(data.user.email);
 }
 
-async function normalizedRolesForUser(db: ServiceDb, userId: string): Promise<string[]> {
+export async function normalizedRolesForUser(db: ServiceDb, userId: string): Promise<string[]> {
   const [{ data: profile, error: profileError }, { data: roleRows, error: rolesError }] = await Promise.all([
     db.from("profiles").select("role").eq("id", userId).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", userId),

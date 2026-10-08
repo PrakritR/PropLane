@@ -445,9 +445,18 @@ type ResidentDeleteCounts = {
   paidCents: number;
 };
 
+/** What happens to each selected resident's PropLane login, as the server's preview says. */
+type ResidentAccountTally = { deleted: number; kept: number; none: number };
+type ResidentAccountFate = keyof ResidentAccountTally;
+
+function readResidentAccountFate(value: unknown): ResidentAccountFate {
+  return value === "deleted" || value === "none" ? value : "kept";
+}
+
 type ResidentDeletePreviewState = {
   loading: boolean;
   counts: ResidentDeleteCounts | null;
+  accounts: ResidentAccountTally | null;
   /** Set when the count could not be read; Delete stays held rather than guessing. */
   error: string | null;
 };
@@ -455,6 +464,7 @@ type ResidentDeletePreviewState = {
 const EMPTY_RESIDENT_DELETE_PREVIEW: ResidentDeletePreviewState = {
   loading: false,
   counts: null,
+  accounts: null,
   error: null,
 };
 
@@ -504,7 +514,20 @@ function describeResidentDeleteCounts(counts: ResidentDeleteCounts): string {
   return parts.join(", ");
 }
 
-function residentDeletePreviewRows(counts: ResidentDeleteCounts): { label: string; value: string }[] {
+/** The last line of the count table: terse, and the server's word on whether the login goes. */
+function residentAccountPreviewValue(accounts: ResidentAccountTally | null): string {
+  if (!accounts) return "Kept (other roles or managers)";
+  const total = accounts.deleted + accounts.kept + accounts.none;
+  if (total > 0 && accounts.none === total) return "None";
+  if (accounts.kept === 0) return "Deleted";
+  if (accounts.deleted === 0) return "Kept (other roles or managers)";
+  return `${accounts.deleted} deleted · ${accounts.kept} kept (other roles or managers)`;
+}
+
+function residentDeletePreviewRows(
+  counts: ResidentDeleteCounts,
+  accounts: ResidentAccountTally | null,
+): { label: string; value: string }[] {
   const rows: { label: string; value: string }[] = [
     {
       label: "Application · lease · charges",
@@ -520,6 +543,7 @@ function residentDeletePreviewRows(counts: ResidentDeleteCounts): { label: strin
       label: "Paid payments",
       value: counts.paidCount ? `${counts.paidCount} · ${formatUsdFromCents(counts.paidCents)}` : "None",
     },
+    { label: "PropLane account", value: residentAccountPreviewValue(accounts) },
   ];
   return rows;
 }
@@ -2473,7 +2497,9 @@ export function ManagerResidents({
    * when the count cannot be read — the dialog then holds Delete instead of
    * implying the resident has nothing linked to them.
    */
-  async function previewResidentDelete(resident: ActiveResident): Promise<ResidentDeleteCounts | null> {
+  async function previewResidentDelete(
+    resident: ActiveResident,
+  ): Promise<{ counts: ResidentDeleteCounts; account: ResidentAccountFate } | null> {
     try {
       const res = await fetch("/api/portal/delete-resident-access", {
         method: "POST",
@@ -2482,8 +2508,10 @@ export function ManagerResidents({
         body: JSON.stringify({ mode: "preview", email: resident.email, applicationId: resident.id }),
       });
       if (!res.ok) return null;
-      const body = (await res.json().catch(() => null)) as { counts?: unknown } | null;
-      return body?.counts ? readResidentDeleteCounts(body.counts) : null;
+      const body = (await res.json().catch(() => null)) as { counts?: unknown; account?: unknown } | null;
+      return body?.counts
+        ? { counts: readResidentDeleteCounts(body.counts), account: readResidentAccountFate(body.account) }
+        : null;
     } catch {
       return null;
     }
@@ -2494,21 +2522,24 @@ export function ManagerResidents({
       setBulkDeletePreview(EMPTY_RESIDENT_DELETE_PREVIEW);
       return;
     }
-    setBulkDeletePreview({ loading: true, counts: null, error: null });
+    setBulkDeletePreview({ loading: true, counts: null, accounts: null, error: null });
     let total = emptyResidentDeleteCounts();
+    const accounts: ResidentAccountTally = { deleted: 0, kept: 0, none: 0 };
     for (const resident of residents) {
-      const counts = await previewResidentDelete(resident);
-      if (!counts) {
+      const previewed = await previewResidentDelete(resident);
+      if (!previewed) {
         setBulkDeletePreview({
           loading: false,
           counts: null,
+          accounts: null,
           error: "Couldn't read what is linked to this resident. Try again.",
         });
         return;
       }
-      total = addResidentDeleteCounts(total, counts);
+      total = addResidentDeleteCounts(total, previewed.counts);
+      accounts[previewed.account] += 1;
     }
-    setBulkDeletePreview({ loading: false, counts: total, error: null });
+    setBulkDeletePreview({ loading: false, counts: total, accounts, error: null });
   }
 
   /**
@@ -2522,7 +2553,7 @@ export function ManagerResidents({
    */
   async function executeResidentDelete(
     selectedResident: ActiveResident,
-  ): Promise<{ ok: true; removed: ResidentDeleteCounts } | { ok: false }> {
+  ): Promise<{ ok: true; removed: ResidentDeleteCounts; accountFailed: boolean } | { ok: false }> {
     const allRows = readManagerApplicationRows();
     if (!allRows.some((row) => row.id === selectedResident.id)) {
       showToast("Resident not found.");
@@ -2531,6 +2562,7 @@ export function ManagerResidents({
 
     let serverDeleteError: string | null = null;
     let removed = emptyResidentDeleteCounts();
+    let accountFailed = false;
     try {
       const res = await fetch("/api/portal/delete-resident-access", {
         method: "POST",
@@ -2542,11 +2574,12 @@ export function ManagerResidents({
           applicationId: selectedResident.id,
         }),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string; removed?: unknown } | null;
+      const body = (await res.json().catch(() => null)) as { error?: string; removed?: unknown; account?: unknown } | null;
       if (!res.ok) {
         serverDeleteError = body?.error ?? "Could not delete resident.";
       } else {
         removed = readResidentDeleteCounts(body?.removed);
+        accountFailed = body?.account === "failed";
       }
     } catch {
       serverDeleteError = "Could not delete resident.";
@@ -2608,7 +2641,20 @@ export function ManagerResidents({
     setLeaseTick((n) => n + 1);
     setWorkOrderTick((n) => n + 1);
     setInboxTick((n) => n + 1);
-    return { ok: true, removed };
+    return { ok: true, removed, accountFailed };
+  }
+
+  /**
+   * One terse line for the confirm of a single-resident delete that has no count
+   * table: what happens to their PropLane login, read from the server. Null when
+   * the preview cannot be read, and the caller then holds the delete.
+   */
+  async function residentAccountConfirmNote(resident: ActiveResident): Promise<string | null> {
+    const previewed = await previewResidentDelete(resident);
+    if (!previewed) return null;
+    const tally: ResidentAccountTally = { deleted: 0, kept: 0, none: 0 };
+    tally[previewed.account] += 1;
+    return `PropLane account · ${residentAccountPreviewValue(tally)}.`;
   }
 
   /**
@@ -2626,6 +2672,7 @@ export function ManagerResidents({
     if (listSelectedResidents.length === 0) return;
     setBulkDeleteBusy(true);
     let deleted = 0;
+    let accountsFailed = 0;
     let removed = emptyResidentDeleteCounts();
     const deletedNames: string[] = [];
     const failed: string[] = [];
@@ -2638,6 +2685,7 @@ export function ManagerResidents({
         if (result.ok) {
           deleted += 1;
           removed = addResidentDeleteCounts(removed, result.removed);
+          if (result.accountFailed) accountsFailed += 1;
           deletedNames.push(resident.name || resident.email || resident.id);
         } else failed.push(resident.name || resident.email || resident.id);
       }
@@ -2658,6 +2706,8 @@ export function ManagerResidents({
       showToast(
         failed.length > 0
           ? `Deleted ${subject}; ${failed.length} could not be deleted.`
+          : accountsFailed > 0
+            ? `Deleted ${subject}; ${accountsFailed} PropLane account${accountsFailed === 1 ? "" : "s"} could not be deleted.`
           : linked
             ? `Deleted ${subject} · ${linked}.`
             : `Deleted ${subject}.`,
@@ -2688,7 +2738,12 @@ export function ManagerResidents({
       return;
     }
     const label = resident.name || resident.email || "this resident";
-    if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
+    const accountNote = await residentAccountConfirmNote(resident);
+    if (!accountNote) {
+      showToast("Couldn't read what is linked to this resident. Try again.");
+      return;
+    }
+    if (!(await confirm({ description: `Delete ${label}? ${accountNote} This cannot be undone.` }))) return;
     const result = await executeResidentDelete(resident);
     if (!result.ok) return;
     setEditResidentOpen(false);
@@ -2698,7 +2753,11 @@ export function ManagerResidents({
       navigate(`${portalBase}/residents/${residentsTab}`);
     }
     const linked = describeResidentDeleteCounts(result.removed);
-    showToast(linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`);
+    showToast(
+      result.accountFailed
+        ? `Deleted ${label}; their PropLane account could not be deleted.`
+        : linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`,
+    );
   }
 
   function signLeaseAsManager(row: LeasePipelineRow) {
@@ -2998,12 +3057,21 @@ export function ManagerResidents({
             return;
           }
           const label = resident.name || resident.email || "this resident";
-          if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
+          const accountNote = await residentAccountConfirmNote(resident);
+          if (!accountNote) {
+            showToast("Couldn't read what is linked to this resident. Try again.");
+            return;
+          }
+          if (!(await confirm({ description: `Delete ${label}? ${accountNote} This cannot be undone.` }))) return;
           const result = await executeResidentDelete(resident);
           if (!result.ok) return;
           navigate(`${portalBase}/residents/${residentsTab}`);
           const linked = describeResidentDeleteCounts(result.removed);
-          showToast(linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`);
+          showToast(
+            result.accountFailed
+              ? `Deleted ${label}; their PropLane account could not be deleted.`
+              : linked ? `Deleted ${label} · ${linked}.` : `Deleted ${label}.`,
+          );
         })();
         return;
       default:
@@ -4156,7 +4224,7 @@ export function ManagerResidents({
               <span className="mt-3 block text-xs text-muted">Counting what is linked to them…</span>
             ) : (
               <span className="mt-3 block space-y-0.5" data-attr="residents-delete-linked-counts">
-                {residentDeletePreviewRows(bulkDeletePreview.counts!).map((row) => (
+                {residentDeletePreviewRows(bulkDeletePreview.counts!, bulkDeletePreview.accounts).map((row) => (
                   <span key={row.label} className="flex items-center justify-between gap-3 text-xs">
                     <span className="text-muted">{row.label}</span>
                     <span className="font-medium tabular-nums">{row.value}</span>
