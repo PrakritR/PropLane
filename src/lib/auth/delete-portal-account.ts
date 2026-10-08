@@ -10,6 +10,7 @@ import { closeRelayThreadsForUser } from "@/lib/sms-relay.server";
 import { removePortalAccess, type PortalRole } from "@/lib/auth/remove-portal-access";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { getStripe } from "@/lib/stripe";
+import { cancelNumberSubscriptionForAccount } from "@/lib/number-subscription/cancel.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -136,6 +137,8 @@ export async function deleteResidentAccount(
   const hasTarget = Boolean(userId || email || applicationId);
 
   if (purgeData) {
+    // The resident purge deletes number_subscriptions with the Stripe ids: stop that billing first.
+    if (userId) await cancelNumberSubscriptionForAccount(db, userId);
     const roles = userId ? await normalizedRolesForUser(db, userId) : [];
     await purgeResidentPortalData(db, { email, userId: userId || null, applicationId: applicationId || null, complete: !roles.some(role => role !== "resident") });
   }
@@ -220,6 +223,8 @@ async function purgeAndDeletePortalAccount(db: ServiceDb, userId: string) {
   if (!trimmedId) throw new Error("User id is required.");
 
   const email = await authAccountEmail(db, trimmedId);
+  // The purges below delete number_subscriptions (and its Stripe ids): cancel the PropLane Number billing first.
+  await cancelNumberSubscriptionForAccount(db, trimmedId);
   await purgeManagerPortalData(db, trimmedId, true, email);
   await purgeResidentPortalData(db, { email, userId: trimmedId });
   await purgeVendorPortalData(db, { userId: trimmedId, email });
@@ -260,6 +265,7 @@ export async function deleteOwnAccount(db: ServiceDb, userId: string) {
 
   // Stop billing before manager_purchases is purged inside purgeManagerPortalData.
   await cancelActiveManagerSubscription(db, trimmedId);
+  await cancelNumberSubscriptionForAccount(db, trimmedId);
 
   await closeRelayThreadsForUser(db, trimmedId);
 
@@ -387,6 +393,8 @@ export async function deleteVendorAccount(db: ServiceDb, vendorUserId: string) {
   if (!trimmedId) throw new Error("User id is required.");
 
   const roles = await normalizedRolesForUser(db, trimmedId);
+  // The vendor purge deletes number_subscriptions with the Stripe ids: stop that billing first.
+  await cancelNumberSubscriptionForAccount(db, trimmedId);
   await purgeVendorPortalData(db, { userId: trimmedId, email: await authAccountEmail(db, trimmedId), complete: !roles.some(role => role !== "vendor") });
 
   const result = await removePortalAccess(db, trimmedId, "vendor");

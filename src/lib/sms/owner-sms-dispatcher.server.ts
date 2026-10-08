@@ -24,7 +24,7 @@ import { unitPriceCentsForMeter } from "@/lib/comms-billing/rates";
 import { commsPlanBudget, reserveCommsCredit, finishCommsCredit } from "@/lib/comms-billing/wallet.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import { VENDOR_CONVERSATION_PURPOSE } from "@/lib/sms/vendor-conversation-consent.server";
-import { getActiveVendorNumber } from "@/lib/vendor-work-identity.server";
+import { getRoutableVendorNumber } from "@/lib/vendor-work-identity.server";
 
 const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
   "tour_request_received",
@@ -539,7 +539,7 @@ export async function providerDestinationFor(
   const vendorUserId = String(row.recipient_user_id ?? "").trim();
   if (!vendorUserId) return row.recipient_phone;
   try {
-    const number = await getActiveVendorNumber(db, vendorUserId);
+    const number = await getRoutableVendorNumber(db, vendorUserId);
     return number?.phoneNumber ?? row.recipient_phone;
   } catch {
     return row.recipient_phone;

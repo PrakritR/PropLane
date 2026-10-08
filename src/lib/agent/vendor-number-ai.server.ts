@@ -32,7 +32,14 @@ import { deliverPortalMessageThreadSide, scopeForRole } from "@/lib/portal-inbox
 import { buildVendorNumberAiContext, type VendorNumberAiContext } from "@/lib/tools/vendor-number-ai-context";
 import { VENDOR_NUMBER_AI_WRITE_TOOLS, vendorNumberAiRegistry } from "@/lib/tools/vendor-number-ai-index";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
-import { vendorNumberMonthStart } from "@/lib/vendor-work-number";
+import { vendorNumberMonthStart, vendorNumberSegments } from "@/lib/vendor-work-number";
+import {
+  finishVendorNumberCredit,
+  reserveVendorNumberCredit,
+  vendorAiTurnCostCents,
+  vendorNumberCreditShortfall,
+  vendorSmsCostCents,
+} from "@/lib/number-subscription/vendor-number.server";
 import { vendorAiInfoIsEmpty } from "@/lib/vendor-ai-info";
 import { loadVendorBusinessProfile } from "@/lib/vendor-business-profile.server";
 import { handOffToVendor } from "@/lib/vendor-number-ai-handoff.server";
@@ -54,6 +61,8 @@ export type VendorNumberAiOutcome =
   | "rate_limited"
   | "daily_limit"
   | "send_blocked"
+  /** PropLane Number credit could not pay for the turn (flag on): no model call, the text stays in the inbox. */
+  | "out_of_credit"
   | "unavailable"
   | "empty_reply"
   | "not_delivered";
@@ -130,6 +139,14 @@ export async function vendorReplyBlocker(
       .select("sms_state,sms_send_ready").eq("id", args.number.identityId).eq("vendor_user_id", args.number.vendorUserId).maybeSingle();
     const row = identity as { sms_state?: unknown; sms_send_ready?: unknown } | null;
     if (identityError || !row || row.sms_state !== "ready" || row.sms_send_ready !== true) return "identity_not_ready";
+    // PropLane Number (flag on): paused without an entitled subscription, and no model call unless the credit
+    // covers the turn plus a full-length reply (the reserve below is still the authority).
+    const shortfall = await vendorNumberCreditShortfall(
+      db,
+      args.number.vendorUserId,
+      vendorAiTurnCostCents() + vendorSmsCostCents(vendorNumberSegments("x".repeat(REPLY_MAX_LENGTH))),
+    );
+    if (shortfall) return shortfall;
     const cap = Number(rt.outbound_message_cap ?? 0);
     const { data: usage, error: usageError } = await db.from("vendor_work_identity_usage_events")
       .select("quantity").eq("identity_id", args.number.identityId).eq("meter", "outbound_sms")
@@ -244,6 +261,15 @@ export async function runVendorNumberAiReply(
     console.warn("vendor number AI turn not recorded", recordError.message);
     return "unavailable";
   }
+  // PropLane Number (flag on): the turn is paid from the vendor's number credit, reserved BEFORE the model
+  // runs. Refused (no subscription, no credit, unreadable) = the model is never called. Flag off: skipped.
+  const turnCreditKey = turnKey(hashSenderPhone(input.from), input.messageSid);
+  const turnCredit = await reserveVendorNumberCredit(db, vendorUserId, "ai_agent_turn", 1, turnCreditKey, { metadata: { surface: "vendor_number_ai" } });
+  if (!turnCredit.ok) {
+    console.info("vendor number AI skipped", turnCredit.reason);
+    return turnCredit.reason === "out_of_credit" ? "out_of_credit" : turnCredit.reason === "credit_unavailable" ? "unavailable" : "send_blocked";
+  }
+  const settleTurnCredit = (release: boolean) => (turnCredit.reserved ? finishVendorNumberCredit(db, vendorUserId, turnCreditKey, { release }) : Promise.resolve());
   let reply: string;
   try {
     const history = await recentHistory(db, vendorUserId, input.threadId);
@@ -251,9 +277,14 @@ export async function runVendorNumberAiReply(
     reply = result.reply.trim();
   } catch (error) {
     console.warn("vendor number AI turn failed", error instanceof Error ? error.message : error);
+    // The model did not produce a reply: the vendor is not charged for it.
+    await settleTurnCredit(true);
     return "unavailable";
   }
-  if (!reply) return "empty_reply";
+  if (!reply) {
+    await settleTurnCredit(false);
+    return "empty_reply";
+  }
   // The first AI reply to a sender says what it is; the cap on length keeps it to a segment or two.
   if (sent === 0) reply = `AI assistant for ${profile.businessName.trim() || "this business"}: ${reply}`;
   reply = reply.slice(0, REPLY_MAX_LENGTH);
@@ -265,8 +296,12 @@ export async function runVendorNumberAiReply(
   // A paused / STOPped / capped / unconfigured send is not an error: the text is in PropLane.
   if (!delivered.ok) {
     if (!delivered.authorized) console.info("vendor number AI reply not sent", delivered.reason);
+    // A reply that was refused before any send was attempted (credit, quiet hours, opt-out, cap) is not
+    // charged for; one that was attempted keeps its turn charge.
+    await settleTurnCredit(!delivered.authorized);
     return "not_delivered";
   }
+  await settleTurnCredit(false);
 
   const sender = `${input.from}@sms.proplane.local`;
   await deliverPortalMessageThreadSide(db, {

@@ -18,8 +18,10 @@ import {
   touchVendorNumberConversation,
   workspaceNameForLine,
 } from "@/lib/vendor-number-conversations.server";
+import { reserveVendorNumberCredit } from "@/lib/number-subscription/vendor-number.server";
 import {
   VENDOR_NUMBER_NO_CONVERSATION_NOTICE,
+  vendorNumberSegments,
   decideVendorReplyRoute,
   forwardedTextBody,
   replyPromptBody,
@@ -121,11 +123,18 @@ export async function ingestVendorWorkIdentitySms(
   return storeAndForwardCounterpartText(db, number, { ...input, from, text: input.text }, verified, provider, deps.now);
 }
 
-async function recordInboundUsage(db: SupabaseClient, number: ActiveVendorNumber, messageSid: string): Promise<void> {
+async function recordInboundUsage(db: SupabaseClient, number: ActiveVendorNumber, messageSid: string, text: string): Promise<void> {
   await db.from("vendor_work_identity_usage_events").upsert({
     identity_id: number.identityId, vendor_user_id: number.vendorUserId,
     meter: "inbound_sms", idempotency_key: `vendor-inbound-sms:${messageSid}`,
   }, { onConflict: "idempotency_key" });
+  // PropLane Number (flag on): a received text is an unavoidable cost, so it debits what the credit holds and
+  // the platform absorbs the rest (`allowUnfunded`); it is never refused and never blocks storing the text.
+  // Idempotent per message sid. Flag off: nothing.
+  await reserveVendorNumberCredit(db, number.vendorUserId, "sms_inbound_segment", Math.max(1, vendorNumberSegments(text)), `vendor-in-sms:${messageSid}`, {
+    allowUnfunded: true,
+    metadata: { surface: "vendor_sms_inbound" },
+  });
 }
 
 async function storeAndForwardCounterpartText(
@@ -154,7 +163,7 @@ async function storeAndForwardCounterpartText(
     vendorUserId: number.vendorUserId, threadId: stored.threadId, channel: "sms",
     recipient: input.from, recipientUserId: null, messageId,
   });
-  await recordInboundUsage(db, number, input.messageSid);
+  await recordInboundUsage(db, number, input.messageSid, input.text);
   const duplicate = stored.action === "skipped";
   if (line) {
     await touchVendorNumberConversation(db, {
@@ -228,7 +237,7 @@ async function routeVendorOwnText(
   provider: VendorDeliveryProvider,
   now?: Date,
 ): Promise<{ handled: boolean; idempotent?: boolean }> {
-  await recordInboundUsage(db, number, input.messageSid);
+  await recordInboundUsage(db, number, input.messageSid, input.text);
   const conversations = await listVendorNumberConversations(db, number.identityId);
   const decision = decideVendorReplyRoute(conversations, input.text, now);
   const reply = (text: string, key: string) => deliverVendorWorkIdentity(db, {

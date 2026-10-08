@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { vendorNumberEntitled } from "@/lib/number-subscription/vendor-number.server";
 import {
   createVendorWorkIdentityProvider,
   getActiveVendorNumber,
@@ -25,9 +26,11 @@ const SIGNUP_NAMESPACE = "6f1d3f4a-2b0e-5c1a-9a52-7d1b8c0e4a11";
  * intent is hashed (UUID v5) rather than stored verbatim: the same vendor always
  * derives the same key, which is what makes a retried signup unable to buy twice.
  */
-export function vendorSignupIdempotencyKey(userId: string): string {
+export function vendorSignupIdempotencyKey(userId: string, seed?: string): string {
   const namespace = Buffer.from(SIGNUP_NAMESPACE.replace(/-/g, ""), "hex");
-  const hash = createHash("sha1").update(namespace).update(`signup:${userId}`).digest();
+  // `seed` (a Stripe subscription id) gives each subscription its own key, so a vendor who re-subscribes
+  // after their number was released buys a new one, while replays of one subscription buy once.
+  const hash = createHash("sha1").update(namespace).update(seed ? `signup:${userId}:${seed}` : `signup:${userId}`).digest();
   hash[6] = (hash[6]! & 0x0f) | 0x50;
   hash[8] = (hash[8]! & 0x3f) | 0x80;
   const hex = hash.subarray(0, 16).toString("hex");
@@ -42,7 +45,7 @@ export function areaCodeOfPhone(e164: string | null | undefined): string | null 
 
 export type SignupWorkNumberResult =
   | { status: "provisioned" | "already"; phoneNumber: string }
-  | { status: "skipped"; reason: "phone_unverified" | "no_candidate" | "not_ready" }
+  | { status: "skipped"; reason: "phone_unverified" | "subscription_required" | "no_candidate" | "not_ready" }
   | { status: "failed" };
 
 /**
@@ -61,11 +64,15 @@ export type SignupWorkNumberResult =
 export async function provisionVendorWorkNumberAtSignup(
   db: SupabaseClient,
   vendorUserId: string,
-  deps: { provider?: VendorWorkIdentityProvider; serviceAreaZips?: readonly string[] } = {},
+  deps: { provider?: VendorWorkIdentityProvider; serviceAreaZips?: readonly string[]; idempotencySeed?: string } = {},
 ): Promise<SignupWorkNumberResult> {
   try {
     const verified = await loadVendorVerifiedPhone(db, vendorUserId);
     if (!verified.verified || !verified.phone) return { status: "skipped", reason: "phone_unverified" };
+
+    // With the PropLane Number subscription on, a number is for a subscriber only (numberServiceEntitled):
+    // nothing is searched or bought for anyone else. Off, this is today's free signup number.
+    if (!(await vendorNumberEntitled(db, vendorUserId))) return { status: "skipped", reason: "subscription_required" };
 
     // A retried Finish never searches (or buys) again for a vendor who already has a number.
     const existing = await getActiveVendorNumber(db, vendorUserId);
@@ -85,7 +92,7 @@ export async function provisionVendorWorkNumberAtSignup(
     const claim = verifyVendorWorkNumberClaim(signVendorWorkNumberClaim({ vendorUserId, phoneNumber }));
     if (!claim || claim.vendorUserId !== vendorUserId || claim.phoneNumber !== phoneNumber) return { status: "failed" };
 
-    const identity = await setupVendorWorkIdentity(db, vendorUserId, vendorSignupIdempotencyKey(vendorUserId), "sms", provider, claim.phoneNumber);
+    const identity = await setupVendorWorkIdentity(db, vendorUserId, vendorSignupIdempotencyKey(vendorUserId, deps.idempotencySeed), "sms", provider, claim.phoneNumber);
     const number = identity.sms.value;
     if (number && identity.sms.state === "ready") {
       // `already` when an earlier call (a retried Finish) bought it: the number is not the one we picked.

@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { accountArchiveRules, ACCOUNT_RECOVERABLE_TABLES, ACCOUNT_RECOVERY_PATH, normalizeRecoveryPortal } from "@/lib/auth/account-recovery-policy";
 import { isMissingAccountRecoveryTableError } from "@/lib/auth/account-recovery-schema";
 import { cancelActiveManagerSubscription } from "@/lib/auth/delete-portal-account";
+import { cancelNumberSubscriptionForAccount } from "@/lib/number-subscription/cancel.server";
 import { purgeManagerPortalData, purgeResidentPortalData, purgeVendorPortalData } from "@/lib/auth/purge-portal-account-data";
 import { purgeSharedAccountAttachments } from "@/lib/auth/purge-shared-account-attachments";
 import { retainRecoveryObject, withAccountRecoveryStorage, type RecoveryObject } from "@/lib/auth/account-recovery-storage";
@@ -70,6 +71,9 @@ export async function schedulePortalAccountDeletion(db: SupabaseClient, userId: 
   const complete = request?.plan.complete ?? remaining.length === 0;
   if (!request || request.state === "archiving") {
     if (scope === "manager" || complete) await cancelActiveManagerSubscription(db, userId);
+    // The vendor and resident purges delete number_subscriptions with its Stripe ids: stop PropLane Number
+    // billing first. A Stripe failure throws here, before anything is archived, so the delete can be retried.
+    if (scope === "vendor" || scope === "resident" || complete) await cancelNumberSubscriptionForAccount(db, userId);
     if (complete) await closeRelayThreadsForUser(db, userId);
     else if (scope !== "vendor") await closeRelayThreadsForUser(db, userId, scope);
     const { data: otherRequests, error: otherError } = await db.from("account_recovery_requests")

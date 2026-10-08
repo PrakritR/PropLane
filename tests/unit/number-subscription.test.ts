@@ -43,6 +43,10 @@ vi.mock("@/lib/test-workspaces/effects.server", () => ({
   captureTestWorkspaceEffectForUser: async () => ({ captured: false }),
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
+// Vendor auto-provisioning after activation is tested on its own (vendor-number-subscription-gating.test.ts);
+// here only the webhook wiring is asserted.
+const activation = vi.hoisted(() => ({ provision: vi.fn(async () => "provisioned") }));
+vi.mock("@/lib/number-subscription/vendor-number-activation.server", () => ({ provisionVendorNumberOnActivation: activation.provision }));
 
 import { POST as checkoutRoute } from "@/app/api/number-subscription/checkout/route";
 import { POST as creditCheckoutRoute } from "@/app/api/number-subscription/credit-checkout/route";
@@ -363,6 +367,31 @@ describe("Stripe webhook: PropLane Number subscription", () => {
       expect.objectContaining({ p_owner: VENDOR, p_role: "vendor", p_customer: "cus_vendor", p_subscription: "sub_1", p_status: "active", p_cancel_at_period_end: false }),
     ]);
     expect((applyCalls()[0] as { p_period_end: string }).p_period_end).toBe(new Date(1_800_000_000 * 1000).toISOString());
+  });
+
+  it("provisions the vendor's number only after the subscription was APPLIED, from the subscription id", async () => {
+    activation.provision.mockClear();
+    await deliver("checkout.session.completed", paidSession());
+    expect(activation.provision).toHaveBeenCalledTimes(1);
+    expect(activation.provision).toHaveBeenCalledWith(state.db, "sub_1");
+    // Rejected, unpaid and stale writes provision nothing.
+    activation.provision.mockClear();
+    await deliver("checkout.session.completed", paidSession({ payment_status: "unpaid" }));
+    await deliver("checkout.session.completed", paidSession({ amount_subtotal: 100 }));
+    state.rpc = vi.fn(async () => ({ data: "stale", error: null }));
+    await deliver("checkout.session.completed", paidSession());
+    expect(activation.provision).not.toHaveBeenCalled();
+  });
+
+  it("a subscription.updated that applied also offers provisioning (idempotent), one that did not does not", async () => {
+    state.db = makeDb({ number_subscriptions: [subRow()] });
+    activation.provision.mockClear();
+    await deliver("customer.subscription.updated", liveSub());
+    expect(activation.provision).toHaveBeenCalledWith(state.db, "sub_1");
+    activation.provision.mockClear();
+    state.rpc = vi.fn(async () => ({ data: "customer_mismatch", error: null }));
+    await deliver("customer.subscription.updated", liveSub());
+    expect(activation.provision).not.toHaveBeenCalled();
   });
 
   it("a replayed event records the same state again (the database function makes that a no-op), never a second grant", async () => {

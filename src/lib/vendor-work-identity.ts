@@ -30,6 +30,8 @@ export type VendorWorkIdentityChannel = {
     | "identity_quarantined"
     | "identity_released"
     | "phone_unverified"
+    /** PropLane Number is on and the vendor has no entitled subscription: a claim is refused and a held number is paused. */
+    | "subscription_required"
     | "none";
 };
 
