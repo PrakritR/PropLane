@@ -11,7 +11,6 @@ export type VendorSettingsPageId =
   | "security"
   | "business"
   | "capabilities"
-  | "licenses"
   | "availability"
   | "integrations"
   | "payouts"
@@ -44,7 +43,6 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
     pages: [
       { id: "business", label: "Business details" },
       { id: "capabilities", label: "Trades & service area" },
-      { id: "licenses", label: "Licenses & insurance" },
       { id: "availability", label: "Availability" },
       { id: "integrations", label: "Integrations" },
     ],

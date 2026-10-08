@@ -17,7 +17,6 @@ import {
   MessageSquareText,
   Phone,
   Settings,
-  ShieldCheck,
   UserRound,
   Wrench,
   Zap,
@@ -26,7 +25,6 @@ import {
   useVendorBusinessProfile,
   SectionSaveBadge,
   VendorBusinessProfilePane,
-  VendorLicensesInsurancePane,
   VendorNotificationsPane,
   VendorTradesServiceAreaPane,
   VendorWorkIdentitySection,
@@ -88,7 +86,6 @@ const VENDOR_SETTINGS_PAGE_ICONS: Record<VendorSettingsPageId, ComponentType<{ c
   account: Settings,
   business: Building2,
   capabilities: Wrench,
-  licenses: ShieldCheck,
   availability: CalendarDays,
   integrations: CalendarSync,
   payouts: Landmark,
@@ -445,8 +442,6 @@ export function VendorSettingsPanel() {
             <VendorWorkIdentitySection ctx={business} />
           </>
         );
-      case "licenses":
-        return <VendorLicensesInsurancePane ctx={business} />;
       case "invoicing":
         return <VendorInvoicingSettings />;
       case "quick-replies":

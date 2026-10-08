@@ -89,7 +89,7 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "communication", "calendar"] },
   { id: "work", label: "Work", sections: ["work-orders", "reviews"] },
-  { id: "money", label: "Money", sections: ["financials", "documents"] },
+  { id: "money", label: "Money", sections: ["payments", "outgoing", "financials", "documents"] },
 ];
 
 export const PORTAL_NAV_GROUPS: Record<PortalKind, NavGroupConfig[]> = {
