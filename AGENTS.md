@@ -246,6 +246,7 @@ or `src/lib/agent/`.
 | Manager | `resolveAgentContext` | `agentRegistry` | `/api/agent/chat` |
 | Resident | `resolveResidentAgentContext` | `residentAgentRegistry` | `/api/agent/resident-chat` |
 | Vendor | `resolveVendorAgentContext` | `vendorAgentRegistry` | `/api/agent/vendor-chat` |
+| Admin | `resolveAdminAgentContext` | `adminAgentRegistry` | `/api/agent/admin-chat` |
 | Vendor SMS | `buildVendorAgentContext` | `vendorWorkOrderAgentRegistry` | inbound webhook |
 | Prospect SMS | `buildLeasingSmsAgentContext` | `leasingSmsAgentRegistry` | inbound webhook |
 | Resident personal agent | `buildResidentPersonalAgentContext` | `residentPersonalAgentRegistry` | inbound webhook (owner's number) |

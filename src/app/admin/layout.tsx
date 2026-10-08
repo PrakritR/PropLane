@@ -37,7 +37,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   ]);
   const adminPortal = adminPortalForTestWorkspaceOperator(testWorkspaceOperator);
   return (
-    <AxisAssistant managerName={profile?.full_name ?? null}>
+    <AxisAssistant endpoint="/api/agent/admin-chat" managerName={profile?.full_name ?? null}>
       <div className={PORTAL_SHELL_ROOT_CLASS} data-surface="admin">
         {/*
           Manager, resident and vendor all default light — admin was the one
@@ -77,6 +77,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </main>
           </div>
           <PortalAssistantRail
+            endpoint="/api/agent/admin-chat"
             managerName={profile?.full_name ?? null}
             initialCollapsed={assistantDockCollapsed}
           />

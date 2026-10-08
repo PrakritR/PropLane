@@ -25,6 +25,7 @@ describe("portal assistant endpoints", () => {
   it.each([
     ["src/app/vendor/layout.tsx", "/api/agent/vendor-chat"],
     ["src/app/resident/layout.tsx", "/api/agent/resident-chat"],
+    ["src/app/admin/layout.tsx", "/api/agent/admin-chat"],
   ])("%s mounts the assistant against %s", (file, endpoint) => {
     const source = read(file);
     expect(source).toContain("<AxisAssistant");
@@ -42,8 +43,8 @@ describe("portal assistant endpoints", () => {
     expect(topBar).not.toContain('kind === "resident" ? null');
   });
 
-  it.each(["src/app/portal/layout.tsx", "src/app/admin/layout.tsx"])(
-    "%s uses the default manager endpoint (resolveAgentContext accepts managers and admins)",
+  it.each(["src/app/portal/layout.tsx"])(
+    "%s uses the default manager endpoint",
     (file) => {
       const source = read(file);
       expect(source).toContain("<AxisAssistant");

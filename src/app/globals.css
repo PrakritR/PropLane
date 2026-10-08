@@ -197,7 +197,7 @@
 /* Always-light embeds (formal "paper" documents: rent receipts, reports).
    Rebinds the full light palette so bg-background/bg-card/border utilities
    (including opacity variants) resolve light even when the surrounding shell
-   is dark ([data-theme="dark"] or [data-surface="admin"]). Utility-class
+   is dark ([data-theme="dark"]). Utility-class
    overrides live after the [data-theme] rebinds below so they always win.
    The embedded public listing preview does NOT use this — it follows the
    shell theme via [data-listing-preview-scroll] below. */
@@ -465,19 +465,18 @@
   color: #bcd4ff;
 }
 
-[data-surface="admin"] {
-  --background: #0a0e18;
-  --background-solid: #0a0e18;
-  --portal-surface-dark: #0a0e18;
-}
+/* No [data-surface="admin"] palette override: admin is a light portal like the
+   others (SurfaceThemeDefault light). The old navy --background made every
+   bg-background surface (the assistant rail included) navy on an OS-dark Mac
+   while text tokens stayed dark ink. Text and fill now come from the same
+   token pair everywhere. */
 
 /* Embedded public listing preview (admin/manager Properties, preview modal)
    follows the shell theme: dark shell → dark listing, light shell → light.
    Dark theme needs no rebinds — the preview inherits the shell's dark tokens.
-   Light theme needs the background vars rebound because [data-surface="admin"]
-   above forces --background dark even when data-theme is light, which would
-   turn the section tab strip's bg-background/90 (opacity variants read
-   --color-background) dark navy inside an otherwise-light preview. */
+   Light theme keeps the background vars rebound so the section tab strip's
+   bg-background/90 (opacity variants read --color-background) stays the
+   preview's own light surface whatever the surrounding shell sets. */
 html[data-theme="light"] [data-listing-preview-scroll] {
   --background: linear-gradient(180deg, #f7f9fd 0%, #dde5f2 100%);
   --background-solid: #f7f9fd;
