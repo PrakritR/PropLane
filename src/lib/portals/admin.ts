@@ -25,6 +25,8 @@ export const adminPortal: PortalDefinition = {
     { section: "events", label: "Meetings", tabs: [] },
     // Failed deliveries and stuck work, grouped by kind (GET /api/admin/health).
     { section: "health", label: "Health", tabs: [] },
+    // PropLane's own social content pipeline (queue, calendar, post, accounts, analytics).
+    { section: "growth", label: "Growth", tabs: [] },
     // Billing merged into Accounts (captain: "combine Billing and Accounts") -
     // plan, caps, complimentary status and comms credit all live on the
     // account record page now. No separate nav row, and no `/admin/billing`
@@ -55,5 +57,6 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Feedback", path: "/admin/bugs-feedback" },
   { label: "Meetings", path: "/admin/events" },
   { label: "Health", path: "/admin/health" },
+  { label: "Growth", path: "/admin/growth" },
   { label: "Settings", path: "/admin/profile" },
 ] as const;

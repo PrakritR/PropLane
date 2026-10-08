@@ -27,6 +27,7 @@ describe("admin nav groups", () => {
       ["Accounts", ["axis-users", "test-accounts"]],
       ["Portfolio", ["properties"]],
       ["Support", ["bugs-feedback", "events", "health"]],
+      ["Marketing", ["growth"]],
     ]);
   });
 
@@ -41,9 +42,9 @@ describe("admin nav groups", () => {
     expect(registry).toEqual(grouped);
   });
 
-  it("groups real nav items into the same four buckets", () => {
+  it("groups real nav items into the same five buckets", () => {
     const items = adminPortal.sections.map((s) => ({ section: s.section }));
-    expect(groupNavItems("admin", items).map((g) => g.id)).toEqual(["home", "accounts", "portfolio", "support"]);
+    expect(groupNavItems("admin", items).map((g) => g.id)).toEqual(["home", "accounts", "portfolio", "support", "marketing"]);
   });
 });
 
@@ -72,5 +73,26 @@ describe("admin Health section resolves", () => {
     const render = read("src/lib/render-portal-section.tsx");
     expect(render).toContain("detailSection");
     expect(render).toMatch(/\(tabParts\?\.length \?\? 0\) > 2\) notFound\(\)/);
+  });
+});
+
+describe("admin Growth section resolves", () => {
+  it("is a registered admin section with a nav row and a smoke path", () => {
+    expect(findSection(adminPortal, "growth")).toMatchObject({ section: "growth", label: "Growth" });
+    expect(hrefForSection(adminPortal, "growth")).toBe("/admin/growth");
+    expect(ADMIN_PORTAL_SMOKE_PATHS.some((p) => p.path === "/admin/growth")).toBe(true);
+  });
+
+  it("every Growth route resolves to a real app route", () => {
+    for (const path of ["/admin/growth", "/admin/growth/calendar", "/admin/growth/post/abc", "/admin/growth/accounts", "/admin/growth/analytics"]) {
+      expect(routeResolves(path)).toBe(true);
+      expect(isInAppPath(path)).toBe(true);
+    }
+  });
+
+  it("is rendered by a handler wired through the admin panel map", () => {
+    expect(read("src/lib/render-portal-section.tsx")).toContain('kind === "admin" && section === "growth"');
+    expect(read("src/lib/render-portal-section/admin.tsx")).toContain("GrowthAdminClient");
+    expect(read("next.config.ts")).not.toMatch(/source:\s*"\/admin\/growth/);
   });
 });

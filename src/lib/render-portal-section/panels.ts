@@ -16,6 +16,7 @@ import type { AdminProfileSection } from "@/components/portal/admin-profile-sect
 import type { AdminCommunication } from "@/components/portal/admin-communication";
 import type { AdminBugFeedbackClient } from "@/components/portal/admin-bug-feedback-client";
 import type { AdminHealthClient } from "@/components/portal/admin-health-client";
+import type { GrowthAdminClient } from "@/components/portal/growth-admin-client";
 import type { ResidentDashboard } from "@/components/portal/resident-dashboard";
 import type { ResidentMoveInPanel } from "@/components/portal/resident-move-in-panel";
 import type { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
@@ -82,6 +83,7 @@ export type PortalPanels = Partial<{
   AdminCommunication: typeof AdminCommunication;
   AdminBugFeedbackClient: typeof AdminBugFeedbackClient;
   AdminHealthClient: typeof AdminHealthClient;
+  GrowthAdminClient: typeof GrowthAdminClient;
   ResidentDashboard: typeof ResidentDashboard;
   ResidentMoveInPanel: typeof ResidentMoveInPanel;
   ResidentMoveInShell: typeof ResidentMoveInShell;
