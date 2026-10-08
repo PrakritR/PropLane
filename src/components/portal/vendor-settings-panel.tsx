@@ -7,7 +7,6 @@ import { PHONE_VERIFIED_EVENT } from "@/lib/vendor-work-number";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Building2,
-  CalendarDays,
   CalendarSync,
   ChevronLeft,
   FileText,
@@ -65,7 +64,6 @@ import { AssistantCustomInstructionsSetting } from "@/components/portal/assistan
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { DEMO_VENDOR_EMAIL, DEMO_VENDOR_NAME, isDemoModeActive } from "@/lib/demo/demo-session";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
-import { VendorAvailabilityEditor } from "@/components/portal/vendor-availability-editor";
 import { VendorIntegrationsSettings } from "@/components/portal/vendor-integrations-settings";
 import { VendorWorkNumberSettings } from "@/components/portal/vendor-work-number-settings";
 
@@ -89,7 +87,6 @@ const VENDOR_SETTINGS_PAGE_ICONS: Record<VendorSettingsPageId, ComponentType<{ c
   business: Building2,
   capabilities: Wrench,
   licenses: ShieldCheck,
-  availability: CalendarDays,
   integrations: CalendarSync,
   payouts: Landmark,
   invoicing: FileText,
@@ -566,18 +563,8 @@ export function VendorSettingsPanel() {
             />
           </>
         );
-      case "availability":
-        // Weekly hours, one-off open dates and blocked dates are one decision a
-        // vendor makes in one sitting, so they share a pane. This renders the
-        // one canonical `VendorAvailabilityEditor` (vendor-availability-editor.tsx)
-        // inline (`dialog={false}`) — the same component the vendor Calendar
-        // page's "Set availability" dialog uses (`dialog`), so both surfaces
-        // share fields, saves, and the VENDOR_AVAILABILITY_CHANGED_EVENT /
-        // VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT contract. A second,
-        // settings-local editor used to live in this file; it has been removed.
-        return <VendorAvailabilityEditor dialog={false} />;
       case "integrations":
-        return <VendorIntegrationsSettings />;
+        return <VendorIntegrationsSettings onManage={() => openGroup("work-number-email")} />;
       case "work-number-email":
         return <VendorWorkNumberSettings />;
       case "messaging":

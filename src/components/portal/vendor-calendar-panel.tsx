@@ -10,7 +10,13 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { FilterCollapsibleSection, FilterCheckboxList } from "@/components/portal/filter-field-lists";
 import { VendorCalendarIntegrationsAction } from "@/components/portal/vendor-calendar-integrations-action";
 import { GoogleCalendarPendingChangesBanner } from "@/components/portal/google-calendar-pending-changes-banner";
-import { VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, VENDOR_AVAILABILITY_CHANGED_EVENT, VendorAvailabilityEditor } from "@/components/portal/vendor-availability-editor";
+import {
+  VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT,
+  VENDOR_AVAILABILITY_CHANGED_EVENT,
+  VendorAvailabilityEditor,
+  type VendorAvailabilityFocus,
+} from "@/components/portal/vendor-availability-editor";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT } from "@/lib/manager-work-orders-storage";
 import {
@@ -23,13 +29,10 @@ import {
   isFlexibleWeeklyRule,
   saveVendorBlockRule,
   slotKeysFromWeeklyRules,
+  VENDOR_BLOCK_MEETING_ID_PREFIX,
   type VendorAvailabilityRule,
 } from "@/lib/vendor-availability";
-import {
-  VENDOR_CALENDAR_VIEW_TABS,
-  VendorCalendarViewTabId,
-  vendorCalendarViewHref,
-} from "@/lib/portal-detail-routes";
+import { vendorJobDetailHref } from "@/lib/portal-detail-routes";
 import { calendarMeetingMatchesQuery } from "@/lib/manager-calendar-tour-meetings";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -49,7 +52,7 @@ function vendorMeetingFromRow(row: DemoManagerWorkOrderRow): DemoMeeting | null 
   if (Number.isNaN(start.getTime())) return null;
   const end = new Date(start.getTime() + VENDOR_VISIT_DEFAULT_DURATION_MINUTES * 60_000);
   return {
-    id: `vendor-visit-${row.id}`,
+    id: `${VENDOR_VISIT_MEETING_ID_PREFIX}${row.id}`,
     source: "external",
     sourceId: row.id,
     startIso: start.toISOString(),
@@ -65,6 +68,45 @@ function vendorMeetingFromRow(row: DemoManagerWorkOrderRow): DemoMeeting | null 
     propertyId: row.propertyId,
     notes: row.description || undefined,
   };
+}
+
+const VENDOR_VISIT_MEETING_ID_PREFIX = "vendor-visit-";
+const VENDOR_BLOCK_COLOR = "#94a3b8";
+
+/**
+ * A vendor's "block" rule as a calendar item: grey, drawn over the open hours it cuts out of.
+ * It is the shared grid's own busy-block shape (`googleCalendarPrivate`, label "Blocked"), so the
+ * Week / Day grid, Month and counts treat it like any other busy time. Clicking it re-opens the
+ * availability editor, where it is removed.
+ */
+export function vendorBlockMeetings(rules: VendorAvailabilityRule[]): DemoMeeting[] {
+  const out: DemoMeeting[] = [];
+  for (const rule of rules) {
+    if (rule.kind !== "block") continue;
+    const midnight = new Date(`${rule.specificDate}T00:00:00`);
+    if (Number.isNaN(midnight.getTime())) continue;
+    const allDay = rule.startMinute <= 0 && rule.endMinute >= 1440;
+    const start = new Date(midnight.getTime() + rule.startMinute * 60_000);
+    const end = new Date(midnight.getTime() + rule.endMinute * 60_000);
+    const durationMinutes = Math.max(SLOT_DURATION_MINUTES, rule.endMinute - rule.startMinute);
+    out.push({
+      id: `${VENDOR_BLOCK_MEETING_ID_PREFIX}${rule.id}`,
+      source: "external",
+      sourceId: rule.id,
+      startIso: start.toISOString(),
+      endIso: end.toISOString(),
+      dateStr: rule.specificDate,
+      startSlot: Math.max(0, Math.floor(rule.startMinute / SLOT_DURATION_MINUTES)),
+      span: Math.max(1, Math.ceil(durationMinutes / SLOT_DURATION_MINUTES)),
+      durationMinutes,
+      title: "Blocked",
+      color: VENDOR_BLOCK_COLOR,
+      googleCalendarPrivate: true,
+      allDay,
+      notes: rule.note || undefined,
+    });
+  }
+  return out;
 }
 
 const VENDOR_AVAILABILITY_PAINT_WINDOW_DAYS = 400;
@@ -114,28 +156,26 @@ export function installVendorAvailabilityPaintCache(
   installAvailabilityDateSetForStorageKey(keys, storageKey);
 }
 
-const VENDOR_CALENDAR_TAB_LABELS: Record<VendorCalendarViewTabId, string> = {
-  all: "All",
-  services: "Services",
-  availability: "Availability",
-};
-
 /**
- * Vendor Calendar — the same week-grid engine the manager Calendar uses
- * (`PortalCalendarPanels`, `vendorViewer` mode), not a separate agenda list.
- * "Services" tab shows only scheduled visits; "Availability" only the
- * vendor's own painted windows; "All" both. Setting availability (weekly
- * hours + block a date) is delegated to the existing canonical editor
- * (`VendorAvailabilityEditor`) via `onVendorAvailabilityEdit` / the round "+" —
- * clicking a painted block re-opens that same editor rather than a bespoke
- * grid-level delete, so removal always goes through one form.
+ * Vendor Calendar — the manager Calendar's own engine (`PortalCalendarPanels`, studio grid) with
+ * Day / Week / Month / Agenda, not a separate view. One view, no tabs: services and blocked time
+ * are the events, the vendor's weekly hours are the subtle open-hours shading. The round + opens
+ * Block time and Weekly hours, both the existing canonical editor (`VendorAvailabilityEditor`) in
+ * a pop-up; clicking a blocked time re-opens it, so removal always goes through one form.
  */
-export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewTabId } = {}) {
+export function VendorCalendarPanel() {
   const { showToast } = useAppUi();
   const { userId, ready } = usePortalSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const demo = isDemoModeActive();
+  const openEditor = useCallback((focus: VendorAvailabilityFocus, detail: { date?: string; slotIdx?: number } = {}) => {
+    window.dispatchEvent(
+      new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, {
+        detail: { date: toLocalDateStr(new Date()), ...detail, focus },
+      }),
+    );
+  }, []);
   const [rows, setRows] = useState<DemoManagerWorkOrderRow[]>(() => readVendorWorkOrderRows());
   const [listSearch, setListSearch] = useState("");
   const [rules, setRules] = useState<VendorAvailabilityRule[]>([]);
@@ -184,12 +224,14 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
   // dispatching the open event directly — the editor only lives on THIS page,
   // and a same-page dispatch would be lost if no listener were mounted yet.
   useEffect(() => {
-    if (searchParams?.get("openAvailability") !== "1") return;
-    window.dispatchEvent(
-      new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, { detail: { date: toLocalDateStr(new Date()) } }),
-    );
+    const openAvailability = searchParams?.get("openAvailability") === "1";
+    const weeklyHours = searchParams?.get("modal") === "weekly-hours";
+    if (!openAvailability && !weeklyHours) return;
+    // Old Settings > Availability links (`?modal=weekly-hours`) land on the Weekly hours pop-up.
+    openEditor(weeklyHours ? "weekly" : "all");
     const params = new URLSearchParams(searchParams);
     params.delete("openAvailability");
+    params.delete("modal");
     const query = params.toString();
     router.replace(`/vendor/calendar${query ? `?${query}` : ""}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -271,32 +313,23 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
     return propertyFiltered.filter((meeting) => calendarMeetingMatchesQuery(meeting, needle));
   }, [listSearch, propertyFiltered]);
 
-  const availabilityRuleCount = useMemo(() => rules.filter((r) => r.kind !== "event").length, [rules]);
-
-  const tabCounts = useMemo<Record<VendorCalendarViewTabId, number>>(
-    () => ({
-      all: allVisitMeetings.length + availabilityRuleCount,
-      services: allVisitMeetings.length,
-      availability: availabilityRuleCount,
-    }),
-    [allVisitMeetings.length, availabilityRuleCount],
-  );
-
-  // Google busy time is context, not a service visit — it draws (and is
-  // excluded from bookable availability, via the shared engine's own
-  // open/taken-slot math) on "All" and "Availability", never on "Services".
-  const showGoogleBusy = tab !== "services";
-  const searchedGoogleBusy = useMemo(() => {
-    if (!showGoogleBusy) return [];
+  const blockMeetings = useMemo(() => vendorBlockMeetings(rules), [rules]);
+  const externalMeetings = useMemo<DemoMeeting[]>(() => {
     const needle = listSearch.trim();
-    if (!needle) return googleBusyMeetings;
-    return googleBusyMeetings.filter((meeting) => calendarMeetingMatchesQuery(meeting, needle));
-  }, [googleBusyMeetings, listSearch, showGoogleBusy]);
-  const externalMeetings = useMemo(() => {
-    const base = tab === "availability" ? [] : searchedMeetings;
-    return showGoogleBusy ? [...base, ...searchedGoogleBusy] : base;
-  }, [tab, searchedMeetings, showGoogleBusy, searchedGoogleBusy]);
-  const showAvailability = tab !== "services";
+    const visits = needle ? searchedMeetings : propertyFiltered;
+    const busy = needle
+      ? [...googleBusyMeetings, ...blockMeetings].filter((meeting) => calendarMeetingMatchesQuery(meeting, needle))
+      : [...googleBusyMeetings, ...blockMeetings];
+    return [...visits, ...busy];
+  }, [blockMeetings, googleBusyMeetings, listSearch, propertyFiltered, searchedMeetings]);
+
+  /** A service visit opens its job record; a block has none (it re-opens the editor instead). */
+  const recordHrefFor = useCallback(
+    (meeting: DemoMeeting): string | null =>
+      meeting.id.startsWith(VENDOR_VISIT_MEETING_ID_PREFIX) ? vendorJobDetailHref("/vendor", meeting.sourceId) : null,
+    [],
+  );
+  const openRecord = useCallback((href: string) => router.push(href), [router]);
 
   if (!demo && !ready) {
     return (
@@ -348,15 +381,6 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        destinations={VENDOR_CALENDAR_VIEW_TABS.map((id) => ({
-          id,
-          label: VENDOR_CALENDAR_TAB_LABELS[id],
-          count: tabCounts[id],
-          href: vendorCalendarViewHref("/vendor", id),
-          dataAttr: `vendor-calendar-tab-${id}`,
-        }))}
-        activeDestinationId={tab}
-        destinationAriaLabel="Calendar view"
         search={{
           value: listSearch,
           onChange: setListSearch,
@@ -370,38 +394,39 @@ export function VendorCalendarPanel({ tab = "all" }: { tab?: VendorCalendarViewT
           </>
         }
         primary={
-          <PortalPrimaryIconAction
-            label="Add availability"
-            data-attr="vendor-calendar-set-availability"
-            onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, {
-                  detail: { date: toLocalDateStr(new Date()) },
-                }),
-              );
-            }}
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <PortalPrimaryIconAction label="Add to calendar" data-attr="vendor-calendar-add-menu" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" data-attr="vendor-calendar-add-menu-content">
+              <DropdownMenuItem data-attr="vendor-calendar-block-time" onSelect={() => openEditor("block")}>
+                Block time
+              </DropdownMenuItem>
+              <DropdownMenuItem data-attr="vendor-calendar-weekly-hours" onSelect={() => openEditor("weekly")}>
+                Weekly hours
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         }
       />
       <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30">
       <PortalCalendarPanels
-        storageKey={showAvailability ? storageKey : null}
+        storageKey={storageKey}
         vendorViewer
-        hideViewModeControl
+        studioGrid
+        calendarTab="all"
         defaultViewMode="week"
-        // C264: the same compact week-at-a-glance grid the manager Calendar
-        // uses (`bareSurface` just drops the manager card chrome), instead of
-        // the non-compact branch's vertical stack of seven full-day agendas —
-        // reuses the manager component, does not fork it.
+        // The manager Calendar's own grid: Day / Week / Month / Agenda with Today and the range
+        // arrows (`studioGrid`). A vendor can read it but not paint it (`canEditAvailability` stays
+        // off for `vendorViewer`); weekly hours and blocks are edited in the pop-up.
         compactAvailability
         bareSurface
+        flowScroll
         calendarRefreshSignal={refreshSignal}
         externalMeetings={externalMeetings}
-        onVendorAvailabilityEdit={(date, slotIdx) => {
-          window.dispatchEvent(
-            new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, { detail: { date, slotIdx } }),
-          );
-        }}
+        recordHrefFor={recordHrefFor}
+        onOpenRecord={openRecord}
+        onVendorAvailabilityEdit={(date, slotIdx) => openEditor("block", { date, slotIdx })}
         onVendorAvailabilityRemove={(date, startSlot, endSlotExclusive) => {
           void handleVendorAvailabilityRemove(date, startSlot, endSlotExclusive);
         }}

@@ -86,7 +86,7 @@ describe("vendor Settings — old tab ids still resolve after the VD01/VD66 regr
     });
   }
 
-  it("the availability tab is now labeled Availability, not Hours & dates", async () => {
+  it("the Settings rail no longer lists Availability (it moved to the Calendar)", async () => {
     currentTab = "business";
     mockFetchByUrl({
       "/api/vendor/profile": { profile: {}, linked: true, contact: {} },
@@ -94,9 +94,10 @@ describe("vendor Settings — old tab ids still resolve after the VD01/VD66 regr
     });
     render(<VendorSettingsPanel />);
     await waitFor(() => {
-      expect(document.body.textContent).toContain("Availability");
-      expect(document.body.textContent).not.toContain("Hours & dates");
+      expect(document.body.textContent).toContain("Business profile");
     });
+    expect(document.body.textContent).not.toContain("Availability");
+    expect(document.body.textContent).not.toContain("Hours & dates");
   });
 
   it("Workspace access no longer appears anywhere in the nav (VD66)", async () => {

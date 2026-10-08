@@ -45,6 +45,18 @@ import {
 export const VENDOR_AVAILABILITY_CHANGED_EVENT = "axis:vendor-availability-changed";
 export const VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT = "axis:vendor-availability-edit-request";
 
+/**
+ * What the calendar pop-up shows: `weekly` is the Weekly hours card alone, `block` the Block time
+ * form + the dates already blocked/opened, `all` (a click on a cell or a blocked time) both.
+ */
+export type VendorAvailabilityFocus = "all" | "weekly" | "block";
+
+const FOCUS_TITLES: Record<VendorAvailabilityFocus, string> = {
+  all: "Set availability",
+  weekly: "Weekly hours",
+  block: "Block time",
+};
+
 function notifyAvailabilityChanged(rules?: VendorAvailabilityRule[]) {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(VENDOR_AVAILABILITY_CHANGED_EVENT, { detail: { rules } }));
@@ -267,6 +279,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
   const [loaded, setLoaded] = useState(demo);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [focus, setFocus] = useState<VendorAvailabilityFocus>("all");
 
   const [overrideDraft, setOverrideDraft] = useState({
     date: todayDateInputValue(),
@@ -293,12 +306,20 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
 
   useEffect(() => {
     const openEditor = (event: Event) => {
-      const detail = (event as CustomEvent<{ date?: string; slotIdx?: number }>).detail;
+      const detail = (event as CustomEvent<{ date?: string; slotIdx?: number; focus?: VendorAvailabilityFocus }>).detail;
+      const nextFocus: VendorAvailabilityFocus = detail?.focus ?? "all";
+      if (nextFocus === "weekly") {
+        setFocus("weekly");
+        setAddingOverride(false);
+        if (dialog) setDialogOpen(true);
+        return;
+      }
       if (!detail?.date) return;
       const minutes = typeof detail.slotIdx === "number" ? detail.slotIdx * 30 : null;
+      setFocus(nextFocus);
       setOverrideDraft({
         date: detail.date,
-        type: "open",
+        type: nextFocus === "block" ? "block" : "open",
         allDay: minutes === null,
         start: minutes === null ? "09:00" : minuteOfDayToTimeInputValue(minutes),
         end: minutes === null ? "17:00" : minuteOfDayToTimeInputValue(Math.min(24 * 60, minutes + 30)),
@@ -479,8 +500,12 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
     await reload();
   };
 
+  const showWeekly = !dialog || focus !== "block";
+  const showOverrides = !dialog || focus !== "weekly";
+
   const editor = (
     <div className="space-y-4" data-attr="vw-avail">
+      {showWeekly ? (
       <div className="overflow-hidden rounded-2xl border border-border bg-card">
         <div className="border-b border-border bg-accent/20 px-3.5 py-2.5">
           <span className="text-[13px] font-bold">Weekly hours</span>
@@ -500,7 +525,9 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
           />
         ))}
       </div>
+      ) : null}
 
+      {showOverrides ? (
       <div className="overflow-hidden rounded-2xl border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border bg-accent/20 px-3.5 py-2.5">
           <span className="text-[13px] font-bold">Date overrides</span>
@@ -632,6 +659,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
           ))
         )}
       </div>
+      ) : null}
 
       {!loaded ? <p className="text-xs text-muted">Loading availability…</p> : null}
     </div>
@@ -662,7 +690,7 @@ export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean 
     <Modal
       open={dialogOpen}
       onClose={() => setDialogOpen(false)}
-      title="Set availability"
+      title={FOCUS_TITLES[focus]}
       panelClassName="w-full max-w-2xl"
       dataAttr="vendor-calendar-availability-dialog"
       footer={dialogFooter}

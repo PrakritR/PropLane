@@ -12,7 +12,6 @@ export type VendorSettingsPageId =
   | "business"
   | "capabilities"
   | "licenses"
-  | "availability"
   | "integrations"
   | "payouts"
   | "invoicing"
@@ -45,7 +44,6 @@ export const VENDOR_SETTINGS_RAIL: readonly VendorSettingsRailGroup[] = [
       { id: "business", label: "Business details" },
       { id: "capabilities", label: "Trades & service area" },
       { id: "licenses", label: "Licenses & insurance" },
-      { id: "availability", label: "Availability" },
       { id: "integrations", label: "Integrations" },
     ],
   },
@@ -80,6 +78,20 @@ export const VENDOR_SETTINGS_TAB_ALIASES: Record<string, VendorSettingsPageId> =
   "workspace-access": "business",
   notifications: "messaging",
 };
+
+/**
+ * Settings pages that moved to another section. The old `?tab=` link lands on the new place, not on
+ * the Settings home. Availability is the Calendar's Weekly hours pop-up.
+ */
+export const VENDOR_SETTINGS_MOVED_TABS: Record<string, string> = {
+  availability: "/calendar?modal=weekly-hours",
+};
+
+/** Where an old Settings tab now lives (`/vendor/calendar?modal=weekly-hours`), or null if it did not move. */
+export function vendorSettingsMovedHref(raw: string | null | undefined, basePath = "/vendor"): string | null {
+  const target = raw ? VENDOR_SETTINGS_MOVED_TABS[raw] : undefined;
+  return target ? `${basePath}${target}` : null;
+}
 
 export function resolveVendorSettingsTab(raw: string | null | undefined): VendorSettingsPageId | null {
   if (!raw) return null;

@@ -193,6 +193,7 @@ export function PortalListControlStack({
   primary,
   embedded = false,
   recordCount,
+  recordSummary,
   controlsInBand = false,
   stats,
 }: {
@@ -233,6 +234,8 @@ export function PortalListControlStack({
   embedded?: boolean;
   /** Overrides the "N records" figure the tools line derives from the rows on screen. */
   recordCount?: number;
+  /** Plain facts that replace the "N records" figure on the tools line (Reviews: "★ 4.7 · 3 reviews"). */
+  recordSummary?: ReactNode;
   /**
    * A tab with no tabs and no search keeps its controls in its own band instead of publishing them
    * into the record header, so a record's constant header icons (Edit, Delete) are never replaced.
@@ -475,7 +478,11 @@ export function PortalListControlStack({
                 >
                   {searchNode}
                   {chipsNode}
-                  {count > 0 ? (
+                  {recordSummary ? (
+                    <span className="shrink-0 text-[12.5px] tabular-nums text-muted/75" data-slot="portal-list-count">
+                      {recordSummary}
+                    </span>
+                  ) : count > 0 ? (
                     <span className="shrink-0 text-[12.5px] tabular-nums text-muted/75" data-slot="portal-list-count">
                       {count} {count === 1 ? "record" : "records"}
                     </span>

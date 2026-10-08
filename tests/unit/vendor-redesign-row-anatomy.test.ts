@@ -30,10 +30,12 @@ describe("vendor redesign lists", () => {
     expect(table).not.toMatch(/<Badge\b|<Button\b|<table/);
   });
 
-  it("the Reviews band's utilities are icon actions (filter + gear), and there is exactly one stats strip with the four figures", () => {
+  it("the Reviews band's utilities are icon actions (filter + gear), and the figures are one plain header line, no stat cards (D4)", () => {
     const src = read("src/components/portal/vendor-reviews-panel.tsx");
     expect(src).toContain("VendorSettingsGear");
-    for (const label of ["Average rating", "Reviews", "Needs reply", "Response rate"]) expect(src).toContain(`"${label}"`);
+    expect(src).toContain("recordSummary={");
+    for (const label of ["Average rating", "Needs reply", "Response rate"]) expect(src).not.toContain(`"${label}"`);
+    expect(src).not.toContain("ReviewStatsStrip");
   });
 
   it("the composer ⚡ is the shared QuickReplyMenu, and the menu is reusable by the bid note", () => {
@@ -45,11 +47,7 @@ describe("vendor redesign lists", () => {
     expect(menu).toContain("onPick");
   });
 
-  it("the Reviews stats card sits ABOVE the tabs bar (like the balance card on Payments), so it stays put whichever tab is selected", () => {
-    const src = read("src/components/portal/vendor-reviews-panel.tsx");
-    const render = src.slice(src.indexOf("return (\n    <ManagerPortalPageShell"));
-    expect(render.indexOf("<ReviewStatsStrip")).toBeGreaterThan(-1);
-    expect(render.indexOf("<ReviewStatsStrip")).toBeLessThan(render.indexOf("<PortalListControlStack"));
+  it("Payments keeps its balance card ABOVE the tabs bar", () => {
     const pay = read("src/components/portal/vendor-finances-panel.tsx");
     expect(pay.indexOf("{above}")).toBeLessThan(pay.indexOf("<PortalListControlStack"));
   });

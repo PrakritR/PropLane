@@ -14,7 +14,7 @@ import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
-import { resolveVendorSettingsTab } from "@/lib/portals/vendor-settings-pages";
+import { resolveVendorSettingsTab, vendorSettingsMovedHref } from "@/lib/portals/vendor-settings-pages";
 import { resolveSettingsRedirectHubTab } from "@/lib/portal-settings-section";
 import type { PortalPanels } from "@/lib/render-portal-section/panels";
 import type { Crumb } from "@/components/layout/breadcrumbs";
@@ -557,6 +557,8 @@ export async function renderPortalSectionWith(
   if (kind === "vendor" && section === "settings") {
     if (tabParts && tabParts.length > 1) notFound();
     const raw = tabParts?.[0] ?? firstSearchParam(searchParams, "tab");
+    const moved = vendorSettingsMovedHref(raw, def.basePath);
+    if (moved) redirect(moved);
     const tab = resolveVendorSettingsTab(raw);
     redirect(`${def.basePath}/profile${tab ? `?tab=${encodeURIComponent(tab)}` : ""}`);
   }
@@ -570,17 +572,14 @@ export async function renderPortalSectionWith(
   }
   if (kind === "vendor" && section === "profile") {
     if (tabParts?.length) notFound();
+    const movedTab = vendorSettingsMovedHref(firstSearchParam(searchParams, "tab"), def.basePath);
+    if (movedTab) redirect(movedTab);
     return <VendorSettingsPanel />;
   }
   if (kind === "vendor" && section === "reviews") {
-    // Top bar with sections (VD21, 2026-09-27) — a real routed tab, not a
-    // client-only toggle.
-    const { VENDOR_REVIEW_STATUS_TABS, isVendorReviewStatusTab } = await import("@/lib/vendor-reviews");
-    if (tabParts && tabParts.length > 1) notFound();
-    const raw = tabParts?.[0];
-    if (!raw) redirect(`${def.basePath}/${section}/${VENDOR_REVIEW_STATUS_TABS[0].id}`);
-    if (!isVendorReviewStatusTab(raw)) notFound();
-    return <VendorReviewsPanel tabId={raw} basePath={def.basePath} />;
+    // One list, no tabs: the retired /reviews/all, /needs-reply and /replied land on the bare section.
+    if (tabParts?.length) redirect(`${def.basePath}/${section}`);
+    return <VendorReviewsPanel basePath={def.basePath} />;
   }
   if (kind === "vendor" && section === "documents") {
     // Status (All / On file / Missing) tabs and the tax/insurance/licensing
@@ -1884,23 +1883,12 @@ export async function renderPortalSectionWith(
   }
 
   if (kind === "vendor" && section === "calendar") {
-    const {
-      parseVendorCalendarViewTab,
-      VENDOR_CALENDAR_VIEW_TABS,
-      vendorCalendarViewHref,
-      DEFAULT_VENDOR_CALENDAR_VIEW,
-    } = await import("@/lib/portal-detail-routes");
-    if (tabParts && tabParts.length > 1) notFound();
-    const raw = tabParts?.[0];
-    // "all" is the default and canonicalizes to the bare route. day/week/month/list
-    // were view-mode ids from the retired agenda-only calendar (C155); tasks/tours
-    // never existed for vendor. All fall back to the default tab rather than 404ing.
-    if (raw === "all" || raw === "list" || raw === "day" || raw === "week" || raw === "month" || raw === "tasks" || raw === "tours") {
-      redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
-    }
-    if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();
+    const { vendorCalendarHref } = await import("@/lib/portal-detail-routes");
+    // One view: every retired /calendar/<tab> (all, services, availability, day, week, month, list,
+    // tasks, tours) lands on the bare route instead of 404ing.
+    if (tabParts?.length) redirect(vendorCalendarHref(def.basePath));
     const PortalCalendar = await loadPortalCalendar();
-    return <PortalCalendar portal="vendor" vendorCalendarView={parseVendorCalendarViewTab(raw)} />;
+    return <PortalCalendar portal="vendor" />;
   }
 
   if (kind === "vendor" && section === "communication") {
