@@ -108,51 +108,30 @@ test("the redesigned portal shell: dark Ask PropLane strip with ⌘K, workspace 
   expect(errors).toEqual([]);
 });
 
-test("⌘K opens the command palette even while the Ask PropLane popup is open", async ({ page }) => {
+test("⌘K opens a usable command palette while the Ask PropLane side panel is open", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = await open(page, "palette");
 
-  // Open the assistant popup first — it is the dialog that used to swallow the shortcut.
+  // The assistant is the side panel now (no floating pop-up): the top-bar button opens it.
   await page.getByRole("button", { name: "Open PropLane Assistant" }).click();
-  const assistant = page.getByRole("dialog", { name: "PropLane Assistant" }).first();
+  const assistant = page.locator('[data-attr="portal-assistant-rail"]');
   await expect(assistant).toBeVisible();
   // The b8 header is the same one everywhere: ✦ tile, PropLane, New, History, close.
   await expect(assistant.locator('[data-attr="assistant-history-new-chat"]')).toHaveText("New");
   await expect(assistant.locator('[data-attr="assistant-history-open"]')).toHaveText("History");
-  await page.screenshot({ path: path.join(SHOTS, "02-ask-proplane-popup-open.png") });
+  await page.screenshot({ path: path.join(SHOTS, "02-ask-proplane-panel-open.png") });
 
-  // The shortcut now fires: the palette mounts instead of being swallowed by the popup's dialog role.
+  // The shortcut fires and the palette is usable: it takes focus and filters as you type
+  // (the old pop-up's modal scrim used to leave it inert — that surface no longer exists).
   await page.keyboard.press("Meta+k");
   const palette = page.getByRole("combobox", { name: "Ask PropLane or search" });
   await expect(palette).toBeVisible();
+  await expect(palette).toBeFocused();
+  await page.keyboard.type("prop");
+  await expect(palette).toHaveValue("prop");
   await page.screenshot({ path: path.join(SHOTS, "03-cmd-k-palette-over-assistant.png") });
   expect(errors).toEqual([]);
 });
-
-/**
- * KNOWN GAP (`test.fail`, so the suite stays green and flips loudly once it is fixed):
- * the shortcut fires, but the palette it opens over the Ask PropLane popup cannot be
- * used. The popup's modal keeps the focus trap, so the input never takes focus and
- * typing goes nowhere; `body` is left `pointer-events: none` and the popup's backdrop
- * is the element at the palette's own coordinates, so it cannot be clicked either.
- * Screenshot `03-cmd-k-palette-over-assistant.png` shows it dimmed behind that scrim.
- */
-test.fail(
-  "the palette opened over the Ask PropLane popup takes focus and filters",
-  async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await open(page, "palette");
-    await page.getByRole("button", { name: "Open PropLane Assistant" }).click();
-    await expect(page.getByRole("dialog", { name: "PropLane Assistant" }).first()).toBeVisible();
-
-    await page.keyboard.press("Meta+k");
-    const palette = page.getByRole("combobox", { name: "Ask PropLane or search" });
-    await expect(palette).toBeVisible();
-    await expect(palette).toBeFocused();
-    await page.keyboard.type("prop");
-    await expect(palette).toHaveValue("prop");
-  },
-);
 
 test("the palette jumps: typing a section name narrows the portal's own destinations", async ({
   page,

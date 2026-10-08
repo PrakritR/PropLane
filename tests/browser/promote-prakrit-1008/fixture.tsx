@@ -7,6 +7,7 @@ import { ManagerLeases } from "../../../src/components/portal/pro-leases";
 import { PortalCalendar } from "../../../src/components/portal/portal-calendar";
 import { ViewAsBanner } from "../../../src/components/portal/view-as-banner";
 import { AxisAssistant } from "../../../src/components/portal/axis-assistant";
+import { PortalAssistantRail } from "../../../src/components/portal/portal-assistant-rail";
 import { LifecycleFrame } from "../../../src/components/marketing/site/lifecycle-frame";
 import { AdminViewAsAction } from "../../../src/components/portal/admin-view-as-action";
 import { proPortal } from "../../../src/lib/portals/pro";
@@ -26,16 +27,20 @@ const surface = new URLSearchParams(location.search).get("surface") ?? "shell";
  */
 function Shell({ children }: { children?: React.ReactNode }) {
   return (
-    <div className={PORTAL_SHELL_ROOT_CLASS}>
-      <PortalTopBar kind="manager" basePath="/portal" definition={proPortal} subscriptionTier="paid" />
-      <div className="flex min-h-0 flex-1">
-        <PortalSidebar definition={proPortal} subscriptionTier="paid" subtitle="Pro" />
-        <main id={PORTAL_MAIN_CONTENT_ID} className={PORTAL_MAIN_CONTENT_CLASS}>
-          <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>{children}</div>
-        </main>
+    // As src/app/portal/layout.tsx: AxisAssistant wraps the shell, and the side panel (the one
+    // assistant surface since the floating pop-up was removed) sits beside the page column.
+    <AxisAssistant managerName="Avery Stone">
+      <div className={PORTAL_SHELL_ROOT_CLASS}>
+        <PortalTopBar kind="manager" basePath="/portal" definition={proPortal} subscriptionTier="paid" />
+        <div className="flex min-h-0 flex-1">
+          <PortalSidebar definition={proPortal} subscriptionTier="paid" subtitle="Pro" />
+          <main id={PORTAL_MAIN_CONTENT_ID} className={PORTAL_MAIN_CONTENT_CLASS}>
+            <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>{children}</div>
+          </main>
+          <PortalAssistantRail managerName="Avery Stone" initialCollapsed />
+        </div>
       </div>
-      <AxisAssistant managerName="Avery Stone" />
-    </div>
+    </AxisAssistant>
   );
 }
 
