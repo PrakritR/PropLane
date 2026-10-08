@@ -255,3 +255,18 @@ button[data-attr$="-list-row"][data-demo-hover] {
     mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   }
 }
+
+/* Communication is a viewport-filling inbox: the frame is exactly the screen, the real two-pane fills it, and the thread scrolls inside. */
+.rlp-dual-view .rlp-panel-frame.rlp-comm-frame {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.rlp-panel-frame.rlp-comm-frame .portal-inbox-two-pane {
+  height: auto !important;
+  min-height: 0;
+  flex: 1 1 0%;
+}
+.rlp-panel-frame.rlp-comm-frame .portal-inbox-two-pane {
+  margin-inline: 0 !important;
+}

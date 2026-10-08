@@ -183,9 +183,8 @@ test.describe("Public home", () => {
 
     test("no stage chrome: no portal switcher, stage tabs, guide line or activity row", async ({ page }) => {
       const section = await openDemo(page);
-      // The first beat opens Communication, whose own Active / Archived tabs are the only tab list on screen.
-      await expect(section.getByRole("tablist")).toHaveCount(1);
-      await expect(section.getByRole("tablist")).toHaveAttribute("aria-label", "Communication views");
+      // The first beat opens Communication, whose own Active / Archived folders (the real list header) are the only tab strip on screen.
+      await expect(section.getByRole("navigation", { name: "Conversation folders" })).toHaveCount(1);
       await expect(section.locator(".rlp-stage-tabs, .rlp-portal-switch, .rlp-guide-line, .rlp-activity")).toHaveCount(0);
       for (const gone of ["Sample demo", "Explore freely", "Start the story", "Restart guide", "ACTIVITY"]) {
         await expect(section.getByText(gone, { exact: true })).toHaveCount(0);
@@ -232,7 +231,7 @@ test.describe("Public home", () => {
           await nav.getByRole("button", { name: tab, exact: true }).click();
           await expect(nav.getByRole("button", { name: tab, exact: true })).toHaveAttribute("aria-current", "page");
           if (portal === "manager" && tab === "Communication") {
-            await expect(section.locator(".rlp-live-communication")).toBeVisible();
+            await expect(section.locator(".rlp-comm-body")).toBeVisible();
           } else {
             const frame = section.locator(".rlp-panel-frame[data-demo-panel]");
             await expect(frame).toHaveAttribute("data-demo-panel", new RegExp(`^${portal}:`));
@@ -296,7 +295,7 @@ test.describe("Public home", () => {
       await page.mouse.move(2, 2);
       // The Manager cursor appears, opens Communication and approves PropLane's drafted reply: the tour lands on the phone.
       await expect(page.locator(".rlp-cursor[data-visible='true'] .rlp-cursor-label")).toHaveText("Manager", { timeout: 20_000 });
-      await expect(demo.getByText("PropLane drafted a reply")).toBeVisible({ timeout: 20_000 });
+      await expect(demo.getByText("PropLane draft - edit before sending")).toBeVisible({ timeout: 20_000 });
       await expect(phone.getByText("Thursday, 5:30 PM")).toHaveCount(0);
       await expect(phone.getByText("Thursday, 5:30 PM")).toBeVisible({ timeout: 15_000 });
       // It opens Applications and clicks Send application. The link is not on the phone until that click has happened.

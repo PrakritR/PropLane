@@ -297,7 +297,7 @@ export function ResidentLifecyclePrototypes({ children }: { children?: ReactNode
                     }}
                     onSwitchPortal={switchPortal}
                     onMenuOpenChange={setMenuOpen}
-                    panel={!isCommunication}
+                    panel
                   >
                     {isCommunication ? (
                       <ManagerCommunication
