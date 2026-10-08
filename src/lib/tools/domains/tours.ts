@@ -70,7 +70,7 @@ type OfferedSlotsResult = { slots: OfferedSlot[]; timeZone: string; resolution: 
  * capped. The ISO bounds matter — every write below takes `start`/`end`, and
  * the model must never compute them itself from a wall-time key.
  */
-async function loadOfferedSlots(
+export async function loadOfferedSlots(
   db: AgentContext["db"],
   input: SlotsInput,
 ): Promise<OfferedSlotsResult> {

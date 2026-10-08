@@ -1404,6 +1404,16 @@ service zip), a server-minted claim, and `setupVendorWorkIdentity` under the ide
 (runtime switch, provider env, `SMS_PROVISIONING_ENABLED` or dry run, verified phone, one number
 per vendor, capacity) still applies, so with the vendor-number switch off it buys nothing.
 
+**Resident's PropLane number (Oct 8, `NUMBER_SUBSCRIPTION_ENABLED`).** `/api/twilio/inbound` checks
+`findActiveResidentAgentNumberByPhone` right after the vendor branch (`ingestResidentAgentNumberSms`,
+`src/lib/resident-agent-number/`); with the flag off it is a no-op with no query. A text from the owner's
+verified phone is a command to their personal agent, answered from the resident's number after Twilio has
+its TwiML (credit-metered, confirm-first writes: docs/ai-assistant.md § Resident personal agent); a text
+from anyone else is stored in the resident's inbox and never answered. Replies leave only from that number
+and respect STOP, protected contacts and the provider switch; the number cannot send until carrier
+registration (`sms_send_ready`), so until then the agent stays silent and the inbox still receives.
+Account deletion queues the number on the vendor release queue (`queue_resident_agent_number_release`).
+
 **Vendor -> manager line.** In the manager webhook, a sender that is a vendor's ready
 PropLane number is mapped to the vendor's roster phone for that workspace owner
 (else their verified profile phone) by `resolveVendorNumberSenderPhone` before the receipt

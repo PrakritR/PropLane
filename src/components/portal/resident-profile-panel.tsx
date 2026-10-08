@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Lock, MessageSquareText, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
+import { Bot, Lock, MessageSquareText, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -14,6 +14,7 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
+import { ResidentAgentSettings, useResidentAgentSnapshot } from "@/components/portal/resident-agent-settings";
 import { ResidentNotificationPreferencesSettings } from "@/components/portal/resident-notification-preferences-settings";
 import { ResidentPaymentMethodsSettingsCard } from "@/components/portal/resident-payment-methods-settings-card";
 import {
@@ -43,7 +44,7 @@ import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 
 const SETTINGS_TAB_PARAM = "tab";
 
-type SettingsGroupId = "profile" | "messaging" | "preferences" | "security" | "feedback" | "account";
+type SettingsGroupId = "profile" | "messaging" | "agent" | "preferences" | "security" | "feedback" | "account";
 
 type SettingsGroup = {
   id: SettingsGroupId;
@@ -305,6 +306,9 @@ export function ResidentProfilePanel({
     </PortalSettingsSection>
   );
 
+  const { snapshot: agentSnapshot, reload: reloadAgent } = useResidentAgentSnapshot();
+  const agentEnabled = agentSnapshot?.enabled === true;
+
   const groups = useMemo<SettingsGroup[]>(
     () => [
       {
@@ -319,6 +323,16 @@ export function ResidentProfilePanel({
         description: "Verify your phone for resident texts and the SMS assistant.",
         icon: Smartphone,
       },
+      ...(agentEnabled
+        ? [
+            {
+              id: "agent" as const,
+              label: "PropLane agent",
+              description: "Your own number and the agent behind it.",
+              icon: Bot,
+            },
+          ]
+        : []),
       {
         id: "preferences",
         label: "Preferences",
@@ -344,7 +358,7 @@ export function ResidentProfilePanel({
         icon: Settings,
       },
     ],
-    [],
+    [agentEnabled],
   );
 
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
@@ -420,6 +434,8 @@ export function ResidentProfilePanel({
             description="Verify your mobile number to receive property updates and securely use the resident text assistant."
           />
         );
+      case "agent":
+        return agentSnapshot?.enabled ? <ResidentAgentSettings snapshot={agentSnapshot} reload={reloadAgent} /> : null;
       case "preferences":
         return (
           <>

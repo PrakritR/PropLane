@@ -185,6 +185,16 @@ async function purgeResidentScheduledMessages(db: ServiceDb, email: string, user
 }
 
 /** Remove leases, payments, applications, and other portal rows for a resident. */
+function isMissingResidentAgentNumberSchema(error: { code?: string; message?: string }): boolean {
+  const message = error.message ?? "";
+  return (
+    error.code === "PGRST202" ||
+    error.code === "42883" ||
+    error.code === "42P01" ||
+    (/queue_resident_agent_number_release|resident_agent_numbers/i.test(message) && /does not exist|could not find/i.test(message))
+  );
+}
+
 export async function purgeResidentPortalData(
   db: ServiceDb,
   input: { email?: string; userId?: string | null; applicationId?: string | null; complete?: boolean },
@@ -192,6 +202,13 @@ export async function purgeResidentPortalData(
   const email = normalizeEmail(input.email);
   const userId = (input.userId ?? "").trim();
   const applicationId = typeof input.applicationId === "string" ? input.applicationId.trim() : "";
+
+  // A resident's PropLane agent number is a paid platform number: queue its provider release BEFORE
+  // the row cascades away. An environment that has not applied the migration has nothing to queue.
+  if (userId) {
+    const { error: releaseError } = await db.rpc("queue_resident_agent_number_release", { p_user_id: userId });
+    if (releaseError && !isMissingResidentAgentNumberSchema(releaseError)) throw new Error(releaseError.message);
+  }
 
   // Every application row this purge hard-deletes must also reclaim its private
   // application-documents uploads (applicant ID / income photos) — retention

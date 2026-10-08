@@ -248,6 +248,7 @@ or `src/lib/agent/`.
 | Vendor | `resolveVendorAgentContext` | `vendorAgentRegistry` | `/api/agent/vendor-chat` |
 | Vendor SMS | `buildVendorAgentContext` | `vendorWorkOrderAgentRegistry` | inbound webhook |
 | Prospect SMS | `buildLeasingSmsAgentContext` | `leasingSmsAgentRegistry` | inbound webhook |
+| Resident personal agent | `buildResidentPersonalAgentContext` | `residentPersonalAgentRegistry` | inbound webhook (owner's number) |
 | Manager SMS | `resolveManagerSmsAgentContext` | `buildManagerSmsRegistry` | inbound webhook |
 | Vendor number AI | `buildVendorNumberAiContext` | `vendorNumberAiRegistry` | inbound webhook |
 

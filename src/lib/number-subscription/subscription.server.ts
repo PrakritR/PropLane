@@ -314,6 +314,16 @@ async function applyLiveSubscription(
   });
   if (error || typeof data !== "string") throw new Error("Number subscription could not be recorded.");
   if (data !== "applied") console.warn("[number subscription] state not applied", { subscription: live.id, outcome: data });
+  if (data === "applied" && row.owner_role === "resident") {
+    // A resident's personal number follows the subscription becoming live. Idempotent (the row insert
+    // is the purchase claim) and soft-failing: Settings offers the retry, a webhook never fails on it.
+    try {
+      const { provisionResidentAgentNumber } = await import("@/lib/resident-agent-number/number.server");
+      await provisionResidentAgentNumber(db, row.owner_user_id, { requireFlag: false });
+    } catch (error) {
+      console.error("[number subscription] resident number provisioning failed", error instanceof Error ? error.message : "unknown");
+    }
+  }
   return data as NumberSyncResult;
 }
 

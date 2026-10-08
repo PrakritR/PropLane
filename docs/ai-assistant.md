@@ -445,6 +445,48 @@ Reads: `get_vendor_links`, `list_my_jobs`, `get_job_details`, `list_my_bids`, `l
 `send_message_to_manager`, `submit_vendor_invoice`. Stripe Connect onboarding,
 W-9/tax, and document uploads stay on the Profile page (deep-link only).
 
+### Resident personal agent (`src/lib/tools/resident-personal-agent-index.ts`)
+
+The AI behind the number a subscribed resident owns (PropLane Number, $5/month,
+`NUMBER_SUBSCRIPTION_ENABLED`; billing in `comms-billing.md` § PropLane Number). A fifth surface
+with its own context (`ResidentPersonalAgentContext`), registry (`residentPersonalAgentRegistry`),
+resolver (`buildResidentPersonalAgentContext`), turn (`runResidentPersonalAgentReply`) and
+inbound webhook branch (`ingestResidentAgentNumberSms`); it is never the manager, leasing, resident
+portal or vendor registry, and it has no route of its own (SMS only).
+
+- **Who it serves.** The owner of the TEXTED number (`resident_agent_numbers`), and only when the
+  sender is that account's verified phone and the account still holds `resident` in `profile_roles`.
+  The resident's user id, email, name and phone come from the account, never from the message or a
+  tool input. A text from anyone else only lands in the owner's PropLane inbox: no AI, no reply.
+- **Tools.** Reads `search_listings` (area, beds, max rent, move-in, short/long term) and
+  `get_tour_times`; writes `request_tour` and `send_inquiry`. Both reads see the PUBLIC catalog only:
+  `getPublicListings()` (already `publicListingProjection`), narrowed again to a card built field by
+  field (`src/lib/resident-agent/listing-search.ts`: no manager id, phone, email or workspace).
+  A listing is addressed by its public id; the managing user, the manager's email and the tour host
+  are re-derived server-side from that listing (and `listOpenTourSlots` for the host of a slot) in
+  both preview and handler.
+- **Confirm-first.** Neither write is ever inline. The loop proposes, the resident is texted the exact
+  request ending `Reply YES to send or NO to cancel.`, and only their YES (the same exact vocabulary and
+  one-open-proposal rule as the other SMS agents, `sms/agent-confirmation.server.ts`) runs the handler
+  through `decidePendingAction` under the `resident_agent` portal. A YES never reaches the model.
+  `request_tour` files the same pending inquiry the website form files (`createTourInquiry`, the
+  manager still approves; nothing books). `send_inquiry` opens or continues the resident's
+  conversation with that manager through `deliverResidentPropertyManagerChatMessage` (the keyed
+  conversation spine: authorize, then append).
+- **Credit.** Before the model or the provider is touched, one AI turn (`ai_agent_turn`) plus
+  the reply's worst case of four segments are reserved from the resident's number ledger
+  (`reserveNumberCredit`); the reply is sized to that and the unused segments are refunded
+  (`settleNumberCreditQuantity`). A received text is debited with `allowUnfunded`. A turn that cannot
+  be paid for sends a short out-of-credit text only if that text is itself affordable, else nothing.
+  A lapsed subscription, a number that is not send-ready, STOP or a paused provider do no paid work.
+- **Trace.** `traceAgentTurn`, session `resident-personal-agent:<userId>:<sha256(phone)[0:16]>`;
+  prompt id `resident-personal-agent`.
+- **Number.** `provisionResidentAgentNumber` (`src/lib/resident-agent-number/number.server.ts`) on
+  subscription activation (Stripe webhook, flag-independent) and from Settings > PropLane agent
+  (`POST /api/number-subscription/resident-number`). Same provider adapter, runtime switch and release
+  worker as the vendor number, its own table; the row insert is the purchase claim.
+- Tests: `resident-personal-agent`, `resident-agent-listing-search`, `resident-agent-number-provisioning`.
+
 ## Links first (every conversational surface)
 
 PropLane has a page for almost everything a person asks an agent for, so every

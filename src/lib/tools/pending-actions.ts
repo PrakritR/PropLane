@@ -161,7 +161,7 @@ async function insertPendingActionRow(
 }
 
 /** Which portal's registry + context resolver owns the action. */
-export type AgentPortal = "manager" | "resident" | "vendor";
+export type AgentPortal = "manager" | "resident" | "vendor" | "resident_agent";
 
 /**
  * Minimal actor surface for the claim. Every portal context satisfies it, as
@@ -361,7 +361,7 @@ async function resolvePendingAction(
     Boolean(rowProvenance) !== Boolean(testProvenance) ||
     (rowProvenance !== null && !sameSmsTestProvenance(rowProvenance, testProvenance))
   ) return null;
-  const portal = row.portal === "resident" || row.portal === "vendor" ? row.portal : "manager";
+  const portal = row.portal === "resident" || row.portal === "vendor" || row.portal === "resident_agent" ? row.portal : "manager";
   return {
     toolName: String(row.tool_name),
     input: row.input,
@@ -430,7 +430,7 @@ export async function peekPendingActionPortal(
     .maybeSingle();
   if (error) return { state: "unreadable" };
   if (!data) return { state: "missing" };
-  const portal = data.portal === "resident" || data.portal === "vendor" ? data.portal : "manager";
+  const portal = data.portal === "resident" || data.portal === "vendor" || data.portal === "resident_agent" ? data.portal : "manager";
   const smsTestProvenance = data.sms_test_actor_user_id && data.sms_test_manager_user_id && data.sms_test_session_id
     ? {
       actorUserId: String(data.sms_test_actor_user_id),
