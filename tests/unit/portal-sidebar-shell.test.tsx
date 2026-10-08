@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
 // Phase 1 shell redesign: the desktop sidebar is a 248px column with the
-// workspace header, four headed nav groups that collapse, and a Conversations
-// section; the collapse control, help footer and account menu live elsewhere.
+// workspace header and four headed nav groups that collapse (no Conversations
+// list); the collapse control, help footer and account menu live elsewhere.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
@@ -264,37 +264,16 @@ describe("collapsed sidebar", () => {
   });
 });
 
-describe("Conversations", () => {
-  it("lists the five most recent conversations, newest first, unread flagged", () => {
+describe("no Conversations group", () => {
+  // Captain: "remove Conversations section from sidebar". Communication is the
+  // single entry to messages; the sidebar lists no people even when threads exist.
+  it("renders no conversations group or thread links, with threads in the inbox", () => {
     inboxRows.value = [1, 2, 3, 4, 5, 6, 7].map((n) => thread(n, { unread: n === 7 }));
     renderManager();
-    const rows = Array.from(aside().querySelectorAll('[data-attr="portal-sidebar-conversation"]'));
-    expect(rows).toHaveLength(5);
-    expect(rows.map((r) => r.querySelector(".truncate")?.textContent)).toEqual([
-      "Person 7",
-      "Person 6",
-      "Person 5",
-      "Person 4",
-      "Person 3",
-    ]);
-    expect(rows[0]!.className).toContain("font-[650]");
-    expect(rows[0]!.getAttribute("href")).toBe(`/portal/communication/active/${encodeURIComponent("thread-1700000000007")}`);
-    expect(rows[1]!.className).not.toContain("font-[650]");
-  });
-
-  it("renders nothing when there are no conversations yet", () => {
-    renderManager();
     expect(aside().querySelector('[data-nav-group="conversations"]')).toBeNull();
-  });
-
-  it("re-reads when the workspace selection changes (a rail tile switch)", () => {
-    inboxRows.value = [thread(1)];
-    renderManager();
-    expect(aside().querySelectorAll('[data-attr="portal-sidebar-conversation"]')).toHaveLength(1);
-    inboxRows.value = [thread(2), thread(3)];
-    act(() => {
-      window.dispatchEvent(new Event("proplane-workspace-selection"));
-    });
-    expect(aside().querySelectorAll('[data-attr="portal-sidebar-conversation"]')).toHaveLength(2);
+    expect(aside().querySelectorAll('[data-attr="portal-sidebar-conversation"]')).toHaveLength(0);
+    expect(within(aside()).queryByText("Conversations")).toBeNull();
+    expect(within(aside()).queryByText("Person 7")).toBeNull();
+    expect(aside().querySelector('a[href^="/portal/communication"]')).not.toBeNull();
   });
 });
