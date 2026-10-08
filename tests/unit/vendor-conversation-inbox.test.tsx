@@ -97,8 +97,8 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => true,
 }));
-vi.mock("@/components/portal/inbox-scoped-compose-modal", () => ({
-  ScopedInboxComposeModal: ({ open, onSend }: { open: boolean; onSend: (payload: Record<string, unknown>) => Promise<boolean> }) => open ? (
+vi.mock("@/components/portal/pro-communication-compose-modal", () => ({
+  ManagerCommunicationComposeModal: ({ open, onSend }: { open: boolean; onSend: (payload: Record<string, unknown>) => Promise<boolean> }) => open ? (
     <button type="button" onClick={() => void onSend({ subject: "Update", body: "Body", senderName: "Vendor", senderEmail: "vendor@test.proplane", directRecipientUserIds: ["manager-1"], broadcastCategories: [], includesAxisAdmin: false, includesDirectoryRecipients: true, sendId: "00000000-0000-4000-8000-000000000001" })}>Send fixture</button>
   ) : null,
 }));

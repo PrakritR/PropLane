@@ -8,7 +8,8 @@ import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
-import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
+import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
+import type { ScopedInboxSendPayload } from "@/lib/role-compose";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
 import { InboxComposerChannelMenu, InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
@@ -699,41 +700,8 @@ export const ResidentInboxPanel = forwardRef<
       let optimisticId: string | null = null;
 
       try {
-          if (p.scheduleLater && p.sendAt) {
-            const recipientEmail = p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean)[0];
-            if (!recipientEmail) {
-              showToast("Choose your property manager.");
-              return false;
-            }
-            const contact = eligibleContacts.find((c) => c.email.trim().toLowerCase() === recipientEmail);
-            const res = await fetch("/api/portal/scheduled-inbox-messages", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                subject: p.subject.trim(),
-                body: p.body.trim(),
-                sendAt: p.sendAt,
-                recipientEmail,
-                recipientName: contact?.name?.trim() || recipientEmail,
-                senderPortal: "resident",
-              }),
-            });
-            const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-            if (!res.ok || !data.ok) {
-              showToast(data.error ?? "Could not schedule message.");
-              return false;
-            }
-            showToast("Message scheduled.");
-            void reloadScheduledMessages();
-            if (!embeddedInCommunication) {
-              navigate("/resident/communication/email/schedule");
-            }
-            setComposeOpen(false);
-            setComposeDraft(null);
-            return true;
-          }
-
+          // Residents do not schedule from New message (they schedule from the thread
+          // composer), so the composer never sends a scheduled payload.
           const directEmails = p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean);
           const primaryRecipient =
             directEmails.length === 1 && p.broadcastCategories.length === 0 ? directEmails[0]! : null;
@@ -765,7 +733,9 @@ export const ResidentInboxPanel = forwardRef<
                 toBroadcast: p.broadcastCategories,
                 subject: p.subject.trim(),
                 text: p.body.trim(),
-                deliverToPortalInbox: true,
+                deliverToPortalInbox: p.deliverViaInbox !== false,
+                deliverViaEmail: p.deliverViaEmail !== false,
+                attachmentUrls: p.attachmentUrls?.length ? p.attachmentUrls : undefined,
                 eventCategory: "messages",
                 senderPortal: "resident",
                 propertyId: p.propertyId,
@@ -840,7 +810,7 @@ export const ResidentInboxPanel = forwardRef<
         return false;
       }
     },
-    [eligibleContacts, embeddedInCommunication, findThreadForRecipient, navigate, reloadScheduledMessages, session.email, setExpandedId, showToast],
+    [embeddedInCommunication, findThreadForRecipient, navigate, session.email, setExpandedId, showToast],
   );
 
   const activeSmsAvailable = smsUiEnabled && smsConfigured;
@@ -1763,7 +1733,7 @@ export const ResidentInboxPanel = forwardRef<
           </Button>
         </div>
       ) : null}
-      <ScopedInboxComposeModal
+      <ManagerCommunicationComposeModal
         open={composeOpen}
         onClose={() => {
           setComposeOpen(false);
@@ -1774,7 +1744,7 @@ export const ResidentInboxPanel = forwardRef<
         senderName="Resident"
         senderEmail={session.email?.trim().toLowerCase() || "resident@example.com"}
         liveContacts={eligibleContacts}
-        initialDraft={composeDraft}
+        residentDraft={composeDraft}
       />
 
       {tabId !== "schedule" && !suppressListPane ? (

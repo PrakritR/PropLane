@@ -26,7 +26,7 @@ import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell, ManagerPortalFilterRow, PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
+import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
 import {
   buildInboxThreadAssistantContext,
   InboxThreadAssistantStrip,
@@ -34,7 +34,6 @@ import {
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { useInboxAiDraftAutoSend } from "@/hooks/use-inbox-ai-draft-auto-send";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
-import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
 import {
   MANAGER_INBOX_STORAGE_KEY,
   PORTAL_INBOX_CHANGED_EVENT,
@@ -63,7 +62,7 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
-import { buildOptimisticSentThread, markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
+import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
 import {
   INBOX_MAX_ATTACHMENTS,
   attachmentMetaFromUrls,
@@ -1113,144 +1112,22 @@ export const ManagerInbox = forwardRef<
     [smsRecipients, smsOutboundEnabled],
   );
 
-  const handleComposeSend = useCallback(
-    (p: ScopedInboxSendPayload) => {
-      if (p.includesAxisAdmin && isDemoModeActive()) {
-        appendPortalMessageToAdminInbox({
-          role: "manager",
-          name: p.senderName,
-          email: p.senderEmail,
-          topic: p.subject.trim(),
-          body: p.body.trim(),
-        });
+  // New message is the shared composer (it sends and schedules itself); this
+  // inbox only follows the result: show the sent thread or the schedule tab.
+  const handleComposeSent = useCallback(
+    (result: { email: boolean; sms: boolean; primaryRecipientEmail?: string; scheduled?: boolean }) => {
+      if (result.scheduled) {
+        navigate(`${inboxBase}/schedule`);
+        return;
       }
-      setComposeOpen(false);
-
       void (async () => {
-        try {
-          if (p.scheduleLater && p.sendAt) {
-            const directEmails = p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean);
-            const schedulePayloads: Record<string, unknown>[] = [];
-            for (const category of p.broadcastCategories) {
-              schedulePayloads.push({
-                subject: p.subject.trim(),
-                body: p.body.trim(),
-                sendAt: p.sendAt,
-                broadcastCategories: [category],
-                deliverViaEmail: p.deliverViaEmail !== false,
-                deliverViaSms: p.deliverViaSms === true,
-                senderPortal: "manager",
-              });
-            }
-            for (const email of directEmails) {
-              schedulePayloads.push({
-                subject: p.subject.trim(),
-                body: p.body.trim(),
-                sendAt: p.sendAt,
-                recipientEmail: email,
-                recipientName: email,
-                deliverViaEmail: p.deliverViaEmail !== false,
-                deliverViaSms: p.deliverViaSms === true,
-                senderPortal: "manager",
-              });
-            }
-            if (schedulePayloads.length === 0) {
-              showToast("Add at least one recipient to schedule.");
-              return;
-            }
-            const results = await Promise.all(
-              schedulePayloads.map((payload) =>
-                fetch("/api/portal/scheduled-inbox-messages", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  credentials: "include",
-                  body: JSON.stringify(payload),
-                }),
-              ),
-            );
-            if (results.some((res) => !res.ok)) {
-              showToast("Some messages could not be scheduled.");
-              return;
-            }
-            showToast(
-              schedulePayloads.length === 1 ? "Message scheduled." : `${schedulePayloads.length} messages scheduled.`,
-            );
-            navigate(`${inboxBase}/schedule`);
-            return;
-          }
-
-          const directEmails = p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean);
-          const primaryRecipient =
-            directEmails.length === 1 && p.broadcastCategories.length === 0 ? directEmails[0]! : null;
-          let optimisticId: string | null = null;
-
-          if (primaryRecipient) {
-            const optimistic = buildOptimisticSentThread({
-              recipientEmail: primaryRecipient,
-              subject: p.subject.trim(),
-              body: p.body.trim(),
-              senderLabel: p.senderName,
-            });
-            optimisticId = optimistic.id;
-            stageOptimisticSentThread(optimistic);
-          }
-
-          const res = await fetch("/api/portal/send-inbox-message", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              fromName: p.senderName,
-              fromEmail: p.senderEmail,
-              toEmails: p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean),
-              toBroadcast: p.broadcastCategories,
-              subject: p.subject.trim(),
-              text: p.body.trim(),
-              deliverToPortalInbox: true,
-              deliverViaEmail: p.deliverViaEmail !== false,
-              deliverViaSms: p.deliverViaSms === true,
-              eventCategory: "messages",
-              senderPortal: "manager",
-            }),
-          });
-          const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
-          if (!res.ok || !data.ok) {
-            if (optimisticId) clearPendingSend(optimisticId);
-            showToast("Message could not be sent.");
-            return;
-          }
-          if (optimisticId) clearPendingSend(optimisticId);
-          await reloadInboxAsync();
-          const threadId = primaryRecipient ? findThreadForRecipient(primaryRecipient) : null;
-          showToast(
-            p.includesAxisAdmin && !p.includesDirectoryRecipients
-              ? "Message sent to PropLane admin."
-              : p.deliverViaSms
-                ? "Message sent via inbox, email, and text."
-                : "Message sent.",
-          );
-          if (threadId) {
-            setExpandedId(threadId);
-          }
-          if (!embeddedInCommunication) {
-            navigate(`${inboxBase}/sent`);
-          }
-        } catch {
-          showToast("Message could not be sent.");
-        }
+        await reloadInboxAsync();
+        const threadId = result.primaryRecipientEmail ? findThreadForRecipient(result.primaryRecipientEmail) : null;
+        if (threadId) setExpandedId(threadId);
+        if (!embeddedInCommunication) navigate(`${inboxBase}/sent`);
       })();
     },
-    [
-      clearPendingSend,
-      embeddedInCommunication,
-      findThreadForRecipient,
-      inboxBase,
-      navigate,
-      reloadInboxAsync,
-      setExpandedId,
-      showToast,
-      stageOptimisticSentThread,
-    ],
+    [embeddedInCommunication, findThreadForRecipient, inboxBase, navigate, reloadInboxAsync, setExpandedId],
   );
 
   // ---- Open conversation (right pane) ----------------------------------
@@ -2776,14 +2653,15 @@ export const ManagerInbox = forwardRef<
       ) : null}
 
       {!suppressCompose ? (
-        <ScopedInboxComposeModal
+        <ManagerCommunicationComposeModal
           open={composeOpen}
           onClose={() => setComposeOpen(false)}
-          onSend={handleComposeSend}
-          portal="manager"
-          senderName="Property manager"
-          senderEmail="manager@example.com"
           liveContacts={liveContacts}
+          smsRecipients={smsRecipients}
+          smsUiEnabled={smsUiEnabled}
+          onStageOptimistic={stageOptimisticSentThread}
+          onClearOptimistic={clearPendingSend}
+          onSent={handleComposeSent}
         />
       ) : null}
 

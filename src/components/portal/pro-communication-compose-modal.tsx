@@ -270,6 +270,8 @@ export function ManagerCommunicationComposeModal({
     email: boolean;
     sms: boolean;
     primaryRecipientEmail?: string;
+    /** The send was scheduled for later, not delivered now. */
+    scheduled?: boolean;
   }) => void;
   /** Show the outbound bubble immediately while the send request is in flight. */
   onStageOptimistic?: (thread: PersistedInboxThread) => void;
@@ -913,7 +915,7 @@ export function ManagerCommunicationComposeModal({
           schedulePayloads.length === 1 ? "Message scheduled." : `${schedulePayloads.length} messages scheduled.`,
         );
         onClose();
-        onSent?.({ email: viaEmail, sms: viaSms });
+        onSent?.({ email: viaEmail, sms: viaSms, scheduled: true });
       } finally {
         setSending(false);
       }
