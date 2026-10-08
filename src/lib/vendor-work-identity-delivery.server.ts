@@ -6,6 +6,12 @@ import { normalizeE164 } from "@/lib/twilio";
 import { quietHoursBlocks, type SmsSendClass } from "@/lib/sms/number-registration-policy";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { createDryRunVendorDeliveryProvider, isVendorNumberDryRun } from "@/lib/vendor-work-number-dry-run.server";
+import {
+  finishVendorNumberCredit,
+  reserveVendorNumberCredit,
+  vendorNumberSubscriptionRequired,
+} from "@/lib/number-subscription/vendor-number.server";
+import { vendorNumberSegments } from "@/lib/vendor-work-number";
 
 export type VendorIdentityChannel = "email" | "sms";
 export type VendorDeliveryProvider = {
@@ -121,15 +127,25 @@ export async function deliverVendorWorkIdentity(
     // the non-production protected-contact shield at this transport boundary.
     if (await isShieldedRecipient({ phone: recipient })) return { ok: false, reason: "protected_recipient" };
   }
+  // PropLane Number (flag on): a vendor TEXT is paid from the vendor's own number credit, reserved BEFORE the
+  // provider call (outbound segments at the retail rate); email is free. No subscription or no credit sends
+  // nothing. Flag off: this block never runs and the send is exactly what it was.
+  const creditKey = !email && vendorNumberSubscriptionRequired() ? `vendor-sms:${input.idempotencyKey}` : null;
+  if (creditKey) {
+    const reserved = await reserveVendorNumberCredit(db, input.vendorUserId, "sms_outbound_segment", Math.max(1, vendorNumberSegments(input.text)), creditKey, { metadata: { surface: "vendor_sms" } });
+    if (!reserved.ok) return { ok: false, reason: reserved.reason };
+  }
+  const releaseCredit = async () => { if (creditKey) await finishVendorNumberCredit(db, input.vendorUserId, creditKey, { release: true }); };
   const kind = email ? "send_email" : "send_sms";
   const { data: operationData, error: operationError } = await db.rpc("claim_vendor_work_identity_operation", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_kind: kind, p_idempotency_key: input.idempotencyKey });
   const operation = (Array.isArray(operationData) ? operationData[0] : operationData) as { operation_id?: string; claimed?: boolean } | null;
-  if (operationError || !operation?.operation_id) return { ok: false, reason: "operation_unavailable" };
+  if (operationError || !operation?.operation_id) { await releaseCredit(); return { ok: false, reason: "operation_unavailable" }; }
   const { data: outboxData, error: outboxError } = await db.rpc("claim_vendor_work_identity_outbound", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_id: operation.operation_id, p_idempotency_key: input.idempotencyKey, p_channel: input.channel, p_recipient: recipient, p_context_fingerprint: contextFingerprint, p_subject: input.subject, p_body: input.text });
   const outbox = (Array.isArray(outboxData) ? outboxData[0] : outboxData) as { outbox_id?: string; claimed?: boolean; blocked_reason?: string } | null;
   if (outboxError || !outbox?.outbox_id) {
     const reason = outbox?.blocked_reason ?? "cap_or_outbox_blocked";
     await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: reason, updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
+    await releaseCredit();
     return { ok: false, reason };
   }
   if (!operation.claimed || !outbox.claimed) {
@@ -138,11 +154,12 @@ export async function deliverVendorWorkIdentity(
     return replayResult(existing as Replay);
   }
   const { error: callingError } = await db.from("vendor_work_identity_operations").update({ state: "calling_provider", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
-  if (callingError) return { ok: false, reason: "operation_unavailable", authorized: true };
+  if (callingError) { await releaseCredit(); return { ok: false, reason: "operation_unavailable", authorized: true }; }
   const { data: attempt, error: attemptError } = await db.from("vendor_work_identity_delivery_attempts").insert({ outbox_id: outbox.outbox_id, attempt_number: 1, state: "calling_provider" }).select("id").maybeSingle();
   if (attemptError || !(attempt as { id?: string } | null)?.id) {
     await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "attempt_unavailable", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
     await db.from("vendor_work_identity_outbox").update({ status: "blocked", blocked_reason: "attempt_unavailable", updated_at: new Date().toISOString() }).eq("id", outbox.outbox_id);
+    await releaseCredit();
     return { ok: false, reason: "attempt_unavailable", authorized: true };
   }
   let providerAccepted = false;
@@ -160,9 +177,12 @@ export async function deliverVendorWorkIdentity(
     if (persistError) throw new Error(persistError.message);
     const { error: operationPersistError } = await db.from("vendor_work_identity_operations").update({ state: "succeeded", provider_reference: result.id, updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
     if (operationPersistError) throw new Error(operationPersistError.message);
+    if (creditKey) await finishVendorNumberCredit(db, input.vendorUserId, creditKey);
     return { ok: true, sent: true, providerMessageId: result.id };
   } catch (error) {
     const reconcile = providerAccepted || uncertain(error);
+    // An accepted or uncertain send keeps its debit (it may have left); a definitive refusal hands it back.
+    if (creditKey) await finishVendorNumberCredit(db, input.vendorUserId, creditKey, { release: !reconcile });
     await db.from("vendor_work_identity_delivery_attempts").update({ state: reconcile ? "reconciling" : "failed", provider_message_id: acceptedId, error_code: reconcile ? "provider_outcome_unknown" : "provider_rejected" }).eq("id", (attempt as { id: string }).id);
     await db.from("vendor_work_identity_operations").update({ state: reconcile ? "reconciling" : "failed", provider_reference: acceptedId, error_code: reconcile ? "provider_outcome_unknown" : "provider_rejected", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
     const { error: persistError } = await db.from("vendor_work_identity_outbox").update({ status: reconcile ? "reconciling" : "failed", provider_message_id: acceptedId, blocked_reason: reconcile ? "provider_outcome_unknown" : "provider_rejected", updated_at: new Date().toISOString() }).eq("id", outbox.outbox_id);

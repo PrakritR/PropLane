@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { reconcileVendorWorkIdentityReleases, releaseIdleVendorWorkNumbers, releaseQueuedVendorWorkIdentities } from "@/lib/vendor-work-identity-release.server";
+import { reconcileVendorWorkIdentityReleases, releaseIdleVendorWorkNumbers, releaseLapsedVendorWorkNumbers, releaseQueuedVendorWorkIdentities } from "@/lib/vendor-work-identity-release.server";
 
 export const runtime = "nodejs";
 
@@ -12,7 +12,9 @@ export async function GET(req: Request) {
     const [claimed, reconciled] = await Promise.all([releaseQueuedVendorWorkIdentities(db), reconcileVendorWorkIdentityReleases(db)]);
     // 60 days with no texts through a vendor's number releases the number (not the account).
     const idle = await releaseIdleVendorWorkNumbers(db);
-    return NextResponse.json({ ok: true, ...claimed, reconciled, idle });
+    // PropLane Number (flag on): a subscription lapsed for 30 days releases the number.
+    const lapsed = await releaseLapsedVendorWorkNumbers(db);
+    return NextResponse.json({ ok: true, ...claimed, reconciled, idle, lapsed });
   } catch {
     return NextResponse.json({ ok: false, error: "Vendor identity release unavailable." }, { status: 503 });
   }

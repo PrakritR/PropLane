@@ -304,6 +304,42 @@ talked to, or get a numbered "Reply to" prompt. A number idle for 60 days is rel
 routing rules, cap, release and dry run: [`sms-system.md`](sms-system.md) § Vendor work number; the fee:
 [`financials.md`](financials.md) § PropLane service fee.
 
+### PropLane Number: the number is a $5/month subscription (Oct 8, flag `NUMBER_SUBSCRIPTION_ENABLED=1`)
+
+The vendor account stays free. With the flag **off** everything above is unchanged (free number, 1,000-segment fair use).
+With it **on**, the number, the sponsored work email's number half, the AI on the number and the vendor's texts
+from it belong to a **PropLane Number** subscription ([`comms-billing.md`](comms-billing.md) § PropLane Number
+and § Vendor side). The work **email** stays free and is not part of the gate.
+
+- **Gate = `numberServiceEntitled`** (`active` or `past_due`), never a status string of your own
+  (`vendorNumberEntitled`, `src/lib/number-subscription/vendor-number.server.ts`). It is checked in
+  `POST /api/vendor/work-identity` (SMS), `POST /api/vendor/work-identity/candidates` (so no claim token is minted
+  for a non-subscriber), `setupVendorWorkIdentity` (the one purchase path) and
+  `provisionVendorWorkNumberAtSignup` (finishing onboarding returns `skipped: subscription_required`). The route
+  answers 403 `subscription_required`; an unreadable subscription is a 503, never a free claim.
+- **Settings > Work number & email and the onboarding last step** (the same `VendorWorkNumberSettings`, rows in
+  `vendor-number-billing.tsx`): not subscribed shows **Your own work number - $5 / month - Subscribe** (to Stripe
+  Checkout) instead of the claim; subscribed shows the number, **PropLane Number - $5/month - renews <date>** with a
+  Manage icon (Stripe portal), and **Credit - $X left this month - $Y bought** with **Buy credit** ($5-$500 whole
+  dollars, one purchase id per attempt). At $0 the row reads **Out of credit** (texts and AI replies are paused until
+  the 1st or until the vendor buys credit). A held number of a lapsed vendor shows **Paused** beside Subscribe.
+  `/demo` and a flag-off server render none of this.
+- **Provisioning on activation.** The signed Stripe webhook, only after it recorded the subscription `applied`,
+  calls `provisionVendorNumberOnActivation` for a vendor with a verified phone: the owner comes from our
+  `number_subscriptions` row (never event metadata), the claim key is seeded with the Stripe subscription id (a
+  replay buys once; a new subscription after a released number buys a new one), and a failure never fails the
+  webhook - the vendor can still claim from Settings.
+- **Lapsed (canceled / incomplete).** The number is paused: no outbound text, no AI, `sendReady` false with
+  `blockedReason: subscription_required`; inbound still lands in the inbox; a manager's text falls back to the
+  vendor's own phone from the manager's work number (`getRoutableVendorNumber`, used by `providerDestinationFor` and the
+  thread header). After **30 days** lapsed the cron (`/api/cron/release-vendor-work-identities` ->
+  `releaseLapsedVendorWorkNumbers`) releases the number; entitlement is re-read right before the remove. A paying
+  vendor's quiet number is not idle-released. A number held from before the flag by a vendor with no subscription row
+  is paused when the flag turns on but has no lapse clock; the 60-day idle rule still applies to it.
+- **Deleting the account cancels the Stripe subscription first** (`cancelNumberSubscriptionForAccount`), in every
+  path that purges `number_subscriptions`: self-delete, admin delete, the vendor/resident portal delete and the
+  account-recovery archive. A Stripe failure aborts the delete (retryable); already-canceled counts as done.
+
 ### Number at signup, AI info, and the AI on the number (Oct 8)
 
 Finishing onboarding (`vendor-onboarding.tsx` Finish -> `PATCH /api/vendor/business-profile` with

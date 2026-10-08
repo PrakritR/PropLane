@@ -9,6 +9,9 @@ export const NUMBER_SUBSCRIPTION_PRODUCT_NAME = "PropLane Number";
 /** Included message credit, granted once per UTC calendar month while `active`; never rolls over. */
 export const NUMBER_INCLUDED_CREDIT_CENTS = 300;
 
+/** A vendor's number is released after the subscription has been lapsed (canceled/incomplete) this many days. */
+export const NUMBER_LAPSED_RELEASE_DAYS = 30;
+
 export const NUMBER_SUBSCRIPTION_PURPOSE = "number_subscription";
 export const NUMBER_CREDIT_PURPOSE = "number_communication_credit";
 

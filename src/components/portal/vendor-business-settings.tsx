@@ -433,6 +433,7 @@ export function identityStatusLabel(value: VendorWorkIdentityResponse[keyof Pick
   if (value.blockedReason === "provider_disabled") return "Disabled";
   if (value.blockedReason === "provider_unconfigured") return "Unavailable";
   if (value.blockedReason === "platform_capacity_reached") return "Capacity reached";
+  if (value.blockedReason === "subscription_required") return "Subscription needed";
   if (value.state === "provisioning" || value.state === "reconciling") return "Pending";
   if (value.state === "blocked" || value.state === "quarantined") return "Failed";
   if (value.state === "disabled" || value.state === "released") return "Disabled";

@@ -435,6 +435,7 @@ answer. Fail closed to `true`.
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
 | Property owner | `docs/agents/co-manager-access.md` § Property owner | A team role, not a portal: four owner keys, no module key; owner rows are filtered out of every teammate-style reader (`withoutOwnerLinks`); the numbers are an allowlist projection of the manager's own reports, never names; the house and manager come from the membership, never the request |
 | SMS / phone | `docs/agents/sms-system.md` | Outbound from the work number only; conversation id is not the phone pair |
+| Number subscription | `docs/agents/comms-billing.md` § PropLane Number, `docs/agents/vendor-portal.md` | The vendor/resident owns the $5/month PropLane Number; gate a number feature on `numberServiceEntitled` (active\|past_due), never your own status check; reserve the number credit BEFORE any provider or model call and hand it back when nothing went out; a lapsed number is paused and released after 30 days; deleting the account cancels the Stripe subscription before its rows are purged |
 | Communication credit | `docs/agents/comms-billing.md` | Reserve credit before provider/model work; a saved card never authorizes a charge |
 | Vendor dispatch agent | `docs/agents/vendor-dispatch-agent.md` | Answer-only + `escalate_to_manager`; `row_data.dispatch` is server-owned |
 | Manager account creation | `docs/agents/manager-account-creation.md` | `/auth/create-account` never auto-redirects into a portal |

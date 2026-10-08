@@ -15,6 +15,7 @@ import { rosterPhoneIdentifiesVendor, type ManagerVendorRow } from "@/lib/manage
 import { isUsLocalSmsNumber } from "@/lib/vendor-work-number-claim-token.server";
 import { vendorNumberMonthStart } from "@/lib/vendor-work-number";
 import { createDryRunVendorWorkIdentityProvider, isVendorNumberDryRun } from "@/lib/vendor-work-number-dry-run.server";
+import { vendorNumberEntitled, vendorNumberSubscriptionRequired } from "@/lib/number-subscription/vendor-number.server";
 
 type IdentityRow = {
   id: string;
@@ -268,6 +269,11 @@ export function responseFor(input: {
   verifiedPhone?: string | null;
   forwardToPhone?: boolean;
   dryRun?: boolean;
+  /**
+   * Set only while the PropLane Number subscription is on (NUMBER_SUBSCRIPTION_ENABLED=1). A vendor that is
+   * not entitled can neither claim a number nor send from one (paused); inbound keeps landing.
+   */
+  numberBilling?: { entitled: boolean };
 }): VendorWorkIdentityResponse {
   const { identity, runtime } = input;
   const state = identity?.lifecycle_state ?? "not_started";
@@ -285,6 +291,9 @@ export function responseFor(input: {
   // A number is for a vendor whose phone is verified. The gate only blocks a CLAIM:
   // an already-ready number keeps working if the verification later lapses.
   if (smsBlocked === "none" && input.phoneVerified === false && smsState !== "ready") smsBlocked = "phone_unverified";
+  // PropLane Number: no entitled subscription = no claim, and a number already held is paused.
+  const smsPaused = input.numberBilling !== undefined && !input.numberBilling.entitled;
+  if (smsBlocked === "none" && smsPaused) smsBlocked = "subscription_required";
   const cap = runtime?.outbound_message_cap ?? 0;
   const smsUsed = input.smsSegmentsUsed ?? input.outboundUsed;
   const emailUsed = input.emailUsed ?? input.outboundUsed;
@@ -295,7 +304,7 @@ export function responseFor(input: {
   const emailReceiveReady = emailLifecycleReady && input.emailConfigured && Boolean(identity?.email_receive_ready);
   const smsReceiveReady = smsLifecycleReady && input.smsConfigured && Boolean(identity?.sms_receive_ready);
   const emailSendReady = emailLifecycleReady && input.emailConfigured && Boolean(runtime?.enabled) && !emailCapped && Boolean(identity?.email_send_ready);
-  const smsSendReady = smsLifecycleReady && input.smsConfigured && Boolean(runtime?.enabled) && !smsCapped && Boolean(identity?.sms_send_ready);
+  const smsSendReady = smsLifecycleReady && input.smsConfigured && Boolean(runtime?.enabled) && !smsCapped && Boolean(identity?.sms_send_ready) && !smsPaused;
   return {
     sponsoredBy: "proplane",
     email: {
@@ -386,6 +395,18 @@ export async function getActiveVendorNumber(db: SupabaseClient, vendorUserId: st
 }
 
 /**
+ * The number MANAGERS may text and the dispatcher may deliver to: the vendor's active number, but only
+ * while the PropLane Number subscription is entitled (flag on). A lapsed vendor's number is paused, so a
+ * manager's text falls back to the vendor's own phone from the manager's work number, as it did before
+ * the vendor had a number. Flag off: identical to {@link getActiveVendorNumber}.
+ */
+export async function getRoutableVendorNumber(db: SupabaseClient, vendorUserId: string): Promise<ActiveVendorNumber | null> {
+  const active = await getActiveVendorNumber(db, vendorUserId);
+  if (!active) return null;
+  return (await vendorNumberEntitled(db, vendorUserId)) ? active : null;
+}
+
+/**
  * A vendor texting a manager's work line from their PropLane number is the same
  * person the manager already has on their Vendors list. Map the sender back to
  * the phone that roster row (or, failing that, the vendor's verified profile)
@@ -470,6 +491,7 @@ export async function getVendorWorkIdentity(db: SupabaseClient, vendorUserId: st
     phoneVerified: verified.verified, verifiedPhone: verified.phone,
     forwardToPhone: identity ? await readVendorForwardToPhone(db, vendorUserId) : true,
     dryRun: isVendorNumberDryRun(),
+    ...(vendorNumberSubscriptionRequired() ? { numberBilling: { entitled: await vendorNumberEntitled(db, vendorUserId) } } : {}),
   });
 }
 
@@ -506,6 +528,8 @@ export async function setupVendorWorkIdentity(
   // Eligibility: a verified phone, nothing else (no card, no plan). The verified
   // phone is also where forwarded texts go, so an unverified one has no purpose here.
   if (channel === "sms" && !(await loadVendorVerifiedPhone(db, vendorUserId)).verified) return getVendorWorkIdentity(db, vendorUserId, provider);
+  // PropLane Number: with the subscription on, no purchase unless the vendor is entitled (active | past_due).
+  if (channel === "sms" && !(await vendorNumberEntitled(db, vendorUserId))) return getVendorWorkIdentity(db, vendorUserId, provider);
   if (channel === "sms" && selectedPhoneNumber !== undefined && !isUsLocalSmsNumber(selectedPhoneNumber)) return getVendorWorkIdentity(db, vendorUserId, provider);
   // Never a second real purchase. `claim_vendor_work_identity_operation`'s
   // idempotency guard only protects against REPLAYING the same key — a

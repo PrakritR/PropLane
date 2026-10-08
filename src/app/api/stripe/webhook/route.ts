@@ -20,6 +20,7 @@ import {
   NumberCreditValidationError,
   reverseNumberCreditForPaymentIntent,
 } from "@/lib/number-subscription/credit.server";
+import { provisionVendorNumberOnActivation } from "@/lib/number-subscription/vendor-number-activation.server";
 import {
   fulfillNumberSubscriptionCheckout,
   isNumberSubscription,
@@ -328,7 +329,9 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
       } else if (session.metadata?.purpose === NUMBER_SUBSCRIPTION_PURPOSE) {
         // PropLane Number: ownership comes from the row our checkout route wrote, never the metadata
         // alone, and the subscription is re-read from Stripe. A throw returns 500 so Stripe redelivers.
-        await fulfillNumberSubscriptionCheckout(db, stripe, session);
+        const numberResult = await fulfillNumberSubscriptionCheckout(db, stripe, session);
+        // A vendor's number is provisioned the moment the subscription is recorded active (soft-fail, once).
+        if (numberResult === "applied") await provisionVendorNumberOnActivation(db, session.subscription as string | { id?: string } | null);
       } else if (session.metadata?.purpose === NUMBER_CREDIT_PURPOSE) {
         await runCommsCreditStep("number credit fulfillment", async () => {
           try {
@@ -559,7 +562,8 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
     ) {
       const numberSub = event.data.object as Stripe.Subscription;
       if (await isNumberSubscription(db, numberSub)) {
-        await syncNumberSubscriptionEvent(db, stripe, numberSub);
+        const numberSynced = await syncNumberSubscriptionEvent(db, stripe, numberSub);
+        if (numberSynced === "applied") await provisionVendorNumberOnActivation(db, numberSub.id);
         return NextResponse.json({ received: true }, { status: 200 });
       }
     }
