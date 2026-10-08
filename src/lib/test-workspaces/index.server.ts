@@ -116,6 +116,12 @@ function trustedOperatorIds(env: NodeJS.ProcessEnv = process.env): Set<string> {
   return new Set((env.PROPLANE_TEST_WORKSPACE_OPERATOR_IDS ?? "").split(",").map((id) => id.trim()).filter(Boolean));
 }
 
+/** Whether this user id is on the test-workspace operator allowlist (no admin or session check). */
+export function isTrustedTestWorkspaceOperatorId(userId: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const id = userId.trim();
+  return Boolean(id) && trustedOperatorIds(env).has(id);
+}
+
 /** Existing admin authorization plus a deployment-configured UUID allowlist. */
 export async function requireTrustedTestWorkspaceOperator(): Promise<{ userId: string }> {
   const session = await createSupabaseServerClient();

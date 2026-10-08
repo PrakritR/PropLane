@@ -10,6 +10,7 @@ import {
   type ManagerWorkspaceRowScope,
 } from "@/lib/auth/co-manager-module-scope";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
+import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveResidentFilingScope } from "@/lib/resident-manager-scope";
@@ -133,7 +134,8 @@ export async function GET() {
     if (!admin && role !== "resident") {
       // Heal orphans for this manager's residents before listing. TTL-gated so
       // nav-count polls and repeat page loads don't re-run the sweep.
-      if (shouldRunScopeRepair(`work-orders:${user.id}`)) {
+      // (Skipped while an operator is viewing as this account: a read-only session writes nothing.)
+      if (shouldRunScopeRepair(`work-orders:${user.id}`) && !(await isViewAsSessionOpen())) {
         await repairWorkOrderScopesForManager(db, user.id).catch(() => undefined);
       }
 

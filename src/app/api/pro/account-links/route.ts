@@ -30,6 +30,7 @@ import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-add
 import { ensureProfileProplaneId, getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
+import { viewAsOfUser } from "@/lib/auth/view-as-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
@@ -92,7 +93,11 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    const { data, error } = await supabase
+    // While an operator is viewing as this account, RLS on the session client
+    // would answer for the operator; the viewed account's links are read with
+    // the service role (this is a GET, so nothing is written).
+    const linksReader = viewAsOfUser(user) ? createSupabaseServiceRoleClient() : supabase;
+    const { data, error } = await linksReader
       .from("account_link_invites")
       .select(
         [

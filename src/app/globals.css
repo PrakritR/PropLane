@@ -4193,3 +4193,18 @@ html[data-theme="dark"] .portal-skel {
     padding-inline: 1rem;
   }
 }
+
+/*
+ * "View as" support session (read-only). The server refuses every write; this
+ * only makes that visible. The banner (view-as-banner.tsx) stamps data-view-as
+ * on <html> and turns any attempted write into a "Read-only" notice.
+ */
+html[data-view-as] input[type="file"],
+html[data-view-as] button[type="submit"],
+html[data-view-as] [data-view-as-write] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+html[data-view-as] input[type="file"] {
+  pointer-events: none;
+}

@@ -1,15 +1,15 @@
 "use client";
 
+import { AdminViewAsAction as AdminViewAsDialogAction } from "@/components/portal/admin-view-as-dialog";
 import type { AdminAccountRowKind } from "@/lib/admin/admin-account-keys";
 
 /**
- * SLOT: the "View as" button for an account record.
+ * The "View as" button for an account record.
  *
  * Rendered FIRST in the account record's header actions
  * (`admin-account-record-page.tsx`), before the Disable and Delete icons. The
- * View-as mechanics (the preview route, the banner, the dialog) are owned by a
- * different change; this placeholder renders nothing and only fixes the name,
- * the position and the props that change will fill in.
+ * mechanics (eligibility, dialog, signed session, banner) live in
+ * `admin-view-as-dialog.tsx`; this only adapts the record's account shape.
  */
 export type AdminViewAsAccount = {
   id: string;
@@ -21,6 +21,12 @@ export type AdminViewAsAccount = {
 };
 
 export function AdminViewAsAction({ account }: { account: AdminViewAsAccount }) {
-  void account;
-  return null;
+  if (!account.active) return null;
+  return (
+    <AdminViewAsDialogAction
+      targetUserId={account.id}
+      targetName={account.name || account.email}
+      preferredPortal={account.kind}
+    />
+  );
 }

@@ -1,4 +1,5 @@
 import { withRecoveredStorageReads } from "@/lib/auth/account-recovery-storage";
+import { withViewAsReadOnly } from "@/lib/supabase/view-as-read-only";
 import { createClient } from "@supabase/supabase-js";
 import { assertNonProdDatabase } from "@/lib/server-env";
 
@@ -15,7 +16,7 @@ export function createSupabaseServiceRoleClient() {
       "NEXT_PUBLIC_SUPABASE_URL looks invalid (expected https://<project-ref>.supabase.co).",
     );
   }
-  return withRecoveredStorageReads(createClient(url, key, {
+  return withViewAsReadOnly(withRecoveredStorageReads(createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
-  }));
+  })));
 }

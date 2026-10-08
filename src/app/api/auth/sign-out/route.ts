@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
-import { PREVIEW_PORTAL_COOKIE, PREVIEW_UID_COOKIE } from "@/lib/auth/admin-preview";
+import { LEGACY_PREVIEW_UID_COOKIE_NAME, PREVIEW_PORTAL_COOKIE, PREVIEW_UID_COOKIE } from "@/lib/auth/admin-preview";
 import { ACTIVE_PORTAL_COOKIE } from "@/lib/auth/portal-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { closeViewAsSessionOnSignOut } from "@/lib/auth/view-as-sign-out.server";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,9 @@ export async function POST() {
     const supabase = await createSupabaseServerClient();
     const { data: { user: currentUser } } = await supabase.auth.getUser();
     const signOutUserId = currentUser?.id;
+    // A "View as" session ends with the sign-in it belongs to: write its
+    // ended row (best effort) before the session is gone.
+    await closeViewAsSessionOnSignOut(signOutUserId);
     await supabase.auth.signOut();
     if (signOutUserId) track("user_signed_out", signOutUserId);
 
@@ -21,6 +25,7 @@ export async function POST() {
     res.cookies.set(ACTIVE_PORTAL_COOKIE, "", clear);
     res.cookies.set(PREVIEW_UID_COOKIE, "", clear);
     res.cookies.set(PREVIEW_PORTAL_COOKIE, "", clear);
+    res.cookies.set(LEGACY_PREVIEW_UID_COOKIE_NAME, "", clear);
     // The selected workspace is per-signed-in-account state. Leaving it set
     // let the NEXT person to sign in on this browser land inside whichever
     // workspace the previous account last selected (a wrong-workspace 403 on
