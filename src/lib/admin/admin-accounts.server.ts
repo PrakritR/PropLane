@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  collectIdsPaged,
   listAdminPortalManagerUserIds,
   loadProfilesByIdChunks,
 } from "@/lib/auth/admin-portal-manager-ids.server";
@@ -35,21 +36,19 @@ type ProfileSelectRow = {
 
 const PROFILE_SELECT =
   "id, email, full_name, phone, manager_id, application_approved, created_at, stripe_connect_account_id";
-const ROW_LIMIT = 5000;
-
+/**
+ * Every id holding `role`, read a page at a time (`collectIdsPaged`): the
+ * account lists and every count derived from them are a count of real rows, so
+ * a capped read would make the dashboard quietly wrong past the cap.
+ */
 async function roleHolderIds(db: SupabaseClient, role: AdminAccountKind): Promise<Set<string>> {
-  const ids = new Set<string>();
-  const { data: roleRows } = await db.from("profile_roles").select("user_id").eq("role", role).limit(ROW_LIMIT);
-  for (const row of (roleRows ?? []) as { user_id: string | null }[]) {
-    const id = String(row.user_id ?? "").trim();
-    if (id) ids.add(id);
-  }
-  const { data: legacyRows } = await db.from("profiles").select("id").eq("role", role).limit(ROW_LIMIT);
-  for (const row of (legacyRows ?? []) as { id: string | null }[]) {
-    const id = String(row.id ?? "").trim();
-    if (id) ids.add(id);
-  }
-  return ids;
+  const [roleRows, legacyRows] = await Promise.all([
+    collectIdsPaged("user_id", (from, to) =>
+      db.from("profile_roles").select("user_id").eq("role", role).range(from, to),
+    ),
+    collectIdsPaged("id", (from, to) => db.from("profiles").select("id").eq("role", role).range(from, to)),
+  ]);
+  return new Set([...roleRows, ...legacyRows]);
 }
 
 /**

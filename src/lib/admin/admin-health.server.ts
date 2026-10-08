@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { CLOSED_DISPUTE_STATUSES_FILTER } from "@/lib/admin/admin-dispute-status";
 
 /**
  * The admin Health page: things that are broken right now, grouped by kind.
@@ -89,7 +90,7 @@ export async function loadAdminHealth(db: SupabaseClient, now = new Date()): Pro
     db
       .from("stripe_disputes")
       .select("id, manager_user_id, amount_cents, status, reason, created_at")
-      .not("status", "in", "(won,lost,warning_closed,charge_refunded)")
+      .not("status", "in", CLOSED_DISPUTE_STATUSES_FILTER)
       .order("created_at", { ascending: false })
       .limit(ROW_CAP),
     db

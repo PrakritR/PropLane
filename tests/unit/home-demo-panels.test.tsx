@@ -4,7 +4,7 @@
 // each DEMO_TABS entry for each portal and asserts it mounts, says something,
 // never says "work order" (user-facing copy is "service"), and never fetches.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DEMO_TABS, DemoPanel, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
 import { NO_STORY } from "@/components/marketing/site/product-mock/world";
 import { ManagerCommunication } from "@/components/marketing/resident-lifecycle-manager";
@@ -49,10 +49,12 @@ describe("DEMO_TABS contract", () => {
 });
 
 describe.each(PORTALS)("DemoPanel - %s portal", (portal) => {
-  it.each(DEMO_TABS[portal].map((t) => [t.id, t.label]))("renders the %s tab (%s)", (tab) => {
+  // The role Dashboards load as their own chunk (`next/dynamic`), so a panel
+  // may arrive a tick after render.
+  it.each(DEMO_TABS[portal].map((t) => [t.id, t.label]))("renders the %s tab (%s)", async (tab) => {
     const { container } = render(<DemoPanel portal={portal} tab={tab} />);
+    await waitFor(() => expect((container.textContent ?? "").trim().length).toBeGreaterThan(20));
     const text = container.textContent ?? "";
-    expect(text.trim().length).toBeGreaterThan(20);
     expect(text).not.toMatch(/work[\s-]?order/i);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();

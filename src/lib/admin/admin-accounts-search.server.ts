@@ -19,6 +19,8 @@ export type AdminAccountSearchRow = {
   joinedAt: string | null;
   /** `auth.users.last_sign_in_at`, or null when the account has never signed in. */
   lastSignInAt: string | null;
+  /** False when the auth lookup failed — "unknown", never "never signed in". */
+  lastSignInKnown: boolean;
   /** Managers only: workspaces this account owns. */
   workspaceCount?: number;
 };
@@ -31,13 +33,31 @@ export type AdminAccountSearchResult = {
 
 export const ADMIN_ACCOUNT_SEARCH_LIMIT = 100;
 const LAST_SIGN_IN_CONCURRENCY = 10;
+const LAST_SIGN_IN_TTL_MS = 60_000;
 
-async function lastSignInFor(db: SupabaseClient, userId: string): Promise<string | null> {
+/**
+ * `auth.users` is not readable through PostgREST, so last sign-in is one admin
+ * API call per account. An admin typing in the search box would otherwise
+ * re-ask for the same 100 accounts on every keystroke, so a resolved answer is
+ * reused for a minute. A failed or rate-limited call is NOT cached and NOT
+ * reported as "never signed in": it resolves `unknown`, because a wrong fact on
+ * an account record is worse than a missing one.
+ */
+type LastSignIn = { at: string | null } | "unknown";
+const lastSignInCache = new Map<string, { at: string | null; readAt: number }>();
+
+async function lastSignInFor(db: SupabaseClient, userId: string): Promise<LastSignIn> {
+  const cached = lastSignInCache.get(userId);
+  if (cached && Date.now() - cached.readAt < LAST_SIGN_IN_TTL_MS) return { at: cached.at };
   try {
-    const { data } = await db.auth.admin.getUserById(userId);
-    return data?.user?.last_sign_in_at ?? null;
+    const { data, error } = await db.auth.admin.getUserById(userId);
+    if (error) return "unknown";
+    const at = data?.user?.last_sign_in_at ?? null;
+    if (lastSignInCache.size > 2_000) lastSignInCache.clear();
+    lastSignInCache.set(userId, { at, readAt: Date.now() });
+    return { at };
   } catch {
-    return null;
+    return "unknown";
   }
 }
 
@@ -90,17 +110,22 @@ export async function searchAdminAccounts(
     lastSignInFor(db, profile.id),
   );
 
-  const rows: AdminAccountSearchRow[] = page.map((profile, index) => ({
-    id: profile.id,
-    kind: opts.kind,
-    email: profile.email,
-    fullName: profile.fullName,
-    managerId: profile.propLaneId,
-    active: profile.active,
-    joinedAt: profile.joinedAt,
-    lastSignInAt: lastSignIns[index] ?? null,
-    ...(opts.kind === "manager" ? { workspaceCount: workspaceCounts.get(profile.id) ?? 0 } : {}),
-  }));
+  const rows: AdminAccountSearchRow[] = page.map((profile, index) => {
+    const signIn = lastSignIns[index];
+    const known = signIn !== undefined && signIn !== "unknown";
+    return {
+      id: profile.id,
+      kind: opts.kind,
+      email: profile.email,
+      fullName: profile.fullName,
+      managerId: profile.propLaneId,
+      active: profile.active,
+      joinedAt: profile.joinedAt,
+      lastSignInAt: known ? signIn.at : null,
+      lastSignInKnown: known,
+      ...(opts.kind === "manager" ? { workspaceCount: workspaceCounts.get(profile.id) ?? 0 } : {}),
+    };
+  });
 
   return {
     rows,

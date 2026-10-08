@@ -229,6 +229,12 @@ const PRIVATE_BYTES_PATTERNS: RegExp[] = [
   /^\/api\/screening\/background-check\/document$/,
   /^\/api\/share\/documents\/[^/]+$/,
   /^\/api\/share\/leases\/[^/]+\/pdf$/,
+  // Built from rows rather than storage, so the service-role storage proxy
+  // never sees them: an owner statement and the formal-document exports (rent
+  // receipts, verification letters) are the same private download.
+  /^\/api\/owner\/statements\/pdf$/,
+  /^\/api\/owner\/documents\/[^/]+\/signed-url$/,
+  /^\/api\/reports\/formal-documents\/export$/,
 ];
 
 export function viewAsDeniesPrivateBytes(method: string, pathname: string): boolean {

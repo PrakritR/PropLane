@@ -95,6 +95,15 @@ function maskPhone(phone: string | null | undefined): string {
   return digits.length >= 4 ? `•••• ${digits.slice(-4)}` : "•••";
 }
 
+/**
+ * A value used as a LIKE/ILIKE pattern, with the pattern characters escaped so
+ * it only ever matches itself: an address holding `_` or `%` would otherwise
+ * wildcard into another account's rows (`jo_n@x.com` matching `joan@x.com`).
+ */
+export function likeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
 type Row = Record<string, unknown>;
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 const strOrNull = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
@@ -223,8 +232,8 @@ export async function loadAdminAccountDetail(db: SupabaseClient, id: string): Pr
     email
       ? db
           .from("portal_outbound_mail_records")
-          .select("id, subject, created_at, emailSent:row_data->>emailSent")
-          .ilike("recipient_email", email)
+          .select("id, recipient_email, subject, created_at, emailSent:row_data->>emailSent")
+          .ilike("recipient_email", likeLiteral(email))
           .order("created_at", { ascending: false })
           .limit(30)
       : Promise.resolve({ data: [] as Row[] }),
@@ -247,14 +256,18 @@ export async function loadAdminAccountDetail(db: SupabaseClient, id: string): Pr
       errorCode: strOrNull(r.provider_error_code),
       summary: `${str(r.purpose).replace(/_/g, " ") || "Text"} to ${maskPhone(str(r.recipient_phone))}`,
     })),
-    ...((mailRes.data ?? []) as unknown as Row[]).map((r) => ({
-      id: `mail-${str(r.id)}`,
-      channel: "email" as const,
-      at: strOrNull(r.created_at),
-      status: str(r.emailSent) === "false" ? "not emailed" : "sent",
-      errorCode: null,
-      summary: str(r.subject) || "Email",
-    })),
+    ...((mailRes.data ?? []) as unknown as Row[])
+      // One account's log is only its own mail: the pattern above narrows the
+      // read, this decides it.
+      .filter((r) => str(r.recipient_email).trim().toLowerCase() === email.toLowerCase())
+      .map((r) => ({
+        id: `mail-${str(r.id)}`,
+        channel: "email" as const,
+        at: strOrNull(r.created_at),
+        status: str(r.emailSent) === "false" ? "not emailed" : "sent",
+        errorCode: null,
+        summary: str(r.subject) || "Email",
+      })),
   ]
     .sort((a, b) => (Date.parse(b.at ?? "") || 0) - (Date.parse(a.at ?? "") || 0))
     .slice(0, 50);

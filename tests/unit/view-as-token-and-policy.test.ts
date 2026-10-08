@@ -195,6 +195,9 @@ describe("view-as private document bytes", () => {
       "/api/portal/inbox-attachments",
       "/api/manager-applications/app-1/pdf",
       "/api/manager-applications/app-1/receipt",
+      "/api/owner/statements/pdf",
+      "/api/owner/documents/doc-1/signed-url",
+      "/api/reports/formal-documents/export",
     ]) {
       expect(viewAsDeniesPrivateBytes("GET", path), path).toBe(true);
     }

@@ -57,6 +57,28 @@ export function BarePanelChrome({ children }: { children: ReactNode }) {
   return <BarePanelChromeContext.Provider value>{children}</BarePanelChromeContext.Provider>;
 }
 
+/**
+ * The demo is drawn with the REAL portal rows and tiles, so its KPI cards,
+ * issue rows and resident tiles are real links — with nowhere to go
+ * (`href="#"`). One capture handler over the whole panel keeps a click on them
+ * from appending `#` to the home page's URL and jumping the visitor to the top.
+ * `display: contents` so it is a handler and not a box: the panel's layout is
+ * the real portal's, untouched.
+ */
+export function InertDemoLinks({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{ display: "contents" }}
+      onClickCapture={(event) => {
+        const anchor = (event.target as Element | null)?.closest?.("a");
+        if (anchor?.getAttribute("href") === "#") event.preventDefault();
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function ProductPanelBackdrop({
   children,
   className,

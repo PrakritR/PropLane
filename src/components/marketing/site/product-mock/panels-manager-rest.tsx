@@ -42,7 +42,7 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
-import { CHANNEL_GLYPH } from "@/components/portal/listing-sites-panel";
+import { CHANNEL_GLYPH } from "@/lib/listing-channels/channel-glyphs";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { listingChannelsByGroup, type ListingChannelGroup } from "@/lib/listing-channels/registry";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";

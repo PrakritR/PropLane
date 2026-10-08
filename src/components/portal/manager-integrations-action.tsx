@@ -23,11 +23,14 @@ export function ManagerIntegrationsAction({
 }) {
   const navigate = usePortalNavigate();
   const href = managerIntegrationsHref(section, usePaidPortalBasePath());
-  const [demo, setDemo] = useState(false);
+  // `isDemoModeActive()` reads the browser, so it cannot be answered while the
+  // server renders: null until the check resolves, never an icon that appears
+  // and then disappears on a /demo page.
+  const [demo, setDemo] = useState<boolean | null>(null);
   useEffect(() => {
     queueMicrotask(() => setDemo(isDemoModeActive()));
   }, []);
-  if (demo) return null;
+  if (demo !== false) return null;
   return (
     <PortalIconAction
       icon={Plug}

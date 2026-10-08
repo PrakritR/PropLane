@@ -39,6 +39,7 @@ import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communica
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { leaseRecordFingerprint } from "@/lib/lease-document-mismatch";
+import { loadResidentAccountEmails } from "@/lib/manager-resident-account-emails";
 import {
   appendLeaseThreadMessage,
   confirmUploadedLeaseParseOnServer,
@@ -283,16 +284,11 @@ function LeaseSendSheetBody({
         setAccountEmails(new Set([residentEmail.toLowerCase()]));
         return;
       }
-      void fetch("/api/manager/resident-account-emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emails: [residentEmail.toLowerCase()] }),
-      })
-        .then(async (res) => {
-          const body = (await res.json().catch(() => ({}))) as { emails?: string[] };
-          if (!cancelled && res.ok) setAccountEmails(new Set((body.emails ?? []).map((e) => e.trim().toLowerCase())));
-        })
-        .catch(() => undefined);
+      // Forced: this screen asks BECAUSE the account may have just been created,
+      // and the force also drops the page's other cached answers.
+      void loadResidentAccountEmails([residentEmail.toLowerCase()], { force: true }).then((withAccount) => {
+        if (!cancelled && withAccount) setAccountEmails(new Set(withAccount));
+      });
     };
     check();
     // After an invite goes out the resident may create the account while this screen is open.

@@ -6,6 +6,7 @@ import {
   type AdminAccountKind,
   type AdminAccountProfile,
 } from "@/lib/admin/admin-accounts.server";
+import { CLOSED_DISPUTE_STATUSES_FILTER } from "@/lib/admin/admin-dispute-status";
 
 /**
  * Server-authoritative aggregates for the admin Dashboard. Every number is a
@@ -40,9 +41,9 @@ export type AdminOverview = {
   }[];
 };
 
-/** Stripe dispute statuses that need nobody any more. */
-const CLOSED_DISPUTE_STATUSES = ["won", "lost", "warning_closed", "charge_refunded"];
 const SMS_FAILED_STATUSES = ["failed", "undelivered"];
+/** Feedback that is no longer open; everything else (including a row with no status) is. */
+const CLOSED_FEEDBACK_STATUSES = ["completed", "in_progress"];
 const SMS_ATTEMPT_FAILED_STATES = ["provider_rejected", "pre_dispatch_failed"];
 
 async function countOrNull(run: () => PromiseLike<{ count: number | null; error: unknown }>): Promise<number | null> {
@@ -58,11 +59,19 @@ async function countOrNull(run: () => PromiseLike<{ count: number | null; error:
 export async function loadAdminOverview(db: SupabaseClient, now = new Date()): Promise<AdminOverview> {
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [managers, residents, vendors, feedbackRes, smsLog, smsAttempts, disputes] = await Promise.all([
+  const [managers, residents, vendors, feedbackTotal, feedbackClosed, smsLog, smsAttempts, disputes] = await Promise.all([
     loadAccountProfilesByKind(db, "manager"),
     loadAccountProfilesByKind(db, "resident"),
     loadAccountProfilesByKind(db, "vendor"),
-    db.from("portal_bug_feedback_records").select("id, status:row_data->>status").limit(5000),
+    // Counted in the database, not by fetching the rows: a row with no status
+    // at all is open, so open is the total less the closed ones.
+    countOrNull(() => db.from("portal_bug_feedback_records").select("id", { count: "exact", head: true })),
+    countOrNull(() =>
+      db
+        .from("portal_bug_feedback_records")
+        .select("id", { count: "exact", head: true })
+        .in("row_data->>status", CLOSED_FEEDBACK_STATUSES),
+    ),
     countOrNull(() =>
       db
         .from("sms_delivery_log")
@@ -78,22 +87,14 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
         .gte("started_at", since),
     ),
     countOrNull(() =>
-      db
-        .from("stripe_disputes")
-        .select("id", { count: "exact", head: true })
-        .not("status", "in", `(${CLOSED_DISPUTE_STATUSES.join(",")})`),
+      db.from("stripe_disputes").select("id", { count: "exact", head: true }).not("status", "in", CLOSED_DISPUTE_STATUSES_FILTER),
     ),
   ]);
 
   const active = (rows: AdminAccountProfile[]) => rows.filter((row) => row.active);
 
-  let openFeedback: number | null = null;
-  if (!feedbackRes.error) {
-    openFeedback = ((feedbackRes.data ?? []) as unknown as { status: string | null }[]).filter((row) => {
-      const status = String(row.status ?? "open").trim().toLowerCase();
-      return status !== "completed" && status !== "in_progress";
-    }).length;
-  }
+  const openFeedback =
+    feedbackTotal === null || feedbackClosed === null ? null : Math.max(0, feedbackTotal - feedbackClosed);
 
   const smsFailures24h = smsLog === null && smsAttempts === null ? null : (smsLog ?? 0) + (smsAttempts ?? 0);
 
