@@ -11,6 +11,22 @@ import {
   fulfillCommsCreditPoolPurchase,
   reverseCommsCreditPoolForPaymentIntent,
 } from "@/lib/comms-billing/pool.server";
+import {
+  NUMBER_CREDIT_PURPOSE,
+  NUMBER_SUBSCRIPTION_PURPOSE,
+} from "@/lib/number-subscription/constants";
+import {
+  fulfillNumberCreditPurchase,
+  NumberCreditValidationError,
+  reverseNumberCreditForPaymentIntent,
+} from "@/lib/number-subscription/credit.server";
+import {
+  fulfillNumberSubscriptionCheckout,
+  isNumberSubscription,
+  isNumberSubscriptionInvoice,
+  syncNumberSubscriptionEvent,
+  syncNumberSubscriptionFromInvoice,
+} from "@/lib/number-subscription/subscription.server";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
@@ -288,6 +304,8 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
       if (
         session.metadata?.purpose !== COMMS_CREDIT_PURPOSE &&
         session.metadata?.purpose !== COMMS_CREDIT_POOL_PURPOSE &&
+        session.metadata?.purpose !== NUMBER_SUBSCRIPTION_PURPOSE &&
+        session.metadata?.purpose !== NUMBER_CREDIT_PURPOSE &&
         !(session.mode === "setup" && session.metadata?.purpose === "manager_card_setup")
       ) {
         const owner = await checkoutOwner(db, session);
@@ -305,6 +323,20 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
             // acknowledge — without granting a cent of credit.
             if (!(e instanceof CommsCreditValidationError)) throw e;
             await recordCommsCreditPaymentReview(db, session, event.id, e.message);
+          }
+        });
+      } else if (session.metadata?.purpose === NUMBER_SUBSCRIPTION_PURPOSE) {
+        // PropLane Number: ownership comes from the row our checkout route wrote, never the metadata
+        // alone, and the subscription is re-read from Stripe. A throw returns 500 so Stripe redelivers.
+        await fulfillNumberSubscriptionCheckout(db, stripe, session);
+      } else if (session.metadata?.purpose === NUMBER_CREDIT_PURPOSE) {
+        await runCommsCreditStep("number credit fulfillment", async () => {
+          try {
+            await fulfillNumberCreditPurchase(db, session, event.id);
+          } catch (e) {
+            // A payment that cannot validate is acknowledged without granting a cent of credit.
+            if (!(e instanceof NumberCreditValidationError)) throw e;
+            console.error("[stripe webhook] number credit payment rejected", { session: session.id, reason: e.message });
           }
         });
       } else if (session.metadata?.purpose === COMMS_CREDIT_POOL_PURPOSE) {
@@ -473,7 +505,10 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
     if (event.type === "invoice.paid") {
       const inv = event.data.object as Stripe.Invoice;
       const subId = stripeInvoiceSubscriptionId(inv);
-      if (subId) {
+      // A PropLane Number renewal: the subscription events own its state, so the manager path is skipped.
+      if (subId && (await isNumberSubscriptionInvoice(db, inv))) {
+        await syncNumberSubscriptionFromInvoice(db, stripe, inv);
+      } else if (subId) {
         const { data: invoicePurchase, error: invoiceOwnerError } = await db
           .from("manager_purchases")
           .select("user_id")
@@ -509,6 +544,23 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
             throw new Error("SMS entitlement reconciliation failed after invoice payment.");
           }
         }
+      }
+    }
+
+    if (event.type === "invoice.payment_failed") {
+      const inv = event.data.object as Stripe.Invoice;
+      if (await isNumberSubscriptionInvoice(db, inv)) await syncNumberSubscriptionFromInvoice(db, stripe, inv);
+    }
+
+    if (
+      event.type === "customer.subscription.created" ||
+      event.type === "customer.subscription.updated" ||
+      event.type === "customer.subscription.deleted"
+    ) {
+      const numberSub = event.data.object as Stripe.Subscription;
+      if (await isNumberSubscription(db, numberSub)) {
+        await syncNumberSubscriptionEvent(db, stripe, numberSub);
+        return NextResponse.json({ received: true }, { status: 200 });
       }
     }
 
@@ -595,6 +647,10 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
         return reverseCommsCreditPoolForPaymentIntent(db, paymentIntentId, event.id, { loadCharge: async () => charge });
       });
+      await runCommsCreditStep("charge.refunded number credit", () => {
+        const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+        return reverseNumberCreditForPaymentIntent(db, paymentIntentId, event.id, { loadCharge: async () => charge });
+      });
       const refunds = charge.refunds?.data ?? [];
       for (const refund of refunds) {
         if (["pending", "succeeded", "failed", "canceled"].includes(refund.status ?? "")) {
@@ -627,6 +683,11 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
             );
             await runCommsCreditStep("refund event comms credit pool", () =>
               reverseCommsCreditPoolForPaymentIntent(db, paymentIntentId, event.id, {
+                loadCharge: () => stripe.charges.retrieve(chargeId),
+              }),
+            );
+            await runCommsCreditStep("refund event number credit", () =>
+              reverseNumberCreditForPaymentIntent(db, paymentIntentId, event.id, {
                 loadCharge: () => stripe.charges.retrieve(chargeId),
               }),
             );
@@ -671,6 +732,12 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         );
         await runCommsCreditStep("dispute event comms credit pool", () =>
           reverseCommsCreditPoolForPaymentIntent(db, disputedPaymentIntent, event.id, {
+            dispute: true,
+            loadCharge: () => stripe.charges.retrieve(disputedCharge),
+          }),
+        );
+        await runCommsCreditStep("dispute event number credit", () =>
+          reverseNumberCreditForPaymentIntent(db, disputedPaymentIntent, event.id, {
             dispute: true,
             loadCharge: () => stripe.charges.retrieve(disputedCharge),
           }),

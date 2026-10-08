@@ -44,6 +44,46 @@ see [financials.md](financials.md) § PropLane service fee). Two meters stay sep
 
 Details and the routing rules: [sms-system.md](sms-system.md) § Vendor work number.
 
+## PropLane Number (Oct 8): $5/month for a vendor or resident
+
+Accounts stay free. A vendor or resident who wants their own number subscribes to **PropLane
+Number**: $5.00/month (Stripe Price lookup key `proplane_number_monthly`, created lazily and
+idempotently like `ensureAddonPrice`, and refused if the existing Price is not exactly $5 USD monthly)
+for a work number, work email and **$3.00 of message credit every UTC calendar month**. More credit is
+bought in $5-$500 whole dollars and never expires. No auto-recharge; a saved card never authorizes a charge.
+`NUMBER_SUBSCRIPTION_ENABLED=1` turns checkout on (default off); webhook fulfilment and credit reads stay
+live regardless so money already taken is never stranded.
+
+This is a **separate ledger from the manager pool** (`src/lib/number-subscription/`,
+`20261008200000_number_subscriptions.sql`): the manager pool is keyed on workspaces, manager plan tiers
+and `manager_comms_usage_events`, none of which a vendor or resident has. The meter rates are the same
+`rates.ts` (text out 3¢/segment, in 2¢, AI turn 15¢).
+
+- **Tables** (RLS on, service-role writes only): `number_subscriptions` (one row per user; the owner may
+  SELECT their own row's non-secret columns, no Stripe id), `number_credit_accounts`,
+  `number_credit_usage_events`, `number_credit_purchases`, `number_credit_adjustments`. All classified in
+  `account-purge-manifest.ts`.
+- **Entitlement.** `numberSubscriptionActive(userId)` is exactly `active` (the only state that carries the
+  included $3). `numberServiceEntitled(userId)` is `active` or `past_due` (card retry grace) - gate features
+  on it; purchased credit is spendable only while entitled. `canceled`/`incomplete` spend nothing.
+- **Credit order.** Included credit first, then purchased. Included resets to $3.00 on the 1st 00:00 UTC
+  (applied lazily by the next reserve), never rolls over, and exists only while `active`.
+- **Reserve before work.** `reserveNumberCredit(ownerUserId, meter, quantity, idempotencyKey)` before any
+  provider or model call; `finishNumberCredit(..., {release:true})` on failure. Idempotent per key.
+  `allowUnfunded` is only for an unavoidable cost (a received text): the platform absorbs what the balance
+  cannot cover.
+- **Ownership is never client input.** The checkout route writes the owner id into the session and
+  subscription metadata and creates an `incomplete` `number_subscriptions` row first. The signed webhook
+  resolves ownership through that row (by subscription id, or metadata owner id + the row's Stripe
+  customer), then **re-reads the subscription from Stripe** and requires our price, our customer, quantity 1
+  and our owner id. Every write carries the time of that read; the database function drops an older write
+  (`stale`), a different customer (`customer_mismatch`) and a second live subscription
+  (`other_subscription`). Replays and reordered events therefore only ever write Stripe's current state.
+- **Number purchases** use purpose `number_communication_credit`; webhook fulfilment is exact-amount,
+  USD, undiscounted, owner-bound, once per purchase; refunds and disputes reverse once per provider event.
+- **Routes:** `GET /api/number-subscription` (own status + balance), `POST .../checkout`, `POST .../portal`,
+  `POST .../credit-checkout` - vendor or resident via `profile_roles` only, a View-as session is refused.
+
 ## Add-ons
 
 Past the bundle a paying account adds units from Settings → Billing & plan
