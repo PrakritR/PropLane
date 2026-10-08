@@ -269,7 +269,8 @@ See `docs/web-and-native-parity.md`.
 Admin list tabs use `PortalRecordListSurface` like every other portal.
 `tests/unit/admin-list-surface-adoption.test.ts` fails a tab that re-grows its
 own top-level `<table>`. Admin Settings is `PortalProfileClient variant="admin"`.
-Tables stay for detail views and the admin inbox record table.
+Tables stay for detail views. Admin Communication is the manager's
+`ManagerUnifiedInbox` over an admin data adapter - no table, no inbox of its own.
 
 # Listing images: never fabricate a photo
 

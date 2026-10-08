@@ -49,14 +49,14 @@ async function redirectTargetFor(tabParts?: string[]): Promise<string> {
 }
 
 describe("admin communication flat inbox tab paths", () => {
-  it("redirects /admin/communication/schedule to the canonical inbox route", async () => {
-    expect(await redirectTargetFor(["schedule"])).toBe("/admin/communication/inbox/schedule");
+  it("redirects /admin/communication/schedule to the Active list", async () => {
+    expect(await redirectTargetFor(["schedule"])).toBe("/admin/communication/active");
   });
 
-  it("redirects other flat inbox tabs to /admin/communication/inbox/{tab}", async () => {
-    expect(await redirectTargetFor(["unopened"])).toBe("/admin/communication/inbox/unopened");
-    expect(await redirectTargetFor(["sent"])).toBe("/admin/communication/inbox/sent");
-    expect(await redirectTargetFor(["trash"])).toBe("/admin/communication/inbox/trash");
+  it("redirects other flat folder paths to the segment they became", async () => {
+    expect(await redirectTargetFor(["unopened"])).toBe("/admin/communication/active");
+    expect(await redirectTargetFor(["sent"])).toBe("/admin/communication/active");
+    expect(await redirectTargetFor(["trash"])).toBe("/admin/communication/archived");
   });
 
   it("rejects nested paths under a flat tab segment", async () => {

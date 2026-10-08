@@ -2,8 +2,6 @@
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
 import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
-import { RecordActionContext } from "@/components/ui/record-action-context";
-import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
 import {
   Children,
@@ -282,11 +280,9 @@ export function PortalInboxMessageTable({
   expandedId,
   onToggleExpand,
   renderExtraActions,
-  rowActionMenus = false,
   primaryPartyHeader = "From",
   layout = "default",
   selection,
-  hideExpandedDetail = false,
 }: {
   rows: PortalInboxTableRow[];
   onMarkRead?: (id: string) => void;
@@ -298,22 +294,10 @@ export function PortalInboxMessageTable({
   onToggleExpand?: (id: string) => void;
   /** Trash / restore / delete — shown in the expanded row only (with Mark read, Reply, Hide). */
   renderExtraActions?: (row: PortalInboxTableRow) => ReactNode;
-  rowActionMenus?: boolean;
   primaryPartyHeader?: "From" | "To" | "Recipient" | "From / To";
   /** Schedule tab uses Recipient + Send date & time + Subject (no trailing When). */
   layout?: PortalInboxTableLayout;
   selection?: PortalInboxSelectionProps;
-  /**
-   * Additive (default `false`, every existing caller unchanged): skip
-   * rendering the inline conversation/reply block below an expanded row.
-   * `expandedId` / `onToggleExpand` still drive row selection, clickability,
-   * and the chevron state — for a caller (admin Communication, C022) that
-   * renders the open conversation in a separate `InboxThreadView` pane
-   * instead of inline, so the table is purely the list side of a two-pane
-   * layout. `getThreadMessages` / `onReply` / `renderExtraActions` become
-   * unused in that mode and may be omitted.
-   */
-  hideExpandedDetail?: boolean;
 }) {
   const { showToast } = useAppUi();
   const [replyDraftById, setReplyDraftById] = useState<Record<string, string>>({});
@@ -422,15 +406,6 @@ export function PortalInboxMessageTable({
     );
   };
 
-  const renderActionMenu = (row: PortalInboxTableRow) => rowActionMenus ? (
-    <RecordActionContext.Provider value={{ scope: row.id, clear: () => {}, actions: <>
-      {!row.read && onMarkRead ? <Button variant="outline" onClick={() => onMarkRead(row.id)}>Mark read</Button> : null}
-      {renderExtraActions?.(row)}
-    </> }}>
-      <RecordActionMenu label={row.subject} activate={() => {}} onOpen={onToggleExpand ? () => onToggleExpand(row.id) : undefined} />
-    </RecordActionContext.Provider>
-  ) : null;
-
   const mobileCards = (
     <>
       {rows.map((row) => {
@@ -479,7 +454,6 @@ export function PortalInboxMessageTable({
                   ) : null}
                 </div>
               </button>
-              {renderActionMenu(row)}
             </div>
             {!rowExpandable && (hasMarkRead || extra) ? (
               <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
@@ -491,7 +465,7 @@ export function PortalInboxMessageTable({
                 {extra}
               </div>
             ) : null}
-            {isExpanded && !hideExpandedDetail ? (
+            {isExpanded ? (
               <div className="mt-3 border-t border-border pt-3">{renderExpandedContent(row, detailText, extra)}</div>
             ) : null}
           </div>
@@ -567,11 +541,10 @@ export function PortalInboxMessageTable({
                     <td className={`${PORTAL_TABLE_TD} align-middle ${isScheduleLayout ? "font-medium text-foreground" : "text-muted"}`}>
                       <div className="flex items-center gap-2">
                         <span>{isScheduleLayout ? row.subject : row.whenLabel}</span>
-                        {renderActionMenu(row)}
                       </div>
                     </td>
                   </tr>
-                  {isExpanded && !hideExpandedDetail ? (
+                  {isExpanded ? (
                     <tr className={PORTAL_TABLE_DETAIL_ROW}>
                       <td colSpan={detailColSpan} className={`${PORTAL_TABLE_DETAIL_CELL} text-left`}>
                         {renderExpandedContent(row, detailText, extra)}

@@ -120,24 +120,36 @@ function looksLikeInboxMessage(row: unknown): row is InboxMessage {
 
 let syncedFromServer = false;
 
-/** Hydrate the in-memory admin inbox from the server (admin inbox is otherwise lost on every fresh page load). */
-export async function syncInboxMessagesFromServer(opts?: { force?: boolean; excludeIds?: Set<string> }): Promise<InboxMessage[]> {
-  if (!isBrowser()) return readAll();
-  if (isDemoModeActive()) return readAll();
-  if (syncedFromServer && !opts?.force) return readAll();
+/**
+ * Hydrate the in-memory admin inbox from the server (admin inbox is otherwise lost on every fresh
+ * page load), reporting whether the answer is real. `ok: false` is a failed read - the rows are
+ * whatever was already held - so a caller that gates a ready state on it can show a retry instead
+ * of an empty list that looks like "no mail".
+ */
+export async function syncInboxMessagesFromServerWithStatus(
+  opts?: { force?: boolean; excludeIds?: Set<string> },
+): Promise<{ rows: InboxMessage[]; ok: boolean }> {
+  if (!isBrowser()) return { rows: readAll(), ok: false };
+  if (isDemoModeActive()) return { rows: readAll(), ok: true };
+  if (syncedFromServer && !opts?.force) return { rows: readAll(), ok: true };
   try {
     const res = await fetch("/api/portal-inbox-threads?scope=admin", { credentials: "include", cache: "no-store" });
-    if (!res.ok) return readAll();
+    if (!res.ok) return { rows: readAll(), ok: false };
     const body = (await res.json()) as { rows?: unknown[] };
     const rows = (Array.isArray(body.rows) ? body.rows : []).filter(looksLikeInboxMessage);
     const existing = readAll();
     const merged = mergeAdminInboxWithLocalTrash(rows, existing, opts?.excludeIds);
     syncedFromServer = true;
     writeAllLocal(merged);
-    return merged;
+    return { rows: merged, ok: true };
   } catch {
-    return readAll();
+    return { rows: readAll(), ok: false };
   }
+}
+
+/** Hydrate the in-memory admin inbox from the server (admin inbox is otherwise lost on every fresh page load). */
+export async function syncInboxMessagesFromServer(opts?: { force?: boolean; excludeIds?: Set<string> }): Promise<InboxMessage[]> {
+  return (await syncInboxMessagesFromServerWithStatus(opts)).rows;
 }
 
 export function markInboxMessageRead(id: string): boolean {

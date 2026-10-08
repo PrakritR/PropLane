@@ -32,13 +32,17 @@ describe("scheduled message modal layout", () => {
     expect(inboxUi).toContain('dataAttr="inbox-scheduled-detail-modal"');
   });
 
-  it("uses the responsive modal for admin schedule creation and editing", () => {
-    const panel = portalSource("admin-inbox-schedule-panel.tsx");
-    const client = portalSource("admin-inbox-client.tsx");
+  it("keeps schedule-for-later in admin's New message and draws admin's scheduled sends inline in the thread", () => {
+    // The separate admin Schedule panel is gone: a scheduled send is a card in its conversation
+    // (the shared `InboxScheduledCard` pop-up edits and cancels it), and the compose still schedules.
+    const compose = portalSource("admin-compose-modal.tsx");
+    const thread = portalSource("admin-thread-pane.tsx");
 
-    expect(panel).toContain('data-attr="admin-schedule-message"');
-    expect(panel).toContain('title="Edit scheduled message"');
-    expect(client).toContain('title={initialSchedule ? "Schedule message" : "New message"}');
+    expect(compose).toContain('title={initialSchedule ? "Schedule message" : "New message"}');
+    expect(compose).toContain("Schedule for later");
+    expect(thread).toContain("useThreadScheduledCards");
+    expect(thread).toContain("underHeader={scheduledCards}");
+    expect(thread).toContain("InboxComposerScheduleMenu");
   });
 
   it("hides resident compose scheduling in the shared composer", () => {

@@ -77,6 +77,61 @@ intermittently "had no messages" depending on network timing.
 really is nothing" — the empty label only ever reflects the completed sync's
 own answer. See `tests/unit/record-communication-section.test.tsx`.
 
+## Admin Communication is the manager's inbox over an adapter
+
+`ManagerUnifiedInbox` takes a `CommunicationInboxAdapter`
+(`src/lib/communication/inbox-adapter.ts`, default `managerInboxAdapter`). The
+adapter is everything that differs between whose conversations these are:
+
+- the thread store (`storageKey`, `loadCachedThreads`, `syncThreads`,
+  `threadsChangedEvent`), what the list is built from (`buildListThreads`: the
+  manager collapses person rows and pins the PropLane Assistant, admin does
+  neither), and optional `emailMutations` for archive / restore / delete when the
+  rows do not live in the persisted inbox cache;
+- the text stream (`loadSmsConversations`, `invalidateSmsConversations`,
+  `smsDetailPath` - absent means no per-conversation read, so the inbox never asks
+  the manager route about an admin conversation - and `smsArchivable`);
+- the contact directory (`syncDirectory`, manager only), `directChat` (the
+  manager's folded email + text pane), `identityBoxes`, and `ThreadPane` when the
+  portal draws its own thread pane (admin).
+
+`managerInboxAdapter` (`communication-adapters/manager-inbox-adapter.tsx`) only
+wraps the calls the inbox always made; the manager page is unchanged by it.
+`createAdminInboxAdapter` (`communication-adapters/admin-inbox-adapter.tsx`) serves
+admin:
+
+- **Conversations** are the `scope: "admin"` rows (support@ mail, portal users
+  writing to PropLane, messages admin composed), mapped to `PersistedInboxThread` by
+  `adminInboxMessageToThread` so the list model and merge rules are shared. Id,
+  subject, folder, unread (an inbox row with `read === false`), the side that wrote
+  each turn (`ADMIN_REPLY_AUTHOR_LABEL`) and the stamps (`formatInboxStamp`, label and
+  sort key at once) survive the mapping; a trashed message keeps `trashedFrom` as
+  `previousFolder`, so Restore returns it to the folder it came from (archive survives).
+  Reading is `GET /api/portal-inbox-threads?scope=admin`
+  (`syncInboxMessagesFromServerWithStatus`, which reports a failed read so the list
+  shows Retry rather than an empty inbox).
+- **Text conversations** come from `GET /api/admin/sms-conversations` and merge into
+  the same list; the thread opens `ManagerSmsPanel` with
+  `endpoint="/api/admin/sms-conversations"`, `allowDelete={false}` and
+  `allowArchive={false}` - archive state is the manager's
+  (`/api/manager/tour-follow-ups`), admin oversight of the shared line has none, so
+  admin text rows have no row menu. `smsUiEnabled` off = the stream is not read.
+- **Identity boxes** are the support address (`PUBLIC_SUPPORT_EMAIL`, the mailbox
+  inbound mail is routed from - `docs/agents/inbound-email-inbox.md`) and, when the
+  text stream reported one, its number (`AdminWorkIdentityCard`). No "set up" prompt:
+  admin does not provision either.
+- **Replies** go to `POST /api/admin/inbox-reply` and are appended only after the
+  server accepted them (authorize, then append). A reply to a support thread is still
+  receive-only: it never reaches the sender. "Schedule for later" is offered only for a
+  portal user (manager / resident / vendor) with an address.
+- **Mutations** (`adminEmailMutations`) go through the admin store
+  (`moveInboxMessageToTrash` / `restoreInboxMessageFromTrash` /
+  `permanentlyDeleteInboxMessage`); the bulk hook takes them as `emailMutations`
+  and otherwise uses the storage-key based ones.
+
+A new Communication surface is an adapter, not a copy of the inbox. Both adapters
+are held to one contract in `tests/unit/communication-inbox-adapter-contract.test.tsx`.
+
 ## SMS notices while the SMS panel is hidden
 
 `upsertManagerInboxNotice` stores one thread per mailbox owner and normalized
@@ -138,21 +193,26 @@ Every portal's Communication (manager, resident, vendor, admin) is a single
 conversation list + threads, NOT the old Unopened / Opened / Sent / Trash /
 Schedule tab bar. Manager, resident, and vendor use the chat two-pane
 (`ManagerUnifiedInbox` / `ResidentUnifiedInbox` / `VendorUnifiedInbox`, each
-mounting its portal's inbox panel with `suppressListPane` for the thread side);
-admin alone keeps its flat table driven by an `"all"` tabId (all non-trash
-conversations) plus the archive toggle. Invariants:
+mounting its portal's inbox panel with `suppressListPane` for the thread side).
+**Admin is the manager's page over admin's data** (captain, 2026-10-08, plan
+admin-money-1008 D5): `AdminCommunication` mounts the same
+`ManagerUnifiedInbox`, handing it the admin adapter. There is no admin-only inbox
+component and no table exception (`admin-inbox-client.tsx` is gone). See
+"Admin Communication is the manager's inbox over an adapter" below. Invariants:
 
-- **Manager, resident AND vendor Communication have Active | Archived command
-  tabs** under the work number/email boxes (`inbox-list-segments`) — same Tours
+- **Manager, resident, vendor AND admin Communication have Active | Archived
+  command tabs** under the work number/email boxes (`inbox-list-segments`) — same Tours
   chrome: label + count badge + cobalt underline (`DestinationNav
   appearance="command"`). Unread stays in Filter (All conversations, Read,
   Unread) for the current tab — Filter does not list Archived on any of the
-  three (`CommunicationFilterSortFields`'/`CommunicationStatusFilterDraft`'s
+  four (`CommunicationFilterSortFields`'/`CommunicationStatusFilterDraft`'s
   `hideArchived`).
   `/communication/{active|unread|archived}[/{threadId}]` deep links remain on
-  every portal. `unread` is Active + unread filter. Admin still routes
-  `/communication/inbox/{tab}` and reaches archived through its
-  `admin-inbox-archived-toggle` button. Trash/restore live in the open thread —
+  every portal. `unread` is Active + unread filter (admin folds `unread` into
+  Active, as the manager route does). Admin's old `/communication/inbox/{tab}`
+  and flat `/communication/{unopened|opened|schedule|sent|trash}` paths redirect
+  to the segment they became (trash is Archived, every other folder is Active).
+  Trash/restore live in the open thread —
   never re-add a top-level Schedule/Trash tab. `INBOX_TAB_DEFS` and the standalone
   tabbed panels survive only for the /demo path and legacy route redirects — on
   those three portals every legacy `inbox` / `email` / `sms` path now folds into a
@@ -260,12 +320,17 @@ conversations) plus the archive toggle. Invariants:
   `onSaveEdit` MUST reject on failure (see `saveScheduledEdit` in
   `manager-inbox.tsx`) — the card keeps the editor open and shows the error
   instead of closing and discarding the manager's text.
-  **Admin is the one exception to "inline".** Its Communication is a flat table
-  with no chat pane, and a scheduled send to someone admin has never messaged has
-  no conversation row to sit in, so admin keeps a reachable Scheduled view behind
-  an `admin-inbox-scheduled-toggle` button beside the archive toggle. It is a
-  view toggle, not a folder tab; do not delete it while the admin compose modal
-  can still schedule — that leaves scheduled sends uncancellable.
+  **Admin is inline too.** The old Scheduled view (and its
+  `admin-inbox-scheduled-toggle` button) is gone. A pending send renders in the bar
+  of its recipient's conversation (`useThreadScheduledCards` over
+  `/api/portal/scheduled-inbox-messages`), and a send to someone admin has never
+  messaged is drawn as a conversation of its own (`adminScheduledStubThread`,
+  `src/lib/admin-inbox-threads.ts`) so it still has a thread to sit in and a
+  reachable Cancel. Admin passes `includeAutomation: false` - it has no payment
+  reminders and must not issue the manager-only `scheduled-messages` read. Keep the
+  admin compose's "Schedule for later" and recipient picker
+  (`admin-compose-modal.tsx`) working with it: a scheduled send must never become
+  uncancellable.
 - **`scheduled-message-path-id.ts` must NEVER use the `base64url` encoding
   token.** It runs client-side (building the scheduled-message action URL), and
   Next's browser Buffer polyfill throws "Unknown encoding: base64url" — that

@@ -701,40 +701,46 @@ export async function renderPortalSectionWith(
   }
 
   if (kind === "admin" && section === "communication") {
-    // The bare section IS the inbox. It used to redirect to
-    // `/communication/inbox/unopened`, which made the nav's own href a folder
-    // path for a panel that has no folders.
+    // The bare section IS the conversation list (Active). Admin Communication is the
+    // manager's page over admin's own conversations: Active | Archived tabs and an
+    // optional open conversation, `/communication/{active|archived}[/{threadId}]`.
     if (!tabParts?.length) {
       return <AdminCommunication smsUiEnabled={isSmsCommUiEnabled()} />;
     }
     const channel = tabParts[0]!;
+    // The old admin inbox had Unopened / Opened / Sent / Schedule / Trash folders. Those
+    // paths still resolve (bookmarks, notification links): trash is the Archived tab and
+    // every other folder is the one Active list.
+    const legacyFolders = ["unopened", "opened", "schedule", "sent", "trash"];
+    const legacyDestination = (folder: string) =>
+      `${def.basePath}/communication/${folder === "trash" ? "archived" : "active"}`;
     if (channel === "sms" || channel === "email") {
       const legacyTab = tabParts[1] ?? "unopened";
-      const mapped =
-        legacyTab === "all" || legacyTab === "unopened"
-          ? "unopened"
-          : legacyTab === "opened"
-            ? "opened"
-            : legacyTab === "sent"
-              ? "sent"
-              : legacyTab === "schedule"
-                ? "schedule"
-                : legacyTab === "trash"
-                  ? "trash"
-                  : null;
-      if (!mapped) notFound();
-      redirect(`${def.basePath}/communication/inbox/${mapped}`);
+      if (legacyTab !== "all" && !legacyFolders.includes(legacyTab)) notFound();
+      redirect(legacyDestination(legacyTab));
     }
     if (channel === "inbox") {
       const emailTab = tabParts[1] ?? "unopened";
-      if (!["unopened", "opened", "schedule", "sent", "trash"].includes(emailTab)) notFound();
+      if (!legacyFolders.includes(emailTab)) notFound();
       if (tabParts.length > 2) notFound();
-      return <AdminCommunication inboxTabId={emailTab as "unopened" | "opened" | "schedule" | "sent" | "trash"} smsUiEnabled={isSmsCommUiEnabled()} />;
+      redirect(legacyDestination(emailTab));
     }
-    const flatInboxTab = ["unopened", "opened", "schedule", "sent", "trash"] as const;
-    if ((flatInboxTab as readonly string[]).includes(channel)) {
+    if (legacyFolders.includes(channel)) {
       if (tabParts.length > 1) notFound();
-      redirect(`${def.basePath}/communication/inbox/${channel}`);
+      redirect(legacyDestination(channel));
+    }
+    if (channel === "unread") {
+      const threadPart = tabParts[1];
+      redirect(
+        `${def.basePath}/communication/active${threadPart ? `/${encodeURIComponent(threadPart)}` : ""}`,
+      );
+    }
+    if (channel === "active" || channel === "archived") {
+      if (tabParts.length > 2) notFound();
+      const threadId = tabParts[1] ? decodeURIComponent(tabParts[1]) : undefined;
+      return (
+        <AdminCommunication listSegment={channel} threadId={threadId} smsUiEnabled={isSmsCommUiEnabled()} />
+      );
     }
     notFound();
   }
